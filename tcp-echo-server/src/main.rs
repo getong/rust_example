@@ -17,14 +17,15 @@ fn handle_client(mut stream: TcpStream) -> Result<(), Error> {
 
 fn main() {
     let listener = TcpListener::bind("0.0.0.0:8888").expect("Could not bind");
+
     for stream in listener.incoming() {
         match stream {
             Err(e) => {
                 eprintln!("failed: {}", e)
             }
-            Ok(stream) => {
+            Ok(stream_elem) => {
                 thread::spawn(move || {
-                    handle_client(stream).unwrap_or_else(|error| eprintln!("{:?}", error));
+                    handle_client(stream_elem).unwrap_or_else(|error| eprintln!("{:?}", error));
                 });
             }
         }
