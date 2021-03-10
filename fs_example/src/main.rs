@@ -2,6 +2,7 @@ use std::fs;
 use std::fs::DirBuilder;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::os::unix::fs as fsunix;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -103,4 +104,12 @@ fn main() {
     f_path.set_extension("rs");
     // output: Path constructed is "/tmp/packt/rust/book.rs"
     println!("Path constructed is {:?}", f_path);
+
+    // Hard link stats.txt to statsa.txt
+    fs::hard_link("stats.txt", "./statsa.txt")?;
+
+    // symlink
+    fsunix::symlink("stats.txt", "sym_stats.txt").expect("Cannot create symbolic link");
+    let sym_path = fs::read_link("sym_stats.txt").expect("Cannot read link");
+    println!("Link is {:?}", sym_path);
 }
