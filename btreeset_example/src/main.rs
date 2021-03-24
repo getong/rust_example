@@ -17,4 +17,17 @@ fn main() {
     for entry in number_btreeset {
         print!("{} ", entry);
     }
+
+    let mut set = BTreeSet::new();
+    set.insert(42);
+    set.insert(1);
+    set.insert(3);
+    let first = set.iter().next();
+    assert_eq!(first, Some(&1));
+    let last = set.iter().last();
+    assert_eq!(last, Some(&42));
+    let last = set.iter().next_back();
+    assert_eq!(last, Some(&42));
+    let max = set.iter().max();
+    assert_eq!(max, Some(&42));
 }
