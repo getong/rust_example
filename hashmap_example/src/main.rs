@@ -5,6 +5,18 @@ struct City {
     population: HashMap<u32, u32>, // This will have the year and the population for the year
 }
 
+macro_rules! map(
+    { $($key:expr => $value:expr),+ } => {
+        {
+            let mut m = ::std::collections::HashMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+     };
+);
+
 fn main() {
     let mut tallinn = City {
         name: "Tallinn".to_string(),
@@ -78,4 +90,8 @@ fn main() {
     for (male_or_female, numbers) in survey_hash {
         println!("{:?}: {:?}", male_or_female, numbers);
     }
+
+    let names = map! { 1 => "one", 2 => "two" };
+    println!("{} -> {:?}", 1, names.get(&1));
+    println!("{} -> {:?}", 10, names.get(&10));
 }
