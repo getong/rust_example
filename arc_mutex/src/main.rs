@@ -19,4 +19,17 @@ fn main() {
     }
 
     println!("{:?}", vec);
+
+    let data = Arc::new(Mutex::new(0));
+    for _ in 0..15 {
+        let data = Arc::clone(&data);
+        thread::spawn(move || {
+            let mut data = data.lock().unwrap();
+            *data += 1;
+            if *data == 15 {
+                return;
+            }
+        });
+    }
+    println!("data: {}", data.lock().unwrap());
 }
