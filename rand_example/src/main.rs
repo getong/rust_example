@@ -1,5 +1,12 @@
+use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use rand::Rng;
+
+fn generate_float(generator: &mut ThreadRng) -> f64 {
+    let placeholder: f64 = generator.gen();
+    return placeholder * 10.0;
+}
 
 fn main() {
     println!("Hello, world!");
@@ -13,4 +20,9 @@ fn main() {
         let random_u16 = rand::random::<u16>();
         print!("{} ", random_u16);
     }
+    println!("");
+
+    let mut rng2: ThreadRng = thread_rng();
+    let random_number = generate_float(&mut rng2);
+    println!("{}", random_number);
 }
