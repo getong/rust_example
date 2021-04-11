@@ -35,12 +35,32 @@ fn main() {
     println!("{:?}", rust1);
     let rust2 = add_lang(&mut lang);
     println!("{:?}", rust2);
+
+    // len() and .chars().count()
+    println!("{}", "a".len()); // .len() gives the size in bytes
+    println!("{}", "ß".len());
+    println!("{}", "国".len());
+    println!("{}", "𓅱".len());
+
+    let slice = "Hello!";
+    println!(
+        "Slice is {} bytes and also {} characters.",
+        slice.len(),
+        slice.chars().count()
+    );
+    let slice2 = "안녕!";
+    println!(
+        "Slice2 is {} bytes but only {} characters.",
+        slice2.len(),
+        slice2.chars().count()
+    );
 }
 
 fn add_version(s: &mut String) -> String {
     s.push_str(" 2019!!");
     s.to_string()
 }
+
 fn add_lang(s: &mut String) -> String {
     s.push_str(" lang.");
     s.to_string()
