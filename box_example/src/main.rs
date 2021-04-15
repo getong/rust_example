@@ -26,4 +26,13 @@ fn main() {
         next: None,
     };
     println!("node : {:?}", node);
+    println!();
+
+    // 将本应存在栈上的地址，存在了堆上
+    let mut num = Box::new(1);
+    // num_address 指向 box 里面的具体内容（也就是储存在堆上的数值 1）
+    let num_address: *mut i32 = &mut *num;
+    unsafe { *num_address = 100 }
+    // Output: 200
+    println!("{}", *num + 100)
 }
