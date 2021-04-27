@@ -1,5 +1,5 @@
 [package]
-name = "combinator_map_map_err_example"
+name = "combinator_map_example"
 version = "0.1.0"
 edition = "2018"
 
