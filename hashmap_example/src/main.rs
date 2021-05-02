@@ -94,4 +94,22 @@ fn main() {
     let names = map! { 1 => "one", 2 => "two" };
     println!("{} -> {:?}", 1, names.get(&1));
     println!("{} -> {:?}", 10, names.get(&10));
+
+    let mut map: HashMap<&str, i32> = HashMap::new();
+    map.insert("zhangsan", 97);
+    map.insert("lisi", 86);
+    map.insert("wangwu", 55);
+    println!("{:?}", map);
+
+    for (_, val) in map.iter_mut() {
+        *val += 2;
+    }
+
+    println!("{:?}", map);
+
+    let result = map.remove("wangwu");
+    println!("{:?}", map);
+    println!("{:?}", result);
+
+    println!("zhangsan: {}", map["zhangsan"]);
 }
