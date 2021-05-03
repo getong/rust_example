@@ -25,4 +25,13 @@ fn main() {
     assert_eq!(my_vec_iter.next(), Some(&'柳')); // Again
     assert_eq!(my_vec_iter.next(), None); // Nothing is left: just None
     assert_eq!(my_vec_iter.next(), None); // You can keep calling .next() but it will always be None
+
+    let v = [1, 2, 3, 4];
+    let total: i32 = v.iter().sum();
+    println!("total: {}", total);
+
+    let result1 = v.iter().any(|&x| x == 2);
+    let result2 = v.iter().any(|x| *x == 2);
+
+    println!("result1 : {}, result2 : {}", result1, result2);
 }
