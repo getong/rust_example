@@ -7,6 +7,31 @@ fn main() {
         eprintln!("{}", i);
     }
 
+    for i in &v {
+        println!("i:{}", i);
+    }
+
+    let mut mut_v1 = vec![1, 2, 3, 4, 5];
+    for i in &mut mut_v1 {
+        *i *= 2;
+    }
+    println!("mut_v1: {:?}", mut_v1);
+
+    let mut mut_v2 = vec![1, 2, 3, 4, 5];
+    for i in mut_v2.iter_mut() {
+        *i *= 2;
+    }
+    println!("mut_v2: {:?}", mut_v2);
+
+    // does not need mut befor `mut_v3`
+    let mut_v3 = vec![1, 2, 3, 4, 5];
+    for mut i in mut_v3.into_iter() {
+        i *= 2;
+        println!("i: {}", i);
+    }
+    // can not use mut_v3 here
+    // println!("mut_v3: {:?}", mut_v3);
+
     // filter
     for num in (0..=100).filter(|x| x % 3 == 0) {
         eprint!("{} ", num);
