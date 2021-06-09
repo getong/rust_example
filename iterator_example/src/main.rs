@@ -35,6 +35,7 @@ fn main() {
     println!("total: {}", total);
 
     let result1 = v.iter().any(|&x| x == 2);
+    // let result1 = v.iter().any(|x| *x == 2);
     let result2 = v.iter().any(|x| *x == 2);
 
     println!("result1 : {}, result2 : {}", result1, result2);
