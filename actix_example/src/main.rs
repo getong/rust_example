@@ -39,7 +39,7 @@ impl Handler<Ping> for Game {
 }
 
 fn main() {
-    let mut system = System::new("test");
+    let system = System::new();
 
     // To get a Recipient object, we need to use a different builder method
     // which will allow postponing actor creation
