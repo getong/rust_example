@@ -8,6 +8,7 @@ async fn main() -> io::Result<()> {
 
     // read the whole file
     f.read_to_end(&mut buffer).await?;
-    println!("buffer : {:?}", buffer);
+    println!("buffer : {:?}", &buffer);
+    println!("buffer : {:?}", String::from_utf8_lossy(&buffer));
     Ok(())
 }
