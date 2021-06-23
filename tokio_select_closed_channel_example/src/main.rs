@@ -20,6 +20,7 @@ async fn main() {
             _ = tx1.closed() => {
                 // `some_operation()` is canceled, the
                 // task completes and `tx1` is dropped.
+                println!("closed tx1");
             }
         }
     });
