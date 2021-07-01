@@ -30,4 +30,11 @@ fn main() {
     assert_eq!(last, Some(&42));
     let max = set.iter().max();
     assert_eq!(max, Some(&42));
+
+    let set: BTreeSet<usize> = [1, 2, 3, 4].iter().cloned().collect();
+
+    let v: Vec<_> = set.into_iter().collect();
+    assert_eq!(v, &[1, 2, 3, 4]);
+    // set can be no more used here
+    // println!("set : {:?}", set);
 }
