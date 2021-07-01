@@ -17,6 +17,7 @@ fn main() {
     for entry in number_btreeset {
         print!("{} ", entry);
     }
+    println!();
 
     let mut set = BTreeSet::new();
     set.insert(42);
@@ -32,9 +33,14 @@ fn main() {
     assert_eq!(max, Some(&42));
 
     let set: BTreeSet<usize> = [1, 2, 3, 4].iter().cloned().collect();
-
     let v: Vec<_> = set.into_iter().collect();
     assert_eq!(v, &[1, 2, 3, 4]);
     // set can be no more used here
     // println!("set : {:?}", set);
+
+    let set2: BTreeSet<usize> = [1, 2, 3, 4].iter().cloned().collect();
+    let v: Vec<_> = (&set2).into_iter().cloned().collect();
+    assert_eq!(v, &[1, 2, 3, 4]);
+    // set2 can be used here
+    println!("set2 : {:?}", set2);
 }
