@@ -18,4 +18,14 @@ fn main() {
     }) {
         println!("tuple: {:?}", tuple);
     }
+
+    println!();
+
+    let arr = [
+        10u32, 14, 5, 76, 84, 35, 23, 94, 100, 143, 23, 200, 12, 94, 72,
+    ];
+    println!("arr: {:?}", arr);
+    for tuple in arr.iter().tuples::<(_, _, _)>() {
+        println!("three elements tuple {:?}", tuple);
+    }
 }
