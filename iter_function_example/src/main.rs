@@ -60,6 +60,21 @@ fn fold() {
     println!("fold sum: {}", sum);
 }
 
+fn zip() {
+    let arr1 = [
+        10u32, 14, 5, 76, 84, 35, 23, 94, 100, 143, 23, 200, 12, 94, 72,
+    ];
+    let arr2 = [
+        25u32, 12, 73, 2, 98, 122, 213, 22, 39, 300, 144, 163, 127, 3, 56,
+    ];
+    let collection: Vec<_> = arr1
+        .iter()
+        .zip(arr2.iter())
+        .map(|(elm1, elm2)| elm1 + elm2)
+        .collect();
+    println!("zip collection: {:?}", collection);
+}
+
 fn main() {
     // println!("Hello, world!");
     assert_eq!(
@@ -85,4 +100,7 @@ fn main() {
 
     println!();
     fold();
+
+    println!();
+    zip();
 }
