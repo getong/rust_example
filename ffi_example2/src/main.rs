@@ -15,6 +15,12 @@ fn main() {
 
     println!("\n\nfrom ffi\n\n");
 
+    // like the c code
+    // extern char **environ;
+    // char **p;
+    // for (p = environ; *p; p++) {
+    // printf ("%s\n", *p);
+    // }
     let mut next = unsafe { libc_environ };
     while !next.is_null() && !unsafe { *next }.is_null() {
         let env = unsafe { std::ffi::CStr::from_ptr(*next) }
