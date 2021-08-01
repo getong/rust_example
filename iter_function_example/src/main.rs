@@ -75,6 +75,16 @@ fn zip() {
     println!("zip collection: {:?}", collection);
 }
 
+fn for_each() {
+    let num_vec = vec![10, 9, 8];
+
+    num_vec
+        .iter() // iter over num_vec
+        .enumerate() // get (index, number)
+        .for_each(|(index, number)| println!("Index number {} has number {}", index, number));
+    //do something for each one
+}
+
 fn main() {
     // println!("Hello, world!");
     assert_eq!(
@@ -103,4 +113,7 @@ fn main() {
 
     println!();
     zip();
+
+    println!();
+    for_each();
 }
