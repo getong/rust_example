@@ -34,6 +34,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     packet_sender.send(unreliable_sequenced).unwrap();
     packet_sender.send(reliable_sequenced).unwrap();
     packet_sender.send(reliable_ordered).unwrap();
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(Duration::from_millis(5));
     Ok(())
 }
