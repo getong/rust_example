@@ -12,21 +12,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _thread = thread::spawn(move || socket.start_polling());
 
     // Bytes to sent
-    let bytes1 = b"hello world!".to_vec();
-    let bytes2 = bytes1.clone();
-    let bytes3 = bytes1.clone();
-    let bytes4 = bytes1.clone();
-    let bytes5 = bytes1.clone();
+    let bytes = b"hello world!".to_vec();
     let destination = "127.0.0.1:12346".parse()?;
 
     // Creates packets with different reliabilities
-    let unreliable = Packet::unreliable(destination, bytes1);
-    let reliable = Packet::reliable_unordered(destination, bytes2);
+    let unreliable = Packet::unreliable(destination, bytes.clone());
+    let reliable = Packet::reliable_unordered(destination, bytes.clone());
 
     // Specifies on which stream and how to order our packets, check out our book and documentation for more information
-    let unreliable_sequenced = Packet::unreliable_sequenced(destination, bytes3, Some(1));
-    let reliable_sequenced = Packet::reliable_sequenced(destination, bytes4, Some(2));
-    let reliable_ordered = Packet::reliable_ordered(destination, bytes5, Some(3));
+    let unreliable_sequenced = Packet::unreliable_sequenced(destination, bytes.clone(), Some(1));
+    let reliable_sequenced = Packet::reliable_sequenced(destination, bytes.clone(), Some(2));
+    let reliable_ordered = Packet::reliable_ordered(destination, bytes, Some(3));
 
     // Sends the created packets
     packet_sender.send(unreliable).unwrap();
