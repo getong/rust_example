@@ -19,7 +19,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 match socket_event {
                     SocketEvent::Packet(packet) => {
                         let received_data: &[u8] = packet.payload();
-                        println!("received_data : {:?}", received_data);
+                        println!(
+                            "received_data raw bytes : {:?}, try to convert into string: {:?}",
+                            received_data,
+                            String::from_utf8_lossy(received_data)
+                        );
                     }
                     SocketEvent::Connect(connect_event) => {
                         println!("connect_event:{:?}", connect_event);
