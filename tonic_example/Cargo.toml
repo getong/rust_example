@@ -1,0 +1,23 @@
+[package]
+name = "tonic_example"
+version = "0.1.0"
+edition = "2018"
+[[bin]]
+# 用来运行 HelloWorld gRPC 服务器的可执行文件
+name = "helloworld-server"
+path = "src/server.rs"
+
+[[bin]]
+ # 用来运行 HelloWorld gRPC 客户端的可执行文件
+name = "helloworld-client"
+path = "src/client.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+prost = "0.8.0"
+tokio = {version = "1.10.0", features = ["full"]}
+tonic = "0.5.2"
+
+[build-dependencies]
+tonic-build = "0.5.2"
