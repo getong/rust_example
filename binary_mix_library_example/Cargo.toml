@@ -1,0 +1,16 @@
+[package]
+name = "binary_mix_library_example"
+version = "0.1.0"
+edition = "2018"
+
+[[bin]]
+name = "binary_mix_library_example"
+path = "src/main.rs"
+
+[lib]
+name = "binary_mix_library_example"
+path = "src/lib.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
