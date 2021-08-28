@@ -1,0 +1,7 @@
+version: v1alpha1
+proxy:
+  id: my-proxy # An identifier for the proxy instance.
+  port: 6666 # the port to receive traffic to locally
+static: # Provide static configuration of endpoints
+  endpoints: # array of potential endpoints to send on traffic to
+    - address: 127.0.0.1:8888
