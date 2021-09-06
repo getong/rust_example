@@ -1,0 +1,17 @@
+[package]
+name = "tokio_main_macro_example"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "macro_main"
+path = "src/macro_main.rs"
+
+[[bin]]
+name = "normal_main"
+path = "src/normal_main.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.11.0", features = ["full"] }
