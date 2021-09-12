@@ -1,4 +1,6 @@
+use bytes::Buf;
 use bytes::{BufMut, BytesMut};
+use std::io::Cursor;
 
 fn main() {
     // println!("Hello, world!");
@@ -18,4 +20,16 @@ fn main() {
 
     assert_eq!(&a[..], b"hello");
     assert_eq!(&b[..], b"hello");
+
+    has_remaining_example();
+}
+
+fn has_remaining_example() {
+    let mut buf = Cursor::new(b"a");
+
+    assert!(buf.has_remaining());
+
+    buf.get_u8();
+
+    assert!(!buf.has_remaining());
 }
