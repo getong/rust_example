@@ -10,4 +10,19 @@ fn main() {
     // num = 305419896
     //println!("num = {}", num);
     assert_eq!(305419896, num);
+
+    another_example();
+}
+
+fn another_example() {
+    let a: f32 = 42.42;
+    let frankentype: u32 = unsafe { std::mem::transmute(a) };
+
+    println!("frankentype is {}", frankentype);
+    println!("{:032b}", frankentype);
+
+    let b: f32 = unsafe { std::mem::transmute(frankentype) };
+
+    println!("b is {}", b);
+    assert_eq!(a, b);
 }
