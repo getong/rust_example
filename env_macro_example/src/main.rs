@@ -12,6 +12,6 @@ fn main() {
 
     println!(
         "the const $PATH variable at the time of compiling was: {}",
-        &*PATH
+        PATH
     );
 }
