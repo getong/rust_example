@@ -1,5 +1,5 @@
 [package]
-name = "move_zeroes_example"
+name = "leetcode_move_zeroes_example"
 version = "0.1.0"
 edition = "2021"
 
