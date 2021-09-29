@@ -1,5 +1,5 @@
 [package]
-name = "plus_one_example"
+name = "leetcode_plus_one_example"
 version = "0.1.0"
 edition = "2021"
 
