@@ -74,4 +74,8 @@ fn main() {
     let mut vec2 = vec![1, 2, 3, 4, 5, 6, 7];
     build_heap_down_up(&mut vec2);
     println!("vec2:{:?}", vec2);
+
+    let mut vec3 = vec![1, 2, 3, 4, 5, 6, 7];
+    build_heap_up_down(&mut vec3);
+    println!("vec3:{:?}", vec3);
 }
