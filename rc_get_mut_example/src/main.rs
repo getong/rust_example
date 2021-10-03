@@ -14,4 +14,11 @@ fn main() {
     // can not call  get_mut() method again
     // *Rc::get_mut(&mut x).unwrap() = 5;
     // assert_eq!(*x, 5);
+
+    let name = Rc::new(String::from("main"));
+    let ext = Rc::new(String::from("rs"));
+
+    for _ in 0..3 {
+        println!("name: {:?}, ext: {:?}", name.clone(), ext.clone());
+    }
 }
