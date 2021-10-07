@@ -39,4 +39,13 @@ fn main() {
     println!("val: {}", std::mem::size_of_val(&val));
     println!("pos_ref: {}", std::mem::size_of_val(&pos_ref));
     println!("pos_ptr: {}", std::mem::size_of_val(&pos_ptr));
+    memory_size();
+}
+
+fn memory_size() {
+    assert_eq!(std::mem::size_of::<*mut u8>(), 8); // 8B，裸指针
+    assert_eq!(std::mem::size_of::<*mut [u8]>(), 16); // 16B，胖指针，还有8B的⻓度
+    assert_eq!(std::mem::size_of::<*mut [u8; 4]>(), 8); // 8B，裸指针（⻓度就是4）
+    assert_eq!(std::mem::size_of::<*mut str>(), 16); // 16B，胖指针，额外8B的⻓度
+                                                     // assert_eq!(std::mem::size_of::<*mut dyn Drop>(), 16); // 16B，胖指针，额外8B的vtable指针
 }
