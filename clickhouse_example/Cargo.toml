@@ -1,0 +1,12 @@
+[package]
+name = "clickhouse_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clickhouse = "0.8.1"
+serde = "1.0.130"
+serde_derive = "1.0.130"
+tokio = { version = "1.12.0", features = ["full"] }
