@@ -18,17 +18,32 @@ impl<'a> System<'a> for SimulationSystem {
 }
 
 fn main() {
+    //    let mut world = World::new();
+    //    world.insert(Gravity);
+    //    world.register::<Velocity>();
+    //
+    //    for _ in 0..5 {
+    //        world.create_entity().with(Velocity).build();
+    //    }
+    //
+    //    let mut dispatcher = DispatcherBuilder::new()
+    //        .with(SimulationSystem, "simulation", &[])
+    //        .build();
+    //
+    //    dispatcher.dispatch(&mut world);
+    //    world.maintain();
+
+    // The code below is equal as the above
     let mut world = World::new();
-    world.insert(Gravity);
-    world.register::<Velocity>();
+    let mut dispatcher = DispatcherBuilder::new()
+        .with(SimulationSystem, "simulation", &[])
+        .build();
+
+    dispatcher.setup(&mut world);
 
     for _ in 0..5 {
         world.create_entity().with(Velocity).build();
     }
-
-    let mut dispatcher = DispatcherBuilder::new()
-        .with(SimulationSystem, "simulation", &[])
-        .build();
 
     dispatcher.dispatch(&mut world);
     world.maintain();
