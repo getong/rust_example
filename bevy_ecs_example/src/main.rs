@@ -1,10 +1,7 @@
-use bevy::app::App;
-
 use bevy::ecs::query::With;
 use bevy::ecs::system::Commands;
 use bevy::ecs::system::Query;
-use bevy::prelude::IntoSystem;
-//use bevy::transform::components::Transform;
+use bevy::prelude::*;
 
 //struct Position {
 //    x: f32,
