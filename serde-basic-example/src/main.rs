@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate serde;
+use serde::{Deserialize, Serialize};
 
 // We will serialize and deserialize instances of
 // this struct
