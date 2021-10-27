@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate serde;
+use serde::{Deserialize, Serialize};
 
 use std::io::{stdin, BufRead, BufReader, Error, Write};
 use std::net::{TcpListener, TcpStream};
