@@ -1,7 +1,3 @@
-extern crate serde;
-extern crate serde_json;
-extern crate serde_test;
-
 use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
@@ -36,7 +32,7 @@ impl<'de> Deserialize<'de> for KubeConfig {
             Port,
             HealthzPort,
             MaxPods,
-        };
+        }
 
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
