@@ -2,7 +2,7 @@ use deadpool_redis::{redis::cmd, Config, Pool, Runtime};
 use once_cell::sync;
 
 static GLOBAL_REDIS_POOL: sync::Lazy<Pool> = sync::Lazy::new(|| {
-    let cfg = Config::from_url("redis://bert:abc123@127.0.0.1/");
+    let cfg = Config::from_url("redis://bert:abc123@127.0.0.1:6379/");
     cfg.create_pool(Some(Runtime::Tokio1)).unwrap()
 });
 
