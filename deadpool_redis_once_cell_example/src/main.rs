@@ -1,8 +1,6 @@
 use arc_swap::ArcSwap;
 use deadpool_redis::{redis::cmd, Config, Pool, Runtime};
-//use once_cell::sync;
 use once_cell::sync::OnceCell;
-//use std::sync::Arc;
 
 // can not write like this, because pool is captured here
 // static GLOBAL_REDIS_POOL_STRING: sync::Lazy<ArcSwap<Option<Pool>>> = {
@@ -46,11 +44,13 @@ async fn main() {
             Some(connection_info) => match &**connection_info.load() {
                 Some(conn) => match conn.get().await {
                     Ok(mut conn) => {
-                        cmd("SET")
-                            .arg(&["deadpool/test_key", "52"])
+                        if let Ok(_) = cmd("SET")
+                            .arg(&["deadpool/test_key", "62"])
                             .query_async::<_, ()>(&mut conn)
                             .await
-                            .unwrap();
+                        {
+                            println!("set ok");
+                        }
 
                         let value: String = cmd("GET")
                             .arg(&["deadpool/test_key"])
@@ -64,21 +64,26 @@ async fn main() {
                     //  pool 不能获取连接，重新初始化连接过去redis-server
                     _ => {
                         println!("pool no child, i:{}", i);
-                        let _ = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None));
-                        initial_database().await;
+                        if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
+                            initial_database().await;
+                        } else {
+                            println!("not avaliable set ");
+                        }
                     }
                 },
 
                 _ => {
                     println!("pool not init, i:{}", i);
-                    let _ = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None));
-                    initial_database().await;
+                    if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
+                        initial_database().await;
+                    }
                 }
             },
             _ => {
                 println!("pool not init, i : {}", i);
-                let _ = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None));
-                initial_database().await;
+                if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
+                    initial_database().await;
+                }
             }
         }
     }
