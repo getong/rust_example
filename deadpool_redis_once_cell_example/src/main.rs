@@ -39,11 +39,6 @@ async fn reconnect_database(i: usize) {
     }
 }
 
-//static GLOBAL_REDIS_POOL: sync::Lazy<Pool> = sync::Lazy::new(|| {
-//    let cfg = Config::from_url("redis://bert:abc123@127.0.0.1:6379/");
-//    cfg.create_pool(Some(Runtime::Tokio1)).unwrap()
-//});
-
 #[tokio::main]
 async fn main() {
     initial_database().await;
