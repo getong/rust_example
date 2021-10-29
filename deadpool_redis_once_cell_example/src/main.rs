@@ -54,7 +54,7 @@ async fn main() {
                                 .arg(&["deadpool/test_key"])
                                 .query_async(&mut conn)
                                 .await
-                                .unwrap();
+                                .unwrap_or("52".to_string());
 
                             assert_eq!(value, "52".to_string());
                         } else {
