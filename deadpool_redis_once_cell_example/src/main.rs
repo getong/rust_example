@@ -31,6 +31,14 @@ pub async fn initial_database() {
     }
 }
 
+async fn reconnect_database(i: usize) {
+    if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
+        initial_database().await;
+    } else {
+        println!("not avaliable set , i is {}", i);
+    }
+}
+
 //static GLOBAL_REDIS_POOL: sync::Lazy<Pool> = sync::Lazy::new(|| {
 //    let cfg = Config::from_url("redis://bert:abc123@127.0.0.1:6379/");
 //    cfg.create_pool(Some(Runtime::Tokio1)).unwrap()
@@ -49,46 +57,33 @@ async fn main() {
                             .query_async::<_, ()>(&mut conn)
                             .await
                         {
-                            println!("set ok");
+                            // println!("set ok");
                             let value: String = cmd("GET")
                                 .arg(&["deadpool/test_key"])
                                 .query_async(&mut conn)
                                 .await
-                                .unwrap_or("52".to_string());
+                                .unwrap_or("62".to_string());
 
-                            assert_eq!(value, "52".to_string());
+                            assert_eq!(value, "62".to_string());
                         } else {
-                            if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
-                                initial_database().await;
-                            } else {
-                                println!("not avaliable set ");
-                            }
+                            reconnect_database(i).await;
                         }
                     }
 
                     //  pool 不能获取连接，重新初始化连接过去redis-server
                     _ => {
                         println!("pool no child, i:{}", i);
-                        if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
-                            initial_database().await;
-                        } else {
-                            println!("not avaliable set ");
-                        }
+                        reconnect_database(i).await;
                     }
                 },
 
                 _ => {
                     println!("pool not init, i:{}", i);
-                    if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
-                        initial_database().await;
-                    }
+                    reconnect_database(i).await;
                 }
             },
             _ => {
-                println!("pool not init, i : {}", i);
-                if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
-                    initial_database().await;
-                }
+                reconnect_database(i).await;
             }
         }
     }
