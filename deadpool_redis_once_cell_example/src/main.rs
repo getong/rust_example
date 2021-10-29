@@ -50,15 +50,20 @@ async fn main() {
                             .await
                         {
                             println!("set ok");
+                            let value: String = cmd("GET")
+                                .arg(&["deadpool/test_key"])
+                                .query_async(&mut conn)
+                                .await
+                                .unwrap();
+
+                            assert_eq!(value, "52".to_string());
+                        } else {
+                            if let Ok(_) = GLOBAL_REDIS_POOL.set(ArcSwap::from_pointee(None)) {
+                                initial_database().await;
+                            } else {
+                                println!("not avaliable set ");
+                            }
                         }
-
-                        let value: String = cmd("GET")
-                            .arg(&["deadpool/test_key"])
-                            .query_async(&mut conn)
-                            .await
-                            .unwrap();
-
-                        assert_eq!(value, "52".to_string());
                     }
 
                     //  pool 不能获取连接，重新初始化连接过去redis-server
