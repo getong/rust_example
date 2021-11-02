@@ -11,3 +11,7 @@ deadpool-redis = { version = "0.10.0", features = ["serde","rt_tokio_1"] }
 once_cell = "1.8.0"
 parking_lot = { version = "0.11.2", features = ["nightly"] }
 tokio = { version = "1.12.0", features = ["full"] }
+
+[dependencies.redis]
+version = "0.21.3"
+features = ["default", "cluster", "tokio-comp", "connection-manager"]
