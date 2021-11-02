@@ -11,3 +11,4 @@ Cargo.lock
 **/target/
 **/Cargo.lock
 **/dist/
+**/dump.rdb
