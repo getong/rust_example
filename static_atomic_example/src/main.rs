@@ -13,6 +13,7 @@ pub fn set_log_level(level: u8) {
 fn change_variable_one() {
     println!("one before set level is {}", get_log_level());
     std::thread::spawn(|| set_log_level(1));
+    // std::thread::sleep(std::time::Duration::from_secs(1));
     println!("one after set level is {}", get_log_level());
 }
 
