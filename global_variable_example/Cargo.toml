@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+        "lazy_static_mutex_example",
+        "once_cell_lazy_mutex_example",
+        "once_cell_mutex_example",
+        "static_atomic_example",
+        "static_std_once_mutex_unsafe_example",
+]
