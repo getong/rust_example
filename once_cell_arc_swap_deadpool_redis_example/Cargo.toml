@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+        "once_cell_lazy_arc_swap_deadpool_redis_example",
+        "once_cell_arc_swap_deadpool_redis_example2",
+]
