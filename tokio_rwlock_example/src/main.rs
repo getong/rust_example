@@ -18,4 +18,9 @@ async fn main() {
         *w += 1;
         assert_eq!(*w, 6);
     } // write lock is dropped here
+
+    let number = lock.into_inner();
+    assert_eq!(number, 6);
+    // let r1 = lock.read().await;
+    // assert_eq!(*r1, 6);
 }
