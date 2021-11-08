@@ -1,16 +1,22 @@
 use std::sync::Arc;
+use tokio::runtime::Runtime;
 use tokio::sync::Notify;
 
-#[tokio::main]
-async fn main() {
-    let notify = Arc::new(Notify::new());
-    let notify2 = notify.clone();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create the runtime
+    let rt = Runtime::new()?;
 
-    tokio::spawn(async move {
-        notify2.notified().await;
-        println!("received notification");
-    });
+    // Spawn the root task
+    Ok(rt.block_on(async {
+        let notify = Arc::new(Notify::new());
+        let notify2 = notify.clone();
 
-    println!("sending notification");
-    notify.notify_one();
+        tokio::spawn(async move {
+            notify2.notified().await;
+            println!("received notification");
+        });
+
+        println!("sending notification");
+        notify.notify_one();
+    }))
 }
