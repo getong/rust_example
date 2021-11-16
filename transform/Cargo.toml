@@ -1,0 +1,11 @@
+[package]
+name = "transform"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hex = "0.4.3"
+pad = "0.1.6"
+recrypt = "0.12.0"
