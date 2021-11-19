@@ -10,4 +10,5 @@ crate-type = ["dylib"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustler = "0.22.2"
+lazy_static = "1.4.0"
+rustler = { git = "https://github.com/rusterlium/rustler", rev = "e6cfd2ab42ae567fac3cdb1d3a4b84de01a3531c" }
