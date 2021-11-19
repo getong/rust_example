@@ -1,0 +1,13 @@
+[package]
+name = "rustler_example"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rustler_example"
+crate-type = ["dylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rustler = "0.22.2"
