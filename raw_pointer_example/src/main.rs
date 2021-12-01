@@ -32,4 +32,10 @@ fn main() {
         *ptr_x += *ptr_y;
     }
     assert_eq!(x, 30);
+
+    let raw_p: *const u32 = &10;
+
+    unsafe {
+        assert!(*raw_p == 10);
+    }
 }
