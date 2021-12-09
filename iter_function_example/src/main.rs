@@ -52,6 +52,30 @@ fn filter_map() {
     }
 }
 
+fn filter_map2() {
+    let a = vec![
+        "1",
+        "2",
+        "-1",
+        "4",
+        "-4",
+        "100",
+        "invalid",
+        "Not a number",
+        "",
+    ];
+    let only_positive_numbers: Vec<i64> = a
+        .iter()
+        .filter_map(|&x| x.parse::<i64>().ok())
+        .filter(|&x| x > 0)
+        .collect();
+
+    println!(
+        "filter_map2, only_positive_numbers: {:?}",
+        only_positive_numbers
+    );
+}
+
 fn fold() {
     let arr = [
         10u32, 14, 5, 76, 84, 35, 23, 94, 100, 143, 23, 200, 12, 94, 72,
@@ -107,6 +131,7 @@ fn main() {
     println!();
 
     filter_map();
+    filter_map2();
 
     println!();
     fold();
