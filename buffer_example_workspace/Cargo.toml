@@ -1,0 +1,9 @@
+[workspace]
+
+
+members = [
+        "unbuffered_example",
+        "buffered_example",
+        "unbuffered_json_example",
+        "buffered_json_example"
+]
