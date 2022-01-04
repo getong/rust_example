@@ -1,0 +1,12 @@
+[workspace]
+
+
+members = [
+        "cow_str_example",
+        "crossbeam_channel_example",
+        "scopeguard_example",
+        "panic_handlers_example",
+        "impl_trait_example",
+        "dbg_example",
+        "include_str_example"
+]
