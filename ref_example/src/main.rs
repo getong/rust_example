@@ -62,4 +62,25 @@ fn main() {
 
     // println!("tuple is {:?}", mutable_tuple);
     assert_eq!(mutable_tuple, (Box::new(5u32), 2u32));
+
+    match_ref_example1();
+    match_ref_example2();
+}
+
+fn match_ref_example1() {
+    let option_name: Option<String> = Some("Alice".to_owned());
+    match option_name {
+        Some(ref name) => println!("Name is {}", name),
+        None => println!("No name provided"),
+    }
+    println!("{:?}", option_name);
+}
+
+fn match_ref_example2() {
+    let option_name: Option<String> = Some("Alice".to_owned());
+    match &option_name {
+        Some(name) => println!("Name is {}", name),
+        None => println!("No name provided"),
+    }
+    println!("{:?}", option_name);
 }
