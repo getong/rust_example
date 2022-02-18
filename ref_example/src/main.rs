@@ -65,6 +65,7 @@ fn main() {
 
     match_ref_example1();
     match_ref_example2();
+    match_ref_example3();
 }
 
 fn match_ref_example1() {
@@ -81,6 +82,15 @@ fn match_ref_example2() {
     match &option_name {
         Some(name) => println!("Name is {}", name),
         None => println!("No name provided"),
+    }
+    println!("{:?}", option_name);
+}
+
+fn match_ref_example3() {
+    let option_name: Option<String> = Some("Alice".to_owned());
+    match &option_name {
+        &Some(ref name) => println!("Name is {}", name),
+        &None => println!("No name provided"),
     }
     println!("{:?}", option_name);
 }
