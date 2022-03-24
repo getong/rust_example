@@ -14,11 +14,11 @@ struct SlowRead<R> {
 }
 
 impl<R> SlowRead<R> {
-    fn new(reader: R) -> Self {
-        Self {
-            reader: Box::pin(reader),
-        }
-    }
+    // fn new(reader: R) -> Self {
+    //    Self {
+    //        reader: Box::pin(reader),
+    //    }
+    // }
 }
 
 impl<R> AsyncRead for SlowRead<R>

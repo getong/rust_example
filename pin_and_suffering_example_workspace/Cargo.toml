@@ -1,0 +1,13 @@
+[workspace]
+
+
+members = [
+"future_poll_unpin_example",
+"future_slow_read1_example",
+"future_slow_read2_example",
+"future_slow_read3_example",
+"future_slow_read4_example",
+"future_slow_read5_example",
+"future_slow_read6_example",
+"pin_as_mut_example",
+]
