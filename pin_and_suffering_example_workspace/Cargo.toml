@@ -12,4 +12,5 @@ members = [
         "pin_as_mut_example",
         "bad_swap_example",
         "pin_utils_example",
+        "safe_pin_example",
 ]
