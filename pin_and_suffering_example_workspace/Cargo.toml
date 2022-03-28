@@ -15,4 +15,5 @@ members = [
         "safe_pin_example",
         "pin_utils_pin_mut_example",
         "pin_project_example",
+        "misleading_wake_by_ref_example",
 ]
