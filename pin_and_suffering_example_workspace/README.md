@@ -20,3 +20,5 @@ the poll method takes two arguments. The receiver is... some form of self, so, M
 Let's see what it has... it has... a waker() method that returns a &Waker!
 
 You can even go one step further and add the futures crate so you can use FutureExt::poll_unpin, because polling an Unpin future is a common operation.
+
+Well, AsyncRead is a trait. And traits can't have async methods. (At the time of this writing, ie. with Rust 1.51).
