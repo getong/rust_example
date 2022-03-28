@@ -16,4 +16,5 @@ members = [
         "pin_utils_pin_mut_example",
         "pin_project_example",
         "misleading_wake_by_ref_example",
+        "spawn_waker_clone_example",
 ]
