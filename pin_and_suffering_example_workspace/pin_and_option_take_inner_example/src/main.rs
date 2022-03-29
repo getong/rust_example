@@ -78,20 +78,20 @@ async fn main() -> Result<(), tokio::io::Error> {
     let mut buf = vec![0u8; 128 * 1024];
     let f = File::open("/dev/urandom").await?;
 
-    let mut f = {
-        let f = SlowRead::new(f);
-        pin_utils::pin_mut!(f);
-
-        let before = Instant::now();
-        f.read_exact(&mut buf).await?;
-        println!("Read {} bytes in {:?}", buf.len(), before.elapsed());
-
-        f.take_inner().unwrap()
-    };
+    let f = SlowRead::new(f);
+    pin_utils::pin_mut!(f);
 
     let before = Instant::now();
     f.read_exact(&mut buf).await?;
     println!("Read {} bytes in {:?}", buf.len(), before.elapsed());
 
-    Ok(())
+    if let Some(mut f) = f.take_inner() {
+        let before = Instant::now();
+        f.read_exact(&mut buf).await?;
+        println!("Read {} bytes in {:?}", buf.len(), before.elapsed());
+
+        return Ok(());
+    }
+
+    Err(std::io::Error::new(std::io::ErrorKind::Other, "foo"))
 }
