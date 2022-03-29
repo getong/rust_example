@@ -32,9 +32,9 @@ where
 {
     // 👇 now takes pinned mutable reference to Self, and returns an option
     fn take_inner(self: Pin<&mut Self>) -> Option<R> {
-        // self.reader.take()
-        let mut_self = unsafe { self.get_unchecked_mut() };
-        mut_self.reader.take()
+        // let mut_self = unsafe { self.get_unchecked_mut() };
+        // mut_self.reader.take()
+        unsafe { self.get_unchecked_mut().reader.take() }
     }
 }
 
