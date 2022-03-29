@@ -42,7 +42,7 @@ impl<Fut: Future> Future for TimedWrapper<Fut> {
 
 #[tokio::main]
 async fn main() {
-    let (resp, time) = TimedWrapper::new(reqwest::get("http://adamchalmers.com")).await;
+    let (resp, time) = TimedWrapper::new(reqwest::get("http://www.baidu.com")).await;
     println!(
         "Got a HTTP {} in {}ms",
         resp.unwrap().status(),
