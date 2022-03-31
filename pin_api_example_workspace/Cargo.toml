@@ -2,5 +2,6 @@
 
 
 members = [
-        "pin_as_ref_example"
+        "pin_as_ref_example",
+        "pin_into_inner_example",
 ]
