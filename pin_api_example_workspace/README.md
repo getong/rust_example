@@ -1,0 +1,18 @@
+# pin api example
+|method name                | meaning                     |
+|:--------------------------| :------------:              |
+|new()                      |pin a Unpin value            |
+|unsafe new_unchecked()     |pin a !Unpin value           |
+|as_ref()                   |convert &Pin<P<T>> to Pin<&T>|
+|as_mut()                   |convert &mut Pin<P<T>> to Pin<&mut T>|
+|get_ref()                  |convert Pin<P<T>> to &T      |
+|get_mut()                  |convert Pin<P<T>>, T:Unpin to &mut T      |
+|unsafe get_unchecked_mut() |convert Pin<P<T>>, T:!Unpin to &mut T      |
+|Pin::into_inner(pin)       |convert Pin<p<t>> to p, t:Unpin          |
+|unsafe Pin::into_inner_unchecked(pin)       |convert Pin<p<t>> to p, t: !Unpin|
+|set(t)                     | set a new value t to the old t|
+|into_ref()                 | convert Pin<&mut T> to Pin<&T>|
+|unsafe map_unchecked(func: F)     | Constructs a new pin by mapping the interior value.|
+|unsafe map_unchecked_mut(func: F)     | Constructs a new pin by mapping the interior value.|
+
+copy from [Rust Pin 进阶](https://folyd.com/blog/rust-pin-advanced/)
