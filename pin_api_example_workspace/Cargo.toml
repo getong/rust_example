@@ -6,4 +6,6 @@ members = [
         "into_inner_example",
         "new_unchecked_example",
         "into_inner_unchecked_example",
+        "map_unchecked_example",
+        "map_unchecked_mut_example",
 ]
