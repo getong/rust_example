@@ -18,9 +18,11 @@ fn main() {
         x: 2,
         _pin: PhantomPinned,
     };
-    let mut pin = unsafe { Pin::new_unchecked(&mut twos) };
+    // let mut pin = unsafe { Pin::new_unchecked(&mut twos) };
+    let pin = unsafe { Pin::new_unchecked(&mut twos) };
     unsafe {
-        *pin.as_mut().get_unchecked_mut() = Foo {
+        // *pin.as_mut().get_unchecked_mut() = Foo {
+        *pin.get_unchecked_mut() = Foo {
             x: 3,
             _pin: PhantomPinned,
         }
