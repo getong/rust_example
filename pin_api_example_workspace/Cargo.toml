@@ -9,4 +9,5 @@ members = [
         "map_unchecked_example",
         "map_unchecked_mut_example",
         "get_mut_example",
+        "set_example",
 ]
