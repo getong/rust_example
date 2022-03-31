@@ -11,4 +11,5 @@ members = [
         "get_mut_example",
         "set_example",
         "into_ref_example",
+        "as_mut_example",
 ]
