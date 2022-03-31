@@ -29,6 +29,10 @@ impl Test {
     pub fn b<'a>(self: Pin<&'a Self>) -> &'a String {
         unsafe { &*(self.b) }
     }
+
+    pub fn b2<'a>(self: Pin<&'a Self>) -> &'a String {
+        &self.get_ref().a
+    }
 }
 
 pub fn main() {
@@ -39,6 +43,12 @@ pub fn main() {
         "before swap a: {}, b: {}",
         test1.as_ref().b(),
         test2.as_ref().b()
+    );
+
+    println!(
+        "string before swap a : {}, b: {}",
+        test1.as_ref().b2(),
+        test2.as_ref().b2()
     );
     // std::mem::swap(test1.get_mut(), test2.get_mut());
     // std::mem::swap(&mut *test1, &mut *test2);
