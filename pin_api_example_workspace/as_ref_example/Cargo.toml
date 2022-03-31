@@ -1,5 +1,5 @@
 [package]
-name = "pin_into_inner_example"
+name = "as_ref_example"
 version = "0.1.0"
 edition = "2021"
 
