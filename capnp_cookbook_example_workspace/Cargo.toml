@@ -1,0 +1,7 @@
+
+[workspace]
+
+members = [
+    "capnp_cookbook_1_example",
+    "capnp_cookbook_2_example",
+]
