@@ -71,4 +71,9 @@ fn main() {
     *s = "world".to_string();
     println!("{:?}", s); // world
     println!("{:?}", opt2); // Some("hello")
+
+    let mut a: String = "abc".to_string();
+    let s: &mut String = &mut a;
+    *s = "cde".to_string();
+    assert_eq!(a, "cde".to_string());
 }
