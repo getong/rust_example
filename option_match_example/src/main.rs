@@ -37,7 +37,7 @@ fn match_borrow_option_method2() {
 //        None => None,
 //    }
 //}
-
+// convert &Option<String> to be &String
 fn option_unwrap(opt: &Option<String>) -> &String {
     match opt {
         Some(x) => x,
@@ -45,6 +45,7 @@ fn option_unwrap(opt: &Option<String>) -> &String {
     }
 }
 
+// convert &mut Option<String> to be &mut String
 fn mut_option_unwrap(opt: &mut Option<String>) -> &mut String {
     match opt {
         Some(x) => x,
@@ -66,7 +67,8 @@ fn main() {
 
     let mut opt2 = Some("hello".to_string());
 
-    let s = mut_option_unwrap(&mut opt2);
-    println!("{:?}", s); // hello
+    let s: &mut String = mut_option_unwrap(&mut opt2);
+    *s = "world".to_string();
+    println!("{:?}", s); // world
     println!("{:?}", opt2); // Some("hello")
 }
