@@ -7,7 +7,7 @@
 |as_mut()                   |convert &mut Pin<P<T>> to Pin<&mut T>|
 |get_ref()                  |convert Pin<P<T>> to &T      |
 |get_mut()                  |convert Pin<P<T>>, T:Unpin to &mut T      |
-|unsafe get_unchecked_mut() |convert Pin<P<T>>, T:!Unpin to &mut T      |
+|unsafe get_unchecked_mut() |convert Pin<P<T>>, T:!Unpin to T      |
 |Pin::into_inner(pin)       |convert Pin<p<t>> to p, t:Unpin          |
 |unsafe Pin::into_inner_unchecked(pin)       |convert Pin<p<t>> to p, t: !Unpin|
 |set(t)                     | set a new value t to the old t|
