@@ -1,10 +1,10 @@
-fn main() {
-    #[derive(Debug)]
-    struct Person {
-        name: String,
-        age: Box<u8>,
-    }
+#[derive(Debug)]
+struct Person {
+    name: String,
+    age: Box<u8>,
+}
 
+fn main() {
     let person = Person {
         name: String::from("Alice"),
         age: Box::new(20),
@@ -22,4 +22,14 @@ fn main() {
 
     // `person` cannot be used but `person.age` can be used as it is not moved
     println!("The person's age from person struct is {}", person.age);
+
+    // change the name
+    let mut person2 = Person {
+        name: String::from("Alice"),
+        age: Box::new(20),
+    };
+
+    let change_name_ptr = &mut person2.name;
+    *change_name_ptr = "Bob".to_string();
+    assert_eq!("Bob".to_string(), person2.name);
 }
