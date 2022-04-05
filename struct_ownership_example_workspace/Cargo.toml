@@ -2,5 +2,6 @@
 
 
 members = [
-        "struct_partial_move_example"
+        "struct_partial_move_example",
+        "mut_self_field_example",
 ]
