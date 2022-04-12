@@ -13,3 +13,4 @@ Cargo.lock
 **/dist/
 **/dump.rdb
 buffer_example_workspace/sample.json
+**/*.~undo-tree~
