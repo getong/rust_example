@@ -129,7 +129,7 @@ fn print_body(m: Option<Mime>, body: &str) {
     match m {
         // 对于 "application/json" 我们 pretty print
         Some(v) if v == mime::APPLICATION_JSON => print_syntect(body, "json"),
-        Some(v) if v == mime::TEXT_HTML => print_syntect(body, "html"),
+        Some(v) if v == mime::TEXT_HTML || v == mime::TEXT_HTML_UTF_8 => print_syntect(body, "html"),
 
         // 其它 mime type，我们就直接输出
         _ => println!("{}", body),
