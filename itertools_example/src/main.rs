@@ -28,4 +28,6 @@ fn main() {
     for tuple in arr.iter().tuples::<(_, _, _)>() {
         println!("three elements tuple {:?}", tuple);
     }
+
+    assert!(itertools::all(&[1, 2, 3], |elt| *elt > 0));
 }
