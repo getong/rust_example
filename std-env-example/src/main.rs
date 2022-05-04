@@ -3,6 +3,10 @@ use std::env;
 fn main() {
     // println!("Hello, world!");
 
+    for arg in std::env::args() {
+        println!("arg: {}", arg);
+    }
+
     let args: Vec<String> = env::args().collect();
     println!("{:?}", args);
 
