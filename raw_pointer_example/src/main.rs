@@ -20,6 +20,20 @@ fn raw_pointers_info() {
     }
 }
 
+// Notice that these coercions work when
+// generic types are present too.
+#[derive(Debug)]
+#[allow(dead_code)]
+struct ConstHandle<T> {
+    ptr: *const T,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct MutHandle<T> {
+    ptr: *mut T,
+}
+
 fn main() {
     // println!("Hello, world!");
     raw_pointers_info();
@@ -48,4 +62,19 @@ fn main() {
         let my_slice: &[u32] = slice::from_raw_parts(pointer, length);
         assert_eq!(some_vector.as_slice(), my_slice);
     }
+
+    let mut x = 5;
+
+    let c_handle = ConstHandle {
+        // Coercing `&i32` into `*const i32`
+        ptr: &x,
+    };
+
+    let m_handle = MutHandle {
+        // Coercing `&mut x` into `*mut i32`
+        ptr: &mut x,
+    };
+
+    println!("{:?}", c_handle);
+    println!("{:?}", m_handle);
 }
