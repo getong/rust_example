@@ -29,6 +29,16 @@ fn match_borrow_option_method2() {
     println!("{:?}", opt);
 }
 
+fn match_borrow_option_method3() {
+    let opt: &Option<String> = &Some("hello".to_string());
+
+    match opt {
+        Some(x) => println!("{}", x),
+        None => println!("None"),
+    }
+    println!("{:?}", opt);
+}
+
 //pub const fn as_ref(&self) -> Option<&T> {
 //    // 将 opt 的引用&opt 作为参数
 //    match *self {
@@ -58,6 +68,7 @@ fn main() {
     match_move_option();
     match_borrow_option_method1();
     match_borrow_option_method2();
+    match_borrow_option_method3();
 
     let opt = Some("hello".to_string());
 
