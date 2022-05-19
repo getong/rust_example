@@ -1,0 +1,11 @@
+[package]
+name = "axum_server_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = "0.5.6"
+axum-server = { version = "0.4.0", features = ["rustls", "arc-swap", "rustls-pemfile", "tls-rustls", "tokio-rustls", "pin-project-lite"] }
+tokio = { version = "1.18.2", features = ["full"] }
