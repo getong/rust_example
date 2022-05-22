@@ -3,4 +3,5 @@
 
 members = [
         "nom-take-example",
+        "nom-tag-example",
 ]
