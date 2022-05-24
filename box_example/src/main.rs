@@ -6,6 +6,7 @@ fn box_ref<T>(b: T) -> Box<T> {
 #[derive(Copy, Clone, Debug)]
 struct Foo;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct Node {
     data: u32,
@@ -15,9 +16,9 @@ struct Node {
 fn main() {
     //println!("Hello, world!");
     let boxed_one = Box::new(Foo);
-    println!("unboxed_one at {:p} is {:?}", boxed_one, boxed_one);
     let unboxed_one = *boxed_one;
-    println!("unboxed_one at {:?} is {:?}", unboxed_one, unboxed_one);
+    println!("unboxed_one at {:?} is {:?}", boxed_one, unboxed_one);
+
     let boxed_two = box_ref(unboxed_one);
     println!("boxed_two at {:p} is {:?} ", boxed_two, *boxed_two);
 
