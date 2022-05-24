@@ -4,4 +4,6 @@
 members = [
         "nom-take-example",
         "nom-tag-example",
+        "nom-quick-start_example",
+        "redis-cli",
 ]
