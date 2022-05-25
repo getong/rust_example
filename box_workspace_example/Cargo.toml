@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "box_as_mut_example",
+]
