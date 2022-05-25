@@ -3,4 +3,5 @@
 
 members = [
         "box_as_mut_example",
+        "box_borrow_mut_example",
 ]
