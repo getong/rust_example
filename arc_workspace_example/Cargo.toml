@@ -3,5 +3,5 @@
 
 members = [
         "arc_into_raw_example",
-
+        "arc_callback_storage_example",
 ]
