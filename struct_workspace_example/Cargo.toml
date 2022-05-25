@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "struct_move_field_example",
+
+]
