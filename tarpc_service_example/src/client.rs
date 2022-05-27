@@ -44,6 +44,7 @@ async fn main() -> anyhow::Result<()> {
     .await;
 
     tracing::info!("{:?}", hello);
+    println!("hello : {:?}", hello);
 
     // Let the background span processor finish.
     sleep(Duration::from_micros(1)).await;
