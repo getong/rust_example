@@ -3,4 +3,5 @@
 
 members = [
         "fred_client_example",
+        "fred_pool_example",
 ]
