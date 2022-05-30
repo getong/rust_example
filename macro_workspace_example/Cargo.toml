@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "variadic_function_example1",
+]
