@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "itertools_nex_tuple_example",
+
+]
