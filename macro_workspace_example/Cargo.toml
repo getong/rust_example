@@ -4,4 +4,5 @@
 members = [
         "variadic_function_example1",
         "variadic_function_example2",
+        "variadic_function_example3",
 ]
