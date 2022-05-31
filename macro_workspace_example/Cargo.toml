@@ -6,4 +6,5 @@ members = [
         "variadic_function_example2",
         "variadic_function_example3",
         "variadic_function_example4",
+        "append_tuple_example",
 ]
