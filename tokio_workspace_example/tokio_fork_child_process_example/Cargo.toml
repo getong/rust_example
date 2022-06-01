@@ -1,0 +1,11 @@
+[package]
+name = "tokio_fork_child_process_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nix = "0.24.1"
+tokio = { version = "1.18.2", features = ["rt-multi-thread", "macros", "net", "io-util"] }
+wait = "0.1.9"
