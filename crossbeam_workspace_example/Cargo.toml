@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "crossbeam_scope_example",
+]
