@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 
+//use dashmap::mapref::entry::Entry;
 use parking_lot::RwLock;
 use std::io;
 use std::sync::Arc;
@@ -30,6 +31,21 @@ fn main() {
                 Err(io::Error::new(io::ErrorKind::NotFound, "Chunk not found"))
             }
         });
+    });
+
+    let dict_clone = dict.clone();
+    std::thread::spawn(move || {
+        let _ = match dict_clone.try_entry("d".to_owned()) {
+            Some(entry) => entry.or_try_insert_with(|| {
+                if 3 > 2 {
+                    Ok(RwLock::new(4u8))
+                } else {
+                    Err(io::Error::new(io::ErrorKind::NotFound, "Chunk not found"))
+                }
+            }),
+
+            None => Err(io::Error::new(io::ErrorKind::NotFound, "Chunk not found")),
+        };
     });
 
     sleep(Duration::from_millis(20));
