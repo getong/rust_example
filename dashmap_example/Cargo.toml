@@ -7,3 +7,4 @@ edition = "2018"
 
 [dependencies]
 dashmap = "5.3.4"
+parking_lot = "0.12.1"
