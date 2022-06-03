@@ -5,4 +5,5 @@ members = [
         "arc_into_raw_example",
         "arc_callback_storage_example",
         "arc_mutex_box_example",
+        "arc_wrong_rc_example",
 ]
