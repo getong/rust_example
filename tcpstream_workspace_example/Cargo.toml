@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "rust_multithread_http_server",
+]
