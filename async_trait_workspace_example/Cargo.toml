@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "async_trait_no_lifetime_example",
+        "async_trait_example",
+]

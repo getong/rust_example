@@ -1,0 +1,10 @@
+[package]
+name = "async_trait_no_lifetime_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.56"
+tokio = { version = "1.19.1", features = ["macros", "rt-multi-thread"] }
