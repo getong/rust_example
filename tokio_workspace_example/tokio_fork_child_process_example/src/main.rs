@@ -1,11 +1,11 @@
 // use tokio::prelude::*;
-use tokio::net::UnixStream;
-use nix::unistd::{fork, ForkResult};
 use nix::sys::wait;
+use nix::unistd::{fork, ForkResult};
 use std::io::Error;
 use std::io::ErrorKind;
-use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::net::UnixStream;
 use wait::wait;
 
 // Limit to 1 thread
@@ -13,7 +13,7 @@ use wait::wait;
 async fn main() -> Result<(), Error> {
     let mut socks = UnixStream::pair()?;
 
-    match unsafe { fork()} {
+    match unsafe { fork() } {
         Ok(ForkResult::Parent { .. }) => {
             eprintln!("Writing!");
             socks.0.write_u32(31337).await?;
