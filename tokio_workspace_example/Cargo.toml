@@ -5,4 +5,5 @@ members = [
         "tokio_fork_child_process_example",
         "tokio_abort_example",
         "tokio_is_finished_example",
+        "tokio_io_split_example",
 ]
