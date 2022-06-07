@@ -7,7 +7,7 @@ use std::sync::Arc;
 struct Update;
 
 type Handler = Box<dyn Fn(Arc<Update>) -> BoxFuture<'static, ()> + Send + Sync>;
-// type Handler = Box<dyn Fn(Pin<Update>) -> BoxFuture<'static, ()> + Send + Sync>;
+
 
 struct Dispatcher(Vec<Handler>);
 
@@ -18,14 +18,21 @@ impl Dispatcher {
         Fut: Future<Output = ()> + Send + 'static,
     {
         self.0.push(Box::new(move |upd| Box::pin(handler(upd))));
-        // self.0.push(Box::new(move |upd| Arc::new(handler(upd))));
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut dp = Dispatcher(vec![]);
 
     dp.push_handler(|upd| async move {
-        println!("{:?}", upd);
+        println!("upd: {:?}", upd);
     });
+
+    let function = dp.0.pop().unwrap();
+
+    let update = Arc::new(Update);
+
+    function(update).await;
+
 }
