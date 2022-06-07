@@ -7,4 +7,5 @@ members = [
         "arc_mutex_box_example",
         "arc_wrong_rc_example",
         "arc_mutex_channel_example",
+        "arc_fn_trait_example",
 ]
