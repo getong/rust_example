@@ -37,12 +37,12 @@ async fn main() {
 
     dispatcher.push_handler(handler);
     println!("dispatcher: {:?}", dispatcher);
-    match dispatcher.handlers.pop() {
+    let result = match dispatcher.handlers.pop() {
         Some(function) => {
             let _ = function.update(&Update);
             true
         }
         _ => false,
     };
-    println!("end");
+    println!("{result}");
 }
