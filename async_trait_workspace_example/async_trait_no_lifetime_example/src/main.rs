@@ -1,5 +1,5 @@
-use std::fmt::Debug;
 use async_trait::async_trait;
+use std::fmt::Debug;
 
 #[derive(Debug)]
 struct Update;
@@ -37,4 +37,12 @@ async fn main() {
 
     dispatcher.push_handler(handler);
     println!("dispatcher: {:?}", dispatcher);
+    match dispatcher.handlers.pop() {
+        Some(function) => {
+            let _ = function.update(&Update);
+            true
+        }
+        _ => false,
+    };
+    println!("end");
 }
