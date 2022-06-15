@@ -7,4 +7,5 @@ members = [
         "tokio_is_finished_example",
         "tokio_io_split_example",
         "tokio_resume_pause_example",
+        "tokio_tcp_mpsc_example",
 ]
