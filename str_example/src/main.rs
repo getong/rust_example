@@ -18,4 +18,13 @@ fn main() {
     let mut x = x1.as_str();
     let hello = strtok(&mut x, ' ');
     assert_eq!(hello, "hello");
+
+    let str = "Hello World";
+    println!(" {}", str.to_uppercase());
+    let str = "Hello World";
+    println!(" {}", str.to_ascii_uppercase());
+    let str = "Hello World";
+    println!(" {}", str.to_ascii_lowercase());
+    let str = "HELLO WORLD";
+    println!(" {}", str.to_lowercase());
 }
