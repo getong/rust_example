@@ -1,0 +1,8 @@
+[workspace]
+
+
+members = [
+        "libp2p_chat_example",
+        "libp2p_example",
+        "libp2p_peer_example",
+]
