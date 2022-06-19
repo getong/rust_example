@@ -58,6 +58,7 @@ enum EventType {
 }
 
 #[derive(NetworkBehaviour)]
+#[behaviour(event_process = true)]
 struct RecipeBehaviour {
     floodsub: Floodsub,
     mdns: Mdns,
