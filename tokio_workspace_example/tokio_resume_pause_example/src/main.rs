@@ -95,7 +95,8 @@ async fn main() {
                 sleep(Duration::from_millis(100)).await;
                 p.unpark()
             });
-        }).await;
+        })
+        .await;
         println!("park_for_100ms()");
     }
 
@@ -105,7 +106,8 @@ async fn main() {
                 sleep(Duration::from_millis(500)).await;
                 p.unpark()
             });
-        }).await;
+        })
+        .await;
         println!("park_for_500ms()");
     }
 
