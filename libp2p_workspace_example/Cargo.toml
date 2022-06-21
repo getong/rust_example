@@ -7,5 +7,5 @@ members = [
         "libp2p_peer_example",
         "libp2p_blockchain_example",
         "libp2p_floodsub_chat_example",
-        "libp2p_gossipsub_chat2_example",
+        "libp2p_gossipsub_chat_example",
 ]
