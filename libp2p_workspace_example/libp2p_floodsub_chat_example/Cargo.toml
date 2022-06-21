@@ -1,5 +1,5 @@
 [package]
-name = "libp2p_gossipsub_chat_example"
+name = "libp2p_floodsub_chat_example"
 version = "0.1.0"
 edition = "2021"
 
