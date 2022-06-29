@@ -1,0 +1,9 @@
+[workspace]
+
+
+members = [
+        "fn_example",
+        "fnmut_example",
+        "fnonce_example",
+        "future_example",
+]
