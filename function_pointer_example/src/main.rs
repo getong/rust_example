@@ -18,6 +18,17 @@ fn three(n: i32) -> i32 {
     n + 3
 }
 
+struct Foo {
+    var: i32,
+}
+
+impl Foo {
+    fn method(&mut self, value: i32) {
+        self.var += value;
+        println!("var = {}", self.var);
+    }
+}
+
 fn main() {
     // println!("Hello, world!");
     let fn_ptr: fn() = hello;
@@ -43,4 +54,8 @@ fn main() {
     for f in &funcs {
         println!("{:?}", f(1));
     }
+
+    let mut foo = Foo { var: 11 };
+    let func_ptr: &dyn Fn(&mut Foo, i32) = &Foo::method;
+    func_ptr(&mut foo, 12);
 }
