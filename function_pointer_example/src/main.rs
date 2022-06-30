@@ -56,6 +56,7 @@ fn main() {
     }
 
     let mut foo = Foo { var: 11 };
-    let func_ptr: &dyn Fn(&mut Foo, i32) = &Foo::method;
+    // let func_ptr: &dyn Fn(&mut Foo, i32) = &Foo::method;
+    let func_ptr: fn(&mut Foo, i32) = Foo::method;
     func_ptr(&mut foo, 12);
 }
