@@ -1,0 +1,10 @@
+[package]
+name = "rust-reactor-executor-example"
+version = "0.1.0"
+authors = ["Mario Zupan <mario@zupzup.org>"]
+edition = "2018"
+
+[dependencies]
+libc = "0.2"
+rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
+lazy_static = "1.4"
