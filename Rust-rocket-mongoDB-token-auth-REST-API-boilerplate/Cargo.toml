@@ -1,0 +1,22 @@
+[package]
+name = "rust_rest_api_boilerplate"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yura <leonyvb04@gmail.com> Batazov"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mongodb = { version = "2.2.2", default-features = false, features = ["async-std-runtime"] }
+rocket = { version = "0.5.0-rc.2", features = ["json"] }
+serde = { version = "1.0.138", features = ["derive"] }
+bcrypt = "0.13.0"
+chrono = "0.4.19"
+jsonwebtoken = "8.1.1"
+rand_core = { version = "0.6.3", features = ["std"] }
+base64 = "0.13.0"
+regex = "1.5.6"
+rocket_cors = { git = "https://github.com/lawliet89/rocket_cors", branch = "master" }
+schemars = "0.8.10"
+okapi = "0.7.0-rc.1"
+rocket_okapi = { version = "0.8.0-rc.2", features = ["swagger"] }
