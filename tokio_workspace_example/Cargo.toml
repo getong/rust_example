@@ -9,4 +9,5 @@ members = [
         "tokio_resume_pause_example",
         "tokio_tcp_mpsc_example",
         "tokio_semaphore_example",
+        "tokio_semaphore_example2",
 ]
