@@ -1,0 +1,15 @@
+Native GUI app - GTK framwork
+
+
+now i have TCP listener that starts in a thread and write anything it receives to a file
+
+
+we can now read that file and respond to its messages
+
+updates:
+
+now i have a server that wrapes every stream into a client and handles them in separate threads
+
+now i have two clients connected, but by input from console takes takes time, thus make my read_stream function to wait, thus it is missing most of the messages that are sent
+
+maybe in implement a vect that holds ll the messages let to me
