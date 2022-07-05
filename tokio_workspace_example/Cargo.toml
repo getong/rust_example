@@ -10,4 +10,5 @@ members = [
         "tokio_tcp_mpsc_example",
         "tokio_semaphore_example",
         "tokio_semaphore_example2",
+        "tokio_client_joinhandle_example",
 ]
