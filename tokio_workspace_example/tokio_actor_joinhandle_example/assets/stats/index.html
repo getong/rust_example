@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    <title>Stats</title>
+    <link rel="stylesheet" href="/stats/css/black-dashboard.css">
+    <link rel="stylesheet" href="/stats/css/nucleo-icons.css">
+</head>
+
+<body>
+
+<div class="main-panel">
+    <div class="content">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card card-chart">
+                    <div class="card-header"><h4 class="card-title">Rod relay stats</h4></div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table tablesorter " id="">
+                                <tbody>
+                                  <tr>
+                                    <td>
+                                      Peer ID
+                                    </td>
+                                    <td class="text-center" id="peer_id">
+                                        -
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      Incoming connections
+                                    </td>
+                                    <td class="text-center" id="ws_server_connections">
+                                        -
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      Outgoing connections
+                                    </td>
+                                    <td class="text-center" id="websocket_client_connections">
+                                        -
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      Graph nodes
+                                    </td>
+                                    <td class="text-center" id="graph_node_count">
+                                        -
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      Graph size
+                                    </td>
+                                    <td class="text-center" id="graph_size_bytes">
+                                        -
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      RAM usage
+                                    </td>
+                                    <td class="text-center">
+                                        <span id="used_memory">-</span>
+                                        /
+                                        <span id="total_memory">-</span>
+                                    </td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      CPU usage
+                                    </td>
+                                    <td class="text-center" id="cpu_usage"></td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      Process uptime
+                                    </td>
+                                    <td class="text-center" id="process_uptime"></td>
+                                  </tr>
+                                  <tr>
+                                    <td>
+                                      Incoming messages per second
+                                    </td>
+                                    <td class="text-center" id="msgs_per_second"></td>
+                                  </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container-fluid">
+          <ul class="nav">
+            <li class="nav-item">
+              <a href="https://github.com/mmalmi/rod" class="nav-link">
+                GitHub
+              </a>
+            </li>
+          </ul>
+        </div>
+    </footer>
+</div>
+
+</body>
+
+<script src="/stats/gun.js"></script>
+<script>
+const l = document.location;
+const url = `${l.protocol}//${l.hostname}:${parseInt(l.port) - 1}/ws`;
+const gun = window.gun = GUN(url);
+
+fetch("/peer_id", {method:"get"}).then(async res => {
+    if (res.ok) {
+        const peer_id = await res.text();
+        document.getElementById('peer_id').innerText = peer_id;
+        const stats = gun.get('node_stats').get(peer_id);
+        [
+          'ws_server_connections',
+          'ws_client_connections',
+          'graph_node_count',
+          'graph_size_bytes',
+          'total_memory',
+          'used_memory',
+          'cpu_usage',
+          'process_uptime',
+          'msgs_per_second'
+        ].forEach(key =>
+          stats.get(key).on(value =>
+            document.getElementById(key).innerText = value
+          )
+        );
+    }
+});
+</script>
+
+</html>
