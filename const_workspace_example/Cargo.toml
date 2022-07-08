@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "const_lifetime_example",
+]
