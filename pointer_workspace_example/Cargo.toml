@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "box_fn_pointer_example",
+]
