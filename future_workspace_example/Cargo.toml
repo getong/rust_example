@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "tokio_color_eyre_example",
+        "tokio_reqwest_example",
+]
