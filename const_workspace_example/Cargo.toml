@@ -3,4 +3,5 @@
 
 members = [
         "const_lifetime_example",
+        "const_fn_example",
 ]
