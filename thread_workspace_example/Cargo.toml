@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "thread_join_example",
+]
