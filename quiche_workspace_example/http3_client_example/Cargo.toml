@@ -1,0 +1,14 @@
+[package]
+name = "http3_client_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4.17"
+mio = { version = "0.8.4", features = ["net", "os-poll"] }
+#quiche = "0.14.0"
+quiche = { git = "https://github.com/cloudflare/quiche" }
+ring = "0.16.20"
+url = "2.2.2"

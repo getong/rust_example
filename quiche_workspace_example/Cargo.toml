@@ -4,4 +4,6 @@
 members = [
         "quiche_server_example",
         "quiche_client_example",
+        "http3_server_example",
+        "http3_client_example",
 ]
