@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "quiche_server_example",
+        "quiche_client_example",
+]
