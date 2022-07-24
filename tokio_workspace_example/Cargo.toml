@@ -15,4 +15,5 @@ members = [
         "tokio_park_example",
         "tokio_echo_server_example",
         "tokio_spawn_loop_select_example",
+        "tokio_interval_example"
 ]
