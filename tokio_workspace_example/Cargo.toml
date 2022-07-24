@@ -17,4 +17,5 @@ members = [
         "tokio_spawn_loop_select_example",
         "tokio_interval_example",
         "tokio_task_channel_example",
+        "tokio_channel_example",
 ]
