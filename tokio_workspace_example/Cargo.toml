@@ -12,4 +12,5 @@ members = [
         "tokio_semaphore_example2",
         "tokio_client_joinhandle_example",
         "tokio_actor_joinhandle_example",
+        "tokio_park_example",
 ]
