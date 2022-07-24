@@ -13,4 +13,5 @@ members = [
         "tokio_client_joinhandle_example",
         "tokio_actor_joinhandle_example",
         "tokio_park_example",
+        "tokio_echo_server_example",
 ]
