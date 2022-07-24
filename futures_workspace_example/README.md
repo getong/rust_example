@@ -1,3 +1,3 @@
-# future workspace example
+# future explain example
 
-copy from [Understanding Rust futures by going way too deep](https://fasterthanli.me/articles/understanding-rust-futures-by-going-way-too-deep)
+copy from [Async State Machine in Rust](https://medium.com/@gftea/async-state-machine-in-rust-e8d46af52532)
