@@ -2,5 +2,6 @@
 
 
 members = [
-        "axum_example1"
+        "axum_example1",
+        "axum_sessions_auth_example"
 ]
