@@ -1,0 +1,12 @@
+[package]
+name = "fdg_macroquad_4d_cube_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fdg-macroquad = "0.2.1"
+fdg-sim = "0.2.0"
+macroquad = "0.3.23"
+pretty_env_logger = "0.4.0"

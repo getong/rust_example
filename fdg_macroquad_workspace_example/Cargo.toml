@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "fdg_macroquad_4d_cube_example"
+]
