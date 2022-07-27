@@ -18,4 +18,5 @@ members = [
         "tokio_interval_example",
         "tokio_task_channel_example",
         "tokio_channel_example",
+        "tokio_arc_loop_example"
 ]
