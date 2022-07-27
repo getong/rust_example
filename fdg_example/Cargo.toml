@@ -1,0 +1,12 @@
+[package]
+name = "fdg_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono = "0.4.19"
+fdg-sim = "0.2.0"
+petgraph = "0.6.2"
+quad-rand = "0.2.1"
