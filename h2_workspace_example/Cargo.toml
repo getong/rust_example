@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "h2_server_example",
+        "h2_client_example",
+]
