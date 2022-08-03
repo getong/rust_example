@@ -1,0 +1,10 @@
+[package]
+name = "bevy_single_player_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = "0.8.0"
+leafwing-input-manager = "0.5.0"
