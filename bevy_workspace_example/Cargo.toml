@@ -5,4 +5,5 @@ resolver = "2" # Important! wgpu/Bevy needs this!
 
 members = [
         "bevy_setup_example",
+        "bevy_arpg_example",
 ]
