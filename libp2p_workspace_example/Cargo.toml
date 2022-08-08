@@ -9,4 +9,5 @@ members = [
         "libp2p_blockchain_example",
         "libp2p_floodsub_chat_example",
         "libp2p_gossipsub_chat_example",
+        "libp2p_kademlia_example",
 ]
