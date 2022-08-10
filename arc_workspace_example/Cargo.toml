@@ -8,4 +8,5 @@ members = [
         "arc_wrong_rc_example",
         "arc_mutex_channel_example",
         "arc_fn_trait_example",
+        "arc_try_unwrap_example",
 ]
