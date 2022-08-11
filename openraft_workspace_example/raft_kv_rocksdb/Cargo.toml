@@ -1,0 +1,28 @@
+[package]
+name = "raft_kv_rocksdb"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rocksdb = "0.19.0"
+tide = "0.16.0"
+async-std = { version = "1.12.0", features = ["attributes", "tokio1"] }
+async-trait = "0.1.57"
+clap = { version = "3.2.16", features = ["derive", "env"] }
+tracing-subscriber = "0.3.15"
+# openraft = { version = "0.6", path = "../../openraft", features = ["serde"] }
+openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde"] }
+reqwest = { version = "0.11.11", features = ["json"] }
+serde = { version = "1.0.143", features = ["derive"] }
+serde_json = "1.0.83"
+tracing = "0.1.36"
+tracing-futures = "0.2.5"
+toy-rpc = { version = "0.8.6", features = [
+  "ws_async_std",
+  "server",
+  "client",
+  "async_std_runtime",
+] }
+byteorder = "1.4.3"

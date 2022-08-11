@@ -2,5 +2,6 @@
 
 
 members = [
-        "raft_kv_memstore"
+        "raft_kv_memstore",
+        "raft_kv_rocksdb",
 ]
