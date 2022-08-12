@@ -1,0 +1,1 @@
+copy from [An algorithm to enumerate all Labeled Trees with an implementation in Rust.](https://applied-math-coding.medium.com/an-algorithm-to-enumerate-all-labeled-trees-with-an-implementation-in-rust-82a40bd59629)
