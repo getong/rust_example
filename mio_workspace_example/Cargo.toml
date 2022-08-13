@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "mio_server_example",
+        "mio_client_example",
+]
