@@ -20,4 +20,5 @@ members = [
         "tokio_channel_example",
         "tokio_arc_loop_example",
         "tokio_udp_server_example",
+        "tokio_udpflow_example",
 ]
