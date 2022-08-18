@@ -4,4 +4,5 @@
 members = [
         "scope_thread_example1",
         "scope_thread_example2",
+        "scope_thread_example3",
 ]
