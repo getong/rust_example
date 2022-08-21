@@ -3,4 +3,5 @@
 
 members = [
         "slice_from_raw_parts_example",
+        "mut_slice_example",
 ]
