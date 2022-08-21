@@ -3,4 +3,5 @@
 
 members = [
         "tokio_stream_throttle_example",
+        "tokio_stream_pin_example",
 ]
