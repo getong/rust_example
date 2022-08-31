@@ -23,4 +23,5 @@ members = [
         "tokio_udpflow_example",
         "tokio_async_io_example",
         "tokio_udp_example",
+        "tokio_loop_select_example2",
 ]
