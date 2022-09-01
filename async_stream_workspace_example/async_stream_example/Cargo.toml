@@ -1,0 +1,11 @@
+[package]
+name = "async_stream_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-stream = "0.3.3"
+futures-util = "0.3.24"
+tokio = { version = "1.20.1", features = ["full"] }

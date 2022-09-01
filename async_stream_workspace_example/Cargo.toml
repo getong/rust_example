@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "async_stream_example",
+]
