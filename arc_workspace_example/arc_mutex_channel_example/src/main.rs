@@ -22,7 +22,7 @@ fn normal_channel_example() {
 
     let tx_clone = tx.clone();
     std::thread::spawn(move || {
-        let _ = tx_clone.send(4u8);
+        _ = tx_clone.send(4u8);
     });
 
     dbg!(rx.recv().unwrap());

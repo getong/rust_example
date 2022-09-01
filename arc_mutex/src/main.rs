@@ -26,7 +26,7 @@ fn spawn_threads() {
         .collect();
     // Wait for each thread to complete
     for h in handles {
-        let _ = h.join();
+        _ = h.join();
     }
     // Print the data
     let shared_data = shared_data.lock().unwrap();

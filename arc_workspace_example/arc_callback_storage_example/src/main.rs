@@ -19,8 +19,8 @@ impl CallbackStore {
     pub fn add_callback(&mut self, cccb: Box<dyn Fn(&str) + Send>) {
         self.cid += 1;
 
-        let _cbs = self.cbs.clone();
-        let mut cbs = _cbs.try_lock().unwrap();
+        let cbs = self.cbs.clone();
+        let mut cbs = cbs.try_lock().unwrap();
         cbs.insert(self.cid, cccb);
     }
 }

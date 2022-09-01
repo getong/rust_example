@@ -17,11 +17,11 @@ fn main() {
 
     let foo_clone = foo.clone();
     std::thread::spawn(move || {
-        let _name = foo_clone.name.clone();
+        _ = foo_clone.name.clone();
     });
 
     let foo_clone = foo.clone();
     std::thread::spawn(move || {
-        let _name = foo_clone.name.clone();
+        _ = foo_clone.name.clone();
     });
 }
