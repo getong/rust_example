@@ -1,0 +1,15 @@
+[package]
+name = "string_obfuscation_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+proc-macro2 = "1.0.43"
+quote = "1.0.21"
+rand = "0.8.5"
+
+[lib]
+proc-macro = true
+path = "src/main.rs"

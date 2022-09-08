@@ -9,4 +9,5 @@ members = [
         "append_tuple_example",
         "my_vec_example",
         "proc_macro_example",
+        "string_obfuscation_example",
 ]
