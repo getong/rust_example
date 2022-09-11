@@ -12,4 +12,4 @@ rand = "0.8.5"
 
 [lib]
 proc-macro = true
-path = "src/main.rs"
+path = "src/lib.rs"
