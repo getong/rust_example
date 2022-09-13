@@ -10,4 +10,5 @@ members = [
         "my_vec_example",
         "proc_macro_example",
         "string_obfuscation_example",
+        "repeat_variable_example",
 ]
