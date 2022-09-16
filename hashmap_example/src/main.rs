@@ -112,4 +112,27 @@ fn main() {
     println!("{:?}", result);
 
     println!("zhangsan: {}", map["zhangsan"]);
+
+    hashmap_example1();
+}
+
+fn hashmap_example1() {
+    let mut countries: HashMap<&str, &str> = HashMap::new();
+    countries.insert("US", "United States");
+    countries.insert("FR", "France");
+    countries.insert("UK", "United Kingdom");
+    countries.insert("FR", "France");
+    countries.insert("FL", "Finland");
+
+    for (key, value) in &countries {
+        println!("{} => {}", key, value);
+    }
+
+    for key in countries.keys() {
+        println!("{}", key);
+    }
+
+    for value in countries.values() {
+        println!("{}", value);
+    }
 }
