@@ -1,0 +1,10 @@
+[package]
+name = "tokio_tun_read_mq_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.21.1", features = ["full"] }
+tokio-tun = "0.7.0"
