@@ -16,6 +16,10 @@ fn main() {
             assert_eq!(*f.borrow(), 1);
             *f.borrow_mut() = 3;
         });
+
+        FOO.with(|f| {
+            assert_eq!(*f.borrow(), 3);
+        });
     });
 
     // wait for the thread to complete and bail out on panic
