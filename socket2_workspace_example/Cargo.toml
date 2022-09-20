@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "socket2_example"
+]
