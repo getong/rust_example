@@ -15,3 +15,4 @@ Cargo.lock
 buffer_example_workspace/sample.json
 **/*.~undo-tree~
 **/*.redb
+**/data
