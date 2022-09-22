@@ -20,58 +20,45 @@ async fn main() {
         .sqlx_logging(true)
         .sqlx_logging_level(log::LevelFilter::Info);
 
-    let db = Database::connect(opt).await.unwrap();
+    let conn = Database::connect(opt).await.unwrap();
 
-    let builder = db.get_database_backend();
-    let schema = Schema::new(builder);
+    let backend = conn.get_database_backend();
+    let schema = Schema::new(backend);
 
     let table_create_statement = schema.create_table_from_entity(Cake);
-    let table_create_result = db.execute(builder.build(&table_create_statement)).await;
+    let table_create_result = conn.execute(backend.build(&table_create_statement)).await;
     println!("table_create_result: {:?}", table_create_result);
 
     let table_create_statement = schema.create_table_from_entity(Fruit);
-    let table_create_result = db.execute(builder.build(&table_create_statement)).await;
+    let table_create_result = conn.execute(backend.build(&table_create_statement)).await;
     println!("table_create_result: {:?}", table_create_result);
 
     let table_create_statement = schema.create_table_from_entity(Vendor);
-    let table_create_result = db.execute(builder.build(&table_create_statement)).await;
+    let table_create_result = conn.execute(backend.build(&table_create_statement)).await;
     println!("table_create_result: {:?}", table_create_result);
 
     let table_create_statement = schema.create_table_from_entity(Filling);
-    let table_create_result = db.execute(builder.build(&table_create_statement)).await;
+    let table_create_result = conn.execute(backend.build(&table_create_statement)).await;
     println!("table_create_result: {:?}", table_create_result);
 
     let table_create_statement = schema.create_table_from_entity(CakeFilling);
-    let table_create_result = db.execute(builder.build(&table_create_statement)).await;
+    let table_create_result = conn.execute(backend.build(&table_create_statement)).await;
     println!("table_create_result: {:?}", table_create_result);
 
     let table_create_statement = schema.create_table_from_entity(CakeFillingPrice);
-    let table_create_result = db.execute(builder.build(&table_create_statement)).await;
+    let table_create_result = conn.execute(backend.build(&table_create_statement)).await;
     println!("table_create_result: {:?}", table_create_result);
 
-    // let price = cake_filling_price::ActiveModel {
-    //     cake_id: Set(3),
-    //     filling_id: Set(1),
-    //     price: Set(1.0),
-    //     ..Default::default() // all other attributes are `NotSet`
-    //  };
-
-    // let _ = price.insert(&db).await.unwrap();
-
-    // let price: Option<cake_filling_price::Model> =
-    //    CakeFillingPrice::find_by_id((3, 1)).one(&db).await.unwrap();
-
-    // println!("price: {:?}", price);
     let cake = cake::ActiveModel {
         id: NotSet,
-        name: Set("Pear".to_owned()),
+        name: Set("cake".to_owned()),
         ..Default::default() // all other attributes are `NotSet`
     };
 
-    let cake: cake::Model = cake.insert(&db).await.unwrap();
+    let cake: cake::Model = cake.insert(&conn).await.unwrap();
     println!("pear: {:?}", cake);
 
-    let cake: Option<cake::Model> = Cake::find_by_id(1).one(&db).await.unwrap();
+    let cake: Option<cake::Model> = Cake::find_by_id(1).one(&conn).await.unwrap();
 
     println!("cake: {:?}", cake);
 }
