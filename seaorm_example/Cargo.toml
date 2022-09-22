@@ -9,3 +9,4 @@ edition = "2021"
 log = "0.4.17"
 sea-orm = { version = "0.9.2", features = [ "sqlx-mysql", "runtime-tokio-native-tls", "macros" ], default-features = false }
 tokio = { version = "1.21.1", features = ["full"] }
+tracing = "0.1.36"

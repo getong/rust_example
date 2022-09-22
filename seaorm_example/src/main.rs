@@ -6,21 +6,39 @@ use sea_orm::EntityTrait;
 use sea_orm::{NotSet, Set};
 use std::time::Duration;
 
-// use sea_orm::{sea_query::*, tests_cfg::*, Schema};
+use tokio::sync::OnceCell;
+
 use sea_orm::{tests_cfg::*, Schema};
 
-#[tokio::main]
-async fn main() {
+use sea_orm::DatabaseConnection;
+
+pub static DBCONN: OnceCell<DatabaseConnection> = OnceCell::const_new();
+
+pub async fn db_conn() -> DatabaseConnection {
     let mut opt = ConnectOptions::new("mysql://root:zan3Kie1@127.0.0.1:4444/public".to_owned());
-    opt.max_connections(100)
+    opt.max_connections(1000)
         .min_connections(5)
         .connect_timeout(Duration::from_secs(8))
         .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8))
-        .sqlx_logging(true)
-        .sqlx_logging_level(log::LevelFilter::Info);
+        .sqlx_logging(false);
+    let db = Database::connect(opt).await.expect("数据库打开失败");
+    tracing::info!("Database connected");
+    db
+}
 
-    let conn = Database::connect(opt).await.unwrap();
+#[tokio::main]
+async fn main() {
+    // let mut opt = ConnectOptions::new("mysql://root:zan3Kie1@127.0.0.1:4444/public".to_owned());
+    // opt.max_connections(100)
+    //    .min_connections(5)
+    //    .connect_timeout(Duration::from_secs(8))
+    //    .idle_timeout(Duration::from_secs(8))
+    //    .max_lifetime(Duration::from_secs(8))
+    //    .sqlx_logging(true)
+    //    .sqlx_logging_level(log::LevelFilter::Info);
+
+    // let conn = Database::connect(opt).await.unwrap();
+    let conn = DBCONN.get_or_init(db_conn).await;
 
     let backend = conn.get_database_backend();
     let schema = Schema::new(backend);
@@ -55,10 +73,12 @@ async fn main() {
         ..Default::default() // all other attributes are `NotSet`
     };
 
-    let cake: cake::Model = cake.insert(&conn).await.unwrap();
+    // let cake: cake::Model = cake.insert(&conn).await.unwrap();
+    let cake: cake::Model = cake.insert(conn).await.unwrap();
     println!("pear: {:?}", cake);
 
-    let cake: Option<cake::Model> = Cake::find_by_id(1).one(&conn).await.unwrap();
+    // let cake: Option<cake::Model> = Cake::find_by_id(1).one(&conn).await.unwrap();
+    let cake: Option<cake::Model> = Cake::find_by_id(1).one(conn).await.unwrap();
 
     println!("cake: {:?}", cake);
 }
