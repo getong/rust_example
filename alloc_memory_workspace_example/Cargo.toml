@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "alloc_memory_example",
+        "libc_alloc_memory_example",
+]
