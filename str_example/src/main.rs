@@ -27,4 +27,7 @@ fn main() {
     println!(" {}", str.to_ascii_lowercase());
     let str = "HELLO WORLD";
     println!(" {}", str.to_lowercase());
+
+    let s1: Box<str> = "Hello there!".into();
+    println!("s1: {:?}", s1);
 }
