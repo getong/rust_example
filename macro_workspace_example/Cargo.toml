@@ -11,4 +11,5 @@ members = [
         "proc_macro_example",
         "string_obfuscation_example",
         "repeat_variable_example",
+        "no_parameter_macro_example",
 ]
