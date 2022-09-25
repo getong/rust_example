@@ -1,0 +1,10 @@
+[package]
+name = "basic_bastion_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bastion = "0.4.5"
+fort = "0.4.0"

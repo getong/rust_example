@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "basic_bastion_example",
+        "advanced_bastion_example",
+]
