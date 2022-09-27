@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "rust_quiz_36_example",
+]
