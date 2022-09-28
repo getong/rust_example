@@ -12,4 +12,5 @@ members = [
         "string_obfuscation_example",
         "repeat_variable_example",
         "no_parameter_macro_example",
+        "rust_quiz_1_example",
 ]
