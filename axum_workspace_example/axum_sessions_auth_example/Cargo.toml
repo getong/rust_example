@@ -6,5 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.5.14"
-axum_sessions_auth = { version = "3.0.0", features = ["redis-db"] }
+anyhow = "1.0.65"
+async-trait = "0.1.57"
+axum = "0.5.16"
+axum_database_sessions = "4.1.0"
+axum_sessions_auth = { version = "4.0.0", features = ["redis-db"] }
+http = "0.2.8"
+redis = "0.21.6"
+sqlx = "0.6.2"
+tokio = { version = "1.21.2", features = ["full"] }
+tracing = "0.1.36"
