@@ -1,0 +1,6 @@
+[workspace]
+
+
+members = [
+        "clap_serde_example",
+]
