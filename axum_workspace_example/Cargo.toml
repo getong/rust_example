@@ -7,4 +7,5 @@ members = [
         "axum_example",
         "axum_server_example",
         "axum_type_safe_routing_example",
+        "axum_style_magic_function_params_example",
 ]
