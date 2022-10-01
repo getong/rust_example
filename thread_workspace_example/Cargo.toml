@@ -3,4 +3,5 @@
 
 members = [
         "thread_join_example",
+        "thread_pool_example",
 ]
