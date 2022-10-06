@@ -1,0 +1,38 @@
+# thread scope example
+
+copy from [Async Programming in Rust — Part 2: Scoped Threads](https://medium.com/@KevinBGreene/async-programming-in-rust-part-2-diving-into-scoped-threads-50aace437756)
+
+``` rust
+pub struct Scope<'scope, 'env: 'scope> {
+    data: Arc<ScopeData>,
+    scope: PhantomData<&'scope mut &'scope ()>,
+    env: PhantomData<&'env mut &'env ()>,
+}
+
+pub(super) struct ScopeData {
+    num_running_threads: AtomicUsize,
+    a_thread_panicked: AtomicBool,
+    main_thread: Thread,
+}
+
+let scope = Scope {
+   data: Arc::new(ScopeData {
+       num_running_threads: AtomicUsize::new(0),
+       main_thread: current(),
+       a_thread_panicked: AtomicBool::new(false),
+   }),
+   env: PhantomData,
+   scope: PhantomData,
+};
+
+while scope.data.num_running_threads.load(Ordering::Acquire) != 0 {
+  park();
+}
+
+// Book-keeping so the scope knows when it's done.
+if let Some(scope) = &self.scope {
+  scope.decrement_num_running_threads(unhandled_panic);
+}
+```
+
+copy from [深入 Rust 1.63 新特性 Scoped Thread](https://mp.weixin.qq.com/s?__biz=MjM5MzI5ODA4NQ==&mid=2453650733&idx=2&sn=fa8f41f975025d77ade8432a2bd88226&chksm=b1523ee78625b7f1f627e59a8e0a7ea9ac53c628b186d49bfce67fd1dcc7aed8b4fd3bba1678)
