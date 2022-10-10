@@ -1,0 +1,12 @@
+[package]
+name = "iter_plot_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde_json = "1.0.86"
+serde = { version = "1.0.145", features = ["derive"] }
+rand = "0.8.5"
+num_cpus = "1.13.1"
