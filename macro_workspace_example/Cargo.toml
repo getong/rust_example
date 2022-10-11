@@ -14,4 +14,5 @@ members = [
         "no_parameter_macro_example",
         "rust_quiz_1_example",
         "wrong_macro_example",
+        "expand_macro_example",
 ]
