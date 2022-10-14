@@ -16,4 +16,5 @@ members = [
         "wrong_macro_example",
         "expand_macro_example",
         "fragment_specifiers_example",
+        "macro_length_example",
 ]
