@@ -3,4 +3,5 @@
 
 members = [
         "poem_example",
+        "poem_openapi_example",
 ]
