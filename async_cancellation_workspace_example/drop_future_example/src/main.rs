@@ -1,5 +1,6 @@
-use async_std::task;
+// use async_std::task;
 use std::time::Duration;
+use tokio::time::sleep;
 
 struct Guard;
 impl Drop for Guard {
@@ -10,7 +11,7 @@ impl Drop for Guard {
 
 async fn foo(_guard: Guard) {
     println!("3");
-    task::sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(1)).await;
     println!("4");
 }
 
