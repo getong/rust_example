@@ -25,4 +25,5 @@ members = [
         "tokio_udp_example",
         "tokio_loop_select_example2",
         "tokio_impl_future_example",
+        "tokio_localset_example",
 ]
