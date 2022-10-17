@@ -3,4 +3,5 @@
 
 members = [
         "drop_future_example",
+        "drop_task_example",
 ]
