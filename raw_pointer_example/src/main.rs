@@ -34,6 +34,22 @@ struct MutHandle<T> {
     ptr: *mut T,
 }
 
+fn into_raw_ptr() {
+    let my_speed: Box<i32> = Box::new(88);
+    let my_speed: *mut i32 = Box::into_raw(my_speed);
+
+    // By taking ownership of the original `Box<T>` though
+    // we are obligated to put it together later to be destroyed.
+    unsafe {
+        drop(Box::from_raw(my_speed));
+    }
+
+    // invalid value, but the code can compile.
+    println!("my_speed is 88, but now is {:?}, this is wrong", unsafe {
+        *my_speed
+    });
+}
+
 fn main() {
     // println!("Hello, world!");
     raw_pointers_info();
@@ -77,4 +93,6 @@ fn main() {
 
     println!("{:?}", c_handle);
     println!("{:?}", m_handle);
+
+    into_raw_ptr();
 }
