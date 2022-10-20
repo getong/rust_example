@@ -19,6 +19,8 @@ fn main() {
     assert_eq!(v, vec!["101", "104", "substitute"]);
 
     swap_function();
+
+    mem_take_example();
 }
 
 fn swap_function() {
@@ -29,4 +31,21 @@ fn swap_function() {
 
     assert_eq!(42, x);
     assert_eq!(5, y);
+}
+
+fn mem_take_example() {
+    struct Buffer<T> {
+        buf: Vec<T>,
+    }
+    impl<T> Buffer<T> {
+        fn get_and_reset(&mut self) -> Vec<T> {
+            mem::take(&mut self.buf)
+        }
+    }
+
+    let mut buffer = Buffer { buf: vec![0, 1] };
+    assert_eq!(buffer.buf.len(), 2);
+
+    assert_eq!(buffer.get_and_reset(), vec![0, 1]);
+    assert_eq!(buffer.buf.len(), 0);
 }
