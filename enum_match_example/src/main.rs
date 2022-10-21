@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(PartialEq, Copy, Clone)]
 pub enum OperationMode {
     ECB,
@@ -20,6 +22,27 @@ impl AES {
     }
 }
 
+pub enum Animal {
+    Cat(String),
+    Dog,
+}
+
+impl fmt::Display for Animal {
+    //    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    //        match self {
+    //            &Animal::Cat(ref c) => f.write_str(&format!("c is {}", c)),
+    //            &Animal::Dog => f.write_str("d"),
+    //        }
+    //    }
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Animal::Cat(ref c) => f.write_str(&format!("c is {}", c)),
+            Animal::Dog => f.write_str("d"),
+        }
+    }
+}
+
 fn main() {
     let mut a = AES {
         key: vec![1, 2, 3],
@@ -27,4 +50,7 @@ fn main() {
         mode: OperationMode::ECB,
     };
     a.decrypt(&vec![1, 2, 3]);
+
+    let p: Animal = Animal::Cat("whiskers".to_owned());
+    println!("{}", p);
 }
