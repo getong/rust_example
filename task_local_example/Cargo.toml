@@ -1,0 +1,10 @@
+[package]
+name = "task_local_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+task-local= { git = "https://github.com/kmdreko/task-local", rev = "414d5c6cc8148f44f10b56e1f8188a8bbb0d7509" }
+tokio = { version = "1.21.2", features = ["full"] }
