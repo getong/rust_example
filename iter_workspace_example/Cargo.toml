@@ -9,4 +9,6 @@ members = [
         "iterator_example2",
         "iterator_flatmap_method_example",
         "iterator_size_hint_example",
+        "iter_function_example",
+        "iter_zip_example",
 ]
