@@ -3,5 +3,5 @@
 
 members = [
         "itertools_nex_tuple_example",
-
+        "itertools_example",
 ]
