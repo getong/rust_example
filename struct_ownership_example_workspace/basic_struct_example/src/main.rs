@@ -42,4 +42,7 @@ fn main() {
 
     student.set_score(60);
     println!("{:?}", student);
+
+    student.set_score(70);
+    println!("{:?}", student);
 }
