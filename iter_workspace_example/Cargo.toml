@@ -3,4 +3,5 @@
 
 members = [
         "iter_plot_example",
+        "basic_iter_example",
 ]

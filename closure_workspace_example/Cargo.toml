@@ -3,4 +3,5 @@
 
 members = [
         "rust_quiz_36_example",
+        "basic_closure_example",
 ]
