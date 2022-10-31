@@ -2,6 +2,11 @@
 
 
 members = [
-        "iter_plot_example",
         "basic_iter_example",
+        "iter_plot_example",
+        "iterator_cloned_example",
+        "iterator_example",
+        "iterator_example2",
+        "iterator_flatmap_method_example",
+        "iterator_size_hint_example",
 ]
