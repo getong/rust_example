@@ -27,4 +27,5 @@ members = [
         "tokio_impl_future_example",
         "tokio_localset_example",
         "tokio_task_local_example",
+        "tokio_async_backtrace_example",
 ]
