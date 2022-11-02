@@ -4,6 +4,15 @@ struct Person {
     age: Box<u8>,
 }
 
+fn tuple_partially_move_example() {
+    let mut x = 123;
+    let mut y = 456;
+    let mut p = (&mut x, &mut y);
+    let mut q = p.1;
+    // error here, partially moved
+    // let mut z = p;
+}
+
 fn main() {
     let person = Person {
         name: String::from("Alice"),
@@ -32,4 +41,6 @@ fn main() {
     let change_name_ptr = &mut person2.name;
     *change_name_ptr = "Bob".to_string();
     assert_eq!("Bob".to_string(), person2.name);
+
+    tuple_partially_move_example();
 }
