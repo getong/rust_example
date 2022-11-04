@@ -1,0 +1,9 @@
+[workspace]
+
+
+members = [
+        "lifetime_example1",
+        "lifetime_example2",
+        "lifetime_example3",
+        "lifetime_subtyping",
+]
