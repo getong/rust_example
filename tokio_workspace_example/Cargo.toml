@@ -28,4 +28,5 @@ members = [
         "tokio_localset_example",
         "tokio_task_local_example",
         "tokio_async_backtrace_example",
+        "tokio_select_biased_example",
 ]
