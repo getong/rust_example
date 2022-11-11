@@ -30,4 +30,5 @@ members = [
         "tokio_async_backtrace_example",
         "tokio_select_biased_example",
         "tokio_select_task_example",
+        "tokio_joinset_example",
 ]
