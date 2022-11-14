@@ -1,0 +1,10 @@
+[workspace]
+
+
+members = [
+        "regex_email_example",
+        "regex_hashtag_example",
+        "regex_phone_numbers_example",
+        "regex_multiple_example",
+        "regex_occurrences_example",
+]
