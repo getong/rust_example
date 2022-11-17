@@ -31,4 +31,5 @@ members = [
         "tokio_select_biased_example",
         "tokio_select_task_example",
         "tokio_joinset_example",
+        "tokio_multi_log_example",
 ]
