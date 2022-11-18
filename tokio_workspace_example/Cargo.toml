@@ -32,4 +32,6 @@ members = [
         "tokio_select_task_example",
         "tokio_joinset_example",
         "tokio_multi_log_example",
+        "tokio_multi_runtime_example",
+        "tokio_async_trait_example",
 ]
