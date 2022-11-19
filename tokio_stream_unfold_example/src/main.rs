@@ -19,6 +19,20 @@ async fn main() {
 
     forever.take(5).for_each(|_| async {}).await;
     eprintln!("Took {:?}", now.elapsed());
+
+    // another example
+    let stream = stream::unfold(0, |state| async move {
+        if state <= 2 {
+            let next_state = state + 1;
+            let yielded = state * 2;
+            Some((yielded, next_state))
+        } else {
+            None
+        }
+    });
+
+    let result = stream.collect::<Vec<i32>>().await;
+    assert_eq!(result, vec![0, 2, 4]);
 }
 
 fn all_pages() -> Vec<BoxFuture<'static, ()>> {
