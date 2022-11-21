@@ -1,0 +1,9 @@
+[workspace]
+
+
+members = [
+        "udp-client-example",
+        "udp-echo-server",
+        "udp-multicast",
+        "udp-multicast2",
+]
