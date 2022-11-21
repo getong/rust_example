@@ -6,7 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "0.4.17"
-sea-orm = { version = "0.9.2", features = [ "sqlx-mysql", "runtime-tokio-native-tls", "macros" ], default-features = false }
-tokio = { version = "1.21.1", features = ["full"] }
-tracing = "0.1.36"
+async-std = { version = "^1.9", features = [ "attributes", "tokio1" ] }
+sea-orm = {git = "https://github.com/SeaQL/sea-orm", rev = "9e77760376220338423bbaabde7125a5b61fe084", features = ["sqlx-all", "runtime-async-std-native-tls"] }
+serde_json = { version = "^1" }
+futures = { version = "^0.3" }
+async-stream = { version = "^0.3" }
+futures-util = { version = "^0.3" }
+#log = "0.4.17"
+# tokio = { version = "1.22.0", features = ["full"] }
+# tracing = "0.1.37"
