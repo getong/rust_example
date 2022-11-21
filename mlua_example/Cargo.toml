@@ -1,0 +1,9 @@
+[package]
+name = "mlua_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+mlua = { version = "0.8.6", features = ["lua54", "vendored"] }
