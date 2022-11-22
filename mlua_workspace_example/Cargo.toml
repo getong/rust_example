@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "mlua_example",
+        "mlua_lib_example",
+]
