@@ -1,42 +1,16 @@
-use bevy::ecs::query::With;
-use bevy::ecs::system::Commands;
-use bevy::ecs::system::Query;
 use bevy::prelude::*;
 
-//struct Position {
-//    x: f32,
-//    y: f32,
-//}
-
+#[derive(Component)]
 struct Person;
-
+#[derive(Component)]
 struct Name(String);
 
 fn add_people(mut commands: Commands) {
-    commands
-        .spawn()
-        .insert(Person)
-        .insert(Name("Elaina Proctor".to_string()));
-    commands
-        .spawn()
-        .insert(Person)
-        .insert(Name("Renzo Hume".to_string()));
-    commands
-        .spawn()
-        .insert(Person)
-        .insert(Name("Zayna Nieves".to_string()));
-}
+    commands.spawn((Person, Name("Rust".to_string())));
 
-//fn print_position_system(query: Query<&Transform>) {
-//    for transform in query.iter() {
-//        println!("position: {:?}", transform.translation);
-//    }
-//}
+    commands.spawn((Person, Name("Bevy".to_string())));
 
-// struct Entity(u64);
-
-fn hello_world() {
-    println!("hello world!");
+    commands.spawn((Person, Name("Ferris".to_string())));
 }
 
 fn greet_people(query: Query<&Name, With<Person>>) {
@@ -46,9 +20,8 @@ fn greet_people(query: Query<&Name, With<Person>>) {
 }
 
 fn main() {
-    App::build()
-        .add_startup_system(add_people.system())
-        .add_system(hello_world.system())
-        .add_system(greet_people.system())
+    App::new()
+        .add_startup_system(add_people)
+        .add_system(greet_people)
         .run();
 }
