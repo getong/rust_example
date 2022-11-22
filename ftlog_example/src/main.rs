@@ -1,25 +1,34 @@
-use ftlog::{writer::file_split::Period, LevelFilter, LogBuilder};
-
+use ftlog::{
+    appender::{Duration, FileAppender, Period},
+    FtLogFormatter, LevelFilter,
+};
 use ftlog::*;
 
 #[tokio::main]
 async fn main() {
-    // 完整用法
-    // 配置logger
-    let logger = LogBuilder::new()
-        //这里可以定义自己的格式，时间格式暂时不可以自定义
-        // .format(format)
-        // a) 这里可以配置输出到文件
-        .file(std::path::PathBuf::from("./current.log"))
-        // b) 这里可以配置输出到文件，并且按指定间隔分割。这里导出的按天分割日志文件如current-20221024.log
-        // 配置为按分钟分割时导出的日志文件如current-20221024T1428.log
-        .file_split(std::path::PathBuf::from("./current.log"), Period::Day)
-        // 如果既不配置输出文件 a)， 也不配置按指定间隔分割文件 b)，则默认输出到stderr
-        // a) 和 b) 互斥，写在后面的生效，比如这里就是file_split生效
+    // configurate logger
+    let logger = ftlog::builder()
+        // global max log level
         .max_log_level(LevelFilter::Info)
+        // global log formatter, timestamp is fixed for performance
+        .format(FtLogFormatter)
+        // use bounded channel to avoid large memory comsumption when overwhelmed with logs
+        // Set `false` to tell ftlog to discard excessive logs.
+        // Set `true` to block log call to wait for log thread.
+        // here is the default settings
+        .bounded(100_000, false) // .unbounded()
+        // define root appender, pass None would write to stderr
+        .root(FileAppender::rotate_with_expire(
+            "./current.log",
+            Period::Minute,
+            Duration::seconds(30),
+        ))
+        // write logs in ftlog::appender to "./ftlog-appender.log" instead of "./current.log"
+        .filter("ftlog::appender", "ftlog-appender", LevelFilter::Error)
+        .appender("ftlog-appender", FileAppender::new("ftlog-appender.log"))
         .build()
         .expect("logger build failed");
-    // 初始化
+    // init global logger
     logger.init().expect("set logger failed");
     println!("Hello, world!");
 
