@@ -1,0 +1,15 @@
+[package]
+name = "pest_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lazy_static = "1.4.0"
+pest = { version = "2.5.0", features = ["serde", "serde_json"] }
+pest_derive = "2.5.0"
+pest_generator = "2.5.0"
+pest_grammars = "2.5.0"
+pest_meta = "2.5.0"
+pest_vm = "2.5.0"
