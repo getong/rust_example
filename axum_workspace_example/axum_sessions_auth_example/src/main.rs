@@ -20,6 +20,8 @@ use axum_sessions_auth::{AuthSession, AuthSessionLayer, Authentication, AxumAuth
 use sqlx::PgPool;
 use std::net::SocketAddr;
 
+use axum_macros::debug_handler;
+
 #[tokio::main]
 async fn main() {
     //# async {
@@ -51,6 +53,7 @@ async fn main() {
 
 // We can get the Method to compare with what Methods we allow. Useful if this supports multiple methods.
 // When called auth is loaded in the background for you.
+#[debug_handler]
 async fn greet(method: Method, auth: AuthSession<User, i64, AxumPgPool, PgPool>) -> String {
     let mut count: usize = auth.session.get("count").await.unwrap_or(0);
     count += 1;
@@ -147,6 +150,7 @@ impl Authentication<User, i64, PgPool> for User {
 }
 
 async fn connect_to_database() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
-    // ...
-    unimplemented!()
+    Ok(sqlx::PgPool::new("postgres_connection_string")
+        .await
+        .unwrap())
 }
