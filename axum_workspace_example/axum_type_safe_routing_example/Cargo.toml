@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.5.16"
-axum-extra = { version = "0.3.7", features = ["typed-routing"] }
-axum-macros = "0.2.3"
-serde = { version = "1.0.145", features = ["derive"] }
-tokio = { version = "1.21.2", features = ["full"] }
+axum = "0.6.0"
+axum-extra = { version = "0.4.0", features = ["typed-routing"] }
+axum-macros = "0.3.0"
+serde = { version = "1.0.147", features = ["derive"] }
+tokio = { version = "1.22.0", features = ["full"] }
