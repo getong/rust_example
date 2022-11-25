@@ -1,0 +1,11 @@
+[package]
+name = "fftconvolve_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fftconvolve = { git = "https://github.com/rhysnewell/fftconvolve", rev = "d8107370b1a011d19821d4c98528684f8f802820" }
+ndarray = "0.15.6"
+ndarray-linalg = "0.16.0"
