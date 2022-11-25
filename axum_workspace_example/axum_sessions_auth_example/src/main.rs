@@ -150,7 +150,5 @@ impl Authentication<User, i64, PgPool> for User {
 }
 
 async fn connect_to_database() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
-    Ok(sqlx::PgPool::new("postgres_connection_string")
-        .await
-        .unwrap())
+    Ok(sqlx::PgPool::connect("DATABASE_URL").await.unwrap())
 }
