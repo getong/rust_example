@@ -12,10 +12,12 @@ use axum_sessions_auth::Rights;
 use axum::{routing::get, Router};
 use axum_database_sessions::{
     // AxumDatabasePool, AxumPgPool, AxumSession, AxumSessionConfig, AxumSessionLayer,
-    AxumPgPool,
+    // AxumPgPool,
     AxumSessionConfig,
     AxumSessionLayer,
 };
+
+use axum_sessions_auth::AxumPgPool;
 use axum_sessions_auth::{AuthSession, AuthSessionLayer, Authentication, AxumAuthConfig};
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -55,7 +57,7 @@ async fn main() {
 // When called auth is loaded in the background for you.
 #[debug_handler]
 async fn greet(method: Method, auth: AuthSession<User, i64, AxumPgPool, PgPool>) -> String {
-    let mut count: usize = auth.session.get("count").await.unwrap_or(0);
+    let mut count: usize = auth.session.get("count").unwrap_or(0);
     count += 1;
 
     // Session is Also included with Auth so no need to require it in the function arguments if your using
@@ -64,9 +66,9 @@ async fn greet(method: Method, auth: AuthSession<User, i64, AxumPgPool, PgPool>)
 
     // If for some reason you needed to update your Users Permissions or data then you will want to clear the user cache if it is enabled.
     // The user Cache is enabled by default. To clear simply use.
-    auth.cache_clear_user(1).await;
+    auth.cache_clear_user(1);
     //or to clear all for a large update
-    auth.cache_clear_all().await;
+    auth.cache_clear_all();
 
     if let Some(ref cur_user) = auth.current_user {
         if !Auth::<User, i64, PgPool>::build([Method::GET], false)
