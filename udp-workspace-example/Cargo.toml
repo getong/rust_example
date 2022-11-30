@@ -7,4 +7,5 @@ members = [
         "udp-multicast",
         "udp-multicast2",
         "udp-listen-example",
+        "udp-sender-example",
 ]
