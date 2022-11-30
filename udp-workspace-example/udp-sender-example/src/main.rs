@@ -5,7 +5,7 @@ use std::net;
 fn listen(socket: &net::UdpSocket) -> Vec<u8> {
     // TODO(alex): Create constants for these buffer size values.
     let mut buf: [u8; 20] = [0; 20];
-    let number_of_bytes: usize = 0;
+    let _number_of_bytes: usize = 0;
     let mut result: Vec<u8> = Vec::new();
     match socket.recv_from(&mut buf) {
         Ok((number_of_bytes, _src_addr)) => {
@@ -73,27 +73,27 @@ struct HostConfig {
 
 #[derive(Debug)]
 enum CommandInput {
-    local_ip(String),
-    local_port(String),
-    remote_ip(String),
-    remote_port(String),
-    start_host,
-    connect_remote,
-    message(String),
-    unknown(String),
-    error(String),
+    LocalIp(String),
+    LocalPort(String),
+    RemoteIp(String),
+    RemotePort(String),
+    StartHost,
+    ConnectRemote,
+    Message(String),
+    Unknown(String),
+    Error(String),
 }
 
 fn identify_comand(command: &str, data: &str) -> CommandInput {
     match command {
-        "-local" => CommandInput::local_ip(data.to_owned()),
-        "-lport" => CommandInput::local_port(data.to_owned()),
-        "-remote" => CommandInput::remote_ip(data.to_owned()),
-        "-rport" => CommandInput::remote_port(data.to_owned()),
-        "-lstart" => CommandInput::start_host,
-        "-rconnect" => CommandInput::connect_remote,
-        "-msg" => CommandInput::message(data.to_owned()),
-        _ => CommandInput::unknown(data.to_owned()),
+        "-local" => CommandInput::LocalIp(data.to_owned()),
+        "-lport" => CommandInput::LocalPort(data.to_owned()),
+        "-remote" => CommandInput::RemoteIp(data.to_owned()),
+        "-rport" => CommandInput::RemotePort(data.to_owned()),
+        "-lstart" => CommandInput::StartHost,
+        "-rconnect" => CommandInput::ConnectRemote,
+        "-msg" => CommandInput::Message(data.to_owned()),
+        _ => CommandInput::Unknown(data.to_owned()),
     }
 }
 
@@ -112,7 +112,7 @@ fn read_console() -> CommandInput {
         Err(fail) => {
             println!("Failed to read console: {}", fail);
             let invalid_data = "failed to read console".to_owned();
-            CommandInput::error(invalid_data)
+            CommandInput::Error(invalid_data)
         }
     }
 }
@@ -130,22 +130,22 @@ fn set_host_parameters(ip: &str, port: &str) -> String {
 fn build_config(cmd_input: CommandInput, host_config: &mut HostConfig) {
     println!("build: {:?}", cmd_input);
     match cmd_input {
-        CommandInput::local_ip(ip) => {
+        CommandInput::LocalIp(ip) => {
             host_config.local_ip = ip;
             host_config.local_host =
                 set_host_parameters(&host_config.local_ip, &host_config.local_port);
         }
-        CommandInput::local_port(port) => {
+        CommandInput::LocalPort(port) => {
             host_config.local_port = port;
             host_config.local_host =
                 set_host_parameters(&host_config.local_ip, &host_config.local_port);
         }
-        CommandInput::remote_ip(ip) => {
+        CommandInput::RemoteIp(ip) => {
             host_config.remote_ip = ip;
             host_config.remote_host =
                 set_host_parameters(&host_config.remote_ip, &host_config.remote_port);
         }
-        CommandInput::remote_port(port) => {
+        CommandInput::RemotePort(port) => {
             host_config.remote_port = port;
             host_config.remote_host =
                 set_host_parameters(&host_config.remote_ip, &host_config.remote_port);
@@ -180,16 +180,16 @@ fn main() {
     loop {
         show_menu(&host_config, &default_msg);
         match read_console() {
-            CommandInput::start_host => {
+            CommandInput::StartHost => {
                 println!("starting host");
                 break;
             }
-            CommandInput::connect_remote => println!("connecting to remote host"),
-            CommandInput::message(msg) => {
+            CommandInput::ConnectRemote => println!("connecting to remote host"),
+            CommandInput::Message(msg) => {
                 message = msg;
             }
-            CommandInput::unknown(unknown_data) => println!("unknown_data: {:?}", unknown_data),
-            CommandInput::error(fail) => println!("error: {:?}", fail),
+            CommandInput::Unknown(unknown_data) => println!("unknown_data: {:?}", unknown_data),
+            CommandInput::Error(fail) => println!("error: {:?}", fail),
             input_cmd @ _ => build_config(input_cmd, &mut host_config),
         }
     }
