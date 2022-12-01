@@ -10,6 +10,9 @@ impl DVD {
     }
 }
 
+use std::iter::FromIterator;
+use std::thread;
+
 fn main() {
     let mut movies = vec![
         DVD::new("Buckaroo Banzai Across the 8th Dimension".to_string(), 1984),
@@ -27,4 +30,13 @@ fn main() {
     while let Some(movie) = movies.pop() {
         println!("{:?}", movie);
     }
+
+    let numbers = Vec::from_iter(0..=1000);
+    let t = thread::spawn(move || {
+        let len = numbers.len();
+        let sum = numbers.into_iter().sum::<usize>();
+        sum / len
+    });
+    let average = t.join().unwrap();
+    println!("average: {average}");
 }
