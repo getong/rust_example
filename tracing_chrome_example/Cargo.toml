@@ -1,0 +1,11 @@
+[package]
+name = "tracing_chrome_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.22.0", features = ["full"] }
+tracing-chrome = "0.7.0"
+tracing-subscriber = "0.3.16"
