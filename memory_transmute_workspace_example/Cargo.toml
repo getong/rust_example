@@ -5,4 +5,5 @@ members = [
         "mem_transmute_example",
         "size_of_transmute_example",
         "zero_data_type_transmute_example",
+        "transmute_lifetime_example",
 ]
