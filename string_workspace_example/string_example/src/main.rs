@@ -1,3 +1,6 @@
+use std::io::{self, BufRead};
+use std::mem;
+
 fn main() {
     // println!("Hello, world!");
     let a: String = "Hello".to_string();
@@ -54,6 +57,19 @@ fn main() {
         slice2.len(),
         slice2.chars().count()
     );
+
+    let s = from_raw_parts();
+    println!("from raw parts: {}", s);
+
+    let s = char_to_string();
+    println!("char to string : {}", s);
+
+    let s = vec_to_string();
+    println!("vec to string : {}", s);
+
+    println!("enter echo word:");
+    let s = buffer_to_string_line();
+    println!("buffer to string line : {}", s);
 }
 
 fn add_version(s: &mut String) -> String {
@@ -64,4 +80,42 @@ fn add_version(s: &mut String) -> String {
 fn add_lang(s: &mut String) -> String {
     s.push_str(" lang.");
     s.to_string()
+}
+
+fn from_raw_parts() -> String {
+    let story = String::from("Once upon a time...");
+
+    // Prevent automatically dropping the String's data
+    let mut story = mem::ManuallyDrop::new(story);
+
+    let ptr = story.as_mut_ptr();
+    let len = story.len();
+    let capacity = story.capacity();
+
+    // story has nineteen bytes
+    assert_eq!(19, len);
+
+    // We can re-build a String out of ptr, len, and capacity. This is all
+    // unsafe because we are responsible for making sure the components are
+    // valid:
+    let s = unsafe { String::from_raw_parts(ptr, len, capacity) };
+    s
+}
+
+fn char_to_string() -> String {
+    let ch = 'c';
+    ch.to_string()
+}
+
+fn vec_to_string() -> String {
+    let hello_world = vec![72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100];
+    // We know it is valid sequence, so we can use unwrap
+    String::from_utf8(hello_world).unwrap()
+}
+
+fn buffer_to_string_line() -> String {
+    let mut line = String::new();
+    let stdin = io::stdin();
+    stdin.lock().read_line(&mut line).unwrap();
+    line
 }
