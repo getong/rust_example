@@ -1,0 +1,11 @@
+[workspace]
+
+
+members = [
+        "number_string_example",
+        "pin_string_example",
+        "string_conversions_example",
+        "string_deref_example",
+        "string_example",
+        "stringify_example",
+]
