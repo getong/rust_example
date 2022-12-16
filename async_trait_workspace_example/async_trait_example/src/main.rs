@@ -1,38 +1,25 @@
 use async_trait::async_trait;
+use std::sync::Arc;
 
 #[async_trait]
-trait Advertisement {
-    async fn run(&self);
+trait AsyncTrait {
+    async fn get_number(&self) -> i32;
 }
 
-struct Modal;
-
 #[async_trait]
-impl Advertisement for Modal {
-    async fn run(&self) {
-        self.render_fullscreen().await;
-        for _ in 0..4u16 {
-            remind_user_to_join_mailing_list().await;
-        }
-        self.hide_for_now().await;
+impl AsyncTrait for i32 {
+    async fn get_number(&self) -> i32 {
+        *self
     }
 }
 
-struct AutoplayingVideo {
-    media_url: String,
+async fn print_the_number(from: Arc<dyn AsyncTrait>) {
+    let number = from.get_number().await;
+    println!("The number is {number}");
 }
 
-#[async_trait]
-impl Advertisement for AutoplayingVideo {
-    async fn run(&self) {
-        let stream = connect(&self.media_url).await;
-        stream.play().await;
-
-        // Video probably persuaded user to join our mailing list!
-        Modal.run().await;
-    }
-}
-
-fn main() {
-    println!("Hello, world!");
+#[tokio::main]
+async fn main() {
+    let number_getter = Arc::new(42);
+    print_the_number(number_getter).await;
 }
