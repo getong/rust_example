@@ -17,3 +17,4 @@ buffer_example_workspace/sample.json
 **/*.redb
 **/data
 **/*.log
+**/*.xlsx
