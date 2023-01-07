@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
 };
 
 use walkdir::WalkDir;
@@ -116,6 +116,7 @@ fn change_file_with_translate_words(
         1 => {
             COMMENT_PREFIX.to_string()
                 + whole_line
+                + "\n"
                 + &str::replace(whole_line, chinese_str, english_str)
         }
         chinese_count => {
@@ -128,11 +129,10 @@ fn change_file_with_translate_words(
                             str::replace(&temp_whole_line, chinese_word, english_word);
                     }
                 }
-                COMMENT_PREFIX.to_string() + whole_line + &temp_whole_line
+                COMMENT_PREFIX.to_string() + whole_line + "\n" + &temp_whole_line
             } else {
                 println!(
-                    "not_match, match_filename:{}, line_num:{}, whole_line:{},
-chinese_str:{}, english_str:{}",
+                    "not_match, match_filename:{}, line_num:{}, whole_line:{}, chinese_str:{}, english_str:{}",
                     match_filename, line_num, whole_line, chinese_str, english_str,
                 );
                 // not found
@@ -145,41 +145,42 @@ chinese_str:{}, english_str:{}",
             None => println!("No rusv file was found."),
             Some(filepath) => {
                 // println!("Rusv file was found: {:?}", filepath);
-                //if let Ok( file) = File::options().read(true).write(true).truncate(true).open(filepath) {
-                //   read_write_line( file, line_num, replace_whole_line);
-                //}
                 if let Ok(file) = File::open(filepath.clone()) {
-                    let mut reader = BufReader::new(file);
-                    let mut buf = Vec::new();
-                    reader.read_to_end(&mut buf).unwrap();
-                    if let Some(elem) = buf.get_mut((line_num - 1) as usize) {
-                        *elem = 42;
-                    }
-                    File::create(filepath).unwrap().write_all(&buf).unwrap();
+                    read_write_line(filepath, file, line_num, replace_whole_line);
                 }
+                //                if let Ok(file) = File::open(filepath.clone()) {
+                //                    let mut reader = BufReader::new(file);
+                //                    let mut buf = Vec::new();
+                //                    reader.read_to_end(&mut buf).unwrap();
+                //                    if let Some(elem) = buf.get_mut((line_num - 1) as usize) {
+                //                        *elem = 42;
+                //                    }
+                //                    File::create(filepath).unwrap().write_all(&buf).unwrap();
+                //                }
             }
         }
     }
 }
 
-//fn read_write_line( file: File, line_num: i32, replace_whole_line: String) {
-//    let mut reader = BufReader::new(file);
-//    let lines = reader.by_ref().lines();
-//// println!("lines:{:?}", lines);
-//    let mut new_lines: Vec<String> = vec![];
-//    for (k, v) in lines.enumerate() {
-//        if (k as i32) == line_num {
-//            new_lines.push(replace_whole_line.clone());
-//        } else {
-//println!("v:{:?}", v);
-//            new_lines.push(v.unwrap());
-//        }
-//    }
-//    let mut out = reader.into_inner();
-//file.seek(io::SeekFrom::Start(0))
-//out.write_all(&new_lines)
-//
-//}
+fn read_write_line(path: PathBuf, file: File, line_num: i32, replace_whole_line: String) {
+    let reader = BufReader::new(file);
+    let mut lines_string: Vec<String> = vec![];
+    // println!("lines:{:?}", lines);
+    for line in reader.lines() {
+        //println!("{}", line.as_ref().unwrap());
+        lines_string.push(line.unwrap());
+    }
+
+    if let Some(elem) = lines_string.get_mut((line_num - 1) as usize) {
+        *elem = replace_whole_line
+    }
+
+    if let Ok(mut file) = File::create(path) {
+        for i in &lines_string {
+            _ = writeln!(file, "{}", i);
+        }
+    }
+}
 
 fn find_file(filename: &str) -> Option<PathBuf> {
     for entry in WalkDir::new(DEST_DIR)
