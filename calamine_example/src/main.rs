@@ -145,30 +145,41 @@ chinese_str:{}, english_str:{}",
             None => println!("No rusv file was found."),
             Some(filepath) => {
                 // println!("Rusv file was found: {:?}", filepath);
-                if let Ok(file) = File::open(filepath) {
-                    read_write_line(file, line_num, replace_whole_line);
+                //if let Ok( file) = File::options().read(true).write(true).truncate(true).open(filepath) {
+                //   read_write_line( file, line_num, replace_whole_line);
+                //}
+                if let Ok(file) = File::open(filepath.clone()) {
+                    let mut reader = BufReader::new(file);
+                    let mut buf = Vec::new();
+                    reader.read_to_end(&mut buf).unwrap();
+                    if let Some(elem) = buf.get_mut((line_num - 1) as usize) {
+                        *elem = 42;
+                    }
+                    File::create(filepath).unwrap().write_all(&buf).unwrap();
                 }
             }
         }
     }
 }
 
-fn read_write_line(file: File, line_num: i32, replace_whole_line: String) {
-    let mut reader = BufReader::new(file);
-    let lines = reader.by_ref().lines();
-    let mut new_lines: Vec<String> = vec![];
-    for (k, v) in lines.enumerate() {
-        if k as i32 == line_num {
-            new_lines.push(replace_whole_line.clone());
-        } else {
-            new_lines.push(v.unwrap());
-        }
-    }
-    let mut out = reader.into_inner();
-    for i in new_lines {
-        out.write_all(i.as_bytes()).unwrap();
-    }
-}
+//fn read_write_line( file: File, line_num: i32, replace_whole_line: String) {
+//    let mut reader = BufReader::new(file);
+//    let lines = reader.by_ref().lines();
+//// println!("lines:{:?}", lines);
+//    let mut new_lines: Vec<String> = vec![];
+//    for (k, v) in lines.enumerate() {
+//        if (k as i32) == line_num {
+//            new_lines.push(replace_whole_line.clone());
+//        } else {
+//println!("v:{:?}", v);
+//            new_lines.push(v.unwrap());
+//        }
+//    }
+//    let mut out = reader.into_inner();
+//file.seek(io::SeekFrom::Start(0))
+//out.write_all(&new_lines)
+//
+//}
 
 fn find_file(filename: &str) -> Option<PathBuf> {
     for entry in WalkDir::new(DEST_DIR)
