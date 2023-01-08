@@ -18,3 +18,4 @@ buffer_example_workspace/sample.json
 **/data
 **/*.log
 **/*.xlsx
+**/*.txt
