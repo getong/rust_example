@@ -11,12 +11,12 @@ use std::{
 use walkdir::WalkDir;
 
 const PATH: &str = "a.xlsx";
-const SHEET_NAME: &str = "client_translate";
-const COMMENT_PREFIX: &str = "//";
-const DEST_DIR: &str = "/Users/gerald/other_project/frontend/src";
-//const SHEET_NAME: &str = "server_translate";
-//const COMMENT_PREFIX: &str = "--";
-//const DEST_DIR : &str = "/Users/gerald/other_project/server/src";
+//const SHEET_NAME: &str = "client_translate";
+//const COMMENT_PREFIX: &str = "//";
+//const DEST_DIR: &str = "/Users/gerald/other_project/frontend/src";
+const SHEET_NAME: &str = "server_translate";
+const COMMENT_PREFIX: &str = "--";
+const DEST_DIR : &str = "/Users/gerald/other_project/server/xyef/liblua";
 
 fn main() {
     let mut excel: Xlsx<_> = open_workbook(PATH).unwrap();
@@ -137,7 +137,10 @@ fn change_file_with_translate_words(
                     match_filename, line_num
                 );
                 // not found
-                whole_line.to_string()
+                COMMENT_PREFIX.to_string()
+                    + whole_line
+                    + "\n"
+                    + whole_line
                     + "\n"
                     + COMMENT_PREFIX
                     + "wrong_translate_wrong_translate_   "
