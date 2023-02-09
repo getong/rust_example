@@ -36,4 +36,5 @@ members = [
         "tokio_async_trait_example",
         "tokio_runtime_spawn_example",
         "tokio_select_example",
+        "tokio_stdin_example",
 ]
