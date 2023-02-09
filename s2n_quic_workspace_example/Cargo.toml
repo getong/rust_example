@@ -1,0 +1,7 @@
+[workspace]
+
+
+members = [
+        "s2n_quic_server_example",
+        "s2n_quic_client_example",
+]

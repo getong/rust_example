@@ -1,0 +1,10 @@
+[package]
+name = "s2n_quic_server_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+s2n-quic = "1.16.0"
+tokio = { version = "1.25.0", features = ["full"] }
