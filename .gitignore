@@ -20,3 +20,4 @@ buffer_example_workspace/sample.json
 **/*.xlsx
 **/*.txt
 **/*.so
+**/.projectile
