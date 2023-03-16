@@ -21,4 +21,5 @@ buffer_example_workspace/sample.json
 **/*.txt
 **/*.so
 **/.projectile
+**/.project
 **/.DS_Store
