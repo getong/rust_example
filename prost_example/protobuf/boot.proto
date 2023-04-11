@@ -1,0 +1,4 @@
+syntax = "proto3";
+message Boot {
+  map<string, string> apps = 1;
+}
