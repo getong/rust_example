@@ -1,0 +1,9 @@
+* prost_build example
+
+copy from [[http://timd.cn/rust-protobuf/][rust-protobu]]
+also see [[https://docs.rs/prost-build/latest/prost_build/][Crate prost_build]]
+
+#+begin_src sh
+cargo add prost_build --build
+cargo run
+#+end_src
