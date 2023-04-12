@@ -1,0 +1,5 @@
+* nom quick start example
+:PROPERTIES:
+:CUSTOM_ID: nom-quick-start-example
+:END:
+see [[https://zhuanlan.zhihu.com/p/115017849][1. 初识 nom]]

@@ -1,0 +1,8 @@
+* log example
+:PROPERTIES:
+:CUSTOM_ID: log-example
+:END:
+copy from
+[[https://medium.com/nikmas-group-rust/advanced-logging-in-rust-with-log4rs-2d712bb322de][Advanced
+logging in rust with log4rs: rotation, retention, patterns, multiple
+loggers]]

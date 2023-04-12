@@ -1,0 +1,6 @@
+* zero data type transmute example
+:PROPERTIES:
+:CUSTOM_ID: zero-data-type-transmute-example
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/21820917][类型的大小]] 0
+大小类型的非空指针，指向的地址是1； 空指针指向的地址是 0。

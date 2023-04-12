@@ -1,0 +1,7 @@
+* tokio LocalSet example
+:PROPERTIES:
+:CUSTOM_ID: tokio-localset-example
+:END:
+copy from
+[[https://rust-book.junmajinlong.com/ch100/02_understand_tokio_task.html][理解tokio核心(2):
+task]]

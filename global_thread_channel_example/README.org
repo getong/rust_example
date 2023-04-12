@@ -1,0 +1,7 @@
+* global thread channel example
+:PROPERTIES:
+:CUSTOM_ID: global-thread-channel-example
+:END:
+cppy from
+[[https://stackoverflow.com/questions/69785363/accessing-global-state-from-a-callback-in-rust][Accessing
+global state from a callback in rust]]

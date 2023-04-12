@@ -1,0 +1,7 @@
+* nom bits example 2
+:PROPERTIES:
+:CUSTOM_ID: nom-bits-example-2
+:END:
+copy from
+[[https://stackoverflow.com/questions/62763705/how-can-i-take-n-bits-of-byte-in-nom][How
+can I take N bits of byte in nom?]]

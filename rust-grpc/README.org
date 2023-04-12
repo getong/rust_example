@@ -1,0 +1,27 @@
+* rust-grpc
+:PROPERTIES:
+:CUSTOM_ID: rust-grpc
+:END:
+*** Start gRPC Server in Container
+:PROPERTIES:
+:CUSTOM_ID: start-grpc-server-in-container
+:END:
+#+begin_example
+docker build -t rust-grpc-server .
+docker run -dit --name rust-grpc-server -v $(pwd):/usr/src/app -v /usr/src/app/target -p 8080:50051 rust-grpc-server
+#+end_example
+
+*** Start Node Server to connect gRPC Server
+:PROPERTIES:
+:CUSTOM_ID: start-node-server-to-connect-grpc-server
+:END:
+#+begin_example
+cd node-client-for-fun
+npm i && npm run proto:build && npm run dev
+#+end_example
+
+#+begin_quote
+[[https://github.com/bloomrpc/bloomrpc][BloomRPC]], GUI client for RPC
+services.
+
+#+end_quote

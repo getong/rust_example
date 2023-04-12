@@ -1,0 +1,12 @@
+* rust export function
+:PROPERTIES:
+:CUSTOM_ID: rust-export-function
+:END:
+** run command
+:PROPERTIES:
+:CUSTOM_ID: run-command
+:END:
+#+begin_src shell
+cargo build --target wasm32-unknown-unknown
+node hello.js
+#+end_src

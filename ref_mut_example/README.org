@@ -1,0 +1,5 @@
+* ref mut example
+:PROPERTIES:
+:CUSTOM_ID: ref-mut-example
+:END:
+copy from https://codeantenna.com/a/5tsxdABkIC

@@ -1,0 +1,6 @@
+* Storing and accessing closures in a threadsafe way in Rust
+:PROPERTIES:
+:CUSTOM_ID: storing-and-accessing-closures-in-a-threadsafe-way-in-rust
+:END:
+copy from
+[[https://gist.github.com/wallyqs/b69f8ec7a05d6db89749][callback-storage.rs]]

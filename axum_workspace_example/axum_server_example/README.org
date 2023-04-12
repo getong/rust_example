@@ -1,0 +1,14 @@
+* axum_server example
+:PROPERTIES:
+:CUSTOM_ID: axum_server-example
+:END:
+copy from
+[[https://programatik29.github.io/axum-server/axum_server/tls_rustls/index.html][Module
+axum_server::tls_rustls]]
+
+#+begin_src shell
+cargo add axum-server --features "rustls arc-swap rustls-pemfile tls-rustls tokio-rustls pin-project-lite"
+cargo add tokio --features full
+cargo add axum
+cargo build
+#+end_src

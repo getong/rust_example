@@ -1,0 +1,11 @@
+* expand source
+:PROPERTIES:
+:CUSTOM_ID: expand-source
+:END:
+copy from
+https://zjp-cn.github.io/tlborm/syntax-extensions/debugging.html
+
+#+begin_src shell
+cd src
+rustc -Zunpretty=expanded main.rs
+#+end_src

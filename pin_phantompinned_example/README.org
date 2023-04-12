@@ -1,0 +1,47 @@
+copy from
+[[https://stackoverflow.com/questions/72516441/pin-vs-box-why-is-box-not-enough][Pin
+vs Box: Why is Box not enough?]]
+
+#+begin_quote
+
+#+begin_quote
+
+#+begin_quote
+PhantomPinned does not make data immovable. It just says that once the
+data is pinned, it will never be able to be unpinned again.
+
+#+end_quote
+
+#+end_quote
+
+#+end_quote
+
+Therefore, to make data with PhantomPinned unmovable, you have to Pin it
+first.
+
+They are both completely different concepts. Pin makes sure that the
+data it points to cannot be moved. Box puts something on the heap.
+
+As you can see from the previous examples, both are often used in
+conjunction, as the easiest way to prevent something from moving is to
+put it on the heap.
+
+PhantomPin causes classes to be !Unpin, meaning once they are pinned,
+they can no longer be unpinned.
+
+You can try to use Pin on values on the stack, but you will run into
+problems quickly. While it works for unpin-able structs.
+
+Box without Pin While the content of Box is on the heap and therefore
+has a constant address, you can still move it back from the heap to the
+stack, which wouldn't be possible with a Pin object.
+
+In this example, there is absolutely no way to ever unpin x_pinned
+again, and print_addr can only be called on the pinned object.
+
+Why is this useful? For example because you can now work with raw
+pointers, as is required in the Future trait.
+
+But in general, Pin is only really useful if paired with unsafe code.
+Without unsafe code, the borrow checker is sufficient to keep track of
+your objects.

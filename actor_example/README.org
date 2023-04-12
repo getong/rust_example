@@ -1,0 +1,5 @@
+* actor example
+:PROPERTIES:
+:CUSTOM_ID: actor-example
+:END:
+copy from [[https://ryhl.io/blog/actors-with-tokio/][Actors with Tokio]]

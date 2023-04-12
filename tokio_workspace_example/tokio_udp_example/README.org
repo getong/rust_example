@@ -1,0 +1,7 @@
+* tokio udp example
+:PROPERTIES:
+:CUSTOM_ID: tokio-udp-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/60234817/tokiotimeout-on-stream-always-occurs][tokio::timeout
+on Stream always occurs]]

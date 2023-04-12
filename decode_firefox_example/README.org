@@ -1,0 +1,7 @@
+* decode firefox
+:PROPERTIES:
+:CUSTOM_ID: decode-firefox
+:END:
+copy from
+[[https://blog.dend.ro/decoding-firefox-session-store-data/][Decoding
+Firefox session store data]]

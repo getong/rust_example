@@ -1,0 +1,7 @@
+* tokio task channel example
+:PROPERTIES:
+:CUSTOM_ID: tokio-task-channel-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/how-to-properly-use-channel-for-coroutine-communication/58761][How
+to properly use channel for coroutine communication]]

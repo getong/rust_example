@@ -1,0 +1,17 @@
+* tokio-uring net example
+:PROPERTIES:
+:CUSTOM_ID: tokio-uring-net-example
+:END:
+#+begin_src shell
+echo abcdefg > hello.txt
+cargo run
+#+end_src
+
+in other terminal:
+
+#+begin_src shell
+telnet 127.0.0.1 8080
+#+end_src
+
+copy from [[https://tokio.rs/blog/2021-07-tokio-uring][Announcing
+tokio-uring: io-uring support for Tokio]]

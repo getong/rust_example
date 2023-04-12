@@ -1,0 +1,10 @@
+* rust AsRef and AsMut example
+:PROPERTIES:
+:CUSTOM_ID: rust-asref-and-asmut-example
+:END:
+copy from [[https://juejin.cn/post/6844904181258534919][Rust笔记 - AsRef
+and AsMut trait]]
+
+copy from
+[[https://wiki.jikexueyuan.com/project/rust-primer/intoborrow/asref.html][AsRef
+和 AsMut]]

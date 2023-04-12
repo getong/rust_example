@@ -1,0 +1,7 @@
+* rltk specs helloecs
+:PROPERTIES:
+:CUSTOM_ID: rltk-specs-helloecs
+:END:
+copy from
+[[https://bfnightly.bracketproductions.com/chapter_2.html][Chapter 2 -
+Entities and Components]]

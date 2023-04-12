@@ -1,0 +1,4 @@
+* crossbeam workspace example
+:PROPERTIES:
+:CUSTOM_ID: crossbeam-workspace-example
+:END:

@@ -1,0 +1,7 @@
+* bloom filter example
+:PROPERTIES:
+:CUSTOM_ID: bloom-filter-example
+:END:
+copy from
+[[https://medium.com/@dillen.dev/practical-bloom-filters-dc49e3deb335][Practical
+Bloom Filters]]

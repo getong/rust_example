@@ -1,0 +1,7 @@
+* Counting Diagonals example
+:PROPERTIES:
+:CUSTOM_ID: counting-diagonals-example
+:END:
+copy from
+[[https://applied-math-coding.medium.com/counting-diagonals-in-regular-polyhedrons-4442877e3949][Counting
+Diagonals in Regular Polyhedrons.]]

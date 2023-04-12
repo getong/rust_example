@@ -1,0 +1,6 @@
+* arc wrong example
+:PROPERTIES:
+:CUSTOM_ID: arc-wrong-example
+:END:
+copy from [[https://itsallaboutthebit.com/arc-mutex/][Arc and Mutex in
+Rust]]

@@ -1,0 +1,6 @@
+* pointer example
+:PROPERTIES:
+:CUSTOM_ID: pointer-example
+:END:
+copy from [[https://juejin.cn/post/6955440042789568519][在 Rust
+中使用裸函数指针]]

@@ -1,0 +1,7 @@
+* Fn, FnMut, FnOnce workspace example
+:PROPERTIES:
+:CUSTOM_ID: fn-fnmut-fnonce-workspace-example
+:END:
+copy from
+[[https://tonydeng.github.io/2019/11/09/rust-closure-type/][Rust的闭包类型(Fn,
+FnMut, FnOne的区别)]]

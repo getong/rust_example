@@ -1,0 +1,7 @@
+* future stream example
+:PROPERTIES:
+:CUSTOM_ID: future-stream-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/keep-state-while-processing-a-futures-stream/35242][Keep
+state while processing a Futures Stream]]

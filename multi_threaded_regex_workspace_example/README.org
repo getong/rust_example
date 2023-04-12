@@ -1,0 +1,14 @@
+* multi-threaded regex matching
+:PROPERTIES:
+:CUSTOM_ID: multi-threaded-regex-matching
+:END:
+copy from
+[[https://morestina.net/blog/1827/multi-threaded-regex][Contention on
+multi-threaded regex matching]]
+
+#+begin_src rust
+for i in basic_regex_example rayon_regex_example thread_rayon_regex_example
+do
+ cargo run --bin $i
+done
+#+end_src

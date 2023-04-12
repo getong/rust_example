@@ -1,0 +1,6 @@
+* tokio oneshot fuse example
+:PROPERTIES:
+:CUSTOM_ID: tokio-oneshot-fuse-example
+:END:
+copy from [[https://github.com/tokio-rs/tokio/discussions/3812][use
+select! oneshot "called after complete" error #3812]]

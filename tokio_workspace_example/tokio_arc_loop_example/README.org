@@ -1,0 +1,13 @@
+* tokio arc loop example
+:PROPERTIES:
+:CUSTOM_ID: tokio-arc-loop-example
+:END:
+copy from https://github.com/jbarszczewski/rust-tokio-tutorial
+
+#+begin_src shell
+cargo run
+
+
+## other terminal
+curl http://127.0.0.1:8181
+#+end_src

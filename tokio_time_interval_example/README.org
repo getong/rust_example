@@ -1,0 +1,6 @@
+* tokio time interval example
+:PROPERTIES:
+:CUSTOM_ID: tokio-time-interval-example
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/113526842][Rust
+tokio::select学习杂记]]

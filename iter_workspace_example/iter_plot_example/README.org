@@ -1,0 +1,7 @@
+* iter plot example
+:PROPERTIES:
+:CUSTOM_ID: iter-plot-example
+:END:
+copy from
+[[https://applied-math-coding.medium.com/producing-a-zoom-able-bifurcation-diagram-in-tauri-rust-d2867ff1387f][Producing
+a zoom-able Bifurcation Diagram in Tauri/Rust]]

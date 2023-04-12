@@ -1,0 +1,7 @@
+* memory transmute workspace example
+:PROPERTIES:
+:CUSTOM_ID: memory-transmute-workspace-example
+:END:
+copy from
+[[https://runebook.dev/zh-CN/docs/rust/std/mem/fn.transmute][Function
+std::mem::transmute]]

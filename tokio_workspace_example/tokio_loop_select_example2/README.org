@@ -1,0 +1,6 @@
+* tokio loop select example 2
+:PROPERTIES:
+:CUSTOM_ID: tokio-loop-select-example-2
+:END:
+copy from [[https://github.com/rdigua/rust-learning][Rust
+tokio::select学习杂记]]

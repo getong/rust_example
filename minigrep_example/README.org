@@ -1,0 +1,14 @@
+* minigrep example
+:PROPERTIES:
+:CUSTOM_ID: minigrep-example
+:END:
+see
+[[https://www.reddit.com/r/rust/comments/qzdkks/just_finished_exercise_12_can_anyone_review/][minigrep]]
+copy from
+[[https://gist.github.com/traverse1984/78679ffe11e5b1e76f1bb826f58838e6][minigrep]]
+
+run command:
+
+#+begin_src shell
+cargo run -- minigrep src/main.rs
+#+end_src

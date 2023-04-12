@@ -1,0 +1,6 @@
+* AtomicWaker example
+:PROPERTIES:
+:CUSTOM_ID: atomicwaker-example
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/129273132][Rust Async:
+深度分析AtomicWaker]]

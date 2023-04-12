@@ -1,0 +1,9 @@
+* socket2 example
+:PROPERTIES:
+:CUSTOM_ID: socket2-example
+:END:
+#+begin_src shell
+cargo run
+
+telnet localhost 12345
+#+end_src

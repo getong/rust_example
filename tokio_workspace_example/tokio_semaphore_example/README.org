@@ -1,0 +1,34 @@
+* tokio Semaphore
+:PROPERTIES:
+:CUSTOM_ID: tokio-semaphore
+:END:
+copy from
+[[https://rust-book.junmajinlong.com/ch100/06_task_state_sync.html][tokio
+task的通信和同步(3): 同步]]
+
+#+begin_quote
+
+#+begin_quote
+
+#+begin_quote
+tokio::sync::Semaphore提供了以下一些方法:
+
+#+end_quote
+
+#+end_quote
+
+#+end_quote
+
+close(): 关闭信号量，关闭信号量时，将唤醒所有的信号灯等待者 is_closed():
+检查信号量是否已经被关闭 acquire():
+获取一个信号灯，如果信号量已经被关闭，则返回错误AcquireError
+acquire_many():
+获取指定数量的信号灯，如果信号灯数量不够则等待，如果信号量已经被关闭，则返回AcquireError
+add_permits(): 向信号量中额外添加N个信号灯 available_permits():
+当前信号量中剩余的信号灯数量 try_acquire():
+不等待地尝试获取一个信号灯，如果信号量已经关闭，则返回TryAcquireError::Closed，如果目前信号灯数量为0，则返回TryAcquireError::NoPermits
+try_acquire_many(): 尝试获取指定数量的信号灯 acquire_owned():
+获取一个信号灯并消费掉信号量 acquire_many_owned():
+获取指定数量的信号灯并消费掉信号量 try_acquire_owned():
+尝试获取信号灯并消费掉信号量 try_acquire_many_owned():
+尝试获取指定数量的信号灯并消费掉信号量

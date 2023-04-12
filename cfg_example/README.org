@@ -1,0 +1,6 @@
+* cfg example
+:PROPERTIES:
+:CUSTOM_ID: cfg-example
+:END:
+copy from
+[[https://rustwiki.org/zh-CN/rust-by-example/attribute/cfg.html][cfg]]

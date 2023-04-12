@@ -1,0 +1,7 @@
+* tokio park example
+:PROPERTIES:
+:CUSTOM_ID: tokio-park-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/72074444/task-execution-pause-resume-in-rust-async-tokio][Task
+execution pause/resume in Rust async? (tokio)]]

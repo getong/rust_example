@@ -1,0 +1,7 @@
+* rltk specs walkmap
+:PROPERTIES:
+:CUSTOM_ID: rltk-specs-walkmap
+:END:
+copy from
+[[https://bfnightly.bracketproductions.com/chapter_3.html][Chapter 3 -
+Walking a Map]]

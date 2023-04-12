@@ -1,0 +1,5 @@
+* yield example
+:PROPERTIES:
+:CUSTOM_ID: yield-example
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/27900879][协程 Coroutine]]

@@ -1,0 +1,11 @@
+* tokio current_thread example
+:PROPERTIES:
+:CUSTOM_ID: tokio-current_thread-example
+:END:
+#+begin_src shell
+ps -eLf | grep 'current' | nl
+#+end_src
+
+copy from
+[[https://rust-book.junmajinlong.com/ch100/01_understand_tokio_runtime.html][理解tokio核心(1):
+runtime]]

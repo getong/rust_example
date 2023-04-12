@@ -1,0 +1,19 @@
+This examples shows to make hot reloading configurable using a feature.
+
+For development use two terminals and run the binary
+
+#+begin_src shell
+cargo watch -i lib -x 'run --features reload'
+#+end_src
+
+and (re-)build the lib
+
+#+begin_src shell
+cargo watch -w lib -x build
+#+end_src
+
+To run with a statically compiled binary just do
+
+#+begin_src shell
+cargo run
+#+end_src

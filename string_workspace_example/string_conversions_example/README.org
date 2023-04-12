@@ -1,0 +1,7 @@
+* String conversions in Rust
+:PROPERTIES:
+:CUSTOM_ID: string-conversions-in-rust
+:END:
+copy from
+[[https://medium.com/@august2079/string-conversions-in-rust-8c757be82352][String
+conversions in Rust]]

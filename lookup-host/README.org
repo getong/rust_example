@@ -1,0 +1,12 @@
+* lookup host
+:PROPERTIES:
+:CUSTOM_ID: lookup-host
+:END:
+** run
+:PROPERTIES:
+:CUSTOM_ID: run
+:END:
+#+begin_example
+## run the server
+cargo run www.baidu.com
+#+end_example

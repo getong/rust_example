@@ -1,0 +1,11 @@
+* regex example
+:PROPERTIES:
+:CUSTOM_ID: regex-example
+:END:
+** run command
+:PROPERTIES:
+:CUSTOM_ID: run-command
+:END:
+#+begin_src shell
+cargo run -- www.baidu.com:80
+#+end_src

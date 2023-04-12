@@ -1,0 +1,5 @@
+* bichannel example
+:PROPERTIES:
+:CUSTOM_ID: bichannel-example
+:END:
+copy from [[https://github.com/nkconnor/bichannel][bichannel]]

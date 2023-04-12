@@ -1,0 +1,12 @@
+* sqlite example
+:PROPERTIES:
+:CUSTOM_ID: sqlite-example
+:END:
+** run command
+:PROPERTIES:
+:CUSTOM_ID: run-command
+:END:
+#+begin_src shell
+cargo run -- add
+cargo run -- list
+#+end_src

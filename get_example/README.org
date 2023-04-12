@@ -1,0 +1,5 @@
+* get example
+:PROPERTIES:
+:CUSTOM_ID: get-example
+:END:
+open the browser and visit http://localhost:18080/hello

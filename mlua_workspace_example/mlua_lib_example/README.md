@@ -1,8 +1,0 @@
-# mlua lib module
-
-``` shell
-$ cargo rustc -- -C link-arg=-undefined -C link-arg=dynamic_lookup
-$ ln -sf ../target/debug/libmlua_lib_example.dylib my_module.so
-$ lua5.4 -e 'require("my_module").hello("world")'
-hello, world!
-```

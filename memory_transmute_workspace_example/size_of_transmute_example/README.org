@@ -1,0 +1,5 @@
+* size of transmute example
+:PROPERTIES:
+:CUSTOM_ID: size-of-transmute-example
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/21820917][类型的大小]]

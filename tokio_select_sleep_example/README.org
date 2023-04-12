@@ -1,0 +1,6 @@
+* tokio select sleep example
+:PROPERTIES:
+:CUSTOM_ID: tokio-select-sleep-example
+:END:
+copy from [[https://actix.rs/actix/actix/clock/struct.Sleep.html][Struct
+actix::clock::Sleep]]

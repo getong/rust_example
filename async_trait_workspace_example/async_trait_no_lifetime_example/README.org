@@ -1,0 +1,6 @@
+* async_trait no lifetime example
+:PROPERTIES:
+:CUSTOM_ID: async_trait-no-lifetime-example
+:END:
+copy from [[https://itsallaboutthebit.com/async-simple/][(async) Rust
+doesn't have to be hard]]

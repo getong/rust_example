@@ -1,0 +1,7 @@
+* maximum depth of binary tree
+:PROPERTIES:
+:CUSTOM_ID: maximum-depth-of-binary-tree
+:END:
+copy from
+[[https://medium.com/@gftea/can-rust-outperform-c-a43c02e7ecba][Can Rust
+Outperform C?]]

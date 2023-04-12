@@ -1,0 +1,7 @@
+* Finding the longest matching sub-sequences.
+:PROPERTIES:
+:CUSTOM_ID: finding-the-longest-matching-sub-sequences.
+:END:
+copy from
+[[https://applied-math-coding.medium.com/finding-the-longest-matching-sub-sequences-52be80e1ef3c][Finding
+the longest matching sub-sequences.]]

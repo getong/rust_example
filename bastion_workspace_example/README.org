@@ -1,0 +1,5 @@
+* bastion workspace example
+:PROPERTIES:
+:CUSTOM_ID: bastion-workspace-example
+:END:
+copy from [[https://www.bastion-rs.com/][Bastion]]

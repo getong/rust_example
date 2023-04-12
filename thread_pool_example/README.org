@@ -1,0 +1,7 @@
+* threadpool example
+:PROPERTIES:
+:CUSTOM_ID: threadpool-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/stuck-need-help-with-threading-and-channels/47710][Stuck,
+need help with threading and channels]]

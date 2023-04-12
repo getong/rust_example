@@ -1,0 +1,6 @@
+* regex workspace example
+:PROPERTIES:
+:CUSTOM_ID: regex-workspace-example
+:END:
+copy from
+https://rust-lang-nursery.github.io/rust-cookbook/text/regex.html

@@ -1,0 +1,13 @@
+* tokio async io example
+:PROPERTIES:
+:CUSTOM_ID: tokio-async-io-example
+:END:
+copy from
+[[https://rust-book.junmajinlong.com/ch100/08_tokio_io.html][异步IO示例二：网络IO]]
+
+#+begin_src shell
+cargo run
+
+## run in another terminal
+telnet 127.0.0.1 8888
+#+end_src

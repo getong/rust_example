@@ -1,0 +1,6 @@
+* variadic function example1
+:PROPERTIES:
+:CUSTOM_ID: variadic-function-example1
+:END:
+copy from
+[[https://rustwiki.org/zh-CN/rust-by-example/macros/variadics.html][可变参数接口]]

@@ -1,0 +1,7 @@
+* tokio RwLock example
+:PROPERTIES:
+:CUSTOM_ID: tokio-rwlock-example
+:END:
+copy from
+[[https://docs.rs/tokio/1.13.0/tokio/sync/struct.RwLock.html][Struct
+tokio::sync::RwLock]]

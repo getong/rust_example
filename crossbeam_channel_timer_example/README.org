@@ -1,0 +1,6 @@
+* crossbeam_channel timer example
+:PROPERTIES:
+:CUSTOM_ID: crossbeam_channel-timer-example
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/421919506][Let's Go Rust
+系列之定时器 Ticker Timer]]

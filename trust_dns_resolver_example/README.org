@@ -1,0 +1,11 @@
+* trust_dns_resolver example
+:PROPERTIES:
+:CUSTOM_ID: trust_dns_resolver-example
+:END:
+** run
+:PROPERTIES:
+:CUSTOM_ID: run
+:END:
+#+begin_example
+cargo run www.baidu.com
+#+end_example

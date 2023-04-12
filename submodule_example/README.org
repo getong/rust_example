@@ -1,0 +1,9 @@
+* submodule example
+:PROPERTIES:
+:CUSTOM_ID: submodule-example
+:END:
+copy from [[http://www.sheshbabu.com/posts/rust-module-system/][Clear
+explanation of Rust's module system]]
+
+or copy from
+[[https://zhuanlan.zhihu.com/p/164556350][【翻译】关于Rust模块系统的清晰解释]]

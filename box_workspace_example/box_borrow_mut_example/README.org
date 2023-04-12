@@ -1,0 +1,7 @@
+* Box::borrow_mut() example
+:PROPERTIES:
+:CUSTOM_ID: boxborrow_mut-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/trait-objects-and-borrowmut/8520][Trait
+Objects and BorrowMut]]

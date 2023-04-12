@@ -1,0 +1,12 @@
+* yew_canvas_example
+:PROPERTIES:
+:CUSTOM_ID: yew_canvas_example
+:END:
+** run command:
+:PROPERTIES:
+:CUSTOM_ID: run-command
+:END:
+#+begin_src shell
+cargo build
+trunk serve
+#+end_src

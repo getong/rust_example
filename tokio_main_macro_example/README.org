@@ -1,0 +1,19 @@
+* tokio main macro example
+:PROPERTIES:
+:CUSTOM_ID: tokio-main-macro-example
+:END:
+The two modules in the src are equal. copy from
+[[https://docs.rs/tokio/1.11.0/tokio/runtime/index.html][Module
+tokio::runtime]]
+
+** usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+#+begin_src shell
+// macro_main
+cargo run --bin macro_main
+
+// normal_main
+cargo run --bin normal_main
+#+end_src

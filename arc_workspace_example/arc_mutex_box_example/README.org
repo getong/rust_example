@@ -1,0 +1,7 @@
+* arc mutex box example
+:PROPERTIES:
+:CUSTOM_ID: arc-mutex-box-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/on-the-fly-substitution-of-option-arc-mutex-box-dyn-t/61521][On-the-fly
+substitution of =Option<Arc<Mutex<Box<dyn T>>>>=]]

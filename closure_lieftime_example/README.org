@@ -1,0 +1,7 @@
+* closure lifetime example
+:PROPERTIES:
+:CUSTOM_ID: closure-lifetime-example
+:END:
+copy from
+[[https://cotigao.medium.com/hows-a-capture-in-rust-closures-2884d6ef3cbe][How's
+a capture in Rust closures?]]

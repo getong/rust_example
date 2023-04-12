@@ -1,0 +1,14 @@
+* rust multi thread http server example
+:PROPERTIES:
+:CUSTOM_ID: rust-multi-thread-http-server-example
+:END:
+copy from
+[[https://github.com/superfreeeee/Blog/blob/master/back_end/rust/RustMultithreadHttpServer.md][Rust
+实战: 启动多线程 Web 服务]]
+
+#+begin_example
+cargo build
+cargo run
+
+curl http://127.0.0.1:8080
+#+end_example

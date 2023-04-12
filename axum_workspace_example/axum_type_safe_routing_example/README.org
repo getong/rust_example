@@ -1,0 +1,28 @@
+* axum type safe routing example
+:PROPERTIES:
+:CUSTOM_ID: axum-type-safe-routing-example
+:END:
+It is mainly copied from
+[[https://mixi-developers.mixi.co.jp/how-to-use-type-safe-routing-of-axum-c06c1b1b1ab][How
+to use "Type safe routing" of axum]]
+
+** build comamnd
+:PROPERTIES:
+:CUSTOM_ID: build-comamnd
+:END:
+#+begin_src shell
+cargo add tokio --features full
+cargo add axum-extra --features typed-routing
+cargo add serde --features derive
+cargo add axum
+
+cargo build
+#+end_src
+
+** client command:
+:PROPERTIES:
+:CUSTOM_ID: client-command
+:END:
+#+begin_src shell
+curl localhost:8088/api/users/123
+#+end_src

@@ -1,0 +1,11 @@
+* laminar client example2
+:PROPERTIES:
+:CUSTOM_ID: laminar-client-example2
+:END:
+#+begin_src shell
+cd ../laminar_server_example
+cargo run &
+
+cd -
+cargo run
+#+end_src

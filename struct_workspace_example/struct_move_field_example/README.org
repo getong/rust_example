@@ -1,0 +1,7 @@
+* move a field of a struc
+:PROPERTIES:
+:CUSTOM_ID: move-a-field-of-a-struc
+:END:
+copy from
+[[https://users.rust-lang.org/t/cannot-move-a-field-of-a-struct/23949][Cannot
+move a field of a struct]]

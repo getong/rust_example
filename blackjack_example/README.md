@@ -1,3 +1,0 @@
-# blackjack example
-copy from https://www.reddit.com/r/rust/comments/yaphpf/blackjack_in_rust/
-copy from https://hastebin-plus.herokuapp.com/VysqJ7FL4M

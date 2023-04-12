@@ -1,0 +1,6 @@
+* panic_handler_generate_coredump example
+:PROPERTIES:
+:CUSTOM_ID: panic_handler_generate_coredump-example
+:END:
+copy from [[https://dev.to/jcarlosv/core-dump-for-rust-10nm][Core dump
+for Rust]]

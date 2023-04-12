@@ -1,0 +1,23 @@
+* mut self.field example
+:PROPERTIES:
+:CUSTOM_ID: mut-self.field-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/are-there-any-differences-between-returning-mut-self-field-and-creating-them-directly-with-mut-struct-field/67774][Are
+there any differences between returning &mut self.field and creating
+them directly with &mut struct.field?]]
+
+#+begin_quote
+
+#+begin_quote
+
+#+begin_quote
+When you use a method to create the borrow, the entire struct gets
+borrowed, whereas when you reference the field directly, only the field
+is borrowed.
+
+#+end_quote
+
+#+end_quote
+
+#+end_quote

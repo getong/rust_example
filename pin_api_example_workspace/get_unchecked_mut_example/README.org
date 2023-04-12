@@ -1,0 +1,5 @@
+* pin get_unchecked_mut() example
+:PROPERTIES:
+:CUSTOM_ID: pin-get_unchecked_mut-example
+:END:
+part copy from [[https://doc.rust-lang.org/std/pin/][Module std::pin]]

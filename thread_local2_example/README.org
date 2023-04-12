@@ -1,0 +1,7 @@
+* thread local 2 example
+:PROPERTIES:
+:CUSTOM_ID: thread-local-2-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/69785363/accessing-global-state-from-a-callback-in-rust][Accessing
+global state from a callback in rust]]

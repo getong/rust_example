@@ -1,0 +1,41 @@
+* once_cell, arc_swap and deadpool_redis example
+:PROPERTIES:
+:CUSTOM_ID: once_cell-arc_swap-and-deadpool_redis-example
+:END:
+The code is originally copied from
+[[https://docs.rs/deadpool-redis/0.10.0/deadpool_redis/][Crate
+deadpool_redis]]
+
+another code example is copied from
+[[https://users.rust-lang.org/t/one-global-variable-for-mysql-connection/49063][One
+global variable for MySQL connection]]
+
+** run commands
+:PROPERTIES:
+:CUSTOM_ID: run-commands
+:END:
+#+begin_src rust
+redis-server redis.conf
+cargo run -p once_cell_lazy_arc_swap_deadpool_redis_example
+cargo run -p once_cell_arc_swap_deadpool_redis_example2
+#+end_src
+
+#+begin_src rust
+use once_cell::sync::OnceCell;
+
+static MONGODB: OnceCell<Database> = OnceCell::new();
+
+pub async fn initialize() {
+    if MONGODB.get().is_some() {
+        return;
+    }
+
+    if let Ok(token) = env::var("CONNECTION") {
+        if let Ok(client_options) = ClientOptions::parse(token.as_str()).await {
+            if let Ok(client) = Client::with_options(client_options) {
+                let _ = MONGODB.set(client.database("my_db"));
+            }
+        }
+    }
+}
+#+end_src

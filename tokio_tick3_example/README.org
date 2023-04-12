@@ -1,0 +1,5 @@
+* tokio select tick example
+:PROPERTIES:
+:CUSTOM_ID: tokio-select-tick-example
+:END:
+copy from https://github.com/tokio-rs/tokio/issues/2565

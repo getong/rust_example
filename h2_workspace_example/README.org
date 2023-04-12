@@ -1,0 +1,5 @@
+* h2 workspace example
+:PROPERTIES:
+:CUSTOM_ID: h2-workspace-example
+:END:
+copy from [[https://camposha.info/rust/h2/][Rust h2 Example]]

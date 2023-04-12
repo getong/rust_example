@@ -1,0 +1,5 @@
+* io:split example
+:PROPERTIES:
+:CUSTOM_ID: iosplit-example
+:END:
+copy from [[https://tokio.rs/tokio/tutorial/io][I/O]]

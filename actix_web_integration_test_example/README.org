@@ -1,0 +1,20 @@
+* actix_web integration test example
+:PROPERTIES:
+:CUSTOM_ID: actix_web-integration-test-example
+:END:
+#+begin_src shell
+cargo new actix_web_integration_test_example
+cd actix_web_integration_test_example
+
+
+cargo add actix_web
+cargo add tokio --features "macros rt-multi-thread"
+cargo add reqwest --dev
+
+mkdir -p tests
+cargo test
+#+end_src
+
+copy from
+[[https://www.lpalmieri.com/posts/2020-08-09-zero-to-production-3-how-to-bootstrap-a-new-rust-web-api-from-scratch/][How
+To Bootstrap A Rust Web API From Scratch]]

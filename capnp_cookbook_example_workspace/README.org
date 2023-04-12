@@ -1,0 +1,9 @@
+* Captain's Cookbook example workspace
+:PROPERTIES:
+:CUSTOM_ID: captains-cookbook-example-workspace
+:END:
+copy from
+[[https://bspeice.github.io/captains-cookbook-part-1.html][Captain's
+Cookbook - Part 1]] copy from
+[[https://bspeice.github.io/captains-cookbook-part-2.html][Captain's
+Cookbook - Part 2]]

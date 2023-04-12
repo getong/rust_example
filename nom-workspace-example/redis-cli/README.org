@@ -1,0 +1,10 @@
+* redis cli
+:PROPERTIES:
+:CUSTOM_ID: redis-cli
+:END:
+copy from [[https://zhuanlan.zhihu.com/p/139387293][2. 解析Redis协议]]
+
+#+begin_src shell
+cargo run  -- get a
+cargo run  -- ping
+#+end_src

@@ -1,0 +1,6 @@
+* customize vtable
+:PROPERTIES:
+:CUSTOM_ID: customize-vtable
+:END:
+copy partly from
+[[https://qnighy.hatenablog.com/entry/2017/03/18/070000][Rustのvtableの内部構造]]

@@ -1,0 +1,53 @@
+* tokio_stream pin example
+:PROPERTIES:
+:CUSTOM_ID: tokio_stream-pin-example
+:END:
+copy from [[https://tokio.rs/tokio/tutorial/streams][Streams]]
+
+#+begin_quote
+
+#+begin_quote
+
+#+begin_quote
+After subscribing, into_stream() is called on the returned subscriber.
+This consumes the Subscriber, returning a stream that yields messages as
+they arrive. Before we start iterating the messages, note that the
+stream is pinned to the stack using tokio::pin!. Calling next() on a
+stream requires the stream to be pinned. The into_stream() function
+returns a stream that is not pinned, we must explicitly pin it in order
+to iterate it.
+
+#+end_quote
+
+#+end_quote
+
+#+end_quote
+
+A Rust value is "pinned" when it can no longer be moved in memory. A key
+property of a pinned value is that pointers can be taken to the pinned
+data and the caller can be confident the pointer stays valid. This
+feature is used by async/await to support borrowing data across .await
+points.
+
+#+begin_quote
+
+#+begin_quote
+
+#+begin_quote
+在订阅之后，into_stream() 被调用到返回的订阅者上。这将消耗 Subscriber
+，返回一个
+stream，在消息到达时产生消息。在我们开始迭代消息之前，请注意流是用
+tokio::pin pin 在栈上的。在一个流上调用 next() 需要流被 pin
+住。into_stream() 函数返回的是一个没有 pin 的流，我们必须明确地 pin
+它，以便对其进行遍历。
+
+#+end_quote
+
+#+end_quote
+
+#+end_quote
+
+当一个 Rust 值在内存中不能再被移动时，它就被 "pin"了。被 pin
+的值的一个关键属性是，指针可以被带到被 pin
+的数据上，并且调用者可以确信该指针保持有效。这个特性被 async/await
+用来支持跨 .await 点借用数据。

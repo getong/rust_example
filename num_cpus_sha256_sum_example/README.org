@@ -1,0 +1,12 @@
+* num_cpus_sha256_sum_example
+:PROPERTIES:
+:CUSTOM_ID: num_cpus_sha256_sum_example
+:END:
+** command
+:PROPERTIES:
+:CUSTOM_ID: command
+:END:
+#+begin_src shell
+touch a.iso
+cargo run
+#+end_src

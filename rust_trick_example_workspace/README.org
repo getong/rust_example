@@ -1,0 +1,7 @@
+* Rust tricks and tips
+:PROPERTIES:
+:CUSTOM_ID: rust-tricks-and-tips
+:END:
+copy from
+[[https://federicoterzi.com/blog/12-rust-tips-and-tricks-you-might-not-know-yet/][12
+Rust Tips and Tricks you might not know yet]]

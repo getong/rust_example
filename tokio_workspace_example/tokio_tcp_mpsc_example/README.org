@@ -1,0 +1,6 @@
+* tokio chat example
+:PROPERTIES:
+:CUSTOM_ID: tokio-chat-example
+:END:
+copy from
+[[https://github.com/tokio-rs/tokio/blob/master/examples/chat.rs][chat]]

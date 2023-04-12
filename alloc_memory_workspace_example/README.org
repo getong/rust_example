@@ -1,0 +1,7 @@
+* alloc memory example
+:PROPERTIES:
+:CUSTOM_ID: alloc-memory-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/48485454/rust-manual-memory-management][Rust
+manual memory management]]

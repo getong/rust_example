@@ -1,0 +1,8 @@
+* fred redis workspace example
+:PROPERTIES:
+:CUSTOM_ID: fred-redis-workspace-example
+:END:
+#+begin_src shell
+redis-server redis-server
+cargo run --bin fred_client_example
+#+end_src

@@ -1,0 +1,17 @@
+* yew-app example
+:PROPERTIES:
+:CUSTOM_ID: yew-app-example
+:END:
+** command
+:PROPERTIES:
+:CUSTOM_ID: command
+:END:
+#+begin_src shell
+wasm-pack build --target web --out-name wasm --out-dir ./static
+cargo +nightly install miniserve
+miniserve ./static --index index.html
+#+end_src
+
+copy from
+[[https://yew.rs/docs/en/getting-started/build-a-sample-app][Build a
+sample app]]

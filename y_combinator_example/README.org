@@ -1,0 +1,6 @@
+* y combinator example
+:PROPERTIES:
+:CUSTOM_ID: y-combinator-example
+:END:
+copy from [[https://rosettacode.org/wiki/Y_combinator#Rust][y combinator
+-- rust]]

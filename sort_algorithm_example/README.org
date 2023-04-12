@@ -1,0 +1,6 @@
+* sort algorithm example
+:PROPERTIES:
+:CUSTOM_ID: sort-algorithm-example
+:END:
+copy from
+[[[https://juejin.cn/post/6844904053353218062#heading-2][Rust实现八种排序算法]]

@@ -1,0 +1,7 @@
+* stringify example
+:PROPERTIES:
+:CUSTOM_ID: stringify-example
+:END:
+copy from
+[[https://www.reddit.com/r/rust/comments/wg8q04/printing_name_of_variable/][Printing
+name of variable]]

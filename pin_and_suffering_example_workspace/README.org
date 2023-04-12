@@ -1,0 +1,50 @@
+* pin and suffering
+:PROPERTIES:
+:CUSTOM_ID: pin-and-suffering
+:END:
+copy from [[https://fasterthanli.me/articles/pin-and-suffering][Pin and
+suffering]]
+
+#+begin_quote
+
+#+begin_quote
+
+#+begin_quote
+The sleep in std does just call the sleep syscall, pretty much.
+
+#+end_quote
+
+#+end_quote
+
+#+end_quote
+
+Whereas the sleep in tokio returns a Future... that registers a timer
+when you first poll it... and it only completes when the deadline is
+reached.
+
+An async is actually just a synchronous function that returns a future!
+
+And the other variant is Pending, which you should return if your future
+is not quite done yet.
+
+it only gets polled again if it registered to be polled again. Did you
+think it would be polled in a loop? Imagine if you're trying to read
+from a socket and the other peer is not sending anything for five
+seconds.
+
+The read future would be polled and polled and polled in a busy loop for
+five seconds. It would consume an entire CPU core! No, futures are only
+"awakened" when something happens.
+
+the poll method takes two arguments. The receiver is... some form of
+self, so, MyFuture, and the second argument is a &mut Context.
+
+Let's see what it has... it has... a waker() method that returns a
+&Waker!
+
+You can even go one step further and add the futures crate so you can
+use FutureExt::poll_unpin, because polling an Unpin future is a common
+operation.
+
+Well, AsyncRead is a trait. And traits can't have async methods. (At the
+time of this writing, ie. with Rust 1.51).

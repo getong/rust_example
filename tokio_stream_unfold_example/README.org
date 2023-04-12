@@ -1,0 +1,8 @@
+* tokio stream unfold example
+:PROPERTIES:
+:CUSTOM_ID: tokio-stream-unfold-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/56273037/how-can-i-run-a-set-of-functions-concurrently-on-a-recurring-interval-without-ru][How
+can I run a set of functions concurrently on a recurring interval
+without running the same function at the same time using Tokio]]

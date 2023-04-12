@@ -1,0 +1,6 @@
+* rust file encryption example
+:PROPERTIES:
+:CUSTOM_ID: rust-file-encryption-example
+:END:
+copy from [[https://kerkour.com/rust-file-encryption/][How to encrypt a
+file in Rust (Using streaming AEAD encryption)]]

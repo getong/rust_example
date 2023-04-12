@@ -1,0 +1,13 @@
+* actix_web health_check example
+:PROPERTIES:
+:CUSTOM_ID: actix_web-health_check-example
+:END:
+#+begin_src shell
+cargo run
+
+cargo test
+#+end_src
+
+copy from
+[[https://www.lpalmieri.com/posts/2020-08-09-zero-to-production-3-how-to-bootstrap-a-new-rust-web-api-from-scratch/][How
+To Bootstrap A Rust Web API From Scratch]]

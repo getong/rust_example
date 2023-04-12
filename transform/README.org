@@ -1,0 +1,6 @@
+* transform example
+:PROPERTIES:
+:CUSTOM_ID: transform-example
+:END:
+copy from
+[[https://asecuritysite.com/rust/rust_transform][rust_transform]]

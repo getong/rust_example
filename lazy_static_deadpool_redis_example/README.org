@@ -1,0 +1,11 @@
+* lazy_static and deadpool-redis example
+:PROPERTIES:
+:CUSTOM_ID: lazy_static-and-deadpool-redis-example
+:END:
+The code is originally copied from
+[[https://docs.rs/deadpool-redis/0.10.0/deadpool_redis/][Crate
+deadpool_redis]]
+
+another code example is copied from
+[[https://users.rust-lang.org/t/one-global-variable-for-mysql-connection/49063][One
+global variable for MySQL connection]]

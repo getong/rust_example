@@ -1,0 +1,6 @@
+* nom::bits::bytes exmaple
+:PROPERTIES:
+:CUSTOM_ID: nombitsbytes-exmaple
+:END:
+copy from [[https://docs.rs/nom/7.0.0/nom/bits/fn.bytes.html][Function
+nom::bits::bytes]]

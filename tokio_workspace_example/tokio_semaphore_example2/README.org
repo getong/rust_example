@@ -1,0 +1,7 @@
+* rust_example
+:PROPERTIES:
+:CUSTOM_ID: rust_example
+:END:
+copy from
+[[https://www.artificialworlds.net/blog/2021/01/08/limiting-the-number-of-open-sockets-in-a-tokio-based-tcp-listener/][Limiting
+the number of open sockets in a tokio-based TCP listener]]

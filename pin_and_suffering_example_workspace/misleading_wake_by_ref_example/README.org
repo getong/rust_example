@@ -1,0 +1,8 @@
+* misleading wake_by_ref
+:PROPERTIES:
+:CUSTOM_ID: misleading-wake_by_ref
+:END:
+#+begin_src shell
+cargo run
+ctrl-c
+#+end_src

@@ -1,0 +1,12 @@
+* lines function example
+:PROPERTIES:
+:CUSTOM_ID: lines-function-example
+:END:
+** commands
+:PROPERTIES:
+:CUSTOM_ID: commands
+:END:
+#+begin_src shell
+echo -e "127.0.0.1\n192.168.0.1\n" > hosts
+cargo build && cargo run
+#+end_src

@@ -1,0 +1,10 @@
+* tokio loop select timeout example
+:PROPERTIES:
+:CUSTOM_ID: tokio-loop-select-timeout-example
+:END:
+run command:
+
+#+begin_src shell
+cargo run
+nc -u 127.0.0.1 9953
+#+end_src

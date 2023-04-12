@@ -1,0 +1,7 @@
+* tokio reset sleep timer
+:PROPERTIES:
+:CUSTOM_ID: tokio-reset-sleep-timer
+:END:
+copy from
+[[https://rust-book.junmajinlong.com/ch100/03_use_tokio_time.html][使用tokio
+Timer]]

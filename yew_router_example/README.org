@@ -1,0 +1,33 @@
+* Web Application Server - yew
+:PROPERTIES:
+:CUSTOM_ID: web-application-server---yew
+:END:
+#+begin_src sh
+git clone https://github.com/zzy/tide-async-graphql-mongodb.git
+cd tide-async-graphql-mongodb
+cargo build
+
+cd frontend-yew
+#+end_src
+
+** Build & Run:
+:PROPERTIES:
+:CUSTOM_ID: build-run
+:END:
+#+begin_src sh
+cargo install trunk wasm-bindgen-cli
+
+trunk build
+trunk serve
+#+end_src
+
+Then connect to http://127.0.0.1:3001 with browser.
+
+#+caption: Client Image
+[[../data/yew.jpg]]
+
+** Contributing
+:PROPERTIES:
+:CUSTOM_ID: contributing
+:END:
+You are welcome in contributing to this project.

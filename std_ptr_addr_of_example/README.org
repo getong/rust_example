@@ -1,0 +1,6 @@
+* std::ptr::addr_of! example
+:PROPERTIES:
+:CUSTOM_ID: stdptraddr_of-example
+:END:
+copy from
+[[https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=e8abac4699f491cb851eaddd52dddf99][example]]

@@ -1,0 +1,7 @@
+* tokio io::split() funtion
+:PROPERTIES:
+:CUSTOM_ID: tokio-iosplit-funtion
+:END:
+copy from
+[[https://stackoverflow.com/questions/62220109/how-do-i-use-tcpstream-split-across-2-threads-with-async][How
+do I use TcpStream split across 2 threads with async?]]

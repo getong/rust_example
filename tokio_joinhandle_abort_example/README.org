@@ -1,0 +1,6 @@
+* tokio::task::JoinHandle abort example
+:PROPERTIES:
+:CUSTOM_ID: tokiotaskjoinhandle-abort-example
+:END:
+tokio::task::JoinError::is_cancelled pub fn is_cancelled(&self) -> bool
+Returns true if the error was caused by the task being cancelled

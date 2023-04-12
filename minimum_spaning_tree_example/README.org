@@ -1,0 +1,7 @@
+* Minimum Spanning Trees and Kruskal's Algorithm implemented in Rust.
+:PROPERTIES:
+:CUSTOM_ID: minimum-spanning-trees-and-kruskals-algorithm-implemented-in-rust.
+:END:
+copy from
+[[https://applied-math-coding.medium.com/minimum-spanning-trees-and-kruskals-algorithm-implemented-in-rust-4e350f647adb][Minimum
+Spanning Trees and Kruskal's Algorithm implemented in Rust]]

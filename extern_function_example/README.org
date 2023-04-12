@@ -1,0 +1,12 @@
+* rust extern function example
+:PROPERTIES:
+:CUSTOM_ID: rust-extern-function-example
+:END:
+** run command
+:PROPERTIES:
+:CUSTOM_ID: run-command
+:END:
+#+begin_src shell
+cargo build --target wasm32-unknown-unknown
+node hello.js
+#+end_src

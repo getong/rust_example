@@ -1,0 +1,7 @@
+* future explain example
+:PROPERTIES:
+:CUSTOM_ID: future-explain-example
+:END:
+copy from
+[[https://medium.com/@gftea/async-state-machine-in-rust-e8d46af52532][Async
+State Machine in Rust]]

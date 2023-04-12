@@ -1,0 +1,10 @@
+* libp2p chat2 example
+:PROPERTIES:
+:CUSTOM_ID: libp2p-chat2-example
+:END:
+#+begin_src shell
+cargo run
+#+end_src
+
+copy from [[https://mp.weixin.qq.com/s/nIcDRqRYiYe1BW124-oLrA][Rust
+P2P网络应用实战-2 P2P网络聊天程序]]

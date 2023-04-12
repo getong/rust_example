@@ -1,0 +1,7 @@
+* pin_project example
+:PROPERTIES:
+:CUSTOM_ID: pin_project-example
+:END:
+copy from [[https://blog.cloudflare.com/pin-and-unpin-in-rust/][Pin,
+Unpin, and why Rust needs them]] copy from
+[[https://github.com/adamchalmers/nested-future-example][nested-future-example]]

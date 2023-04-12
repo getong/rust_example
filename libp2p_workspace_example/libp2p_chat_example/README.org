@@ -1,0 +1,9 @@
+* libp2p chat example
+:PROPERTIES:
+:CUSTOM_ID: libp2p-chat-example
+:END:
+#+begin_src shell
+cargo run
+
+cargo run -- hello
+#+end_src

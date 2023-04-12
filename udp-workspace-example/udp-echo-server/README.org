@@ -1,0 +1,15 @@
+* udp echo server
+:PROPERTIES:
+:CUSTOM_ID: udp-echo-server
+:END:
+** run
+:PROPERTIES:
+:CUSTOM_ID: run
+:END:
+#+begin_example
+## run the server
+cargo run
+
+## run the client
+nc -u localhost 8888
+#+end_example

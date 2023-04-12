@@ -1,0 +1,7 @@
+* box trait object example
+:PROPERTIES:
+:CUSTOM_ID: box-trait-object-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/box-with-a-trait-object-requires-static-lifetime/35261/4][Box
+with a trait object requires static lifetime]]

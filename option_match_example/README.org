@@ -1,0 +1,6 @@
+* match option example
+:PROPERTIES:
+:CUSTOM_ID: match-option-example
+:END:
+copy from [[https://www.jianshu.com/p/974d83a1158e][Rust Option
+模式匹配简介]]

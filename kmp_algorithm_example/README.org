@@ -1,0 +1,5 @@
+* kmp algorithm example
+:PROPERTIES:
+:CUSTOM_ID: kmp-algorithm-example
+:END:
+copy from [[https://www.bilibili.com/read/cv15172870][KMP算法（Rust）]]

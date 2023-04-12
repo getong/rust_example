@@ -1,0 +1,5 @@
+* better print
+:PROPERTIES:
+:CUSTOM_ID: better-print
+:END:
+copy from [[https://youtu.be/zdT3bUljGQw][5 Tips for Rust Beginners]]

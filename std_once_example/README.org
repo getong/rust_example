@@ -1,0 +1,7 @@
+* std once example
+:PROPERTIES:
+:CUSTOM_ID: std-once-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/69785363/accessing-global-state-from-a-callback-in-rust][Accessing
+global state from a callback in rust]]

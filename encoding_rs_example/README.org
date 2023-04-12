@@ -1,0 +1,7 @@
+* encoding rs example
+:PROPERTIES:
+:CUSTOM_ID: encoding-rs-example
+:END:
+copy from
+[[https://serendip.notion.site/Rust-UTF-16LE-112b747e55c24009b137403f4971031a][Rust -
+UTF-16LE]]

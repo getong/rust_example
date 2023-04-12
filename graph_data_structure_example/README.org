@@ -1,0 +1,7 @@
+* graph data structure example
+:PROPERTIES:
+:CUSTOM_ID: graph-data-structure-example
+:END:
+co py from
+[[https://applied-math-coding.medium.com/finding-the-connected-components-of-a-graph-d0bd7d1b9b21][Finding
+the Connected Components of a Graph.]]

@@ -1,0 +1,6 @@
+* &mut &[u8] example
+:PROPERTIES:
+:CUSTOM_ID: mut-u8-example
+:END:
+copy from [Rust、&mut
+&[u8]をread()すると元が消費されるが、&[u8]なら消費されない](https://scrapbox.io/nwtgck/Rust%E3%80%81&mut_&%5Bu8%5D%E3%82%92read()%E3%81%99%E3%82%8B%E3%81%A8%E5%85%83%E3%81%8C%E6%B6%88%E8%B2%BB%E3%81%95%E3%82%8C%E3%82%8B%E3%81%8C%E3%80%81&%5Bu8%5D%E3%81%AA%E3%82%89%E6%B6%88%E8%B2%BB%E3%81%95%E3%82%8C%E3%81%AA%E3%81%84](

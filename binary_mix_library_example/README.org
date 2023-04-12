@@ -1,0 +1,7 @@
+* binary mix library example
+:PROPERTIES:
+:CUSTOM_ID: binary-mix-library-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/57756927/rust-modules-confusion-when-there-is-main-rs-and-lib-rs][Rust
+modules confusion when there is main.rs and lib.rs]]

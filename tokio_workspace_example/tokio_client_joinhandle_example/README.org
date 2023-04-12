@@ -1,0 +1,14 @@
+* tokio tcp joinhandle example
+:PROPERTIES:
+:CUSTOM_ID: tokio-tcp-joinhandle-example
+:END:
+#+begin_src shell
+sudo pacman -S openbsd-netcat
+
+nc -l -p 3724
+cargo run
+#+end_src
+
+copy from
+[[https://stackoverflow.com/questions/72619628/future-cannot-be-sent-between-threads-safely-when-pass-arcmutex-into-tokio]["future
+cannot be sent between threads safely" when pass Arc into tokio::spawn]]

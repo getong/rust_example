@@ -1,0 +1,18 @@
+* serde server
+:PROPERTIES:
+:CUSTOM_ID: serde-server
+:END:
+** run
+:PROPERTIES:
+:CUSTOM_ID: run
+:END:
+#+begin_example
+## run the server
+cargo run -- --server
+
+## run the client
+cargo run -- --client
+1,2,3
+3,4,5
+4,5,6
+#+end_example

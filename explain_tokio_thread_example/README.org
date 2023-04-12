@@ -1,0 +1,11 @@
+* explain tokio thread
+:PROPERTIES:
+:CUSTOM_ID: explain-tokio-thread
+:END:
+#+begin_src shell
+ps -eLf | grep 'explain_tokio_thread_example' | nl
+#+end_src
+
+copy from
+[[https://rust-book.junmajinlong.com/ch100/01_understand_tokio_runtime.html][理解tokio核心(1):
+runtime]]

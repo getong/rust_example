@@ -1,0 +1,7 @@
+* parking_log example
+:PROPERTIES:
+:CUSTOM_ID: parking_log-example
+:END:
+copy from
+[[https://morestina.net/blog/1739/upgradable-parking_lotrwlock-might-not-be-what-you-expect][Upgradable
+parking_lot::RwLock might not be what you expect]]

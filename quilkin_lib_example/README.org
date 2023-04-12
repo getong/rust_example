@@ -1,0 +1,21 @@
+* quilkin lib example
+:PROPERTIES:
+:CUSTOM_ID: quilkin-lib-example
+:END:
+** build commands:
+:PROPERTIES:
+:CUSTOM_ID: build-commands
+:END:
+#+begin_src shell
+cargo build
+## or release
+cargo build --release
+#+end_src
+
+** run commands:
+:PROPERTIES:
+:CUSTOM_ID: run-commands
+:END:
+#+begin_src shell
+cargo run -- run -c proxy.yaml
+#+end_src

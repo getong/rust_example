@@ -1,0 +1,8 @@
+* laminar client example
+:PROPERTIES:
+:CUSTOM_ID: laminar-client-example
+:END:
+#+begin_src shell
+nc -u -l 6666
+cargo run
+#+end_src

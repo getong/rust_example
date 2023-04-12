@@ -1,0 +1,11 @@
+* process exit code example
+:PROPERTIES:
+:CUSTOM_ID: process-exit-code-example
+:END:
+run command
+
+#+begin_src shell
+cargo build
+cargo run
+echo $?
+#+end_src

@@ -1,0 +1,6 @@
+* variadic_function_example2
+:PROPERTIES:
+:CUSTOM_ID: variadic_function_example2
+:END:
+copy from
+[[https://zjp-cn.github.io/rust-note/dcl/variadic.html]["变长参数"函数与回调]]

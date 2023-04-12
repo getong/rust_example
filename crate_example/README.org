@@ -1,0 +1,11 @@
+* crate example
+:PROPERTIES:
+:CUSTOM_ID: crate-example
+:END:
+** command
+:PROPERTIES:
+:CUSTOM_ID: command
+:END:
+#+begin_src shell
+cargo test
+#+end_src

@@ -1,0 +1,15 @@
+* quiche workspace example
+:PROPERTIES:
+:CUSTOM_ID: quiche-workspace-example
+:END:
+see [[https://www.cnblogs.com/dream397/p/14583563.html][quic examples
+client server]]
+
+#+begin_src shell
+cd http3_server_example
+cargo run
+
+## on another terminal
+cd http3_client_example
+cargo run https://localhost:4433/index.html
+#+end_src

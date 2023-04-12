@@ -1,0 +1,19 @@
+* rustler_example
+:PROPERTIES:
+:CUSTOM_ID: rustler_example
+:END:
+copy from
+[[https://47.115.34.104/2020/05/21/%E7%94%A8rust%E5%86%99erlang%E7%9A%84nif/][用rust写erlang的nif]]
+copy from [[https://github.com/fycheung/rust_in_erlang][rust_in_erlang]]
+
+build on linux :
+
+#+begin_src shell
+cargo build
+
+erlc test_inf.erl
+
+erl
+1> test_inf:add(2,7).
+9
+#+end_src

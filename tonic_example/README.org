@@ -1,0 +1,31 @@
+* tonic_example
+:PROPERTIES:
+:CUSTOM_ID: tonic_example
+:END:
+The code is copied from
+[[https://cloud.tencent.com/developer/news/666347][【每周一库】-Tonic
+基于Rust的gRPC实现]]
+
+** run the server
+:PROPERTIES:
+:CUSTOM_ID: run-the-server
+:END:
+#+begin_src shell
+cargo run --bin helloworld-server
+#+end_src
+
+** run the client
+:PROPERTIES:
+:CUSTOM_ID: run-the-client
+:END:
+#+begin_src shell
+cargo run --bin helloworld-client
+#+end_src
+
+** use grpcurl
+:PROPERTIES:
+:CUSTOM_ID: use-grpcurl
+:END:
+#+begin_src shell
+grpcurl -plaintext -import-path ./proto -proto helloworld.proto -d '{"name": "Tonic"}' 127.0.0.1:50051 helloworld.Greeter/SayHello
+#+end_src

@@ -1,0 +1,6 @@
+* hrtb example
+:PROPERTIES:
+:CUSTOM_ID: hrtb-example
+:END:
+copy from [[https://nomicon.purewhite.io/hrtb.html][Higher-Rank Trait
+Bounds (HRTBs)]]

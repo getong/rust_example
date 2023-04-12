@@ -1,0 +1,7 @@
+* multiple ref mut example
+:PROPERTIES:
+:CUSTOM_ID: multiple-ref-mut-example
+:END:
+copy from
+[[https://stackoverflow.com/questions/42320750/read-reference-from-optionmut-t-multiple-times][Read
+reference from Option<&mut T> multiple times]]

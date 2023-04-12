@@ -1,0 +1,5 @@
+* axum example
+:PROPERTIES:
+:CUSTOM_ID: axum-example
+:END:
+visit http://localhost:3000/

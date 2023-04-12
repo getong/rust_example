@@ -1,0 +1,7 @@
+* datafusion workspace example
+:PROPERTIES:
+:CUSTOM_ID: datafusion-workspace-example
+:END:
+copy from
+[[https://github.com/andrewleverette/data_wrangling_with_rust][Data
+Wrangling with Rust]]

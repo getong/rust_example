@@ -1,0 +1,6 @@
+* reference memory example
+:PROPERTIES:
+:CUSTOM_ID: reference-memory-example
+:END:
+copy from [[https://deepu.tech/memory-management-in-rust/][Visualizing
+memory management in Rust]]

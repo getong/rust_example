@@ -1,0 +1,7 @@
+* quinn example
+:PROPERTIES:
+:CUSTOM_ID: quinn-example
+:END:
+copy from
+[[https://programs.wiki/wiki/quic-implementation-in-rust-quinn.html][QUIC
+implementation in Rust --- quinn]]

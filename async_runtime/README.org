@@ -1,0 +1,5 @@
+* async runtime
+:PROPERTIES:
+:CUSTOM_ID: async-runtime
+:END:
+copy from [[https://github.com/gftea/async_runtime][async_runtime]]

@@ -1,0 +1,7 @@
+* pin as_mut example
+:PROPERTIES:
+:CUSTOM_ID: pin-as_mut-example
+:END:
+#+begin_src shell
+cargo add tokio --features "time rt-multi-thread macros"
+#+end_src

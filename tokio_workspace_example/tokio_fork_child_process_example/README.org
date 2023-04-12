@@ -1,0 +1,7 @@
+* tokio fork
+:PROPERTIES:
+:CUSTOM_ID: tokio-fork
+:END:
+copy from
+[[https://stackoverflow.com/questions/60686516/communicating-with-a-child-process-through-a-tokio-unixstream][Communicating
+with a child process through a Tokio UnixStream]]

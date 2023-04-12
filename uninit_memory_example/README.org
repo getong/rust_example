@@ -1,0 +1,7 @@
+* Uninitialized memory: unsafe Rust is harder than C or C++
+:PROPERTIES:
+:CUSTOM_ID: uninitialized-memory-unsafe-rust-is-harder-than-c-or-c
+:END:
+copy from
+[[https://www.p99conf.io/2022/09/07/uninitialized-memory-unsafe-rust-is-too-hard/][Uninitialized
+memory: unsafe Rust is harder than C or C++]]

@@ -1,0 +1,8 @@
+* rust prost example
+:PROPERTIES:
+:CUSTOM_ID: rust-prost-example
+:END:
+copy from
+[[https://users.rust-lang.org/t/protocol-buffers-in-rust-what-to-use-and-how-to-use-it/88647][Protocol
+Buffers in Rust -- what to use and how to use it?]] copy from
+[[https://docs.rs/glob/latest/glob/fn.glob.html][Function glob::glob]]

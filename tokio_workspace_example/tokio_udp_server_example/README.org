@@ -1,0 +1,11 @@
+copy from
+[[https://stackoverflow.com/questions/68555781/tokio-udp-server][Tokio
+UDP server]]
+
+#+begin_src shell
+sudo pacman -S openbsd-netcat
+
+cargo run
+
+nc -u 127.0.0.1 8080
+#+end_src

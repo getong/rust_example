@@ -1,0 +1,7 @@
+* arc Fn trait example
+:PROPERTIES:
+:CUSTOM_ID: arc-fn-trait-example
+:END:
+copy from
+[[https://hirrolot.github.io/posts/rust-is-hard-or-the-misery-of-mainstream-programming.htmlJ][Rust
+Is Hard, Or: The Misery of Mainstream Programming]]

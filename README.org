@@ -1,0 +1,4 @@
+* rust_example
+:PROPERTIES:
+:CUSTOM_ID: rust_example
+:END:

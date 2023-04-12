@@ -1,0 +1,13 @@
+* pnet_example
+:PROPERTIES:
+:CUSTOM_ID: pnet_example
+:END:
+** usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+#+begin_src shell
+$ cargo build
+$ ifconfig
+$ sudo ./target/debug/pnet_example en7
+#+end_src

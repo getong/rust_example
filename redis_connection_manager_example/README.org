@@ -1,0 +1,9 @@
+* redis_connection_manager
+:PROPERTIES:
+:CUSTOM_ID: redis_connection_manager
+:END:
+#+begin_example
+redis-server redis.conf
+
+cargo run
+#+end_example
