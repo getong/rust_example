@@ -5,20 +5,20 @@ use http::Method;
 // use redis::{aio::Connection, AsyncCommands, FromRedisValue};
 // use redis::AsyncCommands;
 
-use axum_database_sessions::AxumSessionStore;
+use axum_database_sessions::SessionStore;
 use axum_sessions_auth::HasPermission;
 use axum_sessions_auth::Rights;
 
 use axum::{routing::get, Router};
 use axum_database_sessions::{
-    // AxumDatabasePool, AxumPgPool, AxumSession, AxumSessionConfig, AxumSessionLayer,
-    // AxumPgPool,
-    AxumSessionConfig,
-    AxumSessionLayer,
+    // AxumDatabasePool, SessionPgPool, AxumSession, AxumSessionConfig, AxumSessionLayer,
+    // SessionPgPool,
+    SessionConfig,
+    SessionLayer,
 };
 
-use axum_sessions_auth::AxumPgPool;
-use axum_sessions_auth::{AuthSession, AuthSessionLayer, Authentication, AxumAuthConfig};
+use axum_sessions_auth::SessionPgPool;
+use axum_sessions_auth::{AuthConfig, AuthSession, AuthSessionLayer, Authentication};
 use sqlx::PgPool;
 use std::net::SocketAddr;
 
@@ -29,17 +29,17 @@ async fn main() {
     //# async {
     let poll = connect_to_database().await.unwrap();
 
-    let session_config = AxumSessionConfig::default().with_table_name("test_table");
-    let auth_config = AxumAuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
+    let session_config = SessionConfig::default().with_table_name("test_table");
+    let auth_config = AuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
     let session_store =
-        AxumSessionStore::<AxumPgPool>::new(Some(poll.clone().into()), session_config);
+        SessionStore::<SessionPgPool>::new(Some(poll.clone().into()), session_config);
 
     // Build our application with some routes
     let app = Router::new()
         .route("/greet/:name", get(greet))
-        .layer(AxumSessionLayer::new(session_store))
+        .layer(SessionLayer::new(session_store))
         .layer(
-            AuthSessionLayer::<User, i64, AxumPgPool, PgPool>::new(Some(poll))
+            AuthSessionLayer::<User, i64, SessionPgPool, PgPool>::new(Some(poll))
                 .with_config(auth_config),
         );
 
@@ -56,7 +56,7 @@ async fn main() {
 // We can get the Method to compare with what Methods we allow. Useful if this supports multiple methods.
 // When called auth is loaded in the background for you.
 #[debug_handler]
-async fn greet(method: Method, auth: AuthSession<User, i64, AxumPgPool, PgPool>) -> String {
+async fn greet(method: Method, auth: AuthSession<User, i64, SessionPgPool, PgPool>) -> String {
     let mut count: usize = auth.session.get("count").unwrap_or(0);
     count += 1;
 

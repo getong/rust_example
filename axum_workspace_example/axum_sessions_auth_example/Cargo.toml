@@ -6,15 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.66"
-async-trait = "0.1.58"
-axum = "0.6.0"
-axum-macros = "0.3.0"
-axum_database_sessions = { version = "5.0.0", features = [ "redis", "postgres-rustls"] }
-axum_sessions_auth = {git = "https://github.com/AscendingCreations/AxumSessionsAuth", rev = "60b7337260b1ae5460a06c2ac35cfa012584ded4", features = ["redis-db", "postgres-rustls"]}
-http = "0.2.8"
-redis = "0.22.1"
-serde = { version = "1.0.147", features = ["derive"] }
-sqlx = "0.6.2"
-tokio = { version = "1.22.0", features = ["full"] }
+anyhow = "1.0.70"
+async-trait = "0.1.68"
+axum = "0.6.15"
+axum-macros = "0.3.7"
+axum_database_sessions = { version = "7.0.2", features = [ "redis", "postgres-rustls"] }
+axum_sessions_auth = {version = "7.0.0", features = ["redis-db", "postgres-rustls"]}
+http = "0.2.9"
+redis = "0.22.3"
+serde = { version = "1.0.160", features = ["derive"] }
+sqlx = "0.6.3"
+tokio = { version = "1.27.0", features = ["full"] }
 tracing = "0.1.37"

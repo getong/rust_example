@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.58"
-axum = "0.6.0"
-axum-login = "0.4.0"
+async-trait = "0.1.68"
+axum = "0.6.15"
+axum-login = "0.4.1"
 rand = { version = "0.8.5", features = ["min_const_gen"] }
-tokio = { version = "1.22.0", features = ["full"] }
+tokio = { version = "1.27.0", features = ["full"] }
