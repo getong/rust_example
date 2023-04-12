@@ -11,12 +11,13 @@ use std::{
 use walkdir::WalkDir;
 
 const PATH: &str = "a.xlsx";
-//const SHEET_NAME: &str = "client_translate";
-//const COMMENT_PREFIX: &str = "//";
-//const DEST_DIR: &str = "/Users/gerald/other_project/frontend/src";
-const SHEET_NAME: &str = "server_translate";
-const COMMENT_PREFIX: &str = "--";
-const DEST_DIR : &str = "/Users/gerald/other_project/server/xyef/liblua";
+const SHEET_NAME: &str = "output1";
+// const COMMENT_PREFIX: &str = "<![CDATA[ ";
+// const RIGHT_COMMENT_PREFIX: &str = " ]]>";
+const DEST_DIR: &str = "/Users/gerald/other_project/art/resource/skins";
+// const SHEET_NAME: &str = "server_translate";
+// const COMMENT_PREFIX: &str = "--";
+// const DEST_DIR : &str = "/Users/gerald/other_project/server/xyef/liblua";
 
 fn main() {
     let mut excel: Xlsx<_> = open_workbook(PATH).unwrap();
@@ -114,12 +115,7 @@ fn change_file_with_translate_words(
 
     let mut chinese_str_split = chinese_str.split_whitespace();
     let replace_whole_line: String = match chinese_str_split.clone().count() {
-        1 => {
-            COMMENT_PREFIX.to_string()
-                + whole_line
-                + "\n"
-                + &str::replace(whole_line, chinese_str, english_str)
-        }
+        1 => str::replace(whole_line, chinese_str, english_str),
         chinese_count => {
             let mut english_str_split = english_str.split_whitespace();
             let mut temp_whole_line = whole_line.to_string();
@@ -130,21 +126,14 @@ fn change_file_with_translate_words(
                             str::replace(&temp_whole_line, chinese_word, english_word);
                     }
                 }
-                COMMENT_PREFIX.to_string() + whole_line + "\n" + &temp_whole_line
+                temp_whole_line
             } else {
                 println!(
                     "not_match_not_replace, match_filename: {}  line_num: {}",
                     match_filename, line_num
                 );
                 // not found
-                COMMENT_PREFIX.to_string()
-                    + whole_line
-                    + "\n"
-                    + whole_line
-                    + "\n"
-                    + COMMENT_PREFIX
-                    + "wrong_translate_wrong_translate_   "
-                    + english_str
+                whole_line.to_string()
             }
         }
     };

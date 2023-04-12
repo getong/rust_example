@@ -38,4 +38,6 @@ members = [
         "tokio_select_example",
         "tokio_stdin_example",
         "tokio_bufreader_example",
+        "tokio_spawn_per_connection_example",
+        "tokio_spawn_per_quinn_connection_example",
 ]
