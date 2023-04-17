@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{response::IntoResponse, routing::get, Extension, Router};
 use axum_login::{
     axum_sessions::{async_session::MemoryStore as SessionMemoryStore, SessionLayer},
+    extractors::AuthContext,
     memory_store::MemoryStore as AuthMemoryStore,
     secrecy::SecretVec,
     AuthLayer, AuthUser, RequireAuthorizationLayer,
@@ -16,18 +17,18 @@ use axum_login::{
 use rand::Rng;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-enum Role {
-    User,
-    Admin,
-}
-
 #[derive(Debug, Clone)]
 struct User {
     id: usize,
+    name: String,
     password_hash: String,
     role: Role,
-    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+enum Role {
+    // User,
+    Admin,
 }
 
 impl User {
@@ -41,9 +42,9 @@ impl User {
     }
 }
 
-impl AuthUser<Role> for User {
-    fn get_id(&self) -> String {
-        format!("{}", self.id)
+impl AuthUser<usize, Role> for User {
+    fn get_id(&self) -> usize {
+        self.id
     }
 
     fn get_password_hash(&self) -> SecretVec<u8> {
@@ -55,16 +56,15 @@ impl AuthUser<Role> for User {
     }
 }
 
-type AuthContext = axum_login::extractors::AuthContext<User, AuthMemoryStore<User>, Role>;
-
-type RequireAuth = RequireAuthorizationLayer<User, Role>;
+type Auth = AuthContext<usize, User, AuthMemoryStore<usize, User>, Role>;
+type RequireAuth = RequireAuthorizationLayer<usize, User, Role>;
 
 #[tokio::main]
 async fn main() {
     let secret = rand::thread_rng().gen::<[u8; 64]>();
 
     let session_store = SessionMemoryStore::new();
-    let session_layer = SessionLayer::new(session_store, &secret).with_secure(false);
+    let session_layer = SessionLayer::new(session_store, &secret);
 
     let store = Arc::new(RwLock::new(HashMap::default()));
     let user = User::get_rusty_user();
@@ -74,11 +74,11 @@ async fn main() {
     let user_store = AuthMemoryStore::new(&store);
     let auth_layer = AuthLayer::new(user_store, &secret);
 
-    async fn login_handler(mut auth: AuthContext) {
+    async fn login_handler(mut auth: Auth) {
         auth.login(&User::get_rusty_user()).await.unwrap();
     }
 
-    async fn logout_handler(mut auth: AuthContext) {
+    async fn logout_handler(mut auth: Auth) {
         dbg!("Logging out user: {}", &auth.current_user);
         auth.logout().await;
     }
@@ -88,26 +88,14 @@ async fn main() {
     }
 
     async fn admin_handler(Extension(user): Extension<User>) -> impl IntoResponse {
-        format!("Admin logged in as: {}", user.name)
-    }
-
-    async fn user_handler(Extension(user): Extension<User>) -> impl IntoResponse {
-        format!("Admin or user logged in as: {}", user.name)
+        format!("Logged in as admin: {}", user.name)
     }
 
     let app = Router::new()
-        .route(
-            "/protected",
-            get(protected_handler).layer(RequireAuth::login()),
-        )
-        .route(
-            "/protected_admin",
-            get(admin_handler).layer(RequireAuth::login_with_role(Role::Admin..)), // At least `Admin`.
-        )
-        .route(
-            "/protected_user",
-            get(user_handler).layer(RequireAuth::login_with_role(Role::User..)), // At least `User`.
-        )
+        .route("/admin", get(admin_handler))
+        .route_layer(RequireAuth::login_with_role(Role::Admin..))
+        .route("/", get(protected_handler))
+        .route_layer(RequireAuth::login())
         .route("/login", get(login_handler))
         .route("/logout", get(logout_handler))
         .layer(auth_layer)

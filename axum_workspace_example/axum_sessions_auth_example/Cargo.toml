@@ -13,7 +13,7 @@ axum-macros = "0.3.7"
 axum_database_sessions = { version = "7.0.2", features = [ "redis", "postgres-rustls"] }
 axum_sessions_auth = {version = "7.0.0", features = ["redis-db", "postgres-rustls"]}
 http = "0.2.9"
-redis = "0.22.3"
+redis = "0.23.0"
 serde = { version = "1.0.160", features = ["derive"] }
 sqlx = "0.6.3"
 tokio = { version = "1.27.0", features = ["full"] }

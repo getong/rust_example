@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::net::SocketAddr;
 
-use std::io;
+// use std::io;
 
 #[derive(Deserialize)]
 struct CreateUser {
@@ -32,17 +32,17 @@ async fn main() {
         .route("/", get(root))
         .route("/user", post(create_user))
         .route("/hello/:name", get(json_hello))
-        .route(
-            "/static",
-            get_service(ServeFile::new("static/hello.html")).handle_error(
-                |error: io::Error| async move {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Unhandled internal error: {}", error),
-                    )
-                },
-            ),
-        );
+        .route("/static", get_service(ServeFile::new("static/hello.html")));
+                // .handle_error(
+            //     |error: io::Error| async move {
+              //       (
+              //           StatusCode::INTERNAL_SERVER_ERROR,
+              //           format!("Unhandled internal error: {}", error),
+                //     )
+                // },
+//
+            // ),
+        // );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     tracing::info!("listening on {}", addr);

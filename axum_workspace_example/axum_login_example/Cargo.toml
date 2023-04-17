@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1.68"
 axum = "0.6.15"
-axum-login = "0.4.1"
+axum-login = "0.5.0"
 rand = { version = "0.8.5", features = ["min_const_gen"] }
+serde = { version = "1.0.160", features = ["derive"] }
 tokio = { version = "1.27.0", features = ["full"] }

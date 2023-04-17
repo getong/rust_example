@@ -10,4 +10,5 @@ members = [
         "axum_style_magic_function_params_example",
         "axum_login_example",
         "axum_simple_router_example",
+        "axum_stream_protobuf_example",
 ]
