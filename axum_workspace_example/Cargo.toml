@@ -13,4 +13,5 @@ members = [
         "axum_stream_protobuf_example",
         "axum_post_example",
         "axum_prost_server_example",
+        "reqwest_prost_client_example",
 ]
