@@ -12,4 +12,5 @@ members = [
         "axum_simple_router_example",
         "axum_stream_protobuf_example",
         "axum_post_example",
+        "axum_prost_server_example",
 ]

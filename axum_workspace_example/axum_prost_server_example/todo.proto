@@ -1,0 +1,9 @@
+ syntax = "proto3";
+
+package myapp;
+
+message Todo {
+  uint32 id = 1;
+  string title = 2;
+  bool completed = 3;
+}
