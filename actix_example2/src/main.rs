@@ -43,6 +43,5 @@ fn main() {
         // 停止系统退出
         System::current().stop();
     });
-
     system.run().unwrap();
 }

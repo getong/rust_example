@@ -32,7 +32,7 @@ impl Handler<Ping> for Game {
 
             // wait 100 nanoseconds
             ctx.run_later(Duration::new(0, 100), move |act, _| {
-                act.recipient.do_send(Ping { id: msg.id + 1 }).unwrap();
+                act.recipient.do_send(Ping { id: msg.id + 1 });
             });
         }
     }
@@ -66,6 +66,5 @@ fn main() {
             }
         });
     });
-
     system.run().unwrap();
 }
