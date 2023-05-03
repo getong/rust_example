@@ -1,0 +1,11 @@
+[package]
+name = "fastwebsockets_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fastwebsockets = { version = "0.4.0", features = ["upgrade"] }
+hyper = "0.14.26"
+tokio = { version = "1.28.0", features = ["full"] }
