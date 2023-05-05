@@ -43,7 +43,7 @@ fn main() {
 
     // To get a Recipient object, we need to use a different builder method
     // which will allow postponing actor creation
-    _ = system.block_on(async {
+    system.block_on(async {
         Game::create(|ctx| {
             // now we can get an address of the first actor and create the second actor
             let addr = ctx.address();
