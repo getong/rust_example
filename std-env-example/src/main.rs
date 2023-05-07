@@ -3,7 +3,7 @@ use std::env;
 fn main() {
     // println!("Hello, world!");
 
-    for arg in std::env::args() {
+    for arg in env::args() {
         println!("arg: {}", arg);
     }
 
@@ -17,5 +17,10 @@ fn main() {
         println!("The production server is running");
     } else {
         panic!("The setting is neither debug or release");
+    }
+
+    println!("rustenv environment:");
+    for (key, value) in env::vars() {
+        println!("  {key}: {value}");
     }
 }
