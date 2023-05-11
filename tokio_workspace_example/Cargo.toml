@@ -40,4 +40,5 @@ members = [
         "tokio_bufreader_example",
         "tokio_spawn_per_connection_example",
         "tokio_spawn_per_quinn_connection_example",
+        "tokio_select_timeout_example",
 ]
