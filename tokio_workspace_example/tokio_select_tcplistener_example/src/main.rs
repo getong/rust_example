@@ -1,31 +1,38 @@
+// use futures::future::poll_fn;
 use std::error::Error;
 use tokio::io::{self, Interest};
-use tokio::net::TcpStream;
+// use tokio::io::{self, ReadBuf};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> io::Result<()> {
     let (tx, rx) = oneshot::channel();
 
     tokio::spawn(async move {
         sleep(Duration::from_secs(100)).await;
-        tx.send("done").unwrap();
+        tx.send(()).unwrap();
     });
 
+    let listener = TcpListener::bind("localhost:3465").await?;
+
     tokio::select! {
-        // use in command line terminal: nc -l 3465
-        stream = TcpStream::connect("localhost:3465") => {
-            println!("Socket connected {:?}", stream);
-            if let Ok(stream2) = stream {
-                process(stream2).await.unwrap();
+        _ = async {
+            loop {
+                while let Ok((stream, _)) = listener.accept().await {
+                    tokio::spawn(async move { process(stream) });
+                }
             }
 
-        }
-        msg = rx => {
-            println!("received message first {:?}", msg);
+            // Ok::<_, io::Error>(())
+        } => {}
+        _ = rx => {
+            println!("terminating accept loop");
         }
     }
+
+    Ok(())
 }
 
 async fn process(stream: TcpStream) -> Result<(), Box<dyn Error>> {
