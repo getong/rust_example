@@ -43,4 +43,5 @@ members = [
         "tokio_select_timeout_example",
         "tokio_select_tcp_example",
         "tokio_select_tcplistener_example",
+        "tokio_struct_poll_example",
 ]
