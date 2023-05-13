@@ -44,4 +44,5 @@ members = [
         "tokio_select_tcp_example",
         "tokio_select_tcplistener_example",
         "tokio_struct_poll_example",
+        "tokio_return_value_example",
 ]
