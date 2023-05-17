@@ -46,4 +46,5 @@ members = [
         "tokio_struct_poll_example",
         "tokio_return_value_example",
         "tokio_select_pin_function_example",
+        "tokio_multi_runtime_example2",
 ]
