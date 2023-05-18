@@ -1,0 +1,12 @@
+[package]
+name = "remove_duplicate_directory_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+error-chain = "0.12.4"
+path-absolutize = "3.1.0"
+tilde-expand = "0.1.1"
+walkdir = "2.3.3"
