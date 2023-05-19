@@ -1,5 +1,6 @@
 use error_chain::error_chain;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 // change the directory you want to modify
@@ -53,7 +54,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn move_directory(source: &PathBuf, destination: &PathBuf) -> std::io::Result<()> {
+fn move_directory(source: &PathBuf, destination: &Path) -> std::io::Result<()> {
     // Read the entries in the source directory
     for entry in fs::read_dir(source)? {
         let entry = entry?;
@@ -62,7 +63,7 @@ fn move_directory(source: &PathBuf, destination: &PathBuf) -> std::io::Result<()
         let new_path = destination.join(entry.file_name());
         fs::rename(&entry_path, &new_path)?;
     }
-    _ = fs::remove_dir(source)?;
+    fs::remove_dir(source)?;
     println!(
         "source: {:?}, destination: {:?}",
         source.display(),
