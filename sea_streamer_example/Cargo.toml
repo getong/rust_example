@@ -1,0 +1,11 @@
+[package]
+name = "sea_streamer_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.71"
+sea-streamer = { version = "0.2.1", features = ["kafka", "socket", "runtime-tokio"] }
+tokio = { version = "1.28.1", features = ["full"] }
