@@ -1,0 +1,9 @@
+* cpp call rust code
+
+** run command
+
+#+begin_src sh
+cargo build --release --lib
+g++ my_lib.cpp -o my_lib  -I . -L target/release -l my_lib
+./my_lib
+#+end_src
