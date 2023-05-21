@@ -11,9 +11,9 @@ use std::path::PathBuf;
 // when TWO_DIRECTORY_FLAG is false
 // mkdir -p /tmp/a/b/c
 // touch /tmp/a/b/c/file.txt
-const TWO_DIRECTORY_FLAG: bool = true;
+const TWO_DIRECTORY_FLAG: bool = false;
 // change the directory you want to modify
-const FILE_PATH: &[u8] = b"/tmp/a/";
+const FILE_PATH: &[u8] = b"/tmp/a/b/";
 
 const WRITE_FLAG: bool = false;
 
