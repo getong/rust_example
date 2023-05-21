@@ -15,6 +15,8 @@ const TWO_DIRECTORY_FLAG: bool = true;
 // change the directory you want to modify
 const FILE_PATH: &[u8] = b"/tmp/a/";
 
+const WRITE_FLAG: bool = false;
+
 // error_chain! {
 //     foreign_links {
 //         Io(std::io::Error);
@@ -83,14 +85,16 @@ fn check_path(first_path: PathBuf) -> Result<(), Error> {
 
 fn move_directory(source: &PathBuf, destination: &Path) -> std::io::Result<()> {
     // Read the entries in the source directory
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let entry_path = entry.path();
+    if WRITE_FLAG {
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let entry_path = entry.path();
 
-        let new_path = destination.join(entry.file_name());
-        fs::rename(&entry_path, &new_path)?;
+            let new_path = destination.join(entry.file_name());
+            fs::rename(&entry_path, &new_path)?;
+        }
+        fs::remove_dir(source)?;
     }
-    fs::remove_dir(source)?;
     println!(
         "source: {:?}, destination: {:?}",
         source.display(),
