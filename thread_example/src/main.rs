@@ -8,6 +8,10 @@ fn main() {
         println!("Thread!");
         String::from("Much concurrent, such wow!")
     });
+
+    let thread: &thread::Thread = child.thread();
+    println!("thread id: {:?}", thread.id());
+
     // print!("Hello ");
     let value = child.join().expect("Failed joining child thread");
 
