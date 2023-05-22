@@ -32,4 +32,7 @@ fn has_remaining_example() {
     buf.get_u8();
 
     assert!(!buf.has_remaining());
+
+    // bytes equal &str
+    assert_eq!(b"abc", &[97, 98, 99]);
 }
