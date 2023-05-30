@@ -16,6 +16,25 @@ where
     pub data2: &'b str,
 }
 
+#[derive(Debug)]
+pub struct MyStruct2<'a, 'b>
+where
+    'a: 'b,
+{
+    pub data1: &'a String,
+    pub data2: &'b String,
+}
+
+#[derive(Debug)]
+pub struct MyStruct3<'a, 'b, T>
+where
+    'a: 'b,
+    T: 'a,
+{
+    pub data1: &'a T,
+    pub data2: &'b T,
+}
+
 fn main() {
     let my_number = 15; // This is an i32
     let single_reference = &my_number; //  This is a &i32
@@ -56,11 +75,56 @@ fn main() {
 
     // struct lifetime
     let data1 = "Hello";
+    {
+        let data2 = "World";
+
+        let my_struct = MyStruct {
+            data1: &data2,
+            data2: &data1,
+        };
+        println!("my_struct {:?}", my_struct);
+    }
+
+    // struct lifetime
+    let data1 = "Hello";
     let data2 = "World";
 
     let my_struct = MyStruct {
-        data1: &data1,
-        data2: &data2,
+        data1: &data2,
+        data2: &data1,
     };
     println!("my_struct {:?}", my_struct);
+
+    // struct lifetime
+    let data1 = "Hello".to_string();
+    let data2 = "World".to_string();
+
+    let my_struct = MyStruct {
+        data1: &data2,
+        data2: &data1,
+    };
+    println!("my_struct {:?}", my_struct);
+
+    // struct lifetime
+    let data1: String = "Hello".to_string();
+    {
+        let data2: String = "World".to_string();
+
+        let my_struct = MyStruct2 {
+            data1: &data2,
+            data2: &data1,
+        };
+        println!("my_struct {:?}", my_struct);
+    }
+
+    let data1: String = "Hello".to_string();
+    {
+        let data2: String = "World".to_string();
+
+        let my_struct = MyStruct3 {
+            data1: &data1,
+            data2: &data2,
+        };
+        println!("my_struct {:?}", my_struct);
+    }
 }
