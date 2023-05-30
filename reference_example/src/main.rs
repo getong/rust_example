@@ -7,6 +7,15 @@ struct Point {
     y: i32,
 }
 
+#[derive(Debug)]
+pub struct MyStruct<'a, 'b>
+where
+    'a: 'b,
+{
+    pub data1: &'a str,
+    pub data2: &'b str,
+}
+
 fn main() {
     let my_number = 15; // This is an i32
     let single_reference = &my_number; //  This is a &i32
@@ -44,4 +53,14 @@ fn main() {
     let mutable_ref = &mut value; // Mutable reference
     *mutable_ref += 10; // Modify the value through the mutable reference
     println!("Modified value: {}", value);
+
+    // struct lifetime
+    let data1 = "Hello";
+    let data2 = "World";
+
+    let my_struct = MyStruct {
+        data1: &data1,
+        data2: &data2,
+    };
+    println!("my_struct {:?}", my_struct);
 }
