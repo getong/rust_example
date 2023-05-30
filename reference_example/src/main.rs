@@ -34,4 +34,14 @@ fn main() {
     let rrr: &&&Point = &rr;
     assert_eq!(rrr.y, 729);
     assert_eq!(rrr.x, 1000);
+
+    // reference and mutable reference
+    let mut value = 42;
+
+    let shared_ref = &value; // Shared reference
+    println!("Shared reference: {}", shared_ref);
+
+    let mutable_ref = &mut value; // Mutable reference
+    *mutable_ref += 10; // Modify the value through the mutable reference
+    println!("Modified value: {}", value);
 }
