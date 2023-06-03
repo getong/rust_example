@@ -1,7 +1,0 @@
-[workspace]
-
-
-members = [
-        "tokio_tun_read_example",
-        "tokio_tun_read_mq_example",
-]
