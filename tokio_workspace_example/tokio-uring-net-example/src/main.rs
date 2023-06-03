@@ -1,7 +1,11 @@
+#[cfg(target_os = "linux")]
 use tokio::io::AsyncWriteExt;
+#[cfg(target_os = "linux")]
 use tokio::net::TcpListener;
+#[cfg(target_os = "linux")]
 use tokio_uring::fs::File;
 
+#[cfg(target_os = "linux")]
 fn main() {
     tokio_uring::start(async {
         // Start a TCP listener
@@ -37,4 +41,10 @@ fn main() {
             });
         }
     });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    // Code for non-Linux systems
+    println!("hello world!");
 }
