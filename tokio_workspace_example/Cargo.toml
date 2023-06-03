@@ -1,5 +1,6 @@
 [workspace]
 
+resulver = "1"
 
 members = [
         "tokio_fork_child_process_example",
@@ -47,4 +48,5 @@ members = [
         "tokio_return_value_example",
         "tokio_select_pin_function_example",
         "tokio_multi_runtime_example2",
+        "tokio_time_interval_example",
 ]
