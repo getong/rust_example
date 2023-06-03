@@ -1,7 +1,9 @@
-use futures::future;
+// use futures::future;
+use std::error::Error;
 use std::thread;
 use std::time::Duration;
-use tokio::time::sleep;
+// use tokio::task::JoinHandle;
+// use tokio::time::sleep;
 
 #[tokio::main]
 // #[tokio::main(flavor = "current_thread")]
@@ -40,5 +42,5 @@ async fn main() {
         handles.push(task_b)
     }
 
-    future::join_all(handles).await;
+    // future::join_all::<Vec<Result<JoinHandle<()>, dyn Error>>>(handles);
 }
