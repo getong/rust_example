@@ -1,9 +1,10 @@
 // use futures::future;
-use std::error::Error;
+//use std::error::Error;
 use std::thread;
 use std::time::Duration;
 // use tokio::task::JoinHandle;
-// use tokio::time::sleep;
+use tokio::time::sleep;
+use tokio::task::Builder;
 
 #[tokio::main]
 // #[tokio::main(flavor = "current_thread")]
@@ -18,7 +19,7 @@ async fn main() {
     let mut handles = Vec::new();
 
     // 2. Task A: ノンブロッキング・スリープ
-    let task_a = tokio::task::Builder::new().name("Task A").spawn(async {
+    let task_a = Builder::new().name("Task A").spawn(async {
         loop {
             println!("   =Task A sleeping... {:?}", thread::current().id());
             sleep(Duration::from_secs(1)).await; // ノンブロッキング・スリープ
@@ -29,7 +30,7 @@ async fn main() {
 
     // 3. Task B-n: ブロッキング・スリープ
     for i in 0..cpus + 1 {
-        let task_b = tokio::task::Builder::new()
+        let task_b = Builder::new()
             .name(&format!("Task B-{}", i))
             .spawn(async move {
                 loop {
