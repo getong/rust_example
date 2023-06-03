@@ -1,5 +1,5 @@
 [package]
-name = "tokio_time_interval_example"
+name = "tokio_time_interval_example2"
 version = "0.1.0"
 edition = "2021"
 

@@ -1,9 +1,10 @@
 [package]
-name = "tokio_multi_runtime_example"
+name = "tokio_localset_example2"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+chrono = "0.4.19"
 tokio = { version = "1.17.0", features = ["full"] }
