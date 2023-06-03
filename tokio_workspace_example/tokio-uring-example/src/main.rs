@@ -1,5 +1,7 @@
+#[cfg(target_os = "linux")]
 use tokio_uring::fs::File;
 
+#[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio_uring::start(async {
         // Open a file
@@ -17,4 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Ok(())
     })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    println!("hello world!");
 }
