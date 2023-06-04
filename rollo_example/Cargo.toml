@@ -6,4 +6,4 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rollo = { version = "0.13.0", features = ["full"] }
+rollo = { version = "0.13.4", features = ["full"] }
