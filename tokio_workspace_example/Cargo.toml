@@ -40,7 +40,7 @@ members = [
         "tokio_stdin_example",
         "tokio_bufreader_example",
         "tokio_spawn_per_connection_example",
-        #"tokio_spawn_per_quinn_connection_example",
+        "tokio_spawn_per_quinn_connection_example",
         "tokio_select_timeout_example",
         "tokio_select_tcp_example",
         "tokio_select_tcplistener_example",

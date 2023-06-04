@@ -83,7 +83,7 @@ mod tests {
         peer2.stop();
     }
 
-/*
+    /*
     #[tokio::test]
     async fn connect_and_sync_longer_path_over_websocket() {
         let config = Config::default();
@@ -146,11 +146,7 @@ mod tests {
                 ..WsServerConfig::default()
             },
         );
-        let mut relay = Node::new_with_config(
-            config.clone(),
-            vec![],
-            vec![Box::new(ws_server)],
-        );
+        let mut relay = Node::new_with_config(config.clone(), vec![], vec![Box::new(ws_server)]);
 
         let ws_client = OutgoingWebsocketManager::new(
             config.clone(),
@@ -253,7 +249,7 @@ mod tests {
         relay2.stop();
     }
 
-/*
+    /*
     #[tokio::test]
     async fn ws_server_stats() {
         let config = Config::default();
@@ -327,7 +323,7 @@ mod tests {
         std::fs::remove_dir_all(path).ok();
     }
 
-/*
+    /*
     #[tokio::test]
     async fn sync_over_multicast() {
         let config = Config::default();

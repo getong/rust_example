@@ -1,4 +1,3 @@
-
 //! A chat server that broadcasts a message to all connections.
 //!
 //! This example is explicitly more verbose than it has to be. This is to

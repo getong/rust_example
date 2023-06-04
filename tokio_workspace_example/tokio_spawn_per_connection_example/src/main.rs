@@ -1,8 +1,8 @@
 use std::error::Error;
 use tokio::net::{TcpListener, TcpStream};
 // use tokio::prelude::*;
-use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 
 async fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn Error>> {
     // Handle the connection here
