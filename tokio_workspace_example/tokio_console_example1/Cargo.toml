@@ -9,5 +9,5 @@ edition = "2021"
 console-subscriber = "0.1.6"
 futures = "0.3.21"
 num_cpus = "1.13.1"
-tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.28.2", features = ["macros", "rt-multi-thread", "tokio_unstable", "tracing"] }
 tracing = "0.1.35"
