@@ -1,9 +1,13 @@
+#[cfg(target_os = "linux")]
 use std::net::Ipv4Addr;
+#[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
+#[cfg(target_os = "linux")]
 use tokio::io::AsyncReadExt;
-use tokio_tun::result::Result;
-use tokio_tun::TunBuilder;
+#[cfg(target_os = "linux")]
+use tokio_tun::{result::Result, TunBuilder};
 
+#[cfg(target_os = "linux")]
 #[tokio::main]
 async fn main() -> Result<()> {
     let tun = TunBuilder::new()
@@ -45,4 +49,9 @@ async fn main() -> Result<()> {
         let n = reader.read(&mut buf).await?;
         println!("reading {} bytes: {:?}", n, &buf[..n]);
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    println!("hello world!");
 }
