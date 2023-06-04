@@ -1,0 +1,11 @@
+[package]
+name = "tokio_producer_consumer_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.71"
+rand = "0.8.5"
+tokio = { version = "1.28.2", features = ["full"] }
