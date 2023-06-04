@@ -12,7 +12,7 @@ members = [
         "tokio_semaphore_example",
         "tokio_semaphore_example2",
         "tokio_client_joinhandle_example",
-        #"tokio_actor_joinhandle_example",
+        "tokio_actor_joinhandle_example",
         "tokio_park_example",
         "tokio_echo_server_example",
         "tokio_spawn_loop_select_example",

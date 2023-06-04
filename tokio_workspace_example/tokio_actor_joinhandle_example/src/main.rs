@@ -1,13 +1,10 @@
 extern crate clap;
 use clap::{App, Arg, SubCommand};
 use ctrlc;
-//use rod::actor::Actor;
-//use rod::adapters::{
 use tokio_actor_joinhandle_example::actor::Actor;
 use tokio_actor_joinhandle_example::adapters::{
     MemoryStorage, Multicast, OutgoingWebsocketManager, SledStorage, WsServer, WsServerConfig,
 };
-// use rod::{Config, Node};
 use tokio_actor_joinhandle_example::{Config, Node};
 
 #[tokio::main]
@@ -18,8 +15,8 @@ async fn main() {
         .author("Martti Malmi")
         .about("Rod node runner")
         .arg(
-            Arg::new("config")
-                .short('c')
+            Arg::with_name("config")
+                .short("c")
                 .long("config")
                 .value_name("FILE")
                 .help("Sets a custom config file")
@@ -29,7 +26,7 @@ async fn main() {
             SubCommand::with_name("start")
                 .about("runs the rod server")
                 .arg(
-                    Arg::new("ws-server")
+                    Arg::with_name("ws-server")
                         .long("ws-server")
                         .env("WS_SERVER")
                         .value_name("BOOL")
@@ -38,8 +35,8 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("port")
-                        .short('p')
+                    Arg::with_name("port")
+                        .short("p")
                         .long("port")
                         .env("PORT")
                         .value_name("NUMBER")
@@ -48,7 +45,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("cert-path")
+                    Arg::with_name("cert-path")
                         .long("cert-path")
                         .env("CERT_PATH")
                         .value_name("FILE")
@@ -56,7 +53,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("key-path")
+                    Arg::with_name("key-path")
                         .long("key-path")
                         .env("KEY_PATH")
                         .value_name("FILE")
@@ -64,7 +61,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("peers")
+                    Arg::with_name("peers")
                         .long("peers")
                         .env("PEERS")
                         .value_name("URLS")
@@ -72,7 +69,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("multicast")
+                    Arg::with_name("multicast")
                         .long("multicast")
                         .env("MULTICAST")
                         .value_name("BOOL")
@@ -81,7 +78,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("memory-storage")
+                    Arg::with_name("memory-storage")
                         .long("memory-storage")
                         .env("MEMORY_STORAGE")
                         .value_name("BOOL")
@@ -90,7 +87,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("sled-storage")
+                    Arg::with_name("sled-storage")
                         .long("sled-storage")
                         .env("SLED_STORAGE")
                         .value_name("BOOL")
@@ -99,7 +96,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("sled-max-size")
+                    Arg::with_name("sled-max-size")
                         .long("sled-max-size")
                         .env("SLED_MAX_SIZE")
                         .value_name("BYTES")
@@ -107,7 +104,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("allow-public-space")
+                    Arg::with_name("allow-public-space")
                         .long("allow-public-space")
                         .env("ALLOW_PUBLIC_SPACE")
                         .value_name("BOOL")
@@ -116,7 +113,7 @@ async fn main() {
                         .takes_value(true),
                 )
                 .arg(
-                    Arg::new("stats")
+                    Arg::with_name("stats")
                         .long("stats")
                         .env("STATS")
                         .value_name("BOOL")
