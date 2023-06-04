@@ -29,9 +29,9 @@ async fn main() -> Result<()> {
     Builder::from_env(Env::default().default_filter_or("debug")).init();
 
     // Create toplevel
-    Toplevel::new()
+    Ok(Toplevel::new()
         .start("Countdown", countdown_subsystem)
         .catch_signals()
-        .wait_for_shutdown(Duration::from_millis(1000))
-        .await
+        .handle_shutdown_requests(Duration::from_millis(1000))
+        .await?)
 }

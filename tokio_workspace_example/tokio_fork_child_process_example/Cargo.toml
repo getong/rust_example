@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nix = "0.24.1"
-tokio = { version = "1.19.2", features = ["rt-multi-thread", "macros", "net", "io-util"] }
+nix = "0.26.2"
+tokio = { version = "1.28.2", features = ["rt-multi-thread", "macros", "net", "io-util"] }
 #wait = "0.1.9"

@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.28.2", features = ["full"] }
 [target.'cfg(target_os = "linux")'.dependencies]
-tokio-uring = "0.3.0"
+tokio-uring = "0.4.0"

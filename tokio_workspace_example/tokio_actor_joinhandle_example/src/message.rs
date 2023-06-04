@@ -10,6 +10,7 @@ use jsonwebtoken::Algorithm;
 use jsonwebtoken::crypto::verify;
 use ring::digest::{digest, SHA256};
 use jsonwebkey as jwk;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 #[derive(Clone, Debug)]
 pub struct Get {
@@ -182,7 +183,7 @@ impl Message {
             let signature = signature_obj.get("~").ok_or("no signature (~) in signature json")?;
             let signature = signature.as_str().ok_or("signature (~) in signature json was not a string")?;
             let signature64 = base64::decode(signature).or(Err("signature (~) in signature json was not base64"))?;
-            let signature = base64::encode_config(signature64, base64::URL_SAFE_NO_PAD);
+            let signature = base64::encode_config(signature64, URL_SAFE_NO_PAD);
             // TODO use jsonwebtoken underlying ring::signature functions directly, instead of having to re-encode
 
             let key = &node_id.split("/").next().unwrap()[1..];
@@ -318,7 +319,7 @@ impl Message {
         };
         Ok(Message::Get(get))
     }
-    
+
     pub fn from_json_obj(json: &JsonValue, json_str: String, from: Addr, allow_public_space: bool) -> Result<Self, &'static str> {
         let obj = match json.as_object() {
             Some(obj) => obj,
@@ -350,7 +351,7 @@ impl Message {
             Ok(json) => json,
             Err(_) => { return Err("Failed to parse message as JSON"); }
         };
-        
+
         if let Some(arr) = json.as_array() {
             let mut vec = Vec::<Self>::new();
             for msg in arr {
