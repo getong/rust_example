@@ -114,4 +114,5 @@ members = [
         "tokio_select_example2",
         "tokio_time_interval_example2",
         "task_joinset_tokio_stream_example",
+        "tokio_future_join_all_example",
 ]
