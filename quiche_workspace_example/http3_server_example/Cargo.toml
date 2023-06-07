@@ -9,5 +9,5 @@ edition = "2021"
 log = "0.4.17"
 mio = { version = "0.8.4", features = ["net", "os-poll"] }
 #quiche = "0.14.0"
-quiche = { git = "https://github.com/cloudflare/quiche" }
+quiche = "0.17.2"
 ring = "0.16.20"
