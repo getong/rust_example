@@ -118,4 +118,6 @@ members = [
         "tokio_future_try_join_all_example",
         "tokio_producer_consumer_example",
         "tokio_buffer_channel_example",
+        "tokio_select_multi_factor_example",
+        "tokio_select_same_variable_example",
 ]
