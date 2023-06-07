@@ -12,7 +12,7 @@ clap = { version = "3.2.16", features = ["derive", "env"] }
 env_logger = "0.9.0"
 # openraft = "0.6.7"
 #openraft = { version = "0.6", path = "../../openraft", features = ["serde"] }
-openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde"] }
+openraft = {version= "0.8.3", features = ["serde"]}
 # openraft = { version = "0.6", , features = ["serde"] }
 reqwest = { version = "0.11.11", features = ["json"] }
 serde = { version = "1.0.143", features = ["derive"] }
