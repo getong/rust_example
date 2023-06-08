@@ -23,8 +23,28 @@ async fn main() {
     let timeout = create_timeout(Duration::from_secs(2));
     let user_input = get_user_input();
 
+    let interval_timer = sleep(Duration::from_millis(300));
+    tokio::pin!(interval_timer);
+
     tokio::select! {
         input = user_input => println!("User entered: {:?}", input),
-        _ =  timeout => println!("Timed out"),
-    }
+        _ = timeout => println!("Timed out"),
+        _ = interval_timer.as_mut() => {
+            println!("300 millisecond");
+        }
+    };
+
+    let handler = tokio::spawn(async move {
+        loop {
+            let timer = sleep(Duration::from_millis(300));
+            tokio::pin!(timer);
+
+            tokio::select! {
+                _ = timer.as_mut() => {
+                    println!("300 millisecond in the task");
+                }
+            }
+        }
+    });
+    _ = handler.await;
 }
