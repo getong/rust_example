@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 
 async fn receive(
@@ -59,26 +60,39 @@ async fn main() {
 
 async fn select_arc_example() {
     let value = Arc::new(Mutex::new(0));
-
-    tokio::select! {
-        _ = async {
-            // Branch 1
-            {
-                let mut value = value.lock().unwrap();
-                *value += 1;
-                println!("Branch 1: {}", *value);
-            }
-            sleep(Duration::from_secs(1)).await;
-        } => {},
-        _ = async {
-            // Branch 2
-            {
-                let mut value = value.lock().unwrap();
-                *value += 2;
-                println!("Branch 2: {}", *value);
-            }
-            sleep(Duration::from_secs(1)).await;
-        } => {},
+    loop {
+        tokio::select! {
+            _ = async {
+                // Branch 1
+                {
+                    let mut temp_value = value.lock().await;
+                    *temp_value += 1;
+                    println!("Branch 1: {}", *temp_value);
+                }
+                sleep(Duration::from_secs(1)).await;
+            } => {
+                println!("branch 1");
+                let temp_value = value.lock().await;
+                if *temp_value >= 10 {
+                    break
+                }
+            },
+            _ = async {
+                // Branch 2
+                {
+                    let mut temp_value = value.lock().await;
+                    *temp_value += 2;
+                    println!("Branch 2: {}", *temp_value);
+                }
+                sleep(Duration::from_secs(1)).await;
+            } => {
+                println!("branch 2");
+                let temp_value = value.lock().await;
+                if *temp_value >= 10 {
+                    break
+                }
+            },
+        }
     }
 }
 
