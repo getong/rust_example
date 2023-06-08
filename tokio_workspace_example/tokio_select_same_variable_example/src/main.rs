@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::{sleep, Duration};
 
 async fn receive(
     mut reader: tokio::net::tcp::OwnedReadHalf,
@@ -20,6 +22,8 @@ async fn receive_wrapper(
 
 #[tokio::main]
 async fn main() {
+    select_arc_example().await;
+
     let (_sender, mut receiver) = tokio::sync::mpsc::channel::<String>(32);
     // Send the sender to other threads
 
@@ -50,6 +54,31 @@ async fn main() {
                 // Parse the command and send it with writer.write()
             }
         }
+    }
+}
+
+async fn select_arc_example() {
+    let value = Arc::new(Mutex::new(0));
+
+    tokio::select! {
+        _ = async {
+            // Branch 1
+            {
+                let mut value = value.lock().unwrap();
+                *value += 1;
+                println!("Branch 1: {}", *value);
+            }
+            sleep(Duration::from_secs(1)).await;
+        } => {},
+        _ = async {
+            // Branch 2
+            {
+                let mut value = value.lock().unwrap();
+                *value += 2;
+                println!("Branch 2: {}", *value);
+            }
+            sleep(Duration::from_secs(1)).await;
+        } => {},
     }
 }
 
