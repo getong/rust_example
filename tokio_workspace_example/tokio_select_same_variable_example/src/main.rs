@@ -73,6 +73,7 @@ async fn select_arc_example() {
             } => {
                 println!("branch 1");
                 let temp_value = value.lock().await;
+                println!("branch 1, temp_value: {}", *temp_value);
                 if *temp_value >= 10 {
                     break
                 }
@@ -88,6 +89,7 @@ async fn select_arc_example() {
             } => {
                 println!("branch 2");
                 let temp_value = value.lock().await;
+                println!("branch 2, temp_value: {}", *temp_value);
                 if *temp_value >= 10 {
                     break
                 }
