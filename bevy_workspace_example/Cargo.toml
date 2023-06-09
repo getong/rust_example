@@ -7,4 +7,6 @@ members = [
         "bevy_setup_example",
         "bevy_arpg_example",
         "bevy_single_player_example",
+        "bevy_quinnet_chat_server_example",
+        "bevy_quinnet_chat_client_example",
 ]
