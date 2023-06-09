@@ -30,7 +30,7 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
                         info!("{} connected", name);
                         e.insert(name.clone());
                         // Initialize this client with existing state
-                        endpoingt
+                        endpoint
                             .send_message(
                                 client_id,
                                 ServerMessage::InitClient {
