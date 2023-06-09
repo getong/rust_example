@@ -60,7 +60,7 @@ async fn main() {
     let universe = Universe::new();
 
     // let (recv_mailbox, _) = universe.spawn_actor(PingReceiver::default()).spawn();
-    let (recv_mailbox, _) = universe.spawn_builder().spawn(PingReceiver::default());
+    let (recv_mailbox, _) = universe.spawn_builder().spawn(PingReceiver);
 
     let ping_sender = PingSender { peer: recv_mailbox };
     // let (_, ping_sender_handler) = universe.spawn_actor(ping_sender).spawn();

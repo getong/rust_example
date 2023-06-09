@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.68"
-quickwit-actors = { git = "https://github.com/quickwit-oss/quickwit", version = "0.5.0" }
+quickwit-actors = { git = "https://github.com/quickwit-oss/quickwit", version = "0.6.0" }
 tokio = { version = "1.28.0", features = ["full"] }
