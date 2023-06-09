@@ -10,4 +10,5 @@ members = [
         "bevy_single_player_example",
         "bevy_quinnet_chat_server_example",
         "bevy_quinnet_chat_client_example",
+        "bevy_quinnet_breakout_server_example",
 ]
