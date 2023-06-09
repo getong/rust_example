@@ -11,4 +11,7 @@ members = [
         "bevy_quinnet_chat_server_example",
         "bevy_quinnet_chat_client_example",
         "bevy_quinnet_breakout_server_example",
+        "naia-bevy-demo-shared",
+        "bevy_naia_server_example",
+        "bevy_naia_client_example",
 ]
