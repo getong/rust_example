@@ -13,17 +13,18 @@ use leafwing_input_manager::prelude::*;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        // These are the generic "slots" that make up the player's action bar
+    // These are the generic "slots" that make up the player's action bar
         .add_plugin(InputManagerPlugin::<Slot>::default())
-        // These are the actual abilities used by our characters
+    // These are the actual abilities used by our characters
         .add_plugin(InputManagerPlugin::<Ability>::default())
         .add_startup_system(spawn_player)
-        // This system coordinates the state of our two actions
-        .add_system_to_stage(
-            CoreStage::PreUpdate,
-            copy_action_state.after(InputManagerSystem::ManualControl),
+    // This system coordinates the state of our two actions
+        .add_system(
+            copy_action_state
+                .in_base_set(CoreSet::PreUpdate)
+                .after(InputManagerSystem::ManualControl),
         )
-        // Try it out, using QWER / left click / right click!
+    // Try it out, using QWER / left click / right click!
         .add_system(report_abilities_used)
         .run();
 }
@@ -83,7 +84,7 @@ fn spawn_player(mut commands: Commands) {
     ability_slot_map.insert(Slot::Ability3, Ability::Dash);
     ability_slot_map.insert(Slot::Ability4, Ability::PolymorphSheep);
 
-    commands.spawn_bundle(PlayerBundle {
+    commands.spawn(PlayerBundle {
         player: Player,
         slot_input_map: InputMap::new([
             (Q, Slot::Ability1),
@@ -91,9 +92,9 @@ fn spawn_player(mut commands: Commands) {
             (E, Slot::Ability3),
             (R, Slot::Ability4),
         ])
-        .insert(MouseButton::Left, Slot::Primary)
-        .insert(MouseButton::Right, Slot::Secondary)
-        .build(),
+            .insert(MouseButton::Left, Slot::Primary)
+            .insert(MouseButton::Right, Slot::Secondary)
+            .build(),
         slot_action_state: ActionState::default(),
         ability_action_state: ActionState::default(),
         ability_slot_map,
@@ -112,7 +113,8 @@ fn copy_action_state(
             if let Some(&matching_ability) = ability_slot_map.get(&slot) {
                 // This copies the `ActionData` between the ActionStates,
                 // including information about how long the buttons have been pressed or released
-                ability_state.set_action_data(matching_ability, slot_state.action_data(slot));
+                ability_state
+                    .set_action_data(matching_ability, slot_state.action_data(slot).clone());
             }
         }
     }
