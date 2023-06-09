@@ -98,7 +98,7 @@ fn handle_terminal_messages(
         } else {
             client
                 .connection()
-                .try_send_message(ClientMessage::ChatMessage { message: message });
+                .try_send_message(ClientMessage::ChatMessage { message });
         }
     }
 }
@@ -154,7 +154,7 @@ fn handle_client_events(
 
 fn main() {
     App::new()
-        .add_plugin(ScheduleRunnerPlugin::default())
+        .add_plugin(ScheduleRunnerPlugin)
         .add_plugin(LogPlugin::default())
         .add_plugin(QuinnetClientPlugin::default())
         .insert_resource(Users::default())
