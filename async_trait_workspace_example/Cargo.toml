@@ -6,4 +6,5 @@ members = [
         "async_trait_no_lifetime_example",
         "async_trait_example",
         "async_trait_basic_intro_example",
+        "async_trait_mut_example",
 ]
