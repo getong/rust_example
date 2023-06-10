@@ -74,3 +74,6 @@ fn main() {
     }
     println!("graph: {:?}", hagraph.graph);
 }
+
+// copy from https://www.reddit.com/r/rust/comments/142780f/struct_mutates_as_a_block_in_170/
+// copy from https://play.rust-lang.org/?version=nightly&mode=debug&edition=2021&gist=44ebbc0ed6f69524ca18f03f46f8cad9
