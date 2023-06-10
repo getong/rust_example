@@ -31,8 +31,8 @@ impl<'a> HaGraph<'a> {
     pub fn load_names(&mut self, names: &'a [&'a str]) {
         for name in names {
             self.names.push(name.to_string());
-            let idx = self.graph.add_node(&name);
-            self.nodes.insert(&name, idx);
+            let idx = self.graph.add_node(name);
+            self.nodes.insert(name, idx);
         }
     }
 
