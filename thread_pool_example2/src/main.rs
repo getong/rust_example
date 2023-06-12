@@ -26,10 +26,7 @@ impl<T> Queue<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        match self.end {
-            None => true,
-            _ => false,
-        }
+        self.end.is_none()
     }
 
     pub fn add(&mut self, value: T) {
@@ -37,7 +34,7 @@ impl<T> Queue<T> {
         if let Some(end) = &mut self.end {
             let mut start = end;
             loop {
-                if let Some(_) = &start.next {
+                if start.next.is_some() {
                     start = (start.next.as_mut().unwrap()).borrow_mut();
                 } else {
                     break;
@@ -156,13 +153,9 @@ impl<T: Send + 'static> ThreadPool<T> {
 
 pub fn find_free_worker<T: Send>(workers: &Vec<Worker<T>>) -> Option<&Worker<T>> {
     workers.iter().find(|w| {
-        match w
-            .is_running
+        w.is_running
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+            .is_ok()
     })
 }
 
