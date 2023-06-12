@@ -13,6 +13,12 @@ fn main() {
         // Clone the Rc<T> and update the value
         let mut borrowed_data = data.borrow_mut();
 
+        // if let Some(mut_data) = Rc::get_mut(&mut borrowed_data) {
+        //     mut_data.value = 46;
+        // } else {
+        //     println!("no data");
+        // }
+        // this will not fail, get_mut() might fail
         let mut_data = Rc::make_mut(&mut borrowed_data);
         mut_data.value = 46;
     }
