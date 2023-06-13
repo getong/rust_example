@@ -1,88 +1,74 @@
 use bitvec::prelude::*;
 
-use std::iter::repeat;
-
 fn main() {
-    // You can build a static array,
-    let _arr = bitarr![Lsb0, u32; 0; 64];
-    // a hidden static slice,
-    let _slice = bits![mut LocalBits, u16; 0; 10];
-    // or a boxed slice,
-    let _boxed = bitbox![0; 20];
-    // or a vector, using macros that extend the `vec!` syntax
-    let mut bv = bitvec![Msb0, u8; 0, 1, 0, 1];
+    // All data-types have macro
+    // constructors.
+    let _arr = bitarr![u32, Lsb0; 0; 80];
+    let _bits = bits![u16, Msb0; 0; 40];
 
-    // You can also explicitly borrow existing scalars,
-    let data = 0u32;
-    let _bits = BitSlice::<Lsb0, _>::from_element(&data);
-    // or arrays,
-    let mut data = [0u8; 3];
-    let _bits = BitSlice::<Msb0, _>::from_slice_mut(&mut data[..]);
-    // and these are available as shortcut methods:
-    let _bits = 0u32.view_bits::<Lsb0>();
-    let _bits = [0u8; 3].view_bits_mut::<Msb0>();
+    // Unsigned integers (scalar, array,
+    // and slice) can be borrowed.
+    let data = 0x2021u16;
+    let _bits = data.view_bits::<Msb0>();
+    let data = [0xA5u8, 0x3C];
+    let bits = data.view_bits::<Lsb0>();
 
-    // `BitVec` implements the entire `Vec` API
-    bv.reserve(8);
+    // Bit-slices can split anywhere.
+    let (head, rest) = bits.split_at(4);
+    assert_eq!(head, bits[..4]);
+    assert_eq!(rest, bits[4..]);
 
-    // Like `Vec<bool>`, it can be extended by any iterator of `bool` or `&bool`
-    bv.extend([false; 4].iter());
-    bv.extend([true; 4].iter().copied());
+    // And they are writable!
+    let mut data = [0u8; 2];
+    let bits = data.view_bits_mut::<Lsb0>();
+    // l and r each own one byte.
+    let (l, r) = bits.split_at_mut(8);
 
-    // `BitSlice`-owning buffers can be viewed as their raw memory
+    // but now a, b, c, and d own a nibble!
+    let ((a, b), (c, d)) = (l.split_at_mut(4), r.split_at_mut(4));
+
+    // and all four of them are writable.
+    a.set(0, true);
+    b.set(1, true);
+    c.set(2, true);
+    d.set(3, true);
+
+    assert!(bits[0]); // a[0]
+    assert!(bits[5]); // b[1]
+    assert!(bits[10]); // c[2]
+    assert!(bits[15]); // d[3]
+
+    // `BitSlice` is accessed by reference,
+    // which means it respects NLL styles.
+    assert_eq!(data, [0x21u8, 0x84]);
+
+    // Furthermore, bit-slices can store
+    // ordinary integers:
+    let eight = [0u8, 4, 8, 12, 16, 20, 24, 28];
+    //           a    b  c  d   e   f   g   h
+    let mut five = [0u8; 5];
+    for (slot, byte) in five
+        .view_bits_mut::<Msb0>()
+        .chunks_mut(5)
+        .zip(eight.iter().copied())
+    {
+        slot.store_be(byte);
+        assert_eq!(slot.load_be::<u8>(), byte);
+    }
+
     assert_eq!(
-        bv.as_raw_slice(),
-        &[0b0101_0000, 0b1111_0000],
-        //  ^ index 0       ^ index 11
+        five,
+        [
+            0b0000_0001,
+            //  aaaaa bbb
+            0b0001_0000,
+            //  bb ccccc d
+            0b1100_1000,
+            //  dddd eeee
+            0b0101_0011,
+            //  e fffff gg
+            0b000_11100,
+            //  ggg hhhhh
+        ]
     );
-    assert_eq!(bv.len(), 12);
-    assert!(bv.capacity() >= 16);
-
-    bv.push(true);
-    bv.push(false);
-    bv.push(true);
-
-    // `BitSlice` implements indexing
-    assert!(bv[12]);
-    assert!(!bv[13]);
-    assert!(bv[14]);
-    assert!(bv.get(15).is_none());
-
-    // but not in place position
-    // bv[12] = false;
-    // because it cannot produce `&mut bool`.
-    // instead, use `.get_mut()`:
-    *bv.get_mut(12).unwrap() = false;
-    // or `.set()`:
-    bv.set(12, false);
-
-    // range indexing produces subslices
-    let last = &bv[12..];
-    assert_eq!(last.len(), 3);
-    assert!(last.any());
-
-    for _ in 0..3 {
-        assert!(bv.pop().is_some());
-    }
-
-    //  `BitSlice` implements set arithmetic against any `bool` iterator
-    bv &= repeat(true);
-    bv |= repeat(false);
-    bv ^= repeat(true);
-    bv = !bv;
-    // the crate no longer implements integer arithmetic, but `BitSlice`
-    // can be used to represent varints in a downstream library.
-
-    // `BitSlice`s are iterators:
-    assert_eq!(bv.iter().filter(|b| **b).count(), 6,);
-
-    // including mutable iteration, though this requires explicit binding:
-    for (idx, mut bit) in bv.iter_mut().enumerate() {
-        //      ^^^ not optional
-        *bit ^= idx % 2 == 0;
-    }
-
-    // `BitSlice` can also implement bitfield memory behavior:
-    bv[1..7].store(0x2Eu8);
-    assert_eq!(bv[1..7].load::<u8>(), 0x2E);
 }
