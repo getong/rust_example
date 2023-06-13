@@ -1,7 +1,7 @@
 [package]
 name = "tokio_actor_joinhandle_example"
 version = "0.2.3"
-edition = "2018"
+edition = "2021"
 repository = "https://github.com/mmalmi/rod"
 description = "Distributed graph database that syncs over websockets and multicast"
 license = "MIT"
