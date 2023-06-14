@@ -1,37 +1,45 @@
-use anyhow::Result;
-use env_logger::{Builder, Env};
-use tokio::time::{sleep, Duration};
-use tokio_graceful_shutdown::{SubsystemHandle, Toplevel};
-
-async fn countdown() {
-    for i in (1..=5).rev() {
-        log::info!("Shutting down in: {}", i);
-        sleep(Duration::from_millis(1000)).await;
-    }
-}
-
-async fn countdown_subsystem(subsys: SubsystemHandle) -> Result<()> {
-    tokio::select! {
-        _ = subsys.on_shutdown_requested() => {
-            log::info!("Countdown cancelled.");
-        },
-        _ = countdown() => {
-            subsys.request_shutdown();
-        }
-    };
-
-    Ok(())
-}
+use std::error::Error;
+use std::time::Duration;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::time::sleep;
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Init logging
-    Builder::from_env(Env::default().default_filter_or("debug")).init();
+async fn main() -> Result<(), Box<dyn Error>> {
+    // Create a signal stream for the INT and TERM signals
+    let mut sig_int = signal(SignalKind::interrupt())?;
+    let mut sig_term = signal(SignalKind::terminate())?;
 
-    // Create toplevel
-    Ok(Toplevel::new()
-        .start("Countdown", countdown_subsystem)
-        .catch_signals()
-        .handle_shutdown_requests(Duration::from_millis(1000))
-        .await?)
+    // Spawn a task to handle the application logic
+    let app_task = tokio::spawn(async move {
+        // Application logic goes here...
+        // For demonstration purposes, we'll simply print a message repeatedly
+        loop {
+            println!("Application is running...");
+            sleep(Duration::from_secs(1)).await;
+        }
+    });
+
+    // Wait for the INT or TERM signals
+    tokio::select! {
+        _ = sig_int.recv() => {
+            println!("Received INT signal...");
+        }
+        _ = sig_term.recv() => {
+            println!("Received TERM signal...");
+        }
+    }
+
+    // Perform any necessary cleanup or finalization here...
+    // For demonstration purposes, we'll simply sleep for a while
+    println!("Performing cleanup...");
+    sleep(Duration::from_secs(3)).await;
+    println!("Cleanup complete.");
+
+    // Terminate the application gracefully
+    println!("Application is shutting down...");
+
+    // Cancel the application task
+    app_task.abort();
+
+    Ok(())
 }
