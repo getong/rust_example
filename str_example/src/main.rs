@@ -30,4 +30,11 @@ fn main() {
 
     let s1: Box<str> = "Hello there!".into();
     println!("s1: {:?}", s1);
+
+    box_str();
+}
+
+fn box_str() {
+    let boxed: Box<str> = Box::from("hello");
+    println!("{boxed}");
 }
