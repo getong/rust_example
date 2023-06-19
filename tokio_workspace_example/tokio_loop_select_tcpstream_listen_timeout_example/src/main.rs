@@ -32,7 +32,7 @@ async fn accept_client(listener: &TcpListener) -> Result<(TcpStream, SocketAddr)
 }
 
 async fn handle_client(mut client_stream: TcpStream) -> Result<(), io::Error> {
-    let mut buffer = [0u8; 1024];
+    let mut buffer: Vec<u8> = vec![];
 
     loop {
         let read_future = client_stream.read(&mut buffer);
