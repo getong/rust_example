@@ -1,63 +1,47 @@
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::time::sleep;
+use tokio::time::timeout;
 
 const LISTEN_ADDRESS: &str = "127.0.0.1:8080";
-const RECONNECT_DELAY_SECONDS: u64 = 2;
 
 #[tokio::main]
 async fn main() {
     let listen_address: SocketAddr = LISTEN_ADDRESS.parse().expect("Invalid listen address");
-    let listener = Arc::new(Mutex::new(
-        TcpListener::bind(listen_address)
-            .await
-            .expect("Failed to bind listener"),
-    ));
+    let listener = TcpListener::bind(listen_address)
+        .await
+        .expect("Failed to bind listener");
 
     loop {
-        match accept_client(Arc::clone(&listener)).await {
-            Ok((mut client_stream, client_address)) => {
-                println!("Accepted client connection from: {}", client_address);
-
-                if let Err(err) = handle_client(&mut client_stream).await {
+        if let Ok((client_stream, client_address)) = accept_client(&listener).await {
+            println!("Accepted client connection from: {}", client_address);
+            tokio::spawn(async move {
+                if let Err(err) = handle_client(client_stream).await {
                     eprintln!("Error: {}", err);
                 }
-
-                println!("Client connection closed: {}", client_address);
-            }
-            Err(err) => {
-                eprintln!("Accept error: {}", err);
-            }
+            });
         }
-
-        // Delay before accepting new connections
-        sleep(Duration::from_secs(RECONNECT_DELAY_SECONDS)).await;
     }
 }
 
-async fn accept_client(
-    listener: Arc<Mutex<TcpListener>>,
-) -> Result<(TcpStream, SocketAddr), io::Error> {
-    let listener = listener.lock().unwrap();
-    listener.accept().await.map(|(stream, addr)| (stream, addr))
+async fn accept_client(listener: &TcpListener) -> Result<(TcpStream, SocketAddr), io::Error> {
+    let (stream, addr) = listener.accept().await?;
+    Ok((stream, addr))
 }
 
-async fn handle_client(client_stream: &mut TcpStream) -> Result<(), io::Error> {
+async fn handle_client(mut client_stream: TcpStream) -> Result<(), io::Error> {
     let mut buffer = [0u8; 1024];
 
     loop {
-        let nbytes = match client_stream.read(&mut buffer).await {
-            Ok(nbytes) if nbytes == 0 => {
-                // End of stream, client disconnected
-                return Ok(());
-            }
-            Ok(nbytes) => nbytes,
+        let read_future = client_stream.read(&mut buffer);
+
+        let nbytes = match timeout(Duration::from_secs(5), read_future).await {
+            Ok(result) => result?,
             Err(err) => {
-                // Read error, return it to the caller
-                return Err(err);
+                eprintln!("Read error: {}", err);
+                return Err(err.into());
             }
         };
 
@@ -66,6 +50,9 @@ async fn handle_client(client_stream: &mut TcpStream) -> Result<(), io::Error> {
         println!("Received data from client: {}", data);
 
         // Echo the data back to the client
-        client_stream.write_all(&buffer[..nbytes]).await?;
+        if let Err(err) = client_stream.write_all(&buffer[..nbytes]).await {
+            eprintln!("Write error: {}", err);
+            return Err(err);
+        }
     }
 }
