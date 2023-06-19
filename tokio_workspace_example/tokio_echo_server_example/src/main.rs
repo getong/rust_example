@@ -1,18 +1,38 @@
 use std::error::Error;
-
-use tokio::io::copy;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let addr = "127.0.0.1:6143";
-    let listener = TcpListener::bind(addr).await?;
-    println!("Listen on {}", addr);
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+
+    println!("Server started, listening on 127.0.0.1:8080");
+
     loop {
-        let (mut sock, _) = listener.accept().await?;
+        let (mut socket, _) = listener.accept().await?;
+
         tokio::spawn(async move {
-            let (mut reader, mut writer) = sock.split();
-            copy(&mut reader, &mut writer).await.unwrap();
+            let mut buffer = [0; 1024];
+
+            loop {
+                match socket.read(&mut buffer).await {
+                    Ok(0) => {
+                        println!("Client disconnected");
+                        break;
+                    }
+                    Ok(n) => {
+                        eprintln!("Write error: {:?}", &buffer[..n]);
+                        if let Err(e) = socket.write_all(&buffer[..n]).await {
+                            eprintln!("Write error: {}", e);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Read error: {}", e);
+                        break;
+                    }
+                }
+            }
         });
     }
 }
