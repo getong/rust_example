@@ -2,6 +2,7 @@ use std::time::Duration;
 use tokio::io::{self, AsyncReadExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use tokio::io::AsyncWriteExt;
 
 // nc -l 8080
 
@@ -26,6 +27,7 @@ async fn main() {
                     Err(err) => {
                         // Handle the read error
                         eprintln!("Read error: {}", err);
+                        break;
                     }
                 }
             }
@@ -54,9 +56,11 @@ impl TimeoutStream {
     }
 
     async fn read(&mut self) -> io::Result<String> {
+        _ = self.stream.write("hello".to_string().as_bytes());
         let read_future = self.stream.read(&mut self.buffer[..]);
         match timeout(self.timeout, read_future).await {
             Ok(result) => {
+                println!("result:{:?}", result);
                 let nbytes = result?;
                 let data = String::from_utf8_lossy(&self.buffer[..nbytes]).to_string();
                 Ok(data)
