@@ -33,10 +33,10 @@ async fn accept_client(listener: &TcpListener) -> Result<(TcpStream, SocketAddr)
 }
 
 async fn handle_client(mut client_stream: TcpStream) -> Result<(), io::Error> {
-    let mut buffer: Vec<u8> = vec![];
+    let mut buffer: Vec<u8> = vec![0u8;1024];
+    // let mut buffer =[0u8;1024];
 
     loop {
-        // _ = client_stream.write_all("hello".as_bytes()).await;
         let read_future = client_stream.read(&mut buffer);
         tokio::select! {
             result = timeout(Duration::from_secs(READ_TIMEOUT_SECONDS), read_future) => {
