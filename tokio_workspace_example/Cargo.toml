@@ -15,6 +15,7 @@ members = [
         "tokio_actor_joinhandle_example",
         "tokio_park_example",
         "tokio_echo_server_example",
+        "tokio_echo_client_example",
         "tokio_spawn_loop_select_example",
         "tokio_interval_example",
         "tokio_task_channel_example",
@@ -123,4 +124,5 @@ members = [
         "tokio_runtime_on_thread_start_example",
         "tokio_loop_select_tcpstream_timeout_example",
         "tokio_loop_select_tcpstream_listen_timeout_example",
+        "tokio_select_rand_example",
 ]

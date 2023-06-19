@@ -36,24 +36,25 @@ async fn handle_client(mut client_stream: TcpStream) -> Result<(), io::Error> {
     let mut buffer: Vec<u8> = vec![];
 
     loop {
-        _ = client_stream.write_all("hello".as_bytes()).await;
+        // _ = client_stream.write_all("hello".as_bytes()).await;
         let read_future = client_stream.read(&mut buffer);
         tokio::select! {
             result = timeout(Duration::from_secs(READ_TIMEOUT_SECONDS), read_future) => {
-                let nbytes = result??;
-                if nbytes == 0 {
-                    // End of stream, client disconnected
-                    return Ok(());
-                }
+                if let Ok(Ok(nbytes)) =result {
+                    if nbytes == 0 {
+                        // End of stream, client disconnected
+                        return Ok(());
+                    }
 
-                // Process the received data
-                let data = String::from_utf8_lossy(&buffer[..nbytes]);
-                println!("Received data from client: {}", data);
+                    // Process the received data
+                    let data = String::from_utf8_lossy(&buffer[..nbytes]);
+                    println!("Received data from client: {}", data);
 
-                // Echo the data back to the client
-                if let Err(err) = client_stream.write_all(&buffer[..nbytes]).await {
-                    eprintln!("Write error: {}", err);
-                    return Err(err);
+                    // Echo the data back to the client
+                    if let Err(err) = client_stream.write_all(&buffer[..nbytes]).await {
+                        eprintln!("Write error: {}", err);
+                        return Err(err);
+                    }
                 }
             },
         }
