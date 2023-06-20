@@ -90,6 +90,7 @@ members = [
         "tokio_simple_time_tick_example",
         "tokio_sleep_example",
         "tokio_split_socket_example",
+        "tokio_split_socket_task_example",
         "tokio_stream_example",
         "tokio_stream_unfold_example",
         "tokio_stream_throttle_example",
