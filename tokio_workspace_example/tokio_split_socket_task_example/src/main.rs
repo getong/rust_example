@@ -1,5 +1,4 @@
-use tokio::io::BufReader;
-use tokio::io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
@@ -52,9 +51,9 @@ async fn main() {
     loop {
         let mut line = String::new();
         match stdin_reader.read_line(&mut line).await {
-            Ok(0) =>{
-                break // End of input
-            },
+            Ok(0) => {
+                break; // End of input
+            }
 
             Ok(_) => {
                 let input = line.trim().to_owned(); // Convert to owned String
