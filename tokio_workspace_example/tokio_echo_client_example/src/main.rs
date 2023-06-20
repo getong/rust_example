@@ -26,5 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         io::stdout().write_all(&buf[..n]).unwrap();
+        buffer = String::new();
+        buf = [0u8; 1024];
     }
 }

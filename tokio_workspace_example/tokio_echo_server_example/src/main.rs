@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             loop {
                 match socket.read(&mut buffer).await {
                     Ok(0) => {
-                        println!("empty input");
+                        println!("client disconnect");
                         break;
                     }
                     Ok(n) => {
@@ -26,13 +26,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             eprintln!("Write error: {}", e);
                             break;
                         }
-                        // buffer.clear();
+                        buffer = vec![0; 1024];
                     }
                     Err(e) => {
                         eprintln!("Read error: {}", e);
                         break;
                     }
                 }
+
             }
         });
     }
