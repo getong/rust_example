@@ -32,10 +32,13 @@ async fn main() {
     let _writer_task = tokio::spawn(async move {
         let mut writer = tokio::io::BufWriter::new(write_half);
         loop {
-            let data = rx.recv().await.unwrap();
-            println!("Send: {}", String::from_utf8_lossy(&data));
-            writer.write_all(&data).await.unwrap();
-            writer.flush().await.unwrap();
+            if let Some(data) = rx.recv().await {
+                println!("Send: {}", String::from_utf8_lossy(&data));
+                _ = writer.write_all(&data).await;
+                if let Err(_) = writer.flush().await {
+                    println!("send to network error");
+                }
+            }
         }
     });
 
@@ -63,7 +66,9 @@ async fn main() {
                 // println!("input:{:?}", input);
 
                 // Send an owned value through the channel
-                tx.send(input.into_bytes()).await.unwrap();
+                if let Err(_) = tx.send(input.into_bytes()).await {
+                    println!("channel send error");
+                }
             }
             Err(err) => {
                 eprintln!("Failed to read input: {}", err);
