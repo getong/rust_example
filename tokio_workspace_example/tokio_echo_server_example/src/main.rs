@@ -12,12 +12,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (mut socket, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            let mut buffer = [0; 1024];
+            let mut buffer = vec![0; 1024];
 
             loop {
                 match socket.read(&mut buffer).await {
                     Ok(0) => {
-                        println!("Client disconnected");
+                        println!("empty input");
                         break;
                     }
                     Ok(n) => {
@@ -26,6 +26,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             eprintln!("Write error: {}", e);
                             break;
                         }
+                        // buffer.clear();
                     }
                     Err(e) => {
                         eprintln!("Read error: {}", e);
