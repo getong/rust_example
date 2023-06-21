@@ -127,4 +127,5 @@ members = [
         "tokio_loop_select_tcpstream_timeout_example",
         "tokio_loop_select_tcpstream_listen_timeout_example",
         "tokio_select_rand_example",
+        "tokio_take_read_to_end_example",
 ]
