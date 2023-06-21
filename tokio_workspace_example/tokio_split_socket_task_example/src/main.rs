@@ -1,6 +1,8 @@
-use tokio::io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{
+    self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf,
+};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, Receiver};
 
 #[tokio::main]
 async fn main() {
@@ -11,36 +13,12 @@ async fn main() {
     let (read_half, write_half) = io::split(stream);
 
     // Create an MPSC channel with a capacity of 10
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(10);
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(10);
 
     // Spawn two tasks to perform reading and writing asynchronously
-    let _reader_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(read_half);
-        let mut buf = vec![0u8; 1024];
+    spawn_reader_task(read_half);
 
-        loop {
-            match reader.read(&mut buf).await {
-                Ok(n) if n > 0 => {
-                    // Process the received data
-                    println!("Received: {}", String::from_utf8_lossy(&buf[..n]));
-                }
-                _ => break,
-            }
-        }
-    });
-
-    let _writer_task = tokio::spawn(async move {
-        let mut writer = tokio::io::BufWriter::new(write_half);
-        loop {
-            if let Some(data) = rx.recv().await {
-                println!("Send: {}", String::from_utf8_lossy(&data));
-                _ = writer.write_all(&data).await;
-                if let Err(_) = writer.flush().await {
-                    println!("send to network error");
-                }
-            }
-        }
-    });
+    spawn_write_task(write_half, rx);
 
     // Await the completion of both tasks
     // reader_task.await.unwrap();
@@ -76,4 +54,36 @@ async fn main() {
             }
         }
     }
+}
+
+fn spawn_reader_task(read_half: ReadHalf<TcpStream>) {
+    let _reader_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(read_half);
+        let mut buf = vec![0u8; 1024];
+
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(n) if n > 0 => {
+                    // Process the received data
+                    println!("Received: {}", String::from_utf8_lossy(&buf[..n]));
+                }
+                _ => break,
+            }
+        }
+    });
+}
+
+fn spawn_write_task(write_half: WriteHalf<TcpStream>, mut rx: Receiver<Vec<u8>>) {
+    tokio::spawn(async move {
+        let mut writer = tokio::io::BufWriter::new(write_half);
+        loop {
+            if let Some(data) = rx.recv().await {
+                println!("Send: {}", String::from_utf8_lossy(&data));
+                _ = writer.write_all(&data).await;
+                if let Err(_) = writer.flush().await {
+                    println!("send to network error");
+                }
+            }
+        }
+    });
 }
