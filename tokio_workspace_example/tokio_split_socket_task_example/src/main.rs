@@ -4,6 +4,8 @@ use tokio::io::{
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{self, Receiver};
 
+const BUFFER_SIZE: usize = 1024;
+
 #[tokio::main]
 async fn main() {
     // Establish a TCP connection
@@ -30,14 +32,22 @@ async fn main() {
     println!("echo via tcp, type 'quit' to exit.");
 
     loop {
-        let mut line = String::new();
-        match stdin_reader.read_line(&mut line).await {
+        // When using stdin_reader.read_line(&mut line).await, you might encounter the "very long line" error if the input line is longer than
+        // the buffer capacity. To handle longer lines, you can use the AsyncBufReadExt::read_line method with
+        // a custom buffer that can dynamically resize.
+        // In this updated code, instead of using stdin_reader.read_line(&mut line).await, we use stdin_reader.read_until(b'\n', &mut line).await
+        // to read the input until a newline (\n) delimiter is encountered.
+        // let mut line = String::new();
+        let mut line = vec![0u8;BUFFER_SIZE];
+        // match stdin_reader.read_line(&mut line).await {
+        match stdin_reader.read_until(b'\n', &mut line).await {
             Ok(0) => {
                 break; // End of input
             }
 
-            Ok(_) => {
-                let input = line.trim().to_owned(); // Convert to owned String
+            Ok(n) => {
+                // let input = line.trim().to_owned(); // Convert to owned String
+                let input = String::from_utf8_lossy(?line[BUFFER_SIZE-n ..]).trim().to_owned(); // Convert to owned String
                 if input == "quit" {
                     break;
                 }
