@@ -43,7 +43,7 @@ async fn main() {
         match stdin_reader.read_until(b'\n', &mut line).await {
             Ok(0) => {
                 break; // End of input
-            }
+            },
 
             Ok(n) => {
                 // let input = line.trim().to_owned(); // Convert to owned String
@@ -57,11 +57,11 @@ async fn main() {
                 if let Err(_) = tx.send(input.into_bytes()).await {
                     println!("channel send error");
                 }
-            }
+            },
             Err(err) => {
                 eprintln!("Failed to read input: {}", err);
                 break;
-            }
+            },
         }
     }
 }
@@ -69,7 +69,7 @@ async fn main() {
 fn spawn_reader_task(read_half: ReadHalf<TcpStream>) {
     let _reader_task = tokio::spawn(async move {
         let mut reader = BufReader::new(read_half);
-        let mut buf = vec![0u8; 1024];
+        let mut buf = vec![0u8; BUFFER_SIZE];
 
         loop {
             match reader.read(&mut buf).await {
