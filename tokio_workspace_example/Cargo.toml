@@ -129,4 +129,6 @@ members = [
         "tokio_select_rand_example",
         "tokio_take_read_to_end_example",
         "tokio_read_more_than_1024_bytes_example",
+        "tokio_file_transfer_server_example",
+        "tokio_file_transfer_client_example",
 ]
