@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "prost_build_example",
+        "prost_example",
+        "prost_route_msg_example",
+]
