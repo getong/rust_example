@@ -3,6 +3,7 @@ use encoding_rs::UTF_8;
 use std::fs;
 use std::io::prelude::*;
 use std::path::Path;
+use std::fs::File;
 
 fn read_file() -> std::io::Result<()> {
     let mut file = fs::File::open("test.txt")?;
@@ -94,6 +95,32 @@ fn remove_dir_all() -> std::io::Result<()> {
     Ok(())
 }
 
+fn read_to_end() -> std::io::Result<()> {
+    // Open the file
+    let file_result = File::open("example.txt");
+    let mut file = match file_result {
+        Ok(file) => file,
+        Err(error) => {
+            println!("Failed to open file: {}", error);
+            return Err(error);
+        }
+    };
+
+    // Read file contents
+    let mut contents = Vec::new();
+    match file.read_to_end(&mut contents) {
+        Ok(_) => {
+            // Reading successful, do something with the contents
+            println!("File contents: {:?}", contents);
+            Ok(())
+        }
+        Err(error) => {
+            println!("Failed to read file: {}", error);
+            Err(error)
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
     _ = read_file();
     _ = write_file();
@@ -106,7 +133,8 @@ fn main() -> std::io::Result<()> {
     _ = create_dir();
     _ = create_dir_all();
     _ = move_all_directory();
-    remove_dir_all()
+    _ = remove_dir_all();
+    read_to_end()
 }
 
 // copy from https://medium.com/@akaivdo/rust-operating-files-and-folders-7ae4fc3cdad6
