@@ -96,8 +96,14 @@ fn remove_dir_all() -> std::io::Result<()> {
 }
 
 fn read_to_end() -> std::io::Result<()> {
+    {
+        let mut file = fs::File::create("example.txt")?;
+        _ = file.write_all(b"Hello, world!").unwrap();
+    }
+
     // Open the file
     let file_result = File::open("example.txt");
+
     let mut file = match file_result {
         Ok(file) => file,
         Err(error) => {
