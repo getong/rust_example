@@ -11,21 +11,29 @@ fn main() {
     while let Ok((mut connection, _)) = listener.accept() {
         std::thread::spawn(move || {
             loop {
-                let mut buffer = [0u8; 7]; // Buffer size of 7 bytes
+                let mut buffer = [0u8; 9]; // Buffer size of 9 bytes
 
-                // Read 7 bytes from the TCP stream
+                // Read 9 bytes from the TCP stream
                 connection.read_exact(&mut buffer).unwrap();
 
                 // Create a cursor from the buffer
                 let mut cursor = Cursor::new(buffer);
 
-                // Read the first 2 bytes from the cursor
-                let mut first_part = [0u8; 2];
+                // Read the first 1 byte from the cursor
+                let mut first_part = [0u8; 1];
                 cursor.read_exact(&mut first_part).unwrap();
 
-                // Read the next 5 bytes from the cursor
-                let mut second_part = [0u8; 5];
+                // Read the next 8 bytes from the cursor
+                let mut second_part = [0u8; 8];
                 cursor.read_exact(&mut second_part).unwrap();
+
+                // Convert the variables from network byte order to host byte order
+                let u8_value = first_part[0];
+                let u64_value = u64::from_be_bytes(second_part);
+
+                // Print the values
+                println!("u8 value: {}", u8_value);
+                println!("u64 value: {}", u64_value);
 
                 // Print the first part of the buffer
                 println!("First part: {:?}", String::from_utf8_lossy(&first_part));
