@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "libp2p_chat_example",
