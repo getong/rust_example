@@ -1,7 +1,8 @@
 use futures::executor::block_on;
 use futures::prelude::*;
-use libp2p::ping::{Ping, PingConfig};
-use libp2p::swarm::{Swarm, SwarmEvent};
+// use libp2p::ping::{Ping, PingConfig};
+use libp2p::ping::{Config, Behaviour};
+use libp2p::swarm::{SwarmEvent,SwarmBuilder};
 use libp2p::{identity, Multiaddr, PeerId};
 use std::error::Error;
 use std::task::Poll;
@@ -18,9 +19,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // For illustrative purposes, the ping protocol is configured to
     // keep the connection alive, so a continuous sequence of pings
     // can be observed.
-    let behaviour = Ping::new(PingConfig::new().with_keep_alive(true));
+    let behaviour = Behaviour::new(Config::new());
 
-    let mut swarm = Swarm::new(transport, behaviour, local_peer_id);
+    let mut swarm = SwarmBuilder::without_executor(transport, behaviour, local_peer_id).build();
 
     // Tell the swarm to listen on all interfaces and a random, OS-assigned
     // port.
