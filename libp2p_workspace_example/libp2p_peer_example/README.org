@@ -22,5 +22,4 @@ There are several commands:
 - =publish r {recipeId}= - publish recipe with the given recipe ID
 
 copy from
-[[https://blog.logrocket.com/libp2p-tutorial-build-a-peer-to-peer-app-in-rust/][libp2p
-tutorial: Build a peer-to-peer app in Rust]]
+[[https://blog.logrocket.com/libp2p-tutorial-build-a-peer-to-peer-app-in-rust/][libp2p tutorial: Build a peer-to-peer app in Rust]]
