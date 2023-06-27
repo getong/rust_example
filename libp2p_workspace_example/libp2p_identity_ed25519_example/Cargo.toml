@@ -1,0 +1,10 @@
+[package]
+name = "libp2p_identity_ed25519_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libp2p-identity = { version = "0.2.0", features = ["ed25519"] }
+rand = "0.8.5"
