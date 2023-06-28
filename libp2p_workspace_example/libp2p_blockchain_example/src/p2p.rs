@@ -1,12 +1,11 @@
 use super::{App, Block};
 use libp2p::{
     floodsub::{Floodsub, FloodsubEvent, Topic},
-    identity,
-    mdns::{Mdns, MdnsEvent},
-    swarm::{NetworkBehaviourEventProcess, Swarm},
-    NetworkBehaviour, PeerId,
+    identity, mdns,
+    swarm::{NetworkBehaviour, Swarm},
+    PeerId,
 };
-use log::{error, info};
+use log::{info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -35,16 +34,33 @@ pub enum EventType {
 }
 
 #[derive(NetworkBehaviour)]
-#[behaviour(event_process = true)]
+#[behaviour(to_swarm = "AppBehaviourEvent")]
 pub struct AppBehaviour {
     pub floodsub: Floodsub,
-    pub mdns: Mdns,
+    pub mdns: mdns::tokio::Behaviour,
     #[behaviour(ignore)]
     pub response_sender: mpsc::UnboundedSender<ChainResponse>,
     #[behaviour(ignore)]
     pub init_sender: mpsc::UnboundedSender<bool>,
     #[behaviour(ignore)]
     pub app: App,
+}
+
+enum AppBehaviourEvent {
+    FloodSub(FloodsubEvent),
+    Mdns(mdns::Event),
+}
+
+impl From<FloodsubEvent> for AppBehaviourEvent {
+    fn from(event: FloodsubEvent) -> Self {
+        AppBehaviourEvent::FloodSub(event)
+    }
+}
+
+impl From<mdns::Event> for AppBehaviourEvent {
+    fn from(event: mdns::Event) -> Self {
+        AppBehaviourEvent::Mdns(event)
+    }
 }
 
 impl AppBehaviour {
@@ -56,9 +72,7 @@ impl AppBehaviour {
         let mut behaviour = Self {
             app,
             floodsub: Floodsub::new(*PEER_ID),
-            mdns: Mdns::new(Default::default())
-                .await
-                .expect("can create mdns"),
+            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), *PEER_ID).unwrap(),
             response_sender,
             init_sender,
         };
@@ -69,54 +83,54 @@ impl AppBehaviour {
     }
 }
 
-// incoming event handler
-impl NetworkBehaviourEventProcess<FloodsubEvent> for AppBehaviour {
-    fn inject_event(&mut self, event: FloodsubEvent) {
-        if let FloodsubEvent::Message(msg) = event {
-            if let Ok(resp) = serde_json::from_slice::<ChainResponse>(&msg.data) {
-                if resp.receiver == PEER_ID.to_string() {
-                    info!("Response from {}:", msg.source);
-                    resp.blocks.iter().for_each(|r| info!("{:?}", r));
+// // incoming event handler
+// impl NetworkBehaviourEventProcess<FloodsubEvent> for AppBehaviour {
+//     fn inject_event(&mut self, event: FloodsubEvent) {
+//         if let FloodsubEvent::Message(msg) = event {
+//             if let Ok(resp) = serde_json::from_slice::<ChainResponse>(&msg.data) {
+//                 if resp.receiver == PEER_ID.to_string() {
+//                     info!("Response from {}:", msg.source);
+//                     resp.blocks.iter().for_each(|r| info!("{:?}", r));
 
-                    self.app.blocks = self.app.choose_chain(self.app.blocks.clone(), resp.blocks);
-                }
-            } else if let Ok(resp) = serde_json::from_slice::<LocalChainRequest>(&msg.data) {
-                info!("sending local chain to {}", msg.source.to_string());
-                let peer_id = resp.from_peer_id;
-                if PEER_ID.to_string() == peer_id {
-                    if let Err(e) = self.response_sender.send(ChainResponse {
-                        blocks: self.app.blocks.clone(),
-                        receiver: msg.source.to_string(),
-                    }) {
-                        error!("error sending response via channel, {}", e);
-                    }
-                }
-            } else if let Ok(block) = serde_json::from_slice::<Block>(&msg.data) {
-                info!("received new block from {}", msg.source.to_string());
-                self.app.try_add_block(block);
-            }
-        }
-    }
-}
+//                     self.app.blocks = self.app.choose_chain(self.app.blocks.clone(), resp.blocks);
+//                 }
+//             } else if let Ok(resp) = serde_json::from_slice::<LocalChainRequest>(&msg.data) {
+//                 info!("sending local chain to {}", msg.source.to_string());
+//                 let peer_id = resp.from_peer_id;
+//                 if PEER_ID.to_string() == peer_id {
+//                     if let Err(e) = self.response_sender.send(ChainResponse {
+//                         blocks: self.app.blocks.clone(),
+//                         receiver: msg.source.to_string(),
+//                     }) {
+//                         error!("error sending response via channel, {}", e);
+//                     }
+//                 }
+//             } else if let Ok(block) = serde_json::from_slice::<Block>(&msg.data) {
+//                 info!("received new block from {}", msg.source.to_string());
+//                 self.app.try_add_block(block);
+//             }
+//         }
+//     }
+// }
 
-impl NetworkBehaviourEventProcess<MdnsEvent> for AppBehaviour {
-    fn inject_event(&mut self, event: MdnsEvent) {
-        match event {
-            MdnsEvent::Discovered(discovered_list) => {
-                for (peer, _addr) in discovered_list {
-                    self.floodsub.add_node_to_partial_view(peer);
-                }
-            }
-            MdnsEvent::Expired(expired_list) => {
-                for (peer, _addr) in expired_list {
-                    if !self.mdns.has_node(&peer) {
-                        self.floodsub.remove_node_from_partial_view(&peer);
-                    }
-                }
-            }
-        }
-    }
-}
+// impl NetworkBehaviourEventProcess<MdnsEvent> for AppBehaviour {
+//     fn inject_event(&mut self, event: MdnsEvent) {
+//         match event {
+//             MdnsEvent::Discovered(discovered_list) => {
+//                 for (peer, _addr) in discovered_list {
+//                     self.floodsub.add_node_to_partial_view(peer);
+//                 }
+//             }
+//             MdnsEvent::Expired(expired_list) => {
+//                 for (peer, _addr) in expired_list {
+//                     if !self.mdns.has_node(&peer) {
+//                         self.floodsub.remove_node_from_partial_view(&peer);
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 pub fn get_list_peers(swarm: &Swarm<AppBehaviour>) -> Vec<String> {
     info!("Discovered Peers:");

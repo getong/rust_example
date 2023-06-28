@@ -38,5 +38,4 @@ near a production scenario, but you can have fun with it and learn
 something. :)
 
 copy from
-[[https://blog.logrocket.com/how-to-build-a-blockchain-in-rust/][How to
-build a blockchain in Rust]]
+[[https://blog.logrocket.com/how-to-build-a-blockchain-in-rust/][How to build a blockchain in Rust]]

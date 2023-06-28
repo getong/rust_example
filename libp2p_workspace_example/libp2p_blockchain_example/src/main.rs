@@ -1,13 +1,15 @@
 use chrono::prelude::*;
 use libp2p::{
-    core::upgrade,
+    core::transport::upgrade::Version,
     futures::StreamExt,
-    mplex,
-    noise::{Keypair, NoiseConfig, X25519Spec},
+    // mplex,
+    identity,
+    noise,
+    yamux,
     swarm::{Swarm, SwarmBuilder},
-    tcp::TokioTcpConfig,
-    Transport,
+    tcp, Transport,
 };
+
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -196,14 +198,21 @@ async fn main() {
     let (response_sender, mut response_rcv) = mpsc::unbounded_channel();
     let (init_sender, mut init_rcv) = mpsc::unbounded_channel();
 
-    let auth_keys = Keypair::<X25519Spec>::new()
-        .into_authentic(&p2p::KEYS)
-        .expect("can create auth keys");
+    // let auth_keys = Keypair::<X25519Spec>::new()
+    //     .into_authentic(&p2p::KEYS)
+    //     .expect("can create auth keys");
+    let auth_keys = identity::Keypair::generate_secp256k1();
 
-    let transp = TokioTcpConfig::new()
-        .upgrade(upgrade::Version::V1)
-        .authenticate(NoiseConfig::xx(auth_keys).into_authenticated())
-        .multiplex(mplex::MplexConfig::new())
+    // let transp = TokioTcpConfig::new()
+    //     .upgrade(upgrade::Version::V1)
+    //     .authenticate(NoiseConfig::xx(auth_keys).into_authenticated())
+    //     .multiplex(lib_p2p_mplex::MplexConfig::new())
+    //     .boxed();
+    let noise = noise::Config::new(&auth_keys).unwrap();
+    let transp = tcp::tokio::Transport::default()
+        .upgrade(Version::V1Lazy)
+        .authenticate(noise)
+        .multiplex(yamux::Config::default())
         .boxed();
 
     let behaviour = p2p::AppBehaviour::new(App::new(), response_sender, init_sender.clone()).await;
