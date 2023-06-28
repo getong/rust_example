@@ -5,7 +5,6 @@ use libp2p::{
     identity,
     identity::Keypair,
     mdns,
-    // mdns::{Mdns, MdnsConfig, MdnsEvent},
     noise,
     swarm::{NetworkBehaviour, Swarm, SwarmBuilder},
     tcp,
@@ -68,8 +67,8 @@ enum EventType {
 struct RecipeBehaviour {
     floodsub: Floodsub,
     mdns: mdns::tokio::Behaviour,
-    #[behaviour(ignore)]
-    response_sender: mpsc::UnboundedSender<ListResponse>,
+    // #[behaviour(ignore)]
+    // response_sender: mpsc::UnboundedSender<ListResponse>,
 }
 
 enum RecipeBehaviourEvent {
@@ -169,7 +168,7 @@ async fn main() {
     pretty_env_logger::init();
 
     info!("Peer Id: {}", PEER_ID.clone());
-    let (response_sender, mut response_rcv) = mpsc::unbounded_channel();
+    // let (response_sender, mut response_rcv) = mpsc::unbounded_channel();
 
     // let auth_keys = Keypair::<X25519Spec>::new()
     //     .into_authentic(&KEYS)
@@ -196,7 +195,7 @@ async fn main() {
         floodsub: Floodsub::new(PEER_ID.clone()),
         mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap(),
 
-        response_sender,
+        // response_sender,
     };
 
     behaviour.floodsub.subscribe(TOPIC.clone());
@@ -209,8 +208,7 @@ async fn main() {
 
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
 
-    Swarm::listen_on(
-        &mut swarm,
+    swarm.listen_on(
         "/ip4/0.0.0.0/tcp/0"
             .parse()
             .expect("can get a local socket"),
@@ -221,7 +219,7 @@ async fn main() {
         let evt = {
             tokio::select! {
                 line = stdin.next_line() => Some(EventType::Input(line.expect("can get line").expect("can read line from stdin"))),
-                response = response_rcv.recv() => Some(EventType::Response(response.expect("response exists"))),
+                // response = response_rcv.recv() => Some(EventType::Response(response.expect("response exists"))),
                 event = swarm.select_next_some() => {
                     info!("Unhandled Swarm Event: {:?}", event);
                     None
