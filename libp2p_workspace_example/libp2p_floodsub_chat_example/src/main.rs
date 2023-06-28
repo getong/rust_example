@@ -1,60 +1,83 @@
-// Copyright 2018 Parity Technologies (UK) Ltd.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-// DEALINGS IN THE SOFTWARE.
-
-//! A basic chat application demonstrating libp2p with the mDNS and floodsub protocols
-//! using tokio for all asynchronous tasks and I/O. In order for all used libp2p
-//! crates to use tokio, it enables tokio-specific features for some crates.
-//!
-//! The example is run per node as follows:
-//!
-//! ```sh
-//! cargo run --example chat-tokio --features="tcp-tokio mdns"
-//! ```
-//!
-//! Alternatively, to run with the minimal set of features and crates:
-//!
-//! ```sh
-//!cargo run --example chat-tokio \\
-//!    --no-default-features \\
-//!    --features="floodsub mplex noise tcp-tokio mdns"
-//! ```
-
 use futures::StreamExt;
 use libp2p::{
-    core::upgrade,
+    core::transport::upgrade::Version,
     floodsub::{self, Floodsub, FloodsubEvent},
     identity,
-    mdns::{Mdns, MdnsEvent},
-    mplex,
+    mdns,
+
     noise,
     // swarm::{dial_opts::DialOpts, NetworkBehaviourEventProcess, SwarmBuilder, SwarmEvent},
-    swarm::{NetworkBehaviourEventProcess, SwarmBuilder, SwarmEvent},
+    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
     // `TokioTcpConfig` is available through the `tcp-tokio` feature.
-    tcp::TokioTcpConfig,
+    tcp,
+    yamux,
     Multiaddr,
-    NetworkBehaviour,
     PeerId,
     Transport,
 };
 use std::error::Error;
 use tokio::io::{self, AsyncBufReadExt};
+
+// We create a custom network behaviour that combines floodsub and mDNS.
+// The derive generates a delegating `NetworkBehaviour` impl which in turn
+// requires the implementations of `NetworkBehaviourEventProcess` for
+// the events of each behaviour.
+#[derive(NetworkBehaviour)]
+#[behaviour(to_swarm = "MyBehaviourEvent")]
+struct MyBehaviour {
+    floodsub: Floodsub,
+    mdns: mdns::tokio::Behaviour,
+}
+
+enum MyBehaviourEvent {
+    FloodSub(FloodsubEvent),
+    Mdns(mdns::Event),
+}
+
+impl From<FloodsubEvent> for MyBehaviourEvent {
+    fn from(event: FloodsubEvent) -> Self {
+        MyBehaviourEvent::FloodSub(event)
+    }
+}
+
+impl From<mdns::Event> for MyBehaviourEvent {
+    fn from(event: mdns::Event) -> Self {
+        MyBehaviourEvent::Mdns(event)
+    }
+}
+
+// impl NetworkBehaviourEventProcess<FloodsubEvent> for MyBehaviour {
+//     // Called when `floodsub` produces an event.
+//     fn inject_event(&mut self, message: FloodsubEvent) {
+//         if let FloodsubEvent::Message(message) = message {
+//             println!(
+//                 "Received: '{:?}' from {:?}",
+//                 String::from_utf8_lossy(&message.data),
+//                 message.source
+//             );
+//         }
+//     }
+// }
+
+// impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
+//     // Called when `mdns` produces an event.
+//     fn inject_event(&mut self, event: MdnsEvent) {
+//         match event {
+//             MdnsEvent::Discovered(list) => {
+//                 for (peer, _) in list {
+//                     self.floodsub.add_node_to_partial_view(peer);
+//                 }
+//             }
+//             MdnsEvent::Expired(list) => {
+//                 for (peer, _) in list {
+//                     if !self.mdns.has_node(&peer) {
+//                         self.floodsub.remove_node_from_partial_view(&peer);
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 /// The `tokio::main` attribute sets up a tokio runtime.
 #[tokio::main]
@@ -67,83 +90,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Local peer id: {:?}", peer_id);
 
     // Create a keypair for authenticated encryption of the transport.
-    let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
-        .into_authentic(&id_keys)
-        .expect("Signing libp2p-noise static DH keypair failed.");
+    let noise = noise::Config::new(&id_keys).unwrap();
 
     // Create a tokio-based TCP transport use noise for authenticated
     // encryption and Mplex for multiplexing of substreams on a TCP stream.
-    let transport = TokioTcpConfig::new()
-        .nodelay(true)
-        .upgrade(upgrade::Version::V1)
-        .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
-        .multiplex(mplex::MplexConfig::new())
+    let transport = tcp::tokio::Transport::default()
+        .upgrade(Version::V1Lazy)
+        .authenticate(noise)
+        .multiplex(yamux::Config::default())
         .boxed();
 
     // Create a Floodsub topic
     let floodsub_topic = floodsub::Topic::new("chat");
 
-    // We create a custom network behaviour that combines floodsub and mDNS.
-    // The derive generates a delegating `NetworkBehaviour` impl which in turn
-    // requires the implementations of `NetworkBehaviourEventProcess` for
-    // the events of each behaviour.
-    #[derive(NetworkBehaviour)]
-    #[behaviour(event_process = true)]
-    struct MyBehaviour {
-        floodsub: Floodsub,
-        mdns: Mdns,
-    }
-
-    impl NetworkBehaviourEventProcess<FloodsubEvent> for MyBehaviour {
-        // Called when `floodsub` produces an event.
-        fn inject_event(&mut self, message: FloodsubEvent) {
-            if let FloodsubEvent::Message(message) = message {
-                println!(
-                    "Received: '{:?}' from {:?}",
-                    String::from_utf8_lossy(&message.data),
-                    message.source
-                );
-            }
-        }
-    }
-
-    impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
-        // Called when `mdns` produces an event.
-        fn inject_event(&mut self, event: MdnsEvent) {
-            match event {
-                MdnsEvent::Discovered(list) => {
-                    for (peer, _) in list {
-                        self.floodsub.add_node_to_partial_view(peer);
-                    }
-                }
-                MdnsEvent::Expired(list) => {
-                    for (peer, _) in list {
-                        if !self.mdns.has_node(&peer) {
-                            self.floodsub.remove_node_from_partial_view(&peer);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     // Create a Swarm to manage peers and events.
     let mut swarm = {
-        let mdns = Mdns::new(Default::default()).await?;
+        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id).unwrap();
         let mut behaviour = MyBehaviour {
-            floodsub: Floodsub::new(peer_id.clone()),
+            floodsub: Floodsub::new(peer_id),
             mdns,
         };
 
         behaviour.floodsub.subscribe(floodsub_topic.clone());
 
-        SwarmBuilder::new(transport, behaviour, peer_id)
-            // We want the connection background tasks to be spawned
-            // onto the tokio runtime.
-            .executor(Box::new(|fut| {
-                tokio::spawn(fut);
-            }))
-            .build()
+        SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build()
     };
 
     // Reach out to another node if specified
