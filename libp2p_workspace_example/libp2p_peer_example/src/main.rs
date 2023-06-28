@@ -1,12 +1,11 @@
 use libp2p::{
     core::transport::upgrade::Version,
-    core::upgrade,
     floodsub::{Floodsub, FloodsubEvent, Topic},
     futures::StreamExt,
     identity,
-    // mplex,
     identity::Keypair,
     mdns,
+    // mdns::{Mdns, MdnsConfig, MdnsEvent},
     noise,
     swarm::{NetworkBehaviour, Swarm, SwarmBuilder},
     tcp,
@@ -19,10 +18,13 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tokio::{fs, io::AsyncBufReadExt, sync::mpsc};
+use std::io::Result;
+// use tokio::io::{AsyncRead, AsyncWrite};
 
 const STORAGE_FILE_PATH: &str = "./recipes.json";
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+// type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+
 type Recipes = Vec<Recipe>;
 
 static KEYS: Lazy<identity::Keypair> = Lazy::new(|| identity::Keypair::generate_ed25519());
@@ -62,13 +64,42 @@ enum EventType {
 }
 
 #[derive(NetworkBehaviour)]
-#[behaviour(event_process = true)]
+#[behaviour(to_swarm = "RecipeBehaviourEvent")]
 struct RecipeBehaviour {
     floodsub: Floodsub,
     mdns: mdns::tokio::Behaviour,
     #[behaviour(ignore)]
     response_sender: mpsc::UnboundedSender<ListResponse>,
 }
+
+enum RecipeBehaviourEvent {
+    FloodSub(FloodsubEvent),
+    Mdns(mdns::Event),
+}
+
+impl From<FloodsubEvent> for RecipeBehaviourEvent {
+    fn from(event: FloodsubEvent) -> Self {
+        RecipeBehaviourEvent::FloodSub(event)
+    }
+}
+
+impl From<mdns::Event> for RecipeBehaviourEvent {
+    fn from(event: mdns::Event) -> Self {
+        RecipeBehaviourEvent::Mdns(event)
+    }
+}
+
+// impl From<MdnsEvent> for EventType {
+//     fn from(v: MdnsEvent) -> Self {
+//         Self::Mdns(v)
+//     }
+// }
+
+// impl From<FloodsubEvent> for EventType {
+//     fn from(v: FloodsubEvent) -> Self {
+//         Self::Floodsub(v)
+//     }
+// }
 
 fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
     tokio::spawn(async move {
@@ -219,6 +250,7 @@ async fn main() {
     }
 }
 
+// async fn handle_list_peers(swarm: &mut Swarm<RecipeBehaviour<TSubstream>>) {
 async fn handle_list_peers(swarm: &mut Swarm<RecipeBehaviour>) {
     info!("Discovered Peers:");
     let nodes = swarm.behaviour().mdns.discovered_nodes();
