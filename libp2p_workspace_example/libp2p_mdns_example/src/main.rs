@@ -27,12 +27,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap();
 
     // Create a Swarm with the transport, mdns, and our local peer identity
-    let mut swarm = {
-        let _local_keypair = local_keypair.clone();
-        let local_peer_id = local_peer_id;
-
-        SwarmBuilder::with_tokio_executor(transport, mdns, local_peer_id).build()
-    };
+    let mut swarm = SwarmBuilder::with_tokio_executor(transport, mdns, local_peer_id).build();
 
     // Start listening on a random TCP port
     let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?;
