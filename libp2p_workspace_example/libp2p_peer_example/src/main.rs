@@ -12,7 +12,7 @@ use log::{error, info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use tokio::{fs, io::AsyncBufReadExt, sync::mpsc};
+use tokio::{fs, io::AsyncBufReadExt};
 // use std::io::Result;
 // use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -55,6 +55,7 @@ struct ListResponse {
 
 #[derive(Debug)]
 enum EventType {
+    #[allow(dead_code)]
     Response(ListResponse),
     Input(String),
 }
@@ -86,23 +87,23 @@ impl From<mdns::Event> for RecipeBehaviourEvent {
     }
 }
 
-fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
-    tokio::spawn(async move {
-        match read_local_recipes().await {
-            Ok(recipes) => {
-                let resp = ListResponse {
-                    mode: ListMode::ALL,
-                    receiver,
-                    data: recipes.into_iter().filter(|r| r.public).collect(),
-                };
-                if let Err(e) = sender.send(resp) {
-                    error!("error sending response via channel, {}", e);
-                }
-            }
-            Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
-        }
-    });
-}
+// fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
+//     tokio::spawn(async move {
+//         match read_local_recipes().await {
+//             Ok(recipes) => {
+//                 let resp = ListResponse {
+//                     mode: ListMode::ALL,
+//                     receiver,
+//                     data: recipes.into_iter().filter(|r| r.public).collect(),
+//                 };
+//                 if let Err(e) = sender.send(resp) {
+//                     error!("error sending response via channel, {}", e);
+//                 }
+//             }
+//             Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
+//         }
+//     });
+// }
 
 async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) -> RecipeResult<()> {
     let mut local_recipes = read_local_recipes().await?;
