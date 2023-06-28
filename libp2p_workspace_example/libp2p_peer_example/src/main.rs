@@ -4,29 +4,25 @@ use libp2p::{
     futures::StreamExt,
     identity,
     identity::Keypair,
-    mdns,
-    noise,
+    mdns, noise,
     swarm::{NetworkBehaviour, Swarm, SwarmBuilder},
-    tcp,
-    yamux,
-    PeerId,
-    Transport,
+    tcp, yamux, PeerId, Transport,
 };
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tokio::{fs, io::AsyncBufReadExt, sync::mpsc};
-use std::io::Result;
+// use std::io::Result;
 // use tokio::io::{AsyncRead, AsyncWrite};
 
 const STORAGE_FILE_PATH: &str = "./recipes.json";
 
-// type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
+type RecipeResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
 
 type Recipes = Vec<Recipe>;
 
-static KEYS: Lazy<identity::Keypair> = Lazy::new(|| identity::Keypair::generate_ed25519());
+static KEYS: Lazy<identity::Keypair> = Lazy::new(identity::Keypair::generate_ed25519);
 static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
 static TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("recipes"));
 
@@ -57,6 +53,7 @@ struct ListResponse {
     receiver: String,
 }
 
+#[derive(Debug)]
 enum EventType {
     Response(ListResponse),
     Input(String),
@@ -71,6 +68,7 @@ struct RecipeBehaviour {
     // response_sender: mpsc::UnboundedSender<ListResponse>,
 }
 
+#[derive(Debug)]
 enum RecipeBehaviourEvent {
     FloodSub(FloodsubEvent),
     Mdns(mdns::Event),
@@ -87,18 +85,6 @@ impl From<mdns::Event> for RecipeBehaviourEvent {
         RecipeBehaviourEvent::Mdns(event)
     }
 }
-
-// impl From<MdnsEvent> for EventType {
-//     fn from(v: MdnsEvent) -> Self {
-//         Self::Mdns(v)
-//     }
-// }
-
-// impl From<FloodsubEvent> for EventType {
-//     fn from(v: FloodsubEvent) -> Self {
-//         Self::Floodsub(v)
-//     }
-// }
 
 fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
     tokio::spawn(async move {
@@ -118,7 +104,7 @@ fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, rece
     });
 }
 
-async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) -> Result<()> {
+async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) -> RecipeResult<()> {
     let mut local_recipes = read_local_recipes().await?;
     let new_id = match local_recipes.iter().max_by_key(|r| r.id) {
         Some(v) => v.id + 1,
@@ -141,7 +127,7 @@ async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) ->
     Ok(())
 }
 
-async fn publish_recipe(id: usize) -> Result<()> {
+async fn publish_recipe(id: usize) -> RecipeResult<()> {
     let mut local_recipes = read_local_recipes().await?;
     local_recipes
         .iter_mut()
@@ -151,13 +137,13 @@ async fn publish_recipe(id: usize) -> Result<()> {
     Ok(())
 }
 
-async fn read_local_recipes() -> Result<Recipes> {
+async fn read_local_recipes() -> RecipeResult<Recipes> {
     let content = fs::read(STORAGE_FILE_PATH).await?;
     let result = serde_json::from_slice(&content)?;
     Ok(result)
 }
 
-async fn write_local_recipes(recipes: &Recipes) -> Result<()> {
+async fn write_local_recipes(recipes: &Recipes) -> RecipeResult<()> {
     let json = serde_json::to_string(&recipes)?;
     fs::write(STORAGE_FILE_PATH, &json).await?;
     Ok(())
@@ -192,28 +178,24 @@ async fn main() {
     let local_peer_id = PeerId::from_public_key(&local_keypair.public());
 
     let mut behaviour = RecipeBehaviour {
-        floodsub: Floodsub::new(PEER_ID.clone()),
+        floodsub: Floodsub::new(*PEER_ID),
         mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap(),
-
         // response_sender,
     };
 
     behaviour.floodsub.subscribe(TOPIC.clone());
 
-    let mut swarm = SwarmBuilder::new(transp, behaviour, PEER_ID.clone())
-        .executor(Box::new(|fut| {
-            tokio::spawn(fut);
-        }))
-        .build();
+    let mut swarm = SwarmBuilder::with_tokio_executor(transp, behaviour, *PEER_ID).build();
 
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
 
-    swarm.listen_on(
-        "/ip4/0.0.0.0/tcp/0"
-            .parse()
-            .expect("can get a local socket"),
-    )
-    .expect("swarm can be started");
+    swarm
+        .listen_on(
+            "/ip4/0.0.0.0/tcp/0"
+                .parse()
+                .expect("can get a local socket"),
+        )
+        .expect("swarm can be started");
 
     loop {
         let evt = {
@@ -296,11 +278,11 @@ async fn handle_list_recipes(cmd: &str, swarm: &mut Swarm<RecipeBehaviour>) {
 
 async fn handle_create_recipe(cmd: &str) {
     if let Some(rest) = cmd.strip_prefix("create r") {
-        let elements: Vec<&str> = rest.split("|").collect();
+        let elements: Vec<&str> = rest.split('|').collect();
         if elements.len() < 3 {
             info!("too few arguments - Format: name|ingredients|instructions");
         } else {
-            let name = elements.get(0).expect("name is there");
+            let name = elements.first().expect("name is there");
             let ingredients = elements.get(1).expect("ingredients is there");
             let instructions = elements.get(2).expect("instructions is there");
             if let Err(e) = create_new_recipe(name, ingredients, instructions).await {
