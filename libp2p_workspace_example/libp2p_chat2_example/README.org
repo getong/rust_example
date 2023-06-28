@@ -6,5 +6,6 @@
 cargo run
 #+end_src
 
-copy from [[https://mp.weixin.qq.com/s/nIcDRqRYiYe1BW124-oLrA][Rust
-P2P网络应用实战-2 P2P网络聊天程序]]
+copy from [[https://mp.weixin.qq.com/s/nIcDRqRYiYe1BW124-oLrA][Rust P2P网络应用实战-2 P2P网络聊天程序]]
+
+also see https://github.com/libp2p/rust-libp2p/blob/master/swarm/CHANGELOG.md
