@@ -1,22 +1,20 @@
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
-    kad::{
-        store::MemoryStore, AddProviderOk, Kademlia, KademliaEvent, PeerRecord, PutRecordOk,
-        QueryResult, Record, record::Key, Quorum,
-    },
-    mdns::{Mdns, MdnsEvent},
-    swarm::{NetworkBehaviourEventProcess, SwarmBuilder, SwarmEvent},
-    NetworkBehaviour, identity, PeerId,
+    identity,
+    kad::{record::Key, store::MemoryStore, Kademlia, KademliaEvent, Quorum, Record},
+    mdns,
+    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
+    PeerId,
 };
 use tokio::io::{self, AsyncBufReadExt};
 
 // 自定义网络行为，组合Kademlia和mDNS.
 #[derive(NetworkBehaviour)]
-#[behaviour(event_process = true)]
+#[behaviour(to_swarm = "MyBehaviourEvent")]
 struct MyBehaviour {
     kademlia: Kademlia<MemoryStore>,
-    mdns: Mdns,
+    mdns: mdns::tokio::Behaviour,
 }
 
 impl MyBehaviour {
@@ -29,85 +27,102 @@ impl MyBehaviour {
             // floodsub协议初始化
             kademlia,
             // mDNS协议初始化
-            mdns: Mdns::new(Default::default()).await?,
+            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id).unwrap(),
         })
     }
 }
 
-// 处理mDNS网络行为事件
-impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
-    // 当产生一个mDNS事件时，该方法被调用。
-    fn inject_event(&mut self, event: MdnsEvent) {
-        // 发现新节点时，将节点加入到Kademlia网络中。
-        if let MdnsEvent::Discovered(list) = event {
-            for (peer_id, multiaddr) in list {
-                self.kademlia.add_address(&peer_id, multiaddr);
-            }
-        }
+enum MyBehaviourEvent {
+    Kademlia(KademliaEvent),
+    Mdns(mdns::Event),
+}
+
+impl From<KademliaEvent> for MyBehaviourEvent {
+    fn from(event: KademliaEvent) -> Self {
+        MyBehaviourEvent::Kademlia(event)
     }
 }
 
-// 处理Kademlia网络行为事件
-impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
-    // 当产生一个kademlia事件时，该方法被调用。
-    fn inject_event(&mut self, message: KademliaEvent) {
-        if let KademliaEvent::OutboundQueryCompleted { result, .. } = message {
-            match result {
-                // 查询提供key的节点事件
-                QueryResult::GetProviders(Ok(ok)) => {
-                    for peer in ok.providers {
-                        println!(
-                            "节点 {:?} 提供了key {:?}",
-                            peer,
-                            std::str::from_utf8(ok.key.as_ref()).unwrap()
-                        );
-                    }
-                }
-                QueryResult::GetProviders(Err(err)) => {
-                    eprintln!("Failed to get providers: {:?}", err);
-                }
-                // 查询存储记录事件
-                QueryResult::GetRecord(Ok(ok)) => {
-                    for PeerRecord {
-                        record: Record { key, value, .. },
-                        ..
-                    } in ok.records
-                    {
-                        println!(
-                            "获取存储记录 {:?} {:?}",
-                            std::str::from_utf8(key.as_ref()).unwrap(),
-                            std::str::from_utf8(&value).unwrap(),
-                        );
-                    }
-                }
-                QueryResult::GetRecord(Err(err)) => {
-                    eprintln!("Failed to get record: {:?}", err);
-                }
-                // 记录存储成功事件
-                QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
-                    println!(
-                        "成功存储记录  {:?}",
-                        std::str::from_utf8(key.as_ref()).unwrap()
-                    );
-                }
-                QueryResult::PutRecord(Err(err)) => {
-                    eprintln!("Failed to put record: {:?}", err);
-                }
-                // 成功存储记录提供者事件
-                QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
-                    println!(
-                        "成功存储记录提供者 {:?}",
-                        std::str::from_utf8(key.as_ref()).unwrap()
-                    );
-                }
-                QueryResult::StartProviding(Err(err)) => {
-                    eprintln!("Failed to put provider record: {:?}", err);
-                }
-                _ => {}
-            }
-        }
+impl From<mdns::Event> for MyBehaviourEvent {
+    fn from(event: mdns::Event) -> Self {
+        MyBehaviourEvent::Mdns(event)
     }
 }
+
+// // 处理mDNS网络行为事件
+// impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
+//     // 当产生一个mDNS事件时，该方法被调用。
+//     fn inject_event(&mut self, event: MdnsEvent) {
+//         // 发现新节点时，将节点加入到Kademlia网络中。
+//         if let MdnsEvent::Discovered(list) = event {
+//             for (peer_id, multiaddr) in list {
+//                 self.kademlia.add_address(&peer_id, multiaddr);
+//             }
+//         }
+//     }
+// }
+
+// // 处理Kademlia网络行为事件
+// impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
+//     // 当产生一个kademlia事件时，该方法被调用。
+//     fn inject_event(&mut self, message: KademliaEvent) {
+//         if let KademliaEvent::OutboundQueryCompleted { result, .. } = message {
+//             match result {
+//                 // 查询提供key的节点事件
+//                 QueryResult::GetProviders(Ok(ok)) => {
+//                     for peer in ok.providers {
+//                         println!(
+//                             "节点 {:?} 提供了key {:?}",
+//                             peer,
+//                             std::str::from_utf8(ok.key.as_ref()).unwrap()
+//                         );
+//                     }
+//                 }
+//                 QueryResult::GetProviders(Err(err)) => {
+//                     eprintln!("Failed to get providers: {:?}", err);
+//                 }
+//                 // 查询存储记录事件
+//                 QueryResult::GetRecord(Ok(ok)) => {
+//                     for PeerRecord {
+//                         record: Record { key, value, .. },
+//                         ..
+//                     } in ok.records
+//                     {
+//                         println!(
+//                             "获取存储记录 {:?} {:?}",
+//                             std::str::from_utf8(key.as_ref()).unwrap(),
+//                             std::str::from_utf8(&value).unwrap(),
+//                         );
+//                     }
+//                 }
+//                 QueryResult::GetRecord(Err(err)) => {
+//                     eprintln!("Failed to get record: {:?}", err);
+//                 }
+//                 // 记录存储成功事件
+//                 QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+//                     println!(
+//                         "成功存储记录  {:?}",
+//                         std::str::from_utf8(key.as_ref()).unwrap()
+//                     );
+//                 }
+//                 QueryResult::PutRecord(Err(err)) => {
+//                     eprintln!("Failed to put record: {:?}", err);
+//                 }
+//                 // 成功存储记录提供者事件
+//                 QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
+//                     println!(
+//                         "成功存储记录提供者 {:?}",
+//                         std::str::from_utf8(key.as_ref()).unwrap()
+//                     );
+//                 }
+//                 QueryResult::StartProviding(Err(err)) => {
+//                     eprintln!("Failed to put provider record: {:?}", err);
+//                 }
+//                 _ => {}
+//             }
+//         }
+//     }
+// }
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -124,12 +139,8 @@ async fn main() -> Result<()> {
     // 创建Swarm网络管理器，来管理节点网络及事件。
     let mut swarm = {
         let behaviour = MyBehaviour::new(peer_id).await?;
-        
-        SwarmBuilder::new(transport, behaviour, peer_id)
-            .executor(Box::new(|fut| {
-                tokio::spawn(fut);
-            }))
-            .build()
+
+        SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build()
     };
 
     // 从标准输入中读取消息
@@ -170,7 +181,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
                 }
             };
             // 获取v记录
-            kademlia.get_record(key, Quorum::One);
+            kademlia.get_record(key);
         }
         // 处理 GET_PROVIDERS 命令，获取存储kv记录的节点PeerId
         Some("GET_PROVIDERS") => {
