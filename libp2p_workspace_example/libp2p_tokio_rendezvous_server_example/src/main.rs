@@ -30,7 +30,7 @@ async fn main() {
         },
         PeerId::from(key_pair.public()),
     )
-        .build();
+    .build();
 
     log::info!("Local peer id: {}", swarm.local_peer_id());
 

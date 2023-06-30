@@ -78,9 +78,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .upgrade(upgrade::Version::V1)
             .authenticate(noise::Config::new(&local_key).unwrap())
             .multiplex(yamux::Config::default())
-            .or_transport(quic::tokio::Transport::new(quic::Config::new(
-                &local_key,
-            )));
+            .or_transport(quic::tokio::Transport::new(quic::Config::new(&local_key)));
 
         block_on(DnsConfig::system(relay_tcp_quic_transport))
             .unwrap()

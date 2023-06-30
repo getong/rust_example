@@ -30,7 +30,7 @@ async fn main() {
         },
         PeerId::from(key_pair.public()),
     )
-        .build();
+    .build();
 
     // In production the external address should be the publicly facing IP address of the rendezvous point.
     // This address is recorded in the registration entry by the rendezvous point.
