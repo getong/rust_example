@@ -1,0 +1,15 @@
+[package]
+name = "libp2p_dcutr_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.3.8", features = ["derive"] }
+env_logger = "0.10.0"
+futures = "0.3.28"
+futures-timer = "3.0"
+libp2p = { version = "0.52.1", features = ["full"] }
+libp2p-quic = "0.8.0-alpha"
+log = "0.4"

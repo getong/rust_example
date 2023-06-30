@@ -13,4 +13,8 @@ members = [
         "libp2p_kademlia_example",
         "libp2p_identity_ed25519_example",
         "libp2p_mdns_example",
+        "libp2p_tokio_autonat_server_example",
+        "libp2p_tokio_autonat_client_example",
+        # "libp2p_dcutr_example",
+        "libp2p_tokio_distributed_key-value_store_example",
 ]
