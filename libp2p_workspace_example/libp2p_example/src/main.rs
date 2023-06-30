@@ -1,8 +1,8 @@
 use futures::executor::block_on;
 use futures::prelude::*;
 // use libp2p::ping::{Ping, PingConfig};
-use libp2p::ping::{Config, Behaviour};
-use libp2p::swarm::{SwarmEvent,SwarmBuilder};
+use libp2p::ping::{Behaviour, Config};
+use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{identity, Multiaddr, PeerId};
 use std::error::Error;
 use std::task::Poll;
