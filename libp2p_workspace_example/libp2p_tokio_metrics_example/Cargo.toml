@@ -1,15 +1,14 @@
 [package]
-name = "libp2p_dcutr_example"
+name = "libp2p_tokio_metrics_example"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.3.8", features = ["derive"] }
+async-trait = "0.1.68"
+either = "1.8.1"
 env_logger = "0.10.0"
 futures = "0.3.28"
-futures-timer = "3.0"
 libp2p = { version = "0.52.1", features = ["full"] }
-log = "0.4"
-libp2p-quic = { version = "0.8.0-alpha", features = ["tokio"] }
+tokio = { version = "1.29.1", features = ["full"] }
