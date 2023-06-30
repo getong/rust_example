@@ -17,4 +17,5 @@ members = [
         "libp2p_tokio_autonat_client_example",
         # "libp2p_dcutr_example",
         "libp2p_tokio_distributed_key-value_store_example",
+        "libp2p_tokio_file_sharing_example",
 ]
