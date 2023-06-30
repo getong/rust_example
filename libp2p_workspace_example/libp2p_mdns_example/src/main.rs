@@ -37,13 +37,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Process events in the swarm
     loop {
-        match swarm.select_next_some().await {
-            SwarmEvent::Behaviour(mdns::Event::Discovered(peers)) => {
-                for (peer_id, _addr) in peers {
-                    println!("Discovered peer: {:?}", peer_id);
-                }
+        // match swarm.select_next_some().await {
+        //     SwarmEvent::Behaviour(mdns::Event::Discovered(peers)) => {
+        //         for (peer_id, _addr) in peers {
+        //             println!("Discovered peer: {:?}", peer_id);
+        //         }
+        //     }
+        //     _ => {}
+        // }
+        if let SwarmEvent::Behaviour(mdns::Event::Discovered(peers)) =
+            swarm.select_next_some().await
+        {
+            for (peer_id, _addr) in peers {
+                println!("Discovered peer: {:?}", peer_id);
             }
-            _ => {}
         }
     }
 }
