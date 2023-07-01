@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "6c3d35e7e5bceaf11c329623d48f81c276407030" }
-tokio = { version = "1.28.2", features = ["full"] }
+tokio = { version = "1.29.1", features = ["full"] }
