@@ -47,7 +47,7 @@ async fn main() {
 
             Ok(n) => {
                 // let input = line.trim().to_owned(); // Convert to owned String
-                let input = String::from_utf8_lossy(?line[BUFFER_SIZE-n ..]).trim().to_owned(); // Convert to owned String
+                let input = String::from_utf8_lossy(&line[BUFFER_SIZE-n ..]).trim().to_owned(); // Convert to owned String
                 if input == "quit" {
                     break;
                 }
