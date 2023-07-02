@@ -1,0 +1,28 @@
+* tokio select sleep example 2
+
+** tokio sleep
+#+begin_quote
+
+I think I'm missing something very basic.
+My expectation is that when tick.tick() completes and starts the sleep loop,
+tokio::time::sleep(...).await should yield back to the select statement,
+allowing longer_tick a chance to complete. But once the shorter tick completes,
+this gets stuck in the sleep loop, never yielding back to select.
+
+Tokio's select only waits for the futures in the branch section, not the handler.
+So the sleep future is not considered when using select!.
+
+Also, per the documentation
+
+Waits on multiple concurrent branches, returning when the first branch completes, cancelling the remaining branches.
+
+When one of the branch completes (the interval's in this case), the other branches are cancelled.
+Therefore when you are using select, it will only ever execute one of the branch handlers.
+
+I understood the cancellation part, which is why select was nested inside a loop.
+I didn't realize the bit about the handler though - thanks.
+I suppose that makes sense though - the "handler" here should really be empty, and the sleep should be moved into the branch.
+if you remove the loop in the sleep, you may see them alternate
+#+end_quote
+
+copy from [[https://stackoverflow.com/questions/75317321/why-doesnt-a-nested-await-point-yield-up-to-tokioselect][Why doesn't a nested await point yield up to tokio::select]]
