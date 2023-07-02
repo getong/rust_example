@@ -17,4 +17,5 @@ members = [
         "reqwest_prost_client_example",
         "axum_auth_example",
         "axum_websocket_server_example",
+        "axum_websocket_client_example",
 ]
