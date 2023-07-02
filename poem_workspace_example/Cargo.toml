@@ -1,7 +1,9 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "poem_example",
         "poem_openapi_example",
+        "poem_websocket_example",
 ]
