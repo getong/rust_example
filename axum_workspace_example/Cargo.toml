@@ -15,4 +15,5 @@ members = [
         "axum_post_example",
         "axum_prost_server_example",
         "reqwest_prost_client_example",
+        "axum_auth_example",
 ]
