@@ -16,7 +16,10 @@ async fn create_todo_handler(
     Protobuf(todo_new): Protobuf<Todo>,
 ) -> String {
     println!("Received todo: {:?}", todo_new);
-    format!("Created new todo with id {}: {}", todo_new.id, todo_new.title)
+    format!(
+        "Created new todo with id {}: {}",
+        todo_new.id, todo_new.title
+    )
 }
 
 #[tokio::main]

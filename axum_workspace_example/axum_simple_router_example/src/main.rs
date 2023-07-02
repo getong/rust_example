@@ -1,4 +1,4 @@
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use std::net::SocketAddr;
 
 async fn hello_world() -> &'static str {

@@ -38,5 +38,5 @@ pub fn main() {
     trigger(context, print_param);
     trigger(context, print_all);
     trigger(context, print_all_switched);
-    trigger(context,print_3_arguments);
+    trigger(context, print_3_arguments);
 }

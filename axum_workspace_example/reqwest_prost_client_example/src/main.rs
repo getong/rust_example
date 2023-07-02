@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         completed: false,
     };
     // Serialize the message to binary format
-     let mut buf:Vec<u8> = Vec::new();
+    let mut buf: Vec<u8> = Vec::new();
     todo.encode(&mut buf)?;
     println!("buf.into(): {:?}", &buf);
 
