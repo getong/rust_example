@@ -17,9 +17,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 naia-bevy-client = { version = "0.21.0", features = ["transport_webrtc"] }
 naia-bevy-demo-shared = { path = "../naia-bevy-demo-shared" }
-bevy = { version = "0.10.1", default_features = false, features = [ "bevy_asset", "bevy_winit", "bevy_core_pipeline", "bevy_render", "bevy_sprite", "x11"] }
+bevy = { version = "0.10.1", default-features = false, features = [ "bevy_asset", "bevy_winit", "bevy_core_pipeline", "bevy_render", "bevy_sprite", "x11"] }
 
 cfg-if = { version = "1.0" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = { version = "0.2.86", features = [ "serde-serialize" ] }
+wasm-bindgen = { version = "0.2.87", features = [ "serde-serialize" ] }

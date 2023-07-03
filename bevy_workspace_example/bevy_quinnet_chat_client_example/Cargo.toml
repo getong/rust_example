@@ -10,5 +10,5 @@ bevy = { version = "0.10.1", default-features = false, features = ["bevy_asset",
 bevy_quinnet = "0.4.0"
 rand = "0.8.5"
 # bevy_quinnet = { git = "https://github.com/Henauxg/bevy_quinnet" }
-serde = { version = "1.0.164", features = ["derive"] }
-tokio = { version = "1.28.2", features = ["full"] }
+serde = { version = "1.0.165", features = ["derive"] }
+tokio = { version = "1.29.1", features = ["full"] }

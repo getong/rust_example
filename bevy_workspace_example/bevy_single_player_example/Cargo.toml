@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.10.1", default-features = false, features = ["bevy_asset", "bevy_audio", "vorbis", "bevy_winit", "bevy_render", "bevy_sprite", "bevy_ui", "bevy_text", "bevy_core_pipeline"] }
-leafwing-input-manager = "0.9.2"
+leafwing-input-manager = "0.9.3"
