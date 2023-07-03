@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 struct Person;
+
 #[derive(Component)]
 struct Name(String);
 
