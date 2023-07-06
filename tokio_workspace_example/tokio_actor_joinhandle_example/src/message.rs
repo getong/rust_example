@@ -207,7 +207,7 @@ impl Message {
                 .ok_or("signature (~) in signature json was not a string")?;
             let signature64 = base64::decode(signature)
                 .or(Err("signature (~) in signature json was not base64"))?;
-            let signature = base64::encode_config(signature64, base64::URL_SAFE_NO_PAD);
+            let signature = base64::encode_config(&signature64, base64::URL_SAFE_NO_PAD);
             // TODO use jsonwebtoken underlying ring::signature functions directly, instead of having to re-encode
 
             let key = &node_id.split("/").next().unwrap()[1..];
