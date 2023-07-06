@@ -1,6 +1,19 @@
 use base64::{alphabet, engine};
 use base64::{engine::general_purpose, Engine as _};
 
+fn basic_decode() {
+    let bytes = general_purpose::STANDARD
+        .decode("aGVsbG8gd29ybGR+Cg==")
+        .unwrap();
+    println!("{:?}", bytes);
+
+    // custom engine setup
+    let bytes_url = engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD)
+        .decode("aGVsbG8gaW50ZXJuZXR-Cg")
+        .unwrap();
+    println!("{:?}", bytes_url);
+}
+
 fn basic_base64() {
     let orig = b"data";
     let encoded: String = general_purpose::STANDARD_NO_PAD.encode(orig);
@@ -37,4 +50,5 @@ fn main() {
     // println!("Hello, world!");
     basic_base64();
     customize_base64();
+    basic_decode();
 }
