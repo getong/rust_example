@@ -38,16 +38,18 @@ async fn main() {
         // In this updated code, instead of using stdin_reader.read_line(&mut line).await, we use stdin_reader.read_until(b'\n', &mut line).await
         // to read the input until a newline (\n) delimiter is encountered.
         // let mut line = String::new();
-        let mut line = vec![0u8;BUFFER_SIZE];
+        let mut line = vec![0u8; BUFFER_SIZE];
         // match stdin_reader.read_line(&mut line).await {
         match stdin_reader.read_until(b'\n', &mut line).await {
             Ok(0) => {
                 break; // End of input
-            },
+            }
 
             Ok(n) => {
                 // let input = line.trim().to_owned(); // Convert to owned String
-                let input = String::from_utf8_lossy(&line[BUFFER_SIZE-n ..]).trim().to_owned(); // Convert to owned String
+                let input = String::from_utf8_lossy(&line[BUFFER_SIZE - n..])
+                    .trim()
+                    .to_owned(); // Convert to owned String
                 if input == "quit" {
                     break;
                 }
@@ -57,11 +59,11 @@ async fn main() {
                 if let Err(_) = tx.send(input.into_bytes()).await {
                     println!("channel send error");
                 }
-            },
+            }
             Err(err) => {
                 eprintln!("Failed to read input: {}", err);
                 break;
-            },
+            }
         }
     }
 }

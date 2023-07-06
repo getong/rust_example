@@ -1,5 +1,5 @@
 use std::error::Error;
-use tokio::io::{AsyncReadExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
 #[tokio::main]

@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (mut socket, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            let mut buffer = vec![0u8;1024];
+            let mut buffer = vec![0u8; 1024];
 
             loop {
                 match socket.read(&mut buffer).await {
@@ -33,7 +33,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         break;
                     }
                 }
-
             }
         });
     }

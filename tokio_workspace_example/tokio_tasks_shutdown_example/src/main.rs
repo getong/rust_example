@@ -47,7 +47,5 @@ async fn main() {
 
     let test_duration = Duration::from_secs(10);
     // Make sure we have shut down when expected
-    assert!(
-        test_duration > Duration::from_secs(8) && test_duration < Duration::from_secs(15)
-    );
+    assert!(test_duration > Duration::from_secs(8) && test_duration < Duration::from_secs(15));
 }
