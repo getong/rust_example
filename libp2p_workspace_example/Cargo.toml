@@ -28,5 +28,6 @@ members = [
         "libp2p_tokio_rendezvous_discover_example",
         "libp2p_tokio_rendezvous_identity_example",
         "libp2p_tokio_rendezvous_register_example",
-        "tokio_stream_fuse_example",
+        "libp2p_tokio_discover_nodes_example",
+
 ]
