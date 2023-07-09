@@ -42,7 +42,7 @@ async fn main() {
         println!("RESULT: {}", res.unwrap() == 20);
 
         // 停止系统退出
-        System::current().stop();
+        // System::current().stop();
     });
-    // System::current().stop();
+    System::current().stop();
 }
