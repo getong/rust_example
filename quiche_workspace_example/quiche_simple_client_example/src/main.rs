@@ -1,4 +1,3 @@
-// https://android.googlesource.com/platform/external/rust/crates/quiche/+/HEAD/examples/client.rs
 #[macro_use]
 extern crate log;
 use ring::rand::*;
@@ -179,6 +178,7 @@ fn main() {
         }
     }
 }
+
 fn hex_dump(buf: &[u8]) -> String {
     let vec: Vec<String> = buf.iter().map(|b| format!("{b:02x}")).collect();
     vec.join("")
