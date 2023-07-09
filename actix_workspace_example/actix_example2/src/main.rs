@@ -25,9 +25,10 @@ impl Handler<Ping> for MyActor {
     }
 }
 
-fn main() {
+#[actix::main]
+async fn main() {
     // println!("Hello, world!");
-    let system = System::new();
+    // let system = System::new();
 
     Arbiter::new().spawn(async {
         // 启动一个 actor
@@ -43,5 +44,5 @@ fn main() {
         // 停止系统退出
         System::current().stop();
     });
-    system.run().unwrap();
+    // System::current().stop();
 }
