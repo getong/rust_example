@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "actix_example",
+        "actix_example2",
+        "actix_example3",
+]
