@@ -24,8 +24,8 @@ fn greet_people(query: Query<&Name, With<Person>>) {
 
 fn main() {
     App::new()
-        .add_startup_system(add_people)
-        .add_system(hello_world)
-        .add_system(greet_people)
+        .add_systems(Startup, add_people)
+        .add_systems(Update, hello_world)
+        .add_systems(Update, greet_people)
         .run();
 }
