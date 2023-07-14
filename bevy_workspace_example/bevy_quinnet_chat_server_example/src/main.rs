@@ -24,17 +24,20 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
         while let Some(message) = endpoint.try_receive_message_from::<ClientMessage>(client_id) {
             match message {
                 ClientMessage::Join { name } => {
-                    if let std::collections::hash_map::Entry::Vacant(e) =
-                        users.names.entry(client_id)
-                    {
+                    if users.names.contains_key(&client_id) {
+                        warn!(
+                            "Received a Join from an already connected client: {}",
+                            client_id
+                        )
+                    } else {
                         info!("{} connected", name);
-                        e.insert(name.clone());
+                        users.names.insert(client_id, name.clone());
                         // Initialize this client with existing state
                         endpoint
                             .send_message(
                                 client_id,
                                 ServerMessage::InitClient {
-                                    client_id,
+                                    client_id: client_id,
                                     usernames: users.names.clone(),
                                 },
                             )
@@ -42,18 +45,13 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
                         // Broadcast the connection event
                         endpoint
                             .send_group_message(
-                                users.names.keys(),
+                                users.names.keys().into_iter(),
                                 ServerMessage::ClientConnected {
-                                    client_id,
+                                    client_id: client_id,
                                     username: name,
                                 },
                             )
                             .unwrap();
-                    } else {
-                        warn!(
-                            "Received a Join from an already connected client: {}",
-                            client_id
-                        )
                     }
                 }
                 ClientMessage::Disconnect {} => {
@@ -68,9 +66,12 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
                         message
                     );
                     endpoint.try_send_group_message_on(
-                        users.names.keys(),
+                        users.names.keys().into_iter(),
                         ChannelId::UnorderedReliable,
-                        ServerMessage::ChatMessage { client_id, message },
+                        ServerMessage::ChatMessage {
+                            client_id: client_id,
+                            message: message,
+                        },
                     );
                 }
             }
@@ -97,8 +98,10 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
 
         endpoint
             .send_group_message(
-                users.names.keys(),
-                ServerMessage::ClientDisconnected { client_id },
+                users.names.keys().into_iter(),
+                ServerMessage::ClientDisconnected {
+                    client_id: client_id,
+                },
             )
             .unwrap();
         info!("{} disconnected", username);
@@ -123,12 +126,13 @@ fn start_listening(mut server: ResMut<Server>) {
 
 fn main() {
     App::new()
-        .add_plugin(ScheduleRunnerPlugin)
-        .add_plugin(LogPlugin::default())
-        .add_plugin(QuinnetServerPlugin::default())
+        .add_plugins((
+            ScheduleRunnerPlugin::default(),
+            LogPlugin::default(),
+            QuinnetServerPlugin::default(),
+        ))
         .insert_resource(Users::default())
-        .add_startup_system(start_listening)
-        .add_system(handle_client_messages)
-        .add_system(handle_server_events)
+        .add_systems(Startup, start_listening)
+        .add_systems(Update, (handle_client_messages, handle_server_events))
         .run();
 }
