@@ -21,4 +21,15 @@ fn main() {
     println!("before changed i is {}", i);
     very_trustworthy(&i);
     println!("after changed i is {}", i);
+
+    drop_and_print();
+}
+
+fn drop_and_print() {
+    let x = 42;
+    let ptr = &x as *const _;
+    #[allow(dropping_copy_types)]
+    drop(x);
+    let y = unsafe { *ptr };
+    println!("{:?}", y);
 }
