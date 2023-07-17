@@ -4,7 +4,6 @@
 // license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
 
-// use clap::Clap;
 use clap::Parser;
 use futures::{future, prelude::*};
 use rand::{
@@ -13,7 +12,7 @@ use rand::{
 };
 use service::{init_tracing, World};
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     time::Duration,
 };
 use tarpc::{
@@ -41,7 +40,7 @@ impl World for HelloServer {
         let sleep_time =
             Duration::from_millis(Uniform::new_inclusive(1, 10).sample(&mut thread_rng()));
         time::sleep(sleep_time).await;
-        format!("Hello, {}! You are connected from {}", name, self.0)
+        format!("Hello, {name}! You are connected from {}", self.0)
     }
 }
 
@@ -50,11 +49,12 @@ async fn main() -> anyhow::Result<()> {
     let flags = Flags::parse();
     init_tracing("Tarpc Example Server")?;
 
-    let server_addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), flags.port);
+    let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), flags.port);
 
     // JSON transport is provided by the json_transport tarpc module. It makes it easy
     // to start up a serde-powered json serialization strategy over TCP.
     let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
+    tracing::info!("Listening on port {}", listener.local_addr().port());
     listener.config_mut().max_frame_length(usize::MAX);
     listener
         // Ignore accept errors.
