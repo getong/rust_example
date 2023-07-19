@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "quic_rpc_server_example",
+        "quic_rpc_client_example",
+        "types",
+]
