@@ -1,0 +1,10 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "tarpc_example",
+        "tarpc_service_example",
+        "tarpc_simple_server_example",
+        "tarpc_simple_client_example",
+]
