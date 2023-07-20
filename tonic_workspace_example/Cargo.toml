@@ -4,4 +4,6 @@ resolver = "2"
 
 members = [
         "tonic_example",
+        "tonic_tls_server_example",
+        "tonic_tls_client_example",
 ]
