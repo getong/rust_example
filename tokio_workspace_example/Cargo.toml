@@ -137,5 +137,6 @@ members = [
         "tokio_block_some_ip_example",
         "tokio_tasks_shutdown_example",
         "tokio_stream_fuse_example",
-        "tokio_task_actor_example"
+        "tokio_task_actor_example",
+        "tokio_tls_download_rust_lang_example",
 ]
