@@ -29,5 +29,6 @@ members = [
         "libp2p_tokio_rendezvous_identity_example",
         "libp2p_tokio_rendezvous_register_example",
         "libp2p_tokio_discover_nodes_example",
-
+        "libp2p_quic_server_example",
+        "libp2p_quic_client_example",
 ]
