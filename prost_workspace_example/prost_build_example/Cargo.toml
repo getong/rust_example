@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 bytes = "1.4.0"
-prost = "0.11.8"
+prost = "0.11.9"
 
 [build-dependencies]
-prost-build = "0.11.8"
+prost-build = "0.11.9"
