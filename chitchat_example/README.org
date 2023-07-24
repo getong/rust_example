@@ -16,4 +16,10 @@ cargo run -- --listen_addr 127.0.0.1:10000
 cargo run -- --listen_addr 127.0.0.1:10001 --seed localhost:10000
 #+end_src
 
+
+** curl example
+#+begin_src shell
+curl localhost:10000
+#+end_src
+
 copy from [[https://github.com/quickwit-oss/chitchat][chitchat]]
