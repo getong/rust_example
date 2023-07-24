@@ -20,6 +20,8 @@ cargo run -- --listen_addr 127.0.0.1:10001 --seed localhost:10000
 ** curl example
 #+begin_src shell
 curl localhost:10000
+
+curl http://localhost:10000/set_kv?key=abc&value=1
 #+end_src
 
 copy from [[https://github.com/quickwit-oss/chitchat][chitchat]]
