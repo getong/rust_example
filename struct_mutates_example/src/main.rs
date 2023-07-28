@@ -18,6 +18,18 @@ impl HaGraph {
         }
     }
 
+    pub fn get_nodes(&self) -> &HashMap<String, NodeIndex> {
+        &self.nodes
+    }
+
+    pub fn get_mut_nodes(&mut self) -> &mut HashMap<String, NodeIndex> {
+        &mut self.nodes
+    }
+
+    pub fn get_own_nodes(&mut self) -> HashMap<String, NodeIndex> {
+        std::mem::take(&mut self.nodes)
+    }
+
     pub fn has_node(&self, name: &str) -> bool {
         self.nodes.contains_key(name)
     }
@@ -75,6 +87,18 @@ fn main() {
         _ = hagraph.add_edge(from, to);
     }
     println!("graph: {:?}", hagraph.graph);
+
+    let nodes = hagraph.get_nodes();
+    println!("nodes {:?}", nodes);
+
+    let mut_nodes = hagraph.get_mut_nodes();
+    println!("mut_nodes {:?}", mut_nodes);
+
+    let own_nodes = hagraph.get_own_nodes();
+    println!("own_nodes {:?}", own_nodes);
+
+    let nodes = hagraph.get_nodes();
+    println!("nodes {:?}", nodes);
 }
 
 // copy from https://www.reddit.com/r/rust/comments/142780f/struct_mutates_as_a_block_in_170/
