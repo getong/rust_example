@@ -7,4 +7,5 @@ members = [
         "io_cursor_prost_example",
         "io_cursor_read_struct_example",
         "io_cursor_split_example",
+        "cursor_seek_split_example",
 ]
