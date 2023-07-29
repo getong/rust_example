@@ -139,4 +139,5 @@ members = [
         "tokio_stream_fuse_example",
         "tokio_task_actor_example",
         "tokio_tls_download_rust_lang_example",
+        "tokio_spawn_bg_task_example",
 ]
