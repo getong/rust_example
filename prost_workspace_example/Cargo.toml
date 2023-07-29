@@ -6,4 +6,5 @@ members = [
         "prost_build_example",
         "prost_example",
         "prost_route_msg_example",
+        "prost_tcp_recv_example",
 ]
