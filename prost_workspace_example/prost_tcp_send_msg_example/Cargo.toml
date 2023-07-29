@@ -1,5 +1,5 @@
 [package]
-name = "prost_route_msg_example"
+name = "prost_tcp_send_msg_example"
 version = "0.1.0"
 edition = "2021"
 
