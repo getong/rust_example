@@ -1,4 +1,19 @@
 use std::collections::HashMap;
+use std::iter::IntoIterator;
+
+struct Person {
+    name: String,
+    age: u8,
+}
+
+impl IntoIterator for Person {
+    type Item = (String, u8);
+    type IntoIter = std::option::IntoIter<(String, u8)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Some((self.name, self.age)).into_iter()
+    }
+}
 
 fn main() {
     // println!("Hello, world!");
@@ -44,5 +59,20 @@ fn main() {
 
     for (key, value) in my_map {
         println!("Key: {}, Value: {}", key, value);
+    }
+
+    let person = Person {
+        name: "John Doe".to_string(),
+        age: 30,
+    };
+
+    // let mut iter = person.into_iter();
+
+    // // Iterate over the names and print them out.
+    // while let Some((name, age)) = iter.next() {
+    //     println!("The name is: {}, age: {}", name, age);
+    // }
+    for (name, age) in person {
+        println!("name:{:?}, age:{:?}", name, age)
     }
 }
