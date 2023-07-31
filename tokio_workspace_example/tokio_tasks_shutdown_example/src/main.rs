@@ -2,7 +2,6 @@ use {std::time::Duration, tokio::time::sleep, tokio_tasks_shutdown::*};
 
 #[tokio::main]
 async fn main() {
-    // println!("Hello, world!");
     // By default this will catch Ctrl+C.
     // You may have your tasks return your own error type.
     let tasks: TasksMainHandle<anyhow::Error> = TasksBuilder::default()
@@ -16,15 +15,20 @@ async fn main() {
     tasks
         .spawn("gracefully_shutting_down_task", |tasks_handle| async move {
             loop {
-                tokio::select! {
-                    biased;
-                    _ = tasks_handle.on_shutdown() => {
+                match tasks_handle
+                    .on_shutdown_or({
+                        // Simulating another future running concurrently,
+                        // e.g. listening on a channel...
+                        sleep(Duration::from_millis(100))
+                    })
+                    .await
+                {
+                    ShouldShutdownOr::ShouldShutdown => {
                         // We have been kindly asked to shutdown, let's exit
                         break;
                     }
-                    _ = sleep(Duration::from_millis(100)) => {
-                        // Simulating another future running concurrently,
-                        // e.g. listening on a channel...
+                    ShouldShutdownOr::ShouldNotShutdown(_res) => {
+                        // Got result of channel listening
                     }
                 }
             }
@@ -45,7 +49,9 @@ async fn main() {
     // Let's make sure there were no errors
     tasks.join_all().await.unwrap();
 
-    let test_duration = Duration::from_secs(10);
+    let test_duration = Duration::from_millis(146);
     // Make sure we have shut down when expected
-    assert!(test_duration > Duration::from_secs(8) && test_duration < Duration::from_secs(15));
+    assert!(
+        test_duration > Duration::from_millis(145) && test_duration < Duration::from_millis(155)
+    );
 }
