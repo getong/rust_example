@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.71"
+anyhow = "1.0.72"
 chrono = "0.4.26"
 log = "0.4.19"
-time = "0.3.22"
+time = "0.3.24"
 tokio = { version = "1.29.1", features = ["full"] }
 tokio-cron-scheduler = "0.9.4"
 tracing = "0.1.37"

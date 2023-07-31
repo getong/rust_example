@@ -22,8 +22,7 @@ async fn main() {
                 .short('c')
                 .long("config")
                 .value_name("FILE")
-                .help("Sets a custom config file")
-                // .takes_value(true),
+                .help("Sets a custom config file"), // .takes_value(true),
         )
         .subcommand(
             Command::new("start")
