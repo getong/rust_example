@@ -1,0 +1,11 @@
+[package]
+name = "mpsc_example2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+blake3 = "1.4.1"
+rtrb = "0.2.3"
+sha2 = "0.10.7"
