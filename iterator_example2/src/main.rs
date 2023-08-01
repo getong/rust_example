@@ -38,6 +38,30 @@ impl IntoIterator for MyStruct {
     }
 }
 
+// Define a struct
+struct MyStruct2 {
+    name: String,
+    age: u8,
+}
+
+// Implementation of the struct
+impl MyStruct2 {
+    // Constructor function
+    fn new(name: String, age: u8) -> Self {
+        MyStruct2 { name, age }
+    }
+}
+
+// Implementation of IntoIterator trait for MyStruct
+impl IntoIterator for MyStruct2 {
+    type Item = (String, u8);
+    type IntoIter = std::iter::Once<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        std::iter::once((self.name, self.age))
+    }
+}
+
 fn main() {
     let mut my_struct = MyStruct::new(vec![1, 2, 3, 4, 5]);
 
@@ -55,5 +79,15 @@ fn main() {
     // Using the custom struct in a for loop without referencing it
     for item in my_struct {
         println!("Current item: {}", item);
+    }
+
+    // Create an instance of MyStruct
+    let my_struct = MyStruct2::new("John".to_string(), 30);
+
+    // Use the for-loop to iterate over the struct
+    for (name, age) in my_struct {
+        // Print the values in the tuple
+        println!("Name: {}", name);
+        println!("Age: {}", age);
     }
 }
