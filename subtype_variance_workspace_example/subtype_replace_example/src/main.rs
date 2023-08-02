@@ -7,9 +7,6 @@ fn main() {
     // Still compilable!
     // Rust automatically shrink the lifetime static to s.
 
-    /// define a function which takes an lifetime sticker `a`
-    fn foo<'a>(_: &'a str) {}
-
     // and you can call the function with
     foo(&s);
     // or
@@ -38,3 +35,6 @@ fn foo2<'a>(bar: &dyn Fn(&'a str) -> ()) {
 fn foo3<'a>(s: &mut &'a str, x: &'a str) {
     *s = x;
 }
+
+/// define a function which takes an lifetime sticker `a`
+fn foo<'a>(_: &'a str) {}
