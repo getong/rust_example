@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "subtype_replace_example",
+]
