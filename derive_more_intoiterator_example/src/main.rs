@@ -9,15 +9,30 @@ struct MyVec(Vec<i32>);
 #[derive(Debug, From, IntoIterator)]
 struct Numbers {
     #[into_iterator(owned, ref, ref_mut)]
-    numbers: Vec<i32>,
+    numbers: Vec<Todo>,
     useless: bool,
+}
+
+#[derive(Debug)]
+pub struct Todo {
+    pub name: String,
+    pub age: u32,
 }
 
 fn main() {
     assert_eq!(Some(5), MyVec(vec![5, 8]).into_iter().next());
 
     let mut nums = Numbers {
-        numbers: vec![100, 200],
+        numbers: vec![
+            Todo {
+                name: "a".to_string(),
+                age: 1,
+            },
+            Todo {
+                name: "b".to_string(),
+                age: 2,
+            },
+        ],
         useless: false,
     };
     println!("num.useless:{:?}", nums.useless);
@@ -30,7 +45,7 @@ fn main() {
     }
 
     for i in &mut nums {
-        *i += 10;
+        i.age += 10;
         println!("*i:{:?}", *i);
     }
 
