@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
         "subtype_replace_example",
+        "vector_covariant_example",
 ]
