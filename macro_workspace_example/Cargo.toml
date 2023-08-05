@@ -19,4 +19,5 @@ members = [
         "fragment_specifiers_example",
         "macro_length_example",
         "derive_hello_example",
+        "derive_hello2_example",
 ]
