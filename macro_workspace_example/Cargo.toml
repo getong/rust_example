@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "variadic_function_example1",
@@ -17,4 +18,5 @@ members = [
         "expand_macro_example",
         "fragment_specifiers_example",
         "macro_length_example",
+        "derive_hello_example",
 ]
