@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "async_dropper_simple_example",
+        "async_droper_derive_example",
+]
