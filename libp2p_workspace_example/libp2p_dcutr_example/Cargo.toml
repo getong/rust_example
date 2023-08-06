@@ -12,4 +12,4 @@ futures = "0.3.28"
 futures-timer = "3.0"
 libp2p = { version = "0.52.1", features = ["full"] }
 log = "0.4"
-libp2p-quic = { version = "0.8.0-alpha", features = ["tokio"] }
+libp2p-quic = { version = "0.9.0-alpha", features = ["tokio"] }

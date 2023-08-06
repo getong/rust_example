@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 libp2p = { version = "0.52.1", features = ["full"] }
 libp2p-core = "0.40.0"
-libp2p-quic = { version = "0.8.0-alpha", features = ["tokio"] }
+libp2p-quic = { version = "0.9.0-alpha", features = ["tokio"] }
 tokio = { version = "1.29.1", features = ["full"] }
-libp2p-identity = { version = "0.2.1", features = ["ed25519"] }
+libp2p-identity = { version = "0.2.2", features = ["ed25519"] }
