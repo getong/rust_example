@@ -5,7 +5,7 @@ pub fn knuth_morris_pratt(st: String, pat: String) -> Vec<usize> {
         return vec![];
     }
     let pattern = pat.into_bytes();
-    let partial = make_partial(pattern.clone());
+    let partial = make_partial(&pattern);
 
     // and read 'string' to find 'pattern'
     let mut ret = vec![];
@@ -25,7 +25,7 @@ pub fn knuth_morris_pratt(st: String, pat: String) -> Vec<usize> {
     ret
 }
 
-fn make_partial(pattern: Vec<u8>) -> Vec<usize> {
+fn make_partial(pattern: &[u8]) -> Vec<usize> {
     // build the partial match table
     let mut partial = vec![0];
     for i in 1..pattern.len() {
@@ -35,7 +35,7 @@ fn make_partial(pattern: Vec<u8>) -> Vec<usize> {
         }
         partial.push(if pattern[j] == pattern[i] { j + 1 } else { j });
     }
-    println!("pattern:{:?}, partial:{:?}", pattern,  partial);
+    println!("pattern:{:?}, partial:{:?}", pattern, partial);
     partial
 }
 
