@@ -140,4 +140,5 @@ members = [
         "tokio_task_actor_example",
         "tokio_tls_download_rust_lang_example",
         "tokio_spawn_bg_task_example",
+        "tokio_oneshot_timeout_example",
 ]
