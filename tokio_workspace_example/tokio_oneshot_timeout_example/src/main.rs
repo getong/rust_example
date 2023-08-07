@@ -1,3 +1,4 @@
+use rand::rngs::OsRng;
 use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -14,7 +15,7 @@ async fn main() {
     // let sleep_duration = Duration::from_secs(rng.gen_range(1..3));
 
     // Create an Arc to safely share the random number generator
-    let rng = Arc::new(Mutex::new(rand::thread_rng()));
+    let rng = Arc::new(Mutex::new(OsRng::default()));
 
     let rng_clone = Arc::clone(&rng);
     // Spawn a Tokio task to send a value through the channel after a delay
@@ -23,7 +24,7 @@ async fn main() {
 
         // let mut rng = rand::thread_rng();
         let mut rng = rng_clone.lock().await;
-        let random_number = rng.gen_range(1..3);
+        let random_number = rng.gen_range(1..=3);
         let sleep_duration = Duration::from_secs(random_number);
 
         // Generate random sleep time
