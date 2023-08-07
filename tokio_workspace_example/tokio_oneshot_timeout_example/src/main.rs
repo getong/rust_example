@@ -1,3 +1,4 @@
+use rand::Rng;
 use tokio::sync::oneshot;
 use tokio::time::{timeout, Duration};
 
@@ -6,10 +7,20 @@ async fn main() {
     // Create a oneshot channel
     let (tx, rx) = oneshot::channel();
 
+    // Create a random sleep duration outside the async block
+    let mut rng = rand::thread_rng();
+    let sleep_duration = Duration::from_secs(rng.gen_range(1..3));
+
     // Spawn a Tokio task to send a value through the channel after a delay
     tokio::spawn(async move {
         let message = "Hello from the other side!";
-        tokio::time::sleep(Duration::from_secs(3)).await; // Simulate delay
+
+        // let mut rng = rand::thread_rng();
+        // let sleep_duration = Duration::from_secs(rng.gen_range(1..3));
+
+        // Generate random sleep time
+        tokio::time::sleep(sleep_duration).await;
+        // tokio::time::sleep(Duration::from_secs(3)).await; // Simulate delay
         let _ = tx.send(message);
     });
 
