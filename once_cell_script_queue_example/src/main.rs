@@ -35,16 +35,16 @@ async fn main() {
     });
 
     let (tx2, rx2) = oneshot::channel();
-    _ = SCRIPT_QUEUE
-        .get()
-        .unwrap()
-        .send(Packet::Exec(1, "abc".to_string(), tx2))
-        .await;
+    if let Some(send_channel) = SCRIPT_QUEUE.get() {
+        _ = send_channel
+            .send(Packet::Exec(1, "abc".to_string(), tx2))
+            .await;
+
+        let result = rx2.await;
+        println!("result:{:?}", result);
+
+        println!("handler status: {:?}", handler.is_finished());
+    }
 
     sleep(Duration::from_millis(1000)).await;
-    let result = rx2.await;
-    println!("result:{:?}", result);
-
-    println!("handler status: {:?}", handler.is_finished());
-    loop {}
 }
