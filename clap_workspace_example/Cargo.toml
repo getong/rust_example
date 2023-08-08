@@ -1,6 +1,8 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "clap_serde_example",
+        "clap_parser_example",
 ]
