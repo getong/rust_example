@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "hyper_basic_example",
+        "hyper_service_fn_example",
+]
