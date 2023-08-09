@@ -142,4 +142,6 @@ members = [
         "tokio_spawn_bg_task_example",
         "tokio_oneshot_timeout_example",
         "tokio_mpsc_oneshot_example",
+        "tokio_signal_ctrl_c_example",
+        "tokio_signal_stream_recv_example",
 ]
