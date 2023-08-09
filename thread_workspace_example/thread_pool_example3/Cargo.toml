@@ -1,5 +1,5 @@
 [package]
-name = "thread_pool_example"
+name = "thread_pool_example3"
 version = "0.1.0"
 edition = "2021"
 

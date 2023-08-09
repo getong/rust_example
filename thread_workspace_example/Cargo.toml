@@ -1,9 +1,22 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "thread_join_example",
         "thread_pool_example",
         "thread_return_value_example",
         "thread_scope_example",
+        "thread_arc",
+        "thread_example",
+        "thread_example3",
+        "thread_join_handle_example",
+        "thread_local2_example",
+        "thread_local_example",
+        "thread_move_variable_example",
+        "thread_pool_example",
+        "thread_pool_example2",
+        "thread_rwlock",
+        "thread_vec_example",
+        "thread_pool_example3",
 ]
