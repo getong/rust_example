@@ -112,6 +112,7 @@ members = [
         "tokio_tun_read_mq_example",
         "tokio_util_cancel_example",
         "tokio_watch_example",
+        "tokio_watch_example2",
         "tokio_localset_example2",
         "tokio_multi_runtime_example3",
         "tokio_runtime_spawn_example2",
