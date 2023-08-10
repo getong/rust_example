@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "delay_timer_async_example",
+]
