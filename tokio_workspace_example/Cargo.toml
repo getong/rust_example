@@ -147,4 +147,5 @@ members = [
         "tokio_signal_stream_recv_example",
         "tokio_clap_subcommand_example",
         "tokio_clap_subcommand_chrono_example",
+        "tokio_select_joinhandler_example",
 ]
