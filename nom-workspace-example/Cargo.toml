@@ -1,9 +1,16 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "nom-take-example",
         "nom-tag-example",
         "nom-quick-start_example",
         "redis-cli",
+        "nom-example",
+        "nom-example2",
+        "nom_bits_bytes_example",
+        "nom_bits_example",
+        "nom_bits_example2",
+        "nom_hexadecimal_color_parser_example",
 ]

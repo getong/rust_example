@@ -1,9 +1,9 @@
 [package]
-name = "nom_bits_bytes_example"
+name = "nom-example"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nom = "7.0.0"
+nom = "7.1.3"
