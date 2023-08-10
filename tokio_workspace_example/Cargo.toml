@@ -144,4 +144,6 @@ members = [
         "tokio_mpsc_oneshot_example",
         "tokio_signal_ctrl_c_example",
         "tokio_signal_stream_recv_example",
+        "tokio_clap_subcommand_example",
+        "tokio_clap_subcommand_chrono_example",
 ]
