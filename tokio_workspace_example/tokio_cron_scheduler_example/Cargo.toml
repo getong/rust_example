@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0.72"
 chrono = "0.4.26"
 log = "0.4.19"
-time = "0.3.24"
-tokio = { version = "1.29.1", features = ["full"] }
+time = "0.3.25"
+tokio = { version = "1.30.0", features = ["full"] }
 tokio-cron-scheduler = "0.9.4"
 tracing = "0.1.37"

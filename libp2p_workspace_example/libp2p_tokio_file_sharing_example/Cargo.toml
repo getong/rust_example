@@ -6,12 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.3.19", features = ["derive"] }
+clap = { version = "4.3.21", features = ["derive"] }
 either = "1.9.0"
 env_logger = "0.10.0"
 futures = "0.3.28"
 libp2p = { version = "0.52.1", features = ["full"] }
-serde = { version = "1.0.182", features = ["derive"] }
-tokio = { version = "1.29.1", features = ["full"] }
+serde = { version = "1.0.183", features = ["derive"] }
+tokio = { version = "1.30.0", features = ["full"] }
 uuid = "1.4.1"
 void = "1.0.2"

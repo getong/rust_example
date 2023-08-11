@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-quinn = "0.10.1"
+quinn = "0.10.2"
 rcgen = "0.11.1"
-rustls = "0.21.5"
-tokio = { version = "1.29.1", features = ["full"] }
+rustls = "0.21.6"
+tokio = { version = "1.30.0", features = ["full"] }

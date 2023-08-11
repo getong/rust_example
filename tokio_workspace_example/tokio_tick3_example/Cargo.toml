@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 chrono = "0.4.26"
 rand = "0.8.5"
-tokio = { version = "1.29.1", features = ["full"] }
+tokio = { version = "1.30.0", features = ["full"] }

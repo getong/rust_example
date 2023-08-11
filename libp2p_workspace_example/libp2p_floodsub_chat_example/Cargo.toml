@@ -10,4 +10,4 @@ env_logger = "0.10.0"
 futures = "0.3.28"
 libp2p = { version = "0.52.1", features = ["full"] }
 libp2p-mplex = "0.40.0"
-tokio = { version = "1.29.1", features = ["full"] }
+tokio = { version = "1.30.0", features = ["full"] }
