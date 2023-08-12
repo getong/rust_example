@@ -22,6 +22,7 @@ fn main() {
 
     has_remaining_example();
     remaining_mut_example();
+    advance_example();
 }
 
 fn has_remaining_example() {
@@ -45,4 +46,14 @@ fn remaining_mut_example() {
     buf.put(&b"hello"[..]);
 
     assert_eq!(original_remaining - 5, buf.remaining_mut());
+}
+
+fn advance_example() {
+    let mut buf = &b"hello world"[..];
+
+    assert_eq!(buf.chunk(), &b"hello world"[..]);
+
+    buf.advance(6);
+
+    assert_eq!(buf.chunk(), &b"world"[..]);
 }
