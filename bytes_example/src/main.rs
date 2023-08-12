@@ -1,5 +1,4 @@
-use bytes::Buf;
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use std::io::Cursor;
 
 fn main() {
@@ -22,6 +21,7 @@ fn main() {
     assert_eq!(&b[..], b"hello");
 
     has_remaining_example();
+    remaining_mut_example();
 }
 
 fn has_remaining_example() {
@@ -35,4 +35,14 @@ fn has_remaining_example() {
 
     // bytes equal &str
     assert_eq!(b"abc", &[97, 98, 99]);
+}
+
+fn remaining_mut_example() {
+    let mut dst = [0; 10];
+    let mut buf = &mut dst[..];
+
+    let original_remaining = buf.remaining_mut();
+    buf.put(&b"hello"[..]);
+
+    assert_eq!(original_remaining - 5, buf.remaining_mut());
 }
