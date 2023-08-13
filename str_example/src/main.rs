@@ -32,6 +32,14 @@ fn main() {
     println!("s1: {:?}", s1);
 
     box_str();
+
+    let begin_str = "hello_world";
+    let begin_str_bytes = begin_str.as_bytes();
+    println!(
+        "from utf8:{:?}",
+        std::str::from_utf8(begin_str_bytes).unwrap()
+    );
+    assert_eq!(begin_str, std::str::from_utf8(begin_str_bytes).unwrap());
 }
 
 fn box_str() {
