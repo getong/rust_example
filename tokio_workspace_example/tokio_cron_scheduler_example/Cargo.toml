@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.72"
 chrono = "0.4.26"
-log = "0.4.19"
+log = "0.4.20"
 time = "0.3.25"
-tokio = { version = "1.30.0", features = ["full"] }
+tokio = { version = "1.31.0", features = ["full"] }
 tokio-cron-scheduler = "0.9.4"
 tracing = "0.1.37"
