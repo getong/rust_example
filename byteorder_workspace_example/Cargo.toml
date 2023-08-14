@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "byteorder_example",
+        "byteorder_example2",
+        "byteorder_read_write_example",
+]
