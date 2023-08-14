@@ -31,5 +31,4 @@ async fn main() {
     print_the_number_static_dispatch(3_i32).await;
 }
 
-
 // copy from https://theincredibleholk.org/blog/2022/04/18/how-async-functions-in-traits-could-work-in-rustc/
