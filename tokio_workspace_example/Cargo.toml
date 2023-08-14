@@ -149,4 +149,5 @@ members = [
         "tokio_clap_subcommand_chrono_example",
         "tokio_select_joinhandler_example",
         "tokio_notify_ctrl_c_example",
+        "tokio_turmoil_grpc_example",
 ]

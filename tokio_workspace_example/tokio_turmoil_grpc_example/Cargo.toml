@@ -1,0 +1,23 @@
+[package]
+name = "tokio_turmoil_grpc_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-stream = "0.3.5"
+hyper = "0.14.27"
+prost = "0.11.9"
+tokio = { version = "1.31.0", features = ["full"] }
+tonic = "0.9.2"
+tower = "0.4.13"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
+turmoil = "0.5.6"
+
+[build-dependencies]
+prost = "0.11.9"
+prost-build = "0.11.9"
+protox = "0.4.1"
+tonic-build = "0.9.2"
