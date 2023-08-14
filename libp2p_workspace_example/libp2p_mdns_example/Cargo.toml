@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libp2p = { version = "0.52.1", features = ["full"] }
-tokio = { version = "1.30.0", features = ["full"] }
+libp2p = { version = "0.52.2", features = ["full"] }
+tokio = { version = "1.31.0", features = ["full"] }
