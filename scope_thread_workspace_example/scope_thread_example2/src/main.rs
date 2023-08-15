@@ -21,4 +21,5 @@ fn main() {
     // After the scope, we can modify and access our variables again:
     a.push(4);
     assert_eq!(x, a.len());
+    println!("x: {:?}, a:{:?}", x, a);
 }

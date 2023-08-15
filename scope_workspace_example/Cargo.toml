@@ -1,7 +1,0 @@
-[workspace]
-
-
-members = [
-        "scope_join_example",
-        "mut_scope_example",
-]
