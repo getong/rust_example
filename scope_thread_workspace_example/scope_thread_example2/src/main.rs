@@ -7,13 +7,14 @@ fn main() {
         s.spawn(|| {
             println!("hello from the first scoped thread");
             // We can borrow `a` here.
-            dbg!(&a);
+            // dbg!(&a);
         });
         s.spawn(|| {
             println!("hello from the second scoped thread");
             // We can even mutably borrow `x` here,
             // because no other threads are using it.
             x += a[0] + a[2];
+            a[0] = 3;
         });
         println!("hello from the main thread");
     });
