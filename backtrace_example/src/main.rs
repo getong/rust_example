@@ -19,6 +19,17 @@ impl Drop for S {
 }
 
 fn main() {
+    get_backstrace();
+
     let s = S::new();
     dbg!(s.a, s.b);
+}
+
+fn get_backstrace() {
+    let bt = Backtrace::new();
+
+    // do_some_work();
+    println!("hello world");
+
+    println!("{:?}", bt);
 }
