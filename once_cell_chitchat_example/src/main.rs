@@ -4,8 +4,9 @@ use once_cell::sync::OnceCell;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use structopt::StructOpt;
 use tokio::sync::Mutex;
+
+use clap::Parser;
 
 use cool_id_generator::Size;
 
@@ -16,41 +17,42 @@ fn generate_server_id(public_addr: SocketAddr) -> String {
     format!("server:{public_addr}-{cool_id}")
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "chitchat", about = "Chitchat test server.")]
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
 struct Opt {
     /// Defines the socket addr on which we should listen to.
-    #[structopt(long = "listen_addr", default_value = "127.0.0.1:10000")]
+    #[arg(long, default_value = "127.0.0.1:10000")]
     listen_addr: SocketAddr,
     /// Defines the socket address (host:port) other servers should use to
     /// reach this server.
     ///
     /// It defaults to the listen address, but this is only valid
     /// when all server are running on the same server.
-    #[structopt(long = "public_addr")]
+    #[arg(long)]
     public_addr: Option<SocketAddr>,
 
     /// Node ID. Must be unique. If None, the node ID will be generated from
     /// the public_addr and a random suffix.
-    #[structopt(long = "node_id")]
+    #[arg(long)]
     node_id: Option<String>,
 
-    #[structopt(long = "seed")]
+    #[arg(long)]
     seeds: Vec<String>,
 
-    #[structopt(long = "interval_ms", default_value = "500")]
+    #[arg(long, default_value_t = 500)]
     interval: u64,
 }
 
 // # First server
-// cargo run -- --listen_addr 127.0.0.1:10000
+// cargo run -- --listen-addr 127.0.0.1:10000
 
 // # Second server
-// cargo run -- --listen_addr 127.0.0.1:10001 --seed localhost:10000
+// cargo run -- --listen-addr 127.0.0.1:10001 --seed localhost:10000
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opt = Opt::from_args();
+    // let opt = Opt::from_args();
+    let opt = Opt::parse();
     let public_addr = opt.public_addr.unwrap_or(opt.listen_addr);
     let node_id = opt
         .node_id

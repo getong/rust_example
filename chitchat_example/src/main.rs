@@ -5,13 +5,13 @@ use std::time::Duration;
 use chitchat::transport::UdpTransport;
 use chitchat::{spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
 use chitchat_example::{ApiResponse, SetKeyValueResponse};
+use clap::Parser;
 use cool_id_generator::Size;
 use poem::listener::TcpListener;
 use poem::{Route, Server};
 use poem_openapi::param::Query;
 use poem_openapi::payload::Json;
 use poem_openapi::{OpenApi, OpenApiService};
-use structopt::StructOpt;
 use tokio::sync::Mutex;
 
 struct Api {
@@ -45,29 +45,29 @@ impl Api {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "chitchat", about = "Chitchat test server.")]
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
 struct Opt {
     /// Defines the socket addr on which we should listen to.
-    #[structopt(long = "listen_addr", default_value = "127.0.0.1:10000")]
+    #[arg(long = "listen_addr", default_value = "127.0.0.1:10000")]
     listen_addr: SocketAddr,
     /// Defines the socket address (host:port) other servers should use to
     /// reach this server.
     ///
     /// It defaults to the listen address, but this is only valid
     /// when all server are running on the same server.
-    #[structopt(long = "public_addr")]
+    #[arg(long = "public_addr")]
     public_addr: Option<SocketAddr>,
 
     /// Node ID. Must be unique. If None, the node ID will be generated from
     /// the public_addr and a random suffix.
-    #[structopt(long = "node_id")]
+    #[arg(long = "node_id")]
     node_id: Option<String>,
 
-    #[structopt(long = "seed")]
+    #[arg(long = "seed")]
     seeds: Vec<String>,
 
-    #[structopt(long = "interval_ms", default_value = "500")]
+    #[arg(long, default_value_t = 500)]
     interval: u64,
 }
 
@@ -79,7 +79,7 @@ fn generate_server_id(public_addr: SocketAddr) -> String {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     let public_addr = opt.public_addr.unwrap_or(opt.listen_addr);
     let node_id = opt
         .node_id
