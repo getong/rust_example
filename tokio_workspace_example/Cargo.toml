@@ -151,4 +151,5 @@ members = [
         "tokio_notify_ctrl_c_example",
         "tokio_turmoil_grpc_example",
         "tokio_turmoil_axum_example",
+        "tokio_udp_heartbeat_example",
 ]
