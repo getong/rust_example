@@ -14,7 +14,30 @@ fn main() {
     pq.change_priority("Bananas", 25);
     assert_eq!(pq.peek(), Some((&"Bananas", &25)));
 
-    for (item, num) in pq.into_sorted_iter() {
+    for (item, num) in pq.clone().into_sorted_iter() {
+        println!("{}: {}", item, num);
+    }
+    println!("------------- add 3 -------------");
+    for (item, num) in pq.iter_mut() {
+        println!("{}: {}", item, num);
+        *num += 3;
+    }
+    println!("------------- after add 3 -------------");
+    for (item, num) in &pq {
+        println!("{}: {}", item, num);
+    }
+
+    println!("------------- add 4 -------------");
+    for (item, num) in &mut pq {
+        println!("{}: {}", item, num);
+        *num += 4;
+    }
+    println!("------------- after add 4 -------------");
+    for (item, num) in &pq {
+        println!("{}: {}", item, num);
+    }
+    println!("------------- into iterator -------------");
+    for (item, num) in pq {
         println!("{}: {}", item, num);
     }
 }
