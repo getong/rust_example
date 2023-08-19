@@ -1,7 +1,7 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Cursor;
-use std::pin::Pin;
+// use std::pin::Pin;
 
 fn main() {
     // println!("Hello, world!");
@@ -16,7 +16,8 @@ fn main() {
 
     let mut wtr = vec![];
     wtr.write_u16::<LittleEndian>(517).unwrap();
-    assert_eq!(&Pin::new(&wtr).get_ref()[..], &[5, 2]);
+    // assert_eq!(&Pin::new(&wtr).get_ref()[..], &[5, 2]);
+    assert_eq!(&wtr[..], &[5, 2]);
     wtr.write_u16::<LittleEndian>(768).unwrap();
     assert_eq!(wtr, vec![5, 2, 0, 3]);
 }
