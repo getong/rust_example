@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "mmap_sync_read_example",
+        "mmap_sync_write_example",
+]

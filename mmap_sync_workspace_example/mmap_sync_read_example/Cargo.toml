@@ -1,0 +1,12 @@
+[package]
+name = "mmap_sync_read_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# bytecheck = "0.7.0"
+bytecheck = { version = "~0.6.8", default-features = false }
+mmap-sync = "1.0.1"
+rkyv = "0.7.42"
