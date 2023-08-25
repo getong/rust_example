@@ -1,0 +1,10 @@
+[package]
+name = "web_socket_server_echo_raw_tokio"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.32.0", features = ["full"] }
+wtx = { version = "0.5.1", features = ["tokio","web-socket-handshake"] }
