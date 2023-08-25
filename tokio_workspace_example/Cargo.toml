@@ -73,6 +73,7 @@ members = [
         "tokio_multi_tcplistener_example",
         "tokio_notify_example",
         "tokio_notify_example2",
+        "tokio_sync_barrier_example",
         "tokio_once_cell_example",
         "tokio_oneshot_fuse_example",
         "tokio_pin_example",
