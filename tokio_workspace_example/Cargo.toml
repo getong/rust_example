@@ -87,6 +87,7 @@ members = [
         "tokio_runtime_enter_example",
         "tokio_runtime_example",
         "tokio_rwlock_example",
+        "tokio_rwlock_mpsc_example",
         "tokio_select_closed_channel_example",
         "tokio_select_sleep_example",
         "tokio_select_sleep_example2",
