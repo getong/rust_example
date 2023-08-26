@@ -1,0 +1,10 @@
+[package]
+name = "ockam_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ockam = "0.90.0"
+r3bl_ansi_color = "0.6.0"
