@@ -155,4 +155,5 @@ members = [
         "tokio_turmoil_grpc_example",
         "tokio_turmoil_axum_example",
         "tokio_udp_heartbeat_example",
+        "tokio_metrics_example",
 ]
