@@ -21,14 +21,14 @@ fn generate_server_id(public_addr: SocketAddr) -> String {
 #[command(author, version, about, long_about = None)]
 struct Opt {
     /// Defines the socket addr on which we should listen to.
-    #[arg(long, default_value = "127.0.0.1:10000")]
+    #[arg(long = "listen_addr", default_value = "127.0.0.1:10000")]
     listen_addr: SocketAddr,
     /// Defines the socket address (host:port) other servers should use to
     /// reach this server.
     ///
     /// It defaults to the listen address, but this is only valid
     /// when all server are running on the same server.
-    #[arg(long)]
+    #[arg(long = "public_addr")]
     public_addr: Option<SocketAddr>,
 
     /// Node ID. Must be unique. If None, the node ID will be generated from
@@ -36,7 +36,7 @@ struct Opt {
     #[arg(long)]
     node_id: Option<String>,
 
-    #[arg(long)]
+    #[arg(long = "seed")]
     seeds: Vec<String>,
 
     #[arg(long, default_value_t = 500)]
@@ -44,10 +44,10 @@ struct Opt {
 }
 
 // # First server
-// cargo run -- --listen-addr 127.0.0.1:10000
+// cargo run -- --listen_addr 127.0.0.1:10000
 
 // # Second server
-// cargo run -- --listen-addr 127.0.0.1:10001 --seed localhost:10000
+// cargo run -- --listen_addr 127.0.0.1:10001 --seed localhost:10000
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
