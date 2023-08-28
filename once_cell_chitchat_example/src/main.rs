@@ -41,18 +41,28 @@ struct Opt {
 
     #[arg(long, default_value_t = 500)]
     interval: u64,
+
+    #[arg(long = "subscriber_port", default_value_t = 5000)]
+    subscriber_port: u16,
 }
 
 // # First server
-// cargo run -- --listen_addr 127.0.0.1:10000
+// cargo run -- --listen_addr 127.0.0.1:10000 --subscriber_port 5000
 
 // # Second server
-// cargo run -- --listen_addr 127.0.0.1:10001 --seed localhost:10000
+// cargo run -- --listen_addr 127.0.0.1:10001 --seed localhost:10000 --subscriber_port 5001
+
+// tokio-console http://127.0.0.1:5000
+// tokio-console http://127.0.0.1:5001
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // let opt = Opt::from_args();
     let opt = Opt::parse();
+    console_subscriber::ConsoleLayer::builder()
+        // set the address the server is bound to
+        .server_addr(([127, 0, 0, 1], opt.subscriber_port))
+        // ... other configurations ...
+        .init();
     let public_addr = opt.public_addr.unwrap_or(opt.listen_addr);
     let node_id = opt
         .node_id
