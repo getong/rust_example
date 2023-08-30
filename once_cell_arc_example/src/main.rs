@@ -5,10 +5,28 @@ struct SharedData {
     counter: i32,
 }
 
+// cargo run --  --subscriber_port 5000
+
+// 没初始化
 static SHARED_DATA: OnceCell<Arc<Mutex<SharedData>>> = OnceCell::new();
 
+use clap::Parser;
+
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
+struct Opt {
+    #[arg(long = "subscriber_port", default_value_t = 5000)]
+    subscriber_port: i32,
+}
+
 fn main() {
-    SHARED_DATA.get_or_init(|| Arc::new(Mutex::new(SharedData { counter: 0 })));
+    let opt = Opt::parse();
+    // 初始化
+    SHARED_DATA.get_or_init(|| {
+        Arc::new(Mutex::new(SharedData {
+            counter: opt.subscriber_port,
+        }))
+    });
 
     let data = SHARED_DATA.clone();
 
