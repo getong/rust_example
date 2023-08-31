@@ -14,6 +14,8 @@ use poem_openapi::payload::Json;
 use poem_openapi::{OpenApi, OpenApiService};
 use tokio::sync::Mutex;
 
+use axum::{routing::get, Router};
+
 struct Api {
     chitchat: Arc<Mutex<Chitchat>>,
 }
@@ -78,7 +80,12 @@ fn generate_server_id(public_addr: SocketAddr) -> String {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    console_subscriber::ConsoleLayer::builder()
+        // set the address the server is bound to
+        .server_addr(([127, 0, 0, 1], 5051))
+        // ... other configurations ...
+        .init();
+    // tracing_subscriber::fmt::init();
     let opt = Opt::parse();
     let public_addr = opt.public_addr.unwrap_or(opt.listen_addr);
     let node_id = opt
@@ -104,5 +111,13 @@ async fn main() -> anyhow::Result<()> {
     Server::new(TcpListener::bind(&opt.listen_addr))
         .run(app)
         .await?;
+
+    let app = Router::new().route("/hello", get(|| async { "Hello, World!" }));
+
+    // run it with hyper on localhost:3000
+    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
     Ok(())
 }
