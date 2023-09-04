@@ -15,6 +15,7 @@ async fn some_async_work() {
     //只需注释掉上一行代码，并追加一行无线循环代码， 即可验证select!在当前同一个task所在的thread中并发执行
     //所有<async expression>, 一旦当前thread被block住，则select!不能再check其他branch的<async expression>了
     //所以切记<async expression>中不要有block当前线程的代码！
+    println!("hello world");
 }
 
 #[tokio::main]
