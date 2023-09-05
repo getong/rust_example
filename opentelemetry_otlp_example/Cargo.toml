@@ -1,0 +1,10 @@
+[package]
+name = "opentelemetry_otlp_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+opentelemetry-otlp = "0.13.0"
+opentelemetry_api = "0.20.0"
