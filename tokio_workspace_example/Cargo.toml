@@ -56,6 +56,7 @@ members = [
         "loop_select_tokio_oneshot_example",
         "mini-tokio-example",
         "tokio-graceful-shutdown_example",
+        "tokio_graceful_example",
         "tokio-task-manager_example",
         "tokio-uring-example",
         "tokio-uring-net-example",

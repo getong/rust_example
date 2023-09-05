@@ -1,10 +1,10 @@
 [package]
-name = "tokio_drop_runtime_example"
+name = "tokio_graceful_example"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = "0.4.29"
 tokio = { version = "1.32.0", features = ["full"] }
+tokio-graceful = "0.1.1"
