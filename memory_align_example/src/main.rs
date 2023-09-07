@@ -1,4 +1,5 @@
 use std::mem;
+use std::rc::Rc;
 
 // 12 bytes
 #[repr(C)]
@@ -28,4 +29,7 @@ fn main() {
     assert_eq!(mem::size_of::<&[u64]>(), 16);
 
     assert_eq!(mem::size_of::<Vec<u64>>(), 24);
+    assert_eq!(mem::size_of::<&Vec<u64>>(), 8);
+    assert_eq!(mem::size_of::<Rc<u64>>(), 8);
+    assert_eq!(mem::size_of::<&Rc<u64>>(), 8);
 }
