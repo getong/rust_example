@@ -24,4 +24,8 @@ struct Member2 {
 fn main() {
     println!("Member: {} bytes", mem::size_of::<Member>());
     println!("Member2: {} bytes", mem::size_of::<Member2>());
+
+    assert_eq!(mem::size_of::<&[u64]>(), 16);
+
+    assert_eq!(mem::size_of::<Vec<u64>>(), 24);
 }
