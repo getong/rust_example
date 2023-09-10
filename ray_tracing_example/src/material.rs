@@ -3,7 +3,7 @@ use crate::hittable::HitRecord;
 use crate::ray::Ray;
 use crate::{common, vec3};
 
-pub trait Material {
+pub trait Material: Send + Sync {
     fn scatter(
         &self,
         r_in: &Ray,
