@@ -9,6 +9,6 @@ edition = "2021"
 async-trait = "0.1.73"
 env_logger = "0.10.0"
 futures = "0.3.28"
-libp2p = { version = "0.52.2", features = ["full"] }
+libp2p = { version = "0.52.3", features = ["full"] }
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }
