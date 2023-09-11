@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.73"
+console-subscriber = "0.1.10"
 futures = "0.3.28"
 libp2p = { version = "0.52.3", features = ["full"] }
 tokio = { version = "1.32.0", features = ["full"] }
