@@ -1,30 +1,28 @@
-use futures::channel::mpsc;
 use futures::future::{Fuse, FusedFuture, FutureExt};
-use futures::select;
-use futures::stream::StreamExt;
-use futures::pin_mut;
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() {
     // println!("Hello, world!");
-    let (sender, mut reader) = mpsc::unbounded();
+    let (sender, mut reader) = mpsc::unbounded_channel();
 
     // Send a few messages into the stream
-    sender.unbounded_send(()).unwrap();
-    sender.unbounded_send(()).unwrap();
+    sender.send(()).unwrap();
+    sender.send(()).unwrap();
     drop(sender);
 
     // Use `Fuse::terminated()` to create an already-terminated future
     // which may be instantiated later.
     let foo_printer = Fuse::terminated();
-    pin_mut!(foo_printer);
+    tokio::pin!(foo_printer);
 
     loop {
-        select! {
-            _ = foo_printer => {
+        tokio::select! {
+            _ = foo_printer.as_mut().fuse() => {
                 println!("foo print actually");
+                break;
             },
-            () = reader.select_next_some() => {
+            Some(()) = reader.recv() => {
                 if !foo_printer.is_terminated() {
                     println!("Foo is already being printed!");
                 } else {
@@ -33,8 +31,13 @@ async fn main() {
                         println!("Printing foo from `foo_printer` future");
                     }.fuse());
                 }
+
             },
-            complete => break, // `foo_printer` is terminated and the stream is done
+            else => {
+                println!("other");
+                break;
+            },
+
         }
     }
 }
