@@ -4,5 +4,6 @@ resolver = "2"
 
 members = [
         "dioxus_example",
+        "dioxus_web_basic_example",
         "dioxus_fermi_example",
 ]
