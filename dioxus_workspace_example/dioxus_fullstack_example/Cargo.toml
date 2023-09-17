@@ -1,0 +1,16 @@
+[package]
+name = "dioxus_fullstack_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = "0.4.0"
+dioxus-fullstack = "0.4.1"
+
+
+[features]
+default = []
+ssr = ["dioxus-fullstack/axum"]
+web = ["dioxus-fullstack/web"]

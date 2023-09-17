@@ -6,5 +6,6 @@ members = [
         "dioxus_example",
         "dioxus_web_basic_example",
         "dioxus_liveview_example",
+        "dioxus_fullstack_example",
         "dioxus_fermi_example",
 ]
