@@ -1,0 +1,8 @@
+[app]
+name = "dioxus-mobile-example"
+stylized-name = "Dioxus Mobile Example"
+domain = "users.noreply.github.com"
+template-pack = "bevy"
+
+[apple]
+development-team = "abc"
