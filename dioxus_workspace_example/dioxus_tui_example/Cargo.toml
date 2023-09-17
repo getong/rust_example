@@ -1,0 +1,10 @@
+[package]
+name = "dioxus_tui_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = "0.4.0"
+dioxus-tui = "0.4.0"

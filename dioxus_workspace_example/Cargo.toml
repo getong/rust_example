@@ -9,5 +9,6 @@ members = [
         "dioxus_fullstack_example",
         "dioxus_desktop_example",
         "dioxus_mobile_example",
+        "dioxus_tui_example",
         "dioxus_fermi_example",
 ]
