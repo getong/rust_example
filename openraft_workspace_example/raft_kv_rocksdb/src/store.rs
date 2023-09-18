@@ -6,7 +6,7 @@ use std::ops::RangeBounds;
 use std::path::Path;
 use std::sync::Arc;
 
-use async_std::sync::RwLock;
+use tokio::sync::RwLock;
 use byteorder::BigEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;

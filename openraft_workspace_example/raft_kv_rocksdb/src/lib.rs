@@ -6,8 +6,8 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
-use async_std::net::TcpListener;
-use async_std::task;
+use tokio::net::TcpListener;
+use tokio::task;
 use openraft::storage::Adaptor;
 use openraft::Config;
 use openraft::TokioRuntime;
@@ -113,6 +113,6 @@ where
     api::rest(&mut app);
 
     app.listen(http_addr).await?;
-    handle.await;
+    _ = handle.await;
     Ok(())
 }
