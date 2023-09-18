@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.32.0", features = ["full"] }
-tokio-graceful = "0.1.1"
+tokio-graceful = "0.1.4"

@@ -17,14 +17,19 @@ pub struct Opt {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // Setup the logger
-    tracing_subscriber::fmt()
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_level(true)
-        .with_ansi(false)
-        .with_env_filter(EnvFilter::from_default_env())
+    console_subscriber::ConsoleLayer::builder()
+        // set the address the server is bound to
+        .server_addr(([127, 0, 0, 1], 5000_u16))
+        // ... other configurations ...
         .init();
+    // Setup the logger
+    // tracing_subscriber::fmt()
+    //     .with_target(true)
+    //     .with_thread_ids(true)
+    //     .with_level(true)
+    //     .with_ansi(false)
+    //     .with_env_filter(EnvFilter::from_default_env())
+    //     .init();
 
     // Parse the parameters passed by arguments.
     let options = Opt::parse();

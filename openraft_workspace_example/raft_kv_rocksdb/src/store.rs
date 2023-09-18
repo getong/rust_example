@@ -6,7 +6,6 @@ use std::ops::RangeBounds;
 use std::path::Path;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
 use byteorder::BigEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
@@ -35,6 +34,7 @@ use rocksdb::Options;
 use rocksdb::DB;
 use serde::Deserialize;
 use serde::Serialize;
+use tokio::sync::RwLock;
 
 use crate::Node;
 use crate::NodeId;

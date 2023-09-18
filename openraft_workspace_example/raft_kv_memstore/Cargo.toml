@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 actix-web = "4.4.0"
 async-trait = "0.1.73"
-clap = { version = "4.4.3", features = ["derive", "env"] }
+clap = { version = "4.4.4", features = ["derive", "env"] }
 env_logger = "0.10.0"
 
 #openraft = { version = "0.6", path = "../../openraft", features = ["serde"] }
