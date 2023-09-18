@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.73"
-clap = { version = "4.4.2", features = ["derive"] }
+clap = { version = "4.4.4", features = ["derive"] }
 env_logger = "0.10.0"
 futures = "0.3.28"
 libp2p = { version = "0.52.3", features = ["full"] }
