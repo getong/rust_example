@@ -268,8 +268,7 @@ fn main() {
                         conn.close(true, 0x00, b"kthxbye").unwrap();
                     }
 
-                    Ok((_flow_id, quiche::h3::Event::Datagram)) => (),
-
+                    // Ok((_flow_id, quiche::h3::Event::Data)) => (),
                     Ok((_, quiche::h3::Event::PriorityUpdate)) => unreachable!(),
 
                     Ok((goaway_id, quiche::h3::Event::GoAway)) => {

@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "0.4.19"
+log = "0.4.20"
 mio = { version = "0.8.8", features = ["net", "os-poll"] }
 #quiche = "0.14.0"
-quiche = "0.17.2"
-ring = "0.16.20"
+quiche = "0.18.0"
+ring = "0.17.2"
