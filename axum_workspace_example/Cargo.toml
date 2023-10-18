@@ -18,4 +18,5 @@ members = [
         "axum_auth_example",
         "axum_websocket_server_example",
         "axum_websocket_client_example",
+        "axum_echo_example",
 ]
