@@ -7,10 +7,8 @@ mod mypackage {
 
 fn main() {
     // Create a new MyMessage instance
-
-    let message = mypackage::MyMessage {
-        content: "Received your message!".to_string(),
-    };
+    let mut message = mypackage::MyMessage::default();
+    message.content = "Received your message!".to_string();
 
     // Encode the message into a BytesMut buffer
     let mut buffer = BytesMut::new();
