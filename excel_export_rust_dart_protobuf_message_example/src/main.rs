@@ -20,6 +20,8 @@ typedef T MessageBuilder<T extends GeneratedMessage>(List<int> bytes);
 /// Used to obtain the matching [MessageBuilder] for each defined message code.
 final Map<int, MessageBuilder> PROTOBUF_MESSAGE_LIST = <int, MessageBuilder>{\n";
 
+const DART_FILE_HEADING: &[u8] =b"//use with auto_exporter package\nimport 'export.dart';\nimport 'package:protobuf/protobuf.dart';\n\n";
+
 #[tokio::main]
 async fn main() {
     let mut list: Vec<Vec<String>> = vec![];
@@ -43,8 +45,7 @@ async fn main() {
 
     if let Ok(mut rust_file) = File::create(RUST_FILE_NAME) {
         if let Ok(mut dart_file) = File::create(DART_FILE_NAME) {
-            _ = dart_file.write(b"//use with auto_exporter package\nimport 'export.dart';\n");
-            _ = dart_file.write(b"import 'package:protobuf/protobuf.dart';\n\n");
+            _ = dart_file.write(DART_FILE_HEADING);
             let mut dart_message_to_number_list: Vec<String> = vec![];
             let mut dart_number_to_message_list: Vec<String> = vec![];
 
