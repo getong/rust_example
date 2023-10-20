@@ -8,4 +8,5 @@ members = [
         "prost_tcp_send_msg_example",
         "prost_tcp_recv_example",
         "prost_encode_length_delimited_example",
+        "prost_name_trait_example",
 ]
