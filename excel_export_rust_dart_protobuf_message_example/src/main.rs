@@ -10,9 +10,10 @@ const PATH: &str = "protobuf_list.xlsx";
 const SHEET_NAME: &str = "Sheet1";
 
 const RUST_FILE_NAME: &str = "protobuf_message_num.rs";
-const RUST_FILE_INCLUDE_LIST: &[u8] = br#"use std::collections::HashMap;
-use once_cell::sync::Lazy;
-use prost::Name;
+const RUST_FILE_INCLUDE_LIST: &[u8] = br#"use once_cell::sync::Lazy;
+use prost::{Message, Name};
+use std::collections::HashMap;
+use std::error::Error;
 
 "#;
 
@@ -22,6 +23,17 @@ pub static MESSAGE_TO_NUM_LIST: Lazy<HashMap<String, i32>> = Lazy::new(||{
 "#;
 const RUST_MESSAGE_TO_NUM_LIST_END: &[u8] = br#"    map
 });
+"#;
+
+const RUST_DECODE_BY_NUM_BEGIN: &[u8] = br#"
+pub fn decode_by_num(num: i32, bytes: &[u8]) -> Result<Box<dyn Message>, Box<dyn Error>> {
+    match num {
+"#;
+
+const RUST_DECODE_BY_NUM_END: &[u8] =
+    br#"        _ => Err(Box::new(std::io::Error::from(std::io::ErrorKind::NotFound))),
+    }
+}
 "#;
 
 const DART_FILE_NAME: &str = "protobuf_message_num.dart";
@@ -66,6 +78,7 @@ async fn main() {
             let mut rust_message_to_number_list: Vec<String> = vec![];
             let mut rust_module_set: HashSet<String> = HashSet::new();
             let mut rust_const_list: Vec<String> = vec![];
+            let mut rust_case_list: Vec<String> = vec![];
             let mut dart_message_to_number_list: Vec<String> = vec![];
             let mut dart_number_to_message_list: Vec<String> = vec![];
 
@@ -82,6 +95,10 @@ async fn main() {
                 rust_message_to_number_list.push(format!(
                     "    map.insert({}::{}::full_name(), {});\n",
                     package_name, message_name, new_variable_str,
+                ));
+                rust_case_list.push(format!(
+                    "        {} => Ok(Box::new({}::{}::decode(bytes)?)),\n",
+                    new_variable_str, package_name, message_name,
                 ));
                 _ = dart_file
                     .write(format!("const int {} = {};\n", new_variable_str, number).as_bytes());
@@ -113,6 +130,13 @@ async fn main() {
                 _ = rust_file.write(i.as_bytes());
             }
             _ = rust_file.write(RUST_MESSAGE_TO_NUM_LIST_END);
+
+            _ = rust_file.write(RUST_DECODE_BY_NUM_BEGIN);
+            for i in &rust_case_list {
+                _ = rust_file.write(i.as_bytes());
+            }
+
+            _ = rust_file.write(RUST_DECODE_BY_NUM_END);
 
             _ = dart_file.write(DART_PROTOBUF_MESSAGE_HEADLING);
             for i in dart_message_to_number_list.iter() {
