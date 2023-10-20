@@ -4,6 +4,8 @@ use std::error::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
+mod protobuf_message_num;
+
 mod mypackage {
     include!("mypackage.rs");
 }
@@ -35,5 +37,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     stream.write_all(&bytes).await?;
 
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    println!("num: {:?}", protobuf_message_num::MESSAGE_TO_NUM_LIST.get(&mypackage::MyMessage::full_name()));
     Ok(())
 }
