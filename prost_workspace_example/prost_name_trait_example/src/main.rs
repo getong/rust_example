@@ -36,7 +36,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let bytes = message.encode_to_vec();
     stream.write_all(&bytes).await?;
 
+    let a = protobuf_message_num::decode_by_num(
+        *protobuf_message_num::MESSAGE_TO_NUM_LIST
+            .get(&mypackage::MyMessage::full_name())
+            .unwrap(),
+        &bytes,
+    );
+    println!("a: {:?}", a);
+
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    println!("num: {:?}", protobuf_message_num::MESSAGE_TO_NUM_LIST.get(&mypackage::MyMessage::full_name()));
+    println!(
+        "num: {:?}",
+        protobuf_message_num::MESSAGE_TO_NUM_LIST.get(&mypackage::MyMessage::full_name())
+    );
     Ok(())
 }
