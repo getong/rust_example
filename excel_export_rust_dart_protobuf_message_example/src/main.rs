@@ -1,10 +1,10 @@
 use calamine::DataType::Float;
 use calamine::DataType::String as OtherString;
 use calamine::{open_workbook, Reader, Xlsx};
+use std::collections::HashSet;
+use std::fs::File;
 use std::io::Write;
 use std::string::String;
-
-use std::fs::File;
 
 const PATH: &str = "protobuf_list.xlsx";
 const SHEET_NAME: &str = "Sheet1";
@@ -12,15 +12,16 @@ const SHEET_NAME: &str = "Sheet1";
 const RUST_FILE_NAME: &str = "protobuf_message_num.rs";
 const RUST_FILE_INCLUDE_LIST: &[u8] = br#"use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use prost::Name;
 
 "#;
 
 const RUST_MESSAGE_TO_NUM_LIST: &[u8] = br#"
-pub static MESSAGE_TO_NUM_LIST: Lazy<HashMap<dyn ::prost::Message, int32>>{
+pub static MESSAGE_TO_NUM_LIST: Lazy<HashMap<String, i32>> = Lazy::new(||{
     let mut map = HashMap::new();
 "#;
 const RUST_MESSAGE_TO_NUM_LIST_END: &[u8] = br#"    map
-};
+});
 "#;
 
 const DART_FILE_NAME: &str = "protobuf_message_num.dart";
@@ -60,8 +61,10 @@ async fn main() {
     if let Ok(mut rust_file) = File::create(RUST_FILE_NAME) {
         if let Ok(mut dart_file) = File::create(DART_FILE_NAME) {
             _ = rust_file.write(RUST_FILE_INCLUDE_LIST);
+
             _ = dart_file.write(DART_FILE_HEADING);
             let mut rust_message_to_number_list: Vec<String> = vec![];
+            let mut rust_module_set: HashSet<String> = HashSet::new();
             let mut dart_message_to_number_list: Vec<String> = vec![];
             let mut dart_number_to_message_list: Vec<String> = vec![];
 
@@ -74,8 +77,9 @@ async fn main() {
                     (package_name.to_owned() + "_" + message_name).to_uppercase();
                 _ = rust_file
                     .write(format!("const {}: i32 = {};\n", new_variable_str, number).as_bytes());
+                rust_module_set.insert(package_name.to_owned());
                 rust_message_to_number_list.push(format!(
-                    "    map.insert({}::{}, {});\n",
+                    "    map.insert({}::{}::full_name(), {});\n",
                     package_name, message_name, new_variable_str,
                 ));
                 _ = dart_file
@@ -91,6 +95,13 @@ async fn main() {
                         + ".fromBuffer(bytes),\n",
                 );
             }
+
+            for i in &rust_module_set {
+                _ = rust_file.write(
+                    ("\nmod ".to_owned() + i + " {\n    include!(\"" + i + ".rs\");\n}").as_bytes(),
+                );
+            }
+            _ = rust_file.write("\n".as_bytes());
 
             _ = rust_file.write(RUST_MESSAGE_TO_NUM_LIST);
             for i in rust_message_to_number_list.iter() {
