@@ -48,11 +48,15 @@ async fn main() {
                 let number = i.get(0).unwrap();
                 let package_name = i.get(1).unwrap();
                 let message_name = i.get(2).unwrap();
+                let mut package_name = package_name.to_owned();
                 // println!("i: {:?}, {:?}, {:?}", number, package_name, message_name);
+                package_name.push('_');
+                package_name.push_str(message_name);
+                let new_variable_str = package_name.to_uppercase();
                 _ = rust_file
-                    .write(format!("{}, {}, {}\n", number, package_name, message_name).as_bytes());
+                    .write(format!("const {}: i32 = {};\n", new_variable_str, number).as_bytes());
                 _ = dart_file
-                    .write(format!("{}, {}, {}\n", number, package_name, message_name).as_bytes());
+                    .write(format!("const int {} = {};\n", new_variable_str, number).as_bytes());
             }
         }
     }
