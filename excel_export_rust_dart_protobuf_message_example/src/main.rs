@@ -65,6 +65,7 @@ async fn main() {
             _ = dart_file.write(DART_FILE_HEADING);
             let mut rust_message_to_number_list: Vec<String> = vec![];
             let mut rust_module_set: HashSet<String> = HashSet::new();
+            let mut rust_const_list: Vec<String> = vec![];
             let mut dart_message_to_number_list: Vec<String> = vec![];
             let mut dart_number_to_message_list: Vec<String> = vec![];
 
@@ -75,8 +76,8 @@ async fn main() {
 
                 let new_variable_str =
                     (package_name.to_owned() + "_" + message_name).to_uppercase();
-                _ = rust_file
-                    .write(format!("const {}: i32 = {};\n", new_variable_str, number).as_bytes());
+
+                rust_const_list.push(format!("const {}: i32 = {};\n", new_variable_str, number));
                 rust_module_set.insert(package_name.to_owned());
                 rust_message_to_number_list.push(format!(
                     "    map.insert({}::{}::full_name(), {});\n",
@@ -98,10 +99,14 @@ async fn main() {
 
             for i in &rust_module_set {
                 _ = rust_file.write(
-                    ("\nmod ".to_owned() + i + " {\n    include!(\"" + i + ".rs\");\n}").as_bytes(),
+                    ("mod ".to_owned() + i + " {\n    include!(\"" + i + ".rs\");\n}\n").as_bytes(),
                 );
             }
             _ = rust_file.write("\n".as_bytes());
+
+            for i in &rust_const_list {
+                _ = rust_file.write(i.as_bytes());
+            }
 
             _ = rust_file.write(RUST_MESSAGE_TO_NUM_LIST);
             for i in rust_message_to_number_list.iter() {
