@@ -18,7 +18,7 @@ use std::error::Error;
 "#;
 
 const RUST_MESSAGE_TO_NUM_LIST: &[u8] = br#"
-pub static MESSAGE_TO_NUM_LIST: Lazy<HashMap<String, i32>> = Lazy::new(||{
+pub static MESSAGE_TO_NUM_LIST: Lazy<HashMap<String, i32>> = Lazy::new(|| {
     let mut map = HashMap::new();
 "#;
 const RUST_MESSAGE_TO_NUM_LIST_END: &[u8] = br#"    map
