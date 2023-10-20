@@ -53,16 +53,13 @@ async fn main() {
                 let number = i.get(0).unwrap();
                 let package_name = i.get(1).unwrap();
                 let message_name = i.get(2).unwrap();
-                let mut owned_package_name = package_name.to_owned();
 
-                owned_package_name.push('_');
-                owned_package_name.push_str(message_name);
-                let new_variable_str = owned_package_name.to_uppercase();
+                let new_variable_str = (package_name.to_owned() + "_" + message_name).to_uppercase();
                 _ = rust_file
                     .write(format!("const {}: i32 = {};\n", new_variable_str, number).as_bytes());
                 _ = dart_file
                     .write(format!("const int {} = {};\n", new_variable_str, number).as_bytes());
-                // let complete_message_name = package_name.to_owned() + "." + message_name;
+
                 dart_message_to_number_list
                     .push("    ".to_owned() + message_name + ": " + &new_variable_str + ",\n");
                 dart_number_to_message_list.push(
