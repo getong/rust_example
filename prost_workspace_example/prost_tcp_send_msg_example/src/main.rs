@@ -7,20 +7,14 @@ mod mypackage {
     include!("mypackage.rs");
 }
 
-#[derive(Clone, PartialEq, Message)]
-struct MyMessage {
-    #[prost(string, tag = "1")]
-    message: String,
-}
-
 // nc -l 8080
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // let message = mypackage::MyMessage {
     //     content: "hello".to_string(),
     // };
-    let message = MyMessage {
-        message: "Received your message!".to_string(),
+    let message = mypackage::MyMessage {
+        content: "Received your message!".to_string(),
     };
 
     let address = "localhost:8080"; // Replace with the server's address

@@ -3,10 +3,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 // use tokio_stream::StreamExt;
 
-#[derive(Clone, PartialEq, Message)]
-struct MyMessage {
-    #[prost(string, tag = "1")]
-    message: String,
+mod mypackage {
+    include!("mypackage.rs");
 }
 
 #[tokio::main]
@@ -21,18 +19,18 @@ async fn main() {
 async fn handle_client(mut stream: tokio::net::TcpStream) {
     let mut buf = [0u8; 128]; // Adjust the buffer size based on your message size
     if let Ok(n) = stream.read(&mut buf).await {
-        let my_message = match MyMessage::decode(&buf[..n]) {
+        let my_message = match mypackage::MyMessage::decode(&buf[..n]) {
             Ok(message) => message,
             Err(e) => {
                 eprintln!("Error decoding message: {:?}", e);
                 return;
             }
         };
-        println!("Received message: {}", my_message.message);
+        println!("Received message: {}", my_message.content);
 
         // Example response
-        let response = MyMessage {
-            message: "Received your message!".to_string(),
+        let response = mypackage::MyMessage {
+            content: "Received your message!".to_string(),
         };
 
         // Send the response

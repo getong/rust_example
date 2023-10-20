@@ -9,3 +9,6 @@ edition = "2021"
 prost = "0.12.1"
 prost-types = "0.12.1"
 tokio = { version = "1.33.0", features = ["full"] }
+
+[build-dependencies]
+prost-build = "0.12.1"
