@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+message UnionMessage {
+  oneof data {
+    int32 integer_value = 1;
+    string string_value = 2;
+    bool bool_value = 3;
+    // Add more fields as needed
+  }
+}
