@@ -14,7 +14,6 @@ const RUST_FILE_INCLUDE_LIST: &[u8] = br#"use once_cell::sync::Lazy;
 use prost::{Message, Name};
 use std::collections::HashMap;
 use std::error::Error;
-use anyhow::Result;
 
 "#;
 
@@ -37,18 +36,19 @@ const RUST_DECODE_BY_NUM_END: &[u8] =
 }
 "#;
 
-const RUST_DECODE_FUNCTION_BEGIN: &[u8] = br#"
-pub fn decode_bytes_to_protobuf_data<O>(number: i32, bytes: &[u8]) -> Result<I>
-    where O: Message + Default,
-{
-    let out: O = match number {
-"#;
+// const RUST_DECODE_FUNCTION_BEGIN: &[u8] = br#"
+// pub fn decode_bytes_to_protobuf_data<O>(number: i32, bytes: &[u8]) -> anyhow::Result<O>
+//     where
+//        O: Message + Default,
+// {
+//     let out: O = match number {
+// "#;
 
-const RUST_DECODE_FUNCTION_END: &[u8] = br#"        _ => todo(),
-    };
-    Ok(out)
-}
-"#;
+// const RUST_DECODE_FUNCTION_END: &[u8] = br#"        _ => todo!(),
+//     };
+//     Ok(out)
+// }
+// "#;
 
 const DART_FILE_NAME: &str = "protobuf_message_num.dart";
 
@@ -93,7 +93,7 @@ async fn main() {
             let mut rust_module_set: HashSet<String> = HashSet::new();
             let mut rust_const_list: Vec<String> = vec![];
             let mut rust_case_list: Vec<String> = vec![];
-            let mut rust_decode_list: Vec<String> = vec![];
+            // let mut rust_decode_list: Vec<String> = vec![];
 
             let mut dart_message_to_number_list: Vec<String> = vec![];
             let mut dart_number_to_message_list: Vec<String> = vec![];
@@ -116,7 +116,7 @@ async fn main() {
                     "        {} => Ok(Box::new({}::{}::decode(bytes)?)),\n",
                     new_variable_str, package_name, message_name,
                 ));
-                rust_decode_list.push(format!("        {} => {}::{}::decode(bytes)?,\n", new_variable_str, package_name, message_name));
+                // rust_decode_list.push(format!("        {} => ({}::{} as I)::decode(bytes)?,\n", new_variable_str, package_name, message_name));
 
                 _ = dart_file
                     .write(format!("const int {} = {};\n", new_variable_str, number).as_bytes());
@@ -155,11 +155,11 @@ async fn main() {
             }
             _ = rust_file.write(RUST_DECODE_BY_NUM_END);
 
-            _ = rust_file.write(RUST_DECODE_FUNCTION_BEGIN);
-            for i in &rust_decode_list{
-                _ = rust_file.write(i.as_bytes());
-            }
-            _ = rust_file.write(RUST_DECODE_FUNCTION_END);
+            // _ = rust_file.write(RUST_DECODE_FUNCTION_BEGIN);
+            // for i in &rust_decode_list{
+            //     _ = rust_file.write(i.as_bytes());
+            // }
+            // _ = rust_file.write(RUST_DECODE_FUNCTION_END);
 
             _ = dart_file.write(DART_PROTOBUF_MESSAGE_HEADLING);
             for i in dart_message_to_number_list.iter() {
