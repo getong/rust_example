@@ -14,6 +14,7 @@ const RUST_FILE_INCLUDE_LIST: &[u8] = br#"use once_cell::sync::Lazy;
 use prost::{Message, Name};
 use std::collections::HashMap;
 use std::error::Error;
+use anyhow::Result;
 
 "#;
 
@@ -33,6 +34,21 @@ pub fn decode_by_num(num: i32, bytes: &[u8]) -> Result<Box<dyn Message>, Box<dyn
 const RUST_DECODE_BY_NUM_END: &[u8] =
     br#"        _ => Err(Box::new(std::io::Error::from(std::io::ErrorKind::NotFound))),
     }
+}
+"#;
+
+const RUST_DECODE_FUNCTION_BEGIN: &[u8] = br#"
+pub fn decode_bytes_to_protobuf_data<O>(number: i32, bytes: &[u8]) -> Result<I>
+    where O: Message + Default,
+{
+    let out: O = match number {
+
+"#;
+
+const RUST_DECODE_FUNCTION_END: &[u8] = br#"
+     _ => todo(),
+    };
+    Ok(out)
 }
 "#;
 
@@ -137,6 +153,10 @@ async fn main() {
             }
 
             _ = rust_file.write(RUST_DECODE_BY_NUM_END);
+
+            _ = rust_file.write(RUST_DECODE_FUNCTION_BEGIN);
+
+            _ = rust_file.write(RUST_DECODE_FUNCTION_END);
 
             _ = dart_file.write(DART_PROTOBUF_MESSAGE_HEADLING);
             for i in dart_message_to_number_list.iter() {
