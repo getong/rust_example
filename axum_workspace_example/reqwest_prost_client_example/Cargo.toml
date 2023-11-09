@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-prost = "0.11.9"
-prost-types = "0.11.9"
-reqwest = { version = "0.11.18", features = ["blocking"] }
-tokio = { version = "1.29.1", features = ["full"] }
+prost = "0.12.1"
+prost-types = "0.12.1"
+reqwest = { version = "0.11.22", features = ["blocking"] }
+tokio = { version = "1.33.0", features = ["full"] }
 
 [build-dependencies]
-prost-build = "0.11.9"
+prost-build = "0.12.1"

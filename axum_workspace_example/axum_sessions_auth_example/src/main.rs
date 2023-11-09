@@ -1,24 +1,24 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use axum_sessions_auth::Auth;
+use axum_session_auth::Auth;
 use http::Method;
 // use redis::{aio::Connection, AsyncCommands, FromRedisValue};
 // use redis::AsyncCommands;
 
-use axum_database_sessions::SessionStore;
-use axum_sessions_auth::HasPermission;
-use axum_sessions_auth::Rights;
+use axum_session::SessionStore;
+use axum_session_auth::HasPermission;
+use axum_session_auth::Rights;
 
 use axum::{routing::get, Router};
-use axum_database_sessions::{
+use axum_session::{
     // AxumDatabasePool, SessionPgPool, AxumSession, AxumSessionConfig, AxumSessionLayer,
     // SessionPgPool,
     SessionConfig,
     SessionLayer,
 };
 
-use axum_sessions_auth::SessionPgPool;
-use axum_sessions_auth::{AuthConfig, AuthSession, AuthSessionLayer, Authentication};
+use axum_session_auth::SessionPgPool;
+use axum_session_auth::{AuthConfig, AuthSession, AuthSessionLayer, Authentication};
 use sqlx::PgPool;
 use std::net::SocketAddr;
 
@@ -32,12 +32,14 @@ async fn main() {
     let session_config = SessionConfig::default().with_table_name("test_table");
     let auth_config = AuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
     let session_store =
-        SessionStore::<SessionPgPool>::new(Some(poll.clone().into()), session_config);
+        SessionStore::<SessionPgPool>::new(Some(poll.clone().into()), session_config).await;
 
     // Build our application with some routes
     let app = Router::new()
         .route("/greet/:name", get(greet))
-        .layer(SessionLayer::new(session_store))
+        .layer(SessionLayer::new(
+            session_store.expect("session store not initialized"),
+        ))
         .layer(
             AuthSessionLayer::<User, i64, SessionPgPool, PgPool>::new(Some(poll))
                 .with_config(auth_config),
