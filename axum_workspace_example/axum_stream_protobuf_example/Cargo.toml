@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.6.20"
-axum-streams = { version = "0.9.1", features = ["protobuf"] }
+axum-streams = { version = "0.10.0", features = ["protobuf"] }
 futures = "0.3.29"
 prost = "0.12.1"
 prost-types = "0.12.1"
