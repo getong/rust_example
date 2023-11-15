@@ -2,6 +2,7 @@
 // use reqwest::Error;
 // // To use stream combinators like `next`
 // use prost::Message;
+use prost::bytes::Buf;
 use std::io::Cursor;
 // use tokio_stream::StreamExt;
 // mod protos;
@@ -57,32 +58,33 @@ async fn fetch_and_decode_protobuf_stream(url: &str) -> Result<(), Error> {
 
     // tokio::pin!(response);
 
-    let mut byte_list = vec![];
+    // let mut byte_list = vec![];
+    let mut cursor = Cursor::new(vec![]);
     while let Some(chunk) = response.next().await {
         let chunk = chunk?;
+        cursor.get_mut().extend_from_slice(&chunk);
 
-        // Assuming `MyProtobufMessage` is the message type you want to decode
-        // This part depends on how the server sends the messages
+        while cursor.has_remaining() {
+            match prost::encoding::decode_varint(&mut cursor) {
+                Ok(len) => {
+                    if cursor.remaining() < len as usize {
+                        // Not enough data for a complete message, wait for more data
+                        break;
+                    }
 
-        byte_list.extend_from_slice(&chunk);
-    }
-    println!("total byte list is {:?}", byte_list);
-
-    let mut cursor = Cursor::new(byte_list);
-    match prost::encoding::decode_varint(&mut cursor) {
-        Ok(u64_length) => {
-            println!("u64_length: {:?}", u64_length);
-            match mypackage::MyMessage::decode(cursor) {
-                Ok(message) =>
-                // Process your message here
-                {
-                    println!("Received message: {:?}", message)
+                    let message_end = cursor.position() + len as u64;
+                    match mypackage::MyMessage::decode(&mut cursor) {
+                        Ok(message) => println!("Received message: {:?}", message),
+                        Err(e) => eprintln!("Failed to decode message: {}", e),
+                    }
+                    cursor.set_position(message_end);
                 }
-                _ => println!("can not decode"),
-            };
+                Err(_) => {
+                    // Failed to decode Varint, possibly incomplete data
+                    break;
+                }
+            }
         }
-
-        _ => println!("can not decode"),
     }
 
     Ok(())

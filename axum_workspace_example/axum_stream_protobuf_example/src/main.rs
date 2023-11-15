@@ -1,11 +1,10 @@
 use axum::response::IntoResponse;
 use axum::routing::*;
 use axum::Router;
-use futures::future;
-use std::net::SocketAddr;
-
+// use futures::future;
 use futures::prelude::*;
-
+use std::net::SocketAddr;
+use tokio_stream::StreamExt;
 
 use axum::body::Bytes;
 use axum_streams::*;
@@ -16,16 +15,16 @@ mod mypackage {
 
 fn source_test_stream() -> impl Stream<Item = mypackage::MyMessage> {
     // Simulating a stream with a plain vector and throttling to show how it works
-    // stream::iter(vec![
-    //     mypackage::MyMessage {
-    //         content: "test1".to_string()
-    //     };
-    //     1
-    // ])
-    // .throttle(std::time::Duration::from_millis(50))
-    stream::once(future::ready(mypackage::MyMessage {
-        content: "test1".to_string(),
-    }))
+    stream::iter(vec![
+        mypackage::MyMessage {
+            content: "test1".to_string()
+        };
+        5 // Adjust the number of messages as needed
+    ])
+    .throttle(std::time::Duration::from_millis(50))
+    // stream::once(future::ready(mypackage::MyMessage {
+    //     content: "test1".to_string(),
+    // }))
 }
 
 async fn test_protobuf_stream() -> impl IntoResponse {
