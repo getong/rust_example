@@ -1,6 +1,11 @@
 use bytes::Bytes;
 use reqwest::Error;
-use tokio_stream::StreamExt; // To use stream combinators like `next`
+// To use stream combinators like `next`
+use prost::Message;
+use std::io::Cursor;
+use tokio_stream::StreamExt;
+mod protos;
+use protos::*;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -12,7 +17,7 @@ pub async fn fetch_url(url: &str) -> Result<impl tokio_stream::Stream<Item = Res
 #[tokio::main]
 async fn main() {
     let mut byte_list = vec![];
-    if let Ok(mut stream) = fetch_url("https://www.baidu.com").await {
+    if let Ok(mut stream) = fetch_url("http://localhost:8080/protobuf-stream").await {
         while let Some(chunk) = stream.next().await {
             match chunk {
                 Ok(bytes) => {
@@ -27,8 +32,13 @@ async fn main() {
         }
     }
 
-    println!(
-        "total {}",
-        String::from_utf8_lossy(&Bytes::from(byte_list)).into_owned()
-    )
+    println!("recv {:?}", byte_list);
+
+    let cursor = Cursor::new(byte_list);
+
+    // Decode the aggregated response using the cursor
+    match mypackage::MyMessage::decode(cursor) {
+        Ok(decoded_msg) => println!("Decoded message: {:?}", decoded_msg),
+        Err(e) => eprintln!("Failed to decode response: {}", e),
+    }
 }

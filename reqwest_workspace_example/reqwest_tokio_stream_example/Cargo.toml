@@ -10,3 +10,8 @@ bytes = "1.5.0"
 reqwest = { version = "0.11.22", features = ["stream"] }
 tokio = { version = "1.34.0", features = ["full"] }
 tokio-stream = "0.1.14"
+prost = { git = "https://github.com/tokio-rs/prost"}
+
+[build-dependencies]
+prost-build = { git = "https://github.com/tokio-rs/prost"}
+walkdir = "2.4.0"

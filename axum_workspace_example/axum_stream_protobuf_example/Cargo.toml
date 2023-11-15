@@ -15,4 +15,5 @@ tokio = { version = "1.34.0", features = ["full"] }
 tokio-stream = "0.1.14"
 
 [build-dependencies]
-prost-build = "0.12.1"
+prost-build = { git = "https://github.com/tokio-rs/prost"}
+walkdir = "2.4.0"

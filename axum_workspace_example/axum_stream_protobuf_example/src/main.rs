@@ -1,29 +1,31 @@
 use axum::response::IntoResponse;
 use axum::routing::*;
 use axum::Router;
+use futures::future;
 use std::net::SocketAddr;
 
 use futures::prelude::*;
-use tokio_stream::StreamExt;
+
 
 use axum::body::Bytes;
 use axum_streams::*;
 
-#[derive(Clone, prost::Message)]
-struct MyTestStructure {
-    #[prost(string, tag = "1")]
-    some_test_field: String,
+mod mypackage {
+    include!("protos/mypackage.rs");
 }
 
-fn source_test_stream() -> impl Stream<Item = MyTestStructure> {
+fn source_test_stream() -> impl Stream<Item = mypackage::MyMessage> {
     // Simulating a stream with a plain vector and throttling to show how it works
-    stream::iter(vec![
-        MyTestStructure {
-            some_test_field: "test1".to_string()
-        };
-        1
-    ])
-    .throttle(std::time::Duration::from_millis(50))
+    // stream::iter(vec![
+    //     mypackage::MyMessage {
+    //         content: "test1".to_string()
+    //     };
+    //     1
+    // ])
+    // .throttle(std::time::Duration::from_millis(50))
+    stream::once(future::ready(mypackage::MyMessage {
+        content: "test1".to_string(),
+    }))
 }
 
 async fn test_protobuf_stream() -> impl IntoResponse {

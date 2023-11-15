@@ -1,0 +1,7 @@
+syntax = "proto3";
+package mandelbrot;
+
+message StateSignal {
+  int32 id = 1;
+  double current_scale = 2;
+}
