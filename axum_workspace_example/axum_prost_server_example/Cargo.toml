@@ -10,7 +10,7 @@ axum = "0.6.20"
 axum-extra = { version = "0.8.0", features = ["protobuf"] }
 prost = "0.12.1"
 prost-types = "0.12.1"
-tokio = { version = "1.33.0", features = ["full"] }
+tokio = { version = "1.34.0", features = ["full"] }
 
 [build-dependencies]
 prost-build = "0.12.1"

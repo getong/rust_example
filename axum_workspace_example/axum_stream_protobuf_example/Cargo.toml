@@ -11,7 +11,7 @@ axum-streams = { version = "0.10.0", features = ["protobuf"] }
 futures = "0.3.29"
 prost = "0.12.1"
 prost-types = "0.12.1"
-tokio = { version = "1.33.0", features = ["full"] }
+tokio = { version = "1.34.0", features = ["full"] }
 tokio-stream = "0.1.14"
 
 [build-dependencies]
