@@ -22,4 +22,5 @@ members = [
         "axum_handle_parameter_example",
         "axum_prost_post_echo_example",
         "axum_post_echo_json_example",
+        "axum_otlp_example",
 ]

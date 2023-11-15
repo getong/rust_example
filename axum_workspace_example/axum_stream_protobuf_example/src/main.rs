@@ -40,6 +40,7 @@ async fn main() {
     let app = Router::new()
         // `GET /` goes to `root`
         .route("/", get(echo_handler))
+        .route("/", post(echo_handler))
         .route("/protobuf-stream", get(test_protobuf_stream));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
