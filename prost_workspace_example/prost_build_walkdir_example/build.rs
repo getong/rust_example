@@ -17,9 +17,9 @@ fn main() {
         .collect();
     println!("proto_files: {:?}", proto_files);
 
-    let mut config = prost_build::Config::new();
-    config
+    prost_build::Config::new()
         .out_dir(output_directory)
+        .include_file("mod.rs")
         .enable_type_names()
         .compile_protos(&proto_files, &["."])
         .unwrap();
