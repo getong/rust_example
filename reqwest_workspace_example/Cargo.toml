@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "reqwest_post_example",
         "reqwest_streams_example",
+        "reqwest_tokio_stream_example",
 ]
