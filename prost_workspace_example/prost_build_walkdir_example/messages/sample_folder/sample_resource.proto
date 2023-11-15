@@ -1,2 +1,7 @@
 syntax = "proto3";
 package sample_resource;
+
+message StateSignal {
+  int32 id = 1;
+  double current_scale = 2;
+}

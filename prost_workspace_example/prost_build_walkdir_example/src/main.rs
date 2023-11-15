@@ -3,9 +3,11 @@ use prost::Name;
 use std::any::Any;
 use std::error::Error;
 
-mod mypackage {
-    include!("protos/mypackage.rs");
-}
+// mod mypackage {
+//     include!("protos/mypackage.rs");
+// }
+mod protos;
+use protos::*;
 
 mod protobuf_message_num;
 
