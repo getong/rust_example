@@ -9,4 +9,5 @@ members = [
         "prost_tcp_recv_example",
         "prost_encode_length_delimited_example",
         "prost_name_trait_example",
+        "prost_build_walkdir_example",
 ]
