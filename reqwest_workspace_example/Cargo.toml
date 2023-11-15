@@ -6,4 +6,5 @@ members = [
         "reqwest_post_example",
         "reqwest_streams_example",
         "reqwest_tokio_stream_example",
+        "reqwest_post_protobuf_tokio_stream_example",
 ]
