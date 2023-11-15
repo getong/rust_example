@@ -17,7 +17,7 @@ fn source_test_stream() -> impl Stream<Item = MyTestStructure> {
         MyTestStructure {
             some_test_field: "TestValue".to_string()
         };
-        1000
+        3
     ])
 }
 
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         server.await.expect("server error");
     });
 
-    println!("Requesting JSON");
+    println!("Requesting protobuf");
 
     let resp1 = reqwest::get(format!("http://{}/protobuf", addr))
         .await?
