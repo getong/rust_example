@@ -1,5 +1,5 @@
 [package]
-name = "reqwest_tokio_stream_example"
+name = "reqwest_get_tokio_stream_example"
 version = "0.1.0"
 edition = "2021"
 
