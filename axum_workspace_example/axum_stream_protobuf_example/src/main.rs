@@ -1,9 +1,8 @@
 use axum::response::IntoResponse;
 use axum::routing::*;
 use axum::Router;
-// use futures::future;
-use futures::prelude::*;
 use std::net::SocketAddr;
+use tokio_stream::Stream;
 use tokio_stream::StreamExt;
 
 use axum::body::Bytes;
@@ -15,7 +14,7 @@ mod mypackage {
 
 fn source_test_stream() -> impl Stream<Item = mypackage::MyMessage> {
     // Simulating a stream with a plain vector and throttling to show how it works
-    stream::iter(vec![
+    tokio_stream::iter(vec![
         mypackage::MyMessage {
             content: "test1".to_string()
         };
