@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "reqwest_post_example",
+        "reqwest_streams_example",
+]
