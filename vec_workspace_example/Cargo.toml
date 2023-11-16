@@ -1,0 +1,11 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "vec_example",
+        "vec_filter_example",
+        "ref_mut_vec_example",
+        "vec_ref_raw_pointer",
+        "vec_ref_raw_pointer",
+]
