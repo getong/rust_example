@@ -9,9 +9,9 @@ edition = "2021"
 axum = "0.6.20"
 axum-streams = { version = "0.10.0", features = ["protobuf"] }
 futures = "0.3.29"
-hyper = "0.14.27"
-prost = "0.12.1"
+hyper = "1.0.0"
+prost = "0.12.2"
 reqwest = "0.11.22"
 reqwest-streams = { version = "0.4.0", features = ["protobuf"] }
-tokio = { version = "1.33.0", features = ["full"] }
+tokio = { version = "1.34.0", features = ["full"] }
 tower = "0.4.13"

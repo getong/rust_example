@@ -1,8 +1,8 @@
-use reqwest_streams::*;
-use std::net::TcpListener;
-
+use axum::Server;
 use axum_streams::*;
 use futures::prelude::*;
+use reqwest_streams::*;
+use std::net::TcpListener;
 use tower::make::Shared;
 
 #[derive(Clone, prost::Message)]
@@ -34,9 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let svc = axum::Router::new().route("/protobuf", axum::routing::get(test_proto_buf));
 
     tokio::spawn(async move {
-        let server = hyper::server::Server::from_tcp(listener)
-            .unwrap()
-            .serve(Shared::new(svc));
+        let server = Server::from_tcp(listener).unwrap().serve(Shared::new(svc));
         server.await.expect("server error");
     });
 
