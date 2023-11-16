@@ -8,4 +8,5 @@ members = [
         "ref_mut_vec_example",
         "vec_ref_raw_pointer",
         "vec_ref_raw_pointer",
+        "vec_drain_truncate_example",
 ]
