@@ -20,7 +20,7 @@ fn source_test_stream() -> impl Stream<Item = mypackage::MyMessage> {
         };
         5 // Adjust the number of messages as needed
     ])
-    .throttle(std::time::Duration::from_millis(50))
+    .throttle(std::time::Duration::from_secs(1))
     // stream::once(future::ready(mypackage::MyMessage {
     //     content: "test1".to_string(),
     // }))
