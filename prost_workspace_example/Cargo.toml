@@ -11,4 +11,5 @@ members = [
         "prost_name_trait_example",
         "prost_build_walkdir_example",
         "prost-wkt-example",
+        "prost_tcp_send_format_protobuf_example",
 ]
