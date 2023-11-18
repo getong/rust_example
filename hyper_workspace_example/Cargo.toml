@@ -3,6 +3,8 @@
 resolver = "2"
 
 members = [
+        "hyper_util_client_example",
+        "hyper_util_server_example",
         "hyper_basic_example",
         "hyper_service_fn_example",
 ]
