@@ -158,5 +158,5 @@ members = [
         "tokio_turmoil_axum_example",
         "tokio_udp_heartbeat_example",
         "tokio_metrics_example",
-        "tokio_broadcast_example2",
+        "tokio_broadcast_example2", "tokio_tcp_tokio_stream_example",
 ]
