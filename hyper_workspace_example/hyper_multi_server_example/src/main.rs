@@ -20,6 +20,9 @@ async fn index2(_: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes
     Ok(Response::new(Full::new(Bytes::from(INDEX2))))
 }
 
+// curl http://localhost:1337
+// curl http://localhost:1338
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     pretty_env_logger::init();
