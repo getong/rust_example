@@ -1,4 +1,3 @@
-const PACKAGE: &str = "mandelbrot";
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StateSignal {
@@ -8,6 +7,9 @@ pub struct StateSignal {
     pub current_scale: f64,
 }
 impl ::prost::Name for StateSignal {
-    const PACKAGE: &'static str = PACKAGE;
     const NAME: &'static str = "StateSignal";
+    const PACKAGE: &'static str = "mandelbrot";
+    fn full_name() -> ::prost::alloc::string::String {
+        ::prost::alloc::format!("mandelbrot.{}", Self::NAME)
+    }
 }

@@ -1,4 +1,3 @@
-const PACKAGE: &str = "mypackage";
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MyMessage {
@@ -6,8 +5,11 @@ pub struct MyMessage {
     pub content: ::prost::alloc::string::String,
 }
 impl ::prost::Name for MyMessage {
-    const PACKAGE: &'static str = PACKAGE;
     const NAME: &'static str = "MyMessage";
+    const PACKAGE: &'static str = "mypackage";
+    fn full_name() -> ::prost::alloc::string::String {
+        ::prost::alloc::format!("mypackage.{}", Self::NAME)
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -16,6 +18,9 @@ pub struct OtherMessage {
     pub data: ::prost::alloc::string::String,
 }
 impl ::prost::Name for OtherMessage {
-    const PACKAGE: &'static str = PACKAGE;
     const NAME: &'static str = "OtherMessage";
+    const PACKAGE: &'static str = "mypackage";
+    fn full_name() -> ::prost::alloc::string::String {
+        ::prost::alloc::format!("mypackage.{}", Self::NAME)
+    }
 }

@@ -7,12 +7,12 @@ edition = "2021"
 
 [dependencies]
 chrono = { version = "0.4.31", features = ["clock", "serde"] }
-prost = "0.12.2"
+prost = "0.12.3"
 prost-wkt = "0.5.0"
 prost-wkt-types = "0.5.0"
-serde = { version = "1.0.192", features = ["derive"] }
+serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"
 
 [build-dependencies]
-prost-build = "0.12.2"
+prost-build = "0.12.3"
 prost-wkt-build = "0.5.0"
