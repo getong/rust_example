@@ -6,4 +6,5 @@ members = [
         "actix_web_example",
         "actix_web_health_check_example",
         "actix_web_integration_test_example",
+        "actix_web_protobuf_basic_example",
 ]
