@@ -161,4 +161,5 @@ members = [
         "tokio_broadcast_example2",
         "tokio_tcp_tokio_stream_example",
         "boxfuture_example",
+        "tokio_boxfuture_example",
 ]
