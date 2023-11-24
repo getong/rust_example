@@ -1,6 +1,7 @@
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio;
 use tokio::sync::Mutex;
@@ -35,6 +36,12 @@ async fn main() {
     if let Err(e) = task.await {
         println!("Task failed: {:?}", e);
     }
+
+    // copy from https://stackoverflow.com/questions/60561573/how-can-one-await-a-result-of-a-boxed-future
+    Pin::from(Box::new(async {
+        println!("from box inside");
+    }))
+    .await;
 
     interval.as_mut().tick().await;
 }
