@@ -3,8 +3,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chitchat::transport::UdpTransport;
-use chitchat::{spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
-use chitchat_example::{ApiResponse, SetKeyValueResponse};
+use chitchat::{
+    spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, ClusterStateSnapshot,
+    FailureDetectorConfig,
+};
+// use chitchat_example::{ApiResponse, SetKeyValueResponse};
+use axum::{routing::get, Router};
 use clap::Parser;
 use cool_id_generator::Size;
 use poem::listener::TcpListener;
@@ -12,9 +16,21 @@ use poem::{Route, Server};
 use poem_openapi::param::Query;
 use poem_openapi::payload::Json;
 use poem_openapi::{OpenApi, OpenApiService};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use axum::{routing::get, Router};
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ApiResponse {
+    pub cluster_id: String,
+    pub cluster_state: ClusterStateSnapshot,
+    pub live_nodes: Vec<ChitchatId>,
+    pub dead_nodes: Vec<ChitchatId>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetKeyValueResponse {
+    pub status: bool,
+}
 
 struct Api {
     chitchat: Arc<Mutex<Chitchat>>,
