@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "tokenizers_serialization_example",
+        "tokenizers_impl_example",
+]
