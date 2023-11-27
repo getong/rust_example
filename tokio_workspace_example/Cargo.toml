@@ -164,4 +164,5 @@ members = [
         "tokio_boxfuture_example",
         "tokio_intofuture_example",
         "tokio_send_future_via_channel_example",
+        "tokio_channel_of_channel_example",
 ]
