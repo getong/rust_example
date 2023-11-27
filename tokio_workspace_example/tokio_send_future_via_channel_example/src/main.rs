@@ -1,11 +1,13 @@
-use std::future::Future;
-use std::pin::Pin;
+use futures::future::BoxFuture;
+// use std::future::Future;
+// use std::pin::Pin;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task;
 
 // Type alias for a boxed future that returns a String and is Sendable
-type BoxedFuture = Pin<Box<dyn Future<Output = String> + Send>>;
+// type BoxedFuture = Pin<Box<dyn Future<Output = String> + Send>>;
+type BoxedFuture = BoxFuture<'static, String>;
 
 #[tokio::main]
 async fn main() {
