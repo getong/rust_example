@@ -16,13 +16,13 @@
 //! cargo run -p example-websockets --bin example-client
 //! ```
 
-use axum::TypedHeader;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
     routing::get,
     Router,
 };
+use axum_extra::TypedHeader;
 
 use std::borrow::Cow;
 use std::ops::ControlFlow;
@@ -54,7 +54,7 @@ async fn main() {
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 
     // build our application with some routes
-    let app = Router::new()
+    let router = Router::new()
         .fallback_service(ServeDir::new(assets_dir).append_index_html_on_directories(true))
         .route("/ws", get(ws_handler))
         // logging so we can see whats going on
@@ -63,15 +63,10 @@ async fn main() {
                 .make_span_with(DefaultMakeSpan::default().include_headers(true)),
         );
 
-    // run it with hyper
-    let listener = "127.0.0.1:3000".parse().unwrap();
+    // run it with hyper on localhost:3000
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    // tracing::debug!("listening on {}", listener);
-    println!("listening on {}", listener);
-    axum::Server::bind(&listener)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .unwrap();
+    axum::serve(listener, router).await.unwrap();
 }
 
 /// The handler for the HTTP request (this gets called when the HTTP GET lands at the start
