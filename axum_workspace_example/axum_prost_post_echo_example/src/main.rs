@@ -5,8 +5,6 @@ use axum::{
     Router,
 };
 
-use std::net::SocketAddr;
-
 // Import the generated Rust code for the Protobuf definitions.
 // mod echo_message {
 //     include!("echo.rs");
@@ -14,14 +12,11 @@ use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new().route("/", post(echo_handler));
+    let router = Router::new().route("/", post(echo_handler));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-    println!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+
+    axum::serve(listener, router).await.unwrap();
 }
 
 async fn echo_handler(bytes: Bytes) -> Response {

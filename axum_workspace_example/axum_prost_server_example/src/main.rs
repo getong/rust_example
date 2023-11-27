@@ -24,12 +24,11 @@ async fn create_todo_handler(
 
 #[tokio::main]
 async fn main() {
-    let app = Router::new()
+    let router = Router::new()
         .route("/todos", post(create_todo_handler))
         .route("/todos", get(create_todo_handler));
 
-    axum::Server::bind(&"127.0.0.1:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+
+    axum::serve(listener, router).await.unwrap();
 }

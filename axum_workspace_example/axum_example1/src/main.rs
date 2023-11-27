@@ -10,7 +10,6 @@ use tower_http::services::ServeFile;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::net::SocketAddr;
 
 // use std::io;
 
@@ -28,7 +27,7 @@ struct User {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-    let app = Router::new()
+    let router = Router::new()
         .route("/", get(root))
         .route("/user", post(create_user))
         .route("/hello/:name", get(json_hello))
@@ -43,13 +42,9 @@ async fn main() {
     //
     // ),
     // );
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    tracing::info!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    axum::serve(listener, router).await.unwrap();
 }
 
 async fn root() -> &'static str {
