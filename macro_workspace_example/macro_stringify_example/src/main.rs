@@ -1,10 +1,10 @@
 macro_rules! get_struct_name {
     ($struct_name:ident) => {
-        stringify!($struct_name);
+        stringify!($struct_name)
     };
 }
 
-struct MyStruct {
+pub struct MyStruct {
     // Fields of your struct
 }
 

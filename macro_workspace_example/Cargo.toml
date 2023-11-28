@@ -21,4 +21,5 @@ members = [
         "derive_hello_example",
         "derive_hello2_example",
         "macro_in_other_file_example",
+        "macro_stringify_example",
 ]
