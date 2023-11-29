@@ -20,7 +20,6 @@ use axum_session::{
 use axum_session_auth::SessionPgPool;
 use axum_session_auth::{AuthConfig, AuthSession, AuthSessionLayer, Authentication};
 use sqlx::PgPool;
-use std::net::SocketAddr;
 
 use axum_macros::debug_handler;
 
@@ -35,7 +34,7 @@ async fn main() {
         SessionStore::<SessionPgPool>::new(Some(poll.clone().into()), session_config).await;
 
     // Build our application with some routes
-    let app = Router::new()
+    let router = Router::new()
         .route("/greet/:name", get(greet))
         .layer(SessionLayer::new(
             session_store.expect("session store not initialized"),
@@ -46,13 +45,9 @@ async fn main() {
         );
 
     // Run it
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    tracing::debug!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-    // # };
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    tracing::debug!("listening on {:?}", listener);
+    axum::serve(listener, router).await.unwrap();
 }
 
 // We can get the Method to compare with what Methods we allow. Useful if this supports multiple methods.
