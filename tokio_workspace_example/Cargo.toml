@@ -168,4 +168,5 @@ members = [
         "tokio_boxfuture_channel_example",
         "tokio_channel_boxfuture_channel_example",
         "tokio_async_stream_try_stream_example",
+        "tokio_stream_impl_stream_example",
 ]
