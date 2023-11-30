@@ -170,4 +170,5 @@ members = [
         "tokio_async_stream_try_stream_example",
         "tokio_stream_impl_stream_example",
         "tokio_stream_return_remaing_stream_example",
+        "tokio_stream_tcpstream_into_stream_example",
 ]
