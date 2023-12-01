@@ -3,7 +3,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
-use tokio_stream::{self as stream, wrappers::LinesStream, Stream, StreamExt};
+use tokio_stream::{wrappers::LinesStream, Stream, StreamExt};
 
 // Assume each message is a line
 pub struct Message {
@@ -20,7 +20,7 @@ pub fn tcp_stream_into_stream(read_half: OwnedReadHalf) -> impl Stream<Item = io
     let lines = BufReader::new(read_half).lines();
     let lines_stream = LinesStream::new(lines);
 
-    stream::StreamExt::filter_map(lines_stream, |line_result| match line_result {
+    tokio_stream::StreamExt::filter_map(lines_stream, |line_result| match line_result {
         Ok(line) => Some(Ok(Message::new(line))),
         Err(e) => Some(Err(e)),
     })
