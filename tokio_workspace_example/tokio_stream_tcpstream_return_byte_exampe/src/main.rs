@@ -1,20 +1,21 @@
+use bytes::Bytes;
+use futures::stream::unfold;
 use std::io;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use tokio_stream::{Stream, StreamExt};
 
-use futures::stream::unfold;
-use tokio::io::AsyncReadExt;
-
-pub fn tcp_stream_into_stream(read_half: OwnedReadHalf) -> impl Stream<Item = io::Result<Vec<u8>>> {
+pub fn tcp_stream_into_stream(read_half: OwnedReadHalf) -> impl Stream<Item = io::Result<Bytes>> {
     unfold(read_half, |mut read_half| async {
         let mut buffer = vec![0; 1024]; // Adjust the buffer size as needed
         match read_half.read(&mut buffer).await {
             Ok(0) => None, // End of stream
             Ok(n) => {
-                buffer.truncate(n); // Resize buffer to the actual number of bytes read
-                Some((Ok(buffer), read_half))
+                // Resize buffer to the actual number of bytes read
+                buffer.truncate(n);
+                Some((Ok(Bytes::from(buffer)), read_half))
             }
             Err(e) => Some((Err(e), read_half)),
         }
