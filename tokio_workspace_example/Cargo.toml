@@ -172,4 +172,5 @@ members = [
         "tokio_stream_return_remaing_stream_example",
         "tokio_stream_tcpstream_into_stream_example",
         "tokio_stream_tcpstream_return_byte_exampe",
+        "tokio_stream_try_stream_return_vec_u8_example",
 ]
