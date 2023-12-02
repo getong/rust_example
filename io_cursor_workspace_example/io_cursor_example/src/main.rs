@@ -1,6 +1,7 @@
-use std::io::{self, Cursor, Read};
+use std::io::{self, Cursor, Read, Write};
 
 fn main() -> io::Result<()> {
+    cursor_write_vec();
     // Simulating network traffic data
     let network_data: Vec<u8> = vec![0x01, 0x02, 0x03, 0x04, 0x05];
 
@@ -31,4 +32,12 @@ fn process_received_bytes(bytes: &[u8]) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn cursor_write_vec() {
+    let mut buf = [0; 32];
+    let mut cursor = Cursor::new(&mut buf[..]);
+    _ = cursor.write(&[1, 2, 3]);
+    _ = cursor.write(&[4, 5, 6]);
+    assert_eq!(&buf[0..6], &[1, 2, 3, 4, 5, 6]);
 }
