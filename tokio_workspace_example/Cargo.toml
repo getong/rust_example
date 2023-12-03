@@ -176,4 +176,5 @@ members = [
         "tokio_async_stream_stream_macro_example",
         "tokio_pin_mut_fusefuture_basic_example",
         "tokio_async_fuse_example",
+        "tokio_pin_stream_basic_example",
 ]
