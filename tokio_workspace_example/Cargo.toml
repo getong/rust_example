@@ -180,4 +180,5 @@ members = [
         "tokio_future_into_stream_example",
         "tokio_future_stream_example1",
         "tokio_stream_future_example",
+        "tokio_future_of_future_example",
 ]
