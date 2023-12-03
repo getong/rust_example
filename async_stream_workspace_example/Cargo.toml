@@ -4,5 +4,6 @@ resolver = "2"
 
 members = [
         "async_stream_example",
-        "stream_example1"
+        "stream_example1",
+        "stream_example2",
 ]
