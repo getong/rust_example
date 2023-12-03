@@ -1,0 +1,11 @@
+[package]
+name = "tokio_future_stream_example1"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-stream = "0.3.5"
+futures = "0.3.29"
+tokio = { version = "1.34.0", features = ["full"] }
