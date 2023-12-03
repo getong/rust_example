@@ -175,4 +175,5 @@ members = [
         "tokio_stream_try_stream_return_vec_u8_example",
         "tokio_async_stream_stream_macro_example",
         "tokio_pin_mut_fusefuture_basic_example",
+        "tokio_async_fuse_example",
 ]
