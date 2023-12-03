@@ -1,5 +1,6 @@
-use futures::future::FutureExt; // For .fuse()
-use futures::pin_mut; // For pin_mut!
+// For .fuse()
+use futures::future::FutureExt;
+// use futures::pin_mut; // For pin_mut!
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -22,7 +23,9 @@ async fn main() {
     let future2 = async_function2().fuse();
 
     // Pin the futures
-    pin_mut!(future1, future2);
+    // pin_mut!(future1, future2);
+    tokio::pin!(future1);
+    tokio::pin!(future2);
 
     // Using `select!` to wait for the first future to complete
     loop {
