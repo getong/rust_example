@@ -1,5 +1,4 @@
 use async_stream::stream;
-
 use tokio_stream::{Stream, StreamExt};
 
 fn interval_stream(n: usize) -> impl Stream<Item = usize> {
@@ -22,11 +21,11 @@ async fn main() {
     // Using `select!` to handle values from either stream as they become available
     loop {
         tokio::select! {
-            Some(_) = stream1.next() => {
-                println!("Tick from stream 1");
+            Some(i) = stream1.next() => {
+                println!("Tick from stream 1, i is {}", i);
             },
-            Some(_) = stream2.next() => {
-                println!("Tick from stream 2");
+            Some(j) = stream2.next() => {
+                println!("Tick from stream 2, j is {}", j);
             },
             else => break,
         }
