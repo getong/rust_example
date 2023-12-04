@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "quinn_example",
         "quinn_server_example",
+        "quinn_client_example",
 ]
