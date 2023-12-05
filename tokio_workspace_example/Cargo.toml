@@ -182,4 +182,5 @@ members = [
         "tokio_stream_future_example",
         "tokio_future_of_future_example",
         "tokio_stream_of_stream_example",
+        "tokio_rustls_server_example",
 ]
