@@ -1,7 +1,3 @@
-//! This example demonstrates an HTTP server that serves files from a directory.
-//!
-//! Checkout the `README.md` for guidance.
-
 use std::{
     ascii, fs, io,
     net::SocketAddr,
@@ -63,17 +59,17 @@ async fn run(options: Opt) -> Result<()> {
     let (certs, key) = if let (Some(key_path), Some(cert_path)) = (&options.key, &options.cert) {
         let key = fs::read(key_path).context("failed to read private key")?;
         let key = if key_path.extension().map_or(false, |x| x == "der") {
-            rustls::PrivateKey(key)
+            rustls_pki_types::PrivatePkcs8KeyDer::from(key)
         } else {
-            let pkcs8 = rustls_pemfile::pkcs8_private_keys(&mut &*key)
-                .context("malformed PKCS #8 private key")?;
+            let pkcs8 = rustls_pemfile::pkcs8_private_keys(&mut &*key);
+
             match pkcs8.into_iter().next() {
-                Some(x) => rustls::PrivateKey(x),
+                Some(x) => x.unwrap(),
                 None => {
-                    let rsa = rustls_pemfile::rsa_private_keys(&mut &*key)
-                        .context("malformed PKCS #1 private key")?;
+                    let rsa = rustls_pemfile::pkcs8_private_keys(&mut &*key);
+
                     match rsa.into_iter().next() {
-                        Some(x) => rustls::PrivateKey(x),
+                        Some(x) => x.unwrap(),
                         None => {
                             anyhow::bail!("no private keys found");
                         }
@@ -83,12 +79,13 @@ async fn run(options: Opt) -> Result<()> {
         };
         let cert_chain = fs::read(cert_path).context("failed to read certificate chain")?;
         let cert_chain = if cert_path.extension().map_or(false, |x| x == "der") {
-            vec![rustls::Certificate(cert_chain)]
+            vec![rustls_pki_types::CertificateDer::from(cert_chain)]
         } else {
             rustls_pemfile::certs(&mut &*cert_chain)
-                .context("invalid PEM-encoded certificate")?
                 .into_iter()
-                .map(rustls::Certificate)
+                .map(|bytes| {
+                    rustls_pki_types::CertificateDer::from(bytes.expect("notfound").to_vec())
+                })
                 .collect()
         };
 
@@ -115,15 +112,14 @@ async fn run(options: Opt) -> Result<()> {
             }
         };
 
-        let key = rustls::PrivateKey(key);
-        let cert = rustls::Certificate(cert);
+        let key = rustls_pki_types::PrivatePkcs8KeyDer::from(key);
+        let cert = rustls_pki_types::CertificateDer::from(cert);
         (vec![cert], key)
     };
 
     let mut server_crypto = rustls::ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
-        .with_single_cert(certs, key)?;
+        .with_single_cert(certs, rustls_pki_types::PrivateKeyDer::Pkcs8(key))?;
     server_crypto.alpn_protocols = ALPN_QUIC_HTTP.iter().map(|&x| x.into()).collect();
     if options.keylog {
         server_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
