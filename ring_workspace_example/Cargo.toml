@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "basic_ring_example",
         "ring_example",
+        "ring_sha256_digest_example",
 ]
