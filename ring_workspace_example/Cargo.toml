@@ -7,4 +7,5 @@ members = [
         "ring_example",
         "ring_sha256_digest_example",
         "ring_hmac_digest_example",
+        "ring_pbkdf2_hash_example",
 ]
