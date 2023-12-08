@@ -1,7 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Seek;
-use std::io::SeekFrom;
+// use std::io::SeekFrom;
 use std::io::Write;
 
 #[global_allocator]
@@ -20,8 +20,9 @@ fn main() {
     f.flush().expect("Failed to flush file");
 
     // Seek to the beginning of the file
-    f.seek(SeekFrom::Start(0))
-        .expect("Failed to seek to start of file");
+    // f.seek(SeekFrom::Start(0))
+    //     .expect("Failed to seek to start of file");
+    f.rewind().unwrap();
 
     let mut ts = 0;
     loop {
