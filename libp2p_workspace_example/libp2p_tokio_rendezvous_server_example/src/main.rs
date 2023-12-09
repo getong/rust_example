@@ -1,53 +1,55 @@
 use futures::StreamExt;
 use libp2p::{
-    core::transport::upgrade::Version,
-    identify, identity, noise, ping, rendezvous,
-    swarm::{keep_alive, NetworkBehaviour, SwarmBuilder, SwarmEvent},
-    tcp, yamux, PeerId, Transport,
+    identify, noise, ping, rendezvous,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux,
 };
+use std::error::Error;
 use std::time::Duration;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
-async fn main() {
-    env_logger::init();
+async fn main() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
 
-    let key_pair = identity::Keypair::generate_ed25519();
+    // Results in PeerID 12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN which is
+    // used as the rendezvous point by the other peer examples.
+    let keypair = libp2p::identity::Keypair::ed25519_from_bytes([0; 32]).unwrap();
 
-    let mut swarm = SwarmBuilder::with_tokio_executor(
-        tcp::tokio::Transport::default()
-            .upgrade(Version::V1Lazy)
-            .authenticate(noise::Config::new(&key_pair).unwrap())
-            .multiplex(yamux::Config::default())
-            .boxed(),
-        MyBehaviour {
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_behaviour(|key| MyBehaviour {
             identify: identify::Behaviour::new(identify::Config::new(
                 "rendezvous-example/1.0.0".to_string(),
-                key_pair.public(),
+                key.public(),
             )),
             rendezvous: rendezvous::server::Behaviour::new(rendezvous::server::Config::default()),
             ping: ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(1))),
-            keep_alive: keep_alive::Behaviour,
-        },
-        PeerId::from(key_pair.public()),
-    )
-    .build();
-
-    log::info!("Local peer id: {}", swarm.local_peer_id());
+        })?
+        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(5)))
+        .build();
 
     let _ = swarm.listen_on("/ip4/0.0.0.0/tcp/62649".parse().unwrap());
 
     while let Some(event) = swarm.next().await {
         match event {
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                log::info!("Connected to {}", peer_id);
+                tracing::info!("Connected to {}", peer_id);
             }
             SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                log::info!("Disconnected from {}", peer_id);
+                tracing::info!("Disconnected from {}", peer_id);
             }
             SwarmEvent::Behaviour(MyBehaviourEvent::Rendezvous(
                 rendezvous::server::Event::PeerRegistered { peer, registration },
             )) => {
-                log::info!(
+                tracing::info!(
                     "Peer {} registered for namespace '{}'",
                     peer,
                     registration.namespace
@@ -59,17 +61,19 @@ async fn main() {
                     registrations,
                 },
             )) => {
-                log::info!(
+                tracing::info!(
                     "Served peer {} with {} registrations",
                     enquirer,
                     registrations.len()
                 );
             }
             other => {
-                log::debug!("Unhandled {:?}", other);
+                tracing::debug!("Unhandled {:?}", other);
             }
         }
     }
+
+    Ok(())
 }
 
 #[derive(NetworkBehaviour)]
@@ -77,5 +81,4 @@ struct MyBehaviour {
     identify: identify::Behaviour,
     rendezvous: rendezvous::server::Behaviour,
     ping: ping::Behaviour,
-    keep_alive: keep_alive::Behaviour,
 }

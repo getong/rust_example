@@ -1,68 +1,54 @@
 use futures::prelude::*;
-use libp2p::core::upgrade::Version;
-use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::{
-    record::Key, AddProviderOk, GetProvidersOk, GetRecordOk, Kademlia, KademliaEvent, PeerRecord,
-    PutRecordOk, QueryResult, Quorum, Record,
-};
+use libp2p::kad;
+use libp2p::kad::store::MemoryStore;
+use libp2p::kad::Mode;
 use libp2p::{
-    identity, mdns, noise,
-    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
-    tcp, yamux, PeerId, Transport,
+    mdns, noise,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux,
 };
 use std::error::Error;
+use std::time::Duration;
 use tokio::io;
 use tokio::io::AsyncBufReadExt;
-
-// We create a custom network behaviour that combines Kademlia and mDNS.
-#[derive(NetworkBehaviour)]
-#[behaviour(to_swarm = "MyBehaviourEvent")]
-struct MyBehaviour {
-    kademlia: Kademlia<MemoryStore>,
-    mdns: mdns::tokio::Behaviour,
-}
-
-#[allow(clippy::large_enum_variant)]
-enum MyBehaviourEvent {
-    Kademlia(KademliaEvent),
-    Mdns(mdns::Event),
-}
-
-impl From<KademliaEvent> for MyBehaviourEvent {
-    fn from(event: KademliaEvent) -> Self {
-        MyBehaviourEvent::Kademlia(event)
-    }
-}
-
-impl From<mdns::Event> for MyBehaviourEvent {
-    fn from(event: mdns::Event) -> Self {
-        MyBehaviourEvent::Mdns(event)
-    }
-}
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
 
-    // Create a random key for ourselves.
-    let local_key = identity::Keypair::generate_ed25519();
-    let local_peer_id = PeerId::from(local_key.public());
+    // We create a custom network behaviour that combines Kademlia and mDNS.
+    #[derive(NetworkBehaviour)]
+    struct Behaviour {
+        kademlia: kad::Behaviour<MemoryStore>,
+        mdns: mdns::async_io::Behaviour,
+    }
 
-    let transport = tcp::tokio::Transport::default()
-        .upgrade(Version::V1Lazy)
-        .authenticate(noise::Config::new(&local_key)?)
-        .multiplex(yamux::Config::default())
-        .boxed();
+    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_behaviour(|key| {
+            Ok(Behaviour {
+                kademlia: kad::Behaviour::new(
+                    key.public().to_peer_id(),
+                    MemoryStore::new(key.public().to_peer_id()),
+                ),
+                mdns: mdns::async_io::Behaviour::new(
+                    mdns::Config::default(),
+                    key.public().to_peer_id(),
+                )?,
+            })
+        })?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .build();
 
-    // Create a swarm to manage peers and events.
-    let mut swarm = {
-        // Create a Kademlia behaviour.
-        let store = MemoryStore::new(local_peer_id);
-        let kademlia = Kademlia::new(local_peer_id, store);
-        let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
-        let behaviour = MyBehaviour { kademlia, mdns };
-        SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build()
-    };
+    swarm.behaviour_mut().kademlia.set_mode(Some(Mode::Server));
 
     // Read full lines from stdin
     let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -78,14 +64,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             SwarmEvent::NewListenAddr { address, .. } => {
                 println!("Listening in {address:?}");
             },
-            SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
                     swarm.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                 }
             }
-            SwarmEvent::Behaviour(MyBehaviourEvent::Kademlia(KademliaEvent::OutboundQueryProgressed { result, ..})) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad::Event::OutboundQueryProgressed { result, ..})) => {
                 match result {
-                    QueryResult::GetProviders(Ok(GetProvidersOk::FoundProviders { key, providers, .. })) => {
+                    kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders { key, providers, .. })) => {
                         for peer in providers {
                             println!(
                                 "Peer {peer:?} provides key {:?}",
@@ -93,12 +79,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             );
                         }
                     }
-                    QueryResult::GetProviders(Err(err)) => {
+                    kad::QueryResult::GetProviders(Err(err)) => {
                         eprintln!("Failed to get providers: {err:?}");
                     }
-                    QueryResult::GetRecord(Ok(
-                        GetRecordOk::FoundRecord(PeerRecord {
-                            record: Record { key, value, .. },
+                    kad::QueryResult::GetRecord(Ok(
+                        kad::GetRecordOk::FoundRecord(kad::PeerRecord {
+                            record: kad::Record { key, value, .. },
                             ..
                         })
                     )) => {
@@ -108,26 +94,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             std::str::from_utf8(&value).unwrap(),
                         );
                     }
-                    QueryResult::GetRecord(Ok(_)) => {}
-                    QueryResult::GetRecord(Err(err)) => {
+                    kad::QueryResult::GetRecord(Ok(_)) => {}
+                    kad::QueryResult::GetRecord(Err(err)) => {
                         eprintln!("Failed to get record: {err:?}");
                     }
-                    QueryResult::PutRecord(Ok(PutRecordOk { key })) => {
+                    kad::QueryResult::PutRecord(Ok(kad::PutRecordOk { key })) => {
                         println!(
                             "Successfully put record {:?}",
                             std::str::from_utf8(key.as_ref()).unwrap()
                         );
                     }
-                    QueryResult::PutRecord(Err(err)) => {
+                    kad::QueryResult::PutRecord(Err(err)) => {
                         eprintln!("Failed to put record: {err:?}");
                     }
-                    QueryResult::StartProviding(Ok(AddProviderOk { key })) => {
+                    kad::QueryResult::StartProviding(Ok(kad::AddProviderOk { key })) => {
                         println!(
                             "Successfully put provider record {:?}",
                             std::str::from_utf8(key.as_ref()).unwrap()
                         );
                     }
-                    QueryResult::StartProviding(Err(err)) => {
+                    kad::QueryResult::StartProviding(Err(err)) => {
                         eprintln!("Failed to put provider record: {err:?}");
                     }
                     _ => {}
@@ -139,14 +125,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
+fn handle_input_line(kademlia: &mut kad::Behaviour<MemoryStore>, line: String) {
     let mut args = line.split(' ');
 
     match args.next() {
         Some("GET") => {
             let key = {
                 match args.next() {
-                    Some(key) => Key::new(&key),
+                    Some(key) => kad::RecordKey::new(&key),
                     None => {
                         eprintln!("Expected key");
                         return;
@@ -158,7 +144,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
         Some("GET_PROVIDERS") => {
             let key = {
                 match args.next() {
-                    Some(key) => Key::new(&key),
+                    Some(key) => kad::RecordKey::new(&key),
                     None => {
                         eprintln!("Expected key");
                         return;
@@ -170,7 +156,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
         Some("PUT") => {
             let key = {
                 match args.next() {
-                    Some(key) => Key::new(&key),
+                    Some(key) => kad::RecordKey::new(&key),
                     None => {
                         eprintln!("Expected key");
                         return;
@@ -186,20 +172,20 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
                     }
                 }
             };
-            let record = Record {
+            let record = kad::Record {
                 key,
                 value,
                 publisher: None,
                 expires: None,
             };
             kademlia
-                .put_record(record, Quorum::One)
+                .put_record(record, kad::Quorum::One)
                 .expect("Failed to store record locally.");
         }
         Some("PUT_PROVIDER") => {
             let key = {
                 match args.next() {
-                    Some(key) => Key::new(&key),
+                    Some(key) => kad::RecordKey::new(&key),
                     None => {
                         eprintln!("Expected key");
                         return;

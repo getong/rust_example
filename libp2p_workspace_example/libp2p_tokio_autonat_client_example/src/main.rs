@@ -1,14 +1,15 @@
 // copy from libp2p/example/autonat
 
 use clap::Parser;
-use futures::prelude::*;
+use futures::StreamExt;
 use libp2p::core::multiaddr::Protocol;
-use libp2p::core::{upgrade::Version, Multiaddr, Transport};
-use libp2p::swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent};
+use libp2p::core::Multiaddr;
+use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{autonat, identify, identity, noise, tcp, yamux, PeerId};
 use std::error::Error;
 use std::net::Ipv4Addr;
 use std::time::Duration;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
 #[clap(name = "libp2p autonat")]
@@ -25,23 +26,23 @@ struct Opt {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
 
     let opt = Opt::parse();
 
-    let local_key = identity::Keypair::generate_ed25519();
-    let local_peer_id = PeerId::from(local_key.public());
-    println!("Local peer id: {local_peer_id:?}");
+    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_behaviour(|key| Behaviour::new(key.public()))?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+        .build();
 
-    let transport = tcp::tokio::Transport::default()
-        .upgrade(Version::V1Lazy)
-        .authenticate(noise::Config::new(&local_key)?)
-        .multiplex(yamux::Config::default())
-        .boxed();
-
-    let behaviour = Behaviour::new(local_key.public());
-
-    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
     swarm.listen_on(
         Multiaddr::empty()
             .with(Protocol::Ip4(Ipv4Addr::UNSPECIFIED))

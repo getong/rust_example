@@ -1,4 +1,7 @@
+mod network;
+
 use clap::Parser;
+use tokio::spawn;
 
 use futures::prelude::*;
 use futures::StreamExt;
@@ -6,13 +9,13 @@ use libp2p::{core::Multiaddr, multiaddr::Protocol};
 use std::error::Error;
 use std::io::Write;
 use std::path::PathBuf;
-
-use tokio::spawn;
-mod network;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .try_init();
 
     let opt = Opt::parse();
 
@@ -37,9 +40,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // In case the user provided an address of a peer on the CLI, dial it.
     if let Some(addr) = opt.peer {
-        let peer_id = match addr.iter().last() {
-            Some(Protocol::P2p(peer_id)) => peer_id,
-            _ => return Err("Expect peer multiaddr to contain peer ID.".into()),
+        let Some(Protocol::P2p(peer_id)) = addr.iter().last() else {
+            return Err("Expect peer multiaddr to contain peer ID.".into());
         };
         network_client
             .dial(peer_id, addr)
