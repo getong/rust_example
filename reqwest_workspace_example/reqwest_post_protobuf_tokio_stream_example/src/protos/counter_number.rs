@@ -1,4 +1,3 @@
-const PACKAGE: &str = "counter_number";
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadRequest {
@@ -14,8 +13,11 @@ pub struct ReadRequest {
     pub dummy_three: ::prost::alloc::vec::Vec<i32>,
 }
 impl ::prost::Name for ReadRequest {
-    const PACKAGE: &'static str = PACKAGE;
     const NAME: &'static str = "ReadRequest";
+    const PACKAGE: &'static str = "counter_number";
+    fn full_name() -> ::prost::alloc::string::String {
+        ::prost::alloc::format!("counter_number.{}", Self::NAME)
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -30,8 +32,11 @@ pub struct ReadResponse {
     pub dummy_three: ::prost::alloc::vec::Vec<i32>,
 }
 impl ::prost::Name for ReadResponse {
-    const PACKAGE: &'static str = PACKAGE;
     const NAME: &'static str = "ReadResponse";
+    const PACKAGE: &'static str = "counter_number";
+    fn full_name() -> ::prost::alloc::string::String {
+        ::prost::alloc::format!("counter_number.{}", Self::NAME)
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -42,6 +47,9 @@ pub struct SampleSchema {
     pub sample_field_two: bool,
 }
 impl ::prost::Name for SampleSchema {
-    const PACKAGE: &'static str = PACKAGE;
     const NAME: &'static str = "SampleSchema";
+    const PACKAGE: &'static str = "counter_number";
+    fn full_name() -> ::prost::alloc::string::String {
+        ::prost::alloc::format!("counter_number.{}", Self::NAME)
+    }
 }
