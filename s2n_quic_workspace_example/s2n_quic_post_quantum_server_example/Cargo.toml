@@ -1,0 +1,12 @@
+[package]
+name = "s2n_quic_post_quantum_server_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+openssl-sys = { version = "0.9.97", features = ["vendored"] }
+s2n-quic = "1.32.0"
+s2n-tls = { version = "0.1.0", features = ["pq"] }
+tokio = { version = "1.35.0", features = ["full"] }
