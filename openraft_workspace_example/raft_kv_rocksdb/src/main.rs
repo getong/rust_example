@@ -17,11 +17,6 @@ pub struct Opt {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-  // console_subscriber::ConsoleLayer::builder()
-  //   // set the address the server is bound to
-  //   .server_addr(([127, 0, 0, 1], 6000_u16))
-  //   // ... other configurations ...
-  //   .init();
   // Setup the logger
   tracing_subscriber::fmt()
     .with_target(true)

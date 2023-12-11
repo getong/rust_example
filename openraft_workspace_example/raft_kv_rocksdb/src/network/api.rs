@@ -51,7 +51,7 @@ async fn read(mut req: Request<Arc<App>>) -> tide::Result {
 }
 
 async fn consistent_read(mut req: Request<Arc<App>>) -> tide::Result {
-    let ret = req.state().raft.ensure_linearizable().await;
+  let ret = req.state().raft.ensure_linearizable().await;
 
   match ret {
     Ok(_) => {
