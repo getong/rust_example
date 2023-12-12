@@ -3,20 +3,20 @@ use tokio::runtime::Runtime;
 use tokio::sync::Notify;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create the runtime
-    let rt = Runtime::new()?;
+  // Create the runtime
+  let rt = Runtime::new()?;
 
-    // Spawn the root task
-    Ok(rt.block_on(async {
-        let notify = Arc::new(Notify::new());
-        let notify2 = notify.clone();
+  // Spawn the root task
+  Ok(rt.block_on(async {
+    let notify = Arc::new(Notify::new());
+    let notify2 = notify.clone();
 
-        tokio::spawn(async move {
-            notify2.notified().await;
-            println!("received notification");
-        });
+    tokio::spawn(async move {
+      notify2.notified().await;
+      println!("received notification");
+    });
 
-        println!("sending notification");
-        notify.notify_one();
-    }))
+    println!("sending notification");
+    notify.notify_one();
+  }))
 }

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
-    identity,
-    kad::{record::Key, store::MemoryStore, Kademlia, KademliaEvent, Quorum, Record},
-    mdns,
-    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
-    PeerId,
+  identity,
+  kad::{record::Key, store::MemoryStore, Kademlia, KademliaEvent, Quorum, Record},
+  mdns,
+  swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
+  PeerId,
 };
 use tokio::io::{self, AsyncBufReadExt};
 
@@ -13,40 +13,40 @@ use tokio::io::{self, AsyncBufReadExt};
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "MyBehaviourEvent")]
 struct MyBehaviour {
-    kademlia: Kademlia<MemoryStore>,
-    mdns: mdns::tokio::Behaviour,
+  kademlia: Kademlia<MemoryStore>,
+  mdns: mdns::tokio::Behaviour,
 }
 
 impl MyBehaviour {
-    // 传入peerId，构建MyBehaviour
-    async fn new(peer_id: PeerId) -> Result<Self> {
-        let store = MemoryStore::new(peer_id);
-        let kademlia = Kademlia::new(peer_id, store);
+  // 传入peerId，构建MyBehaviour
+  async fn new(peer_id: PeerId) -> Result<Self> {
+    let store = MemoryStore::new(peer_id);
+    let kademlia = Kademlia::new(peer_id, store);
 
-        Ok(Self {
-            // floodsub协议初始化
-            kademlia,
-            // mDNS协议初始化
-            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id).unwrap(),
-        })
-    }
+    Ok(Self {
+      // floodsub协议初始化
+      kademlia,
+      // mDNS协议初始化
+      mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id).unwrap(),
+    })
+  }
 }
 
 enum MyBehaviourEvent {
-    Kademlia(KademliaEvent),
-    Mdns(mdns::Event),
+  Kademlia(KademliaEvent),
+  Mdns(mdns::Event),
 }
 
 impl From<KademliaEvent> for MyBehaviourEvent {
-    fn from(event: KademliaEvent) -> Self {
-        MyBehaviourEvent::Kademlia(event)
-    }
+  fn from(event: KademliaEvent) -> Self {
+    MyBehaviourEvent::Kademlia(event)
+  }
 }
 
 impl From<mdns::Event> for MyBehaviourEvent {
-    fn from(event: mdns::Event) -> Self {
-        MyBehaviourEvent::Mdns(event)
-    }
+  fn from(event: mdns::Event) -> Self {
+    MyBehaviourEvent::Mdns(event)
+  }
 }
 
 // // 处理mDNS网络行为事件
@@ -126,127 +126,127 @@ impl From<mdns::Event> for MyBehaviourEvent {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 生成密钥对
-    let key_pair = identity::Keypair::generate_ed25519();
+  // 生成密钥对
+  let key_pair = identity::Keypair::generate_ed25519();
 
-    // 基于密钥对的公钥，生成节点唯一标识peerId
-    let peer_id = PeerId::from(key_pair.public());
-    println!("节点ID: {peer_id}");
+  // 基于密钥对的公钥，生成节点唯一标识peerId
+  let peer_id = PeerId::from(key_pair.public());
+  println!("节点ID: {peer_id}");
 
-    // 在Mplex协议上建立一个加密的，启用dns的TCP传输
-    let transport = libp2p::development_transport(key_pair).await?;
+  // 在Mplex协议上建立一个加密的，启用dns的TCP传输
+  let transport = libp2p::development_transport(key_pair).await?;
 
-    // 创建Swarm网络管理器，来管理节点网络及事件。
-    let mut swarm = {
-        let behaviour = MyBehaviour::new(peer_id).await?;
+  // 创建Swarm网络管理器，来管理节点网络及事件。
+  let mut swarm = {
+    let behaviour = MyBehaviour::new(peer_id).await?;
 
-        SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build()
-    };
+    SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build()
+  };
 
-    // 从标准输入中读取消息
-    let mut stdin = io::BufReader::new(io::stdin()).lines();
+  // 从标准输入中读取消息
+  let mut stdin = io::BufReader::new(io::stdin()).lines();
 
-    // 监听操作系统分配的端口
-    swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
+  // 监听操作系统分配的端口
+  swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
 
-    loop {
-        tokio::select! {
-            line = stdin.next_line() => {
-                let line = line?.expect("stdin closed");
-                handle_input_line(&mut swarm.behaviour_mut().kademlia, line);
-            },
-            event = swarm.select_next_some() => {
-                if let SwarmEvent::NewListenAddr { address, .. } = event {
-                    println!("本地监听地址: {address}");
-                }
+  loop {
+    tokio::select! {
+        line = stdin.next_line() => {
+            let line = line?.expect("stdin closed");
+            handle_input_line(&mut swarm.behaviour_mut().kademlia, line);
+        },
+        event = swarm.select_next_some() => {
+            if let SwarmEvent::NewListenAddr { address, .. } = event {
+                println!("本地监听地址: {address}");
             }
         }
     }
+  }
 }
 
 // 处理输入命令
 fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
-    let mut args = line.split(' ');
+  let mut args = line.split(' ');
 
-    match args.next() {
-        // 处理 GET 命令，获取存储的kv记录
-        Some("GET") => {
-            let key = {
-                match args.next() {
-                    Some(key) => Key::new(&key),
-                    None => {
-                        eprintln!("Expected key");
-                        return;
-                    }
-                }
-            };
-            // 获取v记录
-            kademlia.get_record(key);
+  match args.next() {
+    // 处理 GET 命令，获取存储的kv记录
+    Some("GET") => {
+      let key = {
+        match args.next() {
+          Some(key) => Key::new(&key),
+          None => {
+            eprintln!("Expected key");
+            return;
+          }
         }
-        // 处理 GET_PROVIDERS 命令，获取存储kv记录的节点PeerId
-        Some("GET_PROVIDERS") => {
-            let key = {
-                match args.next() {
-                    Some(key) => Key::new(&key),
-                    None => {
-                        eprintln!("Expected key");
-                        return;
-                    }
-                }
-            };
-            // 获取存储kv记录的节点
-            kademlia.get_providers(key);
-        }
-        // 处理 PUT 命令，存储kv记录
-        Some("PUT") => {
-            let key = {
-                match args.next() {
-                    Some(key) => Key::new(&key),
-                    None => {
-                        eprintln!("Expected key");
-                        return;
-                    }
-                }
-            };
-            // 将值转换成Vec<u8>类型
-            let value = {
-                match args.next() {
-                    Some(value) => value.as_bytes().to_vec(),
-                    None => {
-                        eprintln!("Expected value");
-                        return;
-                    }
-                }
-            };
-            let record = Record {
-                key,
-                value,
-                publisher: None,
-                expires: None,
-            };
-            // 存储kv记录
-            kademlia
-                .put_record(record, Quorum::One)
-                .expect("Failed to store record locally.");
-        }
-        // 处理 PUT_PROVIDER 命令，保存kv记录的提供者(节点)
-        Some("PUT_PROVIDER") => {
-            let key = {
-                match args.next() {
-                    Some(key) => Key::new(&key),
-                    None => {
-                        eprintln!("Expected key");
-                        return;
-                    }
-                }
-            };
-
-            kademlia
-                .start_providing(key)
-                .expect("Failed to start providing key");
-        }
-        _ => {
-            eprintln!("expected GET, GET_PROVIDERS, PUT or PUT_PROVIDER");
-        }
+      };
+      // 获取v记录
+      kademlia.get_record(key);
     }
+    // 处理 GET_PROVIDERS 命令，获取存储kv记录的节点PeerId
+    Some("GET_PROVIDERS") => {
+      let key = {
+        match args.next() {
+          Some(key) => Key::new(&key),
+          None => {
+            eprintln!("Expected key");
+            return;
+          }
+        }
+      };
+      // 获取存储kv记录的节点
+      kademlia.get_providers(key);
+    }
+    // 处理 PUT 命令，存储kv记录
+    Some("PUT") => {
+      let key = {
+        match args.next() {
+          Some(key) => Key::new(&key),
+          None => {
+            eprintln!("Expected key");
+            return;
+          }
+        }
+      };
+      // 将值转换成Vec<u8>类型
+      let value = {
+        match args.next() {
+          Some(value) => value.as_bytes().to_vec(),
+          None => {
+            eprintln!("Expected value");
+            return;
+          }
+        }
+      };
+      let record = Record {
+        key,
+        value,
+        publisher: None,
+        expires: None,
+      };
+      // 存储kv记录
+      kademlia
+        .put_record(record, Quorum::One)
+        .expect("Failed to store record locally.");
+    }
+    // 处理 PUT_PROVIDER 命令，保存kv记录的提供者(节点)
+    Some("PUT_PROVIDER") => {
+      let key = {
+        match args.next() {
+          Some(key) => Key::new(&key),
+          None => {
+            eprintln!("Expected key");
+            return;
+          }
+        }
+      };
+
+      kademlia
+        .start_providing(key)
+        .expect("Failed to start providing key");
+    }
+    _ => {
+      eprintln!("expected GET, GET_PROVIDERS, PUT or PUT_PROVIDER");
+    }
+  }
 }

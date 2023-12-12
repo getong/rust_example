@@ -9,7 +9,7 @@ use rocket_cors::{AllowedOrigins, CorsOptions};
 use crate::constants::{UNAUTHORIZED, UNKNOWN};
 use crate::database::connect_to_db::init;
 use crate::error_response::error_responses::{
-    ErrorResponse, NOT_FOUND_JSON, UNAUTHORIZED_JSON, UNKNOWN_JSON,
+  ErrorResponse, NOT_FOUND_JSON, UNAUTHORIZED_JSON, UNKNOWN_JSON,
 };
 use crate::helper::check_valid_text;
 use crate::routes::authorization::login::login;
@@ -30,48 +30,48 @@ mod routes;
 
 #[launch]
 async fn rocket() -> _ {
-    let cors = CorsOptions::default()
-        .allowed_origins(AllowedOrigins::all())
-        .allowed_methods(
-            vec![Method::Get, Method::Post, Method::Patch, Method::Delete]
-                .into_iter()
-                .map(From::from)
-                .collect(),
-        )
-        .allow_credentials(true);
-    rocket::build()
-        .attach(init().await)
-        .mount(
-            "/api/v1",
-            routes![
-                registration,
-                login,
-                hello_name_user,
-                hello_world,
-                refresh_tokens,
-                delete_user,
-                edit_user,
-                get_data_user
-            ],
-        )
-        .manage(cors.to_cors())
-        .register(
-            "/",
-            catchers![unauthorized, not_found, internal_sever_error,],
-        )
+  let cors = CorsOptions::default()
+    .allowed_origins(AllowedOrigins::all())
+    .allowed_methods(
+      vec![Method::Get, Method::Post, Method::Patch, Method::Delete]
+        .into_iter()
+        .map(From::from)
+        .collect(),
+    )
+    .allow_credentials(true);
+  rocket::build()
+    .attach(init().await)
+    .mount(
+      "/api/v1",
+      routes![
+        registration,
+        login,
+        hello_name_user,
+        hello_world,
+        refresh_tokens,
+        delete_user,
+        edit_user,
+        get_data_user
+      ],
+    )
+    .manage(cors.to_cors())
+    .register(
+      "/",
+      catchers![unauthorized, not_found, internal_sever_error,],
+    )
 }
 
 #[catch(401)]
 pub fn unauthorized() -> Json<ErrorResponse> {
-    Json(UNAUTHORIZED_JSON)
+  Json(UNAUTHORIZED_JSON)
 }
 
 #[catch(404)]
 pub fn not_found() -> Json<ErrorResponse> {
-    Json(NOT_FOUND_JSON)
+  Json(NOT_FOUND_JSON)
 }
 
 #[catch(500)]
 pub fn internal_sever_error() -> Json<ErrorResponse> {
-    Json(UNKNOWN_JSON)
+  Json(UNKNOWN_JSON)
 }

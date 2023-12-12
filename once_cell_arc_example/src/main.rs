@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex};
 
 struct SharedData {
-    counter: i32,
+  counter: i32,
 }
 
 // cargo run --  --subscriber_port 5000
@@ -15,26 +15,26 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Opt {
-    #[arg(long = "subscriber_port", default_value_t = 5000)]
-    subscriber_port: i32,
+  #[arg(long = "subscriber_port", default_value_t = 5000)]
+  subscriber_port: i32,
 }
 
 fn main() {
-    let opt = Opt::parse();
-    // 初始化
-    SHARED_DATA.get_or_init(|| {
-        Arc::new(Mutex::new(SharedData {
-            counter: opt.subscriber_port,
-        }))
-    });
+  let opt = Opt::parse();
+  // 初始化
+  SHARED_DATA.get_or_init(|| {
+    Arc::new(Mutex::new(SharedData {
+      counter: opt.subscriber_port,
+    }))
+  });
 
-    let data = SHARED_DATA.clone();
+  let data = SHARED_DATA.clone();
 
-    if let Some(data_mutex) = data.get() {
-        if let Ok(mut data_lock) = data_mutex.lock() {
-            data_lock.counter += 1;
+  if let Some(data_mutex) = data.get() {
+    if let Ok(mut data_lock) = data_mutex.lock() {
+      data_lock.counter += 1;
 
-            println!("data_lock.counter:{}", data_lock.counter);
-        }
+      println!("data_lock.counter:{}", data_lock.counter);
     }
+  }
 }

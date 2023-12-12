@@ -1,8 +1,8 @@
 fn create_closure() -> impl FnOnce() {
-    let name = String::from("john");
-    || {
-        drop(name);
-    }
+  let name = String::from("john");
+  || {
+    drop(name);
+  }
 }
 
 /*
@@ -19,8 +19,8 @@ impl FnOnce for Myclosure {
 */
 
 fn main() {
-    // println!("Hello, world!");
+  // println!("Hello, world!");
 
-    let a = create_closure();
-    a();
+  let a = create_closure();
+  a();
 }

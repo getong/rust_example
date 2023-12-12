@@ -2,21 +2,21 @@ use anyhow::Result;
 use futures::StreamExt;
 
 use libp2p::{
-    core::transport::upgrade::Version,
-    floodsub::{self, Floodsub, FloodsubEvent},
-    identity,
-    mdns,
-    noise,
-    swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
-    // tcp::GenTcpConfig,
-    // tcp::TokioTcpConfig,
-    // tcp::TokioTcpTransport,
-    tcp,
-    yamux,
-    Multiaddr,
+  core::transport::upgrade::Version,
+  floodsub::{self, Floodsub, FloodsubEvent},
+  identity,
+  mdns,
+  noise,
+  swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
+  // tcp::GenTcpConfig,
+  // tcp::TokioTcpConfig,
+  // tcp::TokioTcpTransport,
+  tcp,
+  yamux,
+  Multiaddr,
 
-    PeerId,
-    Transport,
+  PeerId,
+  Transport,
 };
 use tokio::io;
 use tokio::io::AsyncBufReadExt;
@@ -25,37 +25,37 @@ use tokio::io::AsyncBufReadExt;
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "MyBehaviourEvent")]
 struct MyBehaviour {
-    floodsub: Floodsub,
-    mdns: mdns::tokio::Behaviour,
+  floodsub: Floodsub,
+  mdns: mdns::tokio::Behaviour,
 }
 
 impl MyBehaviour {
-    // 传入peerId，构建MyBehaviour
-    async fn new(id: PeerId) -> Result<Self> {
-        Ok(Self {
-            // floodsub协议初始化
-            floodsub: Floodsub::new(id),
-            // mDNS协议初始化
-            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), id).unwrap(),
-        })
-    }
+  // 传入peerId，构建MyBehaviour
+  async fn new(id: PeerId) -> Result<Self> {
+    Ok(Self {
+      // floodsub协议初始化
+      floodsub: Floodsub::new(id),
+      // mDNS协议初始化
+      mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), id).unwrap(),
+    })
+  }
 }
 
 enum MyBehaviourEvent {
-    FloodSub(FloodsubEvent),
-    Mdns(mdns::Event),
+  FloodSub(FloodsubEvent),
+  Mdns(mdns::Event),
 }
 
 impl From<FloodsubEvent> for MyBehaviourEvent {
-    fn from(event: FloodsubEvent) -> Self {
-        MyBehaviourEvent::FloodSub(event)
-    }
+  fn from(event: FloodsubEvent) -> Self {
+    MyBehaviourEvent::FloodSub(event)
+  }
 }
 
 impl From<mdns::Event> for MyBehaviourEvent {
-    fn from(event: mdns::Event) -> Self {
-        MyBehaviourEvent::Mdns(event)
-    }
+  fn from(event: mdns::Event) -> Self {
+    MyBehaviourEvent::Mdns(event)
+  }
 }
 
 // match swarm.next().await.unwrap() {
@@ -109,63 +109,63 @@ impl From<mdns::Event> for MyBehaviourEvent {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 生成密钥对
-    let id_keys = identity::Keypair::generate_secp256k1();
+  // 生成密钥对
+  let id_keys = identity::Keypair::generate_secp256k1();
 
-    // 基于密钥对的公钥，生成节点唯一标识peerId
-    let peer_id = PeerId::from_public_key(&id_keys.public());
-    println!("节点ID: {peer_id}");
+  // 基于密钥对的公钥，生成节点唯一标识peerId
+  let peer_id = PeerId::from_public_key(&id_keys.public());
+  println!("节点ID: {peer_id}");
 
-    // 创建noise密钥对
-    // let noise_keys = noise::Keypair::<noise::X25519Spec>::new().into_authentic(&id_keys)?;
-    let noise = noise::Config::new(&id_keys).unwrap();
+  // 创建noise密钥对
+  // let noise_keys = noise::Keypair::<noise::X25519Spec>::new().into_authentic(&id_keys)?;
+  let noise = noise::Config::new(&id_keys).unwrap();
 
-    // 创建一个基于tokio的TCP传输层，使用noise进行身份验证。
-    // 由于多了一层加密，所以使用yamux基于TCP流进行多路复用。
-    let transport = tcp::tokio::Transport::default()
-        .upgrade(Version::V1Lazy)
-        .authenticate(noise)
-        .multiplex(yamux::Config::default())
-        .boxed();
+  // 创建一个基于tokio的TCP传输层，使用noise进行身份验证。
+  // 由于多了一层加密，所以使用yamux基于TCP流进行多路复用。
+  let transport = tcp::tokio::Transport::default()
+    .upgrade(Version::V1Lazy)
+    .authenticate(noise)
+    .multiplex(yamux::Config::default())
+    .boxed();
 
-    // 创建 Floodsub 主题
-    let floodsub_topic = floodsub::Topic::new("chat");
+  // 创建 Floodsub 主题
+  let floodsub_topic = floodsub::Topic::new("chat");
 
-    // Create an identity for our local peer
-    let local_peer_id = PeerId::from_public_key(&id_keys.public());
+  // Create an identity for our local peer
+  let local_peer_id = PeerId::from_public_key(&id_keys.public());
 
-    // 创建Swarm来管理节点网络及事件。
-    let mut behaviour = MyBehaviour::new(local_peer_id).await.unwrap();
+  // 创建Swarm来管理节点网络及事件。
+  let mut behaviour = MyBehaviour::new(local_peer_id).await.unwrap();
 
-    // 订阅floodsub topic
-    behaviour.floodsub.subscribe(floodsub_topic.clone());
-    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build();
+  // 订阅floodsub topic
+  behaviour.floodsub.subscribe(floodsub_topic.clone());
+  let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build();
 
-    // 指定一个远程节点，进行手动链接。
-    if let Some(to_dial) = std::env::args().nth(1) {
-        let addr: Multiaddr = to_dial.parse()?;
-        swarm.dial(addr)?;
-        println!("链接远程节点: {to_dial}");
-    }
+  // 指定一个远程节点，进行手动链接。
+  if let Some(to_dial) = std::env::args().nth(1) {
+    let addr: Multiaddr = to_dial.parse()?;
+    swarm.dial(addr)?;
+    println!("链接远程节点: {to_dial}");
+  }
 
-    // 从标准输入中读取消息
-    let mut stdin = io::BufReader::new(io::stdin()).lines();
+  // 从标准输入中读取消息
+  let mut stdin = io::BufReader::new(io::stdin()).lines();
 
-    // 监听操作系统分配的端口
-    swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
+  // 监听操作系统分配的端口
+  swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
 
-    loop {
-        tokio::select! {
-            line = stdin.next_line() => {
-                let line = line?.expect("stdin closed");
-                // 从标准输入中读取消息后，发布到订阅了floodsub topic的节点上。
-                swarm.behaviour_mut().floodsub.publish(floodsub_topic.clone(), line.as_bytes());
-            }
-            event = swarm.select_next_some() => {
-                if let SwarmEvent::NewListenAddr { address, .. } = event {
-                    println!("本地监听地址: {address}");
-                }
+  loop {
+    tokio::select! {
+        line = stdin.next_line() => {
+            let line = line?.expect("stdin closed");
+            // 从标准输入中读取消息后，发布到订阅了floodsub topic的节点上。
+            swarm.behaviour_mut().floodsub.publish(floodsub_topic.clone(), line.as_bytes());
+        }
+        event = swarm.select_next_some() => {
+            if let SwarmEvent::NewListenAddr { address, .. } = event {
+                println!("本地监听地址: {address}");
             }
         }
     }
+  }
 }

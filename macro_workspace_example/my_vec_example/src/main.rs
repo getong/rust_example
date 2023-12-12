@@ -44,19 +44,19 @@ macro_rules! vec_strs {
 }
 
 fn main() {
-    let mut v = my_vec![];
-    v.push(1);
-    // 调用时可以使用 [], (), {}
-    let _v = my_vec!(1, 2, 3, 4);
-    let _v = my_vec![1, 2, 3, 4];
-    let v = my_vec! {1, 2, 3, 4};
-    println!("{:?}", v);
+  let mut v = my_vec![];
+  v.push(1);
+  // 调用时可以使用 [], (), {}
+  let _v = my_vec!(1, 2, 3, 4);
+  let _v = my_vec![1, 2, 3, 4];
+  let v = my_vec! {1, 2, 3, 4};
+  println!("{:?}", v);
 
-    println!("{:?}", v);
-    //
-    let v = my_vec![1; 10];
-    println!("{:?}", v);
+  println!("{:?}", v);
+  //
+  let v = my_vec![1; 10];
+  println!("{:?}", v);
 
-    let s = vec_strs![1, "a", true, 3.14159f32];
-    assert_eq!(s, &["1", "a", "true", "3.14159"]);
+  let s = vec_strs![1, "a", true, 3.14159f32];
+  assert_eq!(s, &["1", "a", "true", "3.14159"]);
 }

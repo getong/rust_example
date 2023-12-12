@@ -16,90 +16,90 @@ mod http_service;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    setup_tracing()?;
+  setup_tracing()?;
 
-    let mut metric_registry = Registry::default();
+  let mut metric_registry = Registry::default();
 
-    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
-        .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default,
-        )?
-        .with_bandwidth_metrics(&mut metric_registry)
-        .with_behaviour(|key| Behaviour::new(key.public()))?
-        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(u64::MAX)))
-        .build();
+  let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+    .with_tokio()
+    .with_tcp(
+      tcp::Config::default(),
+      noise::Config::new,
+      yamux::Config::default,
+    )?
+    .with_bandwidth_metrics(&mut metric_registry)
+    .with_behaviour(|key| Behaviour::new(key.public()))?
+    .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(u64::MAX)))
+    .build();
 
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+  swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
-    if let Some(addr) = std::env::args().nth(1) {
-        let remote: Multiaddr = addr.parse()?;
-        swarm.dial(remote)?;
-        tracing::info!(address=%addr, "Dialed address")
+  if let Some(addr) = std::env::args().nth(1) {
+    let remote: Multiaddr = addr.parse()?;
+    swarm.dial(remote)?;
+    tracing::info!(address=%addr, "Dialed address")
+  }
+
+  let metrics = Metrics::new(&mut metric_registry);
+  tokio::spawn(http_service::metrics_server(metric_registry));
+
+  loop {
+    match swarm.select_next_some().await {
+      SwarmEvent::Behaviour(BehaviourEvent::Ping(ping_event)) => {
+        tracing::info!(?ping_event);
+        metrics.record(&ping_event);
+      }
+      SwarmEvent::Behaviour(BehaviourEvent::Identify(identify_event)) => {
+        tracing::info!(?identify_event);
+        metrics.record(&identify_event);
+      }
+      swarm_event => {
+        tracing::info!(?swarm_event);
+        metrics.record(&swarm_event);
+      }
     }
-
-    let metrics = Metrics::new(&mut metric_registry);
-    tokio::spawn(http_service::metrics_server(metric_registry));
-
-    loop {
-        match swarm.select_next_some().await {
-            SwarmEvent::Behaviour(BehaviourEvent::Ping(ping_event)) => {
-                tracing::info!(?ping_event);
-                metrics.record(&ping_event);
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Identify(identify_event)) => {
-                tracing::info!(?identify_event);
-                metrics.record(&identify_event);
-            }
-            swarm_event => {
-                tracing::info!(?swarm_event);
-                metrics.record(&swarm_event);
-            }
-        }
-    }
+  }
 }
 
 fn setup_tracing() -> Result<(), Box<dyn Error>> {
-    let tracer = opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-        .with_trace_config(
-            sdk::trace::Config::default().with_resource(sdk::Resource::new(vec![KeyValue::new(
-                "service.name",
-                "libp2p",
-            )])),
-        )
-        .install_batch(opentelemetry::runtime::Tokio)?;
+  let tracer = opentelemetry_otlp::new_pipeline()
+    .tracing()
+    .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+    .with_trace_config(
+      sdk::trace::Config::default().with_resource(sdk::Resource::new(vec![KeyValue::new(
+        "service.name",
+        "libp2p",
+      )])),
+    )
+    .install_batch(opentelemetry::runtime::Tokio)?;
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
-        .with(
-            tracing_opentelemetry::layer()
-                .with_tracer(tracer)
-                .with_filter(EnvFilter::from_default_env()),
-        )
-        .try_init()?;
+  tracing_subscriber::registry()
+    .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
+    .with(
+      tracing_opentelemetry::layer()
+        .with_tracer(tracer)
+        .with_filter(EnvFilter::from_default_env()),
+    )
+    .try_init()?;
 
-    Ok(())
+  Ok(())
 }
 
 /// Our network behaviour.
 #[derive(NetworkBehaviour)]
 struct Behaviour {
-    identify: identify::Behaviour,
-    ping: ping::Behaviour,
+  identify: identify::Behaviour,
+  ping: ping::Behaviour,
 }
 
 impl Behaviour {
-    fn new(local_pub_key: identity::PublicKey) -> Self {
-        Self {
-            ping: ping::Behaviour::default(),
-            identify: identify::Behaviour::new(identify::Config::new(
-                "/ipfs/0.1.0".into(),
-                local_pub_key,
-            )),
-        }
+  fn new(local_pub_key: identity::PublicKey) -> Self {
+    Self {
+      ping: ping::Behaviour::default(),
+      identify: identify::Behaviour::new(identify::Config::new(
+        "/ipfs/0.1.0".into(),
+        local_pub_key,
+      )),
     }
+  }
 }

@@ -9,12 +9,12 @@ macro_rules! do_thrice {
 }
 
 fn main() {
-    fn say_hi() {
-        println!("Hi!");
-    }
+  fn say_hi() {
+    println!("Hi!");
+  }
 
-    // I originally had a `println!` directly in there, but since that's
-    // a macro too, it also got expanded, making the example more confusing
-    // than it needed to be.
-    do_thrice! {{ say_hi() }}
+  // I originally had a `println!` directly in there, but since that's
+  // a macro too, it also got expanded, making the example more confusing
+  // than it needed to be.
+  do_thrice! {{ say_hi() }}
 }

@@ -19,19 +19,19 @@ use std::ptr;
 //}
 
 fn main() {
-    // println!("Hello, world!");
-    let a: Vec<i32> = vec![1, 2, 3, 4];
+  // println!("Hello, world!");
+  let a: Vec<i32> = vec![1, 2, 3, 4];
 
-    let ptr: *const i32 = a.as_ptr();
-    let elts: usize = a.len();
+  let ptr: *const i32 = a.as_ptr();
+  let elts: usize = a.len();
 
-    let dst = unsafe {
-        let mut dst = Vec::with_capacity(elts);
+  let dst = unsafe {
+    let mut dst = Vec::with_capacity(elts);
 
-        ptr::copy(ptr, dst.as_mut_ptr(), elts);
+    ptr::copy(ptr, dst.as_mut_ptr(), elts);
 
-        dst.set_len(elts);
-        dst
-    };
-    println!("dst: {:?}", dst);
+    dst.set_len(elts);
+    dst
+  };
+  println!("dst: {:?}", dst);
 }

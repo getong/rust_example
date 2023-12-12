@@ -3,10 +3,10 @@
 // }
 
 fn main() {
-    let mut config = prost_build::Config::new();
-    config
-        .out_dir("src")
-        .compile_well_known_types()
-        .compile_protos(&["src/message.proto"], &["."])
-        .unwrap();
+  let mut config = prost_build::Config::new();
+  config
+    .out_dir("src")
+    .compile_well_known_types()
+    .compile_protos(&["src/message.proto"], &["."])
+    .unwrap();
 }

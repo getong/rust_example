@@ -7,18 +7,18 @@ pub mod registration;
 pub mod token;
 
 pub enum RegistrationRequestError {
-    Ok(Json<RegistrationRequest>),
-    NoneRegistrationRequest,
-    BadFirstName,
-    BadLastName,
-    BadLogin,
-    BadPassword,
-    BadMail,
+  Ok(Json<RegistrationRequest>),
+  NoneRegistrationRequest,
+  BadFirstName,
+  BadLastName,
+  BadLogin,
+  BadPassword,
+  BadMail,
 }
 
 pub enum LoginRequestError {
-    Ok(Json<LoginRequest>),
-    NoneLoginRequest,
-    BadLogin,
-    BadPassword,
+  Ok(Json<LoginRequest>),
+  NoneLoginRequest,
+  BadLogin,
+  BadPassword,
 }

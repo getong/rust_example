@@ -1,5 +1,5 @@
 macro_rules! blocks {
-    ($($block:block)*) => {};
+  ($($block:block)*) => {};
 }
 
 blocks! {
@@ -11,7 +11,7 @@ blocks! {
 }
 
 macro_rules! expressions {
-    ($($expr:expr)*) => {};
+  ($($expr:expr)*) => {};
 }
 
 expressions! {
@@ -22,7 +22,7 @@ expressions! {
 }
 
 macro_rules! idents {
-    ($($ident:ident)*) => {};
+  ($($ident:ident)*) => {};
 }
 
 idents! {
@@ -34,7 +34,7 @@ idents! {
 }
 
 macro_rules! items {
-    ($($item:item)*) => {};
+  ($($item:item)*) => {};
 }
 
 items! {
@@ -47,7 +47,7 @@ items! {
 }
 
 macro_rules! lifetimes {
-    ($($lifetime:lifetime)*) => {};
+  ($($lifetime:lifetime)*) => {};
 }
 
 lifetimes! {
@@ -57,7 +57,7 @@ lifetimes! {
 }
 
 macro_rules! literals {
-    ($($literal:literal)*) => {};
+  ($($literal:literal)*) => {};
 }
 
 literals! {
@@ -69,7 +69,7 @@ literals! {
 }
 
 macro_rules! metas {
-    ($($meta:meta)*) => {};
+  ($($meta:meta)*) => {};
 }
 
 metas! {
@@ -80,7 +80,7 @@ metas! {
 }
 
 macro_rules! patterns {
-    ($($pat:pat)*) => {};
+  ($($pat:pat)*) => {};
 }
 
 patterns! {
@@ -104,7 +104,7 @@ patterns! {
 //}
 
 macro_rules! paths {
-    ($($path:path)*) => {};
+  ($($path:path)*) => {};
 }
 
 paths! {
@@ -115,7 +115,7 @@ paths! {
 }
 
 macro_rules! types {
-    ($($type:ty)*) => {};
+  ($($type:ty)*) => {};
 }
 
 types! {
@@ -126,8 +126,8 @@ types! {
 }
 
 macro_rules! visibilities {
-    //         ∨~~注意这个逗号，`vis` 分类符自身不会匹配到逗号
-    ($($vis:vis,)*) => {};
+  //         ∨~~注意这个逗号，`vis` 分类符自身不会匹配到逗号
+  ($($vis:vis,)*) => {};
 }
 
 visibilities! {
@@ -139,5 +139,5 @@ visibilities! {
 }
 
 fn main() {
-    println!("hello world");
+  println!("hello world");
 }

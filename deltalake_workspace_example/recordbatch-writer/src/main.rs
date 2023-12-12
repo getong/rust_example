@@ -16,8 +16,8 @@ use deltalake::*;
 use log::*;
 use object_store::path::Path;
 use parquet::{
-    basic::{Compression, ZstdLevel},
-    file::properties::WriterProperties,
+  basic::{Compression, ZstdLevel},
+  file::properties::WriterProperties,
 };
 
 use std::collections::HashMap;
@@ -29,45 +29,45 @@ use std::sync::Arc;
  */
 #[tokio::main]
 async fn main() -> Result<(), DeltaTableError> {
-    info!("Logger initialized");
+  info!("Logger initialized");
 
-    let table_uri = std::env::var("TABLE_URI").map_err(|e| DeltaTableError::GenericError {
-        source: Box::new(e),
-    })?;
-    info!("Using the location of: {:?}", table_uri);
+  let table_uri = std::env::var("TABLE_URI").map_err(|e| DeltaTableError::GenericError {
+    source: Box::new(e),
+  })?;
+  info!("Using the location of: {:?}", table_uri);
 
-    let table_path = Path::from(table_uri.as_ref());
+  let table_path = Path::from(table_uri.as_ref());
 
-    let maybe_table = deltalake::open_table(&table_path).await;
-    let mut table = match maybe_table {
-        Ok(table) => table,
-        Err(DeltaTableError::NotATable(_)) => {
-            info!("It doesn't look like our delta table has been created");
-            create_initialized_table(&table_path).await
-        }
-        Err(err) => Err(err).unwrap(),
-    };
+  let maybe_table = deltalake::open_table(&table_path).await;
+  let mut table = match maybe_table {
+    Ok(table) => table,
+    Err(DeltaTableError::NotATable(_)) => {
+      info!("It doesn't look like our delta table has been created");
+      create_initialized_table(&table_path).await
+    }
+    Err(err) => Err(err).unwrap(),
+  };
 
-    let writer_properties = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3).unwrap()))
-        .build();
+  let writer_properties = WriterProperties::builder()
+    .set_compression(Compression::ZSTD(ZstdLevel::try_new(3).unwrap()))
+    .build();
 
-    let mut writer = RecordBatchWriter::for_table(&table)
-        .expect("Failed to make RecordBatchWriter")
-        .with_writer_properties(writer_properties);
+  let mut writer = RecordBatchWriter::for_table(&table)
+    .expect("Failed to make RecordBatchWriter")
+    .with_writer_properties(writer_properties);
 
-    let records = fetch_readings();
-    let batch = convert_to_batch(&table, &records);
+  let records = fetch_readings();
+  let batch = convert_to_batch(&table, &records);
 
-    writer.write(batch).await?;
+  writer.write(batch).await?;
 
-    let adds = writer
-        .flush_and_commit(&mut table)
-        .await
-        .expect("Failed to flush write");
-    info!("{} adds written", adds);
+  let adds = writer
+    .flush_and_commit(&mut table)
+    .await
+    .expect("Failed to flush write");
+  info!("{} adds written", adds);
 
-    Ok(())
+  Ok(())
 }
 
 // Creating a simple type alias for improved readability
@@ -79,52 +79,52 @@ type Fahrenheit = i32;
  * by a small sensor.
  */
 struct WeatherRecord {
-    timestamp: DateTime<Utc>,
-    temp: Fahrenheit,
-    lat: f64,
-    long: f64,
+  timestamp: DateTime<Utc>,
+  temp: Fahrenheit,
+  lat: f64,
+  long: f64,
 }
 
 impl WeatherRecord {
-    fn columns() -> Vec<SchemaField> {
-        vec![
-            SchemaField::new(
-                "timestamp".to_string(),
-                SchemaDataType::primitive("timestamp".to_string()),
-                true,
-                HashMap::new(),
-            ),
-            SchemaField::new(
-                "temp".to_string(),
-                SchemaDataType::primitive("integer".to_string()),
-                true,
-                HashMap::new(),
-            ),
-            SchemaField::new(
-                "lat".to_string(),
-                SchemaDataType::primitive("double".to_string()),
-                true,
-                HashMap::new(),
-            ),
-            SchemaField::new(
-                "long".to_string(),
-                SchemaDataType::primitive("double".to_string()),
-                true,
-                HashMap::new(),
-            ),
-        ]
-    }
+  fn columns() -> Vec<SchemaField> {
+    vec![
+      SchemaField::new(
+        "timestamp".to_string(),
+        SchemaDataType::primitive("timestamp".to_string()),
+        true,
+        HashMap::new(),
+      ),
+      SchemaField::new(
+        "temp".to_string(),
+        SchemaDataType::primitive("integer".to_string()),
+        true,
+        HashMap::new(),
+      ),
+      SchemaField::new(
+        "lat".to_string(),
+        SchemaDataType::primitive("double".to_string()),
+        true,
+        HashMap::new(),
+      ),
+      SchemaField::new(
+        "long".to_string(),
+        SchemaDataType::primitive("double".to_string()),
+        true,
+        HashMap::new(),
+      ),
+    ]
+  }
 }
 
 impl Default for WeatherRecord {
-    fn default() -> Self {
-        Self {
-            timestamp: Utc::now(),
-            temp: 72,
-            lat: 39.61940984546992,
-            long: -119.22916208856955,
-        }
+  fn default() -> Self {
+    Self {
+      timestamp: Utc::now(),
+      temp: 72,
+      lat: 39.61940984546992,
+      long: -119.22916208856955,
     }
+  }
 }
 
 /*
@@ -132,14 +132,14 @@ impl Default for WeatherRecord {
  * to the table
  */
 fn fetch_readings() -> Vec<WeatherRecord> {
-    let mut readings = vec![];
+  let mut readings = vec![];
 
-    for i in 1..=5 {
-        let mut wx = WeatherRecord::default();
-        wx.temp -= i;
-        readings.push(wx);
-    }
-    readings
+  for i in 1..=5 {
+    let mut wx = WeatherRecord::default();
+    wx.temp -= i;
+    readings.push(wx);
+  }
+  readings
 }
 
 /*
@@ -164,35 +164,34 @@ fn fetch_readings() -> Vec<WeatherRecord> {
  *  typed language it might be simpler.
  */
 fn convert_to_batch(table: &DeltaTable, records: &Vec<WeatherRecord>) -> RecordBatch {
-    let metadata = table
-        .get_metadata()
-        .expect("Failed to get metadata for the table");
-    let arrow_schema = <deltalake::arrow::datatypes::Schema as TryFrom<&Schema>>::try_from(
-        &metadata.schema.clone(),
-    )
-    .expect("Failed to convert to arrow schema");
-    let arrow_schema_ref = Arc::new(arrow_schema);
+  let metadata = table
+    .get_metadata()
+    .expect("Failed to get metadata for the table");
+  let arrow_schema =
+    <deltalake::arrow::datatypes::Schema as TryFrom<&Schema>>::try_from(&metadata.schema.clone())
+      .expect("Failed to convert to arrow schema");
+  let arrow_schema_ref = Arc::new(arrow_schema);
 
-    let mut ts = vec![];
-    let mut temp = vec![];
-    let mut lat = vec![];
-    let mut long = vec![];
+  let mut ts = vec![];
+  let mut temp = vec![];
+  let mut lat = vec![];
+  let mut long = vec![];
 
-    for record in records {
-        ts.push(record.timestamp.timestamp_micros());
-        temp.push(record.temp);
-        lat.push(record.lat);
-        long.push(record.long);
-    }
+  for record in records {
+    ts.push(record.timestamp.timestamp_micros());
+    temp.push(record.temp);
+    lat.push(record.lat);
+    long.push(record.long);
+  }
 
-    let arrow_array: Vec<Arc<dyn Array>> = vec![
-        Arc::new(TimestampMicrosecondArray::from(ts)),
-        Arc::new(Int32Array::from(temp)),
-        Arc::new(Float64Array::from(lat)),
-        Arc::new(Float64Array::from(long)),
-    ];
+  let arrow_array: Vec<Arc<dyn Array>> = vec![
+    Arc::new(TimestampMicrosecondArray::from(ts)),
+    Arc::new(Int32Array::from(temp)),
+    Arc::new(Float64Array::from(lat)),
+    Arc::new(Float64Array::from(long)),
+  ];
 
-    RecordBatch::try_new(arrow_schema_ref, arrow_array).expect("Failed to create RecordBatch")
+  RecordBatch::try_new(arrow_schema_ref, arrow_array).expect("Failed to create RecordBatch")
 }
 
 /*
@@ -200,32 +199,32 @@ fn convert_to_batch(table: &DeltaTable, records: &Vec<WeatherRecord>) -> RecordB
  * Table in an existing directory that doesn't currently contain a Delta table
  */
 async fn create_initialized_table(table_path: &Path) -> DeltaTable {
-    DeltaOps::try_from_uri(table_path)
-        .await
-        .unwrap()
-        .create()
-        .with_columns(WeatherRecord::columns())
-        .await
-        .unwrap()
+  DeltaOps::try_from_uri(table_path)
+    .await
+    .unwrap()
+    .create()
+    .with_columns(WeatherRecord::columns())
+    .await
+    .unwrap()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
-    #[test]
-    fn test_fetch_readings() {
-        let readings = fetch_readings();
-        assert_eq!(
-            5,
-            readings.len(),
-            "fetch_readings() should return 5 readings"
-        );
-    }
+  #[test]
+  fn test_fetch_readings() {
+    let readings = fetch_readings();
+    assert_eq!(
+      5,
+      readings.len(),
+      "fetch_readings() should return 5 readings"
+    );
+  }
 
-    #[test]
-    fn test_schema() {
-        let schema: Schema = WeatherRecord::schema();
-        assert_eq!(schema.get_fields().len(), 4, "schema should have 4 fields");
-    }
+  #[test]
+  fn test_schema() {
+    let schema: Schema = WeatherRecord::schema();
+    assert_eq!(schema.get_fields().len(), 4, "schema should have 4 fields");
+  }
 }

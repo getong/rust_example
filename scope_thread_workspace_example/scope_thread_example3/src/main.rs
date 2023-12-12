@@ -38,12 +38,12 @@ use std::thread;
 use std::time::Duration;
 
 fn main() {
-    let mut i = 0;
-    thread::scope(|s| {
-        s.spawn(|| {
-            thread::sleep(Duration::from_millis(1000));
-            i += 1;
-        });
+  let mut i = 0;
+  thread::scope(|s| {
+    s.spawn(|| {
+      thread::sleep(Duration::from_millis(1000));
+      i += 1;
     });
-    println!("i = {}", i);
+  });
+  println!("i = {}", i);
 }

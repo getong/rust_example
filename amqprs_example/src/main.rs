@@ -1,95 +1,95 @@
 use amqprs::{
-    callbacks::{DefaultChannelCallback, DefaultConnectionCallback},
-    channel::{
-        BasicConsumeArguments, BasicPublishArguments, QueueBindArguments, QueueDeclareArguments,
-    },
-    connection::{Connection, OpenConnectionArguments},
-    consumer::DefaultConsumer,
-    BasicProperties,
+  callbacks::{DefaultChannelCallback, DefaultConnectionCallback},
+  channel::{
+    BasicConsumeArguments, BasicPublishArguments, QueueBindArguments, QueueDeclareArguments,
+  },
+  connection::{Connection, OpenConnectionArguments},
+  consumer::DefaultConsumer,
+  BasicProperties,
 };
 use tokio::time;
 use tracing::Level;
 
 #[tokio::main]
 async fn main() {
-    // construct a subscriber that prints formatted traces to stdout
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+  // construct a subscriber that prints formatted traces to stdout
+  let subscriber = tracing_subscriber::fmt()
+    .with_max_level(Level::INFO)
+    .finish();
+  tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    // open a connection to RabbitMQ server
-    let connection = Connection::open(&OpenConnectionArguments::new(
-        "localhost:5672",
-        "user",
-        "bitnami",
+  // open a connection to RabbitMQ server
+  let connection = Connection::open(&OpenConnectionArguments::new(
+    "localhost:5672",
+    "user",
+    "bitnami",
+  ))
+  .await
+  .unwrap();
+  connection
+    .register_callback(DefaultConnectionCallback)
+    .await
+    .unwrap();
+
+  // open a channel on the connection
+  let channel = connection.open_channel(None).await.unwrap();
+  channel
+    .register_callback(DefaultChannelCallback)
+    .await
+    .unwrap();
+
+  // declare a queue
+  let (queue_name, _, _) = channel
+    .queue_declare(QueueDeclareArguments::default())
+    .await
+    .unwrap()
+    .unwrap();
+
+  // bind the queue to exchange
+  let rounting_key = "amqprs.example";
+  let exchange_name = "amq.topic";
+  channel
+    .queue_bind(QueueBindArguments::new(
+      &queue_name,
+      exchange_name,
+      rounting_key,
     ))
     .await
     .unwrap();
-    connection
-        .register_callback(DefaultConnectionCallback)
-        .await
-        .unwrap();
 
-    // open a channel on the connection
-    let channel = connection.open_channel(None).await.unwrap();
-    channel
-        .register_callback(DefaultChannelCallback)
-        .await
-        .unwrap();
+  //////////////////////////////////////////////////////////////////////////////
+  // start consumer with given name
+  let args = BasicConsumeArguments::new(&queue_name, "example_basic_pub_sub");
 
-    // declare a queue
-    let (queue_name, _, _) = channel
-        .queue_declare(QueueDeclareArguments::default())
-        .await
-        .unwrap()
-        .unwrap();
+  channel
+    .basic_consume(DefaultConsumer::new(args.no_ack), args)
+    .await
+    .unwrap();
 
-    // bind the queue to exchange
-    let rounting_key = "amqprs.example";
-    let exchange_name = "amq.topic";
-    channel
-        .queue_bind(QueueBindArguments::new(
-            &queue_name,
-            exchange_name,
-            rounting_key,
-        ))
-        .await
-        .unwrap();
-
-    //////////////////////////////////////////////////////////////////////////////
-    // start consumer with given name
-    let args = BasicConsumeArguments::new(&queue_name, "example_basic_pub_sub");
-
-    channel
-        .basic_consume(DefaultConsumer::new(args.no_ack), args)
-        .await
-        .unwrap();
-
-    //////////////////////////////////////////////////////////////////////////////
-    // publish message
-    let content = String::from(
-        r#"
+  //////////////////////////////////////////////////////////////////////////////
+  // publish message
+  let content = String::from(
+    r#"
             {
                 "publisher": "example"
                 "data": "Hello, amqprs!"
             }
         "#,
-    )
-    .into_bytes();
+  )
+  .into_bytes();
 
-    // create arguments for basic_publish
-    let args = BasicPublishArguments::new(exchange_name, rounting_key);
+  // create arguments for basic_publish
+  let args = BasicPublishArguments::new(exchange_name, rounting_key);
 
-    channel
-        .basic_publish(BasicProperties::default(), content, args)
-        .await
-        .unwrap();
+  channel
+    .basic_publish(BasicProperties::default(), content, args)
+    .await
+    .unwrap();
 
-    // keep the `channel` and `connection` object from dropping before pub/sub is done.
-    // channel/connection will be closed when drop.
-    time::sleep(time::Duration::from_secs(1)).await;
-    // explicitly close
-    channel.close().await.unwrap();
-    connection.close().await.unwrap();
+  // keep the `channel` and `connection` object from dropping before pub/sub is done.
+  // channel/connection will be closed when drop.
+  time::sleep(time::Duration::from_secs(1)).await;
+  // explicitly close
+  channel.close().await.unwrap();
+  connection.close().await.unwrap();
 }

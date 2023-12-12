@@ -1,12 +1,12 @@
 fn create_closure() -> impl Fn() {
-    let msg = String::from("hello");
-    let v: Vec<i32> = vec![1, 2];
+  let msg = String::from("hello");
+  let v: Vec<i32> = vec![1, 2];
 
-    // please note that, move keyword
-    move || {
-        println!("{}", msg);
-        println!("{:?}", v);
-    }
+  // please note that, move keyword
+  move || {
+    println!("{}", msg);
+    println!("{:?}", v);
+  }
 }
 
 /*
@@ -25,14 +25,14 @@ impl Fn for Myclosure {
 */
 
 fn create_closure2() {
-    let msg = String::from("hello");
+  let msg = String::from("hello");
 
-    let my_print = || {
-        println!("{}", msg);
-    };
+  let my_print = || {
+    println!("{}", msg);
+  };
 
-    my_print();
-    my_print();
+  my_print();
+  my_print();
 }
 
 /*
@@ -49,12 +49,12 @@ impl Fn for Myclosure2 {
 */
 
 fn main() {
-    // println!("Hello, world!");
+  // println!("Hello, world!");
 
-    let a = create_closure();
-    a();
-    a();
+  let a = create_closure();
+  a();
+  a();
 
-    create_closure2();
-    create_closure2();
+  create_closure2();
+  create_closure2();
 }

@@ -7,11 +7,11 @@ use frui::prelude::*;
 struct App;
 
 impl ViewWidget for App {
-    fn build<'w>(&'w self, _: BuildContext<'w, Self>) -> Self::Widget<'w> {
-        Center::child(Text::new("Hello, World!"))
-    }
+  fn build<'w>(&'w self, _: BuildContext<'w, Self>) -> Self::Widget<'w> {
+    Center::child(Text::new("Hello, World!"))
+  }
 }
 
 fn main() {
-    run_app(App);
+  run_app(App);
 }

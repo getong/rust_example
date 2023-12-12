@@ -1,3 +1,3 @@
 pub fn say_foo() {
-    println!("Foo");
+  println!("Foo");
 }

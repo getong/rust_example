@@ -46,31 +46,31 @@ use futures::StreamExt;
 //}
 
 fn main() {
-    //创建一个executor线程池
-    let pool = ThreadPool::new().expect("Failed to build pool");
-    //创建一个unbounded mpsc channel来进行任务间消息通信
-    let (tx, rx) = mpsc::unbounded::<i32>();
+  //创建一个executor线程池
+  let pool = ThreadPool::new().expect("Failed to build pool");
+  //创建一个unbounded mpsc channel来进行任务间消息通信
+  let (tx, rx) = mpsc::unbounded::<i32>();
 
-    // async代码块
-    let fut_values = async {
-        // async代码块内部的async代码块，能使用外部async代码块的executor执行任务
-        let fut_tx_result = async move {
-            (0..100).for_each(|v| {
-                tx.unbounded_send(v).expect("Failed to send");
-            })
-        };
-
-        // 通过线程池调用fut_tx_result future, poll其结果
-        pool.spawn_ok(fut_tx_result);
-
-        // 将rx这个接收消息的Stream转换为储存结果的future
-        let fut_values = rx.map(|v| v * 2).collect();
-        // 等待接收结果的future执行完毕
-        fut_values.await
+  // async代码块
+  let fut_values = async {
+    // async代码块内部的async代码块，能使用外部async代码块的executor执行任务
+    let fut_tx_result = async move {
+      (0..100).for_each(|v| {
+        tx.unbounded_send(v).expect("Failed to send");
+      })
     };
 
-    //开始执行fut_values, 将会调用Future::poll
-    let values: Vec<i32> = executor::block_on(fut_values);
+    // 通过线程池调用fut_tx_result future, poll其结果
+    pool.spawn_ok(fut_tx_result);
 
-    println!("Values={:?}", values);
+    // 将rx这个接收消息的Stream转换为储存结果的future
+    let fut_values = rx.map(|v| v * 2).collect();
+    // 等待接收结果的future执行完毕
+    fut_values.await
+  };
+
+  //开始执行fut_values, 将会调用Future::poll
+  let values: Vec<i32> = executor::block_on(fut_values);
+
+  println!("Values={:?}", values);
 }

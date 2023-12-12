@@ -1,15 +1,15 @@
 trait TupleAppend<T> {
-    type ResultType;
+  type ResultType;
 
-    fn append(self, t: T) -> Self::ResultType;
+  fn append(self, t: T) -> Self::ResultType;
 }
 
 impl<T> TupleAppend<T> for () {
-    type ResultType = (T,);
+  type ResultType = (T,);
 
-    fn append(self, t: T) -> Self::ResultType {
-        (t,)
-    }
+  fn append(self, t: T) -> Self::ResultType {
+    (t,)
+  }
 }
 
 macro_rules! impl_tuple_append {
@@ -39,9 +39,9 @@ impl_tuple_append! {
 }
 
 fn main() {
-    let some_tuple: (i32, &str, bool) = (1, "Hello", true);
-    println!("{:?}", some_tuple);
+  let some_tuple: (i32, &str, bool) = (1, "Hello", true);
+  println!("{:?}", some_tuple);
 
-    let with_world: (i32, &str, bool, &str) = some_tuple.append("World");
-    println!("{:?}", with_world);
+  let with_world: (i32, &str, bool, &str) = some_tuple.append("World");
+  println!("{:?}", with_world);
 }

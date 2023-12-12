@@ -13,10 +13,10 @@ pub use shape::{Shape, ShapeValue};
 pub struct ComponentsPlugin;
 
 impl ProtocolPlugin for ComponentsPlugin {
-    fn build(&self, protocol: &mut Protocol) {
-        protocol
-            .add_component::<Color>()
-            .add_component::<Position>()
-            .add_component::<Shape>();
-    }
+  fn build(&self, protocol: &mut Protocol) {
+    protocol
+      .add_component::<Color>()
+      .add_component::<Position>()
+      .add_component::<Shape>();
+  }
 }

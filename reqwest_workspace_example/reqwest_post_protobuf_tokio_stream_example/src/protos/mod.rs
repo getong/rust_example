@@ -1,15 +1,15 @@
 pub mod counter_number {
-    include!("counter_number.rs");
+  include!("counter_number.rs");
 }
 pub mod deeper_resource {
-    include!("deeper_resource.rs");
+  include!("deeper_resource.rs");
 }
 pub mod mandelbrot {
-    include!("mandelbrot.rs");
+  include!("mandelbrot.rs");
 }
 pub mod mypackage {
-    include!("mypackage.rs");
+  include!("mypackage.rs");
 }
 pub mod sample_resource {
-    include!("sample_resource.rs");
+  include!("sample_resource.rs");
 }

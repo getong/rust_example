@@ -7,10 +7,10 @@ macro_rules! m {
 }
 
 fn main() {
-    print!(
-        "{}{}{}",
-        m! { return || true },
-        m! { (return) || true },
-        m! { {return} || true },
-    );
+  print!(
+    "{}{}{}",
+    m! { return || true },
+    m! { (return) || true },
+    m! { {return} || true },
+  );
 }

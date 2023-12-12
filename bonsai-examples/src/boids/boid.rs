@@ -8,62 +8,62 @@ const MIN_DISTANCE: f32 = 16.0; // Pixels
 
 #[derive(Clone, Debug)]
 pub enum Action {
-    /// avoid others
-    AvoidOthers,
-    /// Fly towards center
-    FlyTowardsCenter,
-    /// Match velocity
-    MatchVelocity,
-    /// Limit speed
-    LimitSpeed,
-    /// Keep within bounds
-    KeepWithinBounds,
+  /// avoid others
+  AvoidOthers,
+  /// Fly towards center
+  FlyTowardsCenter,
+  /// Match velocity
+  MatchVelocity,
+  /// Limit speed
+  LimitSpeed,
+  /// Keep within bounds
+  KeepWithinBounds,
 }
 
 #[derive(Debug, Clone)]
 pub struct Boid {
-    pub x: f32,
-    pub y: f32,
-    pub dx: f32,
-    pub dy: f32,
-    pub color: [f32; 4],
-    pub bt: BT<Action, String, f32>,
+  pub x: f32,
+  pub y: f32,
+  pub dx: f32,
+  pub dy: f32,
+  pub color: [f32; 4],
+  pub bt: BT<Action, String, f32>,
 }
 
 impl Boid {
-    pub fn new(win_width: f32, win_height: f32, bt: BT<Action, String, f32>) -> Boid {
-        Boid {
-            x: (rand::random::<f32>() * win_width / 2.0 + win_width / 4.0),
-            y: (rand::random::<f32>() * win_height / 2.0 + win_height / 4.0),
-            dx: (rand::random::<f32>() - 0.5) * SPEED_LIMIT,
-            dy: (rand::random::<f32>() - 0.5) * SPEED_LIMIT,
-            color: [
-                //rgb
-                (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
-                (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
-                (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
-                0.5,
-            ],
-            bt,
-        }
+  pub fn new(win_width: f32, win_height: f32, bt: BT<Action, String, f32>) -> Boid {
+    Boid {
+      x: (rand::random::<f32>() * win_width / 2.0 + win_width / 4.0),
+      y: (rand::random::<f32>() * win_height / 2.0 + win_height / 4.0),
+      dx: (rand::random::<f32>() - 0.5) * SPEED_LIMIT,
+      dy: (rand::random::<f32>() - 0.5) * SPEED_LIMIT,
+      color: [
+        //rgb
+        (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
+        (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
+        (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
+        0.5,
+      ],
+      bt,
     }
+  }
 
-    fn distance(&self, boid: &Boid) -> f32 {
-        ((self.x - boid.x).powi(2) + (self.y - boid.y).powi(2)).sqrt()
-    }
+  fn distance(&self, boid: &Boid) -> f32 {
+    ((self.x - boid.x).powi(2) + (self.y - boid.y).powi(2)).sqrt()
+  }
 }
 
 pub fn game_tick(dt: f32, cursor: mint::Point2<f32>, boid: &mut Boid, other_boids: Vec<Boid>) {
-    // proceed to next iteration in event loop
-    let e: Event = UpdateArgs { dt: dt.into() }.into();
+  // proceed to next iteration in event loop
+  let e: Event = UpdateArgs { dt: dt.into() }.into();
 
-    // unwrap bt for boid
-    let mut bt = boid.bt.clone();
-    let db = &*bt.get_blackboard().get_db();
-    let win_width: f32 = *db.get("win_width").unwrap();
-    let win_height: f32 = *db.get("win_height").unwrap();
+  // unwrap bt for boid
+  let mut bt = boid.bt.clone();
+  let db = &*bt.get_blackboard().get_db();
+  let win_width: f32 = *db.get("win_width").unwrap();
+  let win_height: f32 = *db.get("win_height").unwrap();
 
-    #[rustfmt::skip]
+  #[rustfmt::skip]
     bt.state.tick(&e,&mut |args: bonsai_bt::ActionArgs<Event, Action>| {
         match &*args.action {
             Action::AvoidOthers => {

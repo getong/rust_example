@@ -1,11 +1,11 @@
 use super::{App, Block};
 use libp2p::{
-    floodsub::{Floodsub, FloodsubEvent, Topic},
-    identity, mdns,
-    swarm::{NetworkBehaviour, Swarm},
-    PeerId,
+  floodsub::{Floodsub, FloodsubEvent, Topic},
+  identity, mdns,
+  swarm::{NetworkBehaviour, Swarm},
+  PeerId,
 };
-use log::{info};
+use log::info;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -18,69 +18,69 @@ pub static BLOCK_TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("blocks"));
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChainResponse {
-    pub blocks: Vec<Block>,
-    pub receiver: String,
+  pub blocks: Vec<Block>,
+  pub receiver: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LocalChainRequest {
-    pub from_peer_id: String,
+  pub from_peer_id: String,
 }
 
 pub enum EventType {
-    LocalChainResponse(ChainResponse),
-    Input(String),
-    Init,
+  LocalChainResponse(ChainResponse),
+  Input(String),
+  Init,
 }
 
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "AppBehaviourEvent")]
 pub struct AppBehaviour {
-    pub floodsub: Floodsub,
-    pub mdns: mdns::tokio::Behaviour,
-    #[behaviour(ignore)]
-    pub response_sender: mpsc::UnboundedSender<ChainResponse>,
-    #[behaviour(ignore)]
-    pub init_sender: mpsc::UnboundedSender<bool>,
-    #[behaviour(ignore)]
-    pub app: App,
+  pub floodsub: Floodsub,
+  pub mdns: mdns::tokio::Behaviour,
+  #[behaviour(ignore)]
+  pub response_sender: mpsc::UnboundedSender<ChainResponse>,
+  #[behaviour(ignore)]
+  pub init_sender: mpsc::UnboundedSender<bool>,
+  #[behaviour(ignore)]
+  pub app: App,
 }
 
 enum AppBehaviourEvent {
-    FloodSub(FloodsubEvent),
-    Mdns(mdns::Event),
+  FloodSub(FloodsubEvent),
+  Mdns(mdns::Event),
 }
 
 impl From<FloodsubEvent> for AppBehaviourEvent {
-    fn from(event: FloodsubEvent) -> Self {
-        AppBehaviourEvent::FloodSub(event)
-    }
+  fn from(event: FloodsubEvent) -> Self {
+    AppBehaviourEvent::FloodSub(event)
+  }
 }
 
 impl From<mdns::Event> for AppBehaviourEvent {
-    fn from(event: mdns::Event) -> Self {
-        AppBehaviourEvent::Mdns(event)
-    }
+  fn from(event: mdns::Event) -> Self {
+    AppBehaviourEvent::Mdns(event)
+  }
 }
 
 impl AppBehaviour {
-    pub async fn new(
-        app: App,
-        response_sender: mpsc::UnboundedSender<ChainResponse>,
-        init_sender: mpsc::UnboundedSender<bool>,
-    ) -> Self {
-        let mut behaviour = Self {
-            app,
-            floodsub: Floodsub::new(*PEER_ID),
-            mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), *PEER_ID).unwrap(),
-            response_sender,
-            init_sender,
-        };
-        behaviour.floodsub.subscribe(CHAIN_TOPIC.clone());
-        behaviour.floodsub.subscribe(BLOCK_TOPIC.clone());
+  pub async fn new(
+    app: App,
+    response_sender: mpsc::UnboundedSender<ChainResponse>,
+    init_sender: mpsc::UnboundedSender<bool>,
+  ) -> Self {
+    let mut behaviour = Self {
+      app,
+      floodsub: Floodsub::new(*PEER_ID),
+      mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), *PEER_ID).unwrap(),
+      response_sender,
+      init_sender,
+    };
+    behaviour.floodsub.subscribe(CHAIN_TOPIC.clone());
+    behaviour.floodsub.subscribe(BLOCK_TOPIC.clone());
 
-        behaviour
-    }
+    behaviour
+  }
 }
 
 // // incoming event handler
@@ -133,45 +133,45 @@ impl AppBehaviour {
 // }
 
 pub fn get_list_peers(swarm: &Swarm<AppBehaviour>) -> Vec<String> {
-    info!("Discovered Peers:");
-    let nodes = swarm.behaviour().mdns.discovered_nodes();
-    let mut unique_peers = HashSet::new();
-    for peer in nodes {
-        unique_peers.insert(peer);
-    }
-    unique_peers.iter().map(|p| p.to_string()).collect()
+  info!("Discovered Peers:");
+  let nodes = swarm.behaviour().mdns.discovered_nodes();
+  let mut unique_peers = HashSet::new();
+  for peer in nodes {
+    unique_peers.insert(peer);
+  }
+  unique_peers.iter().map(|p| p.to_string()).collect()
 }
 
 pub fn handle_print_peers(swarm: &Swarm<AppBehaviour>) {
-    let peers = get_list_peers(swarm);
-    peers.iter().for_each(|p| info!("{}", p));
+  let peers = get_list_peers(swarm);
+  peers.iter().for_each(|p| info!("{}", p));
 }
 
 pub fn handle_print_chain(swarm: &Swarm<AppBehaviour>) {
-    info!("Local Blockchain:");
-    let pretty_json =
-        serde_json::to_string_pretty(&swarm.behaviour().app.blocks).expect("can jsonify blocks");
-    info!("{}", pretty_json);
+  info!("Local Blockchain:");
+  let pretty_json =
+    serde_json::to_string_pretty(&swarm.behaviour().app.blocks).expect("can jsonify blocks");
+  info!("{}", pretty_json);
 }
 
 pub fn handle_create_block(cmd: &str, swarm: &mut Swarm<AppBehaviour>) {
-    if let Some(data) = cmd.strip_prefix("create b") {
-        let behaviour = swarm.behaviour_mut();
-        let latest_block = behaviour
-            .app
-            .blocks
-            .last()
-            .expect("there is at least one block");
-        let block = Block::new(
-            latest_block.id + 1,
-            latest_block.hash.clone(),
-            data.to_owned(),
-        );
-        let json = serde_json::to_string(&block).expect("can jsonify request");
-        behaviour.app.blocks.push(block);
-        info!("broadcasting new block");
-        behaviour
-            .floodsub
-            .publish(BLOCK_TOPIC.clone(), json.as_bytes());
-    }
+  if let Some(data) = cmd.strip_prefix("create b") {
+    let behaviour = swarm.behaviour_mut();
+    let latest_block = behaviour
+      .app
+      .blocks
+      .last()
+      .expect("there is at least one block");
+    let block = Block::new(
+      latest_block.id + 1,
+      latest_block.hash.clone(),
+      data.to_owned(),
+    );
+    let json = serde_json::to_string(&block).expect("can jsonify request");
+    behaviour.app.blocks.push(block);
+    info!("broadcasting new block");
+    behaviour
+      .floodsub
+      .publish(BLOCK_TOPIC.clone(), json.as_bytes());
+  }
 }

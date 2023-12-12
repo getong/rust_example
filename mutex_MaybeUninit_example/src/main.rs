@@ -13,19 +13,19 @@ static mut M: MaybeUninit<Mutex<u32>> = MaybeUninit::uninit();
 //}
 
 fn main() {
-    thread::spawn(move || unsafe {
-        let m = M.as_mut_ptr();
-        m.write(Mutex::new(3));
-    })
-    .join()
-    .expect("thread::spawn failed");
+  thread::spawn(move || unsafe {
+    let m = M.as_mut_ptr();
+    m.write(Mutex::new(3));
+  })
+  .join()
+  .expect("thread::spawn failed");
 
-    unsafe {
-        let m = M.as_mut_ptr();
-        m.write(Mutex::new(2));
-    }
+  unsafe {
+    let m = M.as_mut_ptr();
+    m.write(Mutex::new(2));
+  }
 
-    unsafe {
-        assert_eq!(*M.as_ptr().read().lock().unwrap(), 2);
-    }
+  unsafe {
+    assert_eq!(*M.as_ptr().read().lock().unwrap(), 2);
+  }
 }

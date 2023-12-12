@@ -1,11 +1,11 @@
 use std::thread;
 fn main() {
-    let mut health = 12;
+  let mut health = 12;
 
-    thread::spawn(move || {
-        health *= 2;
-        println!("thread health:{} ", health);
-    });
+  thread::spawn(move || {
+    health *= 2;
+    println!("thread health:{} ", health);
+  });
 
-    println!("{}", health);
+  println!("{}", health);
 }

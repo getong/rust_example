@@ -52,49 +52,48 @@ mod protos;
 use protos::*;
 
 async fn fetch_and_decode_protobuf_stream(url: &str) -> Result<(), Error> {
-    let client = reqwest::Client::new();
+  let client = reqwest::Client::new();
 
-    let mut response = client.get(url).send().await?.bytes_stream();
+  let mut response = client.get(url).send().await?.bytes_stream();
 
-    // tokio::pin!(response);
+  // tokio::pin!(response);
 
-    // let mut byte_list = vec![];
-    let mut cursor = Cursor::new(vec![]);
-    while let Some(chunk) = response.next().await {
-        let chunk = chunk?;
-        cursor.get_mut().extend_from_slice(&chunk);
+  // let mut byte_list = vec![];
+  let mut cursor = Cursor::new(vec![]);
+  while let Some(chunk) = response.next().await {
+    let chunk = chunk?;
+    cursor.get_mut().extend_from_slice(&chunk);
 
-        while cursor.has_remaining() {
-            match prost::encoding::decode_varint(&mut cursor) {
-                Ok(len) => {
-                    if cursor.remaining() < len as usize {
-                        // Not enough data for a complete message, wait for more data
-                        break;
-                    }
+    while cursor.has_remaining() {
+      match prost::encoding::decode_varint(&mut cursor) {
+        Ok(len) => {
+          if cursor.remaining() < len as usize {
+            // Not enough data for a complete message, wait for more data
+            break;
+          }
 
-                    let message_end = cursor.position() + len as u64;
-                    match mypackage::MyMessage::decode(&mut cursor) {
-                        Ok(message) => println!("Received message: {:?}", message),
-                        Err(e) => eprintln!("Failed to decode message: {}", e),
-                    }
-                    cursor.get_mut().drain(0..message_end as usize);
-                    cursor.set_position(0);
-                }
-                Err(_) => {
-                    // Failed to decode Varint, possibly incomplete data
-                    break;
-                }
-            }
+          let message_end = cursor.position() + len as u64;
+          match mypackage::MyMessage::decode(&mut cursor) {
+            Ok(message) => println!("Received message: {:?}", message),
+            Err(e) => eprintln!("Failed to decode message: {}", e),
+          }
+          cursor.get_mut().drain(0..message_end as usize);
+          cursor.set_position(0);
         }
+        Err(_) => {
+          // Failed to decode Varint, possibly incomplete data
+          break;
+        }
+      }
     }
+  }
 
-    Ok(())
+  Ok(())
 }
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = fetch_and_decode_protobuf_stream("http://localhost:8080/protobuf-stream").await
-    {
-        eprintln!("Error: {}", e);
-    }
+  if let Err(e) = fetch_and_decode_protobuf_stream("http://localhost:8080/protobuf-stream").await {
+    eprintln!("Error: {}", e);
+  }
 }

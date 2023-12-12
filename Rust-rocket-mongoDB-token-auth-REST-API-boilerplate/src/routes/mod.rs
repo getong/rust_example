@@ -3,21 +3,21 @@ pub mod routes;
 pub mod validator_authorization;
 
 pub enum TypeValidDataFromRegistration {
-    Ok,
-    BadFirstName,
-    BadLastName,
-    BadLogin,
-    BadPassword,
-    BadMail,
+  Ok,
+  BadFirstName,
+  BadLastName,
+  BadLogin,
+  BadPassword,
+  BadMail,
 }
 
 pub enum TypeValidTwoStr {
-    Ok,
-    BadFirst,
-    BadSecond,
+  Ok,
+  BadFirst,
+  BadSecond,
 }
 
 pub enum TypeValidMail {
-    Ok,
-    BadMail,
+  Ok,
+  BadMail,
 }

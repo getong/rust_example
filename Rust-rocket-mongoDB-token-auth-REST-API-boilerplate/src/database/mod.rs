@@ -4,22 +4,22 @@ pub mod impl_mondo_db;
 use crate::models::tokens::Token;
 
 pub enum LoginError {
-    Ok(Token),
-    WrongLogin,
-    WrongPassword,
-    Unknown,
+  Ok(Token),
+  WrongLogin,
+  WrongPassword,
+  Unknown,
 }
 
 pub enum RegistrationError {
-    Ok(Token),
-    AlreadyRegisteredByEmail,
-    AlreadyRegisteredByLogin,
-    WrongPassword,
-    Unknown,
+  Ok(Token),
+  AlreadyRegisteredByEmail,
+  AlreadyRegisteredByLogin,
+  WrongPassword,
+  Unknown,
 }
 
 pub enum FindUserBy {
-    UserNotFound,
-    UserFoundByLogin,
-    UserFoundByEmail,
+  UserNotFound,
+  UserFoundByLogin,
+  UserFoundByEmail,
 }

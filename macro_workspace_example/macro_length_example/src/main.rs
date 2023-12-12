@@ -15,9 +15,9 @@ macro_rules! lets_count {
 }
 
 fn main() {
-    lets_count!(
-        many (small , things) ;
-        none () ;
-        exactly ( one ) ;
-    );
+  lets_count!(
+      many (small , things) ;
+      none () ;
+      exactly ( one ) ;
+  );
 }

@@ -1,14 +1,13 @@
 use fred::prelude::*;
 
-
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-    let default_config = RedisConfig::default();
-    let config = RedisConfig{
-        username: Some("bert".to_owned()),
-        password: Some("abc123".to_owned()),
-        ..default_config
-    };
+  let default_config = RedisConfig::default();
+  let config = RedisConfig {
+    username: Some("bert".to_owned()),
+    password: Some("abc123".to_owned()),
+    ..default_config
+  };
   let policy = ReconnectPolicy::default();
   let client = RedisClient::new(config);
 
@@ -24,7 +23,10 @@ async fn main() -> Result<(), RedisError> {
 
   let _: () = client.set("foo", "bar", None, None, false).await?;
   // or use turbofish to declare types. the first type is always the response.
-  println!("Foo: {:?}", client.get::<String, _>("foo".to_owned()).await?);
+  println!(
+    "Foo: {:?}",
+    client.get::<String, _>("foo".to_owned()).await?
+  );
   // or use a lower level interface for responses to defer parsing, etc
   let foo: RedisValue = client.get("foo").await?;
   assert!(foo.is_string());

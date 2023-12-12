@@ -4,37 +4,37 @@ use futures::StreamExt;
 use tokio::time::{sleep, Duration};
 
 async fn async_stream_generator() -> impl Stream<Item = i32> {
-    stream! {
-        for i in 0..5 {
+  stream! {
+      for i in 0..5 {
 
-            yield i;
-        }
-    }
+          yield i;
+      }
+  }
 }
 
 #[tokio::main]
 async fn main() {
-    let future_of_stream = async_stream_generator();
-    let stream = future_of_stream.await;
+  let future_of_stream = async_stream_generator();
+  let stream = future_of_stream.await;
 
-    tokio::pin!(stream);
-    let timeout_duration = Duration::from_secs(3);
+  tokio::pin!(stream);
+  let timeout_duration = Duration::from_secs(3);
 
-    loop {
-        tokio::select! {
-            value = stream.next() => {
-                match value {
-                    Some(v) => println!("Stream value: {}", v),
-                    None => {
-                        println!("Stream ended");
-                        break;
-                    },
-                }
-            }
-            _ = sleep(timeout_duration) => {
-                println!("Timeout reached");
-                break;
+  loop {
+    tokio::select! {
+        value = stream.next() => {
+            match value {
+                Some(v) => println!("Stream value: {}", v),
+                None => {
+                    println!("Stream ended");
+                    break;
+                },
             }
         }
+        _ = sleep(timeout_duration) => {
+            println!("Timeout reached");
+            break;
+        }
     }
+  }
 }

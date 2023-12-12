@@ -8,6 +8,6 @@ lazy_static! {
 }
 
 fn main() {
-    // println!("Hello, world!");
-    println!("PRESSED: {}", PRESSED.lock().unwrap());
+  // println!("Hello, world!");
+  println!("PRESSED: {}", PRESSED.lock().unwrap());
 }

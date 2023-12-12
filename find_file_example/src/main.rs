@@ -10,30 +10,30 @@ const RUSV_FILENAME: &str = "Cargo.toml";
  */
 
 fn find_rusv_file(starting_directory: &Path) -> Option<PathBuf> {
-    let mut path: PathBuf = starting_directory.into();
-    let file = Path::new(RUSV_FILENAME);
+  let mut path: PathBuf = starting_directory.into();
+  let file = Path::new(RUSV_FILENAME);
 
-    loop {
-        path.push(file);
+  loop {
+    path.push(file);
 
-        if path.is_file() {
-            break Some(path);
-        }
-
-        if !(path.pop() && path.pop()) {
-            // remove file && remove parent
-            break None;
-        }
+    if path.is_file() {
+      break Some(path);
     }
+
+    if !(path.pop() && path.pop()) {
+      // remove file && remove parent
+      break None;
+    }
+  }
 }
 
 fn main() -> std::io::Result<()> {
-    let path = env::current_dir()?;
+  let path = env::current_dir()?;
 
-    match find_rusv_file(&path) {
-        Some(filepath) => println!("Rusv file was found: {:?}", filepath),
-        None => println!("No rusv file was found."),
-    };
+  match find_rusv_file(&path) {
+    Some(filepath) => println!("Rusv file was found: {:?}", filepath),
+    None => println!("No rusv file was found."),
+  };
 
-    Ok(())
+  Ok(())
 }

@@ -2,11 +2,11 @@ use phf::phf_map;
 
 #[derive(Clone, Debug)]
 pub enum Keyword {
-    Loop,
-    Continue,
-    Break,
-    Fn,
-    Extern,
+  Loop,
+  Continue,
+  Break,
+  Fn,
+  Extern,
 }
 
 static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
@@ -18,10 +18,10 @@ static KEYWORDS: phf::Map<&'static str, Keyword> = phf_map! {
 };
 
 pub fn parse_keyword(keyword: &str) -> Option<Keyword> {
-    KEYWORDS.get(keyword).cloned()
+  KEYWORDS.get(keyword).cloned()
 }
 
 fn main() {
-    // println!("Hello, world!");
-    println!("parse_keyword loop: {:?}", parse_keyword("loop").unwrap());
+  // println!("Hello, world!");
+  println!("parse_keyword loop: {:?}", parse_keyword("loop").unwrap());
 }

@@ -8,16 +8,16 @@ pub mod patch_user;
 pub mod refresh_tokens;
 
 enum HelloNameError {
-    OnlyLogin(String),
-    NoOnlyLogin(String),
-    ErrorID,
+  OnlyLogin(String),
+  NoOnlyLogin(String),
+  ErrorID,
 }
 
 pub enum EditUserRequestError {
-    Ok(Json<EditUserRequest>),
-    NoneEditModel,
-    BadMail,
-    BadLogin,
-    BadFirstName,
-    BadLastName,
+  Ok(Json<EditUserRequest>),
+  NoneEditModel,
+  BadMail,
+  BadLogin,
+  BadFirstName,
+  BadLastName,
 }

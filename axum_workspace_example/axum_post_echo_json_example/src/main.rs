@@ -6,17 +6,17 @@ use serde_json::Value;
 
 #[tokio::main]
 async fn main() {
-    // build our application with a route
-    let router = Router::new().route("/", post(echo_handler));
+  // build our application with a route
+  let router = Router::new().route("/", post(echo_handler));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("listening on {:?}", listener);
+  let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+  println!("listening on {:?}", listener);
 
-    axum::serve(listener, router).await.unwrap();
+  axum::serve(listener, router).await.unwrap();
 }
 
 async fn echo_handler(Json(payload): Json<Value>) -> Response {
-    // Echoes back the received JSON payload
-    // println!("payload: {:?}", payload) ;
-    Json(payload).into_response()
+  // Echoes back the received JSON payload
+  // println!("payload: {:?}", payload) ;
+  Json(payload).into_response()
 }

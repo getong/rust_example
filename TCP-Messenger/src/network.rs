@@ -6,42 +6,42 @@ use std::fs::File;
 use std::thread;
 
 pub struct NetworkHandler {
-    listener: TcpListener,
+  listener: TcpListener,
 }
 
 impl NetworkHandler {
-    pub fn new(ip_port: &str) -> Self {
-        let listener = TcpListener::bind(ip_port).unwrap();
+  pub fn new(ip_port: &str) -> Self {
+    let listener = TcpListener::bind(ip_port).unwrap();
 
-        NetworkHandler { listener: listener }
-    }
+    NetworkHandler { listener: listener }
+  }
 
-    pub fn listen(self) {
-        thread::spawn(move || {
-            for stream in self.listener.incoming() {
-                let mut buf = vec![];
-                match stream {
-                    Ok(mut value) => {
-                        let raw = value.read_to_end(&mut buf);
-                        match raw {
-                            Ok(_) => {}
-                            _ => eprintln!("somthing messed up inside raw"),
-                        }
-                    }
-                    _ => eprintln!("something messup inside value"),
-                }
-                NetworkHandler::respond(&mut buf);
+  pub fn listen(self) {
+    thread::spawn(move || {
+      for stream in self.listener.incoming() {
+        let mut buf = vec![];
+        match stream {
+          Ok(mut value) => {
+            let raw = value.read_to_end(&mut buf);
+            match raw {
+              Ok(_) => {}
+              _ => eprintln!("somthing messed up inside raw"),
             }
-        });
-    }
+          }
+          _ => eprintln!("something messup inside value"),
+        }
+        NetworkHandler::respond(&mut buf);
+      }
+    });
+  }
 
-    pub fn respond(raw: &mut Vec<u8>) {
-        println!("Handled: {:?}", raw);
-        raw.push(10);
-        let mut file = File::options().append(true).open("/tmp/chat.txt").unwrap();
-        file.write_all(&raw[..]).unwrap();
-        println!("what the thell");
-    }
+  pub fn respond(raw: &mut Vec<u8>) {
+    println!("Handled: {:?}", raw);
+    raw.push(10);
+    let mut file = File::options().append(true).open("/tmp/chat.txt").unwrap();
+    file.write_all(&raw[..]).unwrap();
+    println!("what the thell");
+  }
 }
 
 // #[cfg(test)]

@@ -7,24 +7,24 @@ pub static CERT_PEM: &str = include_str!("../../certs/cert.pem");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let mut client = Client::builder()
-        .with_tls(CERT_PEM)?
-        .with_io("0.0.0.0:0")?
-        .start()?;
+  let mut client = Client::builder()
+    .with_tls(CERT_PEM)?
+    .with_io("0.0.0.0:0")?
+    .start()?;
 
-    let addr: SocketAddr = "127.0.0.1:4433".parse()?;
-    let connect = Connect::new(addr).with_server_name("localhost");
-    let mut connection = client.connect(connect).await?;
+  let addr: SocketAddr = "127.0.0.1:4433".parse()?;
+  let connect = Connect::new(addr).with_server_name("localhost");
+  let mut connection = client.connect(connect).await?;
 
-    let mut stream = connection.open_bidirectional_stream().await?;
-    stream.write_all(b"hello post-quantum server!").await?;
+  let mut stream = connection.open_bidirectional_stream().await?;
+  stream.write_all(b"hello post-quantum server!").await?;
 
-    let mut stdout = tokio::io::stdout();
-    tokio::io::copy(&mut stream, &mut stdout).await?;
+  let mut stdout = tokio::io::stdout();
+  tokio::io::copy(&mut stream, &mut stdout).await?;
 
-    connection.close(0u8.into());
+  connection.close(0u8.into());
 
-    client.wait_idle().await?;
+  client.wait_idle().await?;
 
-    Ok(())
+  Ok(())
 }

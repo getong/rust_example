@@ -18,17 +18,17 @@ use select::*;
 
 #[async_std::main]
 async fn main() {
-    let db = Database::connect("sql://sea:sea@localhost/bakery")
-        .await
-        .unwrap();
+  let db = Database::connect("sql://sea:sea@localhost/bakery")
+    .await
+    .unwrap();
 
-    println!("{:?}\n", db);
+  println!("{:?}\n", db);
 
-    println!("===== =====\n");
+  println!("===== =====\n");
 
-    all_about_select(&db).await.unwrap();
+  all_about_select(&db).await.unwrap();
 
-    println!("===== =====\n");
+  println!("===== =====\n");
 
-    all_about_operation(&db).await.unwrap();
+  all_about_operation(&db).await.unwrap();
 }

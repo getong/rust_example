@@ -19,23 +19,23 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 impl Solution {
-    pub fn max_depth(root: Option<Rc<RefCell<TreeNode>>>) -> i32 {
-        Self::next_node(root.as_ref(), 0)
-    }
+  pub fn max_depth(root: Option<Rc<RefCell<TreeNode>>>) -> i32 {
+    Self::next_node(root.as_ref(), 0)
+  }
 
-    fn next_node(node: Option<&Rc<RefCell<TreeNode>>>, mut num: i32) -> i32 {
-        match node {
-            None => num,
-            Some(rc_node) => {
-                num += 1;
-                let lmax = Self::next_node(rc_node.borrow().left.as_ref(), num);
-                let rmax = Self::next_node(rc_node.borrow().right.as_ref(), num);
-                lmax.max(rmax)
-            }
-        }
+  fn next_node(node: Option<&Rc<RefCell<TreeNode>>>, mut num: i32) -> i32 {
+    match node {
+      None => num,
+      Some(rc_node) => {
+        num += 1;
+        let lmax = Self::next_node(rc_node.borrow().left.as_ref(), num);
+        let rmax = Self::next_node(rc_node.borrow().right.as_ref(), num);
+        lmax.max(rmax)
+      }
     }
+  }
 }
 
 fn main() {
-    println!("Hello, world!");
+  println!("Hello, world!");
 }

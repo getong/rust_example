@@ -2,11 +2,14 @@
 
 use std::mem;
 
-
-struct Buffer<T> { buf: Vec<T> }
+struct Buffer<T> {
+  buf: Vec<T>,
+}
 
 #[derive(Copy, Debug, Clone)]
-struct Buffer2 { buf: usize }
+struct Buffer2 {
+  buf: usize,
+}
 
 // impl<T> Buffer<T> {
 //     fn get_and_reset(&mut self) -> Vec<T> {
@@ -18,37 +21,35 @@ struct Buffer2 { buf: usize }
 // }
 
 impl<T> Buffer<T> {
-    fn get_and_reset(&mut self) -> Vec<T> {
-        mem::take(&mut self.buf)
-    }
+  fn get_and_reset(&mut self) -> Vec<T> {
+    mem::take(&mut self.buf)
+  }
 }
 
 impl Buffer2 {
-    fn get_and_reset(&mut self) -> usize {
-        mem::take(&mut self.buf)
-    }
+  fn get_and_reset(&mut self) -> usize {
+    mem::take(&mut self.buf)
+  }
 }
 
 fn main() {
-    // println!("Hello, world!");
-    let mut v: Vec<i32> = vec![1, 2];
+  // println!("Hello, world!");
+  let mut v: Vec<i32> = vec![1, 2];
 
-    let old_v = mem::take(&mut v);
-    assert_eq!(vec![1, 2], old_v);
-    assert!(v.is_empty());
+  let old_v = mem::take(&mut v);
+  assert_eq!(vec![1, 2], old_v);
+  assert!(v.is_empty());
 
+  let mut buffer = Buffer { buf: vec![0, 1] };
+  assert_eq!(buffer.buf.len(), 2);
 
-    let mut buffer = Buffer { buf: vec![0, 1] };
-    assert_eq!(buffer.buf.len(), 2);
+  assert_eq!(buffer.get_and_reset(), vec![0, 1]);
+  assert_eq!(buffer.buf.len(), 0);
+  println!("buffer.buf:{:?}", buffer.buf);
 
-    assert_eq!(buffer.get_and_reset(), vec![0, 1]);
-    assert_eq!(buffer.buf.len(), 0);
-    println!("buffer.buf:{:?}", buffer.buf);
+  let mut buffer2 = Buffer2 { buf: 2 };
 
-
-    let mut buffer2 = Buffer2 { buf:2 };
-
-    assert_eq!(buffer2.get_and_reset(), 2);
-    assert_eq!(buffer2.buf, 0);
-    println!("buffer2.buf:{:?}", buffer2.buf);
+  assert_eq!(buffer2.get_and_reset(), 2);
+  assert_eq!(buffer2.buf, 0);
+  println!("buffer2.buf:{:?}", buffer2.buf);
 }

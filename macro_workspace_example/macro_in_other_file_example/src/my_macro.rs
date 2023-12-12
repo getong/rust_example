@@ -1,8 +1,8 @@
 #[macro_export]
 macro_rules! square {
-    ($x:expr) => {
-        $x * $x
-    };
+  ($x:expr) => {
+    $x * $x
+  };
 }
 
 #[macro_export]

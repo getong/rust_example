@@ -2,11 +2,11 @@ use derive_hello_example::Hello;
 
 #[derive(Hello)]
 enum Pet {
-    Cat,
+  Cat,
 }
 
 fn main() {
-    // previous code
-    let p = Pet::Cat;
-    p.hello_world();
+  // previous code
+  let p = Pet::Cat;
+  p.hello_world();
 }

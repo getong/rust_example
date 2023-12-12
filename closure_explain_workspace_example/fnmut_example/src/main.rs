@@ -12,15 +12,15 @@ impl FnMut for Myclosure {
 */
 
 fn main() {
-    // println!("Hello, world!");
+  // println!("Hello, world!");
 
-    let mut i: i32 = 0;
-    let mut f = || {
-        i += 1;
-    };
+  let mut i: i32 = 0;
+  let mut f = || {
+    i += 1;
+  };
 
-    f();
-    f();
+  f();
+  f();
 
-    println!("{}", i);
+  println!("{}", i);
 }

@@ -7,10 +7,10 @@ macro_rules! patterns {
     };
 }
 fn main() {
-    patterns! {
-        pat: 0 | 1 | 2 | 3
-    }
-    patterns! {
-        pat_param: 0 | 1 | 2 | 3
-    }
+  patterns! {
+      pat: 0 | 1 | 2 | 3
+  }
+  patterns! {
+      pat_param: 0 | 1 | 2 | 3
+  }
 }

@@ -12,10 +12,10 @@ pub use key_command::KeyCommand;
 pub struct MessagesPlugin;
 
 impl ProtocolPlugin for MessagesPlugin {
-    fn build(&self, protocol: &mut Protocol) {
-        protocol
-            .add_message::<Auth>()
-            .add_message::<EntityAssignment>()
-            .add_message::<KeyCommand>();
-    }
+  fn build(&self, protocol: &mut Protocol) {
+    protocol
+      .add_message::<Auth>()
+      .add_message::<EntityAssignment>()
+      .add_message::<KeyCommand>();
+  }
 }

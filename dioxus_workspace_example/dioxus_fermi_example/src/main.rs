@@ -1,6 +1,5 @@
 mod app;
 
-
 fn main() {
-    dioxus_web::launch(app::App);
+  dioxus_web::launch(app::App);
 }

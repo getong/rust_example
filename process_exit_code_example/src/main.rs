@@ -1,4 +1,4 @@
 fn main() {
-    println!("Hello, world!");
-    std::process::exit(1);
+  println!("Hello, world!");
+  std::process::exit(1);
 }

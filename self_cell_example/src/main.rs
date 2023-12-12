@@ -15,22 +15,22 @@ self_cell!(
 );
 
 fn build_ast_cell(code: &str) -> AstCell {
-    // Create owning String on stack.
-    let pre_processed_code = code.trim().to_string();
+  // Create owning String on stack.
+  let pre_processed_code = code.trim().to_string();
 
-    // Move String into AstCell, then build Ast inplace.
-    AstCell::new(pre_processed_code, |code| {
-        Ast(code.split(' ').filter(|word| word.len() > 1).collect())
-    })
+  // Move String into AstCell, then build Ast inplace.
+  AstCell::new(pre_processed_code, |code| {
+    Ast(code.split(' ').filter(|word| word.len() > 1).collect())
+  })
 }
 
 fn main() {
-    let ast_cell = build_ast_cell("fox = cat + dog");
+  let ast_cell = build_ast_cell("fox = cat + dog");
 
-    println!("ast_cell -> {:?}", &ast_cell);
-    println!("ast_cell.borrow_owner() -> {:?}", ast_cell.borrow_owner());
-    println!(
-        "ast_cell.borrow_dependent().0[1] -> {:?}",
-        ast_cell.borrow_dependent().0[1]
-    );
+  println!("ast_cell -> {:?}", &ast_cell);
+  println!("ast_cell.borrow_owner() -> {:?}", ast_cell.borrow_owner());
+  println!(
+    "ast_cell.borrow_dependent().0[1] -> {:?}",
+    ast_cell.borrow_dependent().0[1]
+  );
 }

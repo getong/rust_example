@@ -5,26 +5,26 @@
 
 fn fn_immut<F>(func: F)
 where
-    F: Fn(),
+  F: Fn(),
 {
-    func();
-    func();
+  func();
+  func();
 }
 
 #[derive(Debug)]
 pub struct E {
-    pub a: String,
+  pub a: String,
 }
 
 fn main() {
-    // println!("Hello, world!");
-    let e = E {
-        a: "fn".to_string(),
-    };
+  // println!("Hello, world!");
+  let e = E {
+    a: "fn".to_string(),
+  };
 
-    let f = || {
-        println!("Fn closure calls: {:?}", e);
-    };
+  let f = || {
+    println!("Fn closure calls: {:?}", e);
+  };
 
-    fn_immut(f);
+  fn_immut(f);
 }

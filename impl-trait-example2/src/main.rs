@@ -5,33 +5,33 @@
 #![feature(return_position_impl_trait_in_trait)]
 
 trait FromTheFuture {
-    type Iter: Iterator<Item = u8>;
+  type Iter: Iterator<Item = u8>;
 
-    fn returns_associated_type(&self) -> Self::Iter;
+  fn returns_associated_type(&self) -> Self::Iter;
 
-    // Needs `return_position_impl_trait_in_trait`
-    fn returns_impl_trait(&self) -> impl Iterator<Item = u16>;
+  // Needs `return_position_impl_trait_in_trait`
+  fn returns_impl_trait(&self) -> impl Iterator<Item = u16>;
 }
 
 impl FromTheFuture for u8 {
-    // Needs `type_alias_impl_trait`
-    type Iter = impl Iterator<Item = u8>;
+  // Needs `type_alias_impl_trait`
+  type Iter = impl Iterator<Item = u8>;
 
-    fn returns_associated_type(&self) -> Self::Iter {
-        std::iter::repeat(*self).take(*self as usize)
-    }
+  fn returns_associated_type(&self) -> Self::Iter {
+    std::iter::repeat(*self).take(*self as usize)
+  }
 
-    fn returns_impl_trait(&self) -> impl Iterator<Item = u16> {
-        Some((*self).into()).into_iter()
-    }
+  fn returns_impl_trait(&self) -> impl Iterator<Item = u16> {
+    Some((*self).into()).into_iter()
+  }
 }
 
 fn main() {
-    for v in 7.returns_associated_type() {
-        println!("type_alias_impl_trait: {v}");
-    }
+  for v in 7.returns_associated_type() {
+    println!("type_alias_impl_trait: {v}");
+  }
 
-    for v in 7.returns_impl_trait() {
-        println!("return_position_impl_trait_in_trait: {v}");
-    }
+  for v in 7.returns_impl_trait() {
+    println!("return_position_impl_trait_in_trait: {v}");
+  }
 }
