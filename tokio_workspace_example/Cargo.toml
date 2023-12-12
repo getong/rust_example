@@ -184,4 +184,5 @@ members = [
         "tokio_stream_of_stream_example",
         "tokio_rustls_server_example",
         "tokio_metrics_runtimemonitor_example",
+        "tokio_rocket_basic_example",
 ]
