@@ -1,0 +1,11 @@
+* tarpc service example
+
+#+begin_src shell
+cd tarpc_service_server_example
+cargo run -- --port 12345
+
+# on another terminal
+cd tarpc_service_client_example
+cargo run -- --server-addr 127.0.0.1:12345 --name world
+
+#+end_src

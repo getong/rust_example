@@ -7,4 +7,6 @@ members = [
         "tarpc_service_example",
         "tarpc_simple_server_example",
         "tarpc_simple_client_example",
+        "tarpc_service_server_example",
+        "tarpc_service_client_example",
 ]
