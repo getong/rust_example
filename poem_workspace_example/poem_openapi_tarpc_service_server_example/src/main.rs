@@ -9,6 +9,16 @@ use tarpc::{
 };
 use tokio::sync::Mutex;
 
+// --------------- doc begin ------------
+// cargo run
+
+// # on other terminal
+// cd ../../tarpc_workspace_example/tarpc_service_client_example
+// cargo run
+
+// curl http://localhost:3000/api/hello
+// ---------------doc end ------------
+
 #[derive(Clone)]
 struct Api {
   num: Arc<Mutex<i64>>,
