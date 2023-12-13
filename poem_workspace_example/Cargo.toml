@@ -6,4 +6,5 @@ members = [
         "poem_example",
         "poem_openapi_example",
         "poem_websocket_example",
+        "poem_openapi_tarpc_service_server_example",
 ]
