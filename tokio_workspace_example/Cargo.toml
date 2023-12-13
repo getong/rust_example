@@ -185,4 +185,5 @@ members = [
         "tokio_rustls_server_example",
         "tokio_metrics_runtimemonitor_example",
         "tokio_rocket_basic_example",
+        "arc_tokio_mutex_example",
 ]
