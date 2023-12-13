@@ -1,5 +1,4 @@
 use clap::Parser;
-// use raft_poem_tarpc_rocksdb::start_example_raft_node;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Clone, Debug)]
