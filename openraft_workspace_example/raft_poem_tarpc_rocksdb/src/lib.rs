@@ -20,10 +20,13 @@ use crate::store::Request;
 use crate::store::Response;
 use crate::store::Store;
 
+pub mod api_rpc;
 pub mod app;
 pub mod client;
+pub mod common;
 pub mod network;
 pub mod store;
+pub mod web_openapi;
 
 pub type NodeId = u64;
 

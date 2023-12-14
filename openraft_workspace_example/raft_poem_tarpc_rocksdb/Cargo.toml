@@ -30,3 +30,4 @@ toy-rpc = { version = "0.8.6", features = [
   "client",
   "tokio_runtime",
 ] }
+thiserror = "1.0.50"
