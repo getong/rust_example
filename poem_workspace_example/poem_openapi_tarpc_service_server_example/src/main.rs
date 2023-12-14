@@ -1,68 +1,40 @@
 use futures::{future, prelude::*};
 use poem::{listener::TcpListener, Route};
-use poem_openapi::{param::Query, payload::PlainText, OpenApi, OpenApiService};
+use poem_openapi::OpenApiService;
 use std::{net::IpAddr, net::Ipv4Addr, sync::Arc};
 use tarpc::{
-  context,
   server::{self, incoming::Incoming, Channel},
   tokio_serde::formats::Json,
 };
 use tokio::sync::Mutex;
+
+mod api_rpc;
+mod common;
+mod web_openapi;
+
+use api_rpc::*;
+use common::*;
 
 // --------------- doc begin ------------
 // cargo run
 
 // # on other terminal
 // cd ../../tarpc_workspace_example/tarpc_service_client_example
-// cargo run
+// cargo run -- --server-addr 127.0.0.1:12345 --name world
 
 // curl http://localhost:3000/api/hello
 // ---------------doc end ------------
-
-#[derive(Clone)]
-struct Api {
-  num: Arc<Mutex<i64>>,
-}
-
-#[OpenApi]
-impl Api {
-  #[oai(path = "/hello", method = "get")]
-  async fn index(&self, name: Query<Option<String>>) -> PlainText<String> {
-    let recv_name = match name.0 {
-      Some(name) => name,
-      None => "unknown!".to_string(),
-    };
-    PlainText(format!(
-      "hello, {}, the current num is {:?}!\n",
-      recv_name,
-      self.num.lock().await
-    ))
-  }
-}
-
-#[tarpc::service]
-pub trait World {
-  /// Returns a greeting for name.
-  async fn hello(name: String) -> String;
-}
-
-#[tarpc::server]
-impl World for Api {
-  async fn hello(self, _context_info: context::Context, name: String) -> String {
-    let mut num = self.num.lock().await;
-    *num += 1;
-    format!(
-      "Hello, {name}! You are connected from {}, access num is {}",
-      name, num
-    )
-  }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
   let num = Arc::new(Mutex::new(0));
   let num_clone = num.clone();
 
+  _ = start_tarpc(num_clone).await;
+  start_poem(num).await
+}
+
+async fn start_tarpc(num_clone: Arc<Mutex<i64>>) -> Result<(), std::io::Error> {
   let server_addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
   let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
   listener.config_mut().max_frame_length(usize::MAX);
@@ -84,15 +56,18 @@ async fn main() -> Result<(), std::io::Error> {
       // Max 10 channels.
       .buffer_unordered(10)
       .for_each(|_| async {})
-      .await
+      .await;
   });
+  Ok(())
+}
 
+async fn start_poem(num: Arc<Mutex<i64>>) -> Result<(), std::io::Error> {
   let api_service =
     OpenApiService::new(Api { num }, "Hello World", "1.0").server("http://localhost:3000/api");
 
   let app = Route::new().nest("/api", api_service);
 
-  println!("access http://127.0.0.1:3000/api/hellocd");
+  println!("access http://127.0.0.1:3000/api/hello");
 
   poem::Server::new(TcpListener::bind("127.0.0.1:3000"))
     .run(app)
