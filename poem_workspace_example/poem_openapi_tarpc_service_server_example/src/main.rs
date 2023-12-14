@@ -89,8 +89,8 @@ async fn main() -> Result<(), std::io::Error> {
 
   let api_service =
     OpenApiService::new(Api { num }, "Hello World", "1.0").server("http://localhost:3000/api");
-  let ui = api_service.swagger_ui();
-  let app = Route::new().nest("/api", api_service).nest("/", ui);
+
+  let app = Route::new().nest("/api", api_service);
 
   println!("access http://127.0.0.1:3000/api/hellocd");
 
