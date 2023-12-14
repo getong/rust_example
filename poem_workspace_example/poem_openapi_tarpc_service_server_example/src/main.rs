@@ -31,7 +31,14 @@ async fn main() -> Result<(), std::io::Error> {
   let num_clone = num.clone();
 
   _ = start_tarpc(num_clone).await;
-  start_poem(num).await
+  _ = start_poem(num).await;
+  match send_hello_msg().await {
+    Ok(result) => {
+      println!("result: {:?}", result);
+      Ok(())
+    }
+    Err(e) => Err(e),
+  }
 }
 
 async fn start_tarpc(num_clone: Arc<Mutex<i64>>) -> Result<(), std::io::Error> {
