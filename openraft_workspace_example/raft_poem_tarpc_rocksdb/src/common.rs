@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::sync::Mutex;
+// use tokio::sync::Mutex;
 
 use openraft::Config;
 
@@ -9,7 +9,7 @@ use crate::Store;
 
 #[derive(Clone)]
 pub struct Api {
-  pub num: Arc<Mutex<i64>>,
+  // pub num: Arc<Mutex<i64>>,
   pub id: NodeId,
   pub api_addr: String,
   pub rcp_addr: String,
