@@ -9,4 +9,5 @@ members = [
         "poem_openapi_tarpc_service_server_example",
         "poem_openapi_generics_example",
         "poem_openapi_auth_multiple_example",
+        "poem_openapi_users_crud_example",
 ]
