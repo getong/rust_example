@@ -27,9 +27,15 @@ fn main() {
         .filter(|entry| entry.path().is_file() && entry.path().extension() == Some("rs".as_ref()))
         .filter_map(|entry| entry.path().to_str().map(String::from))
         .collect();
-      let mut args = vec!["fmt", "--"];
-      args.extend(generated_proto_files.iter().map(|s| s.as_str()));
-      if let Err(_) = Command::new("cargo").args(&args).status() {
+      // let mut args = vec!["fmt", "--"];
+      // args.extend(generated_proto_files.iter().map(|s| s.as_str()));
+      // if let Err(_) = Command::new("cargo").args(&args).status() {
+      //   println!("cargo:warning=Failed to format generated protobuf files");
+      // }
+      if let Err(_) = Command::new("rustfmt")
+        .args(&generated_proto_files)
+        .status()
+      {
         println!("cargo:warning=Failed to format generated protobuf files");
       }
     }
