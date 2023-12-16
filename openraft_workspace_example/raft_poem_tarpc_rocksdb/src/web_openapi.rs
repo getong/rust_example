@@ -1,5 +1,6 @@
 use crate::common::Api;
-
+use crate::Node;
+use openraft::error::CheckIsLeaderError;
 // use poem_openapi::{param::Query, payload::PlainText};
 use crate::Request;
 use poem_openapi::{payload::Json, ApiResponse, OpenApi};
@@ -13,6 +14,14 @@ pub enum SearchResponse {
 pub enum WriteResponse {
   #[oai(status = 200)]
   Ok(Json<String>),
+}
+
+#[derive(ApiResponse)]
+pub enum ConsistentReadResponse {
+  #[oai(status = 200)]
+  Ok(Json<String>),
+  #[oai(status = 500)]
+  Fail,
 }
 
 #[OpenApi]
@@ -51,6 +60,26 @@ impl Api {
     match result {
       Ok(_) => WriteResponse::Ok(Json("ok".to_string())),
       _ => WriteResponse::Ok(Json("failed".to_string())),
+    }
+  }
+
+  #[oai(path = "/consistent_read", method = "post")]
+  pub async fn consistent_read(&self, name: Json<String>) -> ConsistentReadResponse {
+    let ret = self.raft.ensure_linearizable().await;
+
+    match ret {
+      Ok(_) => {
+        let state_machine = self.store.state_machine.read().await;
+
+        let value = state_machine.get(&name.0).unwrap_or_default();
+
+        let res: Result<String, CheckIsLeaderError<u64, Node>> = Ok(value.unwrap_or_default());
+        match res {
+          Ok(result) => ConsistentReadResponse::Ok(Json(result)),
+          Err(_) => ConsistentReadResponse::Fail,
+        }
+      }
+      _e => ConsistentReadResponse::Fail,
     }
   }
 }
