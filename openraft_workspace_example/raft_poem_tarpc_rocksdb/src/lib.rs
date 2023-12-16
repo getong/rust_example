@@ -119,27 +119,20 @@ where
 
   // app.listen(http_addr).await?;
   // _ = handle.await;
-  _ = start_tarpc(
-    node_id,
-    http_addr.clone(),
-    rcp_addr.clone(),
-    raft.clone(),
-    store.clone(),
-    config.clone(),
-  )
-  .await;
-  _ = start_poem(node_id, http_addr, rcp_addr, raft, store, config).await;
+  let api = Api {
+    id: node_id,
+    api_addr: http_addr.clone(),
+    rcp_addr: rcp_addr.clone(),
+    raft: raft.clone(),
+    store: store.clone(),
+    config: config.clone(),
+  };
+  _ = start_tarpc(api.clone()).await;
+  _ = start_poem(api).await;
   Ok(())
 }
 
-async fn start_tarpc(
-  node_id: NodeId,
-  http_addr: String,
-  rcp_addr: String,
-  raft: ExampleRaft,
-  store: Arc<Store>,
-  config: Arc<Config>,
-) -> Result<(), std::io::Error> {
+async fn start_tarpc(api: Api) -> Result<(), std::io::Error> {
   let server_addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), 12345);
   let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
   listener.config_mut().max_frame_length(usize::MAX);
@@ -157,15 +150,8 @@ async fn start_tarpc(
         // let server = Api {
         //   num: num_clone.clone(),
         // };
-        let api = Api {
-          id: node_id,
-          api_addr: http_addr.clone(),
-          rcp_addr: rcp_addr.clone(),
-          raft: raft.clone(),
-          store: store.clone(),
-          config: config.clone(),
-        };
-        channel.execute(api.serve())
+        let api_clone = api.clone();
+        channel.execute(api_clone.serve())
       })
       // Max 10 channels.
       .buffer_unordered(10)
@@ -175,22 +161,7 @@ async fn start_tarpc(
   Ok(())
 }
 
-async fn start_poem(
-  node_id: NodeId,
-  http_addr: String,
-  rcp_addr: String,
-  raft: Raft<TypeConfig>,
-  store: Arc<Store>,
-  config: Arc<Config>,
-) -> Result<(), std::io::Error> {
-  let api = Api {
-    id: node_id,
-    api_addr: http_addr.clone(),
-    rcp_addr: rcp_addr.clone(),
-    raft,
-    store,
-    config,
-  };
+async fn start_poem(api: Api) -> Result<(), std::io::Error> {
   let api_service =
     OpenApiService::new(api, "Hello World", "1.0").server("http://localhost:3000/api");
 
