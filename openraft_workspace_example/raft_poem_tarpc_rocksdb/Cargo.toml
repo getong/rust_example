@@ -21,13 +21,13 @@ tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 thiserror = "1.0.50"
+futures = "0.3.29"
 ## dependencies might be deleted
 async-trait = "0.1.74"
-tide = "0.16.0"
-toy-rpc = { version = "0.8.6", features = [
-  "ws_tokio",
-  "server",
-  "client",
-  "tokio_runtime",
-] }
-futures = "0.3.29"
+# tide = "0.16.0"
+# toy-rpc = { version = "0.8.6", features = [
+#   "ws_tokio",
+#   "server",
+#   "client",
+#   "tokio_runtime",
+# ] }
