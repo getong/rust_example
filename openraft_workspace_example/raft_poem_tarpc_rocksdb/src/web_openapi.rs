@@ -1,9 +1,16 @@
 use crate::common::Api;
-// use poem_openapi::{param::Query, payload::PlainText};
-use poem_openapi::{payload::Json, ApiResponse, OpenApi};
 
+// use poem_openapi::{param::Query, payload::PlainText};
+use crate::Request;
+use poem_openapi::{payload::Json, ApiResponse, OpenApi};
 #[derive(ApiResponse)]
 pub enum SearchResponse {
+  #[oai(status = 200)]
+  Ok(Json<String>),
+}
+
+#[derive(ApiResponse)]
+pub enum WriteResponse {
   #[oai(status = 200)]
   Ok(Json<String>),
 }
@@ -24,7 +31,7 @@ impl Api {
   // }
 
   #[oai(path = "/read", method = "post")]
-  pub async fn write(&self, name: Json<String>) -> SearchResponse {
+  pub async fn read(&self, name: Json<String>) -> SearchResponse {
     let state_machine = self.store.state_machine.read().await;
     let value = state_machine
       .get(&name.0)
@@ -32,5 +39,18 @@ impl Api {
       .unwrap_or_default();
 
     SearchResponse::Ok(Json(value))
+  }
+
+  #[oai(path = "/write", method = "post")]
+  pub async fn write(&self, name: Json<String>) -> WriteResponse {
+    let req = Request::Set {
+      key: name.0.clone(),
+      value: name.0,
+    };
+    let result = self.raft.client_write(req).await;
+    match result {
+      Ok(_) => WriteResponse::Ok(Json("ok".to_string())),
+      _ => WriteResponse::Ok(Json("failed".to_string())),
+    }
   }
 }
