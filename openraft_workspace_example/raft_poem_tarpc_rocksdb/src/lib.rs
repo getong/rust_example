@@ -6,22 +6,15 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
-use openraft::storage::Adaptor;
-use openraft::Config;
-use openraft::TokioRuntime;
-// use tokio::net::TcpListener;
-// use tokio::task;
-
-// use crate::app::App;
-// use crate::network::api;
-// use crate::network::management;
 use crate::network::Network;
 use crate::store::Request;
 use crate::store::Response;
 use crate::store::Store;
+use openraft::storage::Adaptor;
+use openraft::Config;
+use openraft::TokioRuntime;
 
 pub mod api_rpc;
-pub mod app;
 pub mod client;
 pub mod common;
 pub mod network;
@@ -67,8 +60,6 @@ pub type LogStore = Adaptor<TypeConfig, Arc<Store>>;
 pub type StateMachineStore = Adaptor<TypeConfig, Arc<Store>>;
 pub type ExampleRaft = Raft<TypeConfig>;
 
-// type Server = tide::Server<Arc<App>>;
-
 pub async fn start_example_raft_node<P>(
   node_id: NodeId,
   dir: P,
@@ -101,24 +92,6 @@ where
     .await
     .unwrap();
 
-  // let echo_service = Arc::new(network::raft::Raft::new(app.clone()));
-
-  // let server = toy_rpc::Server::builder().register(echo_service).build();
-
-  // let listener = TcpListener::bind(rcp_addr).await.unwrap();
-  // let handle = task::spawn(async move {
-  //   server.accept_websocket(listener).await.unwrap();
-  // });
-
-  // Create an application that will store all the instances created above, this will
-  // be later used on the actix-web services.
-  // let mut app: Server = tide::Server::with_state(app);
-
-  // management::rest(&mut app);
-  // api::rest(&mut app);
-
-  // app.listen(http_addr).await?;
-  // _ = handle.await;
   let api = Api {
     id: node_id,
     api_addr: http_addr.clone(),
