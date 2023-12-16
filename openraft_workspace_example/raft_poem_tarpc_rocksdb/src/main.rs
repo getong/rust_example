@@ -1,4 +1,5 @@
 use clap::Parser;
+use raft_poem_tarpc_rocksdb::start_example_raft_node;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Clone, Debug)]
@@ -28,7 +29,7 @@ async fn main() -> std::io::Result<()> {
   // Parse the parameters passed by arguments.
   let options = Opt::parse();
 
-  raft_poem_tarpc_rocksdb::start_example_raft_node(
+  start_example_raft_node(
     options.id,
     format!("{}.db", options.rpc_addr),
     options.http_addr,

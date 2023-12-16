@@ -4,7 +4,7 @@ use openraft::raft::{
   AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
   VoteRequest, VoteResponse,
 };
-use tarpc::{client, context, tokio_serde::formats::Json};
+use tarpc::context;
 
 use serde::{Deserialize, Serialize};
 use std::io;
