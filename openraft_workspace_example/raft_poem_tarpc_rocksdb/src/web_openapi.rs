@@ -2,7 +2,7 @@ use crate::common::Api;
 use crate::Node;
 use crate::Request;
 use openraft::error::CheckIsLeaderError;
-use poem_openapi::{payload::Json, ApiResponse, OpenApi};
+use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
 #[derive(ApiResponse)]
 pub enum SearchResponse {
   #[oai(status = 200)]
@@ -23,6 +23,27 @@ pub enum ConsistentReadResponse {
   Fail,
 }
 
+#[derive(Debug, Object, Clone, Eq, PartialEq)]
+pub struct AddRequest {
+  key: String,
+  value: String,
+}
+
+#[derive(Debug, Object, Clone, Eq, PartialEq)]
+pub struct AddLearnerRequest {
+  node_id: u64,
+  api_addr: String,
+  rpc_addr: String,
+}
+
+#[derive(ApiResponse)]
+pub enum AddLearnerResponse {
+  #[oai(status = 200)]
+  Ok,
+  #[oai(status = 500)]
+  Fail,
+}
+
 #[OpenApi]
 impl Api {
   #[oai(path = "/read", method = "post")]
@@ -37,10 +58,10 @@ impl Api {
   }
 
   #[oai(path = "/write", method = "post")]
-  pub async fn write(&self, name: Json<String>) -> WriteResponse {
+  pub async fn write(&self, name: Json<AddRequest>) -> WriteResponse {
     let req = Request::Set {
-      key: name.0.clone(),
-      value: name.0,
+      key: name.0.key,
+      value: name.0.value,
     };
     let result = self.raft.client_write(req).await;
     match result {
@@ -66,6 +87,20 @@ impl Api {
         }
       }
       _e => ConsistentReadResponse::Fail,
+    }
+  }
+
+  #[oai(path = "/add-learner", method = "post")]
+  pub async fn add_learner(&self, name: Json<AddLearnerRequest>) -> AddLearnerResponse {
+    let node = Node {
+      rpc_addr: name.0.rpc_addr,
+      api_addr: name.0.api_addr,
+    };
+
+    let res = self.raft.add_learner(name.0.node_id, node, true).await;
+    match res {
+      Ok(_) => AddLearnerResponse::Ok,
+      _ => AddLearnerResponse::Fail,
     }
   }
 }
