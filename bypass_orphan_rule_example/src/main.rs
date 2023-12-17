@@ -35,4 +35,8 @@ fn main() {
   println!("wrapper is {}", wrapper);
   // use deref here
   println!("wrapper deref is {:?}", *wrapper);
+
+  for i in &*wrapper {
+    println!("i is {}", i);
+  }
 }
