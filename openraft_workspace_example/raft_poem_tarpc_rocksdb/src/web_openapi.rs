@@ -5,6 +5,7 @@ use crate::Request;
 use openraft::error::CheckIsLeaderError;
 use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
 use std::collections::{BTreeMap, BTreeSet};
+
 #[derive(ApiResponse)]
 pub enum SearchResponse {
   #[oai(status = 200)]
@@ -65,6 +66,12 @@ pub enum InitResponse {
   Ok,
   #[oai(status = 500)]
   Fail,
+}
+
+#[derive(ApiResponse)]
+pub enum MetricsResponse {
+  #[oai(status = 200)]
+  Ok,
 }
 
 #[OpenApi]
@@ -152,5 +159,12 @@ impl Api {
       Ok(_) => InitResponse::Ok,
       _ => InitResponse::Fail,
     }
+  }
+
+  #[oai(path = "/metrics", method = "post")]
+  pub async fn metrics(&self) -> MetricsResponse {
+    let res = self.raft.metrics().borrow().clone();
+    println!("res:{:?}", res);
+    MetricsResponse::Ok
   }
 }
