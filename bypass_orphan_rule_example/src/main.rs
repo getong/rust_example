@@ -33,4 +33,6 @@ fn main() {
   let wrapper = Wrapper(string_list);
   // we can use {} here
   println!("wrapper is {}", wrapper);
+  // use deref here
+  println!("wrapper deref is {:?}", *wrapper);
 }
