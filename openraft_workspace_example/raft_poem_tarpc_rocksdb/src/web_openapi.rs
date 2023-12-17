@@ -4,7 +4,7 @@ use crate::NodeId;
 use crate::Request;
 use openraft::error::CheckIsLeaderError;
 use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 #[derive(ApiResponse)]
 pub enum SearchResponse {
   #[oai(status = 200)]
@@ -53,6 +53,14 @@ pub struct ChangeMembershipRequest {
 
 #[derive(ApiResponse)]
 pub enum ChangeMembershipResponse {
+  #[oai(status = 200)]
+  Ok,
+  #[oai(status = 500)]
+  Fail,
+}
+
+#[derive(ApiResponse)]
+pub enum InitResponse {
   #[oai(status = 200)]
   Ok,
   #[oai(status = 500)]
@@ -128,6 +136,21 @@ impl Api {
     match res {
       Ok(_) => ChangeMembershipResponse::Ok,
       _ => ChangeMembershipResponse::Fail,
+    }
+  }
+
+  #[oai(path = "/init", method = "post")]
+  pub async fn init(&self) -> InitResponse {
+    let node = Node {
+      api_addr: self.api_addr.clone(),
+      rpc_addr: self.rcp_addr.clone(),
+    };
+    let mut nodes = BTreeMap::new();
+    nodes.insert(self.id, node);
+    let res = self.raft.initialize(nodes).await;
+    match res {
+      Ok(_) => InitResponse::Ok,
+      _ => InitResponse::Fail,
     }
   }
 }
