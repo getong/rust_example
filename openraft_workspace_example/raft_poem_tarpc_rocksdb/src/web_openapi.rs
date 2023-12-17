@@ -68,10 +68,16 @@ pub enum InitResponse {
   Fail,
 }
 
+#[derive(Debug, Object, Clone, Eq, PartialEq)]
+pub struct MetricInfo {
+  key: String,
+  value: String,
+}
+
 #[derive(ApiResponse)]
 pub enum MetricsResponse {
   #[oai(status = 200)]
-  Ok,
+  Ok(Json<String>),
 }
 
 #[OpenApi]
@@ -164,7 +170,7 @@ impl Api {
   #[oai(path = "/metrics", method = "post")]
   pub async fn metrics(&self) -> MetricsResponse {
     let res = self.raft.metrics().borrow().clone();
-    println!("res:{:?}", res);
-    MetricsResponse::Ok
+    // println!("res:{:?}", res);
+    MetricsResponse::Ok(Json(res.to_string()))
   }
 }
