@@ -1,8 +1,10 @@
 use crate::common::Api;
 use crate::Node;
+use crate::NodeId;
 use crate::Request;
 use openraft::error::CheckIsLeaderError;
 use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
+use std::collections::BTreeSet;
 #[derive(ApiResponse)]
 pub enum SearchResponse {
   #[oai(status = 200)]
@@ -38,6 +40,19 @@ pub struct AddLearnerRequest {
 
 #[derive(ApiResponse)]
 pub enum AddLearnerResponse {
+  #[oai(status = 200)]
+  Ok,
+  #[oai(status = 500)]
+  Fail,
+}
+
+#[derive(Debug, Object, Clone, Eq, PartialEq)]
+pub struct ChangeMembershipRequest {
+  members: BTreeSet<NodeId>,
+}
+
+#[derive(ApiResponse)]
+pub enum ChangeMembershipResponse {
   #[oai(status = 200)]
   Ok,
   #[oai(status = 500)]
@@ -101,6 +116,18 @@ impl Api {
     match res {
       Ok(_) => AddLearnerResponse::Ok,
       _ => AddLearnerResponse::Fail,
+    }
+  }
+
+  #[oai(path = "/change-membership", method = "post")]
+  pub async fn change_membership(
+    &self,
+    name: Json<ChangeMembershipRequest>,
+  ) -> ChangeMembershipResponse {
+    let res = self.raft.change_membership(name.0.members, false).await;
+    match res {
+      Ok(_) => ChangeMembershipResponse::Ok,
+      _ => ChangeMembershipResponse::Fail,
     }
   }
 }
