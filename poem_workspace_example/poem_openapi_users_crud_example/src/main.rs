@@ -143,7 +143,17 @@ async fn main() -> Result<(), std::io::Error> {
     OpenApiService::new(Api::default(), "Users", "1.0").server("http://localhost:3000/api");
   let ui = api_service.swagger_ui();
 
-  Server::new(TcpListener::bind("0.0.0.0:3000"))
-    .run(Route::new().nest("/api", api_service).nest("/", ui))
-    .await
+  let api_service2 =
+    OpenApiService::new(Api::default(), "Users", "1.0").server("http://localhost:3001/api");
+  let ui2 = api_service2.swagger_ui();
+
+  // http://localhost:3000/api
+  // http://localhost:3001/api
+
+  let server1 = Server::new(TcpListener::bind("0.0.0.0:3000"))
+    .run(Route::new().nest("/api", api_service).nest("/", ui));
+  let server2 = Server::new(TcpListener::bind("0.0.0.0:3001"))
+    .run(Route::new().nest("/api", api_service2).nest("/", ui2));
+  _ = tokio::join!(server1, server2);
+  Ok(())
 }
