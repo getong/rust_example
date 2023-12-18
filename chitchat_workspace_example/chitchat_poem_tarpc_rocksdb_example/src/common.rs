@@ -1,0 +1,59 @@
+use crate::ExampleRaft;
+use crate::NodeId;
+use crate::Store;
+use chitchat::Chitchat;
+use clap::Parser;
+use openraft::Config;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[derive(Clone)]
+pub struct Api {
+  // pub num: Arc<Mutex<i64>>,
+  pub id: NodeId,
+  pub api_addr: String,
+  pub rpc_addr: String,
+  pub raft: ExampleRaft,
+  pub store: Arc<Store>,
+  pub config: Arc<Config>,
+}
+
+#[derive(Parser, Clone, Debug)]
+#[clap(author, version, about, long_about = None)]
+pub struct Opt {
+  #[clap(long)]
+  pub id: u64,
+
+  #[clap(long)]
+  pub http_addr: String,
+
+  #[clap(long)]
+  pub rpc_addr: String,
+
+  /// Defines the socket addr on which we should listen to.
+  #[arg(long = "listen_addr", default_value = "127.0.0.1:10000")]
+  pub listen_addr: SocketAddr,
+  /// Defines the socket address (host:port) other servers should use to
+  /// reach this server.
+  ///
+  /// It defaults to the listen address, but this is only valid
+  /// when all server are running on the same server.
+  #[arg(long = "public_addr")]
+  pub public_addr: Option<SocketAddr>,
+
+  /// Node ID. Must be unique. If None, the node ID will be generated from
+  /// the public_addr and a random suffix.
+  #[arg(long = "node_id")]
+  pub node_id: Option<String>,
+
+  #[arg(long = "seed")]
+  pub seeds: Vec<String>,
+
+  #[arg(long, default_value_t = 500)]
+  pub interval: u64,
+}
+
+pub struct ChitchatApi {
+  pub chitchat: Arc<Mutex<Chitchat>>,
+}
