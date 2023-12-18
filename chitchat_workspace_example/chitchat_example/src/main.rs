@@ -1,13 +1,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use chitchat::transport::UdpTransport;
 use chitchat::{
   spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, ClusterStateSnapshot, FailureDetectorConfig,
 };
-// use chitchat_example::{ApiResponse, SetKeyValueResponse};
-use axum::{routing::get, Router};
 use clap::Parser;
 use cool_id_generator::Size;
 use poem::listener::TcpListener;
@@ -45,7 +43,11 @@ impl Api {
       cluster_id: chitchat_guard.cluster_id().to_string(),
       cluster_state: chitchat_guard.state_snapshot(),
       live_nodes: chitchat_guard.live_nodes().cloned().collect::<Vec<_>>(),
-      dead_nodes: chitchat_guard.dead_nodes().cloned().collect::<Vec<_>>(),
+      dead_nodes: chitchat_guard
+        .dead_nodes()
+        .cloned()
+        .map(|node| node.0)
+        .collect::<Vec<_>>(),
     };
     Json(serde_json::to_value(&response).unwrap())
   }
@@ -106,7 +108,11 @@ async fn main() -> anyhow::Result<()> {
   let node_id = opt
     .node_id
     .unwrap_or_else(|| generate_server_id(public_addr));
-  let chitchat_id = ChitchatId::new(node_id, 0, public_addr);
+  let generation = SystemTime::now()
+    .duration_since(SystemTime::UNIX_EPOCH)
+    .unwrap()
+    .as_secs();
+  let chitchat_id = ChitchatId::new(node_id, generation, public_addr);
   let config = ChitchatConfig {
     cluster_id: "testing".to_string(),
     chitchat_id,
@@ -126,13 +132,5 @@ async fn main() -> anyhow::Result<()> {
   Server::new(TcpListener::bind(&opt.listen_addr))
     .run(app)
     .await?;
-
-  let app = Router::new().route("/hello", get(|| async { "Hello, World!" }));
-
-  // run it with hyper on localhost:3000
-  axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
-    .serve(app.into_make_service())
-    .await
-    .unwrap();
   Ok(())
 }
