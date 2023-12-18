@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "chitchat_example",
+        "once_cell_chitchat_example",
+]
