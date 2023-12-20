@@ -1,0 +1,10 @@
+[package]
+name = "tokio_future_poll_fn_example2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.29"
+tokio = { version = "1.35.1", features = ["full"] }

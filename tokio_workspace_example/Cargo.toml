@@ -139,6 +139,7 @@ members = [
         "tokio_file_transfer_server_example",
         "tokio_file_transfer_client_example",
         "tokio_future_poll_fn_example",
+        "tokio_future_poll_fn_example2",
         "tokio_move_reference_example",
         "tokio_block_some_ip_example",
         "tokio_tasks_shutdown_example",
