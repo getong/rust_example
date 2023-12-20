@@ -187,4 +187,5 @@ members = [
         "tokio_rocket_basic_example",
         "arc_tokio_mutex_example",
         "tokio_convert_channel_to_stream_example",
+        "tokio_poll_unpin_example",
 ]
