@@ -186,4 +186,5 @@ members = [
         "tokio_metrics_runtimemonitor_example",
         "tokio_rocket_basic_example",
         "arc_tokio_mutex_example",
+        "tokio_convert_channel_to_stream_example",
 ]
