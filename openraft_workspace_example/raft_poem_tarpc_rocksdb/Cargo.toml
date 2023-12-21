@@ -11,19 +11,19 @@ clap = { version = "4.4.11", features = ["derive", "env"] }
 openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde"] }
 poem = "1.3.59"
 poem-openapi = { version = "3.0.6", features = ["swagger-ui", "email"] }
-reqwest = { version = "0.11.22", features = ["json"] }
+reqwest = { version = "0.11.23", features = ["json"] }
 rocksdb = "0.21.0"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"
 tarpc = { version = "0.33.0", features = ["full"] }
-tokio = { version = "1.35.0", features = ["full"] }
+tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 thiserror = "1.0.51"
 futures = "0.3.29"
 ## dependencies might be deleted
-async-trait = "0.1.74"
+async-trait = "0.1.75"
 # tide = "0.16.0"
 # toy-rpc = { version = "0.8.6", features = [
 #   "ws_tokio",
