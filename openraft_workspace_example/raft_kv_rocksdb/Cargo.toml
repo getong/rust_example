@@ -8,11 +8,11 @@ edition = "2021"
 [dependencies]
 rocksdb = "0.21.0"
 tide = "0.16.0"
-async-trait = "0.1.74"
+async-trait = "0.1.75"
 clap = { version = "4.4.11", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde"] }
-reqwest = { version = "0.11.22", features = ["json"] }
+openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde", "storage-v2"] }
+reqwest = { version = "0.11.23", features = ["json"] }
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"
 tracing = "0.1.40"
@@ -24,4 +24,4 @@ toy-rpc = { version = "0.8.6", features = [
   "tokio_runtime",
 ] }
 byteorder = "1.5.0"
-tokio = { version = "1.35.0", features = ["full"] }
+tokio = { version = "1.35.1", features = ["full"] }
