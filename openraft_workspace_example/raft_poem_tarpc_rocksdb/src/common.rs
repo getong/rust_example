@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use openraft::Config;
-
 use crate::ExampleRaft;
 use crate::NodeId;
-use crate::Store;
+use openraft::Config;
+use std::collections::BTreeMap;
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct Api {
@@ -13,6 +13,6 @@ pub struct Api {
   pub api_addr: String,
   pub rcp_addr: String,
   pub raft: ExampleRaft,
-  pub store: Arc<Store>,
+  pub key_values: Arc<RwLock<BTreeMap<String, String>>>,
   pub config: Arc<Config>,
 }

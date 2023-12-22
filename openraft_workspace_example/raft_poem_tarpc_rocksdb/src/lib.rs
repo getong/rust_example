@@ -7,10 +7,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::network::Network;
+use crate::store::new_storage;
 use crate::store::Request;
 use crate::store::Response;
-use crate::store::Store;
-use openraft::storage::Adaptor;
 use openraft::Config;
 use openraft::TokioRuntime;
 
@@ -23,7 +22,6 @@ pub mod web_openapi;
 use crate::api_rpc::World;
 use crate::common::Api;
 use futures::{future, prelude::*};
-use openraft::Raft;
 use poem::{listener::TcpListener, Route};
 use poem_openapi::OpenApiService;
 use std::net::IpAddr;
@@ -50,15 +48,35 @@ impl Display for Node {
   }
 }
 
+pub type SnapshotData = Cursor<Vec<u8>>;
+
 openraft::declare_raft_types!(
     /// Declare the type configuration for example K/V store.
     pub TypeConfig: D = Request, R = Response, NodeId = NodeId, Node = Node,
-    Entry = openraft::Entry<TypeConfig>, SnapshotData = Cursor<Vec<u8>>, AsyncRuntime = TokioRuntime
+  Entry = openraft::Entry<TypeConfig>, SnapshotData = SnapshotData, AsyncRuntime = TokioRuntime
 );
 
-pub type LogStore = Adaptor<TypeConfig, Arc<Store>>;
-pub type StateMachineStore = Adaptor<TypeConfig, Arc<Store>>;
-pub type ExampleRaft = Raft<TypeConfig>;
+pub mod typ {
+  use openraft::error::Infallible;
+
+  use crate::Node;
+  use crate::NodeId;
+  use crate::TypeConfig;
+
+  pub type Entry = openraft::Entry<TypeConfig>;
+
+  pub type RaftError<E = Infallible> = openraft::error::RaftError<NodeId, E>;
+  pub type RPCError<E = Infallible> = openraft::error::RPCError<NodeId, Node, RaftError<E>>;
+
+  pub type ClientWriteError = openraft::error::ClientWriteError<NodeId, Node>;
+  pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<NodeId, Node>;
+  pub type ForwardToLeader = openraft::error::ForwardToLeader<NodeId, Node>;
+  pub type InitializeError = openraft::error::InitializeError<NodeId, Node>;
+
+  pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
+}
+
+pub type ExampleRaft = openraft::Raft<TypeConfig>;
 
 pub async fn start_example_raft_node<P>(
   node_id: NodeId,
@@ -78,27 +96,32 @@ where
 
   let config = Arc::new(config.validate().unwrap());
 
-  // Create a instance of where the Raft data will be stored.
-  let store = Store::new(&dir).await;
+  let (log_store, state_machine_store) = new_storage(&dir).await;
 
-  let (log_store, state_machine) = Adaptor::new(store.clone());
+  let kvs = state_machine_store.data.kvs.clone();
 
   // Create the network layer that will connect and communicate the raft instances and
   // will be used in conjunction with the store created above.
   let network = Network {};
 
   // Create a local raft instance.
-  let raft = openraft::Raft::new(node_id, config.clone(), network, log_store, state_machine)
-    .await
-    .unwrap();
+  let raft = openraft::Raft::new(
+    node_id,
+    config.clone(),
+    network,
+    log_store,
+    state_machine_store,
+  )
+  .await
+  .unwrap();
 
   let api = Api {
     id: node_id,
     api_addr: http_addr.clone(),
     rcp_addr: rcp_addr.clone(),
-    raft: raft.clone(),
-    store: store.clone(),
-    config: config.clone(),
+    raft,
+    key_values: kvs,
+    config,
   };
   _ = start_tarpc(api.clone()).await;
   _ = start_poem(api).await;
