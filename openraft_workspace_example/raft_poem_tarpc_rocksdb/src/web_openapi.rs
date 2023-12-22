@@ -153,7 +153,7 @@ impl Api {
   pub async fn init(&self) -> InitResponse {
     let node = Node {
       api_addr: self.api_addr.clone(),
-      rpc_addr: self.rcp_addr.clone(),
+      rpc_addr: self.rpc_addr.clone(),
     };
     let mut nodes = BTreeMap::new();
     nodes.insert(self.id, node);

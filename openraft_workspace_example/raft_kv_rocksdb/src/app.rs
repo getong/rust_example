@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 pub struct App {
   pub id: NodeId,
   pub api_addr: String,
-  pub rcp_addr: String,
+  pub rpc_addr: String,
   pub raft: ExampleRaft,
   pub key_values: Arc<RwLock<BTreeMap<String, String>>>,
   pub config: Arc<Config>,

@@ -82,7 +82,7 @@ pub async fn start_example_raft_node<P>(
   node_id: NodeId,
   dir: P,
   http_addr: String,
-  rcp_addr: String,
+  rpc_addr: String,
 ) -> std::io::Result<()>
 where
   P: AsRef<Path>,
@@ -118,7 +118,7 @@ where
   let api = Api {
     id: node_id,
     api_addr: http_addr.clone(),
-    rcp_addr: rcp_addr.clone(),
+    rpc_addr: rpc_addr.clone(),
     raft,
     key_values: kvs,
     config,
