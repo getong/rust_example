@@ -84,11 +84,8 @@ pub enum MetricsResponse {
 impl Api {
   #[oai(path = "/read", method = "post")]
   pub async fn read(&self, name: Json<String>) -> SearchResponse {
-    let state_machine = self.store.state_machine.read().await;
-    let value = state_machine
-      .get(&name.0)
-      .unwrap_or_default()
-      .unwrap_or_default();
+    let state_machine = self.key_values.read().await;
+    let value = state_machine.get(&name.0).cloned().unwrap_or_default();
 
     SearchResponse::Ok(Json(value))
   }
@@ -112,11 +109,11 @@ impl Api {
 
     match ret {
       Ok(_) => {
-        let state_machine = self.store.state_machine.read().await;
+        let state_machine = self.key_values.read().await;
 
-        let value = state_machine.get(&name.0).unwrap_or_default();
+        let value = state_machine.get(&name.0).cloned().unwrap_or_default();
 
-        let res: Result<String, CheckIsLeaderError<u64, Node>> = Ok(value.unwrap_or_default());
+        let res: Result<String, CheckIsLeaderError<u64, Node>> = Ok(value);
         match res {
           Ok(result) => ConsistentReadResponse::Ok(Json(result)),
           Err(_) => ConsistentReadResponse::Fail,

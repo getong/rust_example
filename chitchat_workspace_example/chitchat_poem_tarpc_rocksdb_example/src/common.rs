@@ -1,12 +1,13 @@
 use crate::ExampleRaft;
 use crate::NodeId;
-use crate::Store;
 use chitchat::Chitchat;
 use clap::Parser;
 use openraft::Config;
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct Api {
@@ -15,7 +16,7 @@ pub struct Api {
   pub api_addr: String,
   pub rpc_addr: String,
   pub raft: ExampleRaft,
-  pub store: Arc<Store>,
+  pub key_values: Arc<RwLock<BTreeMap<String, String>>>,
   pub config: Arc<Config>,
 }
 
