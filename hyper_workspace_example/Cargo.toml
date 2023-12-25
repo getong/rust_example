@@ -9,4 +9,5 @@ members = [
         "hyper_params_example",
         # "hyper_basic_example",
         # "hyper_service_fn_example",
+        "hyper_service_struct_impl_example",
 ]
