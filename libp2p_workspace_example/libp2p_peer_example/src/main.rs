@@ -1,17 +1,23 @@
+use anyhow::Result;
 use libp2p::{
-  core::transport::upgrade::Version,
+  // core::transport::upgrade::Version,
   floodsub::{Floodsub, FloodsubEvent, Topic},
   futures::StreamExt,
   identity,
   identity::Keypair,
-  mdns, noise,
-  swarm::{NetworkBehaviour, Swarm, SwarmBuilder},
-  tcp, yamux, PeerId, Transport,
+  mdns,
+  noise,
+  swarm::{NetworkBehaviour, Swarm},
+  tcp,
+  yamux,
+  PeerId,
+  SwarmBuilder,
 };
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use tokio::time::Duration;
 use tokio::{fs, io::AsyncBufReadExt};
 // use std::io::Result;
 // use tokio::io::{AsyncRead, AsyncWrite};
@@ -87,24 +93,6 @@ impl From<mdns::Event> for RecipeBehaviourEvent {
   }
 }
 
-// fn respond_with_public_recipes(sender: mpsc::UnboundedSender<ListResponse>, receiver: String) {
-//     tokio::spawn(async move {
-//         match read_local_recipes().await {
-//             Ok(recipes) => {
-//                 let resp = ListResponse {
-//                     mode: ListMode::ALL,
-//                     receiver,
-//                     data: recipes.into_iter().filter(|r| r.public).collect(),
-//                 };
-//                 if let Err(e) = sender.send(resp) {
-//                     error!("error sending response via channel, {}", e);
-//                 }
-//             }
-//             Err(e) => error!("error fetching local recipes to answer ALL request, {}", e),
-//         }
-//     });
-// }
-
 async fn create_new_recipe(name: &str, ingredients: &str, instructions: &str) -> RecipeResult<()> {
   let mut local_recipes = read_local_recipes().await?;
   let new_id = match local_recipes.iter().max_by_key(|r| r.id) {
@@ -151,7 +139,7 @@ async fn write_local_recipes(recipes: &Recipes) -> RecipeResult<()> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
   pretty_env_logger::init();
 
   info!("Peer Id: {}", PEER_ID.clone());
@@ -169,24 +157,46 @@ async fn main() {
   //     .multiplex(libp2p_mplex::MplexConfig::new())
   //     .boxed();
   // Create a TCP transport
-  let transp = tcp::tokio::Transport::default()
-    .upgrade(Version::V1Lazy)
-    .authenticate(noise::Config::new(&local_keypair).unwrap())
-    .multiplex(yamux::Config::default())
-    .boxed();
+  // let transp = tcp::tokio::Transport::default()
+  //   .upgrade(Version::V1Lazy)
+  //   .authenticate(noise::Config::new(&local_keypair).unwrap())
+  //   .multiplex(yamux::Config::default())
+  //   .boxed();
 
   // Create an identity for our local peer
-  let local_peer_id = PeerId::from_public_key(&local_keypair.public());
+  // let local_peer_id = PeerId::from_public_key(&local_keypair.public());
 
-  let mut behaviour = RecipeBehaviour {
-    floodsub: Floodsub::new(*PEER_ID),
-    mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap(),
-    // response_sender,
-  };
+  // let mut behaviour = RecipeBehaviour {
+  //   floodsub: Floodsub::new(*PEER_ID),
+  //   mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap(),
+  //   // response_sender,
+  // };
 
-  behaviour.floodsub.subscribe(TOPIC.clone());
+  let mut swarm = SwarmBuilder::with_existing_identity(local_keypair.clone())
+    .with_tokio()
+    .with_tcp(
+      tcp::Config::default(),
+      noise::Config::new,
+      yamux::Config::default,
+    )?
+    .with_dns()?
+    .with_behaviour(|key| {
+      // let peer_id = PeerId::from(key.public());
+      // MyBehaviour::new(peer_id).unwrap()
+      let local_peer_id = PeerId::from_public_key(&key.public());
+      RecipeBehaviour {
+        floodsub: Floodsub::new(*PEER_ID),
+        mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap(),
+        // response_sender,
+      }
+    })?
+    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(5)))
+    .build();
 
-  let mut swarm = SwarmBuilder::with_tokio_executor(transp, behaviour, *PEER_ID).build();
+  // behaviour.floodsub.subscribe(TOPIC.clone());
+
+  // let mut swarm = SwarmBuilder::with_tokio_executor(transp, behaviour, *PEER_ID).build();
+  swarm.behaviour_mut().floodsub.subscribe(TOPIC.clone());
 
   let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
 
@@ -214,10 +224,7 @@ async fn main() {
       match event {
         EventType::Response(resp) => {
           let json = serde_json::to_string(&resp).expect("can jsonify response");
-          swarm
-            .behaviour_mut()
-            .floodsub
-            .publish(TOPIC.clone(), json.as_bytes());
+          swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json);
         }
         EventType::Input(line) => match line.as_str() {
           "ls p" => handle_list_peers(&mut swarm).await,
@@ -250,20 +257,14 @@ async fn handle_list_recipes(cmd: &str, swarm: &mut Swarm<RecipeBehaviour>) {
         mode: ListMode::ALL,
       };
       let json = serde_json::to_string(&req).expect("can jsonify request");
-      swarm
-        .behaviour_mut()
-        .floodsub
-        .publish(TOPIC.clone(), json.as_bytes());
+      swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json);
     }
     Some(recipes_peer_id) => {
       let req = ListRequest {
         mode: ListMode::One(recipes_peer_id.to_owned()),
       };
       let json = serde_json::to_string(&req).expect("can jsonify request");
-      swarm
-        .behaviour_mut()
-        .floodsub
-        .publish(TOPIC.clone(), json.as_bytes());
+      swarm.behaviour_mut().floodsub.publish(TOPIC.clone(), json);
     }
     None => {
       match read_local_recipes().await {

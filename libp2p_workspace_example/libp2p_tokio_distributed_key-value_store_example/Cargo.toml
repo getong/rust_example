@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1.75"
 env_logger = "0.10.1"
-futures = "0.3.29"
+futures = "0.3.30"
 libp2p = { version = "0.53.2", features = ["full"] }
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }

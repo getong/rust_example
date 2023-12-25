@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
       Ok(Some(line)) = stdin.next_line() => {
         swarm.behaviour_mut().floodsub.publish(topic.clone(), line);
         }
-        event = swarm.select_next_some() => {
+      event = swarm.select_next_some() => {
             if let SwarmEvent::NewListenAddr { address, .. } = event {
                 println!("Listening on {:?}", address);
             }

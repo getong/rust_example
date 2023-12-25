@@ -12,5 +12,5 @@ async fn main() {
     .parse()
     .expect("address should be valid");
 
-  quic_transport.dial(addr).expect("listen error.");
+  _ = quic_transport.dial(addr).expect("listen error.").await;
 }
