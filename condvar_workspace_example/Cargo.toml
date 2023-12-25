@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "condvar_example",
+        "arc_mutex_condvar_example",
+]
