@@ -17,4 +17,14 @@ fn main() {
 
   println!("clone string: {}", p.z.clone().replace("old", "new"));
   assert_eq!("this is new", p.z.clone().replace("old", "new"));
+  temporary_closure_is_mutate();
+}
+
+fn temporary_closure_is_mutate() {
+  let mut greeting = String::from("Hello, ");
+  let greet = move |name| {
+    greeting.push_str(name);
+    println!("{}", greeting);
+  };
+  greet.clone()("Alfred");
 }
