@@ -7,6 +7,6 @@ members = [
         "hyper_util_server_example",
         "hyper_multi_server_example",
         "hyper_params_example",
-        "hyper_basic_example",
-        "hyper_service_fn_example",
+        # "hyper_basic_example",
+        # "hyper_service_fn_example",
 ]
