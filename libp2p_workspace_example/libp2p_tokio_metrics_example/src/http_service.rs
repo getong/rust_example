@@ -22,11 +22,11 @@ pub(crate) async fn metrics_server(registry: Registry) -> Result<(), std::io::Er
   Ok(())
 }
 
-pub(crate) struct MetricService {
-  reg: Arc<Mutex<Registry>>,
-}
-
 type SharedRegistry = Arc<Mutex<Registry>>;
+
+pub(crate) struct MetricService {
+  reg: SharedRegistry,
+}
 
 impl MetricService {
   fn get_reg(&mut self) -> SharedRegistry {
