@@ -2,26 +2,28 @@ use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
   identity,
-  kad::{record::Key, store::MemoryStore, Kademlia, KademliaEvent, Quorum, Record},
-  mdns,
-  swarm::{NetworkBehaviour, SwarmBuilder, SwarmEvent},
-  PeerId,
+  kad::{self, store::MemoryStore, Event as KademliaEvent, Quorum, Record, RecordKey},
+  mdns, noise,
+  swarm::{NetworkBehaviour, SwarmEvent},
+  tcp, yamux, PeerId, SwarmBuilder,
 };
+// use libp2p_kad::Event as KademliaEvent;
 use tokio::io::{self, AsyncBufReadExt};
+use tokio::time::Duration;
 
 // 自定义网络行为，组合Kademlia和mDNS.
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "MyBehaviourEvent")]
 struct MyBehaviour {
-  kademlia: Kademlia<MemoryStore>,
+  // kademlia: Kademlia<MemoryStore>,
+  kademlia: kad::Behaviour<kad::store::MemoryStore>,
   mdns: mdns::tokio::Behaviour,
 }
 
 impl MyBehaviour {
   // 传入peerId，构建MyBehaviour
-  async fn new(peer_id: PeerId) -> Result<Self> {
-    let store = MemoryStore::new(peer_id);
-    let kademlia = Kademlia::new(peer_id, store);
+  fn new(peer_id: PeerId) -> Result<Self> {
+    let kademlia = kad::Behaviour::new(peer_id, MemoryStore::new(peer_id));
 
     Ok(Self {
       // floodsub协议初始化
@@ -130,18 +132,31 @@ async fn main() -> Result<()> {
   let key_pair = identity::Keypair::generate_ed25519();
 
   // 基于密钥对的公钥，生成节点唯一标识peerId
-  let peer_id = PeerId::from(key_pair.public());
-  println!("节点ID: {peer_id}");
+  // let peer_id = PeerId::from(key_pair.public());
+  // println!("节点ID: {peer_id}");
 
   // 在Mplex协议上建立一个加密的，启用dns的TCP传输
-  let transport = libp2p::development_transport(key_pair).await?;
+  // let transport = libp2p::development_transport(key_pair).await?;
 
   // 创建Swarm网络管理器，来管理节点网络及事件。
-  let mut swarm = {
-    let behaviour = MyBehaviour::new(peer_id).await?;
+  // let mut swarm = {
+  //   let behaviour = MyBehaviour::new(peer_id).await?;
 
-    SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build()
-  };
+  //   SwarmBuilder::with_tokio_executor(transport, behaviour, peer_id).build()
+  // };
+  let mut swarm = SwarmBuilder::with_existing_identity(key_pair)
+    .with_tokio()
+    .with_tcp(
+      tcp::Config::default(),
+      noise::Config::new,
+      yamux::Config::default,
+    )?
+    .with_behaviour(|key| {
+      let peer_id = PeerId::from(key.public());
+      MyBehaviour::new(peer_id).unwrap()
+    })?
+    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+    .build();
 
   // 从标准输入中读取消息
   let mut stdin = io::BufReader::new(io::stdin()).lines();
@@ -165,7 +180,7 @@ async fn main() -> Result<()> {
 }
 
 // 处理输入命令
-fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
+fn handle_input_line(kademlia: &mut kad::Behaviour<kad::store::MemoryStore>, line: String) {
   let mut args = line.split(' ');
 
   match args.next() {
@@ -173,7 +188,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
     Some("GET") => {
       let key = {
         match args.next() {
-          Some(key) => Key::new(&key),
+          Some(key) => RecordKey::new(&key),
           None => {
             eprintln!("Expected key");
             return;
@@ -187,7 +202,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
     Some("GET_PROVIDERS") => {
       let key = {
         match args.next() {
-          Some(key) => Key::new(&key),
+          Some(key) => RecordKey::new(&key),
           None => {
             eprintln!("Expected key");
             return;
@@ -201,7 +216,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
     Some("PUT") => {
       let key = {
         match args.next() {
-          Some(key) => Key::new(&key),
+          Some(key) => RecordKey::new(&key),
           None => {
             eprintln!("Expected key");
             return;
@@ -233,7 +248,7 @@ fn handle_input_line(kademlia: &mut Kademlia<MemoryStore>, line: String) {
     Some("PUT_PROVIDER") => {
       let key = {
         match args.next() {
-          Some(key) => Key::new(&key),
+          Some(key) => RecordKey::new(&key),
           None => {
             eprintln!("Expected key");
             return;
