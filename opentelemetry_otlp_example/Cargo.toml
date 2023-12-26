@@ -6,5 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-opentelemetry-otlp = "0.13.0"
+opentelemetry = "0.21.0"
+opentelemetry-otlp = { version = "0.14.0", features = ["tokio", "metrics", "tonic"] }
 opentelemetry_api = "0.20.0"
+opentelemetry_sdk = { version = "0.21.1", features = ["rt-tokio", "metrics"] }
+tonic = "0.9.2"
