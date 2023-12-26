@@ -1,11 +1,19 @@
-// fn main() {
-//     tonic_build::compile_protos("message.proto").unwrap();
-// }
+use std::process::Command;
 
 fn main() {
   let mut config = prost_build::Config::new();
-  config
+  match config
     .out_dir("src")
     .compile_protos(&["src/message.proto"], &["."])
-    .unwrap();
+  {
+    Ok(()) => {
+      if let Err(_) = Command::new("rustfmt")
+        .args(&["src/mypackage.rs"])
+        .status()
+      {
+        println!("cargo:warning=Failed to format generated protobuf files");
+      }
+    }
+    err => println!("cargo:warning={:?}", err),
+  }
 }
