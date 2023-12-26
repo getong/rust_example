@@ -3,8 +3,9 @@ use libp2p::core::Multiaddr;
 use libp2p::metrics::{Metrics, Recorder};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{identify, identity, noise, ping, tcp, yamux};
-use opentelemetry::sdk;
-use opentelemetry_api::KeyValue;
+use opentelemetry::KeyValue;
+use opentelemetry_sdk as sdk;
+use opentelemetry_sdk::runtime;
 use prometheus_client::registry::Registry;
 use std::error::Error;
 use std::time::Duration;
@@ -71,7 +72,7 @@ fn setup_tracing() -> Result<(), Box<dyn Error>> {
         "libp2p",
       )])),
     )
-    .install_batch(opentelemetry::runtime::Tokio)?;
+    .install_batch(runtime::Tokio)?;
 
   tracing_subscriber::registry()
     .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
