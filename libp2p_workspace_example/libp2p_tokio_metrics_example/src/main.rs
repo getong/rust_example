@@ -4,8 +4,6 @@ use libp2p::metrics::{Metrics, Recorder};
 use libp2p::swarm::{NetworkBehaviour, SwarmEvent};
 use libp2p::{identify, identity, noise, ping, tcp, yamux};
 use opentelemetry::KeyValue;
-use opentelemetry_sdk as sdk;
-use opentelemetry_sdk::runtime;
 use prometheus_client::registry::Registry;
 use std::error::Error;
 use std::time::Duration;
@@ -66,13 +64,10 @@ fn setup_tracing() -> Result<(), Box<dyn Error>> {
   let tracer = opentelemetry_otlp::new_pipeline()
     .tracing()
     .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-    .with_trace_config(
-      sdk::trace::Config::default().with_resource(sdk::Resource::new(vec![KeyValue::new(
-        "service.name",
-        "libp2p",
-      )])),
-    )
-    .install_batch(runtime::Tokio)?;
+    .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+      opentelemetry_sdk::Resource::new(vec![KeyValue::new("service.name", "libp2p")]),
+    ))
+    .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
   tracing_subscriber::registry()
     .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env()))
