@@ -1,13 +1,19 @@
 // copy from [API call tracing in high-loaded asynchronous Rust applications](https://medium.com/@disserman/api-call-tracing-in-high-loaded-asynchronous-rust-applications-bc7b126eb470)
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto;
 use log::{trace, LevelFilter, Log};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 use serde_json::Value;
 use std::future::Future;
-use std::{convert::Infallible, net::SocketAddr};
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::futures::TaskLocalFuture;
@@ -108,16 +114,19 @@ where
   (TRACE_LOG_TX.scope(tx, f), rx)
 }
 
-async fn handle(req: Request<Body>) -> Result<Response<Body>, Infallible> {
-  let (parts, mut body) = req.into_parts();
+async fn handle(
+  req: Request<hyper::body::Incoming>,
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
+  let (parts, body) = req.into_parts();
   if parts.method == Method::POST {
     if let Some(method) = parts.uri.path().strip_prefix("/api/") {
       let trace = parts
         .headers
         .get("X-Call-Trace")
         .map_or(false, |v| v == "true");
-      let payload: Value = serde_json::from_slice(&hyper::body::to_bytes(&mut body).await.unwrap())
-        .unwrap_or_default();
+      let whole_body = body.collect().await?.to_bytes();
+      let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+      let payload: Value = serde_json::from_slice(&reversed_body).unwrap_or_default();
       let (response_fut, trace_rx) = call_scope(trace, async move {
         trace!("RPC method: {}", method);
         trace!("RPC payload: {}", payload);
@@ -144,13 +153,18 @@ async fn handle(req: Request<Body>) -> Result<Response<Body>, Infallible> {
       } else {
         serde_json::to_string(&response).unwrap()
       };
-      return Ok(Response::builder().body(Body::from(b)).unwrap());
+      return Ok(
+        Response::builder()
+          .body(Full::from(Bytes::from(b)))
+          .unwrap(),
+      );
     }
   }
+  let bytes = Bytes::new();
   Ok(
     Response::builder()
       .status(StatusCode::BAD_REQUEST)
-      .body(Body::empty())
+      .body(Full::<Bytes>::new(bytes))
       .unwrap(),
   )
 }
@@ -162,7 +176,18 @@ async fn main() {
     .map(|()| log::set_max_level(LevelFilter::Trace))
     .unwrap();
   let addr = SocketAddr::from(([127, 0, 0, 1], 3999));
-  let make_svc = make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(handle)) });
-  let server = Server::bind(&addr).serve(make_svc);
-  server.await.unwrap();
+  let listener = TcpListener::bind(addr).await.unwrap();
+  loop {
+    let (stream, _) = listener.accept().await.unwrap();
+    let io = TokioIo::new(stream);
+
+    tokio::task::spawn(async move {
+      if let Err(err) = auto::Builder::new(TokioExecutor::new())
+        .serve_connection(io, service_fn(handle))
+        .await
+      {
+        println!("Error serving connection: {:?}", err);
+      }
+    });
+  }
 }
