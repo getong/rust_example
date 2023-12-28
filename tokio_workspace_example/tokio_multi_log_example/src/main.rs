@@ -124,8 +124,9 @@ async fn handle(
         .headers
         .get("X-Call-Trace")
         .map_or(false, |v| v == "true");
-      let whole_body = body.collect().await?.to_bytes();
-      let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+      // let whole_body = body.collect().await?.to_bytes();
+      // let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+      let reversed_body = body.collect().await?.to_bytes().to_vec();
       let payload: Value = serde_json::from_slice(&reversed_body).unwrap_or_default();
       let (response_fut, trace_rx) = call_scope(trace, async move {
         trace!("RPC method: {}", method);

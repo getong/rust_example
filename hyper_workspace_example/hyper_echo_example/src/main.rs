@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Frame;
@@ -6,6 +5,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{body::Body, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 /// This is our service handler. It receives a Request, routes on its
@@ -56,9 +56,9 @@ async fn echo(
         return Ok(resp);
       }
 
-      let whole_body = req.collect().await?.to_bytes();
-
-      let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+      // let whole_body = req.collect().await?.to_bytes();
+      // let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+      let reversed_body = req.collect().await?.to_bytes().to_vec();
       Ok(Response::new(full(reversed_body)))
     }
 

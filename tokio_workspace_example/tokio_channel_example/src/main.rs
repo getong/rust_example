@@ -16,12 +16,14 @@ async fn https_layer(
   let client = Client::builder(TokioExecutor::new()).build::<_, Empty<Bytes>>(https);
 
   while let Some((url, response)) = rx_chan.recv().await {
-    let mut resp = client.get(Uri::from_static(url)).await?;
+    let resp = client.get(Uri::from_static(url)).await?;
 
     // let body_bytes = body::to_bytes(resp.into_body()).await?;
-    // let body = String::from_utf8(body_bytes.to_vec())?;
-    let whole_body = resp.body_mut().collect().await.unwrap().to_bytes();
-    let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+
+    // let whole_body = resp.body_mut().collect().await.unwrap().to_bytes();
+    // let reversed_body = whole_body.iter().rev().cloned().collect::<Vec<u8>>();
+
+    let reversed_body = resp.collect().await?.to_bytes().to_vec();
     let body = String::from_utf8(reversed_body)?;
 
     response.send(body)?;
