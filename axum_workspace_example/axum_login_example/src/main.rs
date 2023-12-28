@@ -1,4 +1,4 @@
-use std::{fmt::Debug, net::SocketAddr};
+use std::fmt::Debug;
 
 use askama::Template;
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use axum::{
   routing::{get, post},
   BoxError, Form, Router,
 };
-use axum_login::{login_required, AuthManagerLayer, AuthUser, AuthnBackend, UserId};
+use axum_login::{login_required, AuthManagerLayerBuilder, AuthUser, AuthnBackend, UserId};
 use http::StatusCode;
 use password_auth::verify_password;
 use serde::{Deserialize, Serialize};
@@ -185,7 +185,7 @@ mod get_handlers {
   }
 
   pub async fn logout(mut auth_session: AuthSession) -> impl IntoResponse {
-    match auth_session.logout() {
+    match auth_session.logout().await {
       Ok(_) => Redirect::to("/login").into_response(),
       Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -233,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .layer(HandleErrorLayer::new(|_: BoxError| async {
       StatusCode::BAD_REQUEST
     }))
-    .layer(AuthManagerLayer::new(backend, session_layer));
+    .layer(AuthManagerLayerBuilder::new(backend, session_layer).build());
 
   let app = Router::new()
     .route("/", get(get_handlers::protected))
@@ -243,10 +243,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .route("/logout", get(get_handlers::logout))
     .layer(auth_service);
 
-  let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-  axum::Server::bind(&addr)
-    .serve(app.into_make_service())
-    .await?;
+  // let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+  // axum::Server::bind(&addr)
+  //   .serve(app.into_make_service())
+  //   .await?;
+  let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+  axum::serve(listener, app).await?;
 
   Ok(())
 }

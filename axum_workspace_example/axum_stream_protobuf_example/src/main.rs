@@ -1,7 +1,7 @@
 use axum::response::IntoResponse;
 use axum::routing::*;
 use axum::Router;
-use std::net::SocketAddr;
+// use std::net::SocketAddr;
 use tokio_stream::Stream;
 use tokio_stream::StreamExt;
 
@@ -43,10 +43,7 @@ async fn main() {
     .route("/", post(echo_handler))
     .route("/protobuf-stream", get(test_protobuf_stream));
 
-  let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-
-  axum::Server::bind(&addr)
-    .serve(app.into_make_service())
-    .await
-    .unwrap();
+  // let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
+  let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+  axum::serve(listener, app).await.unwrap();
 }
