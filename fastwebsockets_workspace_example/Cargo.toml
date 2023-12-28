@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
         "fastwebsockets_example",
+        "fastwebsockets_echo_server_example",
 ]
