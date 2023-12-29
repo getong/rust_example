@@ -1,6 +1,6 @@
 // copy from https://blog.rust-lang.org/inside-rust/2022/11/17/async-fn-in-trait-nightly.html
 
-#![allow(incomplete_features)]
+// #![allow(incomplete_features)]
 // #![feature(async_fn_in_trait)]
 
 use std::fmt::Display;
