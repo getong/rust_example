@@ -5,7 +5,7 @@ use axum::extract::Path;
 use axum::{response::IntoResponse, routing::get, BoxError, Router};
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use serde_json::json;
-use std::net::SocketAddr;
+// use std::net::SocketAddr;
 use tracing_opentelemetry_instrumentation_sdk::find_current_trace_id;
 
 #[tokio::main]
@@ -15,14 +15,16 @@ async fn main() -> Result<(), BoxError> {
 
   let app = app();
   // run it
-  let addr = &"0.0.0.0:3003".parse::<SocketAddr>()?;
-  tracing::warn!("listening on {}", addr);
+  // let addr = &"0.0.0.0:3003".parse::<SocketAddr>()?;
+  // tracing::warn!("listening on {}", addr);
   tracing::info!("try to call `curl -i http://127.0.0.1:3003/` (with trace)"); //Devskim: ignore DS137138
   tracing::info!("try to call `curl -i http://127.0.0.1:3003/health` (with NO trace)"); //Devskim: ignore DS137138
-  axum::Server::bind(addr)
-    .serve(app.into_make_service())
+  let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
+
+  axum::serve(listener, app)
     .with_graceful_shutdown(shutdown_signal())
-    .await?;
+    .await
+    .unwrap();
   Ok(())
 }
 
