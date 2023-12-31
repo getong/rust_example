@@ -4,7 +4,7 @@ use tokio_graceful::Shutdown;
 #[tokio::main]
 async fn main() {
   // most users can just use `Shutdown::default()` to initiate
-  // shutdown upon either Sigterm or CTRL+C (Sigkill).
+  // shutdown upon the default system signals.
   let signal = tokio::time::sleep(std::time::Duration::from_millis(100));
   let shutdown = Shutdown::new(signal);
 
@@ -16,8 +16,8 @@ async fn main() {
   });
   // or spawn a function such that you have access to the guard coupled to the task
   shutdown.spawn_task_fn(|guard| async move {
-    // let guard2 = guard.clone();
-    guard.cancelled().await;
+    let guard2 = guard.clone();
+    guard2.cancelled().await;
   });
 
   // this guard isn't dropped, but as it's a weak guard
@@ -33,8 +33,8 @@ async fn main() {
 
   // guards (weak or not) are cancel safe
   tokio::select! {
-      _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {},
-      _ = weak_guard_2.into_cancelled() => {},
+    _ = tokio::time::sleep(std::time::Duration::from_millis(10)) => {},
+    _ = weak_guard_2.into_cancelled() => {},
   }
 
   // you can also wait to shut down without any timeout limit
