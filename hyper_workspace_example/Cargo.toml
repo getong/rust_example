@@ -11,4 +11,5 @@ members = [
         "hyper_echo_example",
         "hyper_http1_request_example",
         "hyper_connection_graceful_shutdown_example",
+        "hyper_upgrade_example",
 ]
