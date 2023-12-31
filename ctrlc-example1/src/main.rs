@@ -1,12 +1,16 @@
-use std::{thread, time::Duration};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 fn main() {
+  let running = Arc::new(AtomicBool::new(true));
+  let r = running.clone();
+
   ctrlc::set_handler(move || {
-    println!("received Ctrl+C!");
+    r.store(false, Ordering::SeqCst);
   })
   .expect("Error setting Ctrl-C handler");
 
-  // Following code does the actual work, and can be interrupted by pressing
-  // Ctrl-C. As an example: Let's wait a few seconds.
-  thread::sleep(Duration::from_secs(2));
+  println!("Waiting for Ctrl-C...");
+  while running.load(Ordering::SeqCst) {}
+  println!("Got it! Exiting...");
 }
