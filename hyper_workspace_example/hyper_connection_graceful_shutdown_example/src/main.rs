@@ -43,21 +43,26 @@ async fn main() {
 
           let binding = auto::Builder::new(TokioExecutor::new());
 
-          let mut rx = rx.clone();
+          // let mut rx = rx.clone();
           tokio::task::spawn(async move {
             let connection = binding.serve_connection(io, service_fn(index1));
             tokio::pin!(connection);
-            tokio::select! {
-              res = &mut connection => {
-                if let Err(err) = res {
-                  println!("Error serving connection: {:?}", err);
-                  return;
-                }
-              }
-              // Continue polling the connection after enabling graceful shutdown.
-              _ = rx.changed() => {
-                connection.graceful_shutdown();
-              }
+            // tokio::select! {
+            //   res = &mut connection => {
+            //     if let Err(err) = res {
+            //       println!("Error serving connection: {:?}", err);
+            //       return;
+            //     }
+            //   }
+            //   // Continue polling the connection after enabling graceful shutdown.
+            //   _ = rx.changed() => {
+            //     connection.graceful_shutdown();
+            //   }
+            // }
+            connection.as_mut().graceful_shutdown();
+            if let Err(err) = connection.await {
+              println!("Error serving connection: {:?}", err);
+              return;
             }
           });
         }
