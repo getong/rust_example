@@ -1,6 +1,8 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "fn_example",
+        "fn_trait_async_example",
 ]
