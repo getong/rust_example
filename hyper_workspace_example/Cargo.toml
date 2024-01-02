@@ -12,4 +12,5 @@ members = [
         "hyper_http1_request_example",
         "hyper_connection_graceful_shutdown_example",
         "hyper_upgrade_example",
+        "hyper_path_tree_example",
 ]
