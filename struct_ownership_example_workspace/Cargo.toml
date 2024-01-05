@@ -1,8 +1,0 @@
-[workspace]
-
-
-members = [
-        "struct_partial_move_example",
-        "mut_self_field_example",
-        "basic_struct_example",
-]

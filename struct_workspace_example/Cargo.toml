@@ -1,7 +1,12 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "struct_move_field_example",
-
+        "struct_mutates_example",
+        "struct_mutates_example2",
+        "struct_temporary_variable_example",
+        "struct_type_name_example",
+        "struct_type_name_example2",
 ]

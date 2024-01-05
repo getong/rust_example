@@ -1,6 +1,6 @@
 #[derive(Debug)]
-struct SomeThing<'r> {
-  bar: &'r str,
+pub struct SomeThing<'r> {
+  pub bar: &'r str,
 }
 
 fn main() {

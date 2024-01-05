@@ -7,7 +7,7 @@ fn _get_name<T>(_: &T) -> &'static str {
 macro_rules! name_struct {
   ($e:expr) => {
     _get_name(&$e)
-  }
+  };
 }
 
 fn main() {
