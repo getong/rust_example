@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "rayon_example",
         "rayon_example2",
+        "rayon_threadpool_example",
 ]
