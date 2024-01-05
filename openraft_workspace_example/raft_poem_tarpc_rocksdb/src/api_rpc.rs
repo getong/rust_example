@@ -37,7 +37,6 @@ pub trait World {
   ) -> Result<InstallSnapshotResponse<u64>, ServiceError>;
 }
 
-#[tarpc::server]
 impl World for Api {
   // async fn hello(self, _context_info: context::Context, name: String) -> String {
   //   let mut num = self.num.lock().await;

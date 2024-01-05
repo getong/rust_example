@@ -8,7 +8,6 @@ pub trait World {
   async fn hello(name: String) -> String;
 }
 
-#[tarpc::server]
 impl World for Api {
   async fn hello(self, _context_info: context::Context, name: String) -> String {
     let mut num = self.num.lock().await;

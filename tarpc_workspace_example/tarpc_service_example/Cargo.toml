@@ -6,16 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.75"
-clap = {version = "4.4.11", features = ["derive"] }
-futures = "0.3.29"
+anyhow = "1.0.79"
+clap = {version = "4.4.13", features = ["derive"] }
+futures = "0.3.30"
 log = "0.4.20"
 opentelemetry = "0.21.0"
 opentelemetry-jaeger = { version = "0.20.0", features = ["rt-tokio", "collector_client"] }
-opentelemetry_sdk = { version = "0.21.1", features = ["tokio", "rt-tokio", "tokio-stream"] }
+opentelemetry_sdk = { version = "0.21.2", features = ["tokio", "rt-tokio", "tokio-stream"] }
 rand = "0.8.5"
-tarpc = { version = "0.33.0", features = ["full"] }
-tokio = { version = "1.35.0", features = ["full"] }
+tarpc = { version = "0.34.0", features = ["full"] }
+tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-opentelemetry = "0.22.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter","std"] }

@@ -58,7 +58,7 @@ async fn start_tarpc(num_clone: Arc<Mutex<i64>>) -> Result<(), std::io::Error> {
         let server = Api {
           num: num_clone.clone(),
         };
-        channel.execute(server.serve())
+        channel.execute(server.serve()).for_each(spawn)
       })
       // Max 10 channels.
       .buffer_unordered(10)
@@ -66,6 +66,10 @@ async fn start_tarpc(num_clone: Arc<Mutex<i64>>) -> Result<(), std::io::Error> {
       .await;
   });
   Ok(())
+}
+
+async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+  tokio::spawn(fut);
 }
 
 async fn start_poem(num: Arc<Mutex<i64>>) -> Result<(), std::io::Error> {

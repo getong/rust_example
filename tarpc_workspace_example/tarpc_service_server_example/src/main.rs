@@ -57,7 +57,6 @@ struct Flags {
 #[derive(Clone)]
 struct HelloServer(SocketAddr);
 
-#[tarpc::server]
 impl World for HelloServer {
   async fn hello(self, context_info: context::Context, name: String) -> String {
     let datetime: DateTime<Utc> = context_info.deadline.into();
@@ -81,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
   let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
   tracing::info!("Listening on port {}", listener.local_addr().port());
   listener.config_mut().max_frame_length(usize::MAX);
-  listener
+  _ = listener
     // Ignore accept errors.
     .filter_map(|r| future::ready(r.ok()))
     .map(server::BaseChannel::with_defaults)
@@ -92,11 +91,11 @@ async fn main() -> anyhow::Result<()> {
     .map(|channel| {
       let server = HelloServer(channel.transport().peer_addr().unwrap());
       channel.execute(server.serve())
-    })
-    // Max 10 channels.
-    .buffer_unordered(10)
-    .for_each(|_| async {})
-    .await;
+    });
+  // Max 10 channels.
+  // .buffer_unordered(10)
+  // .for_each(|_| async {})
+  // .await;
 
   Ok(())
 }

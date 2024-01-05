@@ -147,7 +147,7 @@ async fn start_tarpc(api: Api) -> Result<(), std::io::Error> {
         //   num: num_clone.clone(),
         // };
         let api_clone = api.clone();
-        channel.execute(api_clone.serve())
+        channel.execute(api_clone.serve()).for_each(spawn)
       })
       // Max 10 channels.
       .buffer_unordered(10)
@@ -155,6 +155,10 @@ async fn start_tarpc(api: Api) -> Result<(), std::io::Error> {
       .await;
   });
   Ok(())
+}
+
+async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+  tokio::spawn(fut);
 }
 
 async fn start_poem(api: Api) -> Result<(), std::io::Error> {
