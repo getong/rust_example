@@ -1,0 +1,11 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "yew-app-example",
+        "yew_canvas_example",
+        "yew_example2",
+        "yew_router_example",
+        "yew_webgl_example",
+]
