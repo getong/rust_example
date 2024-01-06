@@ -1,11 +1,10 @@
 [package]
-name = "pin_project_example"
+name = "pin_project_lite_example"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pin-project = "1.0.10"
-reqwest = { version = "0.11.10", features = ["json"] }
-tokio = { version = "1.17.0", features = ["full"] }
+pin-project-lite = "0.2.13"
+tokio = { version = "1.35.1", features = ["full"] }

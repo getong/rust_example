@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "as_ref_example",
@@ -13,4 +14,8 @@ members = [
         "into_ref_example",
         "as_mut_example",
         "get_unchecked_mut_example",
+        "pin_project_example",
+        "pin_project_lite_example",
+        "self-referential-need-pin-example",
+        "unpin_example",
 ]
