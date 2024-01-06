@@ -1,4 +1,3 @@
-#![feature(pointer_byte_offsets)] // at top of file
 fn main() {
   let array: [i32; 3] = [10, 20, 30];
   let ptr: *const i32 = array.as_ptr();

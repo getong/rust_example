@@ -1,6 +1,21 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "box_fn_pointer_example",
+        "const_unit_type_pointer_example",
+        "crash_unsafe_pointer_example",
+        "function_pointer_example",
+        "pointer_add_example",
+        "pointer_arithmetic_example",
+        "pointer_example",
+        "pointer_from_libc_example",
+        "pointer_offset_example",
+        # "pointer_set_ptr_value_example",
+        "pointer_sub_example",
+        "raw_pointer_example",
+        "reference_pointer_example",
+        "star_const_pointer_example",
+        "str_as_u8_pointer_example",
 ]
