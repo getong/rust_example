@@ -18,4 +18,10 @@ members = [
         "reference_pointer_example",
         "star_const_pointer_example",
         "str_as_u8_pointer_example",
+        "nonnull_ptr_example",
+        "ptr_copy_example",
+        "ptr_copy_nonoverlapping_example",
+        "ptr_null_example",
+        "ptr_write_bytes_example",
+        "std_ptr_addr_of_example",
 ]
