@@ -13,4 +13,5 @@ members = [
         "hyper_connection_graceful_shutdown_example",
         "hyper_upgrade_example",
         "hyper_path_tree_example",
+        "delay_timer_async_example",
 ]
