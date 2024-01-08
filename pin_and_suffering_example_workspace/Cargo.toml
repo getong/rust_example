@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "1"
 
 members = [
         "future_poll_unpin_example",
