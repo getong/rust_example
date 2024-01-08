@@ -79,7 +79,10 @@ async fn main() -> Result<(), tokio::io::Error> {
   let f = File::open("/dev/urandom").await?;
 
   let f = SlowRead::new(f);
-  pin_utils::pin_mut!(f);
+  // pin_utils::pin_mut!(f);
+  // pin_utils::pin_mut!(f); equals
+  let mut f = f;
+  let mut f = unsafe { Pin::new_unchecked(&mut f) };
 
   let before = Instant::now();
   f.read_exact(&mut buf).await?;

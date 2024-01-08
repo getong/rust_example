@@ -2,21 +2,14 @@
 :PROPERTIES:
 :CUSTOM_ID: pin-and-suffering
 :END:
-copy from [[https://fasterthanli.me/articles/pin-and-suffering][Pin and
-suffering]]
+copy from [[https://fasterthanli.me/articles/pin-and-suffering][Pin and suffering]]
 
 #+begin_quote
 
-#+begin_quote
-
-#+begin_quote
 The sleep in std does just call the sleep syscall, pretty much.
 
 #+end_quote
 
-#+end_quote
-
-#+end_quote
 
 Whereas the sleep in tokio returns a Future... that registers a timer
 when you first poll it... and it only completes when the deadline is
