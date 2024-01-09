@@ -3,7 +3,7 @@
 resolver = "2"
 
 members = [
-        "tokio_fork_child_process_example",
+        # "tokio_fork_child_process_example",
         "tokio_abort_example",
         "tokio_is_finished_example",
         "tokio_io_split_example",
@@ -41,7 +41,7 @@ members = [
         "tokio_stdin_example2",
         "tokio_bufreader_example",
         "tokio_spawn_per_connection_example",
-        "tokio_spawn_per_quinn_connection_example",
+        # "tokio_spawn_per_quinn_connection_example",
         "tokio_select_timeout_example",
         "tokio_select_tcp_example",
         "tokio_select_tcplistener_example",
