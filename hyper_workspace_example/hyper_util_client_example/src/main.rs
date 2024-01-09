@@ -5,7 +5,7 @@ use std::env;
 
 // cargo run -- http://www.baidu.com
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let url = match env::args().nth(1) {
     Some(url) => url,
