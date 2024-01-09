@@ -9,7 +9,6 @@ members = [
         "hyper_params_example",
         "hyper_service_struct_impl_example",
         "hyper_echo_example",
-        "hyper_http1_request_example",
         "hyper_connection_graceful_shutdown_example",
         "hyper_upgrade_example",
         "hyper_path_tree_example",
