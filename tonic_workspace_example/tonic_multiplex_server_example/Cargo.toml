@@ -1,0 +1,15 @@
+[package]
+name = "tonic_multiplex_server_example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tonic = { version = "0.10.2", features = ["tls"] }
+prost = "0.12.3"
+tokio = { version = "1.35.1", features = ["full"] }
+
+
+[build-dependencies]
+tonic-build = "0.10.2"

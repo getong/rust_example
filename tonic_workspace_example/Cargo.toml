@@ -6,4 +6,6 @@ members = [
         "tonic_example",
         "tonic_tls_server_example",
         "tonic_tls_client_example",
+        "tonic_multiplex_server_example",
+        "tonic_multiplex_client_example",
 ]
