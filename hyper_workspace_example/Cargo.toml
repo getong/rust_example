@@ -14,4 +14,5 @@ members = [
         "hyper_upgrade_example",
         "hyper_path_tree_example",
         "delay_timer_async_example",
+        "hyper_client_send_request_example",
 ]
