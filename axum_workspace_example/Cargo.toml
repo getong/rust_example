@@ -23,4 +23,5 @@ members = [
         "axum_prost_post_echo_example",
         "axum_post_echo_json_example",
         "axum_otlp_example",
+        "axum_route_service_example",
 ]
