@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.4.0"
-pest = { version = "2.5.0", features = ["serde", "serde_json"] }
-pest_derive = "2.5.0"
-pest_generator = "2.5.0"
-pest_grammars = "2.5.0"
-pest_meta = "2.5.0"
-pest_vm = "2.5.0"
+pest = "2.7.6"
+pest_derive = "2.7.6"
+pest_generator = "2.7.6"
+pest_grammars = "2.7.6"
+pest_meta = "2.7.6"
+pest_vm = "2.7.6"
