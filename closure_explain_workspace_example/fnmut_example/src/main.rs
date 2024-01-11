@@ -25,4 +25,15 @@ fn main() {
   f.call_mut(());
 
   println!("{}", i);
+
+  let mut j: i32 = 0;
+  let mut f = |add_num: i32| {
+    j += add_num;
+  };
+
+  f(1);
+  f(1);
+  f(1);
+  f.call_mut((1,));
+  println!("{}", j);
 }
