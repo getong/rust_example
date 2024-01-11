@@ -1,3 +1,4 @@
+#![feature(fn_traits)]
 /*
 struct MyClosure {
     i: &mut i32,
@@ -21,6 +22,7 @@ fn main() {
 
   f();
   f();
+  f.call_mut(());
 
   println!("{}", i);
 }
