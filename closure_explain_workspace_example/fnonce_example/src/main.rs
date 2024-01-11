@@ -1,3 +1,5 @@
+#![feature(fn_traits)]
+
 fn create_closure() -> impl FnOnce() {
   let name = String::from("john");
   || {
@@ -5,22 +7,10 @@ fn create_closure() -> impl FnOnce() {
   }
 }
 
-/*
-struct MyClosure {
-    name: String,
-}
-
-impl FnOnce for Myclosure {
-    fn call_once(self) {
-        drop(self.name)
-    }
-}
-
-*/
-
 fn main() {
-  // println!("Hello, world!");
-
   let a = create_closure();
   a();
+
+  let b = create_closure();
+  b.call_once(());
 }
