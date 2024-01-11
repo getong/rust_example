@@ -13,4 +13,5 @@ members = [
         "escape_closure_example",
         "closure_lieftime_example",
         "store_closure_example",
+        "closure_to_fn_pointer_example",
 ]
