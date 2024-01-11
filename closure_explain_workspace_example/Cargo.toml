@@ -6,4 +6,11 @@ members = [
         "fn_example",
         "fnmut_example",
         "fnonce_example",
+        "fn_example2",
+        "fn_trait_async_example",
+        "basic_closure_example",
+        "rust_quiz_36_example",
+        "escape_closure_example",
+        "closure_lieftime_example",
+        "store_closure_example",
 ]
