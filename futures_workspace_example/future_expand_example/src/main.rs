@@ -35,8 +35,8 @@ impl Future for WriteHelloFile {
       match this {
         // 如果状态是 Init，那么就生成 create Future，把状态切换到 AwaitingCreate
         WriteHelloFile::Init(name) => {
-          let fut = fs::File::create(name);
-          *self = WriteHelloFile::AwaitingCreate(fut);
+          let fut = Box::new(async { fs::File::create(name) });
+          *self = WriteHelloFile::AwaitingCreate(fut)
         }
         // 如果状态是 AwaitingCreate，那么 poll create Future
         // 如果返回 Poll::Ready(Ok(_))，那么创建 write Future
