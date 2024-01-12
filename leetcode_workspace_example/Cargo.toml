@@ -1,0 +1,28 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "leetcode_binary_tree_inorder_traversal_example",
+        "leetcode_binary_tree_inorder_traversal_recursive_example",
+        "leetcode_binary_tree_level_order_traversal_example",
+        "leetcode_binary_tree_postorder_traversal_example",
+        "leetcode_binary_tree_postorder_traversal_recursive_example",
+        "leetcode_binary_tree_preorder_traversal_example",
+        "leetcode_binary_tree_preorder_traversal_recursive_example",
+        "leetcode_group_anagrams_example",
+        "leetcode_insert_into_a_binary_search_tree_example",
+        "leetcode_maximum_depth_tree_example",
+        "leetcode_merge_two_sorted_lists_example",
+        "leetcode_middle_of_the_linked_list_example",
+        "leetcode_min_stack_example",
+        "leetcode_move_zeroes_example",
+        "leetcode_plus_one_example",
+        "leetcode_remove_duplicates_from_sorted_array_example",
+        "leetcode_remove_nth_node_from_end_of_list_example",
+        "leetcode_reverse_linked_list_example",
+        "leetcode_sliding_window_maximum_example",
+        "leetcode_two_sum_example",
+        "leetcode_valid_anagram_example",
+        "leetcode_valid_parentheses_example",
+]
