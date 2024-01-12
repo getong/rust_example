@@ -1,4 +1,5 @@
-#![feature(once_cell)]
+// #![feature(once_cell)]
+#![feature(lazy_cell)]
 
 use std::collections::HashMap;
 
