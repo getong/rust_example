@@ -18,4 +18,5 @@ members = [
         "tokio_reqwest_example",
         "pin_box_dyn_future_example",
         "pin_box_dyn_future_example2",
+        "future_in_future_example",
 ]
