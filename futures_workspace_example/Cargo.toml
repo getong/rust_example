@@ -17,4 +17,5 @@ members = [
         "tokio_color_eyre_example",
         "tokio_reqwest_example",
         "pin_box_dyn_future_example",
+        "pin_box_dyn_future_example2",
 ]
