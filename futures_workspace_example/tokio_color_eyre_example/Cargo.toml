@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-color-eyre = "0.6.1"
-tokio = { version = "1.19.2", features = ["full"] }
-tracing = "0.1.35"
-tracing-subscriber = { version = "0.3.14", features = ["env-filter", "std"] }
+color-eyre = "0.6.2"
+tokio = { version = "1.35.1", features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }

@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-struct Delay {
+pub struct Delay {
   when: Instant,
 }
 
@@ -22,7 +22,7 @@ impl Future for Delay {
   }
 }
 
-enum MainFuture {
+pub enum MainFuture {
   // Initialized, never polled
   State0,
   // Waiting on `Delay`, i.e. the `future.await` line.

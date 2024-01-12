@@ -1,9 +1,19 @@
 [workspace]
 
+resolver = "2"
 
 members = [
+        "future_abortable_example",
+        "future_basic_example",
+        "future_expand_example",
+        "future_futuresunordered_example",
+        "future_move_example",
+        "future_state_machine_lib_example",
+        "futures_example",
+        "futures_example2",
+        "futures_example3",
+        "futures_explain_example",
+        "futures_stream_example",
         "tokio_color_eyre_example",
         "tokio_reqwest_example",
-        "futures_stream_example",
-        "futures_explain_example",
 ]
