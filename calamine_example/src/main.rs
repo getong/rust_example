@@ -21,7 +21,7 @@ const DEST_DIR: &str = "/Users/gerald/other_project/art/resource/skins";
 
 fn main() {
   let mut excel: Xlsx<_> = open_workbook(PATH).unwrap();
-  if let Some(Ok(r)) = excel.worksheet_range(SHEET_NAME) {
+  if let Ok(r) = excel.worksheet_range(SHEET_NAME) {
     let mut odd_num = 0;
     let mut whole_line: String = "".to_string();
     let mut chinese_str: String = "".to_string();

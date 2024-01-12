@@ -67,7 +67,7 @@ const DART_FILE_HEADING: &[u8] =b"//use with auto_exporter package\nimport 'expo
 async fn main() {
   let mut list: Vec<Vec<String>> = vec![];
   let mut excel: Xlsx<_> = open_workbook(PATH).unwrap();
-  if let Some(Ok(r)) = excel.worksheet_range(SHEET_NAME) {
+  if let Ok(r) = excel.worksheet_range(SHEET_NAME) {
     for row in r.rows().skip(1) {
       if let Some(Float(number)) = row.get(0) {
         if let Some(OtherString(module_name)) = row.get(1) {

@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-calamine = "0.19.1"
-walkdir = "2.3.2"
+calamine = "0.23.1"
+walkdir = "2.4.0"
