@@ -26,7 +26,7 @@ impl Future for BoxStruct {
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
     let box_struct = Pin::into_inner(self);
-    Pin::new(&mut box_struct.inner).poll(cx)
+    box_struct.inner.as_mut().poll(cx)
   }
 }
 
