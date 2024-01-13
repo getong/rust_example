@@ -1,18 +1,13 @@
 use std::fs;
 use std::future::Future;
+use std::io::{Error, Write};
 use std::pin::Pin;
-use std::task::Context;
-use std::task::Poll;
+use std::task::{Context, Poll};
 
 enum WriteHelloFile {
-  // 初始阶段，用户提供文件名
   Init(String),
-  // 等待文件创建，此时需要保存 Future 以便多次调用
-  // 这是伪代码，impl Future 不能用在这里
-  AwaitingCreate(Box<dyn Future<Output = Result<fs::File, std::io::Error>>>),
-  // 等待文件写入，此时需要保存 Future 以便多次调用
-  AwaitingWrite(Box<dyn Future<Output = Result<(), std::io::Error>>>),
-  // Future 处理完毕
+  AwaitingCreate(Pin<Box<dyn Future<Output = Result<fs::File, std::io::Error>>>>),
+  AwaitingWrite(Pin<Box<dyn Future<Output = Result<(), std::io::Error>>>>),
   Done,
 }
 
@@ -22,49 +17,46 @@ impl WriteHelloFile {
   }
 }
 
-fn write_hello_file_async(name: &str) -> WriteHelloFile {
-  WriteHelloFile::new(name)
-}
-
 impl Future for WriteHelloFile {
   type Output = Result<(), std::io::Error>;
-
-  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    let this = self.get_mut();
-    loop {
-      match this {
-        // 如果状态是 Init，那么就生成 create Future，把状态切换到 AwaitingCreate
-        WriteHelloFile::Init(name) => {
-          let fut = Box::new(async { fs::File::create(name) });
-          *self = WriteHelloFile::AwaitingCreate(fut)
-        }
-        // 如果状态是 AwaitingCreate，那么 poll create Future
-        // 如果返回 Poll::Ready(Ok(_))，那么创建 write Future
-        // 并把状态切换到 Awaiting
-        WriteHelloFile::AwaitingCreate(fut) => match fut.poll(cx) {
-          Poll::Ready(Ok(file)) => {
-            let fut = file.write_all(b"hello world!");
-            *self = WriteHelloFile::AwaitingWrite(fut);
-          }
-          Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-          Poll::Pending => return Poll::Pending,
-        },
-        // 如果状态是 AwaitingWrite，那么 poll write Future
-        // 如果返回 Poll::Ready(_)，那么状态切换到 Done，整个 Future 执行成功
-        WriteHelloFile::AwaitingWrite(fut) => match fut.poll(cx) {
-          Poll::Ready(result) => {
-            *self = WriteHelloFile::Done;
-            return Poll::Ready(result);
-          }
-          Poll::Pending => return Poll::Pending,
-        },
-        // 整个 Future 已经执行完毕
-        WriteHelloFile::Done => return Poll::Ready(Ok(())),
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let this = self.as_mut().get_mut();
+    match this {
+      WriteHelloFile::Init(name) => {
+        let name_clone = name.clone();
+        let fut = Box::pin(async { fs::File::create(name_clone) });
+        *this = WriteHelloFile::AwaitingCreate(fut);
+        return Poll::Ready(Ok(()));
       }
+      WriteHelloFile::AwaitingCreate(fut) => match fut.as_mut().poll(cx) {
+        Poll::Ready(Ok(mut v)) => {
+          let fut = Box::pin(async move { v.write_all(b"hello world!") });
+          *this = WriteHelloFile::AwaitingWrite(fut);
+          return Poll::Ready(Ok(()));
+        }
+        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+        Poll::Pending => return Poll::Pending,
+      },
+      WriteHelloFile::AwaitingWrite(fut) => match fut.as_mut().poll(cx) {
+        Poll::Ready(Ok(_)) => {
+          *this = WriteHelloFile::Done;
+          return Poll::Ready(Ok(()));
+        }
+        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+        Poll::Pending => return Poll::Pending,
+      },
+      WriteHelloFile::Done => return Poll::Ready(Err(Error::from(std::io::ErrorKind::Other))),
     }
   }
 }
 
-fn main() {
-  println!("Hello, world!");
+#[tokio::main]
+async fn main() {
+  let mut write_file = WriteHelloFile::new("abc.txt");
+  // _ = (&mut write_file).await;
+  // _ = (&mut write_file).await;
+  // _ = (&mut write_file).await;
+  // _ = (&mut write_file).await;
+  while let Ok(_) = (&mut write_file).await {}
+  println!("done");
 }
