@@ -18,20 +18,18 @@ impl BoxStruct {
 impl Future for BoxStruct {
   type Output = ();
 
-  // fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-  //   unsafe { self.map_unchecked_mut(|s| &mut s.inner) }
-  //     .poll(cx)
-  //     .map(|_| ())
-  // }
+  fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    let box_struct = &mut *self;
 
-  fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-    let box_struct = Pin::into_inner(self);
-    box_struct.inner.as_mut().poll(cx)
+    let result = box_struct.inner.as_mut().poll(cx);
+    box_struct.inner = Box::pin(async { println!("See you") });
+    return result;
   }
 }
 
 #[tokio::main]
 async fn main() {
-  let box_struct = BoxStruct::new();
-  box_struct.await;
+  let mut box_struct = BoxStruct::new();
+  (&mut box_struct).await;
+  (&mut box_struct).await;
 }
