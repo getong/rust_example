@@ -27,8 +27,14 @@ impl Future for WriteHelloFile {
         println!("box_string is {}", box_string);
         return Poll::Ready(());
       }
-      WriteHelloFile::AwaitingCreate(create_func) => create_func.as_mut().poll(cx),
-      WriteHelloFile::AwaitingWrite(write_func) => write_func.as_mut().poll(cx),
+      WriteHelloFile::AwaitingCreate(create_func) => {
+        let pinned = create_func.as_mut();
+        pinned.poll(cx)
+      }
+      WriteHelloFile::AwaitingWrite(write_func) => {
+        let pinned = write_func.as_mut();
+        pinned.poll(cx)
+      }
       WriteHelloFile::Done => {
         println!("Done!");
         return Poll::Ready(());
