@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 chrono = "0.4.31"
-clap = { version = "4.4.13", features = ["env", "derive"] }
+clap = { version = "4.4.16", features = ["env", "derive"] }
 futures = "0.3.30"
 opentelemetry = "0.21.0"
 opentelemetry-jaeger = { version = "0.20.0"}
