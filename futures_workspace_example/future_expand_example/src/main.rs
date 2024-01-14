@@ -44,54 +44,62 @@ impl Future for WriteHelloFile {
   type Output = Result<(), std::io::Error>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
-    match this {
-      WriteHelloFile::Init(name) => {
-        let name_clone = name.clone();
-        let fut = Box::pin(async { fs::File::create(name_clone) });
-        *this = WriteHelloFile::AwaitingCreate(fut);
-        return Poll::Ready(Ok(()));
+    loop {
+      match this {
+        WriteHelloFile::Init(name) => {
+          let name_clone = name.clone();
+          let fut = Box::pin(async { fs::File::create(name_clone) });
+          *this = WriteHelloFile::AwaitingCreate(fut);
+          return Poll::Ready(Ok(()));
+        }
+        WriteHelloFile::AwaitingCreate(fut) => match fut.as_mut().poll(cx) {
+          Poll::Ready(Ok(mut v)) => {
+            let fut = Box::pin(async move { v.write_all(b"hello world!") });
+            *this = WriteHelloFile::AwaitingWrite(fut);
+            return Poll::Ready(Ok(()));
+          }
+          Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+          Poll::Pending => return Poll::Pending,
+        },
+        WriteHelloFile::AwaitingWrite(fut) => match fut.as_mut().poll(cx) {
+          Poll::Ready(Ok(_)) => {
+            *this = WriteHelloFile::Done;
+            return Poll::Ready(Ok(()));
+          }
+          Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+          Poll::Pending => return Poll::Pending,
+        },
+        WriteHelloFile::Done => return Poll::Ready(Ok(())),
       }
-      WriteHelloFile::AwaitingCreate(fut) => match fut.as_mut().poll(cx) {
-        Poll::Ready(Ok(mut v)) => {
-          let fut = Box::pin(async move { v.write_all(b"hello world!") });
-          *this = WriteHelloFile::AwaitingWrite(fut);
-          return Poll::Ready(Ok(()));
-        }
-        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-        Poll::Pending => return Poll::Pending,
-      },
-      WriteHelloFile::AwaitingWrite(fut) => match fut.as_mut().poll(cx) {
-        Poll::Ready(Ok(_)) => {
-          *this = WriteHelloFile::Done;
-          return Poll::Ready(Ok(()));
-        }
-        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-        Poll::Pending => return Poll::Pending,
-      },
-      WriteHelloFile::Done => return Poll::Ready(Ok(())),
     }
   }
 }
 
 #[tokio::main]
 async fn main() {
-  let mut write_file = WriteHelloFile::new("abc.txt");
+  // let mut write_file = WriteHelloFile::new("abc.txt");
   // _ = (&mut write_file).await;
   // _ = (&mut write_file).await;
   // _ = (&mut write_file).await;
   // _ = (&mut write_file).await;
-  loop {
-    match (&mut write_file).await {
-      Ok(_) => {
-        if write_file == WriteHelloFile::Done {
-          println!("done");
-          break;
-        }
-      }
-      Err(e) => {
-        println!("error reason, e: {:?}", e);
-        break;
-      }
-    }
+
+  // loop {
+  //   match (&mut write_file).await {
+  //     Ok(_) => {
+  //       if write_file == WriteHelloFile::Done {
+  //         println!("done");
+  //         break;
+  //       }
+  //     }
+  //     Err(e) => {
+  //       println!("error reason, e: {:?}", e);
+  //       break;
+  //     }
+  //   }
+  // }
+  let write_file = WriteHelloFile::new("abc.txt");
+  match write_file.await {
+    Ok(()) => println!("done"),
+    Err(e) => println!("error reason, e: {:?}", e),
   }
 }
