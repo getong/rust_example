@@ -42,8 +42,8 @@ impl WriteHelloFile {
 
 impl Future for WriteHelloFile {
   type Output = Result<(), std::io::Error>;
-  fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    let this = self.as_mut().get_mut();
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    let this = self.get_mut();
     match this {
       WriteHelloFile::Init(name) => {
         let name_clone = name.clone();
