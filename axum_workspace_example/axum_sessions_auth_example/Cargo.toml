@@ -8,10 +8,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 async-trait = "0.1.77"
-axum = "0.7.3"
-axum-macros = "0.4.0"
-axum_session = { version = "0.11.1", features = [ "redis", "postgres-rustls"] }
-axum_session_auth = {version = "0.11.0", features = ["redis-db", "postgres-rustls"]}
+axum = "0.7.4"
+axum-macros = "0.4.1"
+axum_session = { version = "0.12.1", features = [ "redis", "postgres-rustls"] }
+axum_session_auth = {version = "0.12.0", features = ["redis-db", "postgres-rustls"]}
 http = "1.0.0"
 redis = "0.24.0"
 serde = { version = "1.0.195", features = ["derive"] }
