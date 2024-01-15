@@ -9,4 +9,5 @@ members = [
         "buffer_stream_example",
         "stream_for_each_concurrent_example",
         "stream_poll_fn_example",
+        "tokio_lines_stream_example",
 ]
