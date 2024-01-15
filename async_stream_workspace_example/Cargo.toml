@@ -12,4 +12,5 @@ members = [
         "tokio_lines_stream_example",
         "tokio_yamux_stream_example",
         "stream_wrapper_example",
+        "sink_asyncwrite_example",
 ]
