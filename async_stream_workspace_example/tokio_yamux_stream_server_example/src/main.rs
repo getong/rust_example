@@ -21,24 +21,28 @@ async fn main() -> Result<()> {
     config.set_split_send_size(4 * 1024);
     // 使用 compat() 方法把 tokio AsyncRead/AsyncWrite 转换成 futures 对应的 trait
     let mut conn = Connection::new(stream.compat(), config, Mode::Server);
-
     tokio::spawn(async move {
-      stream::poll_fn(move |cx| conn.poll_next_inbound(cx)).try_for_each_concurrent(
-        None,
-        move |s| async move {
-          // 使用 compat() 方法把 futures AsyncRead/AsyncWrite 转换成 tokio 对应的 trait
-          let mut framed = Framed::new(s.compat(), LinesCodec::new());
-          while let Some(Ok(line)) = framed.next().await {
-            println!("Got: {}", line);
-            framed
-              .send(format!("Hello! I got '{}'", line))
-              .await
-              .unwrap();
+      loop {
+        match stream::poll_fn(|cx| conn.poll_next_inbound(cx))
+          .next()
+          .await
+        {
+          Some(Ok(stream)) => {
+            let mut framed = Framed::new(stream.compat(), LinesCodec::new());
+            while let Some(Ok(line)) = framed.next().await {
+              println!("Got: {}", line);
+              framed
+                .send(format!("Hello! I got '{}'", line))
+                .await
+                .unwrap();
+            }
           }
-
-          Ok(())
-        },
-      )
+          Some(Err(e)) => println!("e :{:?}", e),
+          None => {
+            // println!("none")
+          }
+        }
+      }
     });
   }
 }
