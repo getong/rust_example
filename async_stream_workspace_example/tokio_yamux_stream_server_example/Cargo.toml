@@ -1,5 +1,5 @@
 [package]
-name = "tokio_yamux_stream_example"
+name = "tokio_yamux_stream_server_example"
 version = "0.1.0"
 edition = "2021"
 

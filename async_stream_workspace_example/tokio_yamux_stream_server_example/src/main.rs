@@ -17,10 +17,10 @@ async fn main() -> Result<()> {
   loop {
     let (stream, addr) = listener.accept().await?;
     info!("Accepted: {:?}", addr);
-    let config = Config::default();
+    let mut config = Config::default();
+    config.set_split_send_size(4 * 1024);
     // 使用 compat() 方法把 tokio AsyncRead/AsyncWrite 转换成 futures 对应的 trait
     let mut conn = Connection::new(stream.compat(), config, Mode::Server);
-
     tokio::spawn(async move {
       stream::poll_fn(move |cx| {
         conn
