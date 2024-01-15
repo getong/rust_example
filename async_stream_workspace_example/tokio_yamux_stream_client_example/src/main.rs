@@ -18,26 +18,20 @@ async fn main() -> Result<()> {
   let mut conn = Connection::new(stream.compat(), config, Mode::Client);
 
   // poll 所有 stream 下的数据
-  tokio::spawn(
-    stream::poll_fn(move |cx| {
-      conn
-        .poll_new_outbound(cx)
-        .map(|result| result.map(Some).transpose())
-    })
-    .try_for_each_concurrent(None, move |stream| async move {
-      let stream = stream.compat();
-      info!("Started a new stream");
-      let mut framed = Framed::new(stream, LinesCodec::new());
-      framed
-        .send("Hello, this is Tyr!".to_string())
-        .await
-        .unwrap();
-      if let Some(Ok(line)) = framed.next().await {
-        println!("Got: {}", line);
-      }
-      Ok(())
-    }),
-  );
+  let stream = future::poll_fn(move |cx| conn.poll_new_outbound(cx))
+    .await
+    .unwrap();
+
+  let stream = stream.compat();
+  info!("Started a new stream");
+  let mut framed = Framed::new(stream, LinesCodec::new());
+  framed
+    .send("Hello, this is Tyr!".to_string())
+    .await
+    .unwrap();
+  if let Some(Ok(line)) = framed.next().await {
+    println!("Got: {}", line);
+  }
 
   Ok(())
 }
