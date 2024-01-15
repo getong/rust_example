@@ -7,4 +7,5 @@ members = [
         "stream_example1",
         "stream_example2",
         "buffer_stream_example",
+        "stream_for_each_concurrent_example",
 ]
