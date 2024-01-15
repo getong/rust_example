@@ -11,6 +11,7 @@ members = [
         "stream_poll_fn_example",
         "tokio_lines_stream_example",
         "tokio_yamux_stream_server_example",
+        "tokio_yamux_stream_client_example",
         "stream_wrapper_example",
         "sink_asyncwrite_example",
         "sink_unfold_example",
