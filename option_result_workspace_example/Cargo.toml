@@ -1,0 +1,20 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "option_as_ref_example",
+        "option_match_example",
+        "option_take_example",
+        "combinator_and_then_example",
+        "combinator_filter_example",
+        "combinator_map_err_example",
+        "combinator_map_example",
+        "combinator_map_or_else_example",
+        "combinator_map_or_example",
+        "combinator_ok_or_else_example",
+        "combinator_ok_or_example",
+        "combinator_or_and_example",
+        "combinator_or_else_example",
+        "combinator_unwrap_or_example",
+]
