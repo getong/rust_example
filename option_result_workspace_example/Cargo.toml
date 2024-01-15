@@ -17,4 +17,5 @@ members = [
         "combinator_or_and_example",
         "combinator_or_else_example",
         "combinator_unwrap_or_example",
+        "option_resutl_transpose_example",
 ]
