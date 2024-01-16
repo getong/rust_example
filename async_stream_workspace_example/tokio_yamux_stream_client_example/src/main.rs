@@ -25,10 +25,14 @@ async fn main() -> Result<()> {
   let stream = stream.compat();
   info!("Started a new stream");
   let mut framed = Framed::new(stream, LinesCodec::new());
-  framed
-    .send("Hello, this is Tyr!".to_string())
-    .await
-    .unwrap();
+  // framed
+  //   .send("Hello, this is Tyr!".to_string())
+  //   .await
+  //   .unwrap();
+  if let Err(err) = framed.send("Hello, this is Tyr!".to_string()).await {
+    eprintln!("Error sending message: {:?}", err);
+    // Handle the error appropriately, e.g., return Err(err) or take other actions
+  }
   if let Some(Ok(line)) = framed.next().await {
     println!("Got: {}", line);
   }

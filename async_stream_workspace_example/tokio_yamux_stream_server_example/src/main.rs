@@ -14,14 +14,16 @@ async fn main() -> Result<()> {
   let addr = "0.0.0.0:8080";
   let listener = TcpListener::bind(addr).await?;
   info!("Listening on: {:?}", addr);
+  let mut config = Config::default();
+  config.set_split_send_size(4 * 1024);
   loop {
     let (stream, addr) = listener.accept().await?;
     info!("Accepted: {:?}", addr);
-    let mut config = Config::default();
-    config.set_split_send_size(4 * 1024);
-    // 使用 compat() 方法把 tokio AsyncRead/AsyncWrite 转换成 futures 对应的 trait
-    let mut conn = Connection::new(stream.compat(), config, Mode::Server);
+    let config = config.clone();
+
     tokio::spawn(async move {
+      // 使用 compat() 方法把 tokio AsyncRead/AsyncWrite 转换成 futures 对应的 trait
+      let mut conn = Connection::new(stream.compat(), config, Mode::Server);
       loop {
         match stream::poll_fn(|cx| conn.poll_next_inbound(cx))
           .next()
@@ -36,10 +38,15 @@ async fn main() -> Result<()> {
                 .await
                 .unwrap();
             }
+            break;
           }
-          Some(Err(e)) => println!("e :{:?}", e),
+          Some(Err(e)) => {
+            println!("e :{:?}", e);
+            break;
+          }
           None => {
             // println!("none")
+            break;
           }
         }
       }
