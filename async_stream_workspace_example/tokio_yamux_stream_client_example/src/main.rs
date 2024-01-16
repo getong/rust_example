@@ -18,27 +18,47 @@ async fn main() -> Result<()> {
   let mut conn = Connection::new(stream.compat(), config, Mode::Client);
 
   // poll 所有 stream 下的数据
-  let stream = future::poll_fn(move |cx| conn.poll_new_outbound(cx))
+  let stream = future::poll_fn(|cx| conn.poll_new_outbound(cx))
     .await
     .unwrap();
+
+  tokio::spawn(noop_server(stream::poll_fn(move |cx| {
+    conn.poll_next_inbound(cx)
+  })));
 
   let stream = stream.compat();
   info!("Started a new stream");
   let mut framed = Framed::new(stream, LinesCodec::new());
-  // framed
-  //   .send("Hello, this is Tyr!".to_string())
-  //   .await
-  //   .unwrap();
-  if let Err(err) = framed.send("Hello, this is Tyr!".to_string()).await {
-    eprintln!("Error sending message: {:?}", err);
-    // Handle the error appropriately, e.g., return Err(err) or take other actions
-  }
-  if let Some(Ok(line)) = framed.next().await {
-    println!("Got: {}", line);
-  }
+  loop {
+    tokio::select! {
+      result = framed.send("Hello, this is Tyr!".to_string()).fuse() => {
+        // Handle the result of the send operation
+        if let Err(err) = result {
+          eprintln!("Error sending message: {:?}", err);
+          // Optionally: return Err(err) or take other actions
+        }
+      },
+    }
 
-  Ok(())
+    tokio::select! {
+      response = framed.next().fuse() => {
+        // Handle the received response
+        if let Some(Ok(line)) = response {
+          println!("Got: {}", line);
+        }
+        // Optionally: Handle other cases if needed
+      },
+    }
+  }
 }
 
+/// For each incoming stream, do nothing.
+pub async fn noop_server(c: impl Stream<Item = Result<yamux::Stream, yamux::ConnectionError>>) {
+  c.for_each(|maybe_stream| {
+    drop(maybe_stream);
+    future::ready(())
+  })
+  .await;
+}
 // copy from https://github.com/tyrchen/geektime-rust
 // modified with chatpgpt

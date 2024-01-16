@@ -1,5 +1,6 @@
 use anyhow::Result;
 use futures::prelude::*;
+use futures::Stream as FutureStream;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::{
   codec::{Framed, LinesCodec},
@@ -14,7 +15,8 @@ async fn main() -> Result<()> {
   let addr = "0.0.0.0:8080";
   let listener = TcpListener::bind(addr).await?;
   info!("Listening on: {:?}", addr);
-  let config = Config::default();
+  let mut config = Config::default();
+  config.set_split_send_size(4 * 1024);
   run_server(listener, config).await?;
   Ok(())
 }
@@ -31,23 +33,17 @@ async fn run_server(listener: TcpListener, config: Config) -> Result<()> {
 async fn handle_connection(stream: TcpStream, config: Config) {
   let mut conn = Connection::new(stream.compat(), config, Mode::Server);
 
-  loop {
-    match stream::poll_fn(|cx| conn.poll_next_inbound(cx))
-      .next()
-      .await
-    {
-      Some(Ok(stream)) => {
-        process_client(stream).await;
-        break;
-      }
-      Some(Err(e)) => {
-        handle_error(e);
-        break;
-      }
-      None => {
-        // Handle None case if needed
-        break;
-      }
+  let mut server = stream::poll_fn(move |cx| conn.poll_next_inbound(cx));
+  match server.next().await {
+    Some(Ok(stream)) => {
+      tokio::spawn(noop_server(server));
+      process_client(stream).await;
+    }
+    Some(Err(e)) => {
+      handle_error(e);
+    }
+    None => {
+      // Handle None case if needed
     }
   }
 }
@@ -67,6 +63,17 @@ async fn process_client(stream: Stream) {
 fn handle_error(error: yamux::ConnectionError) {
   println!("Error: {:?}", error);
   // Handle the error as needed
+}
+
+/// For each incoming stream, do nothing.
+pub async fn noop_server(
+  c: impl FutureStream<Item = Result<yamux::Stream, yamux::ConnectionError>>,
+) {
+  c.for_each(|maybe_stream| {
+    drop(maybe_stream);
+    future::ready(())
+  })
+  .await;
 }
 
 // copy from https://github.com/tyrchen/geektime-rust
