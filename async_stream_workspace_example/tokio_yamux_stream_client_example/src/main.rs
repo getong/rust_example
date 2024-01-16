@@ -35,9 +35,11 @@ async fn main() -> Result<()> {
         // Handle the result of the send operation
         if let Err(err) = result {
           eprintln!("Error sending message: {:?}", err);
+          break
           // Optionally: return Err(err) or take other actions
         }
       },
+
     }
 
     tokio::select! {
@@ -50,6 +52,7 @@ async fn main() -> Result<()> {
       },
     }
   }
+  Ok(())
 }
 
 /// For each incoming stream, do nothing.
