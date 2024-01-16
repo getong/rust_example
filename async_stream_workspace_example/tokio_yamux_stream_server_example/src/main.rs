@@ -1,12 +1,12 @@
 use anyhow::Result;
 use futures::prelude::*;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio_util::{
   codec::{Framed, LinesCodec},
   compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt},
 };
 use tracing::info;
-use yamux::{Config, Connection, Mode};
+use yamux::{Config, Connection, Mode, Stream};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -14,44 +14,59 @@ async fn main() -> Result<()> {
   let addr = "0.0.0.0:8080";
   let listener = TcpListener::bind(addr).await?;
   info!("Listening on: {:?}", addr);
-  let mut config = Config::default();
-  config.set_split_send_size(4 * 1024);
+  let config = Config::default();
+  run_server(listener, config).await?;
+  Ok(())
+}
+
+async fn run_server(listener: TcpListener, config: Config) -> Result<()> {
   loop {
     let (stream, addr) = listener.accept().await?;
     info!("Accepted: {:?}", addr);
-    let config = config.clone();
 
-    tokio::spawn(async move {
-      // 使用 compat() 方法把 tokio AsyncRead/AsyncWrite 转换成 futures 对应的 trait
-      let mut conn = Connection::new(stream.compat(), config, Mode::Server);
-      loop {
-        match stream::poll_fn(|cx| conn.poll_next_inbound(cx))
-          .next()
-          .await
-        {
-          Some(Ok(stream)) => {
-            let mut framed = Framed::new(stream.compat(), LinesCodec::new());
-            while let Some(Ok(line)) = framed.next().await {
-              println!("Got: {}", line);
-              framed
-                .send(format!("Hello! I got '{}'", line))
-                .await
-                .unwrap();
-            }
-            break;
-          }
-          Some(Err(e)) => {
-            println!("e :{:?}", e);
-            break;
-          }
-          None => {
-            // println!("none")
-            break;
-          }
-        }
-      }
-    });
+    tokio::spawn(handle_connection(stream, config.clone()));
   }
+}
+
+async fn handle_connection(stream: TcpStream, config: Config) {
+  let mut conn = Connection::new(stream.compat(), config, Mode::Server);
+
+  loop {
+    match stream::poll_fn(|cx| conn.poll_next_inbound(cx))
+      .next()
+      .await
+    {
+      Some(Ok(stream)) => {
+        process_client(stream).await;
+        break;
+      }
+      Some(Err(e)) => {
+        handle_error(e);
+        break;
+      }
+      None => {
+        // Handle None case if needed
+        break;
+      }
+    }
+  }
+}
+
+async fn process_client(stream: Stream) {
+  let mut framed = Framed::new(stream.compat(), LinesCodec::new());
+
+  while let Some(Ok(line)) = framed.next().await {
+    println!("Got: {}", line);
+    framed
+      .send(format!("Hello! I got '{}'", line))
+      .await
+      .unwrap();
+  }
+}
+
+fn handle_error(error: yamux::ConnectionError) {
+  println!("Error: {:?}", error);
+  // Handle the error as needed
 }
 
 // copy from https://github.com/tyrchen/geektime-rust
