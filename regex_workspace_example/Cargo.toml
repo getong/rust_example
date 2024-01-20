@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "regex_email_example",
@@ -8,5 +9,7 @@ members = [
         "regex_multiple_example",
         "regex_occurrences_example",
         "regex_chinese_letters_example",
-        "regex_10_examples"
+        "regex_10_examples",
+        "regex_example",
+        "regex_command_example",
 ]

@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 error-chain = "0.12.4"
-regex = "1.7.0"
+regex = "1.10.2"
