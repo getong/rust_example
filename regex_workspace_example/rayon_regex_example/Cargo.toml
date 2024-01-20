@@ -1,5 +1,5 @@
 [package]
-name = "basic_regex_example"
+name = "rayon_regex_example"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.4.0"
-regex = "1.6.0"
+rayon = "1.8.1"
+regex = "1.10.2"

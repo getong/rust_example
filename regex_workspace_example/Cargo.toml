@@ -12,4 +12,7 @@ members = [
         "regex_10_examples",
         "regex_example",
         "regex_command_example",
+        "basic_regex_example",
+        "rayon_regex_example",
+        "thread_rayon_regex_example",
 ]
