@@ -15,4 +15,5 @@ members = [
         "stream_wrapper_example",
         "sink_asyncwrite_example",
         "sink_unfold_example",
+        "tcp_yield_stream_example",
 ]
