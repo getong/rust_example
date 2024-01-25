@@ -43,11 +43,7 @@ impl Api {
       cluster_id: chitchat_guard.cluster_id().to_string(),
       cluster_state: chitchat_guard.state_snapshot(),
       live_nodes: chitchat_guard.live_nodes().cloned().collect::<Vec<_>>(),
-      dead_nodes: chitchat_guard
-        .dead_nodes()
-        .cloned()
-        .map(|node| node.0)
-        .collect::<Vec<_>>(),
+      dead_nodes: chitchat_guard.dead_nodes().cloned().collect::<Vec<_>>(),
     };
     Json(serde_json::to_value(&response).unwrap())
   }
@@ -97,12 +93,7 @@ fn generate_server_id(public_addr: SocketAddr) -> String {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-  console_subscriber::ConsoleLayer::builder()
-    // set the address the server is bound to
-    .server_addr(([127, 0, 0, 1], 5051))
-    // ... other configurations ...
-    .init();
-  // tracing_subscriber::fmt::init();
+  tracing_subscriber::fmt::init();
   let opt = Opt::parse();
   let public_addr = opt.public_addr.unwrap_or(opt.listen_addr);
   let node_id = opt
@@ -119,8 +110,11 @@ async fn main() -> anyhow::Result<()> {
     gossip_interval: Duration::from_millis(opt.interval),
     listen_addr: opt.listen_addr,
     seed_nodes: opt.seeds.clone(),
-    failure_detector_config: FailureDetectorConfig::default(),
-    marked_for_deletion_grace_period: 10_000,
+    failure_detector_config: FailureDetectorConfig {
+      dead_node_grace_period: Duration::from_secs(10),
+      ..FailureDetectorConfig::default()
+    },
+    marked_for_deletion_grace_period: 60,
   };
   let chitchat_handler = spawn_chitchat(config, Vec::new(), &UdpTransport).await?;
   let chitchat = chitchat_handler.chitchat();

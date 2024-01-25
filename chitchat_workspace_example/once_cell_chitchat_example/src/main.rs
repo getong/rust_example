@@ -75,8 +75,11 @@ async fn main() -> anyhow::Result<()> {
     gossip_interval: Duration::from_millis(opt.interval),
     listen_addr: opt.listen_addr,
     seed_nodes: opt.seeds.clone(),
-    failure_detector_config: FailureDetectorConfig::default(),
-    marked_for_deletion_grace_period: 10_000,
+    failure_detector_config: FailureDetectorConfig {
+      dead_node_grace_period: Duration::from_secs(10),
+      ..FailureDetectorConfig::default()
+    },
+    marked_for_deletion_grace_period: 60,
   };
 
   let chitchat_handler = spawn_chitchat(config, Vec::new(), &UdpTransport).await?;

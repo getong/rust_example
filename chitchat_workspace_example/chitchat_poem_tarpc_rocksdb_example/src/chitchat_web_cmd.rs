@@ -29,11 +29,7 @@ impl ChitchatApi {
       cluster_id: chitchat_guard.cluster_id().to_string(),
       cluster_state: chitchat_guard.state_snapshot(),
       live_nodes: chitchat_guard.live_nodes().cloned().collect::<Vec<_>>(),
-      dead_nodes: chitchat_guard
-        .dead_nodes()
-        .cloned()
-        .map(|node| node.0)
-        .collect::<Vec<_>>(),
+      dead_nodes: chitchat_guard.dead_nodes().cloned().collect::<Vec<_>>(),
     };
     Json(serde_json::to_value(&response).unwrap())
   }

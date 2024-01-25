@@ -8,6 +8,5 @@ edition = "2021"
 [dependencies]
 log = "0.4.20"
 mio = { version = "0.8.10", features = ["net", "os-poll"] }
-#quiche = "0.14.0"
 quiche = "0.20.0"
 ring = "0.17.7"
