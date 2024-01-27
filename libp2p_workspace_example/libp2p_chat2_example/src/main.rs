@@ -31,7 +31,7 @@ impl MyBehaviour {
   }
 }
 
-enum MyBehaviourEvent {
+pub enum MyBehaviourEvent {
   FloodSub(FloodsubEvent),
   Mdns(mdns::Event),
 }

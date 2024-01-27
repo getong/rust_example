@@ -33,7 +33,7 @@ impl ChatBehavior {
   }
 }
 
-enum ChatBehaviourEvent {
+pub enum ChatBehaviourEvent {
   FloodSub(FloodsubEvent),
   Mdns(mdns::Event),
 }

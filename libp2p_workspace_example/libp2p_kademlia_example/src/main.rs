@@ -34,7 +34,7 @@ impl MyBehaviour {
   }
 }
 
-enum MyBehaviourEvent {
+pub enum MyBehaviourEvent {
   Kademlia(KademliaEvent),
   Mdns(mdns::Event),
 }

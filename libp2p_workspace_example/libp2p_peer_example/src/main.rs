@@ -76,7 +76,7 @@ struct RecipeBehaviour {
 }
 
 #[derive(Debug)]
-enum RecipeBehaviourEvent {
+pub enum RecipeBehaviourEvent {
   FloodSub(FloodsubEvent),
   Mdns(mdns::Event),
 }
