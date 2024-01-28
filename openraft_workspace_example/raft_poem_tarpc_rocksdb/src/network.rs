@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use async_trait::async_trait;
 use openraft::error::InstallSnapshotError;
 use openraft::error::NetworkError;
 use openraft::error::RPCError;
@@ -29,7 +28,6 @@ pub struct Network {}
 
 // NOTE: This could be implemented also on `Arc<ExampleNetwork>`, but since it's empty, implemented
 // directly.
-#[async_trait]
 impl RaftNetworkFactory<TypeConfig> for Network {
   type Network = NetworkConnection;
 
@@ -104,7 +102,6 @@ fn to_error<E: std::error::Error + 'static + Clone>(
   RPCError::Network(NetworkError::from(AnyError::default()))
 }
 
-#[async_trait]
 impl RaftNetwork<TypeConfig> for NetworkConnection {
   #[tracing::instrument(level = "debug", skip_all, err(Debug))]
   async fn send_append_entries(

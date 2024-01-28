@@ -23,7 +23,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 thiserror = "1.0.56"
 futures = "0.3.30"
 ## dependencies might be deleted
-async-trait = "0.1.77"
+# async-trait = "0.1.77"
 # tide = "0.16.0"
 # toy-rpc = { version = "0.8.6", features = [
 #   "ws_tokio",

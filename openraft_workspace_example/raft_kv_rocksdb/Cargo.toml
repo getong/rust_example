@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 rocksdb = "0.21.0"
 tide = "0.16.0"
-async-trait = "0.1.77"
 clap = { version = "4.4.13", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde", "storage-v2"] }

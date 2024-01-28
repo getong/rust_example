@@ -5,7 +5,6 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use openraft::async_trait::async_trait;
 use openraft::storage::LogFlushed;
 use openraft::storage::LogState;
 use openraft::storage::RaftLogStorage;
@@ -95,13 +94,14 @@ pub struct LogStore {
   /// The Raft log.
   log: RwLock<BTreeMap<u64, Entry<TypeConfig>>>,
 
+  committed: RwLock<Option<LogId<NodeId>>>,
+
   /// The current granted vote.
   vote: RwLock<Option<Vote<NodeId>>>,
 }
 
-#[async_trait]
 impl RaftLogReader<TypeConfig> for Arc<LogStore> {
-  async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + Send + Sync>(
+  async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug>(
     &mut self,
     range: RB,
   ) -> Result<Vec<Entry<TypeConfig>>, StorageError<NodeId>> {
@@ -114,7 +114,6 @@ impl RaftLogReader<TypeConfig> for Arc<LogStore> {
   }
 }
 
-#[async_trait]
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self))]
   async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
@@ -167,7 +166,6 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   }
 }
 
-#[async_trait]
 impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   type SnapshotBuilder = Self;
 
@@ -185,7 +183,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self, entries))]
   async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError<NodeId>>
   where
-    I: IntoIterator<Item = Entry<TypeConfig>> + Send,
+    I: IntoIterator<Item = Entry<TypeConfig>>,
   {
     let mut res = Vec::new(); //No `with_capacity`; do not know `len` of iterator
 
@@ -273,7 +271,6 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   }
 }
 
-#[async_trait]
 impl RaftLogStorage<TypeConfig> for Arc<LogStore> {
   type LogReader = Self;
 
@@ -294,6 +291,20 @@ impl RaftLogStorage<TypeConfig> for Arc<LogStore> {
     })
   }
 
+  async fn save_committed(
+    &mut self,
+    committed: Option<LogId<NodeId>>,
+  ) -> Result<(), StorageError<NodeId>> {
+    let mut c = self.committed.write().await;
+    *c = committed;
+    Ok(())
+  }
+
+  async fn read_committed(&mut self) -> Result<Option<LogId<NodeId>>, StorageError<NodeId>> {
+    let committed = self.committed.read().await;
+    Ok(*committed)
+  }
+
   #[tracing::instrument(level = "trace", skip(self))]
   async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
     let mut v = self.vote.write().await;
@@ -312,7 +323,7 @@ impl RaftLogStorage<TypeConfig> for Arc<LogStore> {
     callback: LogFlushed<NodeId>,
   ) -> Result<(), StorageError<NodeId>>
   where
-    I: IntoIterator<Item = Entry<TypeConfig>> + Send,
+    I: IntoIterator<Item = Entry<TypeConfig>>,
   {
     // Simple implementation that calls the flush-before-return `append_to_log`.
     let mut log = self.log.write().await;

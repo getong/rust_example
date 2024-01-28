@@ -8,7 +8,6 @@ use std::sync::Arc;
 use byteorder::BigEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
-use openraft::async_trait::async_trait;
 use openraft::storage::LogFlushed;
 use openraft::storage::LogState;
 use openraft::storage::RaftLogStorage;
@@ -99,7 +98,6 @@ pub struct StateMachineData {
   pub kvs: Arc<RwLock<BTreeMap<String, String>>>,
 }
 
-#[async_trait]
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
   async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<NodeId>> {
     let last_applied_log = self.data.last_applied_log_id;
@@ -218,7 +216,6 @@ impl StateMachineStore {
   }
 }
 
-#[async_trait]
 impl RaftStateMachine<TypeConfig> for StateMachineStore {
   type SnapshotBuilder = Self;
 
@@ -418,9 +415,8 @@ impl LogStore {
   }
 }
 
-#[async_trait]
 impl RaftLogReader<TypeConfig> for LogStore {
-  async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + Send + Sync>(
+  async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug>(
     &mut self,
     range: RB,
   ) -> StorageResult<Vec<Entry<TypeConfig>>> {
@@ -452,7 +448,6 @@ impl RaftLogReader<TypeConfig> for LogStore {
   }
 }
 
-#[async_trait]
 impl RaftLogStorage<TypeConfig> for LogStore {
   type LogReader = Self;
 
@@ -507,8 +502,7 @@ impl RaftLogStorage<TypeConfig> for LogStore {
   #[tracing::instrument(level = "trace", skip_all)]
   async fn append<I>(&mut self, entries: I, callback: LogFlushed<NodeId>) -> StorageResult<()>
   where
-    I: IntoIterator<Item = Entry<TypeConfig>> + Send,
-    I::IntoIter: Send,
+    I: IntoIterator<Item = Entry<TypeConfig>>,
   {
     for entry in entries {
       let id = id_to_bin(entry.log_id.index);
