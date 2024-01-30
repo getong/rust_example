@@ -24,4 +24,5 @@ members = [
         "ptr_null_example",
         "ptr_write_bytes_example",
         "std_ptr_addr_of_example",
+        "null_ptr_example",
 ]
