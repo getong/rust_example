@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "find_longest_matching_sub_sequence_example",
         "longest_common_subsequence_example",
+        "lcs_suffix_array_example",
 ]
