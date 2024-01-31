@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "kmp_algorithm_example",
+        "kmp_algorithm_example2",
+        "kmp_search_example",
+]
