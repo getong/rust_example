@@ -6,4 +6,5 @@ members = [
         "kmp_algorithm_example",
         "kmp_algorithm_example2",
         "kmp_search_example",
+        "kmp_example3",
 ]
