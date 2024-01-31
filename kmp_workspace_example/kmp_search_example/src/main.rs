@@ -56,8 +56,11 @@ fn compute_lps(pattern: &[u8]) -> Vec<usize> {
 }
 
 fn main() {
-  let text = "ABABDABACDABABCABAB";
-  let pattern = "ABABCABAB";
+  let text = "abcdabc";
+  let pattern = "abc";
   let matches = kmp_search(text, pattern);
-  println!("Pattern found at positions: {:?}", matches);
+
+  for mat in matches {
+    println!("Pattern found at index {}", mat + 1);
+  }
 }
