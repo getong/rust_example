@@ -7,14 +7,14 @@ edition = "2021"
 
 [dependencies]
 byteorder = "1.5.0"
-clap = { version = "4.4.13", features = ["derive", "env"] }
+clap = { version = "4.4.18", features = ["derive", "env"] }
 openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde", "storage-v2"] }
 poem = "2.0.0"
 poem-openapi = { version = "4.0.0", features = ["swagger-ui", "email"] }
-reqwest = { version = "0.11.23", features = ["json"] }
+reqwest = { version = "0.11.24", features = ["json"] }
 rocksdb = "0.21.0"
-serde = { version = "1.0.194", features = ["derive"] }
-serde_json = "1.0.111"
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.113"
 tarpc = { version = "0.34.0", features = ["full"] }
 tokio = { version = "1.35.1", features = ["full"] }
 tracing = "0.1.40"
