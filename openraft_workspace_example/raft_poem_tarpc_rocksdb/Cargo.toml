@@ -16,7 +16,7 @@ rocksdb = "0.21.0"
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = "1.0.113"
 tarpc = { version = "0.34.0", features = ["full"] }
-tokio = { version = "1.35.1", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

@@ -37,7 +37,8 @@ struct MyBasicAuthorization(Basic);
   key_in = "header",
   checker = "api_checker"
 )]
-struct MyApiKeyAuthorization(User);
+#[allow(dead_code)]
+pub struct MyApiKeyAuthorization(User);
 
 async fn api_checker(req: &Request, api_key: ApiKey) -> Option<User> {
   let server_key = req.data::<ServerKey>().unwrap();

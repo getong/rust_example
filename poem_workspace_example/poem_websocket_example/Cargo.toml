@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 futures-util = "0.3.30"
 poem = { version = "2.0.0", features = ["websocket"] }
-tokio = { version = "1.35.1", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 tracing-subscriber = "0.3.18"

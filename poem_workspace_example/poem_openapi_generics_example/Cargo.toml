@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 poem = "2.0.0"
 poem-openapi = { version = "4.0.0", features = ["swagger-ui"] }
-tokio = { version = "1.35.1", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 tracing-subscriber = "0.3.18"
