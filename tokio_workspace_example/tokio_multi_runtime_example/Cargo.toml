@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "6c3d35e7e5bceaf11c329623d48f81c276407030" }
+rocket = "0.5.0"
 tokio = { version = "1.36.0", features = ["full"] }
