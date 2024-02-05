@@ -1,0 +1,28 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "mut_mut_reference_example",
+        "mut_reference_example",
+        "reference_and_dot_example",
+        "reference_example",
+        "reference_memory_example",
+        "reference_result_example",
+        "arc_deref_move_example",
+        "as_ref_example",
+        "box_deref_move_example",
+        "decode_firefox_example",
+        "deref_example",
+        "deref_example3",
+        "derefmut_example",
+        "multiple_ref_mut_example",
+        "rc_refcell_example",
+        "ref_example",
+        "ref_mut_example",
+        "ref_mut_ref_slice_example",
+        "refcell_example",
+        "refcell_rc_example",
+        "rust_asref_asmut_example",
+        "suspicious_double_ref_op_example",
+]
