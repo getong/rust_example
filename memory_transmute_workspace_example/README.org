@@ -1,7 +1,14 @@
-* memory transmute workspace example
+* memory operation function workspace example
+
+** memory transmute workspace example
 :PROPERTIES:
 :CUSTOM_ID: memory-transmute-workspace-example
 :END:
-copy from
-[[https://runebook.dev/zh-CN/docs/rust/std/mem/fn.transmute][Function
-std::mem::transmute]]
+copy from [[https://runebook.dev/zh-CN/docs/rust/std/mem/fn.transmute][Function std::mem::transmute]]
+
+
+** alloc memory example
+:PROPERTIES:
+:CUSTOM_ID: alloc-memory-example
+:END:
+copy from [[https://stackoverflow.com/questions/48485454/rust-manual-memory-management][Rust manual memory management]]

@@ -6,4 +6,12 @@ members = [
         "size_of_transmute_example",
         "zero_data_type_transmute_example",
         "transmute_lifetime_example",
+        "mem_take_example",
+        "memmap2_example",
+        "memory_align_example",
+        "memory_example",
+        "std_mem_function_example",
+        "uninit_memory_example",
+        "alloc_memory_example",
+        "libc_alloc_memory_example",
 ]
