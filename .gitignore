@@ -25,3 +25,4 @@ buffer_example_workspace/sample.json
 **/.DS_Store
 **/.ccls-cache
 **/*.ppm
+**/README.html
