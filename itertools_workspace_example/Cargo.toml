@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "1"
 
 members = [
         "itertools_nex_tuple_example",
