@@ -1,0 +1,15 @@
+[package]
+name = "juniper_axum_simple_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7.4", features = ["ws"] }
+futures = "0.3.30"
+juniper = { git = "https://github.com/graphql-rust/juniper", features = ["expose-test-schema"]}
+juniper_axum = { git = "https://github.com/graphql-rust/juniper", package = "juniper_axum", features = ["subscriptions"]}
+juniper_graphql_ws = { git = "https://github.com/graphql-rust/juniper", package = "juniper_graphql_ws", features = ["graphql-transport-ws"] }
+tokio = { version = "1.36.0", features = ["full"] }
+tokio-stream = { version = "0.1.14", features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
