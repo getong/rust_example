@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "juniper_axum_custom_example",
+]
