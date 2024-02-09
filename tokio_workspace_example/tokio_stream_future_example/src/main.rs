@@ -19,7 +19,7 @@ fn future_stream() -> impl Stream<Item = impl Future<Output = i32>> {
 #[tokio::main]
 async fn main() {
   let stream = future_stream();
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   while let Some(future_item) = stream.next().await {
     match future_item.await {
       result => println!("Received: {}", result),

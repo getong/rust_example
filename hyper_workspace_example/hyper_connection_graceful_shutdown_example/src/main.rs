@@ -46,7 +46,7 @@ async fn main() {
           // let mut rx = rx.clone();
           tokio::task::spawn(async move {
             let connection = binding.serve_connection(io, service_fn(index1));
-            tokio::pin!(connection);
+            let mut connection = std::pin::pin!(connection);
             // tokio::select! {
             //   res = &mut connection => {
             //     if let Err(err) = res {

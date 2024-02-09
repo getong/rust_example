@@ -2,5 +2,6 @@
 :PROPERTIES:
 :CUSTOM_ID: tokio-pin-example
 :END:
-copy from [[https://docs.rs/tokio/1.13.0/tokio/macro.pin.html][Macro
-tokio::pin]]
+copy from [[https://docs.rs/tokio/1.13.0/tokio/macro.pin.html][Macro tokio::pin]]
+
+change to use std::pin::pin!

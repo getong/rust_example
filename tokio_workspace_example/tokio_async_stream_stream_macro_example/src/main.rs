@@ -10,7 +10,7 @@ async fn main() {
   };
 
   // needed for iteration
-  tokio::pin!(s);
+  let mut s = std::pin::pin!(s);
 
   while let Some(value) = s.next().await {
     println!("got {}", value);

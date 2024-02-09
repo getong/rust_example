@@ -38,7 +38,7 @@ async fn main() {
       _ => None,
     }
   });
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   assert_eq!(Some(1), stream.next().await);
   assert_eq!(Some(2), stream.next().await);
   assert_eq!(Some(3), stream.next().await);
@@ -57,7 +57,7 @@ async fn main() {
           yield i;
       }
   };
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   assert_eq!(Some(1), stream.next().await);
   assert_eq!(Some(2), stream.next().await);
   assert_eq!(Some(3), stream.next().await);

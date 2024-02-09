@@ -12,7 +12,7 @@ async fn main() {
 
   let mut done = false;
   let operation = action(None);
-  tokio::pin!(operation);
+  let mut operation = std::pin::pin!(operation);
 
   tokio::spawn(async move {
     let _ = tx.send(1).await;

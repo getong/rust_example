@@ -4,6 +4,8 @@
 :END:
 copy from [[https://tokio.rs/tokio/tutorial/streams][Streams]]
 
+** use std::pin::pin! to replace tokio::pin!
+
 #+begin_quote
 
 #+begin_quote

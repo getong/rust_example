@@ -15,8 +15,8 @@ async fn main() {
   let stream1 = interval_stream(3);
   let stream2 = interval_stream(5);
 
-  tokio::pin!(stream1);
-  tokio::pin!(stream2);
+  let mut stream1 = std::pin::pin!(stream1);
+  let mut stream2 = std::pin::pin!(stream2);
 
   // Using `select!` to handle values from either stream as they become available
   loop {

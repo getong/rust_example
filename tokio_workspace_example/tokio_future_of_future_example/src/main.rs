@@ -20,7 +20,7 @@ async fn outer_future() -> Pin<Box<dyn Future<Output = i32>>> {
 async fn main() {
   let outer = outer_future().fuse();
   let timeout_duration = Duration::from_secs(3);
-  tokio::pin!(outer);
+  let mut outer = std::pin::pin!(outer);
 
   loop {
     tokio::select! {

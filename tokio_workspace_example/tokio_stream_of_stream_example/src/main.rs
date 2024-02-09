@@ -25,10 +25,10 @@ fn outer_stream() -> impl Stream<Item = Pin<Box<dyn Stream<Item = i32> + Send>>>
 #[tokio::main]
 async fn main() {
   let outer = outer_stream();
-  tokio::pin!(outer);
+  let mut outer = std::pin::pin!(outer);
   while let Some(inner) = outer.next().await {
     println!("New inner stream:");
-    tokio::pin!(inner);
+    let mut inner = std::pin::pin!(inner);
     while let Some(value) = inner.next().await {
       println!("Value: {}", value);
     }

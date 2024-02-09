@@ -10,7 +10,7 @@ async fn main() {
 
   let int_stream = int_stream.timeout(Duration::from_secs(1));
   // let int_stream = timeout(Duration::from_secs(1), || [1, 2, 3]);
-  tokio::pin!(int_stream);
+  let mut int_stream = std::pin::pin!(int_stream);
 
   // When no items time out, we get the 3 elements in succession:
   assert_eq!(int_stream.try_next().await, Ok(Some(1)));

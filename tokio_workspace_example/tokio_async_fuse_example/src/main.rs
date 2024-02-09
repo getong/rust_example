@@ -7,10 +7,10 @@ async fn main() {
   let mut duration = Duration::from_millis(500);
 
   let sleep = Fuse::new(time::sleep(duration));
-  tokio::pin!(sleep);
+  let mut sleep = std::pin::pin!(sleep);
 
   let update_duration = Fuse::new(time::sleep(Duration::from_secs(1)));
-  tokio::pin!(update_duration);
+  let mut update_duration = std::pin::pin!(update_duration);
 
   for _ in 0..10usize {
     tokio::select! {

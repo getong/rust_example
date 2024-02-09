@@ -31,7 +31,7 @@ async fn main() -> io::Result<()> {
 
   // Create the stream
   let stream = read_stream(reader);
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   // Consume the stream
   while let Some(chunk) = stream.next().await {
     println!("Received chunk: {:?}", chunk?);

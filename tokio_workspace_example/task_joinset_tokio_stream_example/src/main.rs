@@ -42,7 +42,7 @@ async fn main() -> Result<(), SomeError> {
   tasks.spawn(operate(2, Some(23)));
   tasks.spawn(operate(4, Some(3)));
   let stream = aiter_until_error(tasks);
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   while let Some(r) = stream.next().await {
     // let mut stream = aiter_until_error(tasks);
     // while let Some(r) = stream.next().await {

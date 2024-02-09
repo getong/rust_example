@@ -3,7 +3,7 @@ use tokio::time::{self, Duration, Instant};
 #[tokio::main]
 async fn main() {
   let sleep = time::sleep(Duration::from_millis(10));
-  tokio::pin!(sleep);
+  let mut sleep = std::pin::pin!(sleep);
 
   loop {
     tokio::select! {

@@ -3,14 +3,14 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 // use tokio::task;
 
-enum Message {
+pub enum Message {
   Greet(String),
   Count(usize),
   Exit,
 }
 
 #[async_trait]
-trait Actor: Send + Sync {
+pub trait Actor: Send + Sync {
   async fn run(self: Arc<Self>, receiver: mpsc::Receiver<Message>);
   async fn send_message(&self, message: Message);
 }

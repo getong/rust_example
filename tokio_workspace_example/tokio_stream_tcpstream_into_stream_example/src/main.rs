@@ -35,7 +35,7 @@ async fn main() {
   write_half.write(r"hello world".as_bytes()).await.unwrap();
 
   let message_stream = tcp_stream_into_stream(read_half);
-  tokio::pin!(message_stream);
+  let mut message_stream = std::pin::pin!(message_stream);
   while let Some(message_result) = message_stream.next().await {
     match message_result {
       Ok(message) => println!("Received message: {}", message.content),

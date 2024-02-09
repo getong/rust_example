@@ -19,7 +19,7 @@ async fn subscribe() -> mini_redis::Result<()> {
   let subscriber = client.subscribe(vec!["numbers".to_string()]).await?;
   let messages = subscriber.into_stream();
 
-  tokio::pin!(messages);
+  let mut messages = std::pin::pin!(messages);
 
   while let Some(msg) = messages.next().await {
     println!("got = {:?}", msg);

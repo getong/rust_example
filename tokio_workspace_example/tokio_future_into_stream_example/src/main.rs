@@ -13,7 +13,7 @@ async fn inner() -> i32 {
 #[tokio::main]
 async fn main() {
   let out_stream = outer();
-  tokio::pin!(out_stream);
+  let mut out_stream = std::pin::pin!(out_stream);
   while let Some(i) = out_stream.next().await {
     println!("i: {:?}", i);
   }

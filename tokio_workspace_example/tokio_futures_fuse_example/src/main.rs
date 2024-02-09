@@ -14,7 +14,7 @@ async fn main() {
   // Use `Fuse::terminated()` to create an already-terminated future
   // which may be instantiated later.
   let foo_printer = Fuse::terminated();
-  tokio::pin!(foo_printer);
+  let mut foo_printer = std::pin::pin!(foo_printer);
 
   loop {
     tokio::select! {

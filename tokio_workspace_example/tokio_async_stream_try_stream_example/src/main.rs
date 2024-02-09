@@ -27,7 +27,7 @@ async fn bind_and_accept(addr: SocketAddr) -> impl Stream<Item = io::Result<TcpS
 async fn main() {
   let addr = "127.0.0.1:3000".parse().unwrap();
   let stream = bind_and_accept(addr).await;
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   while let Some(Ok(client_stream)) = stream.next().await {
     println!("data: {:?}", client_stream);
     tokio::spawn(async move {

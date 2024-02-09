@@ -56,7 +56,7 @@ async fn fetch_and_decode_protobuf_stream(url: &str) -> Result<(), Error> {
 
   let mut response = client.get(url).send().await?.bytes_stream();
 
-  // tokio::pin!(response);
+  // std::pin::pin!(response);
 
   // let mut byte_list = vec![];
   let mut cursor = Cursor::new(vec![]);

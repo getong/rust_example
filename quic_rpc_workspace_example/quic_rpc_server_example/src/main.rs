@@ -19,7 +19,7 @@ impl Compute {
 
   async fn sum(self, _req: Sum, updates: impl Stream<Item = SumUpdate>) -> SumResponse {
     let mut sum = 0u128;
-    tokio::pin!(updates);
+    let mut updates = std::pin::pin!(updates);
     while let Some(SumUpdate(n)) = updates.next().await {
       sum += n as u128;
     }
@@ -48,7 +48,7 @@ impl Compute {
   ) -> impl Stream<Item = MultiplyResponse> {
     let product = req.0 as u128;
     stream! {
-        tokio::pin!(updates);
+        let mut updates = std::pin::pin!(updates);
         while let Some(MultiplyUpdate(n)) = updates.next().await {
             yield MultiplyResponse(product * n as u128);
         }

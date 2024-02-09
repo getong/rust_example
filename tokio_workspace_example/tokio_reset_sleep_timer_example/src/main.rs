@@ -11,7 +11,7 @@ fn main() {
   rt.block_on(async {
     println!("start: {}", now());
     let slp = time::sleep(time::Duration::from_secs(1));
-    tokio::pin!(slp);
+    let mut slp = std::pin::pin!(slp);
 
     slp
       .as_mut()

@@ -6,7 +6,7 @@ async fn main() {
   // println!("Hello, world!");
 
   let item_stream = futures::stream::repeat("one").throttle(Duration::from_secs(2));
-  tokio::pin!(item_stream);
+  let mut item_stream = std::pin::pin!(item_stream);
 
   loop {
     // The string will be produced at most every 2 seconds

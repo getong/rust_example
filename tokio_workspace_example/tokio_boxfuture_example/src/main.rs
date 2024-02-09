@@ -21,7 +21,7 @@ async fn main() {
   }
 
   let interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-  tokio::pin!(interval);
+  let mut interval = std::pin::pin!(interval);
 
   let routes_clone = Arc::clone(&routes);
   let task = tokio::spawn(async move {

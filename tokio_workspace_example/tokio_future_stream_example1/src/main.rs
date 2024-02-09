@@ -17,7 +17,7 @@ async fn main() {
   let future_of_stream = async_stream_generator();
   let stream = future_of_stream.await;
 
-  tokio::pin!(stream);
+  let mut stream = std::pin::pin!(stream);
   let timeout_duration = Duration::from_secs(3);
 
   loop {

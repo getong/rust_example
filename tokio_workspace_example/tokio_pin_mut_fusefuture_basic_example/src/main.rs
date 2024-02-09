@@ -24,8 +24,8 @@ async fn main() {
 
   // Pin the futures
   // pin_mut!(future1, future2);
-  tokio::pin!(future1);
-  tokio::pin!(future2);
+  let mut future1 = std::pin::pin!(future1);
+  let mut future2 = std::pin::pin!(future2);
 
   // Using `select!` to wait for the first future to complete
   loop {
