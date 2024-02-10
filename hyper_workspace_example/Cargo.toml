@@ -15,4 +15,5 @@ members = [
         "delay_timer_async_example",
         "hyper_client_send_request_example",
         "hyper_client_request_channel_example",
+        "http_body_trait_example",
 ]
