@@ -18,4 +18,5 @@ members = [
         "http_body_trait_example",
         "hyper_timeout_client_example",
         "hyper_tls_client_example",
+        "hyper_legacy_timeout_client_example",
 ]
