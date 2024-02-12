@@ -25,4 +25,5 @@ members = [
         "ptr_write_bytes_example",
         "std_ptr_addr_of_example",
         "null_ptr_example",
+        "raw_pointer_asm_example",
 ]
