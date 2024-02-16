@@ -19,4 +19,5 @@ members = [
         "hyper_timeout_client_example",
         "hyper_tls_client_example",
         "hyper_legacy_timeout_client_example",
+        "hyper_legacy_client_poll_timeout_example",
 ]
