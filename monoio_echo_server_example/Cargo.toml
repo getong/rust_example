@@ -1,0 +1,7 @@
+[package]
+name = "monoio_echo_server_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+monoio = "0.2.2"
