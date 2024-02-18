@@ -1,0 +1,6 @@
+[package]
+name = "dyn_trait_lifetime_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
