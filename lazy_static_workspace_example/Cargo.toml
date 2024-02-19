@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "lazy_static_deadpool_redis_example",
+        "lazy_static_example",
+]
