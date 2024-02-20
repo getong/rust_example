@@ -2,7 +2,7 @@ use bytes::Bytes;
 use http_body_util::Full;
 use hyper::server::conn::http1;
 use hyper::service::Service;
-use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper::{body::Incoming, Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
@@ -41,12 +41,12 @@ struct Svc {
   counter: Arc<Mutex<Counter>>,
 }
 
-impl Service<Request<IncomingBody>> for Svc {
+impl Service<Request<Incoming>> for Svc {
   type Response = Response<Full<Bytes>>;
   type Error = hyper::Error;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-  fn call(&self, req: Request<IncomingBody>) -> Self::Future {
+  fn call(&self, req: Request<Incoming>) -> Self::Future {
     fn mk_response(s: String) -> Result<Response<Full<Bytes>>, hyper::Error> {
       Ok(Response::builder().body(Full::new(Bytes::from(s))).unwrap())
     }
