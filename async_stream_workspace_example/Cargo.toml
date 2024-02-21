@@ -16,4 +16,5 @@ members = [
         "sink_asyncwrite_example",
         "sink_unfold_example",
         "tcp_yield_stream_example",
+        "stream_struct_list_example",
 ]
