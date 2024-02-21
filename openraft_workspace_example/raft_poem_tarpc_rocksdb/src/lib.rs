@@ -21,7 +21,7 @@ pub mod store;
 pub mod web_openapi;
 use crate::api_rpc::World;
 use crate::common::Api;
-use futures::{future, prelude::*};
+use futures::prelude::*;
 use poem::{listener::TcpListener, Route};
 use poem_openapi::OpenApiService;
 use std::net::IpAddr;
