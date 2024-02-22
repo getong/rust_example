@@ -2,9 +2,9 @@ use http_body_util::Empty;
 use hyper::Request;
 use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use std::env;
+use tower_service::Service;
 
 // cargo run -- http://www.baidu.com
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let url = match env::args().nth(1) {
@@ -23,16 +23,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     return Ok(());
   }
 
-  let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(HttpConnector::new());
+  let mut client =
+    Client::builder(hyper_util::rt::TokioExecutor::new()).build(HttpConnector::new());
 
   let req = Request::builder()
     .uri(url)
     .body(Empty::<bytes::Bytes>::new())?;
 
-  let resp = client.request(req).await?;
-
+  let resp = client.request(req.clone()).await?;
   eprintln!("{:?} {:?}", resp.version(), resp.status());
   eprintln!("{:#?}", resp.headers());
+
+  let result = client.call(req).await;
+  eprintln!("result : {:?}", result);
 
   Ok(())
 }
