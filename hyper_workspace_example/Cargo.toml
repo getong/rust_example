@@ -21,4 +21,5 @@ members = [
         "hyper_legacy_timeout_client_example",
         "hyper_legacy_client_poll_timeout_example",
         "hyper_impl_tower_service_uri_example",
+        "hyper_custom_connect_trait_example",
 ]
