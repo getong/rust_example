@@ -1,6 +1,6 @@
 use http_body_util::Empty;
 use hyper::Request;
-use hyper_util::client::legacy::{connect::HttpConnector, Client};
+use hyper_util::client::legacy::Client;
 use std::env;
 use tower_service::Service;
 
@@ -23,8 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     return Ok(());
   }
 
-  let mut client =
-    Client::builder(hyper_util::rt::TokioExecutor::new()).build(HttpConnector::new());
+  let mut client = Client::builder(hyper_util::rt::TokioExecutor::new()).build_http();
 
   let req = Request::builder()
     .uri(url)

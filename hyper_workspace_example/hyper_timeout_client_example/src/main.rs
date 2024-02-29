@@ -24,8 +24,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let url = url.parse::<hyper::Uri>().unwrap();
 
-  // This example uses `HttpsConnector`, but you can also use hyper `HttpConnector`
-  //let h = hyper_util::client::legacy::connect::HttpConnector::new();
   let h = HttpsConnector::new();
   let mut connector = TimeoutConnector::new(h);
   connector.set_connect_timeout(Some(Duration::from_secs(5)));

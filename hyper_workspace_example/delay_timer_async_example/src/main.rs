@@ -4,7 +4,7 @@ use delay_timer::prelude::*;
 use delay_timer::utils::convenience::functions::unblock_process_task_fn;
 use http_body_util::{BodyExt, Empty};
 use hyper::Request;
-use hyper_util::client::legacy::{connect::HttpConnector, Client};
+use hyper_util::client::legacy::Client;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::Level;
@@ -97,7 +97,7 @@ fn build_task_async_execute_process() -> Result<Task, TaskError> {
 }
 
 pub async fn async_template(id: i32, name: String) -> Result<()> {
-  let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build(HttpConnector::new());
+  let client = Client::builder(hyper_util::rt::TokioExecutor::new()).build_http();
 
   // The default connector does not handle TLS.
   // Speaking to https destinations will require configuring a connector that implements TLS.
