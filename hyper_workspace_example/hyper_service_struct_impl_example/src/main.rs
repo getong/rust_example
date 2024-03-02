@@ -1,15 +1,14 @@
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::server::conn::http1;
-use hyper::service::Service;
-use hyper::{body::Incoming, Request, Response};
+use hyper::{body::Incoming, server::conn::http1, service::Service, Request, Response};
 use hyper_util::rt::TokioIo;
+use std::{
+  future::Future,
+  net::SocketAddr,
+  pin::Pin,
+  sync::{Arc, Mutex},
+};
 use tokio::net::TcpListener;
-
-use std::future::Future;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
 
 type Counter = i32;
 
