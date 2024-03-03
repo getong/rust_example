@@ -2,6 +2,7 @@ use futures::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tower_service::Service;
 
@@ -31,9 +32,10 @@ async fn main() {
   let addr = "127.0.0.1:8080".parse().unwrap();
 
   match maker.call(addr).await {
-    Ok(connection) => {
+    Ok(mut connection) => {
       println!("Successfully connected to {:?}", connection);
       // Use the connection
+      _ = connection.write_all(b"hello world").await;
     }
     Err(e) => println!("Failed to connect: {}", e),
   }
