@@ -339,7 +339,7 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
   async fn append<I>(
     &mut self,
     entries: I,
-    callback: LogFlushed<NodeId>,
+    callback: LogFlushed<TypeConfig>,
   ) -> Result<(), StorageError<NodeId>>
   where
     I: IntoIterator<Item = Entry<TypeConfig>>,

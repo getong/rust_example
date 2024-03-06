@@ -4,6 +4,7 @@ use openraft::error::InstallSnapshotError;
 use openraft::error::NetworkError;
 use openraft::error::RPCError;
 use openraft::error::RaftError;
+use openraft::network::RPCOption;
 
 use crate::api_rpc::ServiceError;
 use crate::api_rpc::WorldClient;
@@ -102,13 +103,36 @@ fn to_error<E: std::error::Error + 'static + Clone>(
   RPCError::Network(NetworkError::from(AnyError::default()))
 }
 
+// With nightly-2023-12-20, and `err(Debug)` in the instrument macro, this gives the following lint
+// warning. Without `err(Debug)` it is OK. Suppress it with `#[allow(clippy::blocks_in_conditions)]`
+//
+// warning: in a `match` scrutinee, avoid complex blocks or closures with blocks; instead, move the
+// block or closure higher and bind it with a `let`
+//
+//    --> src/network/raft_network_impl.rs:99:91
+//     |
+// 99  |       ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>>
+// {
+//     |  ___________________________________________________________________________________________^
+// 100 | |         tracing::debug!(req = debug(&req), "append_entries");
+// 101 | |
+// 102 | |         let c = self.c().await?;
+// ...   |
+// 108 | |         raft.append(req).await.map_err(|e| to_error(e, self.target))
+// 109 | |     }
+//     | |_____^
+//     |
+//     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#blocks_in_conditions
+//     = note: `#[warn(clippy::blocks_in_conditions)]` on by default
+#[allow(clippy::blocks_in_conditions)]
 impl RaftNetwork<TypeConfig> for NetworkConnection {
   #[tracing::instrument(level = "debug", skip_all, err(Debug))]
-  async fn send_append_entries(
+  async fn append_entries(
     &mut self,
     req: AppendEntriesRequest<TypeConfig>,
+    _option: RPCOption,
   ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
-    tracing::debug!(req = debug(&req), "send_append_entries");
+    tracing::debug!(req = debug(&req), "append_entries");
 
     let client = self.c().await?;
     tracing::debug!("got connection");
@@ -124,14 +148,15 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
   }
 
   #[tracing::instrument(level = "debug", skip_all, err(Debug))]
-  async fn send_install_snapshot(
+  async fn install_snapshot(
     &mut self,
     req: InstallSnapshotRequest<TypeConfig>,
+    _option: RPCOption,
   ) -> Result<
     InstallSnapshotResponse<NodeId>,
     RPCError<NodeId, Node, RaftError<NodeId, InstallSnapshotError>>,
   > {
-    tracing::debug!(req = debug(&req), "send_install_snapshot");
+    tracing::debug!(req = debug(&req), "install_snapshot");
     self
       .c()
       .await?
@@ -142,11 +167,12 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
   }
 
   #[tracing::instrument(level = "debug", skip_all, err(Debug))]
-  async fn send_vote(
+  async fn vote(
     &mut self,
     req: VoteRequest<NodeId>,
+    _option: RPCOption,
   ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
-    tracing::debug!(req = debug(&req), "send_vote");
+    tracing::debug!(req = debug(&req), "vote");
     self
       .c()
       .await?

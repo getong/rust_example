@@ -1,6 +1,7 @@
 use openraft::error::InstallSnapshotError;
 use openraft::error::NetworkError;
 use openraft::error::RemoteError;
+use openraft::network::RPCOption;
 use openraft::network::RaftNetwork;
 use openraft::network::RaftNetworkFactory;
 use openraft::raft::AppendEntriesRequest;
@@ -79,9 +80,10 @@ pub struct NetworkConnection {
 }
 
 impl RaftNetwork<TypeConfig> for NetworkConnection {
-  async fn send_append_entries(
+  async fn append_entries(
     &mut self,
     req: AppendEntriesRequest<TypeConfig>,
+    _option: RPCOption,
   ) -> Result<AppendEntriesResponse<NodeId>, typ::RPCError> {
     self
       .owner
@@ -89,9 +91,10 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
       .await
   }
 
-  async fn send_install_snapshot(
+  async fn install_snapshot(
     &mut self,
     req: InstallSnapshotRequest<TypeConfig>,
+    _option: RPCOption,
   ) -> Result<InstallSnapshotResponse<NodeId>, typ::RPCError<InstallSnapshotError>> {
     self
       .owner
@@ -99,9 +102,10 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
       .await
   }
 
-  async fn send_vote(
+  async fn vote(
     &mut self,
     req: VoteRequest<NodeId>,
+    _option: RPCOption,
   ) -> Result<VoteResponse<NodeId>, typ::RPCError> {
     self
       .owner

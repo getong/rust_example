@@ -416,7 +416,7 @@ impl LogStore {
 }
 
 impl RaftLogReader<TypeConfig> for LogStore {
-  async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug>(
+  async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
     &mut self,
     range: RB,
   ) -> StorageResult<Vec<Entry<TypeConfig>>> {
@@ -500,9 +500,10 @@ impl RaftLogStorage<TypeConfig> for LogStore {
   }
 
   #[tracing::instrument(level = "trace", skip_all)]
-  async fn append<I>(&mut self, entries: I, callback: LogFlushed<NodeId>) -> StorageResult<()>
+  async fn append<I>(&mut self, entries: I, callback: LogFlushed<TypeConfig>) -> StorageResult<()>
   where
-    I: IntoIterator<Item = Entry<TypeConfig>>,
+    I: IntoIterator<Item = Entry<TypeConfig>> + Send,
+    I::IntoIter: Send,
   {
     for entry in entries {
       let id = id_to_bin(entry.log_id.index);
