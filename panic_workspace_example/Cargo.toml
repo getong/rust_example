@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "panic_example",
+        "panic_handler_generate_coredump_example",
+        "panic_take_hook_example",
+]
