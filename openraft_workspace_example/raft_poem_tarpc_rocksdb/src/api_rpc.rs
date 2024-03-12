@@ -79,7 +79,7 @@ impl World for Api {
       .raft
       .install_snapshot(req)
       .await
-      .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()).into())
+      .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()).into())
   }
 }
 

@@ -1,5 +1,4 @@
 #![allow(clippy::uninlined_format_args)]
-#![deny(unused_qualifications)]
 
 use std::fmt::Display;
 use std::io::Cursor;
