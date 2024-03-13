@@ -3,8 +3,8 @@
 resolver = "2"
 
 members = [
-        "raft_kv_memstore",
         "raft_kv_rocksdb",
+        "raft_kv_memstore",
         "raft_kv_memstore_singlethreaded",
         "raft_poem_tarpc_rocksdb",
 ]
