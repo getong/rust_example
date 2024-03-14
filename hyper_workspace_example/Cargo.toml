@@ -24,4 +24,5 @@ members = [
         "hyper_custom_connect_trait_example",
         "tower_makeconnection_example",
         "hyper_remote_addr_example",
+        "hyper_extension_insert_example",
 ]
