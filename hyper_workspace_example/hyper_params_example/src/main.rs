@@ -1,10 +1,11 @@
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::{server::conn::http1, service::service_fn, Method, Request, Response, StatusCode};
+use hyper::{service::service_fn, Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto;
 use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
 use tokio::net::TcpListener;
-
 // curl http://localhost:1337
 
 static INDEX: &[u8] = b"<html><body><form action=\"post\" method=\"post\">Name: <input type=\"text\" name=\"name\"><br>Number: <input type=\"text\" name=\"number\"><br><input type=\"submit\"></body></html>";
@@ -114,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let io = TokioIo::new(stream);
 
     tokio::task::spawn(async move {
-      if let Err(err) = http1::Builder::new()
+      if let Err(err) = auto::Builder::new(TokioExecutor::new())
         .serve_connection(io, service_fn(param_example))
         .await
       {

@@ -1,10 +1,11 @@
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::Frame;
-use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{body::Body, Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
@@ -94,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let io = TokioIo::new(stream);
 
     tokio::task::spawn(async move {
-      if let Err(err) = http1::Builder::new()
+      if let Err(err) = auto::Builder::new(TokioExecutor::new())
         .serve_connection(io, service_fn(echo))
         .await
       {

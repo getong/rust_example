@@ -1,7 +1,9 @@
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::{body::Incoming, server::conn::http1, service::Service, Request, Response};
+use hyper::{body::Incoming, service::Service, Request, Response};
+use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto;
 use std::{future::Future, net::SocketAddr, pin::Pin};
 use tokio::net::TcpListener;
 
@@ -18,7 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let io = TokioIo::new(stream);
     let svc = Svc { peer_addr };
     tokio::task::spawn(async move {
-      if let Err(err) = http1::Builder::new().serve_connection(io, svc).await {
+      if let Err(err) = auto::Builder::new(TokioExecutor::new())
+        .serve_connection(io, svc)
+        .await
+      {
         println!("Failed to serve connection: {:?}", err);
       }
     });
