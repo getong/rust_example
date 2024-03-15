@@ -4,11 +4,13 @@ use std::str;
 use bytes::Bytes;
 use http_body_util::Empty;
 use hyper::header::{HeaderValue, UPGRADE};
-use hyper::server::conn::http1;
+// use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::upgrade::Upgraded;
 use hyper::{Request, Response, StatusCode};
+use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
+use hyper_util::server::conn::auto;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
@@ -131,13 +133,13 @@ async fn main() {
   // For this example, we just make a server and our own client to talk to
   // it, so the exact port isn't important. Instead, let the OS give us an
   // unused port.
-  let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+  let addr: SocketAddr = ([127, 0, 0, 1], 3000).into();
 
   let listener = TcpListener::bind(addr).await.expect("failed to bind");
 
   // We need the assigned address for the client to send it messages.
   let addr = listener.local_addr().unwrap();
-  println!("addr :{:?}", addr);
+  println!("addr: http://{:?}", addr);
 
   // For this example, a oneshot is used to signal that after 1 request,
   // the server should be shutdown.
@@ -154,12 +156,10 @@ async fn main() {
 
               let mut rx = rx.clone();
               tokio::task::spawn(async move {
-                  let conn = http1::Builder::new().serve_connection(io, service_fn(server_upgrade));
+                let builder = auto::Builder::new(TokioExecutor::new()); // Bind the builder to a variable
+                let conn = builder.serve_connection(io, service_fn(server_upgrade));
 
-                  // Don't forget to enable upgrades on the connection.
-                  let mut conn = conn.with_upgrades();
-
-                  let mut conn = Pin::new(&mut conn);
+                let mut conn = Box::pin(conn); // Use Box::pin to ensure the connection is pinned.
 
                   tokio::select! {
                       res = &mut conn => {
@@ -170,7 +170,7 @@ async fn main() {
                       }
                       // Continue polling the connection after enabling graceful shutdown.
                       _ = rx.changed() => {
-                          conn.graceful_shutdown();
+                          conn.as_mut().graceful_shutdown();
                       }
                   }
               });
