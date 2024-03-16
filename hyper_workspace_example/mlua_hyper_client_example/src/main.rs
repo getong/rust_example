@@ -9,15 +9,42 @@ use mlua::{chunk, ExternalResult, Lua, Result, UserData, UserDataMethods};
 
 struct BodyReader(Incoming);
 
+// impl UserData for BodyReader {
+//   fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+//     methods.add_async_method_mut("read", |lua, reader, ()| async move {
+//       while let Some(Ok(bytes)) = reader.0.frame().await {
+//         if let Ok(bytes) = &bytes.into_data() {
+//           return Some(lua.create_string(bytes)).transpose();
+//         }
+//       }
+//       Ok(None)
+//     });
+//   }
+// }
 impl UserData for BodyReader {
   fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
     methods.add_async_method_mut("read", |lua, reader, ()| async move {
-      while let Some(Ok(bytes)) = reader.0.frame().await {
-        if let Ok(bytes) = &bytes.into_data() {
-          return Some(lua.create_string(bytes)).transpose();
+      let mut summarize = Vec::new(); // Create a vector to accumulate the bytes
+
+      loop {
+        match reader.0.frame().await {
+          Some(Ok(bytes)) => {
+            if let Ok(data) = bytes.into_data() {
+              summarize.extend(data); // Append the bytes to the summarize variable
+            }
+          }
+          Some(Err(_)) => break, // Break on error
+          None => break,         // Break if no more frames
         }
       }
-      Ok(None)
+
+      if !summarize.is_empty() {
+        // If summarize has collected data, return it as a Lua string
+        Ok(Some(lua.create_string(&summarize)?))
+      } else {
+        // Return None if no data was collected
+        Ok(None)
+      }
     });
   }
 }
