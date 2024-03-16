@@ -26,4 +26,5 @@ members = [
         "hyper_remote_addr_example",
         "hyper_extension_insert_example",
         "mlua_hyper_client_example",
+        # "mlua_hyper_server_example",
 ]
