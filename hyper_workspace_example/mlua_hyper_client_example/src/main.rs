@@ -1,18 +1,23 @@
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use http_body_util::Empty;
+use hyper::body::Incoming;
 use hyper_util::client::legacy::Client as HyperClient;
 use std::collections::HashMap;
 
 use mlua::{chunk, ExternalResult, Lua, Result, UserData, UserDataMethods};
 
-struct BodyReader(Bytes);
+struct BodyReader(Incoming);
 
 impl UserData for BodyReader {
   fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
     methods.add_async_method_mut("read", |lua, reader, ()| async move {
-      let bytes = reader.0.to_vec();
-      return Some(lua.create_string(&bytes)).transpose();
+      while let Some(Ok(bytes)) = reader.0.frame().await {
+        if let Ok(bytes) = &bytes.into_data() {
+          return Some(lua.create_string(bytes)).transpose();
+        }
+      }
+      Ok(None)
     });
   }
 }
@@ -39,10 +44,7 @@ async fn main() -> Result<()> {
     }
 
     lua_resp.set("headers", headers)?;
-    lua_resp.set(
-      "body",
-      BodyReader(resp.into_body().collect().await.unwrap().to_bytes()),
-    )?;
+    lua_resp.set("body", BodyReader(resp.into_body()))?;
 
     Ok(lua_resp)
   })?;
