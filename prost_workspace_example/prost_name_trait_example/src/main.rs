@@ -11,6 +11,13 @@ mod mypackage {
   include!("mypackage.rs");
 }
 
+#[macro_export]
+macro_rules! dynamic_decode {
+  ($type:ty, $input:expr) => {
+    <$type>::decode($input)
+  };
+}
+
 // nc -l 8080
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -36,6 +43,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
   // Serialize the message and send it over the TCP connection
   let bytes = message.encode_to_vec();
   // stream.write_all(&bytes).await?;
+
+  let decode_msg = dynamic_decode!(mypackage::MyMessage, &*bytes).unwrap();
+  println!("decode_msg: {:?}", decode_msg);
 
   let a = protobuf_message_num::decode_by_num(
     *protobuf_message_num::MESSAGE_TO_NUM_LIST
