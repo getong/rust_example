@@ -7,7 +7,10 @@ fn main() {
     .compile_protos(&["src/items.proto"], &["."])
   {
     Ok(_) => {
-      if let Err(_) = Command::new("rustfmt").args(&["src/hello.items.rs"]).status() {
+      if let Err(_) = Command::new("rustfmt")
+        .args(&["src/hello.items.rs"])
+        .status()
+      {
         println!("cargo:warning=Failed to format generated protobuf files");
       }
     }
