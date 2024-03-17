@@ -12,21 +12,28 @@ pub mod myapp {
 }
 
 async fn create_todo_handler(
-  Extension(_todo): Extension<Arc<Todo>>,
+  Extension(todo): Extension<Arc<Todo>>,
   Protobuf(todo_new): Protobuf<Todo>,
 ) -> String {
   println!("Received todo: {:?}", todo_new);
+  println!("todo: {:?}", todo);
   format!(
-    "Created new todo with id {}: {}",
-    todo_new.id, todo_new.title
+    "Created new todo with id {}: {}, current todo id: {}, title: {}, completed: {}",
+    todo_new.id, todo_new.title, todo.id, todo.title, todo.completed
   )
 }
 
 #[tokio::main]
 async fn main() {
+  let todo = Todo {
+    id: 1,
+    title: "hello".to_owned(),
+    completed: false,
+  };
   let router = Router::new()
     .route("/todos", post(create_todo_handler))
-    .route("/todos", get(create_todo_handler));
+    .route("/todos", get(create_todo_handler))
+    .layer(Extension(Arc::new(todo)));
 
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
