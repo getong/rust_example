@@ -18,11 +18,12 @@ async fn create_todo_handler(
   println!("Received todo: {:?}", todo_new);
   println!("todo: {:?}", todo);
   format!(
-    "Created new todo with id {}: {}, current todo id: {}, title: {}, completed: {}",
+    "Created new todo with id {}: {}, current todo id: {}, title: {}, completed: {}\n",
     todo_new.id, todo_new.title, todo.id, todo.title, todo.completed
   )
 }
 
+// curl http://localhost:3000/todos
 #[tokio::main]
 async fn main() {
   let todo = Todo {
