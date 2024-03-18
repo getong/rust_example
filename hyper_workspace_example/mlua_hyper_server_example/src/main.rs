@@ -1,14 +1,13 @@
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{body::Incoming, service::Service, Request, Response};
-use hyper::server::conn::http2;
-use hyper_util::rt::TokioIo;
+use hyper_util::{rt::TokioIo, server::conn::auto};
 use mlua::{
   chunk, Error as LuaError, Function, Lua, String as LuaString, Table, UserData, UserDataMethods,
 };
-use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc};
-use tokio::net::TcpListener;
-use tokio::task::LocalSet;
+use std::{future::Future, net::SocketAddr, pin::Pin, rc::Rc};
+use tokio::{net::TcpListener, task::LocalSet};
+
 struct LuaRequest(SocketAddr, Request<Incoming>);
 
 impl UserData for LuaRequest {
@@ -18,8 +17,7 @@ impl UserData for LuaRequest {
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct Svc(Arc<Lua>, Arc<SocketAddr>);
+pub struct Svc(Rc<Lua>, SocketAddr);
 
 impl Service<Request<Incoming>> for Svc {
   type Response = Response<BoxBody<Bytes, hyper::Error>>;
@@ -28,11 +26,10 @@ impl Service<Request<Incoming>> for Svc {
 
   fn call(&self, req: Request<Incoming>) -> Self::Future {
     // If handler returns an error then generate 5xx response
-    let lua_clone = self.0.clone();
-    let peer_addr = self.1.clone();
-    let lua_req = LuaRequest(*peer_addr, req);
+    let lua = self.0.clone();
+    let lua_req = LuaRequest(self.1, req);
     Box::pin(async move {
-      let handler: Function = lua_clone.named_registry_value("http_handler")?;
+      let handler: Function = lua.named_registry_value("http_handler")?;
       match handler.call_async::<_, Table>(lua_req).await {
         Ok(lua_resp) => {
           let status = lua_resp.get::<_, Option<u16>>("status")?.unwrap_or(200);
@@ -81,7 +78,7 @@ impl Service<Request<Incoming>> for Svc {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-  let lua = Arc::new(Lua::new());
+  let lua = Rc::new(Lua::new());
 
   // Create Lua handler function
   let handler: Function = lua
@@ -113,9 +110,9 @@ async fn main() {
     let (stream, peer_addr) = listener.accept().await.unwrap();
     let io = TokioIo::new(stream);
 
-    let svc = Svc(lua.clone(), Arc::new(peer_addr));
+    let svc = Svc(lua.clone(), peer_addr);
     local.spawn_local(async move {
-      if let Err(err) = http2::Builder::new(LocalExec)
+      if let Err(err) = auto::Builder::new(LocalExec)
         .serve_connection(io, svc)
         .await
       {
