@@ -76,6 +76,7 @@ impl Service<Request<Incoming>> for Svc {
   }
 }
 
+// curl http://localhost:3000
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
   let lua = Rc::new(Lua::new());
@@ -111,14 +112,17 @@ async fn main() {
     let io = TokioIo::new(stream);
 
     let svc = Svc(lua.clone(), peer_addr);
-    local.spawn_local(async move {
-      if let Err(err) = auto::Builder::new(LocalExec)
-        .serve_connection(io, svc)
-        .await
-      {
-        println!("Error serving connection: {:?}", err);
-      }
-    });
+    local
+      .run_until(async move {
+        if let Err(err) = auto::Builder::new(LocalExec)
+          .http1()
+          .serve_connection(io, svc)
+          .await
+        {
+          println!("Error serving connection: {:?}", err);
+        }
+      })
+      .await;
   }
 }
 
