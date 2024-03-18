@@ -27,4 +27,5 @@ members = [
         "hyper_extension_insert_example",
         "mlua_hyper_client_example",
         "mlua_hyper_server_example",
+        "hyper_util_server_async_stream_example",
 ]
