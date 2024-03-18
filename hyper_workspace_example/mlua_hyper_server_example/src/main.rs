@@ -1,14 +1,13 @@
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::{service::Service, body::Incoming, Request, Response};
+use hyper::{body::Incoming, service::Service, Request, Response};
 use hyper_util::{rt::TokioExecutor, rt::TokioIo, server::conn::auto};
-use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc};
-use tokio::net::TcpListener;
-
 use mlua::{
   chunk, Error as LuaError, Function, Lua, String as LuaString, Table, UserData, UserDataMethods,
 };
-
+use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc};
+use tokio::net::TcpListener;
+use tokio::task::LocalSet;
 
 struct LuaRequest(SocketAddr, Request<Incoming>);
 
@@ -51,7 +50,7 @@ impl Service<Request<Incoming>> for Svc {
             .get::<_, Option<LuaString>>("body")?
             .map(|b| {
               // Full::new(Bytes::from(b.clone().as_bytes()))
-                Full::new(Bytes::copy_from_slice(b.clone().as_bytes()))
+              Full::new(Bytes::copy_from_slice(b.clone().as_bytes()))
                 .map_err(|never| match never {})
                 .boxed()
             })
@@ -68,9 +67,11 @@ impl Service<Request<Incoming>> for Svc {
           Ok(
             Response::builder()
               .status(500)
-              .body(Full::new(Bytes::from("Internal Server Error".as_bytes()))
-                    .map_err(|never| match never {})
-                    .boxed())
+              .body(
+                Full::new(Bytes::from("Internal Server Error".as_bytes()))
+                  .map_err(|never| match never {})
+                  .boxed(),
+              )
               .unwrap(),
           )
         }
@@ -107,17 +108,17 @@ async fn main() {
 
   let addr = ([127, 0, 0, 1], 3000).into();
 
+  let local = LocalSet::new();
   let listener = TcpListener::bind(addr).await.unwrap();
   loop {
     let (stream, peer_addr) = listener.accept().await.unwrap();
     let io = TokioIo::new(stream);
 
     let svc = Svc(lua.clone(), Arc::new(peer_addr));
-    tokio::task::spawn(async move {
+    local.spawn_local(async move {
       if let Err(err) = auto::Builder::new(TokioExecutor::new())
         .serve_connection(io, svc)
         .await
-
       {
         println!("Error serving connection: {:?}", err);
       }
