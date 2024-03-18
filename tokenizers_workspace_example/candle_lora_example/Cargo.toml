@@ -1,0 +1,13 @@
+[package]
+name = "candle_lora_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.4.0" }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.4.0" }
+either = "1.10.0"
+thiserror = "1.0.58"
+trc = "1.2.4"
+candle-lora = { git = "https://github.com/EricLBuehler/candle-lora.git" }
+candle-lora-macro = { git = "https://github.com/EricLBuehler/candle-lora.git" }
