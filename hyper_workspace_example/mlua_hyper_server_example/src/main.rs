@@ -1,14 +1,14 @@
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{body::Incoming, service::Service, Request, Response};
-use hyper_util::{rt::TokioExecutor, rt::TokioIo, server::conn::auto};
+use hyper::server::conn::http2;
+use hyper_util::rt::TokioIo;
 use mlua::{
   chunk, Error as LuaError, Function, Lua, String as LuaString, Table, UserData, UserDataMethods,
 };
 use std::{future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::net::TcpListener;
 use tokio::task::LocalSet;
-
 struct LuaRequest(SocketAddr, Request<Incoming>);
 
 impl UserData for LuaRequest {
@@ -49,7 +49,6 @@ impl Service<Request<Incoming>> for Svc {
           let body = lua_resp
             .get::<_, Option<LuaString>>("body")?
             .map(|b| {
-              // Full::new(Bytes::from(b.clone().as_bytes()))
               Full::new(Bytes::copy_from_slice(b.clone().as_bytes()))
                 .map_err(|never| match never {})
                 .boxed()
@@ -106,7 +105,7 @@ async fn main() {
     .set_named_registry_value("http_handler", handler)
     .expect("cannot store Lua handler");
 
-  let addr = ([127, 0, 0, 1], 3000).into();
+  let addr = "127.0.0.1:3000";
 
   let local = LocalSet::new();
   let listener = TcpListener::bind(addr).await.unwrap();
@@ -116,12 +115,24 @@ async fn main() {
 
     let svc = Svc(lua.clone(), Arc::new(peer_addr));
     local.spawn_local(async move {
-      if let Err(err) = auto::Builder::new(TokioExecutor::new())
+      if let Err(err) = http2::Builder::new(LocalExec)
         .serve_connection(io, svc)
         .await
       {
         println!("Error serving connection: {:?}", err);
       }
     });
+  }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LocalExec;
+
+impl<F> hyper::rt::Executor<F> for LocalExec
+where
+  F: std::future::Future + 'static, // not requiring `Send`
+{
+  fn execute(&self, fut: F) {
+    tokio::task::spawn_local(fut);
   }
 }
