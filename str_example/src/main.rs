@@ -11,6 +11,18 @@ fn strtok<'a>(s: &'a mut &'a str, delimiter: char) -> &'a str {
   }
 }
 
+fn first_word<'a>(s: &'a str) -> &'a str {
+  let bytes = s.as_bytes();
+
+  for (i, &item) in bytes.iter().enumerate() {
+    if item == b' ' {
+      return &s[0..i];
+    }
+  }
+
+  &s[..]
+}
+
 fn main() {
   //println!("Hello, world!");
 
@@ -40,6 +52,10 @@ fn main() {
     std::str::from_utf8(begin_str_bytes).unwrap()
   );
   assert_eq!(begin_str, std::str::from_utf8(begin_str_bytes).unwrap());
+
+  let filter_word = "hello world".to_string();
+
+  println!("first word is {}", first_word(&filter_word));
 }
 
 fn box_str() {
