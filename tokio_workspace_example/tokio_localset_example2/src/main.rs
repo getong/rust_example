@@ -1,6 +1,6 @@
 use chrono::Local;
 use tokio::task::LocalSet;
-use tokio::{self, runtime::Runtime, time};
+use tokio::{runtime::Runtime, time};
 
 fn now() -> String {
   Local::now().format("%F %T").to_string()
@@ -10,16 +10,26 @@ fn main() {
   let rt = Runtime::new().unwrap();
   let local_tasks = LocalSet::new();
 
+  rt.block_on(async {
+    local_tasks
+      .run_until(async move {
+        println!("run until function begin");
+        time::sleep(time::Duration::from_secs(2)).await;
+        println!("run until function end");
+      })
+      .await;
+  });
+
   // 向本地任务队列中添加新的异步任务，但现在不会执行
   local_tasks.spawn_local(async {
     println!("local task1");
-    time::sleep(time::Duration::from_secs(5)).await;
+    time::sleep(time::Duration::from_secs(3)).await;
     println!("local task1 done");
   });
 
   local_tasks.spawn_local(async {
     println!("local task2");
-    time::sleep(time::Duration::from_secs(5)).await;
+    time::sleep(time::Duration::from_secs(3)).await;
     println!("local task2 done");
   });
 
