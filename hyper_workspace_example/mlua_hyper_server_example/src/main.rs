@@ -12,8 +12,8 @@ struct LuaRequest(SocketAddr, Request<Incoming>);
 
 impl UserData for LuaRequest {
   fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-    methods.add_method("remote_addr", |_lua, req, ()| Ok((req.0).to_string()));
-    methods.add_method("method", |_lua, req, ()| Ok((req.1).method().to_string()));
+    methods.add_method("remote_addr", |_lua, req, ()| Ok(req.0.to_string()));
+    methods.add_method("method", |_lua, req, ()| Ok(req.1.method().to_string()));
   }
 }
 
@@ -76,7 +76,7 @@ impl Service<Request<Incoming>> for Svc {
   }
 }
 
-// curl http://localhost:3000
+// curl -v http://localhost:3000
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
   let lua = Rc::new(Lua::new());
