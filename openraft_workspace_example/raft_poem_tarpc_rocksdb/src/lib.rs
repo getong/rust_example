@@ -50,9 +50,14 @@ impl Display for Node {
 pub type SnapshotData = Cursor<Vec<u8>>;
 
 openraft::declare_raft_types!(
-    /// Declare the type configuration for example K/V store.
-    pub TypeConfig: D = Request, R = Response, NodeId = NodeId, Node = Node,
-  Entry = openraft::Entry<TypeConfig>, SnapshotData = SnapshotData, AsyncRuntime = TokioRuntime
+    pub TypeConfig:
+        D = Request,
+        R = Response,
+        NodeId = NodeId,
+        Node = Node,
+        Entry = openraft::Entry<TypeConfig>,
+        SnapshotData = SnapshotData,
+        AsyncRuntime = TokioRuntime
 );
 
 pub mod typ {
