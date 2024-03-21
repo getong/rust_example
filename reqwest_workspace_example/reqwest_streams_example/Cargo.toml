@@ -11,7 +11,7 @@ axum-streams = { version = "0.12.0", features = ["protobuf"] }
 futures = "0.3.30"
 hyper = "1.1.0"
 prost = "0.12.3"
-reqwest = "0.11.23"
+reqwest = "0.12"
 reqwest-streams = { version = "0.5.1", features = ["protobuf"] }
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }

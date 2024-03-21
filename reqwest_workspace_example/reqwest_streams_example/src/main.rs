@@ -1,6 +1,5 @@
 use axum::response::IntoResponse;
 use axum::routing::*;
-use axum::Router;
 
 use futures::prelude::*;
 use tokio::net::TcpListener;

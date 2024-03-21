@@ -12,6 +12,6 @@ colored = "2.0.0"
 jsonxf = "1.1.1"
 mime = "0.3.16"
 # reqwest 默认使用 openssl，有些 linux 用户如果没有安装好 openssl 会无法编译，这里我改成了使用 rustls
-reqwest = { version = "0.11.10", default-features = false, features = ["json", "rustls-tls"] } # HTTP 客户端
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] } # HTTP 客户端
 tokio = { version = "1.17.0", features = ["full"] } # 异步处理 库
 syntect = "4.6.0"

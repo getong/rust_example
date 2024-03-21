@@ -15,7 +15,7 @@ http = "1.0.0"
 hyper = "1.1.0"
 password-auth = "1.0.0"
 rand = { version = "0.8.5", features = ["min_const_gen"] }
-reqwest = { version = "0.11.23", features = ["cookies"] }
+reqwest = { version = "0.12", features = ["cookies"] }
 serde = { version = "1.0.193", features = ["derive"] }
 sqlx = { version = "0.7.3", features = ["sqlite", "time", "runtime-tokio"] }
 time = "0.3.31"
