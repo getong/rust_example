@@ -44,5 +44,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   println!("RESPONSE={:?}", response);
 
+  let request = tonic::Request::new(HelloRequest {
+    name: "Tonic".into(),
+  });
+
+  let response2 = client.say_hi(request).await?;
+
+  println!("RESPONSE2={:?}", response2);
+
   Ok(())
 }
