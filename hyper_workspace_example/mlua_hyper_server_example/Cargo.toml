@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bytes = "1.5.0"
+futures = "0.3.30"
 http-body-util = "0.1.1"
 hyper = { version = "1", features = ["client", "server"] }
 hyper-util = { version = "0.1.3", features = ["server", "client", "client-legacy", "tokio", "http1"] }
