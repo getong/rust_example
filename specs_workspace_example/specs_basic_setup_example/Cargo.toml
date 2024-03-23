@@ -1,9 +1,9 @@
 [package]
-name = "specs_hello_example"
+name = "specs_basic_setup_example"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-specs = { version = "0.17.0", features = ["specs-derive"] }
+specs = "0.20.0"

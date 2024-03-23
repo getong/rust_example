@@ -1,11 +1,9 @@
 [package]
-name = "rltk_specs_walkmap_example"
+name = "specs_dispatcher_example"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rltk = "0.8.1"
-specs = "0.17.0"
-specs-derive = "0.4.1"
+specs = { version = "0.20.0", features = ["specs-derive"] }

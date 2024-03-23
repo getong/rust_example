@@ -2,9 +2,9 @@ use specs::{Builder, Component, ReadStorage, RunNow, System, VecStorage, World, 
 
 #[derive(Debug)]
 //#[storage(VecStorage)]
-struct Position {
-  x: f32,
-  y: f32,
+pub struct Position {
+  pub x: f32,
+  pub y: f32,
 }
 
 impl Component for Position {
@@ -13,9 +13,9 @@ impl Component for Position {
 
 #[derive(Debug)]
 //#[storage(VecStorage)]
-struct Velocity {
-  x: f32,
-  y: f32,
+pub struct Velocity {
+  pub x: f32,
+  pub y: f32,
 }
 
 impl Component for Velocity {

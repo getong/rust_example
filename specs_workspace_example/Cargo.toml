@@ -1,0 +1,11 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "rltk_specs_helloecs_example",
+        "rltk_specs_walkmap_example",
+        "specs_basic_setup_example",
+        "specs_dispatcher_example",
+        "specs_hello_example",
+]
