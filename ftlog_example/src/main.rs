@@ -1,35 +1,47 @@
-use ftlog::*;
 use ftlog::{
   appender::{Duration, FileAppender, Period},
-  FtLogFormatter, LevelFilter,
+  debug, error, info, trace, warn, FtLogFormatter, LevelFilter,
 };
 
 #[tokio::main]
 async fn main() {
+  let time_format = time::format_description::parse_owned::<1>(
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:6]",
+  )
+  .unwrap();
   // configurate logger
-  let logger = ftlog::builder()
+  let _guard = ftlog::builder()
     // global max log level
     .max_log_level(LevelFilter::Info)
-    // global log formatter, timestamp is fixed for performance
+    // custom timestamp format
+    .time_format(time_format)
+    // set global log formatter
     .format(FtLogFormatter)
     // use bounded channel to avoid large memory comsumption when overwhelmed with logs
     // Set `false` to tell ftlog to discard excessive logs.
     // Set `true` to block log call to wait for log thread.
     // here is the default settings
     .bounded(100_000, false) // .unbounded()
-    // define root appender, pass None would write to stderr
-    .root(FileAppender::rotate_with_expire(
-      "./current.log",
-      Period::Minute,
-      Duration::seconds(30),
-    ))
+    // define root appender, pass anything that is Write and Send
+    // omit `Builder::root` will write to stderr
+    .root(
+      FileAppender::builder()
+        .path("./current.log")
+        .rotate(Period::Day)
+        .expire(Duration::days(7))
+        .build(),
+    )
+    // Do not convert to local timezone for timestamp, this does not affect worker thread,
+    // but can boost log thread performance (higher throughput).
+    .utc()
+    // level filter for root appender
+    .root_log_level(LevelFilter::Warn)
     // write logs in ftlog::appender to "./ftlog-appender.log" instead of "./current.log"
     .filter("ftlog::appender", "ftlog-appender", LevelFilter::Error)
     .appender("ftlog-appender", FileAppender::new("ftlog-appender.log"))
-    .build()
-    .expect("logger build failed");
-  // init global logger
-  logger.init().expect("set logger failed");
+    .try_init()
+    .expect("logger build or set failed");
+
   println!("Hello, world!");
 
   trace!("Hello world!");
