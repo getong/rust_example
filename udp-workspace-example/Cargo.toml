@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "udp-client-example",
@@ -8,4 +9,5 @@ members = [
         "udp-multicast2",
         "udp-listen-example",
         "udp-sender-example",
+        "udp-loop-example",
 ]
