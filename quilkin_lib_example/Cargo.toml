@@ -6,8 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33.3"
-quilkin = { git = "https://github.com/googleforgames/quilkin",ref = "bdac7947b0bb50cd3c58951b73a19b08bcaa6a63" }
-quilkin-macros = { git = "https://github.com/googleforgames/quilkin", ref = "bdac7947b0bb50cd3c58951b73a19b08bcaa6a63" }
+clap = "4.5.4"
+quilkin = "0.8.0"
+quilkin-macros = "0.8.0"
 slog = "2.7.0"
-tokio = { version = "1.10.1", features = ["full"] }
+stable-eyre = "0.2.2"
+tokio = { version = "1.36.0", features = ["full"] }
+tracing = "0.1.40"
