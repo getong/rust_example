@@ -1,0 +1,7 @@
+[package]
+name = "enum_map_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+enum-map = "2.7.3"
