@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 async-stream = "0.3.5"
-chrono = "0.4.33"
+chrono = "0.4.37"
 futures = "0.3.30"
-tokio = { version = "1.36.0", features = ["full"] }
-tokio-stream = "0.1.14"
+tokio = { version = "1.37.0", features = ["full"] }
+tokio-stream = "0.1.15"

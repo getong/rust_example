@@ -1,5 +1,5 @@
 use chrono::Local;
-use tokio::{self, runtime::Runtime, time};
+use tokio::{runtime::Runtime, time};
 
 #[allow(dead_code)]
 fn now() -> String {

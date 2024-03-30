@@ -1,7 +1,6 @@
 use chrono::Local;
 use std::sync::Arc;
 use tokio::{
-  self,
   runtime::Runtime,
   sync::Semaphore,
   time::{self, Duration},

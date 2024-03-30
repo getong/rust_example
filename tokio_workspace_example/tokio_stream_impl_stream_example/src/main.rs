@@ -1,5 +1,4 @@
 use tokio_stream::{
-  self,
   Stream,
   // for next() method
   StreamExt,

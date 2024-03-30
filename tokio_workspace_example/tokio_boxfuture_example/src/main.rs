@@ -3,7 +3,6 @@ use futures::FutureExt;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio;
 use tokio::sync::Mutex;
 
 type CalcFn = Box<dyn Fn(String) -> BoxFuture<'static, i32> + Send + Sync>;
