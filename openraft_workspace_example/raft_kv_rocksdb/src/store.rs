@@ -37,7 +37,6 @@ use serde::Serialize;
 use tokio::sync::RwLock;
 
 use crate::typ;
-use crate::Node;
 use crate::NodeId;
 use crate::SnapshotData;
 use crate::TypeConfig;
@@ -68,7 +67,7 @@ pub struct Response {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StoredSnapshot {
-  pub meta: SnapshotMeta<NodeId, Node>,
+  pub meta: SnapshotMeta<TypeConfig>,
 
   /// The data of the state machine at the time of this snapshot.
   pub data: Vec<u8>,
@@ -92,7 +91,7 @@ pub struct StateMachineStore {
 pub struct StateMachineData {
   pub last_applied_log_id: Option<LogId<NodeId>>,
 
-  pub last_membership: StoredMembership<NodeId, Node>,
+  pub last_membership: StoredMembership<TypeConfig>,
 
   /// State built from applying the raft logs
   pub kvs: Arc<RwLock<BTreeMap<String, String>>>,
@@ -221,7 +220,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
 
   async fn applied_state(
     &mut self,
-  ) -> Result<(Option<LogId<NodeId>>, StoredMembership<NodeId, Node>), StorageError<NodeId>> {
+  ) -> Result<(Option<LogId<NodeId>>, StoredMembership<TypeConfig>), StorageError<NodeId>> {
     Ok((
       self.data.last_applied_log_id,
       self.data.last_membership.clone(),
@@ -274,7 +273,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
 
   async fn install_snapshot(
     &mut self,
-    meta: &SnapshotMeta<NodeId, Node>,
+    meta: &SnapshotMeta<TypeConfig>,
     snapshot: Box<SnapshotData>,
   ) -> Result<(), StorageError<NodeId>> {
     let new_snapshot = StoredSnapshot {
@@ -446,6 +445,10 @@ impl RaftLogReader<TypeConfig> for LogStore {
       .map(|x| x.1)
       .collect()
   }
+
+  async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
+    self.get_vote_()
+  }
 }
 
 impl RaftLogStorage<TypeConfig> for LogStore {
@@ -493,10 +496,6 @@ impl RaftLogStorage<TypeConfig> for LogStore {
   #[tracing::instrument(level = "trace", skip(self))]
   async fn save_vote(&mut self, vote: &Vote<NodeId>) -> Result<(), StorageError<NodeId>> {
     self.set_vote_(vote)
-  }
-
-  async fn read_vote(&mut self) -> Result<Option<Vote<NodeId>>, StorageError<NodeId>> {
-    self.get_vote_()
   }
 
   #[tracing::instrument(level = "trace", skip_all)]

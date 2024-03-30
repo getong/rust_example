@@ -1,4 +1,5 @@
 #![allow(clippy::uninlined_format_args)]
+#![deny(unused_qualifications)]
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -7,9 +8,7 @@ use actix_web::middleware;
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
 use actix_web::HttpServer;
-use openraft::BasicNode;
 use openraft::Config;
-use openraft::TokioRuntime;
 
 use crate::app::App;
 use crate::network::api;
@@ -31,11 +30,6 @@ openraft::declare_raft_types!(
     pub TypeConfig:
         D = Request,
         R = Response,
-        NodeId = NodeId,
-        Node = BasicNode,
-        Entry = openraft::Entry<TypeConfig>,
-        SnapshotData = Cursor<Vec<u8>>,
-        AsyncRuntime = TokioRuntime,
 );
 
 pub type LogStore = store::LogStore;
@@ -43,19 +37,17 @@ pub type StateMachineStore = store::StateMachineStore;
 pub type Raft = openraft::Raft<TypeConfig>;
 
 pub mod typ {
-  use openraft::BasicNode;
 
-  use crate::NodeId;
   use crate::TypeConfig;
 
-  pub type RaftError<E = openraft::error::Infallible> = openraft::error::RaftError<NodeId, E>;
+  pub type RaftError<E = openraft::error::Infallible> = openraft::error::RaftError<TypeConfig, E>;
   pub type RPCError<E = openraft::error::Infallible> =
-    openraft::error::RPCError<NodeId, BasicNode, RaftError<E>>;
+    openraft::error::RPCError<TypeConfig, RaftError<E>>;
 
-  pub type ClientWriteError = openraft::error::ClientWriteError<NodeId, BasicNode>;
-  pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<NodeId, BasicNode>;
-  pub type ForwardToLeader = openraft::error::ForwardToLeader<NodeId, BasicNode>;
-  pub type InitializeError = openraft::error::InitializeError<NodeId, BasicNode>;
+  pub type ClientWriteError = openraft::error::ClientWriteError<TypeConfig>;
+  pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<TypeConfig>;
+  pub type ForwardToLeader = openraft::error::ForwardToLeader<TypeConfig>;
+  pub type InitializeError = openraft::error::InitializeError<TypeConfig>;
 
   pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }
