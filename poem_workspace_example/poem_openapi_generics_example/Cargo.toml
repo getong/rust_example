@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-poem = "2.0.0"
-poem-openapi = { version = "4.0.0", features = ["swagger-ui"] }
-tokio = { version = "1.36.0", features = ["full"] }
+poem = "3.0.0"
+poem-openapi = { version = "5.0.0", features = ["swagger-ui"] }
+tokio = { version = "1.37.0", features = ["full"] }
 tracing-subscriber = "0.3.18"

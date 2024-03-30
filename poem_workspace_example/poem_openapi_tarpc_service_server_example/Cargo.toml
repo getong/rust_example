@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.30"
-poem = "2.0.0"
-poem-openapi = { version = "4.0.0", features = ["swagger-ui"] }
+poem = "3.0.0"
+poem-openapi = { version = "5.0.0", features = ["swagger-ui"] }
 tarpc = { version = "0.34.0", features = ["full"] }
-tokio = { version = "1.36.0", features = ["full"] }
+tokio = { version = "1.37.0", features = ["full"] }

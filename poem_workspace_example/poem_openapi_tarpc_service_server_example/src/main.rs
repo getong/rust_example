@@ -1,4 +1,4 @@
-use futures::{future, prelude::*};
+use futures::prelude::*;
 use poem::{listener::TcpListener, Route};
 use poem_openapi::OpenApiService;
 use std::{net::IpAddr, net::Ipv4Addr, sync::Arc};
