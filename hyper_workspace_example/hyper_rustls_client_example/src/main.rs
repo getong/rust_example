@@ -98,3 +98,5 @@ async fn run_client() -> io::Result<()> {
 
   fut.await
 }
+
+// copy from https://github.com/rustls/hyper-rustls/blob/main/examples/client.rs
