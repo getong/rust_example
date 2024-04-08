@@ -1,0 +1,9 @@
+[package]
+name = "pptr_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.79"
+pptr = "0.2.2"
+tokio = { version = "1.37.0", features = ["full"] }
