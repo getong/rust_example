@@ -1,0 +1,7 @@
+[package]
+name = "lzma_rs_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lzma-rs = "0.3.0"
