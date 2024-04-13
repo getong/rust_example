@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.81"
+anyhow = "1.0.82"
 bytes = "1.6.0"
 delay_timer = { version = "0.11.5", features = ["full"] }
 http-body-util = "0.1.1"
