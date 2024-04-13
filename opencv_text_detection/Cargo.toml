@@ -1,0 +1,7 @@
+[package]
+name = "opencv_text_detection"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+opencv = "0.89.0"
