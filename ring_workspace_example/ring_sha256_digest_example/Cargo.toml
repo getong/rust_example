@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 data-encoding = "2.5.0"
 error-chain = "0.12.4"
-ring = "0.17.7"
+ring = "0.17.8"

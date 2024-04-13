@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 data-encoding = "2.5.0"
-ring = "0.17.7"
+ring = "0.17.8"
