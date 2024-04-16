@@ -1,0 +1,7 @@
+[package]
+name = "solana_program_hello_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-program = "1.18.11"

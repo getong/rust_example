@@ -3,5 +3,6 @@
 resolver = "2"
 
 members = [
+        "solana_program_hello_example",
         "solana_program_entry_example",
 ]
