@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
   let tracer = opentelemetry_otlp::new_pipeline()
     .tracing()
     .with_exporter(otlp_exporter)
-    .install_batch(opentelemetry::runtime::AsyncStd)
+    .install_batch(opentelemetry_sdk::runtime::Tokio)
     .expect("failed to install");
 
   let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
