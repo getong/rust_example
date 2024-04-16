@@ -1,4 +1,5 @@
 use clap::Parser;
+use opentelemetry_otlp::WithExportConfig;
 use std::{env, net::SocketAddr, time::Duration};
 use tarpc::{client, context, tokio_serde::formats::Json};
 use tokio::time::sleep;
@@ -14,13 +15,16 @@ pub trait World {
 }
 
 /// Initializes an OpenTelemetry tracing subscriber with a Jaeger backend.
-pub fn init_tracing(service_name: &str) -> anyhow::Result<()> {
+pub fn init_tracing() -> anyhow::Result<()> {
   env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "12");
-
-  let tracer = opentelemetry_jaeger::new_agent_pipeline()
-    .with_service_name(service_name)
-    .with_max_packet_size(2usize.pow(13))
-    .install_simple()?;
+  let otlp_exporter = opentelemetry_otlp::new_exporter()
+    .tonic()
+    .with_endpoint("http://0.0.0.0:4317");
+  let tracer = opentelemetry_otlp::new_pipeline()
+    .tracing()
+    .with_exporter(otlp_exporter)
+    .install_batch(opentelemetry_sdk::runtime::Tokio)
+    .expect("failed to install");
 
   tracing_subscriber::registry()
     .with(tracing_subscriber::EnvFilter::from_default_env())
@@ -44,7 +48,7 @@ struct Flags {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let flags = Flags::parse();
-  init_tracing("Tarpc Example Client")?;
+  init_tracing()?;
 
   let mut transport = tarpc::serde_transport::tcp::connect(flags.server_addr, Json::default);
   transport.config_mut().max_frame_length(usize::MAX);

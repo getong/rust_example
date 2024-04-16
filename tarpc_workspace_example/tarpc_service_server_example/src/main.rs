@@ -1,6 +1,7 @@
 use chrono::{DateTime, Local, Utc};
 use clap::Parser;
 use futures::{future, prelude::*};
+use opentelemetry_otlp::WithExportConfig;
 use rand::{
   distributions::{Distribution, Uniform},
   thread_rng,
@@ -16,7 +17,6 @@ use tarpc::{
   tokio_serde::formats::Json,
 };
 use tokio::time;
-
 use tracing_subscriber::{fmt::format::FmtSpan, prelude::*};
 
 /// This is the service definition. It looks a lot like a trait definition.
@@ -28,13 +28,16 @@ pub trait World {
 }
 
 /// Initializes an OpenTelemetry tracing subscriber with a Jaeger backend.
-pub fn init_tracing(service_name: &str) -> anyhow::Result<()> {
+pub fn init_tracing() -> anyhow::Result<()> {
   env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "12");
-
-  let tracer = opentelemetry_jaeger::new_agent_pipeline()
-    .with_service_name(service_name)
-    .with_max_packet_size(2usize.pow(13))
-    .install_simple()?;
+  let otlp_exporter = opentelemetry_otlp::new_exporter()
+    .tonic()
+    .with_endpoint("http://0.0.0.0:4317");
+  let tracer = opentelemetry_otlp::new_pipeline()
+    .tracing()
+    .with_exporter(otlp_exporter)
+    .install_batch(opentelemetry_sdk::runtime::Tokio)
+    .expect("failed to install");
 
   tracing_subscriber::registry()
     .with(tracing_subscriber::EnvFilter::from_default_env())
@@ -71,7 +74,7 @@ impl World for HelloServer {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let flags = Flags::parse();
-  init_tracing("Tarpc Example Server")?;
+  init_tracing()?;
 
   let server_addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), flags.port);
 

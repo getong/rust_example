@@ -8,7 +8,7 @@ pub trait HelloWorld {
 }
 
 #[derive(Clone)]
-struct HelloWorldImpl;
+pub struct HelloWorldImpl;
 
 impl HelloWorld for HelloWorldImpl {
   async fn hello(self, _: context::Context, name: String) -> String {
