@@ -6,4 +6,5 @@ members = [
         "mlua_example",
         "mlua_lib_example",
         "mlua_exec_lua_script_example",
+        "mlua_check_lua_type_example",
 ]
