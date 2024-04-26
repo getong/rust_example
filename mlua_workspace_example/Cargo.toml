@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "mlua_example",
         "mlua_lib_example",
+        "mlua_exec_lua_script_example",
 ]
