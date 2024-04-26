@@ -1,4 +1,4 @@
-use mlua::prelude::*;
+use mlua::{Lua, Result as LuaResult};
 
 fn main() -> LuaResult<()> {
   let lua = Lua::new();
