@@ -9,13 +9,12 @@ impl Drop for DropHelper {
 
 fn main() {
   let mut drop_helper = DropHelper { int: 42 };
-  let join = std::thread::spawn(move || {
+  let handler = std::thread::spawn(move || {
     println!("Thread spawned");
     drop_helper.int = 43;
   });
-  _ = join.join();
+  _ = handler.join();
 }
-
 
 // copy from https://github.com/rust-lang/rust/issues/108808
 // unread_partial_move_field
