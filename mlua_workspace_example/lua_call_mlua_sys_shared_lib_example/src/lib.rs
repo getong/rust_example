@@ -29,8 +29,11 @@ extern "C-unwind" fn _c_l_testfunc(lua_state: *mut lua_State) -> i32 {
   1
 }
 
+/// # Safety
+///
+/// This function should be called by lua script
 #[no_mangle]
-pub extern "C" fn luaopen_funct(lua_state: *mut lua_State) -> i32 {
+pub unsafe extern "C" fn luaopen_funct(lua_state: *mut lua_State) -> i32 {
   unsafe {
     lua_pushcfunction(lua_state, _c_l_testfunc);
     1
