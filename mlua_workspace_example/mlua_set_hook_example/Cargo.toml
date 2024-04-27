@@ -1,0 +1,8 @@
+[package]
+name = "mlua_set_hook_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mlua = { version = "0.9.7", features = ["lua54", "vendored", "macros", "async"] }
+tokio = { version = "1.37.0", features = ["full"] }
