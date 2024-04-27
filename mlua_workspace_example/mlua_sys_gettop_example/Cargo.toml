@@ -1,0 +1,7 @@
+[package]
+name = "mlua_sys_gettop_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mlua-sys = { version = "0.5.2", features = ["lua54", "vendored"] }

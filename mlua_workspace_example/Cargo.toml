@@ -8,4 +8,5 @@ members = [
         "mlua_exec_lua_script_example",
         "mlua_check_lua_type_example",
         "mlua_set_hook_example",
+        "mlua_sys_gettop_example",
 ]
