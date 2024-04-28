@@ -65,7 +65,7 @@ print(`f(2, 4) = ${f(2, 4)}`);
       ctx.clone(),
       "test",
       r#"
-import { n, s, f } from "native_module";
+import { n, s, f } from "libnative_module_example";
 print(`n = ${n}`);
 print(`s = "${s}"`);
 print(`f(2, 4) = ${f(2, 4)}`);
