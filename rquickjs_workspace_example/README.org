@@ -1,0 +1,12 @@
+* rquickjs workspace example
+
+** run command
+
+#+begin_src shell
+cd native_module_example
+cargo build
+
+cd ../module_loader_example
+cargo build
+cargo run
+#+end_src
