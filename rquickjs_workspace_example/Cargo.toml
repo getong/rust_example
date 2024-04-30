@@ -6,4 +6,5 @@ members = [
         "native_module_example",
         "module_loader_example",
         "rquickjs_hot_reload_example",
+        "rquickjs_asyncruntime_example",
 ]
