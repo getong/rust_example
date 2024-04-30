@@ -28,15 +28,23 @@ fn main() -> std::io::Result<()> {
   future::block_on(async {
     // Watch events in the current directory.
     let mut inotify = Async::new(Inotify::init()?)?;
-    inotify.get_mut().add_watch(".", WatchMask::ALL_EVENTS)?;
+    unsafe {
+      inotify
+        .get_mut()
+        .watches()
+        .add(".", WatchMask::ALL_EVENTS)?;
+    }
+
     println!("Watching for filesystem events in the current directory...");
     println!("Try opening a file to trigger some events.");
     println!();
 
     // Wait for events in a loop and print them on the screen.
     loop {
-      for event in inotify.read_with_mut(read_op).await? {
-        println!("{:?}", event);
+      unsafe {
+        for event in inotify.read_with_mut(read_op).await? {
+          println!("{:?}", event);
+        }
       }
     }
   })
