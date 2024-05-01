@@ -1,4 +1,4 @@
-use rquickjs::{async_with, AsyncContext, AsyncRuntime};
+use rquickjs::{async_with, AsyncContext, AsyncRuntime, Error, Exception};
 use std::time::Duration;
 use tokio::{fs::metadata, select, time::sleep};
 
@@ -12,6 +12,30 @@ async fn main() {
 
   // Call the async_with! macro to execute the asynchronous block
   async_with!(&ctx => |ctx| {
+    let result = ctx.eval::<(), &str>("console.log(\"hello world\")");
+    match result {
+      Ok(res) => println!("Result: {:?}", res),
+      Err(error) => {
+        println!("err is {:?}", error);
+        if let Error::Exception = error {
+          let value = ctx.catch();
+          if let Some(ex) = value
+            .as_object()
+            .and_then(|x| Exception::from_object(x.clone()))
+          {
+            // CaughtError::Exception(ex)
+            println!("ex is {:?}", ex);
+          } else {
+            // CaughtError::Value(value)
+            println!("value is {:?}", value);
+          }
+        } else {
+          // CaughtError::Error(error)
+        }
+        println!("Failed to evaluate JavaScript code");
+      },
+    }
+
     if let Ok(res) = ctx.eval::<(), &str>("1 + 5;") {
       println!("Result: {:?}", res);
     } else {
