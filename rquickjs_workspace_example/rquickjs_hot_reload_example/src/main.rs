@@ -1,15 +1,13 @@
 use notify::{RecursiveMode, Result, Watcher};
 use rquickjs::{
+  async_with,
   loader::{FileResolver, ScriptLoader},
-  Context, Function, Module, Runtime,
+  AsyncContext, AsyncRuntime, Function,
 };
-use std::{
-  path::Path,
-  sync::{Arc, Mutex},
-  thread,
-  time::Duration,
-};
-use tokio::sync::watch;
+use std::{path::Path, time::Duration};
+use tokio::{fs, sync::watch, time::sleep};
+
+const FILE_NAME: &str = "script_module.js";
 
 fn print(msg: String) {
   println!("{}", msg);
@@ -19,7 +17,7 @@ fn print(msg: String) {
 async fn main() -> Result<()> {
   let (tx, mut rx) = watch::channel(());
   tokio::spawn(async move {
-    if let Ok(mut watcher) = notify::recommended_watcher(|res| match res {
+    if let Ok(mut watcher) = notify::recommended_watcher(move |res| match res {
       Ok(_event) => {
         _ = tx.send(());
       }
@@ -35,11 +33,11 @@ async fn main() -> Result<()> {
 
   let resolver = FileResolver::default().with_path("./");
   let loader = ScriptLoader::default();
-  let rt = Runtime::new().unwrap();
-  rt.set_loader(resolver, loader);
+  let rt = AsyncRuntime::new().unwrap();
+  rt.set_loader(resolver, loader).await;
 
-  let ctx = Context::full(&rt).unwrap();
-  ctx.with(|ctx| {
+  let ctx = AsyncContext::full(&rt).await.unwrap();
+  async_with!(&ctx => |ctx| {
     let global = ctx.globals();
     global
       .set(
@@ -52,31 +50,40 @@ async fn main() -> Result<()> {
       .unwrap();
 
     println!("Importing script module");
-    let mut module_code = load_module_code();
-    let module = Module::evaluate(ctx.clone(), "test", module_code.as_bytes()).unwrap();
-
-    let shared_module = Arc::new(Mutex::new(module));
-    let shared_module_clone = Arc::clone(&shared_module);
+    let mut module_code =
+      if let Ok(file_content) = fs::read_to_string(FILE_NAME).await {
+        file_content
+      } else {
+        String::new()
+      };
 
     loop {
-      // Access the shared module and execute it
-      _ = rx.changed().await;
-      let shared_module = shared_module.lock().unwrap();
-      shared_module.clone().finish::<()>().unwrap();
-      thread::sleep(Duration::from_secs(1)); // Adjust the sleep duration as needed
-    }
-  });
-  Ok(())
-}
+      tokio::select!{
+        Ok(_) = rx.changed() => {
+          println!("file changed");
+          if let Ok(file_content) = fs::read_to_string(FILE_NAME).await{
+            module_code = file_content;
+          }
+        },
 
-fn load_module_code() -> String {
-  // Load your module code from a file or any other source
-  // For simplicity, I'll return a static module code here
-  r#"
-        import { n, s, f } from "script_module";
-        print(`n = ${n}`);
-        print(`s = "${s}"`);
-        print(`f(2, 4) = ${f(2, 4)}`);
-    "#
-  .to_string()
+        _ = sleep(Duration::from_secs(0)) => {
+          if let Ok(res) = ctx.eval::<(), &str>("console.log('hello world');") {
+            println!("helloworld_print Result: {:?}", res);
+          } else {
+            println!("hellowrold_print Failed to evaluate JavaScript code");
+          }
+          if !module_code.is_empty() {
+            println!("&*code_str is {}", &*module_code);
+            if let Ok(res) = ctx.eval::<(), &str>(&*module_code) {
+              println!("Result: {:?}", res);
+            } else {
+              println!("Failed to evaluate JavaScript code");
+            }
+          }
+        },
+      }
+    }
+  })
+  .await;
+  Ok(())
 }
