@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-borsh = { version = "1.4.0", features = ["derive"] }
-solana-program = "1.18.11"
+borsh = { version = "1.5.0", features = ["derive"] }
+solana-program = "1.18.12"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
