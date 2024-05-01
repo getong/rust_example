@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "boa_engine_hello_example",
         "boa_engine_futures_example",
+        "boa_engine_class_example",
 ]
