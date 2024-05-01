@@ -12,6 +12,17 @@ async fn main() {
 
   // Call the async_with! macro to execute the asynchronous block
   async_with!(&ctx => |ctx| {
+    if let Ok(res) = ctx.eval::<(), &str>("1 + 5;") {
+      println!("Result: {:?}", res);
+    } else {
+      println!("Failed to evaluate JavaScript code");
+    }
+
+    if let Ok(res) = ctx.eval::<i32, &str>("2 + 5") {
+      println!("Result: {:?}", res);
+    } else {
+      println!("Failed to evaluate JavaScript code");
+    }
     // Enter a loop to evaluate JavaScript code repeatedly
     loop {
       // Asynchronously read file information

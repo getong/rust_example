@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rquickjs = { version = "0.6.0", default-features = false, features = ["futures", "rust-alloc", "loader", "dyn-load"] }
+rquickjs = { version = "0.6.1", default-features = false, features = ["futures", "rust-alloc", "loader", "dyn-load"] }
 
 [features]
 default = ["macro"]

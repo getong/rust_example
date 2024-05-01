@@ -2,4 +2,5 @@
 // export const s = "efg";
 // export const f = (a, b) => (a * b);
 
-console.log("hello world");
+// console.log("hello world");
+2 + 5;

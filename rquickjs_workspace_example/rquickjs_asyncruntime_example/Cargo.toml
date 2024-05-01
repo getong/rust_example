@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.37.0", features = ["full"] }
-rquickjs = { version = "0.6.0", default-features = false, features = ["futures", "rust-alloc", "loader", "dyn-load"] }
+rquickjs = { version = "0.6.1", default-features = false, features = ["futures", "rust-alloc", "loader", "dyn-load"] }
 serde_json = "1.0.116"
