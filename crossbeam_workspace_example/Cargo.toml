@@ -1,6 +1,11 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "crossbeam_scope_example",
+        "crossbeam-utils_example",
+        "crossbeam_channel_ticker_example",
+        "crossbeam_channel_timer_example",
+        "crossbeam_example",
 ]
