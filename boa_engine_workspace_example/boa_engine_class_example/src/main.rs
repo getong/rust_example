@@ -168,9 +168,9 @@ fn main() {
       console.log('\'Hello\' string is not a Person class instance.');
     }
 
-        console.log(Person.staticProperty);
-        console.log(person.inheritedProperty);
-      console.log(Person.prototype.inheritedProperty === person.inheritedProperty);
+    console.log(Person.staticProperty);
+    console.log(person.inheritedProperty);
+    console.log(Person.prototype.inheritedProperty === person.inheritedProperty);
     ",
     ))
     .unwrap();
