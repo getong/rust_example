@@ -79,8 +79,7 @@ fn process_instruction(
   )?;
   //
   msg!("unpacking state account");
-  let mut account_data =
-    my_try_from_slice_unchecked::<CourseState>(&pda_account.data.borrow()).unwrap();
+  let mut account_data = my_try_from_slice_unchecked::<CourseState>(&pda_account.data.borrow())?;
   account_data.name = payload.name;
   account_data.degree = payload.degree;
   account_data.institution = payload.institution;

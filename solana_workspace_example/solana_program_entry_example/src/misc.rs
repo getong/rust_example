@@ -30,7 +30,7 @@ impl CourseInstruction {
     let (&variant, rest) = input
       .split_first()
       .ok_or(ProgramError::InvalidInstructionData)?;
-    let payload = CourseState::try_from_slice(rest).unwrap();
+    let payload = CourseState::try_from_slice(rest)?;
     //
     Ok(match variant {
       0 => Self::AddCourse {
@@ -61,14 +61,18 @@ pub fn calculate_acc_size_and_rent(payload: &CourseState) -> (usize, u64) {
     + (4 + payload.institution.len())
     + (4 + payload.start_date.len());
   //
-  let rent = Rent::get().unwrap();
-  let rent_lamports = rent.minimum_balance(account_size);
-  msg!(
-    "Account size: {} and rent: {} lamports",
-    account_size,
-    rent_lamports
-  );
-  (account_size, rent_lamports)
+  match Rent::get() {
+    Ok(rent) => {
+      let rent_lamports = rent.minimum_balance(account_size);
+      msg!(
+        "Account size: {} and rent: {} lamports",
+        account_size,
+        rent_lamports
+      );
+      (account_size, rent_lamports)
+    }
+    Err(_) => (0, 0),
+  }
 }
 
 pub fn my_try_from_slice_unchecked<T: borsh::BorshDeserialize>(
