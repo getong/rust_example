@@ -11,10 +11,10 @@ bincode = "1.3.3"
 console = "0.15.8"
 futures = "0.3.30"
 regex = "1.10.4"
-serde = { version = "1.0.198", features = ["derive"] }
+serde = { version = "1.0.200", features = ["derive"] }
 tokio = { version = "1.37.0", features = ["rt-multi-thread", "time", "sync", "net", "macros", "io-util", "io-std"] }
 tokio-stream = "0.1.15"
-tokio-util = { version = "0.7.10", features = ["codec"] }
+tokio-util = { version = "0.7.11", features = ["codec"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = "2.5.0"

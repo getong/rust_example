@@ -10,5 +10,5 @@ anyhow = "1.0.82"
 chrono = "0.4.38"
 log = "0.4.21"
 tokio = { version = "1.37.0", features = ["full"] }
-tokio-cron-scheduler = "0.10.0"
+tokio-cron-scheduler = "0.10.2"
 tracing = "0.1.40"
