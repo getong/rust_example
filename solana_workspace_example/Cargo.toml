@@ -6,4 +6,5 @@ members = [
         "solana_program_hello_example",
         "solana_program_entry_example",
         # "anchor_mycalculatordapp",
+        "solana_serialize_deserialize_example",
 ]
