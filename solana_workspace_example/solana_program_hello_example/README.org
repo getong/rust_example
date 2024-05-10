@@ -1,0 +1,7 @@
+* build command
+
+#+begin_src shell
+cargo-build-bpf
+
+solana program deploy ../target/deploy/solana_program_hello_example.so
+#+end_src
