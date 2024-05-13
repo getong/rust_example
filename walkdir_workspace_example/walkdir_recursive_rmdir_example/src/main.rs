@@ -14,8 +14,12 @@ async fn main() {
     let dir_path = entry.path();
     // println!("{}", dir_path.display());
 
-    if let Err(err) = fs::remove_dir(dir_path).await {
-      println!("Error removing directory '{}': {}", dir_path.display(), err);
+    if let Ok(file_metadata) = fs::metadata(dir_path).await {
+      if file_metadata.is_dir() {
+        if let Err(err) = fs::remove_dir(dir_path).await {
+          println!("Error removing directory '{}': {}", dir_path.display(), err);
+        }
+      }
     }
   }
 }
