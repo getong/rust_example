@@ -8,6 +8,8 @@ async fn main() {
   // println!("Hello, world!");
 
   for entry in WalkDir::new(DELETE_DIRECTORY)
+    .min_depth(0)
+    .max_depth(4)
     .into_iter()
     .filter_map(|e| e.ok())
   {
