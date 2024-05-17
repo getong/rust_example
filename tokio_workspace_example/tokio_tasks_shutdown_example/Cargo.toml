@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.82"
+anyhow = "1.0.83"
 tokio = { version = "1.37.0", features = ["full"] }
 tokio_tasks_shutdown = "0.4.1"
