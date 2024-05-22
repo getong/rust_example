@@ -1,0 +1,10 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "fs_example",
+        "fs_read_write_example",
+        "fs_rename_example",
+        "fs_symlink_metadata_example",
+]
