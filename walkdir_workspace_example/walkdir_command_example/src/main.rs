@@ -2,10 +2,10 @@ use tokio::fs;
 use walkdir::WalkDir;
 
 // TODO: change your directory here
-// mkdir -p /tmp/a/b/c
+// mkdir -p /tmp/a/b/c/d
 // mkdir -p /tmp/a/d
 const DELETE_DIRECTORY: &str = "/tmp/a/";
-const DELETE_PATH_NAME: &str = "b";
+const DELETE_PATH_NAME: &str = "c";
 
 #[tokio::main]
 async fn main() {
@@ -16,7 +16,7 @@ async fn main() {
     .filter_map(|entry| entry.ok())
   {
     let first_dir_path = first_entry.path();
-    println!("first_dir_path: {:?}", first_dir_path);
+    // println!("first_dir_path: {:?}", first_dir_path);
     if let Ok(first_file_meta) = fs::metadata(first_dir_path).await {
       if first_file_meta.is_dir() {
         // move dirtory
@@ -35,14 +35,17 @@ async fn main() {
                   .into_iter()
                   .filter_map(|entry| entry.ok())
                 {
-                  if let Err(err) =
-                    fs::rename(third_entry.path().to_str().unwrap(), first_file_string).await
-                  {
+                  if let Some(src) = third_entry.path().to_str() {
+                    let mut dst = first_file_string.to_string();
+                    let final_file_name = third_entry.path().file_name().unwrap().to_str().unwrap();
+                    dst.push_str(final_file_name);
+                    if let Err(err) = fs::rename(src, &dst).await {
+                      println!("from : {:?}, to: {:?}, failed, err is :{:?}", src, dst, err);
+                    }
+                  } else {
                     println!(
-                      "from : {:?}, to: {:?}, failed, err is :{:?}",
-                      third_entry.path().to_str().unwrap(),
-                      first_file_string,
-                      err
+                      "third_entry.path().to_str() failed, the path is {:?} ",
+                      third_entry.path()
                     );
                   }
                 }
