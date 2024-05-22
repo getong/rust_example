@@ -36,7 +36,7 @@ async fn main() {
                   .filter_map(|entry| entry.ok())
                 {
                   if let Some(src) = third_entry.path().to_str() {
-                    let mut dst = second_entry_path_str.to_string();
+                    let mut dst = first_file_string.to_string();
                     dst.push_str("/");
                     let final_file_name = third_entry.path().file_name().unwrap().to_str().unwrap();
                     dst.push_str(final_file_name);
