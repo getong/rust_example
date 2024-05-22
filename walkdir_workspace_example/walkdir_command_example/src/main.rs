@@ -37,6 +37,7 @@ async fn main() {
                 {
                   if let Some(src) = third_entry.path().to_str() {
                     let mut dst = second_entry_path_str.to_string();
+                    dst.push_str("/");
                     let final_file_name = third_entry.path().file_name().unwrap().to_str().unwrap();
                     dst.push_str(final_file_name);
                     if let Err(err) = fs::rename(src, &dst).await {
