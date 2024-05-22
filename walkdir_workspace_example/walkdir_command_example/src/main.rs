@@ -7,6 +7,7 @@ use walkdir::{DirEntry, WalkDir};
 // mkdir -p /tmp/a/d
 const DELETE_DIRECTORY: &str = "/tmp/a/";
 const DELETE_PATH_NAME: &str = "c";
+const ANOTHER_DELETE_PATH_NAME: &str = "d";
 
 #[tokio::main]
 async fn main() {
@@ -53,7 +54,9 @@ async fn remove_empty_directory(second_entry_path_str: &str) {
 
 async fn delete_possible_directory(second_entry: DirEntry, first_file_string: &str) {
   if let Some(second_entry_path_str) = second_entry.path().to_str() {
-    if second_entry_path_str.contains(DELETE_PATH_NAME) {
+    if second_entry_path_str.contains(DELETE_PATH_NAME)
+      || second_entry_path_str.contains(ANOTHER_DELETE_PATH_NAME)
+    {
       for third_entry in WalkDir::new(second_entry_path_str)
         .min_depth(1)
         .max_depth(1)
