@@ -6,4 +6,5 @@ members = [
         "walkdir_example",
         "walkdir_recursive_rmdir_example",
         "walkdir_command_example",
+        "walkdir_skip_current_dir_example",
 ]
