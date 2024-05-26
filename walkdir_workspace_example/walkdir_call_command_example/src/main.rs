@@ -7,6 +7,7 @@ use walkdir::WalkDir;
 
 const RENAME_DIRECTORY: &str = "/tmp/a/";
 const RENAME_ARGUMENT: &str = "s/abc//g";
+const RUN_FLAG: &str = "-n";
 
 #[tokio::main]
 async fn main() {
@@ -40,7 +41,7 @@ async fn change_dir_and_run_command(dir_path: &Path) {
       }
     }
     if let Ok(process) = Command::new("/usr/bin/perl-rename")
-      .arg("-n")
+      .arg(RUN_FLAG)
       .arg(RENAME_ARGUMENT)
       .arg(&all_files)
       .stdout(Stdio::piped())
