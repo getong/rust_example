@@ -8,4 +8,5 @@ members = [
         "walkdir_command_example",
         "walkdir_call_command_example",
         "walkdir_skip_current_dir_example",
+        "walkdir_remove_empty_dir_example",
 ]
