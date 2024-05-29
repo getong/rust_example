@@ -189,4 +189,5 @@ members = [
         "tokio_convert_channel_to_stream_example",
         "tokio_poll_unpin_example",
         "tokio_sink_example",
+        "tokio_fn_recursive_example",
 ]
