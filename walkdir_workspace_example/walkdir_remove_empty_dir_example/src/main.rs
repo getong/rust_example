@@ -1,9 +1,10 @@
+use async_recursion::async_recursion;
 use std::env::set_current_dir;
 use std::path::Path;
 use tokio::fs;
 use walkdir::WalkDir;
+
 const RENAME_DIRECTORY: &str = "/tmp/a/";
-use async_recursion::async_recursion;
 
 #[tokio::main]
 async fn main() {
@@ -16,7 +17,17 @@ async fn main() {
     let first_dir_path = first_entry.path();
     if let Ok(first_file_meta) = fs::metadata(first_dir_path).await {
       if first_file_meta.is_dir() {
-        remove_empty_directory(first_dir_path).await
+        let total_size = WalkDir::new(first_dir_path)
+          .min_depth(1)
+          .max_depth(3)
+          .into_iter()
+          .filter_map(|entry| entry.ok())
+          .filter_map(|entry| entry.metadata().ok())
+          .filter(|metadata| metadata.is_file())
+          .fold(0, |acc, m| acc + m.len());
+        if total_size == 0 {
+          remove_empty_directory(first_dir_path).await
+        }
       }
     }
   }
