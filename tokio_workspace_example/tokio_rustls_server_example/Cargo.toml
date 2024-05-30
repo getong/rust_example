@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 argh = "0.1.12"
-rustls = "0.23.6"
+rustls = "0.23.8"
 rustls-pemfile = "2.1.2"
 rustls-pki-types = "1.7.0"
 tokio = { version = "1.37.0", features = ["full"] }
