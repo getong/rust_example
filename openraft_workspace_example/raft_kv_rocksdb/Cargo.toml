@@ -12,11 +12,11 @@ clap = { version = "4.5.4", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde", "type-alias"] }
 reqwest = { version = "0.12", features = ["json"] }
-serde = { version = "1.0.197", features = ["derive"] }
-serde_json = "1.0.115"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
-toy-rpc = { version = "0.8.6", features = [
+toy-rpc = { version = "0.10.0", features = [
   "ws_tokio",
   "server",
   "client",
