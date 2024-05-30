@@ -14,7 +14,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::typ;
-use crate::Node;
 use crate::NodeId;
 use crate::Request;
 use crate::TypeConfig;
@@ -23,9 +22,6 @@ use crate::TypeConfig;
 pub struct Empty {}
 
 pub struct ExampleClient {
-  /// The leader node to send request to.
-  ///
-  /// All traffic should be sent to the leader in a cluster.
   pub leader: Arc<Mutex<(NodeId, String)>>,
 
   pub inner: Client,
@@ -135,7 +131,7 @@ impl ExampleClient {
     &self,
     uri: &str,
     req: Option<&Req>,
-  ) -> Result<Resp, RPCError<NodeId, Node, Err>>
+  ) -> Result<Resp, RPCError<TypeConfig, Err>>
   where
     Req: Serialize + 'static,
     Resp: Serialize + DeserializeOwned,

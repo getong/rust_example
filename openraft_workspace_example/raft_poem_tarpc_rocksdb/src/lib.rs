@@ -10,7 +10,7 @@ use crate::store::new_storage;
 use crate::store::Request;
 use crate::store::Response;
 use openraft::Config;
-use openraft::TokioRuntime;
+// use openraft::TokioRuntime;
 
 pub mod api_rpc;
 pub mod client;
@@ -53,29 +53,23 @@ openraft::declare_raft_types!(
     pub TypeConfig:
         D = Request,
         R = Response,
-        NodeId = NodeId,
         Node = Node,
-        Entry = openraft::Entry<TypeConfig>,
-        SnapshotData = SnapshotData,
-        AsyncRuntime = TokioRuntime
 );
 
 pub mod typ {
   use openraft::error::Infallible;
 
-  use crate::Node;
-  use crate::NodeId;
   use crate::TypeConfig;
 
   pub type Entry = openraft::Entry<TypeConfig>;
 
-  pub type RaftError<E = Infallible> = openraft::error::RaftError<NodeId, E>;
-  pub type RPCError<E = Infallible> = openraft::error::RPCError<NodeId, Node, RaftError<E>>;
+  pub type RaftError<E = Infallible> = openraft::error::RaftError<TypeConfig, E>;
+  pub type RPCError<E = Infallible> = openraft::error::RPCError<TypeConfig, RaftError<E>>;
 
-  pub type ClientWriteError = openraft::error::ClientWriteError<NodeId, Node>;
-  pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<NodeId, Node>;
-  pub type ForwardToLeader = openraft::error::ForwardToLeader<NodeId, Node>;
-  pub type InitializeError = openraft::error::InitializeError<NodeId, Node>;
+  pub type ClientWriteError = openraft::error::ClientWriteError<TypeConfig>;
+  pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<TypeConfig>;
+  pub type ForwardToLeader = openraft::error::ForwardToLeader<TypeConfig>;
+  pub type InitializeError = openraft::error::InitializeError<TypeConfig>;
 
   pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
 }

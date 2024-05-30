@@ -54,7 +54,7 @@ pub struct NetworkConnection {
 impl NetworkConnection {
   async fn c<E: std::error::Error + DeserializeOwned>(
     &mut self,
-  ) -> Result<&WorldClient, RPCError<NodeId, Node, E>> {
+  ) -> Result<&WorldClient, RPCError<TypeConfig, E>> {
     if self.client.is_none() {
       let mut transport = tarpc::serde_transport::tcp::connect(&self.addr, Json::default);
       transport.config_mut().max_frame_length(usize::MAX);
@@ -68,61 +68,13 @@ impl NetworkConnection {
   }
 }
 
-// #[derive(Debug)]
-// struct ErrWrap(Box<dyn std::error::Error>);
-
-// impl Display for ErrWrap {
-//   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//     self.0.fmt(f)
-//   }
-// }
-
-// impl std::error::Error for ErrWrap {}
-
 fn to_error<E: std::error::Error + 'static + Clone>(
   _e: ServiceError,
   _target: NodeId,
-) -> RPCError<NodeId, Node, E> {
-  // match e {
-  //   toy_rpc::Error::IoError(e) => RPCError::Network(NetworkError::new(&e)),
-  //   toy_rpc::Error::ParseError(e) => RPCError::Network(NetworkError::new(&ErrWrap(e))),
-  //   toy_rpc::Error::Internal(e) => {
-  //     let any: &dyn Any = &e;
-  //     let error: &E = any.downcast_ref().unwrap();
-  //     RPCError::RemoteError(RemoteError::new(target, error.clone()))
-  //   }
-  //   e @ (toy_rpc::Error::InvalidArgument
-  //   | toy_rpc::Error::ServiceNotFound
-  //   | toy_rpc::Error::MethodNotFound
-  //   | toy_rpc::Error::ExecutionError(_)
-  //   | toy_rpc::Error::Canceled(_)
-  //   | toy_rpc::Error::Timeout(_)
-  //   | toy_rpc::Error::MaxRetriesReached(_)) => RPCError::Network(NetworkError::new(&e)),
-  // }
+) -> RPCError<TypeConfig, E> {
   RPCError::Network(NetworkError::from(AnyError::default()))
 }
 
-// With nightly-2023-12-20, and `err(Debug)` in the instrument macro, this gives the following lint
-// warning. Without `err(Debug)` it is OK. Suppress it with `#[allow(clippy::blocks_in_conditions)]`
-//
-// warning: in a `match` scrutinee, avoid complex blocks or closures with blocks; instead, move the
-// block or closure higher and bind it with a `let`
-//
-//    --> src/network/raft_network_impl.rs:99:91
-//     |
-// 99  |       ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>>
-// {
-//     |  ___________________________________________________________________________________________^
-// 100 | |         tracing::debug!(req = debug(&req), "append_entries");
-// 101 | |
-// 102 | |         let c = self.c().await?;
-// ...   |
-// 108 | |         raft.append(req).await.map_err(|e| to_error(e, self.target))
-// 109 | |     }
-//     | |_____^
-//     |
-//     = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#blocks_in_conditions
-//     = note: `#[warn(clippy::blocks_in_conditions)]` on by default
 #[allow(clippy::blocks_in_conditions)]
 impl RaftNetwork<TypeConfig> for NetworkConnection {
   #[tracing::instrument(level = "debug", skip_all, err(Debug))]
@@ -130,14 +82,11 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
     &mut self,
     req: AppendEntriesRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
+  ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError<TypeConfig, RaftError<TypeConfig>>> {
     tracing::debug!(req = debug(&req), "append_entries");
 
     let client = self.c().await?;
     tracing::debug!("got connection");
-
-    // let raft = c.raft();
-    // tracing::debug!("got raft");
 
     client
       .append(context::current(), req)
@@ -152,8 +101,8 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
     req: InstallSnapshotRequest<TypeConfig>,
     _option: RPCOption,
   ) -> Result<
-    InstallSnapshotResponse<NodeId>,
-    RPCError<NodeId, Node, RaftError<NodeId, InstallSnapshotError>>,
+    InstallSnapshotResponse<TypeConfig>,
+    RPCError<TypeConfig, RaftError<TypeConfig, InstallSnapshotError>>,
   > {
     tracing::debug!(req = debug(&req), "install_snapshot");
     self
@@ -168,9 +117,9 @@ impl RaftNetwork<TypeConfig> for NetworkConnection {
   #[tracing::instrument(level = "debug", skip_all, err(Debug))]
   async fn vote(
     &mut self,
-    req: VoteRequest<NodeId>,
+    req: VoteRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<VoteResponse<NodeId>, RPCError<NodeId, Node, RaftError<NodeId>>> {
+  ) -> Result<VoteResponse<TypeConfig>, RPCError<TypeConfig, RaftError<TypeConfig>>> {
     tracing::debug!(req = debug(&req), "vote");
     self
       .c()
