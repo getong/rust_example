@@ -1,0 +1,7 @@
+[package]
+name = "sonic_rs_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sonic-rs = "0.3.6"
