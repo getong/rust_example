@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 pin-utils = "0.1.0"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 tokio-stream = { version = "0.1.15", features = ["full"] }

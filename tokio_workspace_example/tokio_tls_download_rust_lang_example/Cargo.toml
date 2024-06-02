@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 native-tls = "0.2.12"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 tokio-native-tls = "0.3.1"
