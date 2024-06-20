@@ -5,9 +5,9 @@ use std::os::unix::io::AsRawFd;
 #[cfg(target_os = "linux")]
 use tokio::io::AsyncReadExt;
 #[cfg(target_os = "linux")]
-use tokio_tun::result::Result;
-#[cfg(target_os = "linux")]
 use tokio_tun::TunBuilder;
+
+use anyhow::Result;
 
 #[cfg(target_os = "linux")]
 #[tokio::main]
