@@ -6,12 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.79"
-async-trait = "0.1.77"
-clap = { version = "4.4.18", features = ["derive"] }
-env_logger = "0.11.1"
+anyhow = "1.0.86"
+async-trait = "0.1.80"
+clap = { version = "4.5.7", features = ["derive"] }
+env_logger = "0.11.3"
 futures = "0.3.30"
 libp2p = { version = "0.53.2", features = ["full"] }
-tokio = { version = "1.35.1", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
