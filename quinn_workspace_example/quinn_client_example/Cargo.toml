@@ -7,14 +7,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
-clap = { version = "4.5.6", features = ["derive"] }
+clap = { version = "4.5.7", features = ["derive"] }
 directories-next = "2.0.0"
 quinn = "0.11.2"
 rcgen = "0.13.1"
-rustls = "0.23.9"
+rustls = "0.23.10"
 rustls-pemfile = "2.1.2"
 tokio = { version = "1.38.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-url = "2.5.0"
+url = "2.5.2"
