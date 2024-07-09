@@ -1,0 +1,5 @@
+* libp2p tokio autonat client example
+
+#+begin_src shell
+cargo run -- --server-address "/ip4/127.0.0.1/tcp/5001"  --server-peer-id 12D3KooWRkJzWk6KHk7HhbPbf8BkZpPj5Tg4kXV9i2kTQg5YJXvL --listen-port 5002
+#+end_src
