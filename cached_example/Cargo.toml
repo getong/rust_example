@@ -1,0 +1,8 @@
+[package]
+name = "cached_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cached = { version = "0.52.0", features = ["disk_store"] }
+thiserror = "1.0.61"
