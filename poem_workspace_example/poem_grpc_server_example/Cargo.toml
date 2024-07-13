@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 poem = "3.0.1"
 poem-grpc = "0.4.1"
-prost = "0.12.6"
+prost = "0.13.1"
 tokio = { version = "1.38.0", features = ["full"] }
 
 [build-dependencies]
