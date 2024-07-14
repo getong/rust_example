@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.30"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.38.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["make"] }
 tower-service = "0.3.2"
