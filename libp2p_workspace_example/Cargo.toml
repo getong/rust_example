@@ -19,7 +19,7 @@ members = [
         "libp2p_tokio_distributed_key-value_store_example",
         "libp2p_tokio_file_sharing_example",
         "libp2p_tokio_identity_example",
-        "libp2p_tokio_ipfs_kad_example",
+        # "libp2p_tokio_ipfs_kad_example",
         "libp2p_tokio_ipfs_private_example",
         # "libp2p_tokio_metrics_example",
         "libp2p_tokio_ping_example",
