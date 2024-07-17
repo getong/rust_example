@@ -1,5 +1,6 @@
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
+use futures::StreamExt;
 
 use libp2p::{
   core::Multiaddr,
@@ -203,8 +204,8 @@ impl EventLoop {
 
   pub(crate) async fn run(mut self) {
     loop {
-      futures::select! {
-          event = self.swarm.next() => self.handle_event(event.expect("Swarm stream to be infinite.")).await  ,
+      tokio::select! {
+          event = self.swarm.select_next_some() => self.handle_event(event).await,
           command = self.command_receiver.next() => match command {
               Some(c) => self.handle_command(c).await,
               // Command channel closed, thus shutting down the network event loop.

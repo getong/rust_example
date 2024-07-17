@@ -13,13 +13,6 @@ use std::{env, error::Error, fs, path::Path, str::FromStr, time::Duration};
 use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
 
-#[derive(NetworkBehaviour)]
-struct MyBehaviour {
-  gossipsub: gossipsub::Behaviour,
-  identify: identify::Behaviour,
-  ping: ping::Behaviour,
-}
-
 /// Get the current ipfs repo path, either from the IPFS_PATH environment variable or
 /// from the default $HOME/.ipfs
 fn get_ipfs_path() -> Box<Path> {
@@ -91,6 +84,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let gossipsub_topic = gossipsub::IdentTopic::new("chat");
 
   // We create a custom network behaviour that combines gossipsub, ping and identify.
+  #[derive(NetworkBehaviour)]
+  struct MyBehaviour {
+    gossipsub: gossipsub::Behaviour,
+    identify: identify::Behaviour,
+    ping: ping::Behaviour,
+  }
 
   let mut swarm = libp2p::SwarmBuilder::with_new_identity()
     .with_tokio()

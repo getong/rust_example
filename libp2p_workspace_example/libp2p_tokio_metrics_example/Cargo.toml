@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.81"
+axum = "0.7.5"
 either = "1.13.0"
 env_logger = "0.11.3"
 futures = "0.3.30"
 http-body-util = "0.1.2"
-hyper = { version = "1.4", features = ["full"]}
 hyper-util = { version = "0.1.6", features = ["full"] }
 libp2p = { version = "0.53.2", features = ["full"] }
 opentelemetry = { version = "0.24.0", features = ["metrics"] }

@@ -43,62 +43,62 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   loop {
     tokio::select! {
-        event = swarm.select_next_some() => match event {
-            SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezvous_point => {
-                tracing::info!(
-                    "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
-                    NAMESPACE
-                );
+      event = swarm.select_next_some() => match event {
+        SwarmEvent::ConnectionEstablished { peer_id, .. } if peer_id == rendezvous_point => {
+          tracing::info!(
+            "Connected to rendezvous point, discovering nodes in '{}' namespace ...",
+            NAMESPACE
+          );
 
-                swarm.behaviour_mut().rendezvous.discover(
-                    Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                    None,
-                    None,
-                    rendezvous_point,
-                );
-            }
-            SwarmEvent::Behaviour(MyBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
-                registrations,
-                cookie: new_cookie,
-                ..
-            })) => {
-                cookie.replace(new_cookie);
+          swarm.behaviour_mut().rendezvous.discover(
+            Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+            None,
+            None,
+            rendezvous_point,
+          );
+        }
+        SwarmEvent::Behaviour(MyBehaviourEvent::Rendezvous(rendezvous::client::Event::Discovered {
+          registrations,
+          cookie: new_cookie,
+          ..
+        })) => {
+          cookie.replace(new_cookie);
 
-                for registration in registrations {
-                    for address in registration.record.addresses() {
-                        let peer = registration.record.peer_id();
-                        tracing::info!(%peer, %address, "Discovered peer");
+          for registration in registrations {
+            for address in registration.record.addresses() {
+              let peer = registration.record.peer_id();
+              tracing::info!(%peer, %address, "Discovered peer");
 
-                        let p2p_suffix = Protocol::P2p(peer);
-                        let address_with_p2p =
-                            if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
-                                address.clone().with(p2p_suffix)
-                            } else {
-                                address.clone()
-                            };
+              let p2p_suffix = Protocol::P2p(peer);
+              let address_with_p2p =
+                if !address.ends_with(&Multiaddr::empty().with(p2p_suffix.clone())) {
+                  address.clone().with(p2p_suffix)
+                } else {
+                  address.clone()
+                };
 
-                        swarm.dial(address_with_p2p).unwrap();
-                    }
-                }
+              swarm.dial(address_with_p2p).unwrap();
             }
-            SwarmEvent::Behaviour(MyBehaviourEvent::Ping(ping::Event {
-                peer,
-                result: Ok(rtt),
-                ..
-            })) if peer != rendezvous_point => {
-                tracing::info!(%peer, "Ping is {}ms", rtt.as_millis())
-            }
-            other => {
-                tracing::debug!("Unhandled {:?}", other);
-            }
-        },
-        _ = discover_tick.tick(), if cookie.is_some() =>
-            swarm.behaviour_mut().rendezvous.discover(
-                Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
-                cookie.clone(),
-                None,
-                rendezvous_point
-            )
+          }
+        }
+        SwarmEvent::Behaviour(MyBehaviourEvent::Ping(ping::Event {
+          peer,
+          result: Ok(rtt),
+          ..
+        })) if peer != rendezvous_point => {
+          tracing::info!(%peer, "Ping is {}ms", rtt.as_millis())
+        }
+        other => {
+          tracing::debug!("Unhandled {:?}", other);
+        }
+      },
+      _ = discover_tick.tick(), if cookie.is_some() =>
+        swarm.behaviour_mut().rendezvous.discover(
+          Some(rendezvous::Namespace::new(NAMESPACE.to_string()).unwrap()),
+          cookie.clone(),
+          None,
+          rendezvous_point
+        )
     }
   }
 }

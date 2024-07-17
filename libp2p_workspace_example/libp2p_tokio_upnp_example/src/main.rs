@@ -1,6 +1,6 @@
-use futures::StreamExt;
-use libp2p::{core::multiaddr::Multiaddr, identify, noise, swarm::SwarmEvent, tcp, yamux};
-use std::{error::Error, time::Duration};
+use futures::prelude::*;
+use libp2p::{noise, swarm::SwarmEvent, upnp, yamux, Multiaddr};
+use std::error::Error;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -10,19 +10,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .try_init();
 
   let mut swarm = libp2p::SwarmBuilder::with_new_identity()
-    .with_async_std()
+    .with_tokio()
     .with_tcp(
-      tcp::Config::default(),
+      Default::default(),
       noise::Config::new,
       yamux::Config::default,
     )?
-    .with_behaviour(|key| {
-      identify::Behaviour::new(identify::Config::new(
-        "/ipfs/id/1.0.0".to_string(),
-        key.public(),
-      ))
-    })?
-    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+    .with_behaviour(|_| upnp::tokio::Behaviour::default())?
     .build();
 
   // Tell the swarm to listen on all interfaces and a random, OS-assigned
@@ -40,15 +34,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
   loop {
     match swarm.select_next_some().await {
       SwarmEvent::NewListenAddr { address, .. } => println!("Listening on {address:?}"),
-      // Prints peer id identify info is being sent to.
-      SwarmEvent::Behaviour(identify::Event::Sent { peer_id, .. }) => {
-        println!("Sent identify info to {peer_id:?}")
+      SwarmEvent::Behaviour(upnp::Event::NewExternalAddr(addr)) => {
+        println!("New external address: {addr}");
       }
-      // Prints out the info received via the identify event
-      SwarmEvent::Behaviour(identify::Event::Received { info, .. }) => {
-        println!("Received {info:?}")
+      SwarmEvent::Behaviour(upnp::Event::GatewayNotFound) => {
+        println!("Gateway does not support UPnP");
+        break;
+      }
+      SwarmEvent::Behaviour(upnp::Event::NonRoutableGateway) => {
+        println!("Gateway is not exposed directly to the public Internet, i.e. it itself has a private IP address.");
+        break;
       }
       _ => {}
     }
   }
+  Ok(())
 }
