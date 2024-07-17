@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
-bytes = "1.6.0"
+bytes = "1.6.1"
 futures = "0.3.30"
 libp2p = { version = "0.53.2", features = ["full"] }
 rocket = { version = "0.5.1", features = ["json"] }
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.38.1", features = ["full"] }
 tokio-util = { version = "0.7.11", features = ["codec"] }
