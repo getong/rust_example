@@ -1,0 +1,8 @@
+[package]
+name = "libp2p_peer_id_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hex = "0.4.3"
+libp2p = "0.53.2"
