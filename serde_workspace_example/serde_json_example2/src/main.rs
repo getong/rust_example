@@ -33,6 +33,11 @@ fn main() {
   match txs {
     Ok(txs) => {
       println!("ts: {:?}", txs);
+      if let Some(first_element) = txs.get(0) {
+        println!("first_element: {:?}", first_element);
+        let parsed = serde_json::json!(first_element);
+        println!("parsed: {:?}", parsed);
+      }
     }
 
     Err(err) => match err {
