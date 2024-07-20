@@ -8,4 +8,5 @@ members = [
         "fs_rename_example",
         "fs_symlink_metadata_example",
         "fs_mv_example",
+        "fs_call_unrar_example",
 ]
