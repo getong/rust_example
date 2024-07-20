@@ -10,4 +10,5 @@ members = [
         "serde_json_example",
         "serde_json_example2",
         "serde_yaml_example",
+        "serde_json_server_client_example",
 ]
