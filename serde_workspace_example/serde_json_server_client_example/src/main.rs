@@ -15,13 +15,14 @@ async fn handle_client(mut socket: TcpStream) -> Result<(), Box<dyn Error>> {
   let received_json = String::from_utf8(buffer[..n].to_vec())?;
   let received_struct: MyStruct = serde_json::from_str(&received_json)?;
 
-  println!("Received: {:?}", received_struct);
+  println!("Server Received: {:?}", received_struct);
 
   // Optionally, send a response back
   let response_struct = MyStruct {
     field1: "Response".to_string(),
     field2: 42,
   };
+  println!("server send {:?}", response_struct);
   let response_json = serde_json::to_string(&response_struct)?;
   socket.write_all(response_json.as_bytes()).await?;
 
@@ -48,6 +49,7 @@ async fn run_client() -> Result<(), Box<dyn Error>> {
     field1: "Hello".to_string(),
     field2: 123,
   };
+  println!("client send {:?}", my_struct);
   let json = serde_json::to_string(&my_struct)?;
   socket.write_all(json.as_bytes()).await?;
 
@@ -56,7 +58,7 @@ async fn run_client() -> Result<(), Box<dyn Error>> {
   let received_json = String::from_utf8(buffer[..n].to_vec())?;
   let received_struct: MyStruct = serde_json::from_str(&received_json)?;
 
-  println!("Received: {:?}", received_struct);
+  println!("Client Received: {:?}", received_struct);
 
   Ok(())
 }
