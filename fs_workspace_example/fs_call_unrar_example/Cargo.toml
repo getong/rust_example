@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 dotenv = "0.15.0"
 dotenv_codegen = "0.15.0"
+regex = "1.10.5"
 tokio = { version = "1.38.1", features = ["full"] }
