@@ -21,7 +21,7 @@ members = [
         "libp2p_tokio_identity_example",
         "libp2p_tokio_ipfs_kad_example",
         "libp2p_tokio_ipfs_private_example",
-        # "libp2p_tokio_metrics_example",
+        "libp2p_tokio_metrics_example",
         "libp2p_tokio_ping_example",
         "libp2p_tokio_relay_server_example",
         "libp2p_tokio_rendezvous_server_example",
