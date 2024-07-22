@@ -2,7 +2,7 @@ use std::{io, time::Duration};
 
 use anyhow::{Context, Result};
 use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
-use libp2p::{multiaddr::Protocol, Multiaddr, PeerId, Stream, StreamProtocol};
+use libp2p::{identity, multiaddr::Protocol, Multiaddr, PeerId, Stream, StreamProtocol};
 use libp2p_stream as stream;
 use rand::RngCore;
 use tracing::level_filters::LevelFilter;
@@ -26,7 +26,11 @@ async fn main() -> Result<()> {
     .transpose()
     .context("Failed to parse argument as `Multiaddr`")?;
 
-  let mut swarm = libp2p::SwarmBuilder::with_existing_identity("abc")
+  // todo
+  let hex_data = hex::decode("080112409ebb00996c478f8343849b28c347d17fb1f1a416f413361b6705337bc27106a6fd835df94aa8d241b7c003ff8c5c151537bc127b67c4f1df60282b72ff3e2a2b").unwrap();
+  let keypair = identity::Keypair::from_protobuf_encoding(&hex_data).unwrap();
+
+  let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
     .with_tokio()
     .with_quic()
     .with_behaviour(|_| stream::Behaviour::new())?
