@@ -20,7 +20,22 @@ fn generate_ed25519() {
   let private_key = keypair.to_protobuf_encoding().unwrap();
   let hex_string = hex::encode(private_key);
 
-  println!("ed25519 : {}", hex_string);
+  println!("ed25519 private key in hex: {}", hex_string);
+
+  if let Ok(data) = hex::decode(hex_string) {
+    if let Ok(keypair) = identity::Keypair::from_protobuf_encoding(&data) {
+      println!(
+        "from string ed25519 PeerId: {:?}",
+        PeerId::from(keypair.public())
+      );
+    } else {
+      println!("ed25519 from bytes failed");
+    }
+  } else {
+    println!("ed25519 hex decode failed");
+  }
+
+  println!();
 }
 
 fn generate_secp256k1() {
@@ -36,6 +51,21 @@ fn generate_secp256k1() {
   let hex_string = hex::encode(private_key);
 
   println!("secp256k1 : {}", hex_string);
+
+  if let Ok(data) = hex::decode(hex_string) {
+    if let Ok(keypair) = identity::Keypair::from_protobuf_encoding(&data) {
+      println!(
+        "from string secp256k1 PeerId: {:?}",
+        PeerId::from(keypair.public())
+      );
+    } else {
+      println!("secp256k1 from bytes failed");
+    }
+  } else {
+    println!("secp256k1 hex decode failed");
+  }
+
+  println!();
 }
 
 fn generate_ecdsa() {
@@ -51,4 +81,30 @@ fn generate_ecdsa() {
   let hex_string = hex::encode(private_key);
 
   println!("ecdsa : {}", hex_string);
+
+  if let Ok(data) = hex::decode(hex_string) {
+    if let Ok(keypair) = identity::Keypair::from_protobuf_encoding(&data) {
+      println!(
+        "from string ecdsa PeerId: {:?}",
+        PeerId::from(keypair.public())
+      );
+    } else {
+      println!("ecdsa from bytes failed");
+    }
+  } else {
+    println!("ecdsa hex decode failed");
+  }
+  println!();
 }
+
+// Generated ed25519 PeerId: PeerId("12D3KooWDsFm6sQ3EPGmFQkv3xkVwKK12m1PaEgUuCUvaHVUFBw6")
+// ed25519 private key in hex: 08011240b119784c5e448588bfd780e9fb73a992bc55156b67b7e8e9fe892c38f3248c853c2c3eb8979aa9e059a7132a320312584aa75441ec25e75dabe65d2ead2ee989
+// from string ed25519 PeerId: PeerId("12D3KooWDsFm6sQ3EPGmFQkv3xkVwKK12m1PaEgUuCUvaHVUFBw6")
+
+// Generated secp256k1 PeerId: PeerId("16Uiu2HAmJQii4E93Jpb8waH6YTjNiZeYVRBfCagNRT6RtQ1eqkK8")
+// secp256k1 : 08021220c370059db892bdbfb421ad2cccca2d00c0415665645e9c33b2e4538b013ad012
+// from string secp256k1 PeerId: PeerId("16Uiu2HAmJQii4E93Jpb8waH6YTjNiZeYVRBfCagNRT6RtQ1eqkK8")
+
+// Generated ecdsa PeerId: PeerId("QmWKp3jfkrpg8Rp7j1DCZGs5DzgXxsnnmLR97jADKwqH7F")
+// ecdsa : 08031279307702010104205c4bf9f43a2efb1bcb17828e9a3a6eb00ed8981fbc3a43edc61cc74f4de79d7aa00a06082a8648ce3d030107a1440342000436e73e7c3e9dec072b8ab9a2d4a6522b4cb009c090ef3881092ad44b0d2582bd7e2b5f59286d0b11df47da9f79ba1087b48a19f5683fe87e9a7388846759ab03
+// from string ecdsa PeerId: PeerId("QmWKp3jfkrpg8Rp7j1DCZGs5DzgXxsnnmLR97jADKwqH7F")
