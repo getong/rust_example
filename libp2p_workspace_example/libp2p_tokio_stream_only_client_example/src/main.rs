@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     .context("Failed to parse argument as `Multiaddr`")?;
 
   // todo
-  let hex_data = hex::decode("080112409ebb00996c478f8343849b28c347d17fb1f1a416f413361b6705337bc27106a6fd835df94aa8d241b7c003ff8c5c151537bc127b67c4f1df60282b72ff3e2a2b").unwrap();
+  let hex_data = hex::decode("080112405862d6fe84c9530590f8b825a47d6965d925f0469dc0be7b239909bd2c3e787750846cb48ac74b2205d2913ce1e4211aa69f5609eae72c81492170981c6e0cc7").unwrap();
   let keypair = identity::Keypair::from_protobuf_encoding(&hex_data).unwrap();
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
@@ -137,6 +137,7 @@ async fn echo(mut stream: Stream) -> io::Result<usize> {
     }
 
     total += read;
+    println!("buf[..read] is {:?}", &buf[..read]);
     stream.write_all(&buf[..read]).await?;
   }
 }
@@ -155,7 +156,7 @@ async fn send(mut stream: Stream) -> io::Result<()> {
   if bytes != buf {
     return Err(io::Error::new(io::ErrorKind::Other, "incorrect echo"));
   }
-
+  println!("bytes is {:?}", &bytes);
   stream.close().await?;
 
   Ok(())

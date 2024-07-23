@@ -134,6 +134,7 @@ async fn echo(mut stream: Stream) -> io::Result<usize> {
     }
 
     total += read;
+    println!("buf[..read] is {:?}", &buf[..read]);
     stream.write_all(&buf[..read]).await?;
   }
 }
@@ -152,7 +153,7 @@ async fn send(mut stream: Stream) -> io::Result<()> {
   if bytes != buf {
     return Err(io::Error::new(io::ErrorKind::Other, "incorrect echo"));
   }
-
+  println!("bytes is {:?}", &bytes);
   stream.close().await?;
 
   Ok(())

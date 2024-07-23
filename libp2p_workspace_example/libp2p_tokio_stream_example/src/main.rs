@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
     .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
     .build();
 
-  swarm.listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse()?)?;
+  swarm.listen_on("/ip4/0.0.0.0/udp/5500/quic-v1".parse()?)?;
 
   let mut incoming_streams = swarm
     .behaviour()
@@ -129,6 +129,7 @@ async fn echo(mut stream: Stream) -> io::Result<usize> {
     }
 
     total += read;
+    println!("buf[..read] is {:?}", &buf[..read]);
     stream.write_all(&buf[..read]).await?;
   }
 }
@@ -147,7 +148,7 @@ async fn send(mut stream: Stream) -> io::Result<()> {
   if bytes != buf {
     return Err(io::Error::new(io::ErrorKind::Other, "incorrect echo"));
   }
-
+  println!("bytes is {:?}", &bytes);
   stream.close().await?;
 
   Ok(())
