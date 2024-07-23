@@ -6,10 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-poem = "3.0.1"
-poem-grpc = "0.4.1"
+poem = "3.0.3"
+poem-grpc = "0.4.2"
 prost = "0.13.1"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.39.0", features = ["full"] }
 
 [build-dependencies]
-poem-grpc-build = "0.4.0"
+poem-grpc-build = "0.4.2"

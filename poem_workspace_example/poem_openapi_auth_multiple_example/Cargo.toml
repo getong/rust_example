@@ -8,9 +8,9 @@ edition = "2021"
 [dependencies]
 hmac = "0.12.1"
 jwt = "0.16.0"
-poem = "3.0.1"
-poem-openapi = { version = "5.0.2", features = ["swagger-ui"] }
+poem = "3.0.3"
+poem-openapi = { version = "5.0.3", features = ["swagger-ui"] }
 serde = { version = "1.0.204", features = ["derive"] }
 sha2 = "0.10.8"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.39.0", features = ["full"] }
 tracing-subscriber = "0.3.18"
