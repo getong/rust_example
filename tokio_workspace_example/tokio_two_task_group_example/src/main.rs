@@ -53,10 +53,6 @@ async fn main() {
       task1_handle.abort();
     }
 
-    2 => {
-      println!("task 2 stop");
-      task2_handle.abort();
-    }
     _ => {
       println!("task 2 stop");
       task2_handle.abort();
