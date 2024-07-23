@@ -190,4 +190,5 @@ members = [
         "tokio_poll_unpin_example",
         "tokio_sink_example",
         "tokio_fn_recursive_example",
+        "tokio_two_task_group_example",
 ]
