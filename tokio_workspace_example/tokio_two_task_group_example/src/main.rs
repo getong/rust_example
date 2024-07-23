@@ -6,15 +6,18 @@ use tokio::{
 };
 
 async fn task_1(mut stop_rx: oneshot::Receiver<()>, send_tx: oneshot::Sender<()>) {
-  tokio::select! {
-    _ = async {
-      loop {
-        println!("Task 1 is working...");
-        sleep(Duration::from_secs(1)).await;
+  loop {
+    tokio::select! {
+      _ = async {
+        loop {
+          println!("Task 1 is working...");
+          sleep(Duration::from_secs(1)).await;
+        }
+      } => {},
+      _ = &mut stop_rx => {
+        println!("Task 1 received stop signal.");
+        break;
       }
-    } => {},
-    _ = &mut stop_rx => {
-      println!("Task 1 received stop signal.");
     }
   }
 
@@ -22,16 +25,19 @@ async fn task_1(mut stop_rx: oneshot::Receiver<()>, send_tx: oneshot::Sender<()>
 }
 
 async fn task_2(mut stop_rx: oneshot::Receiver<()>, send_tx: oneshot::Sender<()>) {
-  tokio::select! {
-  _ = async {
-    loop {
-      println!("Task 2 is working...");
-      sleep(Duration::from_secs(1)).await;
+  loop {
+    tokio::select! {
+      _ = async {
+        loop {
+          println!("Task 2 is working...");
+          sleep(Duration::from_secs(1)).await;
+        }
+      } => {},
+      _ = &mut stop_rx => {
+        println!("Task 2 received stop signal.");
+        break;
+      }
     }
-  } => {},
-  _ = &mut stop_rx => {
-    println!("Task 2 received stop signal.");
-  }
   }
 
   _ = send_tx.send(());
