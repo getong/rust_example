@@ -1,7 +1,9 @@
 use rand::Rng;
-use tokio::sync::oneshot;
-use tokio::task;
-use tokio::time::{sleep, Duration};
+use tokio::{
+  sync::oneshot,
+  task,
+  time::{sleep, Duration},
+};
 
 async fn task_1(mut stop_rx: oneshot::Receiver<()>, send_tx: oneshot::Sender<()>) {
   tokio::select! {
