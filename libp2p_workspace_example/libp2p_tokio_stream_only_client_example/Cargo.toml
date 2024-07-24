@@ -7,8 +7,8 @@ edition = "2021"
 anyhow = "1.0.86"
 futures = "0.3.30"
 hex = "0.4.3"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "1617abb3bfcf3e8663568e90a8fc4009aef04ba9", features = ["full"] }
-libp2p-stream = { git = "https://github.com/libp2p/rust-libp2p", rev = "1617abb3bfcf3e8663568e90a8fc4009aef04ba9"}
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "879d5941b326126b95e2c77c73b64cc9d50ff852", features = ["full"] }
+libp2p-stream = { git = "https://github.com/libp2p/rust-libp2p", rev = "879d5941b326126b95e2c77c73b64cc9d50ff852"}
 rand = "0.8.5"
 tokio = { version = "1.38.1", features = ["full"] }
 tracing = "0.1.40"

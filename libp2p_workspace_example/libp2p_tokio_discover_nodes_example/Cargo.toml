@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.30"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "1617abb3bfcf3e8663568e90a8fc4009aef04ba9", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "879d5941b326126b95e2c77c73b64cc9d50ff852", features = ["full"] }
 tokio = { version = "1.38.1", features = ["full"] }
