@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "hex_example",
+        "hex_add_0x_example",
+]
