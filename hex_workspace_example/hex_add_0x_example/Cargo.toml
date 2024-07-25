@@ -6,4 +6,3 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.86"
 hex = "0.4.3"
-sha3 = "0.10.8"
