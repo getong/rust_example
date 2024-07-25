@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 prost = "0.13.1"
-tokio = { version = "1.38.0", features = ["full"] }
-tonic = { version = "0.12", features = ["tls"] }
+tokio = { version = "1.39.1", features = ["full"] }
+tonic = { version = "0.12.1", features = ["tls"] }
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.12.1"

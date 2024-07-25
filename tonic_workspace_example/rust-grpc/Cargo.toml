@@ -14,9 +14,9 @@ name = "grpc-client"
 path = "src/client.rs"
 
 [dependencies]
-tonic = "0.12"
+tonic = "0.12.1"
 prost = "0.13.1"
-tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.39.1", features = ["rt-multi-thread", "macros"] }
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.12.1"
