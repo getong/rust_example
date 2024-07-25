@@ -1,4 +1,7 @@
-use libp2p::{identity, PeerId};
+use libp2p::{
+  identity::{self, PublicKey},
+  PeerId,
+};
 
 fn main() {
   generate_ed25519();
@@ -14,6 +17,41 @@ fn generate_ed25519() {
 
   // Derive the PeerId from the keypair
   let peer_id = PeerId::from(keypair.public());
+
+  let public_key = keypair.public();
+  let public_key_bytes = public_key.encode_protobuf();
+  println!(
+    "string from public_key_bytes {:?} is {:?}",
+    public_key_bytes,
+    String::from_utf8_lossy(&public_key_bytes)
+  );
+
+  let public_key_str = hex::encode(public_key_bytes.clone());
+  println!("public_key_str: {:?}", public_key_str);
+
+  if let Ok(new_public_key_bytes) = hex::decode(public_key_str.clone()) {
+    if let Ok(new_public_key) = PublicKey::try_decode_protobuf(&new_public_key_bytes) {
+      let new_peer_id = new_public_key.to_peer_id();
+      println!("new peer id equals peer id :{:?}", peer_id == new_peer_id);
+    } else {
+      println!("Line {}, can not decode publickey", line!());
+    }
+  } else {
+    println!("Line {}, can not decode hex", line!());
+  }
+
+  let bytes = String::from_utf8_lossy(&public_key_bytes);
+  let new_public_key_bytes = bytes.as_bytes();
+  if let Ok(new_public_key) = PublicKey::try_decode_protobuf(&new_public_key_bytes) {
+    let new_peer_id = new_public_key.to_peer_id();
+    println!("new peer id equals peer id :{:?}", peer_id == new_peer_id);
+  } else {
+    println!("Line {}, can not decode publickey", line!());
+  }
+
+  println!("ed25519 keypair.public(): {:?}", public_key);
+
+  // PeerId::from_bytes(p.trim().as_bytes()).ok()
 
   println!("Generated ed25519 PeerId: {:?}", peer_id);
 
