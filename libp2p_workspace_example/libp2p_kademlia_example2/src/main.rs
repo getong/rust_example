@@ -1,41 +1,31 @@
-use std::collections::HashMap;
-use std::env::args;
-use std::error::Error;
-use std::time::Duration;
-
 use env_logger::{Builder, Env};
 use log::{error, info, warn};
-use tokio;
+use std::{collections::HashMap, env::args, error::Error, time::Duration};
 
 use libp2p::{
-  identity, tcp::Config as TcpConfig, yamux::Config as YamuxConfig, Multiaddr, PeerId,
-  StreamProtocol, SwarmBuilder,
+  futures::StreamExt,
+  identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
+  identity,
+  kad::{
+    store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
+    Event as KadEvent, RoutingUpdate,
+  },
+  noise::Config as NoiceConfig,
+  request_response::{
+    cbor::Behaviour as RequestResponseBehavior, Config as RequestResponseConfig,
+    Event as RequestResponseEvent, Message as RequestResponseMessage,
+    ProtocolSupport as RequestResponseProtocolSupport,
+  },
+  swarm::SwarmEvent,
+  tcp::Config as TcpConfig,
+  yamux::Config as YamuxConfig,
+  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
-
-use libp2p::futures::StreamExt;
-use libp2p::noise::Config as NoiceConfig;
-use libp2p::swarm::SwarmEvent;
-
-use libp2p::identify::{
-  Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent,
-};
-
-use libp2p::kad::{
-  store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
-  Event as KadEvent, RoutingUpdate,
-};
-
-use libp2p::request_response::{
-  Config as RequestResponseConfig, Event as RequestResponseEvent,
-  Message as RequestResponseMessage, ProtocolSupport as RequestResponseProtocolSupport,
-};
-
-use libp2p::request_response::cbor::Behaviour as RequestResponseBehavior;
 
 mod behavior;
-use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
-
 mod message;
+
+use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
 use message::{GreeRequest, GreetResponse};
 
 #[tokio::main]
