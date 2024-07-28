@@ -1,52 +1,31 @@
-use fred::pool::RedisPool;
 use fred::prelude::*;
-use futures::stream::StreamExt;
-// use std::iter::Iterator;
-// use futures_util::stream::stream::StreamExt;
-// use chrono::Utc;
-
-// use fred::types::RedisValue;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig {
-    username: Some("bert".to_owned()),
-    password: Some("abc123".to_owned()),
-    ..RedisConfig::default()
-  };
+  let pool = Builder::default_centralized().build_pool(5)?;
+  pool.init().await?;
 
-  let pool = RedisPool::new(config, 5)?;
-  let policy = ReconnectPolicy::default();
-  let _ = pool.connect(Some(policy));
-  let _ = pool.wait_for_connect().await?;
+  // all client types, including `RedisPool`, implement the same command interface traits so callers can often use
+  // them interchangeably. in this example each command below will be sent round-robin to the underlying 5 clients.
+  assert!(pool.get::<Option<String>, _>("foo").await?.is_none());
+  pool.set("foo", "bar", None, None, false).await?;
+  assert_eq!(pool.get::<String, _>("foo").await?, "bar");
 
-  // let now = Utc::now().timestamp_millis();
-  // let _:u8 = pool.next().hset(String::from("message::complete"), ("hello", RedisValue::Integer(now))).await?;
-  // let hget_result :String = pool.next().hget(String::from("message::complete"), "content").await;
-  // println!("hget_result:{:?}", hget_result);
+  pool.del("foo").await?;
+  // interact with specific clients via next(), last(), or clients()
+  let pipeline = pool.next().pipeline();
+  pipeline.incr("foo").await?;
+  pipeline.incr("foo").await?;
+  assert_eq!(pipeline.last::<i64>().await?, 2);
 
-  let client = pool.next();
-
-  // use the pool like any other RedisClient
-  let _ = client.get("foo").await?;
-  let _: () = client.set("foo", "bar", None, None, false).await?;
-  let foo_set_result: RedisValue = client.get("foo").await?;
-  println!("foo_set_result:{:?}", foo_set_result);
-
-  let mut scan_stream = client.scan("foo*", Some(10), None);
-  while let Some(Ok(mut page)) = scan_stream.next().await {
-    if let Some(keys) = page.take_results() {
-      // println!("scan_result:{:?}", scan_result);
-      // let client = page.create_client();
-
-      for key in keys.into_iter() {
-        let value: RedisValue = client.get(&key).await?;
-        println!("Scanned {} -> {:?}", key.as_str_lossy(), value);
-        println!("value:{:?}", value);
-      }
-    }
+  for client in pool.clients() {
+    println!(
+      "{} connected to {:?}",
+      client.id(),
+      client.active_connections().await?
+    );
   }
 
-  let _ = pool.quit_pool().await;
+  pool.quit().await?;
   Ok(())
 }
