@@ -37,6 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
     .with_tcp(TcpConfig::default(), NoiceConfig::new, YamuxConfig::default)?
+    .with_quic()
     .with_behaviour(|key| {
       let local_peer_id = PeerId::from(key.clone().public());
       info!("LocalPeerID: {local_peer_id}");
