@@ -11,7 +11,7 @@ axum-extra = "0.9.3"
 futures = "0.3.30"
 futures-util = "0.3.30"
 headers = "0.4.0"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.39.2", features = ["full"] }
 tokio-tungstenite = "0.23.1"
 tower-http = { version = "0.5.2", features = ["fs", "trace"] }
 tracing = "0.1.40"

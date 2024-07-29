@@ -9,5 +9,5 @@ edition = "2021"
 axum = "0.7.5"
 axum-extra = { version = "0.9.3", features = ["typed-routing"] }
 axum-macros = "0.4.1"
-serde = { version = "1.0.203", features = ["derive"] }
-tokio = { version = "1.38.0", features = ["full"] }
+serde = { version = "1.0.204", features = ["derive"] }
+tokio = { version = "1.39.2", features = ["full"] }
