@@ -1,0 +1,9 @@
+[package]
+name = "reqwest_get_post_state_channel_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { version = "0.12.5", features = ["stream"] }
+tokio = { version = "1.39.2", features = ["full"] }
+tokio-stream = { version = "0.1.15", features = ["full"] }
