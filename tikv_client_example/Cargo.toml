@@ -1,0 +1,8 @@
+[package]
+name = "tikv_client_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tikv-client = "0.3.0"
+tokio = { version = "1.39.2", features = ["full"] }
