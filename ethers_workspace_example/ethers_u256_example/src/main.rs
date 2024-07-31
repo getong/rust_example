@@ -5,27 +5,30 @@ use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize)]
 struct Payload {
-  total: U256,
+  total: String,
 }
 
 fn main() {
-  // Create a U256 from a decimal string
-  let total_value = U256::from_dec_str("123456789012345678901234567890")
-    .expect("Failed to parse decimal string to U256");
-
-  // Create a payload and insert the U256 value
+  // Create a payload and insert the string value
   let mut payload = HashMap::new();
-  payload.insert("total", total_value);
+  payload.insert("total", "123".to_string());
 
   // Serialize the payload to a JSON string
   let serialized = to_string(&payload).expect("Failed to serialize payload");
   println!("Serialized JSON: {}", serialized);
 
   // Deserialize the JSON string back to a HashMap
-  let deserialized: HashMap<String, U256> =
-    from_str(&serialized).expect("Failed to deserialize JSON");
+  let deserialized: HashMap<String, String> = from_str(&serialized).expect("Failed to deserialize JSON");
   println!("Deserialized payload: {:?}", deserialized);
+
+  // Extract the string and convert to U256
+  let total_str = deserialized.get("total").expect("Key 'total' not found");
+  let total_value = U256::from_dec_str(total_str).expect("Failed to parse decimal string to U256");
+
+  println!("total_value: {}", total_value);
 }
+
+
 
 // fn main() {
 //   let u256 = U256::MAX;
