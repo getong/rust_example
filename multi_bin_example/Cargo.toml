@@ -1,0 +1,17 @@
+[package]
+name = "multi_bin_example"
+version = "0.1.0"
+edition = "2021"
+default-run = "main"
+
+
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+
+[[bin]]
+name = "setup"
+path = "src/setup.rs"
+
+[dependencies]
