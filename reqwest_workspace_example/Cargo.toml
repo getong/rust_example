@@ -8,4 +8,5 @@ members = [
         "reqwest_get_tokio_stream_example",
         "reqwest_post_protobuf_tokio_stream_example",
         "reqwest_get_post_state_channel_example",
+        "reqwest_basic_example",
 ]
