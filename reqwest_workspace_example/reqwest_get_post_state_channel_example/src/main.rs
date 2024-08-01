@@ -9,7 +9,6 @@ const PROXY_BASE_URL: &str = "http://192.168.80.222:80/";
 // payg-open
 // payg-extend
 
-
 #[tokio::main]
 async fn main() -> Result<(), Error> {
   _ = get_payg_price().await;
