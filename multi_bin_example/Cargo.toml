@@ -7,11 +7,11 @@ default-run = "main"
 
 [[bin]]
 name = "main"
-path = "src/main.rs"
+path = "src/bin/main.rs"
 
 
 [[bin]]
 name = "setup"
-path = "src/setup.rs"
+path = "src/bin/setup.rs"
 
 [dependencies]
