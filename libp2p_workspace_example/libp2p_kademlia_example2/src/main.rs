@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       let kad_memory = KadInMemory::new(local_peer_id);
       let kad = KadBehavior::with_config(local_peer_id, kad_memory, kad_config);
 
-      let identity_config =
+      let identify_config =
         IdentifyConfig::new("/agent/connection/1.0.0".to_string(), key.clone().public())
           .with_push_listen_addr_updates(true)
           .with_interval(Duration::from_secs(30));
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rr_config,
       );
 
-      let identify = IdentifyBehavior::new(identity_config);
+      let identify = IdentifyBehavior::new(identify_config);
       AgentBehavior::new(kad, identify, rr_behavior)
     })?
     .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(30)))
