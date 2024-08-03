@@ -38,4 +38,5 @@ members = [
         "libp2p_tokio_stream_with_existing_key_example",
         "libp2p_tokio_stream_only_client_example",
         "libp2p_tokio_upnp_example",
+        "libp2p_authenticate_example",
 ]
