@@ -1,4 +1,4 @@
-// use either::Either;
+use either::Either;
 use env_logger::{Builder, Env};
 use libp2p::{
   core::transport::upgrade::Version,
@@ -10,6 +10,7 @@ use libp2p::{
     Event as KadEvent, RoutingUpdate,
   },
   noise::Config as NoiseConfig,
+  pnet::{PnetConfig, PreSharedKey},
   request_response::{
     cbor::Behaviour as RequestResponseBehavior, Config as RequestResponseConfig,
     Event as RequestResponseEvent, Message as RequestResponseMessage,
@@ -21,7 +22,9 @@ use libp2p::{
   Multiaddr, PeerId, StreamProtocol, SwarmBuilder, Transport,
 };
 use log::{error, info, warn};
-use std::{collections::HashMap, env::args, error::Error, time::Duration};
+use std::{
+  collections::HashMap, env, env::args, error::Error, fs, path::Path, str::FromStr, time::Duration,
+};
 
 mod behavior;
 mod message;
@@ -29,12 +32,43 @@ mod message;
 use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
 use message::{GreeRequest, GreetResponse};
 
+/// Get the current ipfs repo path, either from the IPFS_PATH environment variable or
+/// from the default $HOME/.ipfs
+fn get_ipfs_path() -> Box<Path> {
+  env::var("IPFS_PATH")
+    .map(|ipfs_path| Path::new(&ipfs_path).into())
+    .unwrap_or_else(|_| {
+      env::var("HOME")
+        .map(|home| Path::new(&home).join(".ipfs"))
+        .expect("could not determine home directory")
+        .into()
+    })
+}
+
+/// Read the pre shared key file from the given ipfs directory
+fn get_psk(path: &Path) -> std::io::Result<Option<String>> {
+  let swarm_key_file = path.join("swarm.key");
+  match fs::read_to_string(swarm_key_file) {
+    Ok(text) => Ok(Some(text)),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+    Err(e) => Err(e),
+  }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
   Builder::from_env(Env::default().default_filter_or("debug")).init();
 
   let local_key = identity::Keypair::generate_ed25519();
+  let ipfs_path = get_ipfs_path();
+  println!("using IPFS_PATH {ipfs_path:?}");
+  let psk: Option<PreSharedKey> = get_psk(&ipfs_path)?
+    .map(|text| PreSharedKey::from_str(&text))
+    .transpose()?;
 
+  if let Some(psk) = psk {
+    println!("using swarm key with fingerprint: {}", psk.fingerprint());
+  }
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
     .with_tcp(
@@ -44,13 +78,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?
     .with_quic()
     .with_other_transport(|k| {
-      tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true))
+      let base_transport =
+        tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
+      let maybe_encrypted = match psk {
+        Some(psk) => Either::Left(
+          base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
+        ),
+        None => Either::Right(base_transport),
+      };
+      maybe_encrypted
         .upgrade(Version::V1Lazy)
         .authenticate(NoiseConfig::new(k).unwrap())
         .multiplex(YamuxConfig::default())
     })?
     .with_other_transport(|k| {
-      tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true))
+      let base_transport =
+        tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
+      let maybe_encrypted = match psk {
+        Some(psk) => Either::Left(
+          base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
+        ),
+        None => Either::Right(base_transport),
+      };
+      maybe_encrypted
         .upgrade(Version::V1)
         .authenticate(NoiseConfig::new(k).unwrap())
         .multiplex(YamuxConfig::default())
