@@ -4,7 +4,7 @@ use libp2p::{
   core::transport::upgrade::Version,
   futures::StreamExt,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
-  identity,
+  identity::{self, Keypair},
   kad::{
     store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
     Event as KadEvent, RoutingUpdate,
@@ -19,7 +19,7 @@ use libp2p::{
   swarm::SwarmEvent,
   tcp,
   yamux::Config as YamuxConfig,
-  Multiaddr, PeerId, StreamProtocol, SwarmBuilder, Transport,
+  Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, Transport,
 };
 use log::{error, info, warn};
 use std::{
@@ -69,68 +69,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   if let Some(psk) = psk {
     println!("using swarm key with fingerprint: {}", psk.fingerprint());
   }
-  let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
-    .with_tokio()
-    .with_tcp(
-      tcp::Config::default().nodelay(true).port_reuse(true),
-      NoiseConfig::new,
-      YamuxConfig::default,
-    )?
-    .with_quic()
-    .with_other_transport(|k| {
-      let base_transport =
-        tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
-      let maybe_encrypted = match psk {
-        Some(psk) => Either::Left(
-          base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
-        ),
-        None => Either::Right(base_transport),
-      };
-      maybe_encrypted
-        .upgrade(Version::V1Lazy)
-        .authenticate(NoiseConfig::new(k).unwrap())
-        .multiplex(YamuxConfig::default())
-    })?
-    .with_other_transport(|k| {
-      let base_transport =
-        tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
-      let maybe_encrypted = match psk {
-        Some(psk) => Either::Left(
-          base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
-        ),
-        None => Either::Right(base_transport),
-      };
-      maybe_encrypted
-        .upgrade(Version::V1)
-        .authenticate(NoiseConfig::new(k).unwrap())
-        .multiplex(YamuxConfig::default())
-    })?
-    .with_behaviour(|key| {
-      let local_peer_id = PeerId::from(key.clone().public());
-      info!("LocalPeerID: {local_peer_id}");
-
-      let kad_config = KadConfig::new(StreamProtocol::new("/agent/connection/1.0.0"));
-
-      let kad_memory = KadInMemory::new(local_peer_id);
-      let kad = KadBehavior::with_config(local_peer_id, kad_memory, kad_config);
-
-      let identify_config =
-        IdentifyConfig::new("/agent/connection/1.0.0".to_string(), key.clone().public())
-          .with_push_listen_addr_updates(true)
-          .with_interval(Duration::from_secs(30));
-
-      let rr_config = RequestResponseConfig::default();
-      let rr_protocol = StreamProtocol::new("/agent/message/1.0.0");
-      let rr_behavior = RequestResponseBehavior::<GreeRequest, GreetResponse>::new(
-        [(rr_protocol, RequestResponseProtocolSupport::Full)],
-        rr_config,
-      );
-
-      let identify = IdentifyBehavior::new(identify_config);
-      AgentBehavior::new(kad, identify, rr_behavior)
-    })?
-    .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(30)))
-    .build();
+  let mut swarm = generate_swarm(local_key.clone(), psk).unwrap();
 
   swarm.behaviour_mut().set_server_mode();
 
@@ -147,7 +86,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
   loop {
-    match swarm.select_next_some().await {
+    handle_swarm_event(local_key.clone(), &mut swarm, &mut peers).await;
+  }
+}
+
+async fn handle_swarm_event(
+  local_key: Keypair,
+  swarm: &mut Swarm<AgentBehavior>,
+  peers: &mut HashMap<PeerId, Vec<Multiaddr>>,
+) {
+  match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { listener_id, address } => info!("NewListenAddr: {listener_id:?} | {address:?}"),
             SwarmEvent::ConnectionEstablished {
                 peer_id,
@@ -241,5 +189,74 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             _ => {}
         }
-  }
+}
+
+fn generate_swarm(
+  local_key: Keypair,
+  psk: Option<PreSharedKey>,
+) -> Result<Swarm<AgentBehavior>, Box<dyn Error>> {
+  Ok(
+    SwarmBuilder::with_existing_identity(local_key)
+      .with_tokio()
+      .with_tcp(
+        tcp::Config::default().nodelay(true).port_reuse(true),
+        NoiseConfig::new,
+        YamuxConfig::default,
+      )?
+      .with_quic()
+      .with_other_transport(|k| {
+        let base_transport =
+          tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
+        let maybe_encrypted = match psk {
+          Some(psk) => Either::Left(
+            base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
+          ),
+          None => Either::Right(base_transport),
+        };
+        maybe_encrypted
+          .upgrade(Version::V1Lazy)
+          .authenticate(NoiseConfig::new(k).unwrap())
+          .multiplex(YamuxConfig::default())
+      })?
+      .with_other_transport(|k| {
+        let base_transport =
+          tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
+        let maybe_encrypted = match psk {
+          Some(psk) => Either::Left(
+            base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
+          ),
+          None => Either::Right(base_transport),
+        };
+        maybe_encrypted
+          .upgrade(Version::V1)
+          .authenticate(NoiseConfig::new(k).unwrap())
+          .multiplex(YamuxConfig::default())
+      })?
+      .with_behaviour(|key| {
+        let local_peer_id = PeerId::from(key.clone().public());
+        info!("LocalPeerID: {local_peer_id}");
+
+        let kad_config = KadConfig::new(StreamProtocol::new("/agent/connection/1.0.0"));
+
+        let kad_memory = KadInMemory::new(local_peer_id);
+        let kad = KadBehavior::with_config(local_peer_id, kad_memory, kad_config);
+
+        let identify_config =
+          IdentifyConfig::new("/agent/connection/1.0.0".to_string(), key.clone().public())
+            .with_push_listen_addr_updates(true)
+            .with_interval(Duration::from_secs(30));
+
+        let rr_config = RequestResponseConfig::default();
+        let rr_protocol = StreamProtocol::new("/agent/message/1.0.0");
+        let rr_behavior = RequestResponseBehavior::<GreeRequest, GreetResponse>::new(
+          [(rr_protocol, RequestResponseProtocolSupport::Full)],
+          rr_config,
+        );
+
+        let identify = IdentifyBehavior::new(identify_config);
+        AgentBehavior::new(kad, identify, rr_behavior)
+      })?
+      .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(30)))
+      .build(),
+  )
 }
