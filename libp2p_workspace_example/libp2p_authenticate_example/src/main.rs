@@ -44,13 +44,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?
     .with_quic()
     .with_other_transport(|k| {
-      let nc = NoiseConfig::new(k).unwrap();
-      let yc: YamuxConfig = YamuxConfig::default();
-      let tc = tcp::Config::default().port_reuse(false).nodelay(true);
-      tcp::tokio::Transport::new(tc)
+      tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true))
         .upgrade(Version::V1Lazy)
-        .authenticate(nc)
-        .multiplex(yc)
+        .authenticate(NoiseConfig::new(k).unwrap())
+        .multiplex(YamuxConfig::default())
     })?
     .with_other_transport(|k| {
       tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true))
