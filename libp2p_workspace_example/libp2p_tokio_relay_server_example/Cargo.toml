@@ -10,7 +10,7 @@ async-trait = "0.1.81"
 clap = { version = "4.5.9", features = ["derive"] }
 env_logger = "0.11.3"
 futures = "0.3.30"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "879d5941b326126b95e2c77c73b64cc9d50ff852", features = ["full"] }
-libp2p-quic = { git = "https://github.com/libp2p/rust-libp2p", rev = "879d5941b326126b95e2c77c73b64cc9d50ff852", features = ["tokio"] } 
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "53eb339a01245a8d017ae0f11f88ba9496cfc31b", features = ["full"] }
+libp2p-quic = { git = "https://github.com/libp2p/rust-libp2p", rev = "53eb339a01245a8d017ae0f11f88ba9496cfc31b", features = ["tokio"] } 
 tokio = { version = "1.38.1", features = ["full"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
