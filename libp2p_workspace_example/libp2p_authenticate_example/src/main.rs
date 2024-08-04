@@ -28,6 +28,7 @@ use std::{
 use tokio::{
   io::{self, AsyncBufReadExt},
   signal::unix::{signal, Signal, SignalKind},
+  sync::mpsc,
 };
 
 mod behavior;
@@ -94,19 +95,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let mut stdin = io::BufReader::new(io::stdin()).lines();
 
+  let (tx, mut rx) = mpsc::channel(100);
+  tokio::spawn(async move {
+    while let Ok(Some(line)) = stdin.next_line().await {
+      _ = tx.try_send(line)
+    }
+  });
+
   loop {
     tokio::select! {
       _ = handle_swarm_event(local_key.clone(), &mut swarm, &mut peers) => {},
+
       _ = recv_terminal_signal(&mut sig_int, &mut sig_term) => {
         println!("recv terminal signal");
         break;
       }
-      Ok(Some(line)) = stdin.next_line() => {
+
+      Some(line) = rx.recv() => {
+        // println!("recv line is {}", line);
         for local_peer_id in peers.keys(){
           let message = GreeRequest{ message: format!("Send message from stdio: {local_peer_id}: {line}") };
           _ = swarm.behaviour_mut().send_message(&local_peer_id, message);
         }
-
       }
     }
   }
