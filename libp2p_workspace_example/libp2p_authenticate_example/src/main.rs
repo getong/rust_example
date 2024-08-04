@@ -37,29 +37,6 @@ mod message;
 use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
 use message::{GreeRequest, GreetResponse};
 
-/// Get the current ipfs repo path, either from the IPFS_PATH environment variable or
-/// from the default $HOME/.ipfs
-fn get_ipfs_path() -> Box<Path> {
-  env::var("IPFS_PATH")
-    .map(|ipfs_path| Path::new(&ipfs_path).into())
-    .unwrap_or_else(|_| {
-      env::var("HOME")
-        .map(|home| Path::new(&home).join(".ipfs"))
-        .expect("could not determine home directory")
-        .into()
-    })
-}
-
-/// Read the pre shared key file from the given ipfs directory
-fn get_psk(path: &Path) -> std::io::Result<Option<String>> {
-  let swarm_key_file = path.join("swarm.key");
-  match fs::read_to_string(swarm_key_file) {
-    Ok(text) => Ok(Some(text)),
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-    Err(e) => Err(e),
-  }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
   Builder::from_env(Env::default().default_filter_or("debug")).init();
@@ -101,26 +78,52 @@ async fn main() -> Result<(), Box<dyn Error>> {
       _ = tx.try_send(line)
     }
   });
+  let handler = tokio::spawn(async move {
+    loop {
+      tokio::select! {
+        _ = handle_swarm_event(local_key.clone(), &mut swarm, &mut peers) => {},
 
-  loop {
-    tokio::select! {
-      _ = handle_swarm_event(local_key.clone(), &mut swarm, &mut peers) => {},
+        _ = recv_terminal_signal(&mut sig_int, &mut sig_term) => {
+          println!("recv terminal signal");
+          break;
+        }
 
-      _ = recv_terminal_signal(&mut sig_int, &mut sig_term) => {
-        println!("recv terminal signal");
-        break;
-      }
-
-      Some(line) = rx.recv() => {
-        // println!("recv line is {}", line);
-        for local_peer_id in peers.keys(){
-          let message = GreeRequest{ message: format!("Send message from stdio: {local_peer_id}: {line}") };
-          _ = swarm.behaviour_mut().send_message(&local_peer_id, message);
+        Some(line) = rx.recv() => {
+          // println!("recv line is {}", line);
+          for local_peer_id in peers.keys(){
+            let message = GreeRequest{ message: format!("Send message from stdio: {local_peer_id}: {line}") };
+            _ = swarm.behaviour_mut().send_message(&local_peer_id, message);
+          }
         }
       }
     }
-  }
+  });
+  _ = handler.await;
+
   Ok(())
+}
+
+/// Get the current ipfs repo path, either from the IPFS_PATH environment variable or
+/// from the default $HOME/.ipfs
+fn get_ipfs_path() -> Box<Path> {
+  env::var("IPFS_PATH")
+    .map(|ipfs_path| Path::new(&ipfs_path).into())
+    .unwrap_or_else(|_| {
+      env::var("HOME")
+        .map(|home| Path::new(&home).join(".ipfs"))
+        .expect("could not determine home directory")
+        .into()
+    })
+}
+
+/// Read the pre shared key file from the given ipfs directory
+fn get_psk(path: &Path) -> std::io::Result<Option<String>> {
+  let swarm_key_file = path.join("swarm.key");
+  match fs::read_to_string(swarm_key_file) {
+    Ok(text) => Ok(Some(text)),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+    Err(e) => Err(e),
+  }
 }
 
 async fn handle_swarm_event(
@@ -232,14 +235,13 @@ fn generate_swarm(
     SwarmBuilder::with_existing_identity(local_key)
       .with_tokio()
       .with_tcp(
-        tcp::Config::default().nodelay(true).port_reuse(true),
+        tcp::Config::default().nodelay(true),
         NoiseConfig::new,
         YamuxConfig::default,
       )?
       .with_quic()
       .with_other_transport(|k| {
-        let base_transport =
-          tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
+        let base_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true));
         let maybe_encrypted = match psk {
           Some(psk) => Either::Left(
             base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
@@ -252,8 +254,7 @@ fn generate_swarm(
           .multiplex(YamuxConfig::default())
       })?
       .with_other_transport(|k| {
-        let base_transport =
-          tcp::tokio::Transport::new(tcp::Config::default().port_reuse(false).nodelay(true));
+        let base_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true));
         let maybe_encrypted = match psk {
           Some(psk) => Either::Left(
             base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
