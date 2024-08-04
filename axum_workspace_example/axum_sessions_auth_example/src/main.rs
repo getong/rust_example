@@ -1,153 +1,233 @@
-use anyhow::Result;
 use async_trait::async_trait;
-use axum_session_auth::Auth;
-use http::Method;
-// use redis::{aio::Connection, AsyncCommands, FromRedisValue};
-// use redis::AsyncCommands;
-
-use axum_session::SessionStore;
-use axum_session_auth::HasPermission;
-use axum_session_auth::Rights;
-
-use axum::{routing::get, Router};
-use axum_session::{
-  // AxumDatabasePool, SessionPgPool, AxumSession, AxumSessionConfig, AxumSessionLayer,
-  // SessionPgPool,
-  SessionConfig,
-  SessionLayer,
+use axum::{http::Method, routing::get, Router};
+use axum_session::{SessionConfig, SessionLayer, SessionStore};
+use axum_session_auth::*;
+use axum_session_surreal::SessionSurrealPool;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use surrealdb::{
+    engine::any::{connect, Any},
+    opt::auth::Root,
+    Surreal,
 };
+use tokio::net::TcpListener;
 
-use axum_session_auth::SessionPgPool;
-use axum_session_auth::{AuthConfig, AuthSession, AuthSessionLayer, Authentication};
-use sqlx::PgPool;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub user_id: i32,
+    pub anonymous: bool,
+    pub username: String,
+    #[serde(skip)]
+    pub permissions: HashSet<String>,
+}
 
-use axum_macros::debug_handler;
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SqlPermissionTokens {
+    pub token: String,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        let mut permissions = HashSet::new();
+
+        permissions.insert("Category::View".to_owned());
+
+        Self {
+            user_id: 1,
+            anonymous: true,
+            username: "Guest".into(),
+            permissions,
+        }
+    }
+}
+
+#[async_trait]
+impl Authentication<User, i64, Surreal<Any>> for User {
+    async fn load_user(userid: i64, pool: Option<&Surreal<Any>>) -> Result<User, anyhow::Error> {
+        let pool = pool.unwrap();
+
+        User::get_user(userid, pool)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Could not load user"))
+    }
+
+    fn is_authenticated(&self) -> bool {
+        !self.anonymous
+    }
+
+    fn is_active(&self) -> bool {
+        !self.anonymous
+    }
+
+    fn is_anonymous(&self) -> bool {
+        self.anonymous
+    }
+}
+
+#[async_trait]
+impl HasPermission<Surreal<Any>> for User {
+    async fn has(&self, perm: &str, _pool: &Option<&Surreal<Any>>) -> bool {
+        self.permissions.contains(perm)
+    }
+}
+
+impl User {
+    pub async fn get_user(id: i64, pool: &Surreal<Any>) -> Option<Self> {
+        let sqluser: Option<SqlUser> = pool
+            .query("SELECT username, user_id, anonymous FROM users where user_id = $user_id")
+            .bind(("user_id", id))
+            .await
+            .unwrap()
+            .take(0)
+            .unwrap();
+
+        //lets just get all the tokens the user can use, we will only use the full permissions if modifing them.
+        let sql_user_perms: Vec<SqlPermissionTokens> = pool
+            .query("SELECT token FROM user_permissions where user_id = $user_id")
+            .bind(("user_id", id))
+            .await
+            .unwrap()
+            .take(0)
+            .unwrap();
+
+        Some(sqluser.unwrap().into_user(Some(sql_user_perms)))
+    }
+
+    pub async fn create_user_tables(pool: &Surreal<Any>) {
+        pool.query(
+            "   DEFINE TABLE users SCHEMAFULL;
+                DEFINE FIELD username ON TABLE users TYPE string;
+                DEFINE FIELD anonymous ON TABLE users TYPE bool;
+                DEFINE FIELD user_id ON TABLE users TYPE int;
+            ",
+        )
+        .await
+        .unwrap();
+
+        pool.query(
+            "   DEFINE TABLE user_permissions SCHEMAFULL;
+                DEFINE FIELD token ON TABLE user_permissions TYPE string;
+                DEFINE FIELD user_id ON TABLE user_permissions TYPE int;
+            ",
+        )
+        .await
+        .unwrap();
+
+        pool.query(
+            "INSERT INTO users (username, anonymous, user_id) VALUES ('Guest', true, 1), ('Test', false, 2);"
+        ).await.unwrap();
+
+        pool.query("INSERT INTO user_permissions (token, user_id) VALUES  ('Category::View', 2);")
+            .await
+            .unwrap();
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SqlUser {
+    pub user_id: i32,
+    pub anonymous: bool,
+    pub username: String,
+}
+
+impl SqlUser {
+    pub fn into_user(self, sql_user_perms: Option<Vec<SqlPermissionTokens>>) -> User {
+        User {
+            user_id: self.user_id,
+            anonymous: self.anonymous,
+            username: self.username,
+            permissions: if let Some(user_perms) = sql_user_perms {
+                user_perms
+                    .into_iter()
+                    .map(|x| x.token)
+                    .collect::<HashSet<String>>()
+            } else {
+                HashSet::<String>::new()
+            },
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
-  //# async {
-  let poll = connect_to_database().await.unwrap();
+    let db = connect("ws://localhost:8080").await.unwrap();
 
-  let session_config = SessionConfig::default().with_table_name("test_table");
-  let auth_config = AuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
-  let session_store =
-    SessionStore::<SessionPgPool>::new(Some(poll.clone().into()), session_config).await;
-
-  // Build our application with some routes
-  let router = Router::new()
-    .route("/greet/:name", get(greet))
-    .layer(SessionLayer::new(
-      session_store.expect("session store not initialized"),
-    ))
-    .layer(
-      AuthSessionLayer::<User, i64, SessionPgPool, PgPool>::new(Some(poll))
-        .with_config(auth_config),
-    );
-
-  // Run it
-  let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-  tracing::debug!("listening on {:?}", listener);
-  axum::serve(listener, router).await.unwrap();
-}
-
-// We can get the Method to compare with what Methods we allow. Useful if this supports multiple methods.
-// When called auth is loaded in the background for you.
-#[debug_handler]
-async fn greet(method: Method, auth: AuthSession<User, i64, SessionPgPool, PgPool>) -> String {
-  let mut count: usize = auth.session.get("count").unwrap_or(0);
-  count += 1;
-
-  // Session is Also included with Auth so no need to require it in the function arguments if your using
-  // AuthSession.
-  _ = auth.session.set("count", count);
-
-  // If for some reason you needed to update your Users Permissions or data then you will want to clear the user cache if it is enabled.
-  // The user Cache is enabled by default. To clear simply use.
-  auth.cache_clear_user(1);
-  //or to clear all for a large update
-  auth.cache_clear_all();
-
-  if let Some(ref cur_user) = auth.current_user {
-    if !Auth::<User, i64, PgPool>::build([Method::GET], false)
-      .requires(Rights::none([
-        Rights::permission("Token::UseAdmin"),
-        Rights::permission("Token::ModifyPerms"),
-      ]))
-      .validate(&cur_user, &method, None)
-      .await
-    {
-      return format!("No Permissions! for {}", cur_user.username);
-    }
-
-    let username = if !auth.is_authenticated() {
-      // Set the user ID of the User to the Session so it can be Auto Loaded the next load or redirect
-      _ = auth.login_user(2);
-      "".to_string()
-    } else {
-      // If the user is loaded and is Authenticated then we can use it.
-      if let Some(user) = auth.current_user {
-        user.username.clone()
-      } else {
-        "".to_string()
-      }
-    };
-
-    format!("{}-{}", username, count)
-  } else {
-    if !auth.is_authenticated() {
-      // Set the user ID of the User to the Session so it can be Auto Loaded the next load or redirect
-      _ = auth.login_user(2);
-      // Set the session to be long term. Good for Remember me type instances.
-      _ = auth.remember_user(true);
-      // Redirect here after login if we did indeed login.
-    }
-
-    "No Permissions!".to_owned()
-  }
-}
-
-#[derive(Clone, Debug)]
-pub struct User {
-  pub id: i64,
-  pub anonymous: bool,
-  pub username: String,
-}
-
-// This is only used if you want to use Token based Authentication checks
-#[async_trait]
-impl HasPermission<PgPool> for User {
-  async fn has(&self, perm: &str, _pool: &Option<&PgPool>) -> bool {
-    match &perm[..] {
-      "Token::UseAdmin" => true,
-      "Token::ModifyUser" => true,
-      _ => false,
-    }
-  }
-}
-
-#[async_trait]
-impl Authentication<User, i64, PgPool> for User {
-  async fn load_user(userid: i64, _pool: Option<&PgPool>) -> Result<User> {
-    Ok(User {
-      id: userid,
-      anonymous: true,
-      username: "Guest".to_string(),
+    // sign in as our account.
+    db.signin(Root {
+        username: "root",
+        password: "root",
     })
-  }
+    .await
+    .unwrap();
 
-  fn is_authenticated(&self) -> bool {
-    !self.anonymous
-  }
+    // Set the database and namespace we will function within.
+    db.use_ns("test").use_db("test").await.unwrap();
 
-  fn is_active(&self) -> bool {
-    !self.anonymous
-  }
+    //This Defaults as normal Cookies.
+    //To enable Private cookies for integrity, and authenticity please check the next Example.
+    let session_config = SessionConfig::default().with_table_name("test_table");
+    let auth_config = AuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
 
-  fn is_anonymous(&self) -> bool {
-    self.anonymous
-  }
+    // create SessionStore and initiate the database tables
+    let session_store: SessionStore<SessionSurrealPool<Any>> =
+        SessionStore::new(Some(db.clone().into()), session_config)
+            .await
+            .unwrap();
+
+    User::create_user_tables(&db).await;
+
+    // build our application with some routes
+    let app = Router::new()
+        .route("/", get(greet))
+        .route("/greet", get(greet))
+        .route("/login", get(login))
+        .route("/perm", get(perm))
+        .layer(
+            AuthSessionLayer::<User, i64, SessionSurrealPool<Any>, Surreal<Any>>::new(Some(db))
+                .with_config(auth_config),
+        )
+        .layer(SessionLayer::new(session_store));
+
+    // run it
+    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
 
-async fn connect_to_database() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
-  Ok(sqlx::PgPool::connect("DATABASE_URL").await.unwrap())
+async fn greet(auth: AuthSession<User, i64, SessionSurrealPool<Any>, Surreal<Any>>) -> String {
+    format!(
+        "Hello {}, Try logging in via /login or testing permissions via /perm",
+        auth.current_user.unwrap().username
+    )
+}
+
+async fn login(auth: AuthSession<User, i64, SessionSurrealPool<Any>, Surreal<Any>>) -> String {
+    auth.login_user(2);
+    "You are logged in as a User please try /perm to check permissions".to_owned()
+}
+
+async fn perm(
+    method: Method,
+    auth: AuthSession<User, i64, SessionSurrealPool<Any>, Surreal<Any>>,
+) -> String {
+    let current_user = auth.current_user.clone().unwrap_or_default();
+
+    //lets check permissions only and not worry about if they are anon or not
+    if !Auth::<User, i64, Surreal<Any>>::build([Method::GET], false)
+        .requires(Rights::any([
+            Rights::permission("Category::View"),
+            Rights::permission("Admin::View"),
+        ]))
+        .validate(&current_user, &method, None)
+        .await
+    {
+        return format!(
+            "User {}, Does not have permissions needed to view this page please login",
+            current_user.username
+        );
+    }
+
+    format!(
+        "User has Permissions needed. Here are the Users permissions: {:?}",
+        current_user.permissions
+    )
 }
