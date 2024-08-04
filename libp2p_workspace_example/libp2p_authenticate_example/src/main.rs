@@ -28,7 +28,8 @@ use std::{
 use tokio::{
   io::{self, AsyncBufReadExt},
   signal::unix::{signal, Signal, SignalKind},
-  sync::mpsc,
+  sync::mpsc::{self, Receiver, Sender},
+  task::JoinHandle,
 };
 
 mod behavior;
@@ -55,6 +56,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   swarm.behaviour_mut().set_server_mode();
 
+  _ = dial_swarm_server_or_bootstrap(&mut swarm).await;
+
+  let (tx, rx) = mpsc::channel(100);
+  get_stdin_input_message(tx).await;
+  let handler = handle_swarm_and_shutdown(local_key, swarm, rx).await?;
+  _ = handler.await;
+
+  Ok(())
+}
+
+async fn dial_swarm_server_or_bootstrap(
+  swarm: &mut Swarm<AgentBehavior>,
+) -> Result<(), Box<dyn Error>> {
   if let Some(addr) = args().nth(1) {
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
@@ -65,20 +79,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Act as bootstrap node");
     swarm.listen_on("/ip4/0.0.0.0/tcp/8000".parse()?)?;
   }
+  Ok(())
+}
 
-  let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
-  let mut sig_int = signal(SignalKind::interrupt())?;
-  let mut sig_term = signal(SignalKind::terminate())?;
-
-  let mut stdin = io::BufReader::new(io::stdin()).lines();
-
-  let (tx, mut rx) = mpsc::channel(100);
+async fn get_stdin_input_message(tx: Sender<String>) {
   tokio::spawn(async move {
+    let mut stdin = io::BufReader::new(io::stdin()).lines();
     while let Ok(Some(line)) = stdin.next_line().await {
       _ = tx.try_send(line)
     }
   });
-  let handler = tokio::spawn(async move {
+}
+
+async fn handle_swarm_and_shutdown(
+  local_key: Keypair,
+  mut swarm: Swarm<AgentBehavior>,
+  mut rx: Receiver<String>,
+) -> Result<JoinHandle<()>, Box<dyn Error>> {
+  let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
+  let mut sig_int = signal(SignalKind::interrupt())?;
+  let mut sig_term = signal(SignalKind::terminate())?;
+
+  Ok(tokio::spawn(async move {
     loop {
       tokio::select! {
         _ = handle_swarm_event(local_key.clone(), &mut swarm, &mut peers) => {},
@@ -97,10 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
       }
     }
-  });
-  _ = handler.await;
-
-  Ok(())
+  }))
 }
 
 /// Get the current ipfs repo path, either from the IPFS_PATH environment variable or
