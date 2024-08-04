@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "53eb339a01245a8d017ae0f11f88ba9496cfc31b", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
 serde = { version = "1.0.204", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.11.5"

@@ -13,7 +13,7 @@ env_logger = "0.11.3"
 futures = "0.3.30"
 http-body-util = "0.1.2"
 hyper-util = { version = "0.1.6", features = ["full"] }
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "53eb339a01245a8d017ae0f11f88ba9496cfc31b", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
 opentelemetry = { version = "0.22.0", features = ["metrics"] }
 opentelemetry-otlp = { version = "0.15.0", features = ["metrics"] }
 opentelemetry_api = "0.20.0"

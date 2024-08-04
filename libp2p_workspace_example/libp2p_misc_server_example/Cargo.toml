@@ -11,7 +11,7 @@ futures-timer = "3"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"]}
 hyper-util = { version = "0.1", features = ["full"] }
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "53eb339a01245a8d017ae0f11f88ba9496cfc31b", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
 prometheus-client = "0.22.2"
 serde = "1.0.203"
 serde_derive = "1.0.203"
