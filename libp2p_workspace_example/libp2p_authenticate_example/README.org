@@ -1,5 +1,7 @@
 * run command
 
+** on one terminal
+
 #+begin_src shell
 export IPFS_PATH=/tmp
 
@@ -9,4 +11,11 @@ openssl rand -base64 32 > $IPFS_PATH/.ipfs/swarm.key
 
 cargo run
 ## then type the ctrl-c
+#+end_src
+
+** on another terminal
+
+#+begin_src shell
+cargo run -- "/ip4/127.0.0.1/tcp/8000"
+## type some text and send message from stdio
 #+end_src

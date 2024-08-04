@@ -25,7 +25,10 @@ use log::{error, info, warn};
 use std::{
   collections::HashMap, env, env::args, error::Error, fs, path::Path, str::FromStr, time::Duration,
 };
-use tokio::signal::unix::{signal, Signal, SignalKind};
+use tokio::{
+  io::{self, AsyncBufReadExt},
+  signal::unix::{signal, Signal, SignalKind},
+};
 
 mod behavior;
 mod message;
@@ -88,12 +91,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
   let mut sig_int = signal(SignalKind::interrupt())?;
   let mut sig_term = signal(SignalKind::terminate())?;
+
+  let mut stdin = io::BufReader::new(io::stdin()).lines();
+
   loop {
     tokio::select! {
       _ = handle_swarm_event(local_key.clone(), &mut swarm, &mut peers) => {},
       _ = recv_terminal_signal(&mut sig_int, &mut sig_term) => {
         println!("recv terminal signal");
         break;
+      }
+      Ok(Some(line)) = stdin.next_line() => {
+        for local_peer_id in peers.keys(){
+          let message = GreeRequest{ message: format!("Send message from stdio: {local_peer_id}: {line}") };
+          _ = swarm.behaviour_mut().send_message(&local_peer_id, message);
+        }
+
       }
     }
   }
