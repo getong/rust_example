@@ -25,6 +25,7 @@ use log::{error, info, warn};
 use std::{
   collections::HashMap, env, env::args, error::Error, fs, path::Path, str::FromStr, time::Duration,
 };
+use tokio::signal::unix::{signal, Signal, SignalKind};
 
 mod behavior;
 mod message;
@@ -85,9 +86,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
   }
 
   let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
+  let mut sig_int = signal(SignalKind::interrupt())?;
+  let mut sig_term = signal(SignalKind::terminate())?;
   loop {
-    handle_swarm_event(local_key.clone(), &mut swarm, &mut peers).await;
+    tokio::select! {
+      _ = handle_swarm_event(local_key.clone(), &mut swarm, &mut peers) => {},
+      _ = recv_terminal_signal(&mut sig_int, &mut sig_term) => {
+        println!("recv terminal signal");
+        break;
+      }
+    }
   }
+  Ok(())
 }
 
 async fn handle_swarm_event(
@@ -259,4 +269,15 @@ fn generate_swarm(
       .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(30)))
       .build(),
   )
+}
+
+async fn recv_terminal_signal(sig_int: &mut Signal, sig_term: &mut Signal) {
+  tokio::select! {
+    _ = sig_int.recv() => {
+
+    }
+    _ = sig_term.recv() => {
+
+    }
+  }
 }

@@ -1,0 +1,12 @@
+* run command
+
+#+begin_src shell
+export IPFS_PATH=/tmp
+
+mkdir $IPFS_PATH/.ipfs
+
+openssl rand -base64 32 > $IPFS_PATH/.ipfs/swarm.key
+
+cargo run
+## then type the ctrl-c
+#+end_src
