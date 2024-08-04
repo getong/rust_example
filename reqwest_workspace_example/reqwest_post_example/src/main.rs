@@ -1,5 +1,13 @@
+use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, USER_AGENT};
 use serde_json::json;
 use std::error::Error;
+
+fn construct_headers() -> HeaderMap {
+  let mut headers = HeaderMap::new();
+  headers.insert(USER_AGENT, HeaderValue::from_static("reqwest"));
+  headers.insert(CONTENT_TYPE, HeaderValue::from_static("image/png"));
+  headers
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -20,6 +28,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let res = client
     .post("https://api.devnet.solana.com")
+    .headers(construct_headers())
     .json(&json_body)
     .send()
     .await
