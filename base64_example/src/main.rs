@@ -46,9 +46,27 @@ fn customize_base64() {
   println!("encoded: {:?}", encoded);
 }
 
+fn base64_string_length() {
+  let params = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpZCI6MjAsImNvbnN1bWVyIjoiMHhiZjNhMjg2YTQ3Nzk2N2ViZDg1MGNlZTJkYmRiZmE2ZTUzNWE5ZTY0IiwiaWF0IjoxNzIyODI2NzUzMjY2LCJleHAiOjE3MjM0MzE1NTMyOTl9.5b1pLX7TL8ng5yIcOoyIJg83zlY01aF1he81ZI_TNC2nl4ra0fTpLBKMjZKlyu-TagUwt5QRC8dn4jnH51pkEg";
+
+  let raw = general_purpose::STANDARD.decode(params);
+
+  if let Ok(raw) = raw {
+    if raw.len() != 267 {
+      println!("token not match, not 267");
+    } else {
+      println!("token match 267 bytes");
+    }
+  } else {
+    println!("raw is not base64");
+  }
+}
+
 fn main() {
   // println!("Hello, world!");
   basic_base64();
   customize_base64();
   basic_decode();
+
+  base64_string_length();
 }
