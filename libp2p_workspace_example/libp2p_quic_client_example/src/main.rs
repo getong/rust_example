@@ -1,4 +1,8 @@
 use libp2p::Transport;
+use libp2p_core::{
+  transport::{DialOpts, PortUse},
+  Endpoint,
+};
 use libp2p_quic as quic;
 
 #[tokio::main]
@@ -12,5 +16,14 @@ async fn main() {
     .parse()
     .expect("address should be valid");
 
-  _ = quic_transport.dial(addr).expect("listen error.").await;
+  _ = quic_transport
+    .dial(
+      addr,
+      DialOpts {
+        port_use: PortUse::Reuse,
+        role: Endpoint::Dialer,
+      },
+    )
+    .expect("listen error.")
+    .await;
 }
