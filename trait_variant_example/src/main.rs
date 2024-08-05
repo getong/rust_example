@@ -15,7 +15,7 @@ impl LocalIntFactory for Num {
   }
 
   fn stream(&self) -> impl Iterator<Item = i32> {
-    (0..self.num).into_iter()
+    (0 .. self.num).into_iter()
   }
 
   fn call(&self) -> u32 {

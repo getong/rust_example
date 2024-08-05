@@ -24,7 +24,7 @@ async fn main() {
 
     // let mut rng = rand::thread_rng();
     let mut rng = rng_clone.lock().await;
-    let random_number = rng.gen_range(1..=3);
+    let random_number = rng.gen_range(1 ..= 3);
     let sleep_duration = Duration::from_secs(random_number);
 
     // Generate random sleep time

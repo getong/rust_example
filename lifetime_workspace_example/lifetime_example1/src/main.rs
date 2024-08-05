@@ -8,7 +8,7 @@ impl<'remainder> ByteIter<'remainder> {
       None
     } else {
       let byte = &self.remainder[0];
-      self.remainder = &self.remainder[1..];
+      self.remainder = &self.remainder[1 ..];
       Some(byte)
     }
   }

@@ -1,7 +1,7 @@
 fn suffix_array(s: &str) -> Vec<usize> {
   let s = s.as_bytes();
   let n = s.len();
-  let mut sa: Vec<usize> = (0..n).collect();
+  let mut sa: Vec<usize> = (0 .. n).collect();
   let mut rank: Vec<usize> = s.iter().map(|&x| x as usize).collect();
   let mut tmp = vec![0; n];
   let mut k = 1;
@@ -16,7 +16,7 @@ fn suffix_array(s: &str) -> Vec<usize> {
       }
     });
     tmp[sa[0]] = 0;
-    for i in 0..n {
+    for i in 0 .. n {
       tmp[sa[i]] = tmp[sa[i - 1]]
         + (if rank[sa[i]] != rank[sa[i - 1]] || rank[sa[i] + k] != rank[sa[i - 1] + k] {
           1
@@ -35,11 +35,11 @@ fn lcp_array(s: &str, sa: &[usize]) -> Vec<usize> {
   let n = s.len();
   let mut rank = vec![0; n];
   let mut lcp = vec![0; n - 1];
-  for i in 0..n {
+  for i in 0 .. n {
     rank[sa[i]] = i;
   }
   let mut h = 0;
-  for i in 0..n {
+  for i in 0 .. n {
     if h > 0 {
       h -= 1;
     }
@@ -61,14 +61,14 @@ fn longest_common_substring(s1: &str, s2: &str) -> String {
   let lcp = lcp_array(&concat, &sa);
   let (mut max_len, mut max_pos) = (0, 0);
 
-  for i in 0..lcp.len() {
+  for i in 0 .. lcp.len() {
     if (sa[i] < s1.len()) != (sa[i + 1] < s1.len()) && lcp[i] > max_len {
       max_len = lcp[i];
       max_pos = sa[i];
     }
   }
 
-  concat[max_pos..max_pos + max_len].to_string()
+  concat[max_pos .. max_pos + max_len].to_string()
 }
 
 fn main() {

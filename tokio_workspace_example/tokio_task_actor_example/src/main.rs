@@ -27,7 +27,7 @@ impl Actor for MyActor {
         }
         Message::Count(n) => {
           println!("Counting to {}...", n);
-          for i in 1..=n {
+          for i in 1 ..= n {
             println!("{}", i);
           }
         }
@@ -47,7 +47,7 @@ impl Actor for MyActor {
       }
       Message::Count(n) => {
         println!("Counting to {}...", n);
-        for i in 1..=n {
+        for i in 1 ..= n {
           println!("{}", i);
         }
       }

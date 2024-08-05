@@ -102,7 +102,7 @@ impl<T: Display> Display for List<T> {
 fn main() {
   let mut list = List::new();
   println!("{}", list);
-  for i in 0..5 {
+  for i in 0 .. 5 {
     list.append(i);
   }
   println!("{}", list);

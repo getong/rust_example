@@ -10,7 +10,7 @@ fn main() {
     }
   });
 
-  for i in 0..10 {
+  for i in 0 .. 10 {
     tx.send(i).unwrap();
   }
   join_handle.join().unwrap();

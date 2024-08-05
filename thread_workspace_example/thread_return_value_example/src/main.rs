@@ -7,7 +7,7 @@ use threadpool::ThreadPool;
 fn main() {
   // first example
   let _handle: JoinHandle<()> = thread::spawn(|| {
-    let delay = rand::thread_rng().gen_range(10..=2000);
+    let delay = rand::thread_rng().gen_range(10 ..= 2000);
     thread::sleep(Duration::from_millis(delay));
     println!("Hello from spawned thread, first");
   });
@@ -15,7 +15,7 @@ fn main() {
 
   // second example
   let handle: JoinHandle<i32> = thread::spawn(|| {
-    let delay = rand::thread_rng().gen_range(10..=2000);
+    let delay = rand::thread_rng().gen_range(10 ..= 2000);
     thread::sleep(Duration::from_millis(delay));
     println!("Hello from spawned thread, second");
     5
@@ -23,9 +23,9 @@ fn main() {
   println!("return = {}", handle.join().unwrap());
 
   // third example
-  let handles: Vec<JoinHandle<String>> = (0..=10)
+  let handles: Vec<JoinHandle<String>> = (0 ..= 10)
     .map(|i| {
-      let delay = rand::thread_rng().gen_range(10..=2000);
+      let delay = rand::thread_rng().gen_range(10 ..= 2000);
       let builder = thread::Builder::new().name(format!("Thread-{}", i));
 
       builder
@@ -86,7 +86,7 @@ fn main() {
       println!("val = {}", val);
     }
   });
-  for i in 0..10 {
+  for i in 0 .. 10 {
     sender.send(i).unwrap();
     thread::sleep(Duration::from_millis(500));
   }
@@ -94,12 +94,12 @@ fn main() {
   // eighth example
   let (sender, receiver) = mpsc::channel();
   let receiver = Arc::new(Mutex::new(receiver));
-  for i in 0..100 {
+  for i in 0 .. 100 {
     _ = sender.send(i);
-    let delay = rand::thread_rng().gen_range(1..=1000);
+    let delay = rand::thread_rng().gen_range(1 ..= 1000);
     thread::sleep(Duration::from_millis(delay));
   }
-  for id in 0..4 {
+  for id in 0 .. 4 {
     let receiver = Arc::clone(&receiver);
     thread::spawn(move || loop {
       let val: i32 = receiver.lock().unwrap().recv().unwrap();
@@ -114,7 +114,7 @@ fn main() {
 
   // tenth example
   let pool = ThreadPool::new(4);
-  for _ in 0..10 {
+  for _ in 0 .. 10 {
     pool.execute(|| {
       thread::sleep(Duration::from_millis(1000));
       println!("Work in thread = {}", thread::current().name().unwrap());

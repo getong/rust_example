@@ -10,8 +10,7 @@ pub fn hello_alt(item: TokenStream) -> TokenStream {
   }
   let name = ident_name(item.into_iter().nth(1).unwrap());
   format!(
-    "impl {} {{ fn hello_world(&self) \
-             {{ println!(\"Hello world\") }} }} ",
+    "impl {} {{ fn hello_world(&self) {{ println!(\"Hello world\") }} }} ",
     name
   )
   .parse()

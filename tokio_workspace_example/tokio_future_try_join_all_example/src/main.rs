@@ -9,7 +9,7 @@ struct Result {
 }
 
 async fn do_work(work: Work) -> Result {
-  let rng = rand::thread_rng().gen_range(500..1500);
+  let rng = rand::thread_rng().gen_range(500 .. 1500);
   tokio::time::sleep(std::time::Duration::from_millis(rng)).await;
 
   Result {
@@ -31,13 +31,13 @@ async fn main() -> anyhow::Result<()> {
 
   let mut workers = Vec::new();
 
-  for _ in 0..worker_count {
+  for _ in 0 .. worker_count {
     workers.push(tokio::spawn(worker(rx_work.clone(), tx_result.clone())));
   }
 
   let consumer = tokio::spawn(consumer(rx_result));
 
-  for idx in 0..20 {
+  for idx in 0 .. 20 {
     tx_work
       .send(Work {
         request: format!("work_{}", idx),

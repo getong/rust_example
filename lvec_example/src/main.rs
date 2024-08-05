@@ -49,7 +49,7 @@ impl<T: Copy + Debug> LVec<T> {
     } else {
       let mut curr = self.head.as_mut().unwrap();
 
-      for _i in 0..self.size - 1 {
+      for _i in 0 .. self.size - 1 {
         curr = curr.next.as_mut().unwrap();
       }
       curr.next = Some(Box::new(node));
@@ -78,7 +78,7 @@ impl<T: Copy + Debug> LVec<T> {
       self.head = Some(Box::new(node));
     } else {
       let mut curr = self.head.as_mut().unwrap();
-      for _i in 0..index - 1 {
+      for _i in 0 .. index - 1 {
         curr = curr.next.as_mut().unwrap();
       }
       node.next = curr.next.take();
@@ -102,7 +102,7 @@ impl<T: Copy + Debug> LVec<T> {
       self.head = node.next.take();
     } else {
       let mut curr = self.head.as_mut().unwrap();
-      for _i in 0..(index - 2) {
+      for _i in 0 .. (index - 2) {
         curr = curr.next.as_mut().unwrap();
       }
       node = curr.next.take().unwrap();

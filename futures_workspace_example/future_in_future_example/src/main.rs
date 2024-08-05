@@ -35,7 +35,9 @@ impl Future for ShutdownHandle {
   fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
     // I copied this code from Stack Overflow without reading the text that
     // told me how to verify that this code uses `unsafe` correctly.
-    unsafe { self.map_unchecked_mut(|s| &mut s.receiver) }.poll(cx).map(|_| ())
+    unsafe { self.map_unchecked_mut(|s| &mut s.receiver) }
+      .poll(cx)
+      .map(|_| ())
   }
 }
 

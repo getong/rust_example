@@ -9,7 +9,7 @@ fn modulo_3(input: u8) -> Cow<'static, str> {
 }
 
 fn main() {
-  for number in 1..=6 {
+  for number in 1 ..= 6 {
     match modulo_3(number) {
       Cow::Borrowed(message) => println!(
         "{} went in. The Cow is borrowed with this message: {}",

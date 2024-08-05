@@ -31,9 +31,9 @@ where
   fn mul(self, rhs: Matrix<T, M, L>) -> Self::Output {
     let mut out: Self::Output = Default::default();
 
-    for r in 0..N {
-      for c in 0..M {
-        for l in 0..L {
+    for r in 0 .. N {
+      for c in 0 .. M {
+        for l in 0 .. L {
           out.0[r][l] = out.0[r][l] + self.0[r][c] * rhs.0[c][l];
         }
       }

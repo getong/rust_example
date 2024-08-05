@@ -40,7 +40,7 @@ fn epoll_read() {
   loop {
     let res = syscall!(epoll_wait(epoll_fd, events.as_mut_ptr(), 10, 2000)).unwrap();
     if res > 0 {
-      for i in 0..res as usize {
+      for i in 0 .. res as usize {
         println!("current fd: {i}");
         let ready_event = unsafe { *events.as_ptr().add(i) };
         let event_mask = ready_event.events;

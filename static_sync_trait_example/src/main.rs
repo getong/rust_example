@@ -9,7 +9,7 @@ static M: Mutex<i32> = Mutex::new(5);
 
 fn main() {
   let mut handles = vec![];
-  for _ in 0..10 {
+  for _ in 0 .. 10 {
     // let data = data.clone();
     let handle = thread::spawn(|| {
       println!("The data is: {}", &I);

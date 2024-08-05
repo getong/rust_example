@@ -25,7 +25,7 @@ pub fn merge_2(a: &[i32], b: &[i32]) -> Vec<i32> {
       }
     }
   }
-  for i in remaining_idx..remaining.len() {
+  for i in remaining_idx .. remaining.len() {
     sorted.push(remaining[i]);
   }
 

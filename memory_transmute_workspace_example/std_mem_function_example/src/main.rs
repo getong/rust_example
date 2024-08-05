@@ -3,7 +3,7 @@ use std::mem;
 fn main() {
   // println!("Hello, world!");
   let mut v: Vec<String> = Vec::new();
-  for i in 101..106 {
+  for i in 101 .. 106 {
     v.push(i.to_string());
   }
 

@@ -7,7 +7,7 @@ async fn main() {
   let mut interval = time::interval(Duration::from_secs(1));
 
   // Run the interval for a total of 5 seconds
-  for i in 1..6 {
+  for i in 1 .. 6 {
     // Wait for the interval to fire
     interval.tick().await;
 

@@ -4,7 +4,7 @@ fn kmp_next(str: &Vec<u8>) -> Vec<Option<usize>> {
   // using Option because usize not supported -1
   let mut next = vec![Some(0); n];
   next[0] = None;
-  for i in 1..n {
+  for i in 1 .. n {
     next[i] = k;
     while k.is_some() && str[i] != str[k.unwrap()] {
       k = next[k.unwrap()];
@@ -25,7 +25,7 @@ fn kmp_index(input: (&Vec<u8>, &Vec<u8>)) -> Option<usize> {
     .checked_sub(input.1.len())
     .expect("Invalid input, the first string should be longer than the second string");
   let mut j = Some(0);
-  for i in 0..n {
+  for i in 0 .. n {
     if j == Some(input.1.len()) {
       return Some(i - j.unwrap());
     }

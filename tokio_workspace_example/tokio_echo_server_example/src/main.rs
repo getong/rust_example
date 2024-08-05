@@ -21,8 +21,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             break;
           }
           Ok(n) => {
-            eprintln!("Write n: {}, total: {:?}", n, &buffer[..n]);
-            if let Err(e) = socket.write_all(&buffer[..n]).await {
+            eprintln!("Write n: {}, total: {:?}", n, &buffer[.. n]);
+            if let Err(e) = socket.write_all(&buffer[.. n]).await {
               eprintln!("Write error: {}", e);
               break;
             }

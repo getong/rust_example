@@ -77,7 +77,7 @@ async fn fetch_and_decode_protobuf_stream(url: &str) -> Result<(), Error> {
             Ok(message) => println!("Received message: {:?}", message),
             Err(e) => eprintln!("Failed to decode message: {}", e),
           }
-          cursor.get_mut().drain(0..message_end as usize);
+          cursor.get_mut().drain(0 .. message_end as usize);
           cursor.set_position(0);
         }
         Err(_) => {

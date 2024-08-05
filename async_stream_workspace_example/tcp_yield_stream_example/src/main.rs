@@ -57,7 +57,7 @@ where
       .split("\r\n")
       .map(|line| line.split_at(line.find(": ").unwrap_or(0)))
       .filter(|(_, value)| value.starts_with(": "))
-      .map(|(key, value)| (key.to_string(), value[2..].to_string()))
+      .map(|(key, value)| (key.to_string(), value[2 ..].to_string()))
       .collect::<BTreeMap<String, String>>();
     let response = format!(
       "<table border=\"1\" cellpadding=\"5\">{}</table>",

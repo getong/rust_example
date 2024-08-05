@@ -70,7 +70,7 @@ fn main() {
     hex_dump(&scid)
   );
   let (write, send_info) = conn.send(&mut out).expect("initial send failed");
-  while let Err(e) = socket.send_to(&out[..write], send_info.to) {
+  while let Err(e) = socket.send_to(&out[.. write], send_info.to) {
     if e.kind() == std::io::ErrorKind::WouldBlock {
       debug!("send() would block");
       continue;
@@ -111,7 +111,7 @@ fn main() {
         from,
       };
       // Process potentially coalesced packets.
-      let read = match conn.recv(&mut buf[..len], recv_info) {
+      let read = match conn.recv(&mut buf[.. len], recv_info) {
         Ok(v) => v,
         Err(e) => {
           error!("recv failed: {:?}", e);
@@ -138,7 +138,7 @@ fn main() {
     for s in conn.readable() {
       while let Ok((read, fin)) = conn.stream_recv(s, &mut buf) {
         debug!("received {} bytes", read);
-        let stream_buf = &buf[..read];
+        let stream_buf = &buf[.. read];
         debug!("stream {} has {} bytes (fin? {})", s, stream_buf.len(), fin);
         print!("{}", unsafe { std::str::from_utf8_unchecked(stream_buf) });
         // The server reported that it has no more data to send, which
@@ -164,7 +164,7 @@ fn main() {
           break;
         }
       };
-      if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+      if let Err(e) = socket.send_to(&out[.. write], send_info.to) {
         if e.kind() == std::io::ErrorKind::WouldBlock {
           debug!("send() would block");
           break;

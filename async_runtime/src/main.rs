@@ -7,7 +7,7 @@ fn main() {
     let mut stream = AsyncTcpStream::connect("127.0.0.1:8080");
     let mut buf = vec![0; 100];
     let n = stream.read(&mut buf).await;
-    println!("{:?}", String::from_utf8(buf[0..n].into()));
+    println!("{:?}", String::from_utf8(buf[0 .. n].into()));
     stream.close();
     println!("top future end");
   });

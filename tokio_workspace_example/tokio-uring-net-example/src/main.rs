@@ -33,7 +33,7 @@ fn main() {
             break;
           }
 
-          socket.write_all(&b[..n]).await.unwrap();
+          socket.write_all(&b[.. n]).await.unwrap();
           pos += n as u64;
 
           buf = b;

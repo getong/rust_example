@@ -55,7 +55,7 @@ fn main() -> tokenizers::Result<()> {
   // (26, 30)
 
   let sentence = "Hello, y'all! How are you 😁 ?";
-  println!("{}", &sentence[26..30]);
+  println!("{}", &sentence[26 .. 30]);
   // "😁"
 
   println!("{}", tokenizer.token_to_id("[SEP]").unwrap());

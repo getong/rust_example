@@ -20,11 +20,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
   socket
     .write_all(
       "\
-            GET / HTTP/1.0\r\n\
-            Host: www.rust-lang.org\r\n\
-            \r\n\
-            "
-      .as_bytes(),
+            GET / HTTP/1.0\r\nHost: www.rust-lang.org\r\n\r\n"
+        .as_bytes(),
     )
     .await?;
 

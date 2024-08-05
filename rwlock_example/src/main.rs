@@ -4,7 +4,7 @@ fn main() {
   let resource: Arc<RwLock<u16>> = Arc::new(RwLock::new(0));
   let total_readers = 5;
   let mut reader_jhs = Vec::with_capacity(total_readers);
-  for _ in 0..total_readers {
+  for _ in 0 .. total_readers {
     let resource = Arc::clone(&resource);
     reader_jhs.push(thread::spawn(move || {
       let mut total_lock_success = 0;

@@ -101,7 +101,7 @@ impl Node {
     let dev = self.devices.remove(split_at);
     let node = self.children.remove(split_at);
 
-    for _ in split_at..self.devices.len() {
+    for _ in split_at .. self.devices.len() {
       let device = self.devices.pop().unwrap();
       let child = self.children.pop().unwrap();
       sibling.add_key(device.as_ref().unwrap().numerical_id, (device, child));
@@ -319,7 +319,7 @@ impl DeviceDatabase {
       self.walk_in_order(left, callback);
     }
 
-    for i in 0..node.devices.len() {
+    for i in 0 .. node.devices.len() {
       if let Some(ref k) = node.devices[i] {
         callback(k);
       }

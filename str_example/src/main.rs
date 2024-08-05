@@ -1,7 +1,7 @@
 fn strtok<'a>(s: &'a mut &'a str, delimiter: char) -> &'a str {
   if let Some(i) = s.find(delimiter) {
-    let prefix = &s[..i];
-    let suffix = &s[(i + delimiter.len_utf8())..];
+    let prefix = &s[.. i];
+    let suffix = &s[(i + delimiter.len_utf8()) ..];
     *s = suffix;
     prefix
   } else {
@@ -16,7 +16,7 @@ fn first_word<'a>(s: &'a str) -> &'a str {
 
   for (i, &item) in bytes.iter().enumerate() {
     if item == b' ' {
-      return &s[0..i];
+      return &s[0 .. i];
     }
   }
 

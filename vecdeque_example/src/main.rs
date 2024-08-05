@@ -17,7 +17,7 @@ fn done(input: &mut VecDeque<(&str, bool)>) {
 
 fn main() {
   let mut my_vec = VecDeque::from(vec![0; 600000]);
-  for _i in 0..600000 {
+  for _i in 0 .. 600000 {
     my_vec.pop_front(); // pop_front is like .pop but for the front
   }
 

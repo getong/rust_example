@@ -24,7 +24,7 @@ fn main() {
 
   // Let's see what numbers we are missing
   let mut missing_vec = vec![];
-  for number in 0..100 {
+  for number in 0 .. 100 {
     if number_hashset.get(&number).is_none() {
       // If .get() returns None,
       missing_vec.push(number);

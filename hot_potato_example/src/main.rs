@@ -9,7 +9,7 @@ fn hot_potato(names: Vec<&str>, num: usize) -> &str {
   }
 
   while q.size() > 1 {
-    for _i in 0..num {
+    for _i in 0 .. num {
       let name = q.dequeue().unwrap();
       let _nn = q.enqueue(name);
     }

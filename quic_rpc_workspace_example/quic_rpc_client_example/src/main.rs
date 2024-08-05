@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
   // let mut client = ComputeClient(client);
 
   // a rpc call
-  for i in 0..3 {
+  for i in 0 .. 3 {
     let client = client.clone();
     tokio::task::spawn(async move {
       println!("rpc call: square([{i}])");
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
   println!("client streaming call: sum()");
   let (mut send, recv) = client.client_streaming(Sum).await?;
   tokio::task::spawn(async move {
-    for i in 2..4 {
+    for i in 2 .. 4 {
       println!("client streaming update: {i}");
       send.send(SumUpdate(i)).await.unwrap();
     }
@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
   println!("bidi streaming call: multiply(2)");
   let (mut send, mut recv) = client.bidi(Multiply(2)).await?;
   tokio::task::spawn(async move {
-    for i in 1..3 {
+    for i in 1 .. 3 {
       println!("bidi streaming update: {i}");
       send.send(MultiplyUpdate(i)).await.unwrap();
     }

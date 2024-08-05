@@ -35,7 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Generate a byte stream and the boundary from somewhere e.g. server request body.
 async fn get_byte_stream_from_somewhere(
 ) -> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
-  let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
+  let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; \
+              name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
   let stream = stream::once(async move { Result::<Bytes, Infallible>::Ok(Bytes::from(data)) });
 
   (stream, "X-BOUNDARY")

@@ -108,8 +108,8 @@ impl Client {
           match stream.read(&mut buffer).await {
             Ok(bytes_count) => {
               let raw_data = match session.lock().await.header_crypt.as_mut() {
-                Some(header_crypt) => header_crypt.decrypt(&buffer[..bytes_count]),
-                _ => buffer[..bytes_count].to_vec(),
+                Some(header_crypt) => header_crypt.decrypt(&buffer[.. bytes_count]),
+                _ => buffer[.. bytes_count].to_vec(),
               };
 
               queue.lock().await.push_back(raw_data);

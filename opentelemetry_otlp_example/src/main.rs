@@ -1,7 +1,10 @@
-use opentelemetry::{KeyValue, trace::Tracer};
-use opentelemetry_sdk::{trace::{self, RandomIdGenerator, Sampler}, Resource};
+use opentelemetry::{trace::Tracer, KeyValue};
+use opentelemetry_otlp::{ExportConfig, Protocol, WithExportConfig};
 use opentelemetry_sdk::metrics::reader::{DefaultAggregationSelector, DefaultTemporalitySelector};
-use opentelemetry_otlp::{Protocol, WithExportConfig, ExportConfig};
+use opentelemetry_sdk::{
+  trace::{self, RandomIdGenerator, Sampler},
+  Resource,
+};
 use std::time::Duration;
 use tonic::metadata::*;
 
@@ -10,7 +13,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
   map.insert("x-host", "example.com".parse().unwrap());
   map.insert("x-number", "123".parse().unwrap());
-  map.insert_bin("trace-proto-bin", MetadataValue::from_bytes(b"[binary data]"));
+  map.insert_bin(
+    "trace-proto-bin",
+    MetadataValue::from_bytes(b"[binary data]"),
+  );
 
   let tracer = opentelemetry_otlp::new_pipeline()
     .tracing()
@@ -19,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         .tonic()
         .with_endpoint("http://localhost:4317")
         .with_timeout(Duration::from_secs(3))
-        .with_metadata(map)
+        .with_metadata(map),
     )
     .with_trace_config(
       trace::config()
@@ -28,14 +34,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         .with_max_events_per_span(64)
         .with_max_attributes_per_span(16)
         .with_max_events_per_span(16)
-        .with_resource(Resource::new(vec![KeyValue::new("service.name", "example")])),
+        .with_resource(Resource::new(vec![KeyValue::new(
+          "service.name",
+          "example",
+        )])),
     )
     .install_batch(opentelemetry_sdk::runtime::Tokio)?;
 
   let export_config = ExportConfig {
     endpoint: "http://localhost:4317".to_string(),
     timeout: Duration::from_secs(3),
-    protocol: Protocol::Grpc
+    protocol: Protocol::Grpc,
   };
 
   let _meter = opentelemetry_otlp::new_pipeline()
@@ -46,7 +55,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         .with_export_config(export_config),
       // can also config it using with_* functions like the tracing part above.
     )
-    .with_resource(Resource::new(vec![KeyValue::new("service.name", "example")]))
+    .with_resource(Resource::new(vec![KeyValue::new(
+      "service.name",
+      "example",
+    )]))
     .with_period(Duration::from_secs(3))
     .with_timeout(Duration::from_secs(10))
     .with_aggregation_selector(DefaultAggregationSelector::new())

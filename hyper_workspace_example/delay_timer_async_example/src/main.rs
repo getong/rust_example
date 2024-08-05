@@ -86,7 +86,13 @@ fn build_task_async_execute_process() -> Result<Task, TaskError> {
 
   let body = move || {
     #[allow(deprecated)]
-        unblock_process_task_fn("/opt/homebrew/bin/php /Users/bincheng_paopao/project/repo/rust/myself/delay-timer/examples/try_spawn.php >> ./try_spawn.txt".into(), task_id)
+    unblock_process_task_fn(
+      "/opt/homebrew/bin/php \
+       /Users/bincheng_paopao/project/repo/rust/myself/delay-timer/examples/try_spawn.php >> \
+       ./try_spawn.txt"
+        .into(),
+      task_id,
+    )
   };
   task_builder
     .set_frequency_repeated_by_seconds(1)

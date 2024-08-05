@@ -10,8 +10,8 @@ async fn listen_udp(addr: SocketAddr) -> io::Result<()> {
 
   match time::timeout(Duration::from_secs(5), udp.recv_from(&mut buf)).await? {
     Ok((count, src)) => {
-      udp.send_to(&buf[..count], &src).await?;
-      println!("Message recv: {:?}", &buf[..count]);
+      udp.send_to(&buf[.. count], &src).await?;
+      println!("Message recv: {:?}", &buf[.. count]);
     }
     Err(e) => {
       eprintln!("timed out: {:?}", e);

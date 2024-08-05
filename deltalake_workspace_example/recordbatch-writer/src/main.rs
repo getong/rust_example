@@ -134,7 +134,7 @@ impl Default for WeatherRecord {
 fn fetch_readings() -> Vec<WeatherRecord> {
   let mut readings = vec![];
 
-  for i in 1..=5 {
+  for i in 1 ..= 5 {
     let mut wx = WeatherRecord::default();
     wx.temp -= i;
     readings.push(wx);

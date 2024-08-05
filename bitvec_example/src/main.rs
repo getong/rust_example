@@ -15,8 +15,8 @@ fn main() {
 
   // Bit-slices can split anywhere.
   let (head, rest) = bits.split_at(4);
-  assert_eq!(head, bits[..4]);
-  assert_eq!(rest, bits[4..]);
+  assert_eq!(head, bits[.. 4]);
+  assert_eq!(rest, bits[4 ..]);
 
   // And they are writable!
   let mut data = [0u8; 2];

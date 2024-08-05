@@ -9,7 +9,7 @@ impl Solution {
     }
 
     let mut stack: Vec<char> = Vec::new();
-    for i in 0..chars.len() {
+    for i in 0 .. chars.len() {
       if chars[i] == '(' {
         stack.push(')');
       } else if chars[i] == '[' {

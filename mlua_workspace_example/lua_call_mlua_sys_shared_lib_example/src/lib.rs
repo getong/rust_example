@@ -10,7 +10,7 @@ extern "C-unwind" fn _c_l_testfunc(lua_state: *mut lua_State) -> i32 {
 
     if argc != 0 {
       println!("共传入 {} 个参数", argc);
-      for index in 1..=argc {
+      for index in 1 ..= argc {
         let type_name_ptr = lua_typename(lua_state, lua_type(lua_state, index as i32));
         let type_name_cstr = CStr::from_ptr(type_name_ptr);
         let type_name_str = type_name_cstr.to_str().unwrap();

@@ -10,7 +10,7 @@ impl Solution {
 
     let mut res: Vec<i32> = Vec::new();
     let mut deque: VecDeque<i32> = VecDeque::new();
-    for i in 0..nums.len() {
+    for i in 0 .. nums.len() {
       Self::push(&mut deque, nums[i]);
 
       if (i as i32) > k - 1 {

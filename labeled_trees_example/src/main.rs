@@ -7,11 +7,11 @@ type Tree = HashSet<Edge>;
 
 fn create_tree_from_seq(mut s: &[u32], n: u32) -> Tree {
   let mut res = Tree::new();
-  let mut l: Vec<u32> = (1..n + 1).filter(|e| !s.contains(e)).collect();
+  let mut l: Vec<u32> = (1 .. n + 1).filter(|e| !s.contains(e)).collect();
   l.sort();
   while s.len() > 0 {
     let v = s[0];
-    s = &s[1..];
+    s = &s[1 ..];
     let l1 = l.remove(0);
     res.insert(Edge(v, l1));
     if !s.contains(&v) {
@@ -29,7 +29,7 @@ fn rec_find_sequences(n: u32, len: u32) -> Vec<Vec<u32>> {
   } else {
     let mut res = vec![];
     let sqs = rec_find_sequences(n, len - 1);
-    for i in 1..n + 1 {
+    for i in 1 .. n + 1 {
       for sq in sqs.iter() {
         let mut sq_clone = sq.clone();
         sq_clone.insert(0, i);

@@ -129,8 +129,8 @@ async fn echo(mut stream: Stream) -> io::Result<usize> {
     }
 
     total += read;
-    println!("buf[..read] is {:?}", &buf[..read]);
-    stream.write_all(&buf[..read]).await?;
+    println!("buf[..read] is {:?}", &buf[.. read]);
+    stream.write_all(&buf[.. read]).await?;
   }
 }
 

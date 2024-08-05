@@ -16,7 +16,7 @@ async fn main() -> Result<(), async_nats::Error> {
   let subscription = client.subscribe("greet.*").await?.take(50);
 
   // Publish set of messages, each with order identifier.
-  for i in 0..50 {
+  for i in 0 .. 50 {
     client
       .publish("greet.joe", format!("hello {i}").into())
       .await?;
@@ -30,7 +30,7 @@ async fn main() -> Result<(), async_nats::Error> {
   // message immediately.
   subscription
     .for_each_concurrent(25, |message| async move {
-      let num = rand::thread_rng().gen_range(0..500);
+      let num = rand::thread_rng().gen_range(0 .. 500);
       tokio::time::sleep(Duration::from_millis(num)).await;
       println!(
         "received message: {:?}",

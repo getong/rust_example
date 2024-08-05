@@ -7,7 +7,7 @@ impl Solution {
     let mut vecs: Vec<Vec<String>> = Vec::new();
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
 
-    for i in 0..strs.len() {
+    for i in 0 .. strs.len() {
       let mut chars = vec![];
       for c in strs[i].chars() {
         chars.push(c);

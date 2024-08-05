@@ -49,11 +49,11 @@ fn get_ids_n_pages_buffer_unordered(n: usize, buf_factor: usize) -> impl Stream<
 }
 
 fn get_pages() -> impl Stream<Item = Vec<usize>> {
-  tokio_stream::iter(0..).then(|i| get_page(i))
+  tokio_stream::iter(0 ..).then(|i| get_page(i))
 }
 
 async fn get_page(i: usize) -> Vec<usize> {
-  let millis = Uniform::from(0..10).sample(&mut rand::thread_rng());
+  let millis = Uniform::from(0 .. 10).sample(&mut rand::thread_rng());
   println!(
     "[{}] # get_page({}) will complete in {} ms",
     START_TIME.elapsed().as_millis(),
@@ -68,7 +68,7 @@ async fn get_page(i: usize) -> Vec<usize> {
     i
   );
 
-  (10 * i..10 * (i + 1)).collect()
+  (10 * i .. 10 * (i + 1)).collect()
 }
 
 // fn get_pages_buffered(buf_factor: usize) -> impl Stream<Item = Vec<usize>> {
@@ -76,7 +76,7 @@ async fn get_page(i: usize) -> Vec<usize> {
 // }
 
 fn get_pages_futures() -> impl Stream<Item = impl Future<Output = Vec<usize>>> {
-  tokio_stream::iter(0..).map(|i| get_page(i))
+  tokio_stream::iter(0 ..).map(|i| get_page(i))
 }
 
 // async fn get_n_pages_buffered(n: usize, buf_factor: usize) -> Vec<Vec<usize>> {

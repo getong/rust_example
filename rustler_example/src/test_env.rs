@@ -48,7 +48,7 @@ pub fn sublists<'a>(env: Env<'a>, list: Term<'a>) -> NifResult<Atom> {
         let mut all_sublists = vec![empty_list];
 
         for element in iter {
-          for i in 0..all_sublists.len() {
+          for i in 0 .. all_sublists.len() {
             let new_list = all_sublists[i].list_prepend(element);
             all_sublists.push(new_list);
           }

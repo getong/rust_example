@@ -7,22 +7,22 @@ use std::time::Duration;
 
 fn handle_client(label: u32, mut stream: TcpStream) {
   if label == 1 {
-    for _ in 0..20 {
-      let ran = rand::thread_rng().gen_range(100..200);
+    for _ in 0 .. 20 {
+      let ran = rand::thread_rng().gen_range(100 .. 200);
       thread::sleep(Duration::from_millis(ran));
       let s = format!("slept for {}", ran);
       stream.write(&s.as_bytes()).unwrap();
     }
   } else if label == 2 {
-    for _ in 0..20 {
-      let ran = rand::thread_rng().gen_range(150..200);
+    for _ in 0 .. 20 {
+      let ran = rand::thread_rng().gen_range(150 .. 200);
       thread::sleep(Duration::from_millis(ran));
       let s = format!("slept for {}", ran);
       stream.write(&s.as_bytes()).unwrap();
     }
   } else if label == 3 {
-    for _ in 0..20 {
-      let ran = rand::thread_rng().gen_range(125..175);
+    for _ in 0 .. 20 {
+      let ran = rand::thread_rng().gen_range(125 .. 175);
       thread::sleep(Duration::from_millis(ran));
       let s = format!("slept for {}", ran);
       stream.write(&s.as_bytes()).unwrap();

@@ -11,7 +11,7 @@ async fn main() {
   // where each of them also spawns a task themselves,
   // resulting in a total of 20 tasks which we'll want to wait for.
   let (tx, mut rx) = tokio::sync::mpsc::channel(20);
-  for i in 0..10 {
+  for i in 0 .. 10 {
     let tx = tx.clone();
     let n = i;
 

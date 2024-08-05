@@ -17,7 +17,7 @@ const SERVER: &str = "ws://127.0.0.1:3000/ws";
 async fn main() {
   let start_time = Instant::now();
   //spawn several clients that will concurrently talk to the server
-  let mut clients = (0..N_CLIENTS)
+  let mut clients = (0 .. N_CLIENTS)
     .map(|cli| tokio::spawn(spawn_client(cli)))
     .collect::<FuturesUnordered<_>>();
 
@@ -59,7 +59,7 @@ async fn spawn_client(who: usize) {
 
   //spawn an async sender to push some more messages into the server
   let mut send_task = tokio::spawn(async move {
-    for i in 1..30 {
+    for i in 1 .. 30 {
       // In any websocket error, break loop.
       if sender
         .send(Message::Text(format!("Message number {}...", i)))

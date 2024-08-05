@@ -14,7 +14,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn Error>> 
     if n == 0 {
       break;
     }
-    stream.write_all(&buf[0..n]).await?;
+    stream.write_all(&buf[0 .. n]).await?;
   }
   Ok(())
 }

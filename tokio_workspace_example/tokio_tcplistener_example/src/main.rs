@@ -17,7 +17,7 @@ async fn main() -> io::Result<()> {
           Ok(0) => return,
           Ok(n) => {
             // Copy the data back to socket
-            if socket.write_all(&buf[..n]).await.is_err() {
+            if socket.write_all(&buf[.. n]).await.is_err() {
               // Unexpected socket error. There isn't much we can
               // do here so just stop processing.
               return;

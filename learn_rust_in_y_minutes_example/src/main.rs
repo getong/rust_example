@@ -254,7 +254,7 @@ fn main() {
   }
 
   // Ranges
-  for i in 0u32..10 {
+  for i in 0u32 .. 10 {
     print!("{} ", i);
   }
   println!("");

@@ -33,7 +33,7 @@ async fn main() {
   //mpsc
   let (tx2, mut rx2) = mpsc::channel(100);
   tokio::spawn(async move {
-    for i in 0..10 {
+    for i in 0 .. 10 {
       let res = some_computation(i).await;
       tx2.send(res).await.unwrap();
     }

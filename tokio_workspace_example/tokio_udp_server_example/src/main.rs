@@ -30,7 +30,7 @@ impl Server {
       if let Some((size, peer)) = to_send {
         println!(
           "Received {:?} from {:?}",
-          std::str::from_utf8(&buf[..size]),
+          std::str::from_utf8(&buf[.. size]),
           peer
         );
       }

@@ -4,7 +4,10 @@ fn r#return() -> u8 {
 }
 
 fn main() {
-  println!("He said, \"You can find the file at c:\\files\\my_documents\\file.txt.\" Then I found the file."); // We used \ five times here
+  println!(
+    "He said, \"You can find the file at c:\\files\\my_documents\\file.txt.\" Then I found the \
+     file."
+  ); // We used \ five times here
   println!(
     r#"He said, "You can find the file at c:\files\my_documents\file.txt." Then I found the file."#
   );

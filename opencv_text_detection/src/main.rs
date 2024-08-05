@@ -13,15 +13,20 @@ type Result<T, E = Box<dyn Error>> = std::result::Result<T, E>;
 
 const KEYS: &str = concat!(
   "{ help  h              | | Print help message. }",
-  "{ input i              | | Path to input image or video file. Skip this argument to capture frames from a camera.}",
+  "{ input i              | | Path to input image or video file. Skip this argument to capture \
+   frames from a camera.}",
   "{ detModel dmp         | | Path to a binary .pb file contains trained detector network.}",
-  "{ width                | 320 | Preprocess input image by resizing to a specific width. It should be multiple by 32. }",
-  "{ height               | 320 | Preprocess input image by resizing to a specific height. It should be multiple by 32. }",
+  "{ width                | 320 | Preprocess input image by resizing to a specific width. It \
+   should be multiple by 32. }",
+  "{ height               | 320 | Preprocess input image by resizing to a specific height. It \
+   should be multiple by 32. }",
   "{ thr                  | 0.5 | Confidence threshold. }",
   "{ nms                  | 0.4 | Non-maximum suppression threshold. }",
-  "{ recModel rmp         | | Path to a binary .onnx file contains trained CRNN text recognition model. ",
+  "{ recModel rmp         | | Path to a binary .onnx file contains trained CRNN text recognition \
+   model. ",
   "Download links are provided in doc/tutorials/dnn/dnn_text_spotting/dnn_text_spotting.markdown}",
-  "{ RGBInput rgb         |0| 0: imread with flags=IMREAD_GRAYSCALE; 1: imread with flags=IMREAD_COLOR. }",
+  "{ RGBInput rgb         |0| 0: imread with flags=IMREAD_GRAYSCALE; 1: imread with \
+   flags=IMREAD_COLOR. }",
   "{ vocabularyPath vp    | alphabet_36.txt | Path to benchmarks for evaluation. ",
   "Download links are provided in doc/tutorials/dnn/dnn_text_spotting/dnn_text_spotting.markdown}",
 );
@@ -29,7 +34,11 @@ const KEYS: &str = concat!(
 pub fn main() -> Result<()> {
   let args = env::args().collect::<Vec<_>>();
   let args = args.iter().map(|arg| arg.as_str()).collect::<Vec<_>>();
-  let mut parser = CommandLineParser::new(i32::try_from(args.len()).expect("Too many arguments"), &args, KEYS)?;
+  let mut parser = CommandLineParser::new(
+    i32::try_from(args.len()).expect("Too many arguments"),
+    &args,
+    KEYS,
+  )?;
   parser.about(
     "Use this script to run TensorFlow implementation (https://github.com/argman/EAST) of \
     EAST: An Efficient and Accurate Scene Text Detector (https://arxiv.org/abs/1704.03155v2)",
@@ -62,7 +71,9 @@ pub fn main() -> Result<()> {
   for voc_line in voc_file.lines() {
     vocabulary.push(&voc_line?);
   }
-  recognizer.set_vocabulary(&vocabulary)?.set_decode_type("CTC-greedy")?;
+  recognizer
+    .set_vocabulary(&vocabulary)?
+    .set_decode_type("CTC-greedy")?;
 
   // Parameters for Recognition
   let rec_scale = 1. / 127.5;
@@ -111,7 +122,10 @@ pub fn main() -> Result<()> {
         for pt in &quadrangle {
           quadrangle_2f.push(Point2f::new(pt.x as f32, pt.y as f32))
         }
-        let cropped = four_points_transform(rec_input.as_ref().unwrap_or(&frame), quadrangle_2f.as_slice().try_into()?)?;
+        let cropped = four_points_transform(
+          rec_input.as_ref().unwrap_or(&frame),
+          quadrangle_2f.as_slice().try_into()?,
+        )?;
         let recognition_result = recognizer.recognize(&cropped)?;
         println!("Recognition result: {recognition_result}");
         imgproc::put_text(
@@ -127,10 +141,25 @@ pub fn main() -> Result<()> {
         )?;
         contours.push(quadrangle);
       }
-      imgproc::polylines(&mut frame, &contours, true, (0, 255, 0).into(), 2, imgproc::LINE_8, 0)?;
+      imgproc::polylines(
+        &mut frame,
+        &contours,
+        true,
+        (0, 255, 0).into(),
+        2,
+        imgproc::LINE_8,
+        0,
+      )?;
     }
     let mut big_frame = Mat::default();
-    imgproc::resize(&frame, &mut big_frame, Size::default(), 3., 3., imgproc::INTER_NEAREST)?;
+    imgproc::resize(
+      &frame,
+      &mut big_frame,
+      Size::default(),
+      3.,
+      3.,
+      imgproc::INTER_NEAREST,
+    )?;
     highgui::imshow(win_name, &big_frame)?;
   }
   Ok(())
@@ -142,9 +171,13 @@ fn four_points_transform(frame: &Mat, vertices: &[Point2f; 4]) -> Result<Mat> {
     Point2f::new(0., (output_size.height - 1) as f32),
     Point2f::new(0., 0.),
     Point2f::new((output_size.width - 1) as f32, 0.),
-    Point2f::new((output_size.width - 1) as f32, (output_size.height - 1) as f32),
+    Point2f::new(
+      (output_size.width - 1) as f32,
+      (output_size.height - 1) as f32,
+    ),
   ];
-  let rotation_matrix = imgproc::get_perspective_transform_slice(vertices, &target_vertices, core::DECOMP_LU)?;
+  let rotation_matrix =
+    imgproc::get_perspective_transform_slice(vertices, &target_vertices, core::DECOMP_LU)?;
   let mut out = Mat::default();
   imgproc::warp_perspective_def(frame, &mut out, &rotation_matrix, output_size)?;
   Ok(out)

@@ -18,7 +18,8 @@ fn main() {
   println!("Serialized JSON: {}", serialized);
 
   // Deserialize the JSON string back to a HashMap
-  let deserialized: HashMap<String, String> = from_str(&serialized).expect("Failed to deserialize JSON");
+  let deserialized: HashMap<String, String> =
+    from_str(&serialized).expect("Failed to deserialize JSON");
   println!("Deserialized payload: {:?}", deserialized);
 
   // Extract the string and convert to U256
@@ -27,8 +28,6 @@ fn main() {
 
   println!("total_value: {}", total_value);
 }
-
-
 
 // fn main() {
 //   let u256 = U256::MAX;

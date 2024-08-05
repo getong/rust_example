@@ -4,18 +4,18 @@ use std::time::Duration;
 fn main() {
   // println!("Hello, world!");
   let async_1 = task::spawn(async {
-    for i in 1..=5 {
+    for i in 1 ..= 5 {
       print_async_1(i).await;
     }
   });
 
   let async_2 = task::spawn(async {
-    for i in 1..=5 {
+    for i in 1 ..= 5 {
       print_async_2(i).await;
     }
   });
 
-  for i in 1..=5 {
+  for i in 1 ..= 5 {
     println!("number {} from the main!", i);
     task::block_on(async {
       task::sleep(Duration::from_secs(3)).await;

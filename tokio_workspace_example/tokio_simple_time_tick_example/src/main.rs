@@ -11,7 +11,7 @@ use tokio::time::{self, sleep, Duration};
 
 async fn random_number() -> u64 {
   let mut rng = rand::thread_rng();
-  rng.gen_range(1u64..3u64)
+  rng.gen_range(1u64 .. 3u64)
 }
 
 #[tokio::main]

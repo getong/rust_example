@@ -6,7 +6,7 @@ use tokio::task::JoinSet;
 async fn main() {
   let mut set = JoinSet::new();
 
-  for i in 0..10 {
+  for i in 0 .. 10 {
     set.spawn(async move { i });
   }
 
@@ -16,7 +16,7 @@ async fn main() {
     seen[idx] = true;
   }
 
-  for i in 0..10 {
+  for i in 0 .. 10 {
     assert!(seen[i]);
   }
 }

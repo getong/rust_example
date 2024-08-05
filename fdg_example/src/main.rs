@@ -13,17 +13,20 @@ fn main() {
   gen_graph(&mut graph);
 
   let cpu = cpu(&graph);
-  println!("cpu took {cpu} milliseconds to simulate a graph with {NUM_NODES} nodes and {NUM_EDGES} edges {NUM_CALCULATIONS} times with an interval of {TIME_DIFFERENCE} seconds.");
+  println!(
+    "cpu took {cpu} milliseconds to simulate a graph with {NUM_NODES} nodes and {NUM_EDGES} edges \
+     {NUM_CALCULATIONS} times with an interval of {TIME_DIFFERENCE} seconds."
+  );
 }
 
 fn gen_graph(graph: &mut ForceGraph<(), ()>) {
   let mut indices: Vec<NodeIndex> = Vec::new();
 
-  for _ in 0..NUM_NODES {
+  for _ in 0 .. NUM_NODES {
     indices.push(graph.add_force_node("", ()));
   }
 
-  for _ in 0..NUM_EDGES {
+  for _ in 0 .. NUM_EDGES {
     let source = indices[RandomRange::gen_range(0, indices.len())];
     let target = indices[RandomRange::gen_range(0, indices.len())];
 
@@ -34,7 +37,7 @@ fn gen_graph(graph: &mut ForceGraph<(), ()>) {
 fn cpu(graph: &ForceGraph<(), ()>) -> i64 {
   let b = Utc::now();
   let mut sim = Simulation::from_graph(&graph, SimulationParameters::default());
-  for _ in 0..NUM_CALCULATIONS {
+  for _ in 0 .. NUM_CALCULATIONS {
     sim.update(TIME_DIFFERENCE);
   }
   Utc::now().signed_duration_since(b).num_milliseconds()

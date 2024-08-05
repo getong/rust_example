@@ -43,7 +43,7 @@ fn main() {
   let pool = Pool::<LineDelimitedProcess>::new(n_workers);
 
   let (tx, rx) = channel();
-  for i in 0..n_jobs {
+  for i in 0 .. n_jobs {
     let inp = Box::new([97 + i]);
     pool.execute_to(tx.clone(), inp);
   }

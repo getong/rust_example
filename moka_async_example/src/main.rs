@@ -14,7 +14,7 @@ async fn main() {
   let cache = Cache::new(10_000);
 
   // Spawn async tasks and write to and read from the cache.
-  let tasks: Vec<_> = (0..NUM_TASKS)
+  let tasks: Vec<_> = (0 .. NUM_TASKS)
     .map(|i| {
       // To share the same cache across the async tasks, clone it.
       // This is a cheap operation.
@@ -24,7 +24,7 @@ async fn main() {
 
       tokio::spawn(async move {
         // Insert 64 entries. (NUM_KEYS_PER_TASK = 64)
-        for key in start..end {
+        for key in start .. end {
           // insert() is an async method, so await it.
           my_cache.insert(key, value(key)).await;
           // get() returns Option<String>, a clone of the stored value.
@@ -32,7 +32,7 @@ async fn main() {
         }
 
         // Invalidate every 4 element of the inserted entries.
-        for key in (start..end).step_by(4) {
+        for key in (start .. end).step_by(4) {
           // invalidate() is an async method, so await it.
           my_cache.invalidate(&key).await;
         }
@@ -44,7 +44,7 @@ async fn main() {
   futures_util::future::join_all(tasks).await;
 
   // Verify the result.
-  for key in 0..(NUM_TASKS * NUM_KEYS_PER_TASK) {
+  for key in 0 .. (NUM_TASKS * NUM_KEYS_PER_TASK) {
     if key % 4 == 0 {
       assert_eq!(cache.get(&key), None);
     } else {

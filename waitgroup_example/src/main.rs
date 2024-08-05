@@ -58,7 +58,7 @@ fn main() {
 
   let wg = WaitGroup::new();
 
-  for i in 1..5 {
+  for i in 1 .. 5 {
     let wg = wg.clone();
     thread::spawn(move || {
       println!("t{} going to sleep for {} secs", i, i);

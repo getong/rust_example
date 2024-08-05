@@ -6,7 +6,7 @@ fn simple_after() {
   let start = Instant::now();
   let af = after(Duration::from_millis(100));
 
-  for _ in 0..5 {
+  for _ in 0 .. 5 {
     af.recv().unwrap();
     println!("elapsed: {:?}", start.elapsed());
   }

@@ -12,7 +12,7 @@ pub fn plot(
   let cpus = num_cpus::get();
   let interval = (b - a) / cpus as f64;
   let (tx, rx) = mpsc::channel();
-  for i in 0..cpus {
+  for i in 0 .. cpus {
     let tx_copy = tx.clone();
     thread::spawn(move || {
       tx_copy
@@ -62,7 +62,7 @@ fn iterate_for_r(r: f64, dark_iters: usize, final_iters: usize, init_size: usize
 fn create_random_values(size: usize) -> Vec<f64> {
   use rand::Rng;
   let mut rng = rand::thread_rng();
-  (0..size).map(|_| rng.gen()).collect()
+  (0 .. size).map(|_| rng.gen()).collect()
 }
 
 fn iterate(r: f64, dark_iters: usize, final_iters: usize, x_inits: Vec<f64>) -> Vec<f64> {
@@ -70,11 +70,11 @@ fn iterate(r: f64, dark_iters: usize, final_iters: usize, x_inits: Vec<f64>) -> 
     .iter()
     .map(|x_0| {
       let mut x = *x_0;
-      for _ in 0..dark_iters {
+      for _ in 0 .. dark_iters {
         x = logistic(r, x);
       }
       let mut res = vec![];
-      for _ in 0..final_iters {
+      for _ in 0 .. final_iters {
         x = logistic(r, x);
         res.push(x);
       }

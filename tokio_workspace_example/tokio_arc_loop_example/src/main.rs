@@ -25,7 +25,7 @@ async fn handle_connection(mut stream: TcpStream, balance: Arc<Mutex<f32>>) {
   let mut buffer = [0; 16];
   stream.read(&mut buffer).await.unwrap();
   // First 4 characters are used to detect HTTP method
-  let method_type = match str::from_utf8(&buffer[0..4]) {
+  let method_type = match str::from_utf8(&buffer[0 .. 4]) {
     Ok(v) => v,
     Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
   };
@@ -36,7 +36,7 @@ async fn handle_connection(mut stream: TcpStream, balance: Arc<Mutex<f32>>) {
     }
     "POST" => {
       // Take characters after 'POST /' until whitespace is detected.
-      let input: String = buffer[6..16]
+      let input: String = buffer[6 .. 16]
         .iter()
         .take_while(|x| **x != 32u8)
         .map(|x| *x as char)

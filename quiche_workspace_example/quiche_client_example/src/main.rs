@@ -120,7 +120,7 @@ fn main() {
 
   let (write, send_info) = conn.send(&mut out).expect("initial send failed");
 
-  while let Err(e) = socket.send_to(&out[..write], send_info.to) {
+  while let Err(e) = socket.send_to(&out[.. write], send_info.to) {
     if e.kind() == std::io::ErrorKind::WouldBlock {
       debug!("send() would block");
       continue;
@@ -174,7 +174,7 @@ fn main() {
       };
 
       // Process potentially coalesced packets.
-      let read = match conn.recv(&mut buf[..len], recv_info) {
+      let read = match conn.recv(&mut buf[.. len], recv_info) {
         Ok(v) => v,
 
         Err(e) => {
@@ -210,7 +210,7 @@ fn main() {
       while let Ok((read, fin)) = conn.stream_recv(s, &mut buf) {
         debug!("received {} bytes", read);
 
-        let stream_buf = &buf[..read];
+        let stream_buf = &buf[.. read];
 
         debug!("stream {} has {} bytes (fin? {})", s, stream_buf.len(), fin);
 
@@ -245,7 +245,7 @@ fn main() {
         }
       };
 
-      if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+      if let Err(e) = socket.send_to(&out[.. write], send_info.to) {
         if e.kind() == std::io::ErrorKind::WouldBlock {
           debug!("send() would block");
           break;

@@ -9,7 +9,7 @@ async fn main() {
 
   // Spawn a task to create and send inner channels
   let sender_task = task::spawn(async move {
-    for i in 0..3 {
+    for i in 0 .. 3 {
       let (inner_tx, mut inner_rx) = mpsc::channel::<i32>(10);
 
       // Send the inner channel to the outer channel

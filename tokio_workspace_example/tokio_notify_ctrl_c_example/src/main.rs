@@ -57,7 +57,7 @@ async fn handle_connection(mut connection: TcpStream) -> io::Result<()> {
 
   loop {
     // try reading from the stream
-    let num_bytes = connection.read(&mut request[read..]).await?;
+    let num_bytes = connection.read(&mut request[read ..]).await?;
 
     // the client disconnected
     if num_bytes == 0 {
@@ -69,12 +69,12 @@ async fn handle_connection(mut connection: TcpStream) -> io::Result<()> {
     read += num_bytes;
 
     // have we reached the end of the request?
-    if request.get(read - 4..read) == Some(b"\r\n\r\n") {
+    if request.get(read - 4 .. read) == Some(b"\r\n\r\n") {
       break;
     }
   }
 
-  let request = String::from_utf8_lossy(&request[..read]);
+  let request = String::from_utf8_lossy(&request[.. read]);
   println!("{request}");
 
   // "Hello World!" in HTTP
@@ -89,7 +89,7 @@ async fn handle_connection(mut connection: TcpStream) -> io::Result<()> {
 
   loop {
     // write the remaining response bytes
-    let num_bytes = connection.write(response[written..].as_bytes()).await?;
+    let num_bytes = connection.write(response[written ..].as_bytes()).await?;
 
     // the client disconnected
     if num_bytes == 0 {

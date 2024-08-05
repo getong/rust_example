@@ -24,7 +24,7 @@ fn compute_digest<P: AsRef<Path>>(filepath: P) -> Result<(Digest, P), Error> {
     if count == 0 {
       break;
     }
-    context.update(&buffer[..count]);
+    context.update(&buffer[.. count]);
   }
 
   Ok((context.finish(), filepath))

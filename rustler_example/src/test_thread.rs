@@ -12,7 +12,7 @@ pub fn threaded_fac(env: Env, n: u64) -> Atom {
   }
 
   thread::spawn::<thread::ThreadSpawner, _>(env, move |thread_env| {
-    let result = (1..=n).fold(1, mul);
+    let result = (1 ..= n).fold(1, mul);
     result.encode(thread_env)
   });
 

@@ -31,16 +31,19 @@ async fn main() -> Result<()> {
   println!("--------------");
 
   println!(
-        "┌ name: {}\n├ fd: {}, {}, {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ broadcast: {}\n└ netmask: {}",
-        tuns[0].name(),
-        tuns[0].as_raw_fd(), tuns[1].as_raw_fd(), tuns[2].as_raw_fd(),
-        tuns[0].mtu().unwrap(),
-        tuns[0].flags().unwrap(),
-        tuns[0].address().unwrap(),
-        tuns[0].destination().unwrap(),
-        tuns[0].broadcast().unwrap(),
-        tuns[0].netmask().unwrap(),
-    );
+    "┌ name: {}\n├ fd: {}, {}, {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ \
+     broadcast: {}\n└ netmask: {}",
+    tuns[0].name(),
+    tuns[0].as_raw_fd(),
+    tuns[1].as_raw_fd(),
+    tuns[2].as_raw_fd(),
+    tuns[0].mtu().unwrap(),
+    tuns[0].flags().unwrap(),
+    tuns[0].address().unwrap(),
+    tuns[0].destination().unwrap(),
+    tuns[0].broadcast().unwrap(),
+    tuns[0].netmask().unwrap(),
+  );
 
   println!("---------------------");
   println!("ping 10.1.0.2 to test");

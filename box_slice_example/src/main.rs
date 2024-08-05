@@ -34,7 +34,7 @@ fn main() {
 // copy from [The curse of strong typing](https://fasterthanli.me/articles/the-curse-of-strong-typing)
 fn another_box_slice_exmaple() {
   let bbox: Box<[u8]> = Box::new([1, 2, 3, 4, 5]);
-  let slice = &bbox[1..4];
+  let slice = &bbox[1 .. 4];
   dbg!(size_of_val(&bbox));
   dbg!(size_of_val(&slice));
   print_byte_slice(slice);

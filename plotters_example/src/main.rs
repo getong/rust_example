@@ -7,13 +7,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .margin(5)
     .x_label_area_size(30)
     .y_label_area_size(30)
-    .build_cartesian_2d(-1f32..1f32, -0.1f32..1f32)?;
+    .build_cartesian_2d(-1f32 .. 1f32, -0.1f32 .. 1f32)?;
 
   chart.configure_mesh().draw()?;
 
   chart
     .draw_series(LineSeries::new(
-      (-50..=50).map(|x| x as f32 / 50.0).map(|x| (x, x * x)),
+      (-50 ..= 50).map(|x| x as f32 / 50.0).map(|x| (x, x * x)),
       &RED,
     ))?
     .label("y = x^2")

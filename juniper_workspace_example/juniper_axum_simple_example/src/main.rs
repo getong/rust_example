@@ -46,10 +46,9 @@ impl Subscription {
 type Schema = RootNode<'static, Query, EmptyMutation, Subscription>;
 
 async fn homepage() -> Html<&'static str> {
-  "<html><h1>juniper_axum/simple example</h1>\
-   <div>visit <a href=\"/graphiql\">GraphiQL</a></div>\
-   <div>visit <a href=\"/playground\">GraphQL Playground</a></div>\
-   </html>"
+  "<html><h1>juniper_axum/simple example</h1><div>visit <a \
+   href=\"/graphiql\">GraphiQL</a></div><div>visit <a href=\"/playground\">GraphQL \
+   Playground</a></div></html>"
     .into()
 }
 

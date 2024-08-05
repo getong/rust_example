@@ -10,7 +10,7 @@ async fn random() -> usize {
   // 4 // chosen by fair dice roll.
   // guaranteed to be random
   let mut rng = rand::thread_rng();
-  rng.gen_range(0..10)
+  rng.gen_range(0 .. 10)
 }
 
 #[tokio::main]

@@ -42,16 +42,14 @@ fn main() {
               }
               Ok(ref data) => {
                 println!(
-                  "topic: {} / partition: {} / latest available message \
-                                          offset: {}",
+                  "topic: {} / partition: {} / latest available message offset: {}",
                   t.topic(),
                   p.partition(),
                   data.highwatermark_offset()
                 );
                 for msg in data.messages() {
                   println!(
-                    "topic: {} / partition: {} / message.offset: {} / \
-                                              message.len: {}",
+                    "topic: {} / partition: {} / message.offset: {} / message.len: {}",
                     t.topic(),
                     p.partition(),
                     msg.offset,

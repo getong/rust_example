@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   // Read data from the stream
   let mut total_bytes = 0;
   loop {
-    let num_bytes = read_half.read(&mut buffer[total_bytes..]).await?;
+    let num_bytes = read_half.read(&mut buffer[total_bytes ..]).await?;
     if num_bytes == 0 {
       // Reached end of stream
       break;
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   }
 
   // Process the read data
-  let data = &buffer[..total_bytes];
+  let data = &buffer[.. total_bytes];
   println!("Received data: {:?}", data);
 
   Ok(())

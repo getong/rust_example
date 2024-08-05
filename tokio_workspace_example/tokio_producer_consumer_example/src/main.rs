@@ -14,7 +14,7 @@ struct Result {
 }
 
 async fn do_work(work: Work) -> Result {
-  let rng = rand::thread_rng().gen_range(500..1500);
+  let rng = rand::thread_rng().gen_range(500 .. 1500);
   tokio::time::sleep(std::time::Duration::from_millis(rng)).await;
 
   Result {
@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn producer(tx_work: mpsc::Sender<Work>) {
-  for idx in 0..20 {
+  for idx in 0 .. 20 {
     tx_work
       .send(Work {
         request: format!("work_{}", idx),

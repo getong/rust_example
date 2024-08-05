@@ -16,7 +16,7 @@ async fn main() {
 
   // Spawn a task to send futures to the channel
   let sender_task = task::spawn(async move {
-    for i in 0..5 {
+    for i in 0 .. 5 {
       let future = Box::pin(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
         format!("Task {} completed", i)

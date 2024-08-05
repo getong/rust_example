@@ -10,7 +10,7 @@ pub fn to_hex(original_str: &str) -> String {
 }
 
 pub fn from_hex(s: &str) -> Result<String> {
-  let raw = if s.starts_with("0x") { &s[2..] } else { s };
+  let raw = if s.starts_with("0x") { &s[2 ..] } else { s };
   match hex::decode(raw) {
     Ok(bytes) => Ok(String::from_utf8(bytes)?),
     Err(_) => Err(anyhow!("not decode")),

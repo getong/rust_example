@@ -33,7 +33,7 @@ fn main() {
   // println!("mut_v3: {:?}", mut_v3);
 
   // filter
-  for num in (0..=100).filter(|x| x % 3 == 0) {
+  for num in (0 ..= 100).filter(|x| x % 3 == 0) {
     eprint!("{} ", num);
   }
 
@@ -56,7 +56,7 @@ fn main() {
   println!("str_vec:{:?}", str_vec);
 
   // rev
-  for i in (0..=100).rev() {
+  for i in (0 ..= 100).rev() {
     eprint!("{} ", i);
   }
 

@@ -6,7 +6,7 @@ use tracing_subscriber::Registry;
 
 #[instrument]
 pub fn a_unit_of_work(first_parameter: u64) {
-  for i in 0..2 {
+  for i in 0 .. 2 {
     a_sub_unit_of_work(i);
   }
   info!(excited = "true", "Tracing is quite cool!");

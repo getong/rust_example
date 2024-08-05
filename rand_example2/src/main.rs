@@ -51,7 +51,7 @@ impl<P> StreamSampler for Lottery<P> {
   }
 
   fn samples(&self) -> &[Self::Item] {
-    &self.lucky[..std::cmp::min(self.total, self.lucky.capacity())]
+    &self.lucky[.. std::cmp::min(self.total, self.lucky.capacity())]
   }
 }
 
@@ -80,7 +80,7 @@ impl<P> Lottery<P> {
     for p in self.prices {
       let mut luck = Vec::with_capacity(p.cap);
 
-      for i in 0..p.cap {
+      for i in 0 .. p.cap {
         if let Some(it) = final_lucky[counted + i].take() {
           luck.push(it);
         }

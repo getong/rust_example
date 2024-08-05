@@ -169,7 +169,7 @@ impl InternetOfThings {
       let mut distance: Vec<TentativeWeight> = vec![TentativeWeight::Infinite; self.nodes.len()];
       distance[src] = TentativeWeight::Number(0);
 
-      let mut open: Vec<usize> = (0..self.nodes.len()).into_iter().collect();
+      let mut open: Vec<usize> = (0 .. self.nodes.len()).into_iter().collect();
       let mut parent = vec![None; self.nodes.len()];
       let mut found = false;
       while !open.is_empty() {

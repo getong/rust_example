@@ -154,7 +154,7 @@ fn main() {
 
       debug!("got {} bytes", len);
 
-      let pkt_buf = &mut buf[..len];
+      let pkt_buf = &mut buf[.. len];
 
       // Parse the QUIC packet's header.
       let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
@@ -169,7 +169,7 @@ fn main() {
       trace!("got packet {:?}", hdr);
 
       let conn_id = ring::hmac::sign(&conn_id_seed, &hdr.dcid);
-      let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
+      let conn_id = &conn_id.as_ref()[.. quiche::MAX_CONN_ID_LEN];
       let conn_id = conn_id.to_vec().into();
 
       // Lookup a connection based on the packet's connection ID. If there
@@ -185,7 +185,7 @@ fn main() {
 
           let len = quiche::negotiate_version(&hdr.scid, &hdr.dcid, &mut out).unwrap();
 
-          let out = &out[..len];
+          let out = &out[.. len];
 
           if let Err(e) = socket.send_to(out, from) {
             if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -222,7 +222,7 @@ fn main() {
           )
           .unwrap();
 
-          let out = &out[..len];
+          let out = &out[.. len];
 
           if let Err(e) = socket.send_to(out, from) {
             if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -380,7 +380,7 @@ fn main() {
           }
         };
 
-        if let Err(e) = socket.send_to(&out[..write], send_info.to) {
+        if let Err(e) = socket.send_to(&out[.. write], send_info.to) {
           if e.kind() == std::io::ErrorKind::WouldBlock {
             debug!("send() would block");
             break;
@@ -446,22 +446,22 @@ fn validate_token<'a>(src: &net::SocketAddr, token: &'a [u8]) -> Option<quiche::
     return None;
   }
 
-  if &token[..6] != b"quiche" {
+  if &token[.. 6] != b"quiche" {
     return None;
   }
 
-  let token = &token[6..];
+  let token = &token[6 ..];
 
   let addr = match src.ip() {
     std::net::IpAddr::V4(a) => a.octets().to_vec(),
     std::net::IpAddr::V6(a) => a.octets().to_vec(),
   };
 
-  if token.len() < addr.len() || &token[..addr.len()] != addr.as_slice() {
+  if token.len() < addr.len() || &token[.. addr.len()] != addr.as_slice() {
     return None;
   }
 
-  Some(quiche::ConnectionId::from_ref(&token[addr.len()..]))
+  Some(quiche::ConnectionId::from_ref(&token[addr.len() ..]))
 }
 
 /// Handles incoming HTTP/3 requests.
@@ -604,7 +604,7 @@ fn handle_writable(client: &mut Client, stream_id: u64) {
 
   resp.headers = None;
 
-  let body = &resp.body[resp.written..];
+  let body = &resp.body[resp.written ..];
 
   let written = match http3_conn.send_body(conn, stream_id, body, true) {
     Ok(v) => v,

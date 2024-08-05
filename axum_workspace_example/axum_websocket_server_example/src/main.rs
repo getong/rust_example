@@ -120,7 +120,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
   // when necessary to wait for some external event (in this case illustrated by sleeping).
   // Waiting for this client to finish getting its greetings does not prevent other clients from
   // connecting to server and receiving their greetings.
-  for i in 1..5 {
+  for i in 1 .. 5 {
     if socket
       .send(Message::Text(format!("Hi {i} times!")))
       .await
@@ -139,7 +139,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
   // Spawn a task that will push several messages to the client (does not matter what client does)
   let mut send_task = tokio::spawn(async move {
     let n_msg = 20;
-    for i in 0..n_msg {
+    for i in 0 .. n_msg {
       // In case of any websocket error, we exit.
       if sender
         .send(Message::Text(format!("Server message {i} ...")))

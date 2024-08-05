@@ -25,7 +25,7 @@ async fn main() {
 
   // Spawn a task to send futures to the channel
   let sender_task = task::spawn(async move {
-    for _ in 0..5 {
+    for _ in 0 .. 5 {
       let future = create_sender_future();
       tx.send(future).await.expect("Failed to send future");
     }

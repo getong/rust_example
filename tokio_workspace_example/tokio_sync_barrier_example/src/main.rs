@@ -8,7 +8,7 @@ async fn main() {
   let barrier = Arc::new(Barrier::new(3));
 
   // Spawn three tasks that will synchronize at the barrier
-  for i in 0..3 {
+  for i in 0 .. 3 {
     let barrier_clone = barrier.clone();
     tokio::spawn(async move {
       println!("Task {} is working...", i);

@@ -10,7 +10,7 @@ fn listen(socket: &net::UdpSocket) -> Vec<u8> {
   match socket.recv_from(&mut buf) {
     Ok((number_of_bytes, _src_addr)) => {
       println!("received message: {:?}", buf);
-      result = Vec::from(&buf[0..number_of_bytes]);
+      result = Vec::from(&buf[0 .. number_of_bytes]);
     }
     Err(fail) => println!("failed listening {:?}", fail),
   }
@@ -45,14 +45,9 @@ fn init_host(host: &str) -> net::UdpSocket {
 
 fn show_menu(config: &HostConfig, message: &str) {
   println!(
-    "Menu:\n\
-    Local ip: -local {local_ip} \n\
-    Local port: -lport {local_port} \n\
-    Remote ip: -remote {remote_ip} \n\
-    Remote port: -rport {remote_port} \n\
-    Start host: -lstart \n\
-    Connect to remote: -rconnect \n\
-    Send message: -msg {message}",
+    "Menu:\nLocal ip: -local {local_ip} \nLocal port: -lport {local_port} \nRemote ip: -remote \
+     {remote_ip} \nRemote port: -rport {remote_port} \nStart host: -lstart \nConnect to remote: \
+     -rconnect \nSend message: -msg {message}",
     local_ip = config.local_ip,
     local_port = config.local_port,
     remote_ip = config.remote_ip,

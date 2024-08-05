@@ -136,7 +136,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .into_iter()
         .for_each(|element| queue.push(element));
 
-      for _ in 0..arr.len() {
+      for _ in 0 .. arr.len() {
         queue.pop();
       }
     })
@@ -151,7 +151,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .into_iter()
         .for_each(|element| queue.push_back(element));
 
-      for _ in 0..arr.len() {
+      for _ in 0 .. arr.len() {
         queue.pop_front();
       }
     })

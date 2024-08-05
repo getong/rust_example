@@ -54,7 +54,7 @@ impl TrieStruct {
     let char_list: Vec<char> = string_val.chars().collect();
     let mut last_match = 0;
 
-    for letter_counter in 0..char_list.len() {
+    for letter_counter in 0 .. char_list.len() {
       if current_node
         .child_nodes
         .contains_key(&char_list[letter_counter])
@@ -73,7 +73,7 @@ impl TrieStruct {
     if last_match == char_list.len() {
       current_node.is_final = true;
     } else {
-      for new_counter in last_match..char_list.len() {
+      for new_counter in last_match .. char_list.len() {
         println!(
           "Inserting {} into {}",
           char_list[new_counter],
@@ -94,7 +94,7 @@ impl TrieStruct {
     let mut current_node = &mut self.root_node;
     let char_list: Vec<char> = string_val.chars().collect();
 
-    for counter in 0..char_list.len() {
+    for counter in 0 .. char_list.len() {
       if !current_node.child_nodes.contains_key(&char_list[counter]) {
         return false;
       } else {

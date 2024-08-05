@@ -55,7 +55,7 @@ fn main() {
   let fut_values = async {
     // async代码块内部的async代码块，能使用外部async代码块的executor执行任务
     let fut_tx_result = async move {
-      (0..100).for_each(|v| {
+      (0 .. 100).for_each(|v| {
         tx.unbounded_send(v).expect("Failed to send");
       })
     };

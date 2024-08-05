@@ -49,7 +49,7 @@ fn main() {
         // println!("{:?}", messages);
         let messages = &messages;
         let lock = messages.lock().unwrap();
-        for i in count..lock.len() {
+        for i in count .. lock.len() {
           let s = std::str::from_utf8(&lock[i]).unwrap();
           if s.len() != 0 {
             println!("> {}", s);
@@ -64,7 +64,10 @@ fn main() {
       }
     }
   } else {
-    eprintln!("Usage: messenger <server / client>\nEg:\n\tmessenger server\n\tmessenger client 127.0.0.1:9000");
+    eprintln!(
+      "Usage: messenger <server / client>\nEg:\n\tmessenger server\n\tmessenger client \
+       127.0.0.1:9000"
+    );
     return;
   }
 }

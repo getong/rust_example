@@ -13,8 +13,8 @@ fn merge(mut arr: Vec<i32>, left: usize, mid: usize, right: usize) -> Vec<i32> {
   let n2 = right - mid;
   let l1 = arr.clone();
   let r1 = arr.clone();
-  let l = &l1[left..mid];
-  let r = &r1[mid..right];
+  let l = &l1[left .. mid];
+  let r = &r1[mid .. right];
   /* Merge the temp arrays back into arr[l..r]*/
   let mut i = 0; // Initial index of first subarray
   let mut j = 0; // Initial index of second subarray

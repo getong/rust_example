@@ -5,8 +5,8 @@ pub fn add(left: usize, right: usize) -> usize {
 }
 
 pub fn bubble_sort(nums: &mut Vec<usize>) {
-  for _i in 1..nums.len() {
-    for i in 1..nums.len() {
+  for _i in 1 .. nums.len() {
+    for i in 1 .. nums.len() {
       if nums[i - 1] > nums[i] {
         nums.swap(i - 1, i);
       }
@@ -15,7 +15,7 @@ pub fn bubble_sort(nums: &mut Vec<usize>) {
 }
 
 pub fn insert_sort(nums: &mut Vec<usize>) {
-  for i in 1..nums.len() {
+  for i in 1 .. nums.len() {
     let (mut p, v) = (i, nums[i]);
     while p > 0 && nums[p - 1] > v {
       nums[p] = nums[p - 1];
@@ -27,7 +27,7 @@ pub fn insert_sort(nums: &mut Vec<usize>) {
 
 pub fn shell_sort(nums: &mut Vec<usize>) {
   fn _insert_sort(nums: &mut Vec<usize>, g: usize) {
-    for i in g..nums.len() {
+    for i in g .. nums.len() {
       let (mut p, v) = (i, nums[i]);
       while p >= g && nums[p - g] > v {
         nums[p] = nums[p - g];
@@ -48,9 +48,9 @@ pub fn shell_sort(nums: &mut Vec<usize>) {
 }
 
 pub fn selection_sort(nums: &mut Vec<usize>) {
-  for i in 0..nums.len() - 1 {
+  for i in 0 .. nums.len() - 1 {
     let mut p = i;
-    for j in i + 1..nums.len() {
+    for j in i + 1 .. nums.len() {
       if nums[j] < nums[p] {
         p = j;
       }
@@ -63,13 +63,13 @@ pub fn count_sort(nums: &mut Vec<usize>) {
   let n = nums.iter().max().unwrap();
   let origin_nums = nums.clone();
   let mut count: Vec<usize> = Vec::new();
-  for _i in 0..n + 1 {
+  for _i in 0 .. n + 1 {
     count.push(0)
   }
   for &v in nums.iter() {
     count[v] += 1;
   }
-  for i in 1..count.len() {
+  for i in 1 .. count.len() {
     count[i] += count[i - 1];
   }
   for &v in origin_nums.iter() {
@@ -81,7 +81,7 @@ pub fn count_sort(nums: &mut Vec<usize>) {
 pub fn quick_sort(nums: &mut Vec<usize>) {
   fn _partition(nums: &mut Vec<usize>, begin: usize, end: usize) -> usize {
     let (mut i, v) = (begin, nums[end - 1]);
-    for j in begin..end - 1 {
+    for j in begin .. end - 1 {
       if nums[j] <= v {
         nums.swap(i, j);
         i += 1;
@@ -104,8 +104,8 @@ pub fn quick_sort(nums: &mut Vec<usize>) {
 
 pub fn merge_sort(nums: &mut Vec<usize>) {
   fn _merge(nums: &mut Vec<usize>, left: usize, mid: usize, right: usize) {
-    let left_part: Vec<usize> = nums[left..mid].iter().cloned().collect();
-    let right_part: Vec<usize> = nums[mid..right].iter().cloned().collect();
+    let left_part: Vec<usize> = nums[left .. mid].iter().cloned().collect();
+    let right_part: Vec<usize> = nums[mid .. right].iter().cloned().collect();
     let (mut left_offset, mut right_offset) = (0usize, 0usize);
     while left_offset < left_part.len() || right_offset < right_part.len() {
       if right_offset == right_part.len()
@@ -145,7 +145,7 @@ impl<T: Ord> Heap<T> {
   pub fn from(elems: Vec<T>) -> Heap<T> {
     let mut heap = Heap { elems: elems };
     // 自底向上遍历非叶节点
-    for i in (0..heap.len() / 2).rev() {
+    for i in (0 .. heap.len() / 2).rev() {
       // 下沉节点i
       heap.max_heapify(i)
     }
@@ -224,7 +224,7 @@ impl<T: Ord> Heap<T> {
 
 pub fn heap_sort(nums: &mut Vec<usize>) {
   let mut heap: Heap<usize> = Heap::from(nums.clone());
-  for i in (0..nums.len()).rev() {
+  for i in (0 .. nums.len()).rev() {
     nums[i] = heap.pop().unwrap();
   }
 }

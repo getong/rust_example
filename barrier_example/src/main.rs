@@ -5,7 +5,7 @@ fn main() {
   let mut handles = Vec::with_capacity(5);
   let barrier = Arc::new(Barrier::new(5));
 
-  for _ in 0..5 {
+  for _ in 0 .. 5 {
     // let c = Arc::clone(&barrier);
     let c = barrier.clone();
 

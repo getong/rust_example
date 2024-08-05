@@ -25,7 +25,7 @@ async fn main() -> io::Result<()> {
       break;
     }
 
-    println!("GOT {:?}", &buf[..n]);
+    println!("GOT {:?}", &buf[.. n]);
   }
 
   Ok(())

@@ -8,7 +8,7 @@ async fn main() -> () {
   let listener = TcpListener::bind("127.0.0.1:6142").await.unwrap();
   let arc_listener = Arc::new(listener);
 
-  for _i in 1..10 {
+  for _i in 1 .. 10 {
     let current_listener = Arc::clone(&arc_listener);
     tokio::spawn(async move {
       loop {
@@ -23,7 +23,7 @@ async fn main() -> () {
               Ok(0) => return,
               Ok(n) => {
                 // Copy the data back to socket
-                if socket.write_all(&buf[..n]).await.is_err() {
+                if socket.write_all(&buf[.. n]).await.is_err() {
                   // Unexpected socket error. There isn't much we can
                   // do here so just stop processing.
                   return;

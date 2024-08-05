@@ -12,7 +12,7 @@ struct MyStruct {
 async fn handle_client(mut socket: TcpStream) -> Result<(), Box<dyn Error>> {
   let mut buffer = vec![0; 1024];
   let n = socket.read(&mut buffer).await?;
-  let received_json = String::from_utf8(buffer[..n].to_vec())?;
+  let received_json = String::from_utf8(buffer[.. n].to_vec())?;
   let received_struct: MyStruct = serde_json::from_str(&received_json)?;
 
   println!("Server Received: {:?}", received_struct);
@@ -55,7 +55,7 @@ async fn run_client() -> Result<(), Box<dyn Error>> {
 
   let mut buffer = vec![0; 1024];
   let n = socket.read(&mut buffer).await?;
-  let received_json = String::from_utf8(buffer[..n].to_vec())?;
+  let received_json = String::from_utf8(buffer[.. n].to_vec())?;
   let received_struct: MyStruct = serde_json::from_str(&received_json)?;
 
   println!("Client Received: {:?}", received_struct);

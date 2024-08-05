@@ -5,11 +5,11 @@ struct Items(u32);
 
 fn fat_pointers_info() {
   let mut arr = [1, 2, 3, 4];
-  let slice = &mut arr[1..4];
+  let slice = &mut arr[1 .. 4];
   slice[0] = 100;
   println!("{:?}", arr); // [1, 100, 3, 4]
 
-  let slice = &arr[1..4];
+  let slice = &arr[1 .. 4];
   println!("{:p} {:?}", slice, unsafe {
     transmute::<_, (usize, usize)>(slice)
   });

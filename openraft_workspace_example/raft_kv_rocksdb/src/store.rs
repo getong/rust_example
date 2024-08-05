@@ -314,7 +314,7 @@ fn id_to_bin(id: u64) -> Vec<u8> {
 }
 
 fn bin_to_id(buf: &[u8]) -> u64 {
-  (&buf[0..8]).read_u64::<BigEndian>().unwrap()
+  (&buf[0 .. 8]).read_u64::<BigEndian>().unwrap()
 }
 
 impl LogStore {

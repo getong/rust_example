@@ -38,7 +38,7 @@ async fn handle_client(mut socket: TcpStream) -> Result<(), Box<dyn std::error::
     }
 
     // Write the received data to the file
-    file.write_all(&buffer[..bytes_read]).await?;
+    file.write_all(&buffer[.. bytes_read]).await?;
   }
 
   println!("File transfer completed successfully");

@@ -14,7 +14,7 @@ fn main() {
 async fn async_main(n: usize) -> anyhow::Result<(), anyhow::Error> {
   let (sender, mut receiver) = mpsc::channel::<usize>(2);
   tokio::spawn(generate(sender));
-  for _i in 0..n {
+  for _i in 0 .. n {
     let prime = receiver.recv().await.unwrap();
     println!("{}", prime);
     let (sender_next, receiver_next) = mpsc::channel::<usize>(2);

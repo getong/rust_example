@@ -10,7 +10,7 @@ struct Result {
 }
 
 async fn do_work(work: Work) -> Result {
-  let rng = rand::thread_rng().gen_range(500..1500);
+  let rng = rand::thread_rng().gen_range(500 .. 1500);
   tokio::time::sleep(std::time::Duration::from_millis(rng)).await;
 
   Result {
@@ -20,7 +20,7 @@ async fn do_work(work: Work) -> Result {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-  let work = (1..20).into_iter().map(|n| Work {
+  let work = (1 .. 20).into_iter().map(|n| Work {
     request: format!("item_{}", n),
   });
 

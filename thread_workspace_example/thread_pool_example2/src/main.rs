@@ -120,7 +120,7 @@ impl<T: Send + 'static> ThreadPool<T> {
     let mut _workers = vec![];
     let (sender, receiver) = channel();
     let tasks = Arc::new(Mutex::new(Queue::<Task<T>>::new()));
-    for _ in 0..n_workers {
+    for _ in 0 .. n_workers {
       let sender_clone = sender.clone();
       _workers.push(Worker::new(sender_clone));
     }
@@ -164,7 +164,7 @@ fn main() {
   let (sender, receiver) = channel();
   let sender_shared = Arc::new(Mutex::new(sender));
   let mut pool = ThreadPool::new(8);
-  for i in 0..1000 {
+  for i in 0 .. 1000 {
     pool.add(Task::new(
       Box::new(move || 3 + i),
       Arc::clone(&sender_shared),

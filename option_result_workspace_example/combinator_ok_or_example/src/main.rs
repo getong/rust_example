@@ -41,12 +41,12 @@ fn main() -> Result<(), String> {
 
   let n = 10000000;
   let mut map = HashMap::new();
-  for key in 0..n {
+  for key in 0 .. n {
     map.insert(key, key);
   }
 
   let mut sum = 0;
-  for key in 0..n {
+  for key in 0 .. n {
     sum += lookup_eager(&map, key)? as i64;
     // sum += lookup_lazy(&map, key)? as i64;
   }
@@ -54,7 +54,7 @@ fn main() -> Result<(), String> {
   println!("sum: {}", sum);
 
   let mut sum = 0;
-  for key in 0..n {
+  for key in 0 .. n {
     sum += lookup_lazy(&map, key)? as i64;
     // sum += lookup_lazy(&map, key)? as i64;
   }

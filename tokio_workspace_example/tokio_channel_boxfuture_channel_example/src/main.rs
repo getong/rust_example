@@ -16,7 +16,7 @@ async fn main() {
 
   // Spawn a task to send inner channels (mpsc::Sender<StringFuture>) to the outer channel
   let sender_task = tokio::spawn(async move {
-    for i in 0..3 {
+    for i in 0 .. 3 {
       let (inner_tx, inner_rx) = mpsc::channel::<StringFuture>(10);
       tx.send(inner_rx)
         .await
@@ -24,7 +24,7 @@ async fn main() {
 
       // Spawn a task to send futures to the inner channel
       tokio::spawn(async move {
-        for j in 0..3 {
+        for j in 0 .. 3 {
           let future = create_future(i * 10 + j);
           inner_tx.send(future).await.expect("Failed to send future");
         }

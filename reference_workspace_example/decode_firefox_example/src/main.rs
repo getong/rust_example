@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
 
   let file = File::open(&path)?;
   let mmap = unsafe { MmapOptions::new().map(&file)? };
-  let buf = lz4_flex::decompress_size_prepended(&mmap[8..])?;
+  let buf = lz4_flex::decompress_size_prepended(&mmap[8 ..])?;
 
   let session = serde_json::from_slice::<SessionStore>(&buf)?;
   let mut domains = HashMap::<_, u32>::new();

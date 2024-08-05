@@ -70,7 +70,7 @@ async fn get_case_count() -> Result<u32> {
 async fn main() -> Result<()> {
   let count = get_case_count().await?;
 
-  for case in 1..=count {
+  for case in 1 ..= count {
     let mut ws = connect(&format!("runCase?case={}&agent=fastwebsockets", case)).await?;
 
     loop {

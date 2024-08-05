@@ -16,7 +16,7 @@ impl Solution {
     //    nums[i] = 00;
     //    i += 1;
     // }
-    for k in i..nums.len() {
+    for k in i .. nums.len() {
       nums[k] = 0;
     }
   }

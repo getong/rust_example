@@ -41,7 +41,7 @@ impl ThreadPool {
     let started = Arc::new(Mutex::new(false));
     let mut handles = Vec::new();
 
-    for _ in 0..size {
+    for _ in 0 .. size {
       let task_queue = tasks.clone();
       let start_tracker = started.clone();
 
@@ -87,7 +87,7 @@ impl ThreadPool {
 
 fn main() {
   let mut tasker = Tasker::new(10);
-  for i in 0..30 {
+  for i in 0 .. 30 {
     tasker.add(move || {
       println!("Running {}", i);
     });

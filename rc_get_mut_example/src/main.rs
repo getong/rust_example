@@ -18,7 +18,7 @@ fn main() {
   let name = Rc::new(String::from("main"));
   let ext = Rc::new(String::from("rs"));
 
-  for _ in 0..3 {
+  for _ in 0 .. 3 {
     println!("name: {:?}, ext: {:?}", name.clone(), ext.clone());
   }
 }

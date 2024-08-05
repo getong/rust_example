@@ -58,7 +58,7 @@ impl Runtime {
     };
 
     let mut threads = vec![base_thread];
-    let mut available_threads: Vec<Thread> = (1..MAX_THREADS).map(|i| Thread::new(i)).collect();
+    let mut available_threads: Vec<Thread> = (1 .. MAX_THREADS).map(|i| Thread::new(i)).collect();
     threads.append(&mut available_threads);
 
     Runtime {
@@ -192,7 +192,7 @@ pub fn main() {
   runtime.spawn(|| {
     println!("THREAD 1 STARTING");
     let id = 1;
-    for i in 0..10 {
+    for i in 0 .. 10 {
       println!("thread: {} counter: {}", id, i);
       yield_thread();
     }
@@ -201,7 +201,7 @@ pub fn main() {
   runtime.spawn(|| {
     println!("THREAD 2 STARTING");
     let id = 2;
-    for i in 0..15 {
+    for i in 0 .. 15 {
       println!("thread: {} counter: {}", id, i);
       yield_thread();
     }

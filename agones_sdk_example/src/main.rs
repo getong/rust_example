@@ -127,7 +127,7 @@ async fn run() -> Result<(), String> {
 
   println!("GameServer name: {}", gameserver.object_meta.unwrap().name);
 
-  for i in 0..10 {
+  for i in 0 .. 10 {
     let time = i * 10;
     println!("Running for {} seconds", time);
 

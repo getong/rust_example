@@ -24,12 +24,12 @@ fn mut_ref_example2() {
   // Prints (<addr>, 5): [0, 1, 2, 3, 4]
 
   // Change only the length
-  *unique = &unique[..4];
+  *unique = &unique[.. 4];
   println!("({r:p}, {len}): {r:?}", r = *unique, len = unique.len());
   // Prints (<addr>, 4): [0, 1, 2, 3]
 
   // Change both the pointer and the length
-  *unique = &unique[1..];
+  *unique = &unique[1 ..];
   println!("({r:p}, {len}): {r:?}", r = *unique, len = unique.len());
   // Prints (<addr+1>, 3): [1, 2, 3]
 
@@ -47,7 +47,7 @@ fn mut_reference_slice() {
   // And *into* this
   let mut buf = [0; 3];
 
-  while let Ok(1..) = Read::read(&mut data, &mut buf) {
+  while let Ok(1 ..) = Read::read(&mut data, &mut buf) {
     println!("({r:p}, {len}): {r:?}", r = data, len = data.len());
     // This will print:
     // (<addr>, 7): [3, 4, 5, 6, 7, 8, 9]

@@ -9,7 +9,7 @@ fn main() {
     .unwrap();
 
   let mut handles = Vec::with_capacity(10);
-  for i in 0..10 {
+  for i in 0 .. 10 {
     handles.push(runtime.spawn(my_bg_task(i)));
   }
 

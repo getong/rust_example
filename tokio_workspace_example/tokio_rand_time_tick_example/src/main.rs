@@ -25,7 +25,7 @@ async fn main() -> Result<(), std::io::Error> {
 
 async fn run_with_shutdown(mut shutdown: tokio::sync::mpsc::Receiver<i32>) {
   let mut interval = time::interval(time::Duration::from_secs(1));
-  let between = Uniform::from(1..4);
+  let between = Uniform::from(1 .. 4);
   let mut rng = rand::thread_rng();
 
   loop {

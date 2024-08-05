@@ -58,7 +58,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), io::Error> {
   let n = stream.read(&mut buffer).await?;
 
   // Only take the portion of the buffer that was filled with read data.
-  let body_bytes = &buffer[..n];
+  let body_bytes = &buffer[.. n];
 
   // Create a new instance of MyBody with the read bytes.
   // Since MyBody::new expects a &[u8], and body_bytes is &[u8], this matches.

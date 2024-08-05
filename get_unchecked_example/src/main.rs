@@ -2,7 +2,7 @@ fn main() {
   // println!("Hello, world!");
   let arr = ['a', 'b', 'c', 'd', 'e', 'f'];
 
-  for i in 0..arr.len() {
+  for i in 0 .. arr.len() {
     println!("i is {}", arr[i]);
   }
 

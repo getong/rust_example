@@ -115,9 +115,13 @@ impl User {
       .await
       .unwrap();
 
-    pool.query(
-            "INSERT INTO users (username, anonymous, user_id) VALUES ('Guest', true, 1), ('Test', false, 2);"
-        ).await.unwrap();
+    pool
+      .query(
+        "INSERT INTO users (username, anonymous, user_id) VALUES ('Guest', true, 1), ('Test', \
+         false, 2);",
+      )
+      .await
+      .unwrap();
 
     pool
       .query("INSERT INTO user_permissions (token, user_id) VALUES  ('Category::View', 2);")

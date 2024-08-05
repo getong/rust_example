@@ -8,7 +8,7 @@ fn main() {
   let (mut client, mut connection) = Client::new(mqttoptions, 10);
   client.subscribe("demo/mqtt", QoS::AtMostOnce).unwrap();
   thread::spawn(move || {
-    for i in 0..10 {
+    for i in 0 .. 10 {
       client
         .publish("demo/mqtt", QoS::AtLeastOnce, false, vec![i; i as usize])
         .unwrap();

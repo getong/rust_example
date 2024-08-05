@@ -7,7 +7,7 @@ async fn main() -> std::io::Result<()> {
   let now = Instant::now();
 
   let mut handles = Vec::with_capacity(10);
-  for i in 0..10 {
+  for i in 0 .. 10 {
     handles.push(tokio::spawn(my_bg_task(i)));
   }
 
@@ -26,7 +26,7 @@ async fn main() -> std::io::Result<()> {
   let now = Instant::now();
 
   let mut handles = Vec::with_capacity(10);
-  for i in 0..10 {
+  for i in 0 .. 10 {
     handles.push(my_bg_task(i)); // 没有把 Future 变成任务
   }
 

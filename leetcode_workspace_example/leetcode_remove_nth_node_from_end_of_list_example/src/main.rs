@@ -19,7 +19,7 @@ impl Solution {
     let mut slow_p = &mut dummy;
     let mut fast_p = &mut slow_p.clone();
 
-    for _ in 1..=n + 1 {
+    for _ in 1 ..= n + 1 {
       fast_p = &mut fast_p.as_mut().unwrap().next;
     }
 

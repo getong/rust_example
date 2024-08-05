@@ -3,11 +3,11 @@ use rand::Rng;
 
 async fn random_number() -> u64 {
   let mut rng = rand::thread_rng();
-  rng.gen_range(1u64..3u64)
+  rng.gen_range(1u64 .. 3u64)
 }
 
 async fn uniform_number() -> u64 {
-  let between = Uniform::from(10..10000);
+  let between = Uniform::from(10 .. 10000);
   let mut rng = rand::thread_rng();
 
   between.sample(&mut rng)

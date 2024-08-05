@@ -18,7 +18,7 @@ fn main() {
 
     // 5个并发任务，每个任务执行前都先获取信号灯
     // 因此，同一时刻最多只有3个任务进行并发
-    for i in 1..=5 {
+    for i in 1 ..= 5 {
       let semaphore = semaphore.clone();
       tokio::spawn(async move {
         let _permit = semaphore.acquire().await.unwrap();

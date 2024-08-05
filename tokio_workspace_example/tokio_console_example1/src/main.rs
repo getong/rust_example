@@ -21,7 +21,7 @@ async fn main() {
   });
   handles.push(task_a);
 
-  for i in 0..cpus + 1 {
+  for i in 0 .. cpus + 1 {
     let task_b = Builder::new()
       .name(&format!("Task B-{}", i))
       .spawn(async move {

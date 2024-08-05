@@ -16,7 +16,7 @@ impl<R: Read> Checksum<R> for Xor {
       if read == 0 {
         break;
       }
-      for b in &buf[..read] {
+      for b in &buf[.. read] {
         res ^= b;
       }
     }
@@ -36,7 +36,7 @@ impl<R: Read> Checksum<R> for Add {
       if read == 0 {
         break;
       }
-      for b in &buf[..read] {
+      for b in &buf[.. read] {
         let tmp = res as u16 + *b as u16;
         res = tmp as u8;
       }
@@ -68,7 +68,7 @@ fn main() {
     if chunk_size == 0 {
       break;
     }
-    let cs = checker.calc(&buf[..chunk_size]);
+    let cs = checker.calc(&buf[.. chunk_size]);
     println!("Checksum {} is {:?}", i, cs);
     i += 1;
   }

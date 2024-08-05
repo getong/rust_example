@@ -20,7 +20,7 @@ async fn main() {
           if n == 0 {
             return;
           }
-          print!("{}", String::from_utf8_lossy(&buf[0..n]));
+          print!("{}", String::from_utf8_lossy(&buf[0 .. n]));
         }
       } else {
         println!("Rejecting client: too many open sockets");

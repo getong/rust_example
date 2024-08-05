@@ -55,7 +55,7 @@ async fn main() {
   sleep(Duration::from_secs(3)).await;
 
   let mut rng = rand::thread_rng();
-  match rng.gen_range(1u64..3u64) {
+  match rng.gen_range(1u64 .. 3u64) {
     1 => {
       println!("task 1 stop");
       task1_handle.abort();

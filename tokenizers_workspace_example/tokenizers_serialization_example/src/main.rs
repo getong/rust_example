@@ -7,7 +7,7 @@ fn main() {
 
   // Mix special and not special
   // You can make sure ids are in order, and special status is correct.
-  let tokens: Vec<_> = (0..12_000)
+  let tokens: Vec<_> = (0 .. 12_000)
     .map(|i| AddedToken::from(format!("[SPECIAL_{}]", i), i % 2 == 0))
     .collect();
   tokenizer.add_tokens(&tokens);

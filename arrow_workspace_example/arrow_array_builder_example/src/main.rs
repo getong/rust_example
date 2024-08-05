@@ -24,14 +24,14 @@ fn array() -> Int32Array {
 }
 
 fn array_builder() -> Int32Array {
-  let range = Uniform::from(1..100);
+  let range = Uniform::from(1 .. 100);
   let mut rng = rand::thread_rng();
 
   // Initialize array builder
   let mut primitive_array_builder = Int32Builder::new(100);
 
   // Randomly gnerate data and append it to the array
-  for _ in 0..50 {
+  for _ in 0 .. 50 {
     let value = range.sample(&mut rng);
 
     if value % 2 == 0 {
@@ -41,7 +41,7 @@ fn array_builder() -> Int32Array {
     }
   }
 
-  let values = (0..50)
+  let values = (0 .. 50)
     .map(|_| range.sample(&mut rng))
     .collect::<Vec<i32>>();
 

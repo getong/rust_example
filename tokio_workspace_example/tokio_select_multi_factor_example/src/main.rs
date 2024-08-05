@@ -6,7 +6,7 @@ async fn some_computation(input: u32) -> String {
 }
 
 async fn sender_task(tx: mpsc::Sender<String>) {
-  for i in 0..10 {
+  for i in 0 .. 10 {
     let res = some_computation(i).await;
     tx.send(res).await.unwrap();
   }

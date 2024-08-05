@@ -9,6 +9,6 @@ async fn main() -> io::Result<()> {
   // read up to 10 bytes
   let n = f.read(&mut buffer[..]).await?;
 
-  println!("The bytes: {:?}", &buffer[..n]);
+  println!("The bytes: {:?}", &buffer[.. n]);
   Ok(())
 }

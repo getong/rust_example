@@ -358,7 +358,7 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
 
     let mut log = self.log.borrow_mut();
     let keys = log
-      .range(log_id.index..)
+      .range(log_id.index ..)
       .map(|(k, _v)| *k)
       .collect::<Vec<_>>();
     for key in keys {
@@ -382,7 +382,7 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
       let mut log = self.log.borrow_mut();
 
       let keys = log
-        .range(..=log_id.index)
+        .range(..= log_id.index)
         .map(|(k, _v)| *k)
         .collect::<Vec<_>>();
       for key in keys {

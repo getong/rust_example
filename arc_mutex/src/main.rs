@@ -15,7 +15,7 @@ impl MySharedData {
 fn spawn_threads() {
   let shared_data = Arc::new(Mutex::new(MySharedData::new()));
   // Spawn a number of threads and collect their join handles
-  let handles: Vec<JoinHandle<_>> = (0..10)
+  let handles: Vec<JoinHandle<_>> = (0 .. 10)
     .map(|_| {
       let shared_data = shared_data.clone();
       thread::spawn(move || {
@@ -36,7 +36,7 @@ fn spawn_threads() {
 fn main() {
   let vec = Arc::new(Mutex::new(vec![]));
   let mut childs = vec![];
-  for i in 0..5 {
+  for i in 0 .. 5 {
     let v = vec.clone();
     let t = thread::spawn(move || {
       let mut v = v.lock().unwrap();
@@ -52,7 +52,7 @@ fn main() {
   println!("{:?}", vec);
 
   let data = Arc::new(Mutex::new(0));
-  for _ in 0..15 {
+  for _ in 0 .. 15 {
     let data = Arc::clone(&data);
     thread::spawn(move || {
       let mut data = data.lock().unwrap();

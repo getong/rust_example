@@ -8,7 +8,7 @@ fn main() {
   assert_eq!(tree.get(&"key").unwrap(), Some(sled::IVec::from("value")));
 
   // range queries
-  for _kv_result in tree.range("key_1".."key_9") {}
+  for _kv_result in tree.range("key_1" .. "key_9") {}
 
   // deletion
   let _old_value = tree.remove(&"key").unwrap();

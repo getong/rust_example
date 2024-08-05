@@ -1,5 +1,5 @@
 pub fn build_heap_down_up(nums: &mut Vec<i32>) {
-  for i in 1..nums.len() {
+  for i in 1 .. nums.len() {
     heapify_down_up(nums, i);
   }
 }
@@ -19,7 +19,7 @@ fn heapify_down_up(nums: &mut Vec<i32>, idx: usize) {
 
 pub fn build_heap_up_down(nums: &mut Vec<i32>) {
   let len = nums.len();
-  for i in (0..len / 2).rev() {
+  for i in (0 .. len / 2).rev() {
     heapify_up_down(nums, i, len);
   }
 }

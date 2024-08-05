@@ -18,7 +18,7 @@ async fn handle_client(mut socket: TcpStream) -> tokio::io::Result<()> {
       }
     };
 
-    if let Err(e) = socket.write_all(&buf[0..n]).await {
+    if let Err(e) = socket.write_all(&buf[0 .. n]).await {
       eprintln!("failed to write to socket; err = {:?}", e);
       return Err(e);
     }

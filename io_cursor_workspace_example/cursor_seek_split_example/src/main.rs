@@ -16,8 +16,8 @@ impl<'a> Cursor<'a> {
   }
 
   fn split_at(&self, index: usize) -> (&'a [u8], &'a [u8]) {
-    let first_part = &self.data[..index];
-    let second_part = &self.data[index..];
+    let first_part = &self.data[.. index];
+    let second_part = &self.data[index ..];
     (first_part, second_part)
   }
 }

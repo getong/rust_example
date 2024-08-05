@@ -22,7 +22,7 @@ async fn main() {
       to: from,
     };
 
-    let _read = match conn.recv(&mut buf[..read], recv_info) {
+    let _read = match conn.recv(&mut buf[.. read], recv_info) {
       Ok(v) => v,
 
       Err(quiche::Error::Done) => {

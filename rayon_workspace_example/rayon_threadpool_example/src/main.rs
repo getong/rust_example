@@ -15,7 +15,7 @@ fn main() {
 }
 
 fn perform_parallel_task() {
-  let data: Vec<u64> = (9995..10000).collect();
+  let data: Vec<u64> = (9995 .. 10000).collect();
 
   let result: Vec<u64> = data.par_iter().map(|&x| x * x).collect();
 

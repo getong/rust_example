@@ -26,7 +26,7 @@ fn main() {
 
   let mut ts = 0;
   loop {
-    let buf = &mut bs[ts..];
+    let buf = &mut bs[ts ..];
     let n = f.read(buf).unwrap();
     let n = n as usize;
     if n == 0 {

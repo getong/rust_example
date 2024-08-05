@@ -59,7 +59,7 @@ async fn send_file(
     }
 
     // Send the data to the server
-    socket.write_all(&buffer[..bytes_read]).await?;
+    socket.write_all(&buffer[.. bytes_read]).await?;
   }
 
   println!("File transfer completed successfully");

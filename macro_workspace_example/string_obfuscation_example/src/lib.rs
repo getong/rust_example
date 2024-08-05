@@ -15,9 +15,9 @@ pub fn xor_string(tokens: TokenStream) -> TokenStream {
       _ => "<&#1>".to_owned(),
     }
   }
-  something = String::from(&something[1..something.len() - 1]);
+  something = String::from(&something[1 .. something.len() - 1]);
   let mut rng = rand::thread_rng();
-  let random_bytes: Vec<u8> = (0..something.as_bytes().len())
+  let random_bytes: Vec<u8> = (0 .. something.as_bytes().len())
     .map(|_| rng.gen::<u8>())
     .collect();
   let obfuscated: Vec<u8> = something

@@ -1,4 +1,6 @@
 #[cfg(target_os = "linux")]
+use anyhow::Result;
+#[cfg(target_os = "linux")]
 use std::net::Ipv4Addr;
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
@@ -6,8 +8,6 @@ use std::os::unix::io::AsRawFd;
 use tokio::io::AsyncReadExt;
 #[cfg(target_os = "linux")]
 use tokio_tun::TunBuilder;
-#[cfg(target_os = "linux")]
-use anyhow::Result;
 
 #[cfg(target_os = "linux")]
 #[tokio::main]
@@ -29,16 +29,17 @@ async fn main() -> Result<()> {
   println!("-----------");
 
   println!(
-        "┌ name: {}\n├ fd: {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ broadcast: {}\n└ netmask: {}",
-        tun.name(),
-        tun.as_raw_fd(),
-        tun.mtu().unwrap(),
-        tun.flags().unwrap(),
-        tun.address().unwrap(),
-        tun.destination().unwrap(),
-        tun.broadcast().unwrap(),
-        tun.netmask().unwrap(),
-    );
+    "┌ name: {}\n├ fd: {}\n├ mtu: {}\n├ flags: {}\n├ address: {}\n├ destination: {}\n├ broadcast: \
+     {}\n└ netmask: {}",
+    tun.name(),
+    tun.as_raw_fd(),
+    tun.mtu().unwrap(),
+    tun.flags().unwrap(),
+    tun.address().unwrap(),
+    tun.destination().unwrap(),
+    tun.broadcast().unwrap(),
+    tun.netmask().unwrap(),
+  );
 
   println!("---------------------");
   println!("ping 10.1.0.2 to test");
@@ -49,7 +50,7 @@ async fn main() -> Result<()> {
   let mut buf = [0u8; 1024];
   loop {
     let n = reader.read(&mut buf).await?;
-    println!("reading {} bytes: {:?}", n, &buf[..n]);
+    println!("reading {} bytes: {:?}", n, &buf[.. n]);
   }
 }
 

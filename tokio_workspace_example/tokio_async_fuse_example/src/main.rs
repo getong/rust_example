@@ -12,7 +12,7 @@ async fn main() {
   let update_duration = Fuse::new(time::sleep(Duration::from_secs(1)));
   let mut update_duration = std::pin::pin!(update_duration);
 
-  for _ in 0..10usize {
+  for _ in 0 .. 10usize {
     tokio::select! {
         _ = &mut sleep => {
             println!("Tick");

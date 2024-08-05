@@ -16,13 +16,13 @@ pub enum JsonValue {
 }
 
 fn space() -> Parser<u8, ()> {
-  one_of(b" \t\r\n").repeat(0..).discard()
+  one_of(b" \t\r\n").repeat(0 ..).discard()
 }
 
 fn number() -> Parser<u8, f64> {
-  let integer = one_of(b"123456789") - one_of(b"0123456789").repeat(0..) | sym(b'0');
-  let frac = sym(b'.') + one_of(b"0123456789").repeat(1..);
-  let exp = one_of(b"eE") + one_of(b"+-").opt() + one_of(b"0123456789").repeat(1..);
+  let integer = one_of(b"123456789") - one_of(b"0123456789").repeat(0 ..) | sym(b'0');
+  let frac = sym(b'.') + one_of(b"0123456789").repeat(1 ..);
+  let exp = one_of(b"eE") + one_of(b"+-").opt() + one_of(b"0123456789").repeat(1 ..);
   let number = sym(b'-').opt() + integer + frac.opt() + exp.opt();
   number
     .collect()
@@ -40,7 +40,7 @@ fn string() -> Parser<u8, String> {
     | sym(b'r').map(|_| b'\r')
     | sym(b't').map(|_| b'\t');
   let escape_sequence = sym(b'\\') * special_char;
-  let string = sym(b'"') * (none_of(b"\\\"") | escape_sequence).repeat(0..) - sym(b'"');
+  let string = sym(b'"') * (none_of(b"\\\"") | escape_sequence).repeat(0 ..) - sym(b'"');
   string.convert(String::from_utf8)
 }
 

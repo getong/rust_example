@@ -6,7 +6,7 @@ use tokio::time::{sleep, Duration};
 async fn main() {
   let task1 = tokio::spawn(async {
     let mut rng = OsRng::default();
-    let random_number = rng.gen_range(1..=4);
+    let random_number = rng.gen_range(1 ..= 4);
     // Some asynchronous task
     sleep(Duration::from_secs(random_number)).await;
     println!("Task 1 completed");
@@ -14,7 +14,7 @@ async fn main() {
 
   let task2 = tokio::spawn(async {
     let mut rng = OsRng::default();
-    let random_number = rng.gen_range(1..=4);
+    let random_number = rng.gen_range(1 ..= 4);
     // Some other asynchronous task
     sleep(Duration::from_secs(random_number)).await;
     println!("Task 2 completed");

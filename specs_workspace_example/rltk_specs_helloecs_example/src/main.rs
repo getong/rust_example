@@ -111,7 +111,7 @@ fn main() -> rltk::BError {
     .with(Player {})
     .build();
 
-  for i in 0..10 {
+  for i in 0 .. 10 {
     gs.ecs
       .create_entity()
       .with(Position { x: i * 7, y: 20 })

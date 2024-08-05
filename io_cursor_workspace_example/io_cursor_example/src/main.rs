@@ -15,7 +15,7 @@ fn main() -> io::Result<()> {
       Ok(0) => break, // Reached the end of the network data
       Ok(bytes_read) => {
         // Process the received bytes
-        process_received_bytes(&buffer[..bytes_read])?;
+        process_received_bytes(&buffer[.. bytes_read])?;
       }
       Err(e) => return Err(e),
     }
@@ -39,5 +39,5 @@ fn cursor_write_vec() {
   let mut cursor = Cursor::new(&mut buf[..]);
   _ = cursor.write(&[1, 2, 3]);
   _ = cursor.write(&[4, 5, 6]);
-  assert_eq!(&buf[0..6], &[1, 2, 3, 4, 5, 6]);
+  assert_eq!(&buf[0 .. 6], &[1, 2, 3, 4, 5, 6]);
 }

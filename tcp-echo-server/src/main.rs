@@ -21,7 +21,7 @@ fn handle_client(mut stream: TcpStream) -> Result<(), Error> {
     let sleep = Duration::from_secs(*[0, 1, 2, 3, 4, 5].choose(&mut rng).unwrap());
     println!("Sleeping for {:?} before replying", sleep);
     std::thread::sleep(sleep);
-    stream.write(&buf[..bytes_read])?;
+    stream.write(&buf[.. bytes_read])?;
   }
 }
 

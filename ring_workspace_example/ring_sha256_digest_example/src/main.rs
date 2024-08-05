@@ -20,7 +20,7 @@ fn sha256_digest<R: Read>(mut reader: R) -> Result<Digest> {
     if count == 0 {
       break;
     }
-    context.update(&buffer[..count]);
+    context.update(&buffer[.. count]);
   }
 
   Ok(context.finish())

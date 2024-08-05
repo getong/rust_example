@@ -36,7 +36,7 @@ impl Solution {
       let mut current_level = vec![];
 
       let level_length = deque.len();
-      for _ in 0..level_length {
+      for _ in 0 .. level_length {
         let n = deque.pop_front();
         if let Some(Some(node)) = n {
           current_level.push(node.borrow().val);

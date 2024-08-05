@@ -4,7 +4,7 @@ use std::process;
 
 fn main() {
   let argv: Vec<String> = env::args().collect();
-  let opts = match GrepOpts::from(&argv[1..]) {
+  let opts = match GrepOpts::from(&argv[1 ..]) {
     Ok(opts) => opts,
     Err(msg) => return eprintln!("Error: {}", msg),
   };

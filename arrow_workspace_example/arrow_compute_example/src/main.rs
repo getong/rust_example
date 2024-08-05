@@ -72,7 +72,7 @@ fn filter_by_group(group: i64, batch: &RecordBatch) -> ArrowResult<RecordBatch> 
   let mut arrays: Vec<ArrayRef> = Vec::new();
 
   // Iterate over the columns and apply filter
-  for idx in 0..batch.num_columns() {
+  for idx in 0 .. batch.num_columns() {
     let array = batch.column(idx).as_ref();
 
     // Apply filter to column;
@@ -112,7 +112,7 @@ fn average_score_by_group(batch: &RecordBatch) -> ArrowResult<RecordBatch> {
 
     let row_count = group_batch.num_rows() as f64;
 
-    for col_idx in 3..=6 {
+    for col_idx in 3 ..= 6 {
       let column = group_batch
         .column(col_idx)
         .as_any()

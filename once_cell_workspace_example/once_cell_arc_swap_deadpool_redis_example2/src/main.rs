@@ -33,7 +33,7 @@ async fn reconnect_database(i: usize) {
 #[tokio::main]
 async fn main() {
   initial_database().await;
-  for i in 1.. {
+  for i in 1 .. {
     match GLOBAL_REDIS_POOL.get() {
       Some(connection_info) => match &**connection_info.load() {
         Some(conn) => match conn.get().await {

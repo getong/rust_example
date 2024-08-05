@@ -10,7 +10,7 @@ fn main() {
   let username: Arc<String> = Arc::new("hello world".to_owned());
 
   // Spawn ten threads again
-  let handles: Vec<_> = (0..10)
+  let handles: Vec<_> = (0 .. 10)
     .map(|id| {
       // Here, we are explicitly cloning the smart pointer,
       // not the `String` itself. Note that it is possible to

@@ -4,12 +4,12 @@ use std::{
 };
 
 fn is_prime(n: u32) -> bool {
-  (2..=n / 2).all(|i| n % i != 0)
+  (2 ..= n / 2).all(|i| n % i != 0)
 }
 
 fn main() {
   let now = Instant::now();
-  let candidates: Vec<u32> = (2..2_000_000).collect();
+  let candidates: Vec<u32> = (2 .. 2_000_000).collect();
 
   // Build a vector of thread handles, each running 1/12th of the workload
   let mut threads: Vec<JoinHandle<Vec<u32>>> = candidates
@@ -33,7 +33,7 @@ fn main() {
 
   // Combine the results
   let primes_under_2_million: Vec<u32> = threads
-    .drain(0..)
+    .drain(0 ..)
     .map(|t| t.join().unwrap())
     .flatten()
     .collect();

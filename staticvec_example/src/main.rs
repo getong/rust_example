@@ -2,7 +2,7 @@ use staticvec::{staticvec, StaticVec};
 
 fn main() {
   let mut v = StaticVec::<usize, 64>::new();
-  for i in 0..v.capacity() {
+  for i in 0 .. v.capacity() {
     v.push(i);
   }
   for i in &v {
@@ -18,7 +18,7 @@ fn main() {
   for i in &v {
     println!("{}", i);
   }
-  for i in &v.reversed().drain(2..4) {
+  for i in &v.reversed().drain(2 .. 4) {
     println!("{}", i);
   }
   while v.is_not_empty() {

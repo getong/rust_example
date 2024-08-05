@@ -47,7 +47,7 @@ async fn main() {
 
       Ok(n) => {
         // let input = line.trim().to_owned(); // Convert to owned String
-        let input = String::from_utf8_lossy(&line[BUFFER_SIZE - n..])
+        let input = String::from_utf8_lossy(&line[BUFFER_SIZE - n ..])
           .trim()
           .to_owned(); // Convert to owned String
         if input == "quit" {
@@ -77,7 +77,7 @@ fn spawn_reader_task(read_half: ReadHalf<TcpStream>) {
       match reader.read(&mut buf).await {
         Ok(n) if n > 0 => {
           // Process the received data
-          println!("Received: {}", String::from_utf8_lossy(&buf[..n]));
+          println!("Received: {}", String::from_utf8_lossy(&buf[.. n]));
         }
         _ => break,
       }

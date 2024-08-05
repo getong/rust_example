@@ -28,7 +28,7 @@ pub fn knuth_morris_pratt(st: String, pat: String) -> Vec<usize> {
 fn make_partial(pattern: &[u8]) -> Vec<usize> {
   // build the partial match table
   let mut partial = vec![0];
-  for i in 1..pattern.len() {
+  for i in 1 .. pattern.len() {
     let mut j = partial[i - 1];
     while j > 0 && pattern[j] != pattern[i] {
       j = partial[j - 1];

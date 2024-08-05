@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         };
 
         // Write the data back
-        if let Err(e) = socket.write_all(&buf[0..n]).await {
+        if let Err(e) = socket.write_all(&buf[0 .. n]).await {
           println!("failed to write to socket; err = {:?}", e);
           return;
         }

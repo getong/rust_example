@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
     .create_producer(stream_key, Default::default())
     .await?;
 
-  for tick in 0..100 {
+  for tick in 0 .. 100 {
     let message = format!(r#""tick {tick}""#);
     eprintln!("{message}");
     producer.send(message)?;

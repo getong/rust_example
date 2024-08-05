@@ -34,7 +34,7 @@ fn parse_data(data: &[u8]) -> nom::IResult<&[u8], Person> {
     )));
   }
 
-  let remaining = &data[..score_len as usize];
+  let remaining = &data[.. score_len as usize];
   let (_, scores) = nom::bytes::streaming::take(score_len as usize)(remaining)?;
   Ok((
     remaining,

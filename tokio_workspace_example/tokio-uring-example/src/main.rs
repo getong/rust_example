@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n = res?;
 
     // Display the contents
-    println!("{:?}", &buf[..n]);
+    println!("{:?}", &buf[.. n]);
 
     Ok(())
   })

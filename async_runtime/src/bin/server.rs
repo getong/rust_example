@@ -19,7 +19,7 @@ fn handle_stream(mut stream: TcpStream) {
         break;
       };
       let thread_id = thread::current().id();
-      let contents = std::str::from_utf8(&buf[..num_of_bytes]).unwrap();
+      let contents = std::str::from_utf8(&buf[.. num_of_bytes]).unwrap();
       println!(
         "thread {thread_id:?} number of bytes received: {num_of_bytes}, contents: {contents}"
       );

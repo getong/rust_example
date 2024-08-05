@@ -75,8 +75,8 @@ fn random_scene() -> HittableList {
     ground_material,
   )));
 
-  for a in -11..11 {
-    for b in -11..11 {
+  for a in -11 .. 11 {
+    for b in -11 .. 11 {
       let choose_mat = common::random_double();
       let center = Point3::new(
         a as f64 + 0.9 * common::random_double(),
@@ -221,7 +221,7 @@ fn main() {
 
   print!("P3\n{} {}\n255\n", IMAGE_WIDTH, IMAGE_HEIGHT);
   // let b = 0.25;
-  for j in (0..IMAGE_HEIGHT).rev() {
+  for j in (0 .. IMAGE_HEIGHT).rev() {
     eprint!("\rScanlines remaining: {} ", j);
     // for i in 0..IMAGE_WIDTH {
     //     // let u = i as f64 / (IMAGE_WIDTH - 1) as f64;
@@ -249,11 +249,11 @@ fn main() {
     //     }
     //     color::write_color(&mut io::stdout(), pixel_color, SAMPLES_PER_PIXEL);
     // }
-    let pixel_colors: Vec<_> = (0..IMAGE_WIDTH)
+    let pixel_colors: Vec<_> = (0 .. IMAGE_WIDTH)
       .into_par_iter()
       .map(|i| {
         let mut pixel_color = Color::new(0.0, 0.0, 0.0);
-        for _ in 0..SAMPLES_PER_PIXEL {
+        for _ in 0 .. SAMPLES_PER_PIXEL {
           let u = ((i as f64) + common::random_double()) / (IMAGE_WIDTH - 1) as f64;
           let v = ((j as f64) + common::random_double()) / (IMAGE_HEIGHT - 1) as f64;
           let r = cam.get_ray(u, v);

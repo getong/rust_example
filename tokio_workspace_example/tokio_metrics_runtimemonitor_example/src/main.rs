@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 async fn do_work() {
-  for _ in 0..25 {
+  for _ in 0 .. 25 {
     tokio::task::yield_now().await;
     tokio::time::sleep(Duration::from_millis(100)).await;
   }

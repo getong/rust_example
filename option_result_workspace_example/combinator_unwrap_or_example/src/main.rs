@@ -1,5 +1,5 @@
 fn extension(file_name: &str) -> Option<&str> {
-  find(file_name, '.').map(|i| &file_name[i + 1..])
+  find(file_name, '.').map(|i| &file_name[i + 1 ..])
 }
 
 fn find(haystack: &str, needle: char) -> Option<usize> {

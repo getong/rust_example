@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let com = commands::Commands::from_args();
   writer.write(&com.to_bytes()).await?;
   let n = reader.read(&mut buf).await?;
-  resp.put(&buf[0..n]);
+  resp.put(&buf[0 .. n]);
   let reply = reply::Reply::from_resp(&resp);
   println!("{}", reply);
   Ok(())

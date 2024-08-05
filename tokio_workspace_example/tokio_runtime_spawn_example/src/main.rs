@@ -18,7 +18,7 @@ fn not_a_main_fn() {
     .worker_threads(8)
     .build()
     .unwrap();
-  for j in 0..10 {
+  for j in 0 .. 10 {
     rt.spawn(random_print(j));
   }
   /*

@@ -82,7 +82,7 @@ impl event::EventHandler for GameState {
           self.state = PlayState::Setup;
         }
 
-        for i in 0..(self.boids).len() {
+        for i in 0 .. (self.boids).len() {
           let boids_vec = self.boids.to_vec();
           let mut b = &mut self.boids[i];
           game_tick(

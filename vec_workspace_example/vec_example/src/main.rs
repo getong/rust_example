@@ -31,7 +31,7 @@ fn main() {
     println!("{:?}", movie);
   }
 
-  let numbers = Vec::from_iter(0..=1000);
+  let numbers = Vec::from_iter(0 ..= 1000);
   let t = thread::spawn(move || {
     let len = numbers.len();
     let sum = numbers.into_iter().sum::<usize>();

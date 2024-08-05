@@ -11,7 +11,7 @@ impl Field {
 
   fn mirror(&self) -> Field {
     let mut d = self.0;
-    for i in 0..7 {
+    for i in 0 .. 7 {
       d[i].reverse();
     }
     Field(d)
@@ -19,8 +19,8 @@ impl Field {
 
   fn rotate(&self) -> Field {
     let mut res = Field::new();
-    for i in 0..7 {
-      for j in 0..7 {
+    for i in 0 .. 7 {
+      for j in 0 .. 7 {
         res.0[j][6 - i] = self.0[i][j];
       }
     }
@@ -31,10 +31,10 @@ impl Field {
 impl Hash for Field {
   fn hash<H: Hasher>(&self, state: &mut H) {
     let mut transf = vec![*self];
-    for _ in 0..4 {
+    for _ in 0 .. 4 {
       transf.push(transf.last().unwrap().rotate());
     }
-    for i in 0..5 {
+    for i in 0 .. 5 {
       transf.push(transf[i].mirror());
     }
     transf.iter().max().unwrap().0.hash(state);
@@ -63,8 +63,8 @@ pub fn solve_solitaire() -> Vec<Move> {
 
 fn init_allowed_positions() -> Field {
   let mut res = Field::new();
-  for i in 0..7 {
-    for j in 0..7 {
+  for i in 0 .. 7 {
+    for j in 0 .. 7 {
       if i >= 2 && i <= 4 || j >= 2 && j <= 4 {
         res.0[i][j] = true;
       }
@@ -101,8 +101,8 @@ fn rec_solve(allowed_pos: &Field, occ: &Field, pruning: &mut HashSet<Field>) -> 
 
 fn find_allowed_moves(allowed_pos: &Field, occ: &Field) -> HashSet<Move> {
   let mut res = HashSet::new();
-  for x in 0..7 {
-    for y in 0..7 {
+  for x in 0 .. 7 {
+    for y in 0 .. 7 {
       if allowed_pos.0[x][y] && !occ.0[x][y] {
         for i in [-1, 1] {
           let mut possible_from_over_values = vec![];

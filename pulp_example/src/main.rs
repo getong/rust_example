@@ -22,7 +22,7 @@ impl<'a> WithSimd for TimesThree<'a> {
 
 fn main() {
   // println!("Hello, world!");
-  let mut v = (0..1000).map(|i| i as f64).collect::<Vec<_>>();
+  let mut v = (0 .. 1000).map(|i| i as f64).collect::<Vec<_>>();
   let arch = Arch::new();
 
   arch.dispatch(|| {
@@ -35,7 +35,7 @@ fn main() {
     assert_eq!(x, 2.0 * i as f64);
   }
 
-  let mut v = (0..1000).map(|i| i as f64).collect::<Vec<_>>();
+  let mut v = (0 .. 1000).map(|i| i as f64).collect::<Vec<_>>();
   let arch = Arch::new();
 
   arch.dispatch(TimesThree(&mut v));

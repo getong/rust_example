@@ -32,7 +32,7 @@ fn main() {
   // Create 5 mailboxes to send/receive messages. Every node holds a `Receiver` to receive
   // messages from others, and uses the respective `Sender` to send messages to others.
   let (mut tx_vec, mut rx_vec) = (Vec::new(), Vec::new());
-  for _ in 0..NUM_NODES {
+  for _ in 0 .. NUM_NODES {
     let (tx, rx) = mpsc::channel();
     tx_vec.push(tx);
     rx_vec.push(rx);
@@ -48,7 +48,7 @@ fn main() {
   let mut handles = Vec::new();
   for (i, rx) in rx_vec.into_iter().enumerate() {
     // A map[peer_id -> sender]. In the example we create 5 nodes, with ids in [1, 5].
-    let mailboxes = (1..6u64).zip(tx_vec.iter().cloned()).collect();
+    let mailboxes = (1 .. 6u64).zip(tx_vec.iter().cloned()).collect();
     let mut node = match i {
       // Peer 1 is the leader.
       0 => Node::create_raft_leader(1, rx, mailboxes, &logger),
@@ -121,7 +121,7 @@ fn main() {
     logger,
     "We get a 5 nodes Raft cluster now, now propose 100 proposals"
   );
-  (0..100u16)
+  (0 .. 100u16)
     .filter(|i| {
       let (proposal, rx) = Proposal::normal(*i, "hello, world".to_owned());
       proposals.lock().unwrap().push_back(proposal);
@@ -134,7 +134,7 @@ fn main() {
   info!(logger, "Propose 100 proposals success!");
 
   // Send terminate signals
-  for _ in 0..NUM_NODES {
+  for _ in 0 .. NUM_NODES {
     tx_stop.send(Signal::Terminate).unwrap();
   }
 
@@ -419,7 +419,7 @@ fn propose(raft_group: &mut RawNode<MemStorage>, proposal: &mut Proposal) {
 
 // Proposes some conf change for peers [2, 5].
 fn add_all_followers(proposals: &Mutex<VecDeque<Proposal>>) {
-  for i in 2..6u64 {
+  for i in 2 .. 6u64 {
     let mut conf_change = ConfChange::default();
     conf_change.node_id = i;
     conf_change.set_change_type(ConfChangeType::AddNode);

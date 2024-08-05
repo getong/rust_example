@@ -23,7 +23,7 @@ async fn stream_handler(mut t: TcpStream) {
         return;
       }
     };
-    let answer = from_utf8(&buf[0..n]).expect("some utf8 issue");
+    let answer = from_utf8(&buf[0 .. n]).expect("some utf8 issue");
     t.writable().await.unwrap();
     _ = t.try_write(format!("Back to you! {}", answer).as_bytes());
   }
