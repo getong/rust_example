@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Params {
   pub apikey: String,
   pub channel: Option<String>,
@@ -16,8 +16,10 @@ pub struct Params {
   pub block: Option<String>,
 }
 
+// work with ../../../reqwest_workspace_example/reqwest_handle_axum_query_params_example/
 pub async fn sign(Path(project): Path<String>, Query(params): Query<Params>) -> Json<Value> {
   // Your handler logic here
+  println!("params: {:?}", params);
   Json(json!({ "project": project, "params": params }))
 }
 
