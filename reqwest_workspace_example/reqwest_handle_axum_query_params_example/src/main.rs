@@ -6,26 +6,10 @@ use std::collections::HashMap;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let client = Client::new();
 
-  // Set up the params
-  let params = Params {
-    apikey: "MMIB0PIZYC76AN665IIW2MY8".to_string(),
-    channel: None,
-    ep_name: None,
-    block: Some("multiple".to_string()),
-  };
-
   // Convert params to a HashMap
   let mut params_map = HashMap::new();
-  params_map.insert("apikey", params.apikey);
-  if let Some(channel) = params.channel {
-    params_map.insert("channel", channel);
-  }
-  if let Some(ep_name) = params.ep_name {
-    params_map.insert("ep_name", ep_name);
-  }
-  if let Some(block) = params.block {
-    params_map.insert("block", block);
-  }
+  params_map.insert("apikey", "MMIB0PIZYC76AN665IIW2MY8".to_string());
+  params_map.insert("block", "multiple".to_string());
 
   // Build the URL with query parameters
   let project = "your_project";
@@ -43,10 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // Define the Params struct used in reqwest client
-#[derive(Debug)]
-struct Params {
-  apikey: String,
-  channel: Option<String>,
-  ep_name: Option<String>,
-  block: Option<String>,
-}
+// #[derive(Debug)]
+// struct Params {
+//   apikey: String,
+//   channel: Option<String>,
+//   ep_name: Option<String>,
+//   block: Option<String>,
+// }
