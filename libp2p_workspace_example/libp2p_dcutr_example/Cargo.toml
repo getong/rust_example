@@ -10,9 +10,9 @@ clap = { version = "4.5.9", features = ["derive"] }
 env_logger = "0.11.3"
 futures = "0.3.30"
 futures-timer = "3.0"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96", features = ["full"] }
 log = "0.4"
-libp2p-quic = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["tokio"] } 
+libp2p-quic = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96", features = ["tokio"] } 
 tokio = { version = "1.38.1", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

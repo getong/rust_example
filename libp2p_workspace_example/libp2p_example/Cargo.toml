@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.28"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96", features = ["full"] }

@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
-libp2p-core = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7"}
-libp2p-quic = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7"}
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96", features = ["full"] }
+libp2p-core = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96"}
+libp2p-quic = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96"}
 tokio = { version = "1.38.1", features = ["full"] }
 libp2p-identity = { version = "0.2.9", features = ["ed25519"] }

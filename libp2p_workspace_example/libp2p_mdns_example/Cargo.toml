@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "079b2d6b99262f4f0ca42994571614787a5c98f7", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "98da34a7dc216b5e022ff5400356c73a23dfac96", features = ["full"] }
 tokio = { version = "1.38.1", features = ["full"] }
