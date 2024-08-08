@@ -6,7 +6,6 @@ use axum_streams::*;
 use futures::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tokio_stream::StreamExt;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct MyTestStructure {
@@ -15,7 +14,8 @@ struct MyTestStructure {
 
 fn source_test_stream() -> impl Stream<Item = MyTestStructure> {
   // Simulating a stream with a plain vector and throttling to show how it works
-  tokio_stream::iter(vec![
+  use tokio_stream::StreamExt;
+  stream::iter(vec![
     MyTestStructure {
       some_test_field: "test1".to_string()
     };
@@ -25,9 +25,7 @@ fn source_test_stream() -> impl Stream<Item = MyTestStructure> {
 }
 
 async fn test_json_array_stream() -> impl IntoResponse {
-  StreamBodyAsOptions::new()
-    .buffering_ready_items(1000)
-    .json_array(source_test_stream())
+  StreamBodyAs::json_nl(source_test_stream())
 }
 
 #[tokio::main]
