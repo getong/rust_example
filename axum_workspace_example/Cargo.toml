@@ -27,4 +27,5 @@ members = [
         "axum_route_service_example",
         "socketioxide_example",
         "axum_basic_auth_example",
+        "axum_streams_json_example",
 ]
