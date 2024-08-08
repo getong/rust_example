@@ -46,7 +46,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Build the request URL
   let url = format!("http://localhost:3000/state/{}", channel_id);
 
-  // Send the POST request
+  // Send the POST request, use body method
+  let response = client
+    .post(&url)
+    .header("auth", auth)
+    .body(auth)
+    .query(&query_params)
+    .send()
+    .await?;
+
+  println!("response: {:?}\n", response);
+
+  // Handle the response
+  let response_json: Value = response.json().await?;
+  println!("Response: {:?}", response_json);
+
+  // Send the POST request, use json method
   let response = client
     .post(&url)
     .header("auth", auth)
