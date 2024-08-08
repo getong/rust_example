@@ -10,4 +10,5 @@ members = [
         "reqwest_get_post_state_channel_example",
         "reqwest_basic_example",
         "reqwest_handle_axum_query_params_example",
+        "reqwest_send_basic_auth_example"
 ]
