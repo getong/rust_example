@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Build the request URL
   let url = format!("http://localhost:3000/state/{}", channel_id);
 
-  // Send the POST request, use body method
+  // Send the POST request, use body method, payload will not changed
   let response = client
     .post(&url)
     .header("auth", auth)
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let response_json: Value = response.json().await?;
   println!("Response: {:?}", response_json);
 
-  // Send the POST request, use json method
+  // Send the POST request, use json method, payload changed to be \"payload\"
   let response = client
     .post(&url)
     .header("auth", auth)
