@@ -1,0 +1,7 @@
+[package]
+name = "tokio_10k_tasks_10_batch_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.39.2", features = ["full"] }
