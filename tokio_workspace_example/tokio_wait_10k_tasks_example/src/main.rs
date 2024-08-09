@@ -5,7 +5,7 @@ use tokio::task;
 async fn main() {
   let mut handles = Vec::with_capacity(10_000);
 
-  for i in 0..10_000 {
+  for i in 0 .. 10_000 {
     let handle = task::spawn(async move {
       // Simulate some work
       println!("Task {} started", i);
