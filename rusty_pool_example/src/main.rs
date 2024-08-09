@@ -32,4 +32,22 @@ async fn main() {
   });
   pool.join();
   assert_eq!(count.load(Ordering::SeqCst), 12);
+
+  // simply complete future by blocking a worker until the future has been completed
+  let handle = pool.complete(async {
+    let a = some_async_fn(4, 6).await; // 10
+    let b = some_async_fn(a, 3).await; // 13
+    let c = other_async_fn(b, a).await; // 3
+    some_async_fn(c, 5).await // 8
+  });
+  assert_eq!(handle.await_complete(), 8);
+
+  for i in 0 ..= 100 {
+    pool.spawn(async move {
+      println!("i is {}", i);
+    });
+  }
+  // pool.join will wait for all the futures to complete
+  // if no pool.join, some futures will not run completely
+  pool.join();
 }
