@@ -193,4 +193,5 @@ members = [
         "tokio_two_task_group_example",
         "tokio_wait_10k_tasks_example",
         "tokio_10k_tasks_10_batch_example",
+        "tokio_10k_tasks_10_batch_via_mpsc_example",
 ]
