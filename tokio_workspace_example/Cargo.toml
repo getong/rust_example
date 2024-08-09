@@ -191,4 +191,5 @@ members = [
         "tokio_sink_example",
         "tokio_fn_recursive_example",
         "tokio_two_task_group_example",
+        "tokio_wait_10k_tasks_example",
 ]
