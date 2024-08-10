@@ -1,5 +1,6 @@
 use chrono::{
-  offset::FixedOffset, DateTime, Local, LocalResult, NaiveDate, TimeZone, Utc, Weekday,
+  offset::FixedOffset, DateTime, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc,
+  Weekday,
 };
 use std::error::Error;
 
@@ -90,6 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   assert_eq!(dt, fixed_dt);
   datetime_function_example();
+  naivedatetime_func_example();
   Ok(())
 }
 
@@ -150,4 +152,24 @@ fn datetime_function_example() {
   println!("NaiveDateTime: {}", naive_time);
   println!("DateTime<Utc>: {}", utc_datetime);
   println!("Timestamp: {}", timestamp);
+}
+
+fn naivedatetime_func_example() {
+  let d = NaiveDate::from_ymd_opt(2015, 6, 3).unwrap();
+  println!("naive is {}", d);
+  assert!(d.and_hms_opt(12, 34, 56).is_some());
+  assert!(d.and_hms_opt(12, 34, 60).is_none()); // use `and_hms_milli_opt` instead
+  assert!(d.and_hms_opt(12, 60, 56).is_none());
+  assert!(d.and_hms_opt(24, 34, 56).is_none());
+
+  let datetime_utc: DateTime<Utc> = Utc::now();
+  println!("Original DateTime<Utc>: {}", datetime_utc);
+
+  // Convert DateTime<Utc> to NaiveDateTime (UTC)
+  let naive_datetime: NaiveDateTime = datetime_utc.naive_utc();
+  println!("Converted NaiveDateTime (UTC): {}", naive_datetime);
+
+  // Convert NaiveDateTime to DateTime<Utc>
+  let datetime_utc: DateTime<Utc> = naive_datetime.and_utc();
+  println!("Converted DateTime<Utc>: {}", datetime_utc);
 }
