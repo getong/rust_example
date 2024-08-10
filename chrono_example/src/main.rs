@@ -154,6 +154,7 @@ fn datetime_function_example() {
   println!("Timestamp: {}", timestamp);
 }
 
+#[allow(deprecated)]
 fn naivedatetime_func_example() {
   let d = NaiveDate::from_ymd_opt(2015, 6, 3).unwrap();
   println!("naive is {}", d);
@@ -168,6 +169,26 @@ fn naivedatetime_func_example() {
   // Convert DateTime<Utc> to NaiveDateTime (UTC)
   let naive_datetime: NaiveDateTime = datetime_utc.naive_utc();
   println!("Converted NaiveDateTime (UTC): {}", naive_datetime);
+
+  println!("NaiveDateTime timestamp: {}", naive_datetime.timestamp());
+  println!(
+    "NaiveDateTime utc timestamp: {}",
+    naive_datetime.and_utc().timestamp()
+  );
+  // `chrono::NaiveDateTime::timestamp`: equals `.and_utc().timestamp()`
+  assert_eq!(
+    naive_datetime.timestamp(),
+    naive_datetime.and_utc().timestamp()
+  );
+
+  let a_naive_time = NaiveDateTime::from_timestamp_opt(999999, 0).unwrap_or(NaiveDateTime::MIN);
+
+  let b_naive_time = DateTime::from_timestamp(999999, 0)
+    .unwrap_or(DateTime::<Utc>::MIN_UTC)
+    .naive_utc();
+
+  // `chrono::NaiveDateTime::from_timestamp_opt` equals `DateTime::from_timestamp`
+  assert_eq!(a_naive_time, b_naive_time);
 
   // Convert NaiveDateTime to DateTime<Utc>
   let datetime_utc: DateTime<Utc> = naive_datetime.and_utc();
