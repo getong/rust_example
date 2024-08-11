@@ -1,4 +1,8 @@
 use axum::{response::Json, routing::get, Router};
+use http::{
+  header::{ACCEPT, AUTHORIZATION},
+  Method,
+};
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -7,8 +11,9 @@ async fn main() {
   // Create a CORS layer that allows any origin
   let cors = CorsLayer::new()
     .allow_origin(Any) // Allow requests from any origin
-    // .allow_methods(vec!["GET", "POST"])  // Allow GET and POST methods
-    .allow_headers(Any); // Allow any header
+    .allow_methods([Method::GET, Method::POST]) // Allow GET and POST methods
+    // .allow_headers(Any); // Allow any header
+    .allow_headers([AUTHORIZATION, ACCEPT]);
 
   // Create a router
   let app = Router::new().route("/", get(handler)).layer(cors); // Apply the CORS layer to the app
