@@ -31,5 +31,6 @@ members = [
         "axum_streams_csv_example",
         "axum_tower_sessions_example",
         "axum_tower_sessions_with_signed_example",
+        "axum_tower_sessions_with_private_example",
         "axum_tower_http_example",
 ]
