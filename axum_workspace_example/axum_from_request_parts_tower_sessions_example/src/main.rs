@@ -7,6 +7,12 @@ use std::net::SocketAddr;
 use time::Duration;
 use tower_sessions::{cookie::Key, Expiry, MemoryStore, Session, SessionManagerLayer};
 
+// # Set session and store cookies in a file
+// curl -c /tmp/cookies.txt localhost:3000/set
+
+// # Access the home page with the stored cookies
+// curl -b /tmp/cookies.txt localhost:3000
+
 // Define a struct for storing session data
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct MySessionData {
@@ -39,22 +45,33 @@ async fn main() {
     .unwrap();
 }
 
-// Handler to set session data
 async fn set_session_handler(session: Session) -> Html<&'static str> {
-  // Set session data
   let data = MySessionData {
     username: "axum_user".into(),
   };
-  _ = session.insert("user_data", &data).await;
 
-  Html("Session data set. Go to the home page to see it.")
+  match session.insert("user_data", &data).await {
+    Ok(_) => {
+      println!("Session data set successfully.");
+      Html("Session data set. Go to the home page to see it.")
+    }
+    Err(_) => {
+      println!("Failed to set session data.");
+      Html("Failed to set session data.")
+    }
+  }
 }
 
-// Home handler to extract session data
 async fn home_handler(user_data: Option<MySessionData>) -> Html<String> {
   match user_data {
-    Some(data) => Html(format!("Hello, {}!", data.username)),
-    None => Html("No session data found.".to_string()),
+    Some(data) => {
+      println!("Retrieved session data: {:?}", data);
+      Html(format!("Hello, {}!", data.username))
+    }
+    None => {
+      println!("No session data found.");
+      Html("No session data found.".to_string())
+    }
   }
 }
 
