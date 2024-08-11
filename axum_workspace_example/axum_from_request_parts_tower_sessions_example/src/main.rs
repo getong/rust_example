@@ -83,15 +83,21 @@ where
 {
   type Rejection = Html<&'static str>;
 
-  async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+  async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+    let session = Session::from_request_parts(parts, &state)
+      .await
+      .map_err(|e| {
+        println!("Failed to extract session handle: {}", e.1);
+        Html("Failed to extract session handle.")
+      })?;
     // Get the session handle from the request extensions
-    let session_handle = parts
-      .extensions
-      .get::<Session>()
-      .ok_or(Html("Session not found"))?;
+    // let session = parts
+    //   .extensions
+    //   .get::<Session>()
+    //   .ok_or(Html("Session not found"))?;
 
     // Extract the session data
-    if let Ok(Some(data)) = session_handle.get::<MySessionData>("user_data").await {
+    if let Ok(Some(data)) = session.get::<MySessionData>("user_data").await {
       Ok(data)
     } else {
       Err(Html("No session data found"))
