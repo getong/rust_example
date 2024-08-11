@@ -33,4 +33,5 @@ members = [
         "axum_tower_sessions_with_signed_example",
         "axum_tower_sessions_with_private_example",
         "axum_tower_http_example",
+        "axum_from_request_parts_tower_sessions_example",
 ]

@@ -1,0 +1,12 @@
+[package]
+name = "axum_from_request_parts_tower_sessions_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7.5"
+serde = { version = "1.0.206", features = ["derive"] }
+serde_json = "1.0.122"
+time = "0.3.36"
+tokio = { version = "1.39.2", features = ["full"] }
+tower-sessions = { version = "0.12.2", features = ["signed"] }
