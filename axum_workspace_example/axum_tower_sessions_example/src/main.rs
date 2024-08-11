@@ -25,7 +25,7 @@ async fn main() {
 
   let app = Router::new().route("/", get(handler)).layer(session_layer);
 
-  let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+  let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
   let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
   axum::serve(listener, app.into_make_service())
     .await
