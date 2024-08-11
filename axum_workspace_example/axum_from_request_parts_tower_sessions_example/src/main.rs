@@ -2,16 +2,24 @@ use axum::{
   async_trait, extract::FromRequestParts, http::request::Parts, response::Html, routing::get,
   Router,
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use time::Duration;
 use tower_sessions::{cookie::Key, Expiry, MemoryStore, Session, SessionManagerLayer};
 
 // # Set session and store cookies in a file
-// curl -c /tmp/cookies.txt localhost:3000/set
-
+// curl -c /tmp/cookies1.txt localhost:3000/set
 // # Access the home page with the stored cookies
-// curl -b /tmp/cookies.txt localhost:3000
+// curl -b /tmp/cookies1.txt localhost:3000
+// Hello, user_2275!
+
+// # Set session and store cookies in a file
+// curl -c /tmp/cookies2.txt localhost:3000/set
+// # Access the home page with the stored cookies
+// curl -b /tmp/cookies2.txt localhost:3000
+// Hello, user_4250!
+// tower_sessions is thread safe
 
 // Define a struct for storing session data
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,8 +54,11 @@ async fn main() {
 }
 
 async fn set_session_handler(session: Session) -> Html<&'static str> {
+  // Generate a random username
+  let random_username: String = generate_random_username();
+
   let data = MySessionData {
-    username: "axum_user".into(),
+    username: random_username,
   };
 
   match session.insert("user_data", &data).await {
@@ -103,4 +114,10 @@ where
       Err(Html("No session data found"))
     }
   }
+}
+
+fn generate_random_username() -> String {
+  let mut rng = rand::thread_rng();
+  let random_suffix: u32 = rng.gen_range(1000 .. 10000); // Generate a random number between 1000 and 9999
+  format!("user_{}", random_suffix)
 }
