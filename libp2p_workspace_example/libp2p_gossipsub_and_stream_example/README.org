@@ -1,0 +1,9 @@
+* libp2p gossipsub and stream example
+
+* Some code is copied from below projects
+
+*** kad
+[[https://medium.com/lifefunk/playing-with-decentralized-p2p-network-rust-libp2p-stacks-2022abdf3503][Playing with decentralized p2p network & Rust Libp2p Stacks]]
+
+*** gossipsub and stream
+[[https://github.com/SeaDve/delta][delta]]
