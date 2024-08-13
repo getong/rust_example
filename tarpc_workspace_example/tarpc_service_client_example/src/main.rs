@@ -1,6 +1,6 @@
 use clap::Parser;
-use opentelemetry_otlp::WithExportConfig;
-use std::{env, net::SocketAddr, time::Duration};
+use opentelemetry::trace::TracerProvider as _;
+use std::{net::SocketAddr, time::Duration};
 use tarpc::{client, context, tokio_serde::formats::Json};
 use tokio::time::sleep;
 use tracing::Instrument;
@@ -14,17 +14,21 @@ pub trait World {
   async fn hello(name: String) -> String;
 }
 
-/// Initializes an OpenTelemetry tracing subscriber with a Jaeger backend.
-pub fn init_tracing() -> anyhow::Result<()> {
-  env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "12");
-  let otlp_exporter = opentelemetry_otlp::new_exporter()
-    .tonic()
-    .with_endpoint("http://0.0.0.0:4317");
-  let tracer = opentelemetry_otlp::new_pipeline()
+/// Initializes an OpenTelemetry tracing subscriber with a OTLP backend.
+pub fn init_tracing(service_name: &'static str) -> anyhow::Result<()> {
+  let tracer_provider = opentelemetry_otlp::new_pipeline()
     .tracing()
-    .with_exporter(otlp_exporter)
-    .install_batch(opentelemetry_sdk::runtime::Tokio)
-    .expect("failed to install");
+    .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+      opentelemetry_sdk::Resource::new([opentelemetry::KeyValue::new(
+        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+        service_name,
+      )]),
+    ))
+    .with_batch_config(opentelemetry_sdk::trace::BatchConfig::default())
+    .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+    .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+  opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+  let tracer = tracer_provider.tracer(service_name);
 
   tracing_subscriber::registry()
     .with(tracing_subscriber::EnvFilter::from_default_env())
@@ -48,7 +52,7 @@ struct Flags {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let flags = Flags::parse();
-  init_tracing()?;
+  init_tracing("Tarpc Example Client")?;
 
   let mut transport = tarpc::serde_transport::tcp::connect(flags.server_addr, Json::default);
   transport.config_mut().max_frame_length(usize::MAX);
@@ -60,8 +64,8 @@ async fn main() -> anyhow::Result<()> {
   let hello = async move {
     // Send the request twice, just to be safe! ;)
     tokio::select! {
-        hello1 = client.hello(context::current(), format!("{}1", flags.name)) => { hello1 }
-        hello2 = client.hello(context::current(), format!("{}2", flags.name)) => { hello2 }
+      hello1 = client.hello(context::current(), format!("{}1", flags.name)) => { hello1 }
+      hello2 = client.hello(context::current(), format!("{}2", flags.name)) => { hello2 }
     }
   }
   .instrument(tracing::info_span!("Two Hellos"))

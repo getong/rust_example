@@ -1,14 +1,13 @@
 use chrono::{DateTime, Local, Utc};
 use clap::Parser;
 use futures::{future, prelude::*};
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry::trace::TracerProvider as _;
 use rand::{
   distributions::{Distribution, Uniform},
   thread_rng,
 };
 use std::{
-  env,
-  net::{IpAddr, Ipv4Addr, SocketAddr},
+  net::{IpAddr, Ipv6Addr, SocketAddr},
   time::Duration,
 };
 use tarpc::{
@@ -27,17 +26,21 @@ pub trait World {
   async fn hello(name: String) -> String;
 }
 
-/// Initializes an OpenTelemetry tracing subscriber with a Jaeger backend.
-pub fn init_tracing() -> anyhow::Result<()> {
-  env::set_var("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "12");
-  let otlp_exporter = opentelemetry_otlp::new_exporter()
-    .tonic()
-    .with_endpoint("http://0.0.0.0:4317");
-  let tracer = opentelemetry_otlp::new_pipeline()
+/// Initializes an OpenTelemetry tracing subscriber with a OTLP backend.
+pub fn init_tracing(service_name: &'static str) -> anyhow::Result<()> {
+  let tracer_provider = opentelemetry_otlp::new_pipeline()
     .tracing()
-    .with_exporter(otlp_exporter)
-    .install_batch(opentelemetry_sdk::runtime::Tokio)
-    .expect("failed to install");
+    .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+      opentelemetry_sdk::Resource::new([opentelemetry::KeyValue::new(
+        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+        service_name,
+      )]),
+    ))
+    .with_batch_config(opentelemetry_sdk::trace::BatchConfig::default())
+    .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+    .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+  opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+  let tracer = tracer_provider.tracer(service_name);
 
   tracing_subscriber::registry()
     .with(tracing_subscriber::EnvFilter::from_default_env())
@@ -71,19 +74,23 @@ impl World for HelloServer {
   }
 }
 
+async fn spawn(fut: impl Future<Output = ()> + Send + 'static) {
+  tokio::spawn(fut);
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let flags = Flags::parse();
-  init_tracing()?;
+  init_tracing("Tarpc Example Server")?;
 
-  let server_addr = (IpAddr::V4(Ipv4Addr::LOCALHOST), flags.port);
+  let server_addr = (IpAddr::V6(Ipv6Addr::LOCALHOST), flags.port);
 
   // JSON transport is provided by the json_transport tarpc module. It makes it easy
   // to start up a serde-powered json serialization strategy over TCP.
   let mut listener = tarpc::serde_transport::tcp::listen(&server_addr, Json::default).await?;
   tracing::info!("Listening on port {}", listener.local_addr().port());
   listener.config_mut().max_frame_length(usize::MAX);
-  _ = listener
+  listener
     // Ignore accept errors.
     .filter_map(|r| future::ready(r.ok()))
     .map(server::BaseChannel::with_defaults)
@@ -93,12 +100,12 @@ async fn main() -> anyhow::Result<()> {
     // the generated World trait.
     .map(|channel| {
       let server = HelloServer(channel.transport().peer_addr().unwrap());
-      channel.execute(server.serve())
-    });
-  // Max 10 channels.
-  // .buffer_unordered(10)
-  // .for_each(|_| async {})
-  // .await;
+      channel.execute(server.serve()).for_each(spawn)
+    })
+    // Max 10 channels.
+    .buffer_unordered(10)
+    .for_each(|_| async {})
+    .await;
 
   Ok(())
 }
