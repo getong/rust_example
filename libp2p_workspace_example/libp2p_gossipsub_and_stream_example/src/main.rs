@@ -197,7 +197,11 @@ async fn handle_swarm_event(
       handle_requestresponse_event_msg(event, local_key, swarm).await
     }
     SwarmEvent::Behaviour(BehaviorEvent::Kad(event)) => handle_kad_msg(event).await,
-    _ => {}
+    SwarmEvent::Behaviour(BehaviorEvent::Gossipsub(event)) => handle_gossipsub_msg(event).await,
+    SwarmEvent::Behaviour(BehaviorEvent::Mdns(event)) => handle_mdns_msg(event).await,
+    _event => {
+      println!("Unhandled swarm event: {:?}", _event);
+    }
   }
 }
 
@@ -347,6 +351,14 @@ async fn handle_kad_msg(event: KadEvent) {
     }
     _ => {}
   }
+}
+
+async fn handle_gossipsub_msg(event: gossipsub::Event) {
+  println!("gossipsub event is {:?}", event);
+}
+
+async fn handle_mdns_msg(event: mdns::Event) {
+  println!("mdns event is {:?}", event);
 }
 
 fn generate_swarm(
