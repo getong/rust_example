@@ -15,5 +15,5 @@ $ cargo run
 cargo run --  "/ip4/127.0.0.1/tcp/8000"
 #+end_src
 
-copy from [[Playing with decentralized p2p network & Rust Libp2p Stacks][https://medium.com/lifefunk/playing-with-decentralized-p2p-network-rust-libp2p-stacks-2022abdf3503]]
-also see [[https://github.com/hiraqdev/poc-rust-libp2p-kademlia]]
+copy from [[https://medium.com/lifefunk/playing-with-decentralized-p2p-network-rust-libp2p-stacks-2022abdf3503][Playing with decentralized p2p network & Rust Libp2p Stacks]]
+also see [[https://github.com/hiraqdev/poc-rust-libp2p-kademli]]a
