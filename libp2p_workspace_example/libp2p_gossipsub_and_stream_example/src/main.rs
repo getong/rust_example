@@ -191,21 +191,21 @@ async fn handle_swarm_event(
       connection_id,
     } => info!("Dialing: {peer_id:?} | {connection_id}"),
     SwarmEvent::Behaviour(BehaviorEvent::Identify(event)) => {
-      handle_identify_event_msg(event, local_key, swarm, peers).await
+      handle_identify_event(event, local_key, swarm, peers).await
     }
     SwarmEvent::Behaviour(BehaviorEvent::Rr(event)) => {
-      handle_requestresponse_event_msg(event, local_key, swarm).await
+      handle_requestresponse_event(event, local_key, swarm).await
     }
-    SwarmEvent::Behaviour(BehaviorEvent::Kad(event)) => handle_kad_msg(event).await,
-    SwarmEvent::Behaviour(BehaviorEvent::Gossipsub(event)) => handle_gossipsub_msg(event).await,
-    SwarmEvent::Behaviour(BehaviorEvent::Mdns(event)) => handle_mdns_msg(event).await,
+    SwarmEvent::Behaviour(BehaviorEvent::Kad(event)) => handle_kad_event(event).await,
+    SwarmEvent::Behaviour(BehaviorEvent::Gossipsub(event)) => handle_gossipsub_event(event).await,
+    SwarmEvent::Behaviour(BehaviorEvent::Mdns(event)) => handle_mdns_event(event).await,
     _event => {
       println!("Unhandled swarm event: {:?}", _event);
     }
   }
 }
 
-async fn handle_identify_event_msg(
+async fn handle_identify_event(
   event: IdentifyEvent,
   local_key: Keypair,
   swarm: &mut Swarm<AgentBehavior>,
@@ -252,7 +252,7 @@ async fn handle_identify_event_msg(
   }
 }
 
-async fn handle_requestresponse_event_msg(
+async fn handle_requestresponse_event(
   event: RequestResponseEvent<GreeRequest, GreetResponse>,
   local_key: Keypair,
   swarm: &mut Swarm<AgentBehavior>,
@@ -316,7 +316,7 @@ async fn handle_requestresponse_event_msg(
   }
 }
 
-async fn handle_kad_msg(event: KadEvent) {
+async fn handle_kad_event(event: KadEvent) {
   match event {
     KadEvent::ModeChanged { new_mode } => info!("KadEvent:ModeChanged: {new_mode}"),
     KadEvent::RoutablePeer { peer, address } => {
@@ -353,11 +353,11 @@ async fn handle_kad_msg(event: KadEvent) {
   }
 }
 
-async fn handle_gossipsub_msg(event: gossipsub::Event) {
+async fn handle_gossipsub_event(event: gossipsub::Event) {
   println!("gossipsub event is {:?}", event);
 }
 
-async fn handle_mdns_msg(event: mdns::Event) {
+async fn handle_mdns_event(event: mdns::Event) {
   println!("mdns event is {:?}", event);
 }
 
