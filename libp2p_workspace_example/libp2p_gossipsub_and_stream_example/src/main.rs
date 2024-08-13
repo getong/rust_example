@@ -451,11 +451,7 @@ fn generate_swarm(
 
 async fn recv_terminal_signal(sig_int: &mut Signal, sig_term: &mut Signal) {
   tokio::select! {
-    _ = sig_int.recv() => {
-
-    }
-    _ = sig_term.recv() => {
-
-    }
+    _ = sig_int.recv() => {}
+    _ = sig_term.recv() => {}
   }
 }
