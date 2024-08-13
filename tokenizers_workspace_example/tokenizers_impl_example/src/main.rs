@@ -34,7 +34,7 @@ fn main() -> tokenizers::Result<()> {
     ])
     .build();
 
-  tokenizer.with_pre_tokenizer(Whitespace {});
+  tokenizer.with_pre_tokenizer(Some(Whitespace {}));
   let files = vec![
     "wikitext-103-raw/wiki.train.raw".into(),
     "wikitext-103-raw/wiki.test.raw".into(),
