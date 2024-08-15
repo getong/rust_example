@@ -1,24 +1,25 @@
 use std::sync::Arc;
 
-use openraft::testing::StoreBuilder;
-use openraft::testing::Suite;
+use openraft::testing::log::StoreBuilder;
+use openraft::testing::log::Suite;
 use openraft::StorageError;
 
 use crate::store::LogStore;
 use crate::store::StateMachineStore;
-use crate::NodeId;
 use crate::TypeConfig;
 
 struct MemKVStoreBuilder {}
 
 impl StoreBuilder<TypeConfig, LogStore, Arc<StateMachineStore>, ()> for MemKVStoreBuilder {
-  async fn build(&self) -> Result<((), LogStore, Arc<StateMachineStore>), StorageError<NodeId>> {
+  async fn build(
+    &self,
+  ) -> Result<((), LogStore, Arc<StateMachineStore>), StorageError<TypeConfig>> {
     Ok(((), LogStore::default(), Arc::default()))
   }
 }
 
-#[test]
-pub fn test_mem_store() -> Result<(), StorageError<NodeId>> {
-  Suite::test_all(MemKVStoreBuilder {})?;
+#[tokio::test]
+pub async fn test_mem_store() -> Result<(), StorageError<TypeConfig>> {
+  Suite::test_all(MemKVStoreBuilder {}).await?;
   Ok(())
 }
