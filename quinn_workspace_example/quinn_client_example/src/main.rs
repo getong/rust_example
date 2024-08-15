@@ -5,7 +5,7 @@
 use std::{
   fs,
   io::{self, Write},
-  net::ToSocketAddrs,
+  net::{SocketAddr, ToSocketAddrs},
   path::PathBuf,
   sync::Arc,
   time::{Duration, Instant},
@@ -13,6 +13,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use proto::crypto::rustls::QuicClientConfig;
+use rustls::pki_types::CertificateDer;
 use tracing::{error, info};
 use url::Url;
 
@@ -39,6 +41,10 @@ struct Opt {
   /// Simulate NAT rebinding after connecting
   #[clap(long = "rebind")]
   rebind: bool,
+
+  /// Address to bind on
+  #[clap(long = "bind", default_value = "[::]:0")]
+  bind: SocketAddr,
 }
 
 fn main() {
@@ -63,19 +69,20 @@ fn main() {
 #[tokio::main]
 async fn run(options: Opt) -> Result<()> {
   let url = options.url;
-  let remote = (url.host_str().unwrap(), url.port().unwrap_or(4433))
+  let url_host = strip_ipv6_brackets(url.host_str().unwrap());
+  let remote = (url_host, url.port().unwrap_or(4433))
     .to_socket_addrs()?
     .next()
     .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
 
   let mut roots = rustls::RootCertStore::empty();
   if let Some(ca_path) = options.ca {
-    roots.add(&rustls::Certificate(fs::read(ca_path)?))?;
+    roots.add(CertificateDer::from(fs::read(ca_path)?))?;
   } else {
     let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
     match fs::read(dirs.data_local_dir().join("cert.der")) {
       Ok(cert) => {
-        roots.add(&rustls::Certificate(cert))?;
+        roots.add(CertificateDer::from(cert))?;
       }
       Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
         info!("local server certificate not found");
@@ -86,7 +93,6 @@ async fn run(options: Opt) -> Result<()> {
     }
   }
   let mut client_crypto = rustls::ClientConfig::builder()
-    .with_safe_defaults()
     .with_root_certificates(roots)
     .with_no_client_auth();
 
@@ -95,18 +101,15 @@ async fn run(options: Opt) -> Result<()> {
     client_crypto.key_log = Arc::new(rustls::KeyLogFile::new());
   }
 
-  let client_config = quinn::ClientConfig::new(Arc::new(client_crypto));
-  let mut endpoint = quinn::Endpoint::client("[::]:0".parse().unwrap())?;
+  let client_config =
+    quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
+  let mut endpoint = quinn::Endpoint::client(options.bind)?;
   endpoint.set_default_client_config(client_config);
 
   let request = format!("GET {}\r\n", url.path());
   let start = Instant::now();
   let rebind = options.rebind;
-  let host = options
-    .host
-    .as_ref()
-    .map_or_else(|| url.host_str(), |x| Some(x))
-    .ok_or_else(|| anyhow!("no hostname specified"))?;
+  let host = options.host.as_deref().unwrap_or(url_host);
 
   eprintln!("connecting to {host} at {remote}");
   let conn = endpoint
@@ -129,14 +132,11 @@ async fn run(options: Opt) -> Result<()> {
     .write_all(request.as_bytes())
     .await
     .map_err(|e| anyhow!("failed to send request: {}", e))?;
-  send
-    .finish()
-    .await
-    .map_err(|e| anyhow!("failed to shutdown stream: {}", e))?;
+  send.finish().unwrap();
   let response_start = Instant::now();
   eprintln!("request sent at {:?}", response_start - start);
   let resp = recv
-    .read_to_end(usize::max_value())
+    .read_to_end(usize::MAX)
     .await
     .map_err(|e| anyhow!("failed to read response: {}", e))?;
   let duration = response_start.elapsed();
@@ -153,6 +153,16 @@ async fn run(options: Opt) -> Result<()> {
   endpoint.wait_idle().await;
 
   Ok(())
+}
+
+fn strip_ipv6_brackets(host: &str) -> &str {
+  // An ipv6 url looks like eg https://[::1]:4433/Cargo.toml, wherein the host [::1] is the
+  // ipv6 address ::1 wrapped in brackets, per RFC 2732. This strips those.
+  if host.starts_with('[') && host.ends_with(']') {
+    &host[1 .. host.len() - 1]
+  } else {
+    host
+  }
 }
 
 fn duration_secs(x: &Duration) -> f32 {
