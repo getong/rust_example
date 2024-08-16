@@ -40,4 +40,6 @@ members = [
         "libp2p_tokio_upnp_example",
         "libp2p_authenticate_example",
         "libp2p_gossipsub_and_stream_example",
+        "libp2p_autonatv2_server_example",
+        "libp2p_autonatv2_client_example",
 ]

@@ -1,0 +1,24 @@
+[package]
+name = "libp2p_autonatv2_client_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cfg-if = "1.0.0"
+clap = { version = "4.5.16", features = ["derive"] }
+libp2p = { version = "0.54.0", features = ["full"] }
+rand = "0.8.5"
+tokio = { version = "1.39.2", features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+opentelemetry = { version = "0.24.0", optional = true }
+opentelemetry_sdk = { version = "0.24.1", optional = true, features = ["rt-tokio"] }
+tracing-opentelemetry = { version = "0.25.0", optional = true }
+opentelemetry-jaeger = { version = "0.22.0", optional = true, features = ["rt-tokio"] }
+
+[features]
+jaeger = ["opentelemetry", "opentelemetry_sdk", "tracing-opentelemetry", "opentelemetry-jaeger"]
+opentelemetry = ["dep:opentelemetry"]
+opentelemetry_sdk = ["dep:opentelemetry_sdk"]
+tracing-opentelemetry = ["dep:tracing-opentelemetry"]
+opentelemetry-jaeger = ["dep:opentelemetry-jaeger"]
