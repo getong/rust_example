@@ -10,24 +10,21 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 
 const METRICS_CONTENT_TYPE: &str = "application/openmetrics-text;charset=utf-8;version=1.0.0";
-
-pub(crate) async fn metrics_server(registry: Registry) -> Result<(), std::io::Error> {
+pub(crate) async fn metrics_server(
+  registry: Registry,
+  metrics_path: String,
+) -> Result<(), std::io::Error> {
   // Serve on localhost.
-  let addr: SocketAddr = ([127, 0, 0, 1], 0).into();
+  let addr: SocketAddr = ([0, 0, 0, 0], 8888).into();
   let service = MetricService::new(registry);
   let server = Router::new()
-    .route("/metrics", get(respond_with_metrics))
+    .route(&metrics_path, get(respond_with_metrics))
     .with_state(service);
   let tcp_listener = TcpListener::bind(addr).await?;
   let local_addr = tcp_listener.local_addr()?;
-  tracing::info!(metrics_server=%format!("http://{}/metrics", local_addr));
+  tracing::info!(metrics_server=%format!("http://{}{}", local_addr, metrics_path));
   axum::serve(tcp_listener, server.into_make_service()).await?;
   Ok(())
-}
-
-#[derive(Clone)]
-pub(crate) struct MetricService {
-  reg: Arc<Mutex<Registry>>,
 }
 
 async fn respond_with_metrics(state: State<MetricService>) -> impl IntoResponse {
@@ -42,12 +39,17 @@ async fn respond_with_metrics(state: State<MetricService>) -> impl IntoResponse 
   )
 }
 
+#[derive(Clone)]
+pub(crate) struct MetricService {
+  reg: Arc<Mutex<Registry>>,
+}
+
 type SharedRegistry = Arc<Mutex<Registry>>;
 
 impl MetricService {
-  fn new(registry: Registry) -> Self {
+  fn new(reg: Registry) -> Self {
     Self {
-      reg: Arc::new(Mutex::new(registry)),
+      reg: Arc::new(Mutex::new(reg)),
     }
   }
 
