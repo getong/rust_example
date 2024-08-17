@@ -14,7 +14,7 @@ fn main() {
   // Overflowing
   let (e, overflowed) = b.overflowing_add(d);
   if overflowed {
-    println!("{} + {} overflowed", b, d);
+    println!("{} + {} overflowed, e is {}", b, d, e);
   } else {
     println!("{} + {} = {}", b, d, e);
   }
