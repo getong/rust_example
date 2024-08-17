@@ -1,0 +1,7 @@
+[package]
+name = "primitive_types_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+primitive-types = "0.12.2"
