@@ -1,3 +1,13 @@
+/*
+# Generate a secp256k1 private key in PEM format
+openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
+
+# Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
+openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:' > identity.txt
+
+# Optionally, remove the PEM file
+rm private_key.pem
+*/
 use ethers::{prelude::Address, utils::keccak256};
 use libp2p::{
   identity::{self, Keypair},
