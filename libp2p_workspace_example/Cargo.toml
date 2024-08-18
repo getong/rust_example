@@ -42,4 +42,5 @@ members = [
         "libp2p_gossipsub_and_stream_example",
         "libp2p_autonatv2_server_example",
         "libp2p_autonatv2_client_example",
+        "libp2p_secp256k1_public_key_example",
 ]
