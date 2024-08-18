@@ -1,0 +1,9 @@
+[package]
+name = "libsecp256k1_secretkey_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hex = "0.4.3"
+libsecp256k1 = "0.7.1"
+rand = "0.8.5"
