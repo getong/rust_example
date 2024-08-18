@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "libsecp256k1_secretkey_example",
         "libsecp256k1_publickey_example",
+        "secp256k1_secretkey_example",
 ]
