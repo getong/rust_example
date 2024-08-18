@@ -43,4 +43,5 @@ members = [
         "libp2p_autonatv2_server_example",
         "libp2p_autonatv2_client_example",
         "libp2p_libsecp256k1_secret_key_example",
+        "libp2p_secp256k1_secret_key_example",
 ]
