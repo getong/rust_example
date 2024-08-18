@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
-clap = { version = "4.5.13", features = ["derive"] }
-tokio = { version = "1.39.2", features = ["full"] }
+clap = { version = "4.5.16", features = ["derive"] }
+tokio = { version = "1.39.3", features = ["full"] }

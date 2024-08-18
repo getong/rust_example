@@ -9,6 +9,6 @@ edition = "2021"
 argh = "0.1.12"
 rustls = "0.23.12"
 rustls-pemfile = "2.1.3"
-rustls-pki-types = "1.7.0"
-tokio = { version = "1.39.2", features = ["full"] }
+rustls-pki-types = "1.8.0"
+tokio = { version = "1.39.3", features = ["full"] }
 tokio-rustls = "0.26.0"

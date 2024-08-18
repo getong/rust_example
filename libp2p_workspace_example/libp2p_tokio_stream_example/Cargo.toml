@@ -9,7 +9,7 @@ futures = "0.3.30"
 libp2p = { version = "0.54.0", features = ["tokio", "quic"] }
 libp2p-stream = "0.2.0-alpha"
 rand = "0.8.5"
-tokio = { version = "1.39.2", features = ["full"] }
+tokio = { version = "1.39.3", features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
