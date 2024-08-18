@@ -17,6 +17,8 @@ openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -
 rm private_key.pem
 */
 
+// It can also use libp2p_secp256k1_public_key_example in this repo to generate identity.txt file
+
 pub struct Identity {
   pub private_key: SecretKey,
   pub public_key: SecpPublicKey,
