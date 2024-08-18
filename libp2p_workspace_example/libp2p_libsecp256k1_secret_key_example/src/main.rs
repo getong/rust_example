@@ -50,6 +50,17 @@ pub fn pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String, Box<dyn
   Ok(format!("{:x}", address))
 }
 
+pub fn compress_pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String, Box<dyn Error>> {
+  // Serialize the public key using the secp256k1 library
+  let pub_key_bytes = pub_key.serialize_compressed();
+
+  // Calculate the Ethereum address
+  let hash = keccak256(&pub_key_bytes);
+  let address = Address::from_slice(&hash[12 ..]);
+
+  Ok(format!("{:x}", address))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
   let identity = Identity::from_file("identity.txt")?;
   println!("secp256k1 Private Key: {:?}", identity.private_key);
@@ -64,6 +75,9 @@ fn main() -> Result<(), Box<dyn Error>> {
   // Example usage of get_eth_addr_from_peer
   let eth_address = pub_key_to_eth_address(&identity.public_key)?;
   println!("Ethereum Address: {}", eth_address);
+
+  let eth_address = compress_pub_key_to_eth_address(&identity.public_key)?;
+  println!("compress Ethereum Address: {}", eth_address);
 
   Ok(())
 }
