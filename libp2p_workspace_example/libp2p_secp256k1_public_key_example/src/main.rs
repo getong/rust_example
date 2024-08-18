@@ -6,22 +6,10 @@ use libp2p::{
 use libsecp256k1::{PublicKey as SecpPublicKey, SecretKey};
 use std::{error::Error, fs};
 
-/*
-# Generate a secp256k1 private key in PEM format
-openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
-
-# Convert the private key to a raw hex format
-openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:' > identity.txt
-
-# Optionally, remove the PEM file
-rm private_key.pem
-*/
-
-// It can also use libp2p_secp256k1_public_key_example in this repo to generate identity.txt file
-
 pub struct Identity {
   pub private_key: SecretKey,
   pub public_key: SecpPublicKey,
+  pub keypair: Keypair,
   pub peer_id: PeerId,
 }
 
@@ -45,6 +33,7 @@ impl Identity {
     Ok(Identity {
       private_key,
       public_key,
+      keypair: libp2p_keypair,
       peer_id,
     })
   }
@@ -63,9 +52,14 @@ pub fn pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String, Box<dyn
 
 fn main() -> Result<(), Box<dyn Error>> {
   let identity = Identity::from_file("identity.txt")?;
-  println!("Private Key: {:?}", identity.private_key);
-  println!("Public Key: {:?}", identity.public_key);
-  println!("Peer ID: {}", identity.peer_id);
+  println!("secp256k1 Private Key: {:?}", identity.private_key);
+  println!("secp256k1 Public Key: {:?}", identity.public_key);
+  println!("libp2p secp256k1 keypair: {:?}", identity.keypair);
+  println!(
+    "libp2p secp256k1 keypair public: {:?}",
+    identity.keypair.public()
+  );
+  println!("libp2p Peer ID: {}", identity.peer_id);
 
   // Example usage of get_eth_addr_from_peer
   let eth_address = pub_key_to_eth_address(&identity.public_key)?;
