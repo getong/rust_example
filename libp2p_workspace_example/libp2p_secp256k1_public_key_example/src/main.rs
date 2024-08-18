@@ -61,10 +61,6 @@ pub fn pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String, Box<dyn
   Ok(format!("{:x}", address))
 }
 
-pub fn get_eth_addr_from_peer(pub_key: &SecpPublicKey) -> Result<String, Box<dyn Error>> {
-  pub_key_to_eth_address(pub_key)
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
   let identity = Identity::from_file("identity.txt")?;
   println!("Private Key: {:?}", identity.private_key);
@@ -72,7 +68,7 @@ fn main() -> Result<(), Box<dyn Error>> {
   println!("Peer ID: {}", identity.peer_id);
 
   // Example usage of get_eth_addr_from_peer
-  let eth_address = get_eth_addr_from_peer(&identity.public_key)?;
+  let eth_address = pub_key_to_eth_address(&identity.public_key)?;
   println!("Ethereum Address: {}", eth_address);
 
   Ok(())
