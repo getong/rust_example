@@ -20,16 +20,10 @@ fn main() {
   // Store the trait object in an Any
   let any: Box<dyn Any> = Box::new(my_instance);
 
-  // Downcast the Any to a MyStruct
-  let concrete_instance = any.downcast::<MyStruct>();
-
-  // Match on the result of the downcast
-  match concrete_instance {
-    Ok(concrete_instance) => {
-      concrete_instance.do_something();
-    }
-    Err(_) => {
-      println!("Failed to downcast to MyStruct");
-    }
+  // Attempt to downcast the Any to Box<dyn MyTrait>
+  if let Ok(concrete_instance) = any.downcast::<Box<dyn MyTrait>>() {
+    concrete_instance.do_something();
+  } else {
+    println!("Failed to downcast to Box<dyn MyTrait>");
   }
 }
