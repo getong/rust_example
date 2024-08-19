@@ -15,7 +15,7 @@ futures = "0.3.30"
 futures-timer = "3.0.3"
 http-body-util = "0.1.2"
 hyper-util = { version = "0.1.7", features = ["full"] }
-libp2p = { version = "0.54.0", features = ["full"] }
+libp2p = { version = "0.54.1", features = ["full"] }
 opentelemetry = { version = "0.24.0", features = ["metrics"] }
 opentelemetry-otlp = { version = "0.17.0", features = ["metrics"] }
 opentelemetry_api = "0.20.0"
