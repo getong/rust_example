@@ -2,6 +2,7 @@ use crate::common::Api;
 use crate::Node;
 use crate::NodeId;
 use crate::Request;
+use crate::TypeConfig;
 use openraft::error::CheckIsLeaderError;
 use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
 use std::collections::{BTreeMap, BTreeSet};
@@ -113,7 +114,7 @@ impl Api {
 
         let value = state_machine.get(&name.0).cloned().unwrap_or_default();
 
-        let res: Result<String, CheckIsLeaderError<u64, Node>> = Ok(value);
+        let res: Result<String, CheckIsLeaderError<TypeConfig>> = Ok(value);
         match res {
           Ok(result) => ConsistentReadResponse::Ok(Json(result)),
           Err(_) => ConsistentReadResponse::Fail,

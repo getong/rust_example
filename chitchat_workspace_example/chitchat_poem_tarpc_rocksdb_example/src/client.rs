@@ -2,15 +2,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use openraft::error::CheckIsLeaderError;
-use openraft::error::ClientWriteError;
-use openraft::error::ForwardToLeader;
-use openraft::error::InitializeError;
 use openraft::error::NetworkError;
 use openraft::error::RPCError;
-use openraft::error::RaftError;
 use openraft::error::RemoteError;
-use openraft::raft::ClientWriteResponse;
+use openraft::error::Unreachable;
 use openraft::RaftMetrics;
 use openraft::TryAsRef;
 use reqwest::Client;
@@ -18,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::Node;
+use crate::typ;
 use crate::NodeId;
 use crate::Request;
 use crate::TypeConfig;
@@ -27,9 +22,6 @@ use crate::TypeConfig;
 pub struct Empty {}
 
 pub struct ExampleClient {
-  /// The leader node to send request to.
-  ///
-  /// All traffic should be sent to the leader in a cluster.
   pub leader: Arc<Mutex<(NodeId, String)>>,
 
   pub inner: Client,
@@ -40,7 +32,7 @@ impl ExampleClient {
   pub fn new(leader_id: NodeId, leader_addr: String) -> Self {
     Self {
       leader: Arc::new(Mutex::new((leader_id, leader_addr))),
-      inner: reqwest::Client::new(),
+      inner: Client::new(),
     }
   }
 
@@ -55,20 +47,14 @@ impl ExampleClient {
   pub async fn write(
     &self,
     req: &Request,
-  ) -> Result<
-    ClientWriteResponse<TypeConfig>,
-    RPCError<NodeId, Node, RaftError<NodeId, ClientWriteError<NodeId, Node>>>,
-  > {
+  ) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
     self.send_rpc_to_leader("api/write", Some(req)).await
   }
 
   /// Read value by key, in an inconsistent mode.
   ///
   /// This method may return stale value because it does not force to read on a legal leader.
-  pub async fn read(
-    &self,
-    req: &String,
-  ) -> Result<String, RPCError<NodeId, Node, RaftError<NodeId>>> {
+  pub async fn read(&self, req: &String) -> Result<String, typ::RPCError> {
     self.do_send_rpc_to_leader("api/read", Some(req)).await
   }
 
@@ -78,8 +64,7 @@ impl ExampleClient {
   pub async fn consistent_read(
     &self,
     req: &String,
-  ) -> Result<String, RPCError<NodeId, Node, RaftError<NodeId, CheckIsLeaderError<NodeId, Node>>>>
-  {
+  ) -> Result<String, typ::RPCError<typ::CheckIsLeaderError>> {
     self
       .do_send_rpc_to_leader("api/consistent_read", Some(req))
       .await
@@ -93,9 +78,7 @@ impl ExampleClient {
   /// With a initialized cluster, new node can be added with [`write`].
   /// Then setup replication with [`add_learner`].
   /// Then make the new node a member with [`change_membership`].
-  pub async fn init(
-    &self,
-  ) -> Result<(), RPCError<NodeId, Node, RaftError<NodeId, InitializeError<NodeId, Node>>>> {
+  pub async fn init(&self) -> Result<(), typ::RPCError<typ::InitializeError>> {
     self
       .do_send_rpc_to_leader("cluster/init", Some(&Empty {}))
       .await
@@ -107,10 +90,7 @@ impl ExampleClient {
   pub async fn add_learner(
     &self,
     req: (NodeId, String, String),
-  ) -> Result<
-    ClientWriteResponse<TypeConfig>,
-    RPCError<NodeId, Node, RaftError<NodeId, ClientWriteError<NodeId, Node>>>,
-  > {
+  ) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
     self
       .send_rpc_to_leader("cluster/add-learner", Some(&req))
       .await
@@ -123,10 +103,7 @@ impl ExampleClient {
   pub async fn change_membership(
     &self,
     req: &BTreeSet<NodeId>,
-  ) -> Result<
-    ClientWriteResponse<TypeConfig>,
-    RPCError<NodeId, Node, RaftError<NodeId, ClientWriteError<NodeId, Node>>>,
-  > {
+  ) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
     self
       .send_rpc_to_leader("cluster/change-membership", Some(req))
       .await
@@ -137,9 +114,7 @@ impl ExampleClient {
   /// Metrics contains various information about the cluster, such as current leader,
   /// membership config, replication status etc.
   /// See [`RaftMetrics`].
-  pub async fn metrics(
-    &self,
-  ) -> Result<RaftMetrics<NodeId, Node>, RPCError<NodeId, Node, RaftError<NodeId>>> {
+  pub async fn metrics(&self) -> Result<RaftMetrics<TypeConfig>, typ::RPCError> {
     self
       .do_send_rpc_to_leader("cluster/metrics", None::<&()>)
       .await
@@ -156,7 +131,7 @@ impl ExampleClient {
     &self,
     uri: &str,
     req: Option<&Req>,
-  ) -> Result<Resp, RPCError<NodeId, Node, Err>>
+  ) -> Result<Resp, RPCError<TypeConfig, Err>>
   where
     Req: Serialize + 'static,
     Resp: Serialize + DeserializeOwned,
@@ -181,7 +156,13 @@ impl ExampleClient {
     }
     .send()
     .await
-    .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+    .map_err(|e| {
+      if e.is_connect() {
+        // `Unreachable` informs the caller to backoff for a short while to avoid error log flush.
+        return RPCError::Unreachable(Unreachable::new(&e));
+      }
+      RPCError::Network(NetworkError::new(&e))
+    })?;
 
     let res: Result<Resp, Err> = resp
       .json()
@@ -204,22 +185,17 @@ impl ExampleClient {
     &self,
     uri: &str,
     req: Option<&Req>,
-  ) -> Result<Resp, RPCError<NodeId, Node, RaftError<NodeId, Err>>>
+  ) -> Result<Resp, typ::RPCError<Err>>
   where
     Req: Serialize + 'static,
     Resp: Serialize + DeserializeOwned,
-    Err: std::error::Error
-      + Serialize
-      + DeserializeOwned
-      + TryAsRef<ForwardToLeader<NodeId, Node>>
-      + Clone,
+    Err: std::error::Error + Serialize + DeserializeOwned + TryAsRef<typ::ForwardToLeader> + Clone,
   {
     // Retry at most 3 times to find a valid leader.
     let mut n_retry = 3;
 
     loop {
-      let res: Result<Resp, RPCError<NodeId, Node, RaftError<NodeId, Err>>> =
-        self.do_send_rpc_to_leader(uri, req).await;
+      let res: Result<Resp, typ::RPCError<Err>> = self.do_send_rpc_to_leader(uri, req).await;
 
       let rpc_err = match res {
         Ok(x) => return Ok(x),
@@ -227,9 +203,9 @@ impl ExampleClient {
       };
 
       if let RPCError::RemoteError(remote_err) = &rpc_err {
-        let raft_err: &RaftError<NodeId, _> = &remote_err.source;
+        let raft_err: &typ::RaftError<_> = &remote_err.source;
 
-        if let Some(ForwardToLeader {
+        if let Some(typ::ForwardToLeader {
           leader_id: Some(leader_id),
           leader_node: Some(leader_node),
           ..
