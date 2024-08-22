@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 rocksdb = "0.22.0"
 tide = "0.16.0"
-clap = { version = "4.5.15", features = ["derive", "env"] }
+clap = { version = "4.5.16", features = ["derive", "env"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde", "type-alias"] }
 reqwest = { version = "0.12", features = ["json"] }
@@ -23,4 +23,4 @@ toy-rpc = { version = "0.10.0", features = [
   "tokio_runtime",
 ] }
 byteorder = "1.5.0"
-tokio = { version = "1.39.2", features = ["full"] }
+tokio = { version = "1.39.3", features = ["full"] }
