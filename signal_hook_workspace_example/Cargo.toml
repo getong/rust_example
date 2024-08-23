@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
         "signal_hook_example",
+        "signal_hook_complex_example",
 ]
