@@ -1,5 +1,4 @@
-use signal_hook::consts::signal::*;
-use signal_hook::iterator::Signals;
+use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::{error::Error, thread, time::Duration};
 
 fn main() -> Result<(), Box<dyn Error>> {

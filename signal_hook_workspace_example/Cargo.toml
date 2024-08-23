@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "signal_hook_example",
+]
