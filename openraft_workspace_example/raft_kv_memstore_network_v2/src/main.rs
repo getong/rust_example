@@ -17,19 +17,20 @@ async fn main() {
     .init();
 
   let router = Router::default();
-
   let local = LocalSet::new();
 
-  let (raft1, app1) = new_raft(1, router.clone()).await;
-  let (raft2, app2) = new_raft(2, router.clone()).await;
-
-  let rafts = [raft1, raft2];
-
+  // Move the creation of Raft nodes and their apps inside the LocalSet
   local
     .run_until(async move {
+      let (raft1, app1) = new_raft(1, router.clone()).await;
+      let (raft2, app2) = new_raft(2, router.clone()).await;
+
       task::spawn_local(app1.run());
       task::spawn_local(app2.run());
 
+      let rafts = [raft1, raft2];
+
+      // Run your test after spawning the local tasks
       run_test(&rafts, router).await;
     })
     .await;
