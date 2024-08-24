@@ -6,5 +6,6 @@ members = [
         "raft_kv_rocksdb",
         "raft_kv_memstore",
         "raft_kv_memstore_singlethreaded",
+        "raft_kv_memstore_network_v2",
         "raft_poem_tarpc_rocksdb",
 ]
