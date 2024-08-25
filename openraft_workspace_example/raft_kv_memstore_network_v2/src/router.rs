@@ -8,8 +8,8 @@ use tokio::sync::oneshot;
 use crate::app::RequestTx;
 use crate::decode;
 use crate::encode;
-use crate::typ::RaftError;
 use crate::NodeId;
+use crate::RaftError;
 
 /// Simulate a network router.
 #[derive(Debug, Clone, Default)]

@@ -1,6 +1,6 @@
 use openraft::BasicNode;
 use raft_kv_memstore_network_v2::store::Request;
-use raft_kv_memstore_network_v2::{new_raft, router::Router, typ};
+use raft_kv_memstore_network_v2::{new_raft, router::Router, Raft};
 use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::{task, task::LocalSet};
@@ -36,7 +36,7 @@ async fn main() {
     .await;
 }
 
-async fn run_test(rafts: &[typ::Raft], router: Router) {
+async fn run_test(rafts: &[Raft], router: Router) {
   let _ = router;
 
   // Wait for server to start up.

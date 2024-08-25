@@ -5,10 +5,9 @@ use tokio::sync::oneshot;
 
 use crate::api;
 use crate::router::Router;
-use crate::typ;
 use crate::NodeId;
+use crate::Raft;
 use crate::StateMachineStore;
-
 pub type Path = String;
 pub type Payload = String;
 pub type ResponseTx = oneshot::Sender<String>;
@@ -17,7 +16,7 @@ pub type RequestTx = mpsc::UnboundedSender<(Path, Payload, ResponseTx)>;
 /// Representation of an application state.
 pub struct App {
   pub id: NodeId,
-  pub raft: typ::Raft,
+  pub raft: Raft,
 
   /// Receive application requests, Raft protocol request or management requests.
   pub rx: mpsc::UnboundedReceiver<(Path, Payload, ResponseTx)>,
@@ -29,7 +28,7 @@ pub struct App {
 impl App {
   pub fn new(
     id: NodeId,
-    raft: typ::Raft,
+    raft: Raft,
     router: Router,
     state_machine: Arc<StateMachineStore>,
   ) -> Self {

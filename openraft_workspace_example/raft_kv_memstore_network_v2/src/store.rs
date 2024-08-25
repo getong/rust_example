@@ -16,10 +16,9 @@ use openraft::StoredMembership;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::typ;
 use crate::NodeId;
+use crate::SnapshotData;
 use crate::TypeConfig;
-
 pub type LogStore = crate::log_store::LogStore<TypeConfig>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,7 +45,7 @@ pub struct StoredSnapshot {
   pub meta: SnapshotMeta<TypeConfig>,
 
   /// The data of the state machine at the time of this snapshot.
-  pub data: Box<typ::SnapshotData>,
+  pub data: Box<SnapshotData>,
 }
 
 /// Data contained in the Raft state machine. Note that we are using `serde` to serialize the
