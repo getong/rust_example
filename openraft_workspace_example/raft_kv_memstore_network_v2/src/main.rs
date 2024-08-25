@@ -16,12 +16,12 @@ async fn main() {
     .with_env_filter(EnvFilter::from_default_env())
     .init();
 
-  let router = Router::default();
   let local = LocalSet::new();
 
   // Move the creation of Raft nodes and their apps inside the LocalSet
   local
     .run_until(async move {
+      let router = Router::default();
       let (raft1, app1) = new_raft(1, router.clone()).await;
       let (raft2, app2) = new_raft(2, router.clone()).await;
 
@@ -31,14 +31,12 @@ async fn main() {
       let rafts = [raft1, raft2];
 
       // Run your test after spawning the local tasks
-      run_test(&rafts, router).await;
+      run_test(&rafts).await;
     })
     .await;
 }
 
-async fn run_test(rafts: &[Raft], router: Router) {
-  let _ = router;
-
+async fn run_test(rafts: &[Raft]) {
   // Wait for server to start up.
   tokio::time::sleep(Duration::from_millis(200)).await;
 
