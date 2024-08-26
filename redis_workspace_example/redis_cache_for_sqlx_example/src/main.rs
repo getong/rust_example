@@ -58,12 +58,14 @@ async fn write_user(
     user.name,
     user.email
   )
-    .execute(pg_pool)
-    .await?;
+  .execute(pg_pool)
+  .await?;
 
   // Cache the user in Redis
   let cache_key = format!("user:{}", user.id);
-  redis_conn.set::<String, String, ()>(cache_key.clone(), user_json).await?;
+  redis_conn
+    .set::<String, String, ()>(cache_key.clone(), user_json)
+    .await?;
   redis_conn.expire::<String, ()>(cache_key, 60 * 5).await?; // Cache for 5 minutes
 
   println!("User written to PostgreSQL and cached in Redis.");
@@ -98,8 +100,8 @@ async fn sync_redis_to_postgres(
         user.email,
         user.id
       )
-        .execute(pg_pool)
-        .await?;
+      .execute(pg_pool)
+      .await?;
       println!("User with id {} updated in PostgreSQL.", user.id);
     } else {
       // User does not exist in PostgreSQL, insert the user
@@ -109,14 +111,17 @@ async fn sync_redis_to_postgres(
         user.name,
         user.email
       )
-        .execute(pg_pool)
-        .await?;
+      .execute(pg_pool)
+      .await?;
       println!("User with id {} inserted into PostgreSQL.", user.id);
     }
 
     // Optionally delete the Redis key after syncing
-    let _ : () = redis_conn.del(&key).await?;
-    println!("User with id {} synced from Redis to PostgreSQL and deleted from Redis cache.", user.id);
+    let _: () = redis_conn.del(&key).await?;
+    println!(
+      "User with id {} synced from Redis to PostgreSQL and deleted from Redis cache.",
+      user.id
+    );
   }
 
   Ok(())
