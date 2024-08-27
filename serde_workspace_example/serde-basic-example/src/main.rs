@@ -31,4 +31,17 @@ fn main() {
     let deserialized: ServerConfig = serde_json::from_str(&serialized).unwrap();
     println!("{:?}", deserialized);
   }
+
+  println!("\n\n");
+  {
+    println!("To and from binary");
+    let serialized = serde_json::to_string(&config)
+      .unwrap()
+      .as_bytes()
+      .to_owned();
+    println!("{:?}", serialized);
+    let deserialized: ServerConfig =
+      serde_json::from_str(&String::from_utf8(serialized).unwrap()).unwrap();
+    println!("{:?}", deserialized);
+  }
 }
