@@ -35,14 +35,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   println!("Key 'mykey' set with value and TTL of 60 seconds.");
 
   // Retrieve the serialized data back from Redis
-  let result: Option<Vec<u8>> = redis_conn.get("mykey").await?;
-
-  // Check if the data was found and deserialize it
-  if let Some(data) = result {
-    let retrieved_user: User = bincode::deserialize(&data).unwrap();
-    println!("Retrieved user from Redis: {:?}", retrieved_user);
-  } else {
-    println!("Key 'mykey' not found in Redis.");
+  match redis_conn.get::<_, Option<Vec<u8>>>("mykey").await {
+    Ok(Some(data)) => {
+      // Deserialize the data back into a User struct
+      let retrieved_user: User = bincode::deserialize(&data).unwrap();
+      println!("Retrieved user from Redis: {:?}", retrieved_user);
+    }
+    Ok(None) => {
+      println!("Key 'mykey' not found in Redis.");
+    }
+    Err(err) => {
+      println!("Failed to retrieve data from Redis: {}", err);
+    }
   }
 
   Ok(())
