@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "redis_connection_manager_example",
         "redis_cache_for_sqlx_example",
+        "redis_ttl_example",
 ]

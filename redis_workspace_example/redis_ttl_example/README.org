@@ -1,0 +1,15 @@
+* redis ttl example
+
+created by chatgpt
+
+** running redis docker
+
+#+begin_src shell
+docker run --name my_redis -d -p 6379:6379 redis:7-alpine
+#+end_src
+
+** run this repo
+
+#+begin_src shell
+cargo run
+#+end_src
