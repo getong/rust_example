@@ -7,4 +7,5 @@ members = [
         "redis_cache_for_sqlx_example",
         "redis_ttl_example",
         "redis_transaction_example",
+        "redis_set_example",
 ]
