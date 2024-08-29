@@ -1,0 +1,9 @@
+[package]
+name = "redis_transaction_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dotenv = "0.15.0"
+redis = { version = "0.26", features = ["tokio-comp"] }
+tokio = { version = "1.39.3", features = ["full"] }
