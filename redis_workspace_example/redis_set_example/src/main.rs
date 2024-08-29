@@ -13,6 +13,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let redis_client = redis::Client::open(redis_url)?;
   let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
 
+  for i in 0 .. 10 {
+    let key = format!("my_counter_{}", i);
+    // let ttl_seconds = 60;
+
+    // Start a Redis transaction using the pipeline and atomic() function
+    let _: () = redis::pipe()
+      .atomic()
+      .cmd("set") // Makes the pipeline transactional
+      .arg(&key) // First command to increment the counter
+      .arg(i)
+      .ignore() // Ignore the result of this command (not required)
+      .cmd("SADD")
+      .arg("myset")
+      .arg(&key)
+      .ignore() // Ignore the result of this command (not required)
+      .query_async(&mut redis_conn)
+      .await?; // Execute the transaction
+
+    // Retrieve and print the current value of the counter
+    let current_value: i32 = redis_conn.get(&key).await?;
+    println!("The current value of '{}' is: {}", key, current_value);
+  }
+
   // Define the Redis set key
   let set_key = "myset";
 
@@ -25,6 +48,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
   // Retrieve all members of the set using SMEMBERS
   let members: Vec<String> = redis_conn.smembers(set_key).await?;
   println!("Members in the set '{}': {:?}", set_key, members);
+  if let Ok(times_list) = redis_conn.mget::<_, Vec<i32>>(&members).await {
+    println!("times_list: {:?}", times_list);
+  } else {
+    println!("times_list is not found");
+  }
 
   // Remove a member from the set using SREM
   let _: () = redis_conn.srem(set_key, "member2").await?;
