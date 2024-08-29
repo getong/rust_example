@@ -48,6 +48,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       println!("Failed to retrieve data from Redis: {}", err);
     }
   }
+  let value = redis_conn.del::<_, i32>("mykey").await?;
+  println!("delete value is {:?}", value);
+
+  // let list = vec![1, 123];
+  // let _: () = redis_conn.set("mykey", list).await?;
+  // match redis_conn.get::<_, Option<Vec<i32>>>("mykey").await {
+  //   Ok(Some(data)) => {
+  //     // Deserialize the data back into a User struct
+  //     println!(" get list , data is {:?}", data);
+  //   }
+  //   Ok(None) => {
+  //     println!("Key 'mykey' not found in Redis.");
+  //   }
+  //   Err(err) => {
+  //     println!("Failed to retrieve data from Redis: {}", err);
+  //   }
+  // }
 
   Ok(())
 }
