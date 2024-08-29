@@ -68,6 +68,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   }
   println!("Members in the set '{}': {:?}", set_key, members);
 
+  let _: () = redis_conn.srem(set_key, members).await?;
   // Remove a member from the set using SREM
   let _: () = redis_conn.srem(set_key, "member2").await?;
   println!("Member 'member2' removed from the set '{}'.", set_key);
