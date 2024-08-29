@@ -51,17 +51,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
   match redis_conn.mget::<_, Vec<Option<i32>>>(&members).await {
     Ok(times_list) => {
       println!("Retrieved values for set members: {:?}", times_list);
+      members
+        .iter()
+        .zip(times_list.iter())
+        .for_each(|(member, time)| {
+          println!("Member '{}' has value {:?}", member, time);
+        });
     }
     Err(err) => {
       println!("Failed to retrieve values for set members: {}", err);
     }
   }
   println!("Members in the set '{}': {:?}", set_key, members);
-  if let Ok(times_list) = redis_conn.mget::<_, Vec<i32>>(&members).await {
-    println!("times_list: {:?}", times_list);
-  } else {
-    println!("times_list is not found");
-  }
 
   // Remove a member from the set using SREM
   let _: () = redis_conn.srem(set_key, "member2").await?;
