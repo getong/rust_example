@@ -47,6 +47,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   // Retrieve all members of the set using SMEMBERS
   let members: Vec<String> = redis_conn.smembers(set_key).await?;
+  // Attempt to retrieve the values of the keys in the set
+  match redis_conn.mget::<_, Vec<Option<i32>>>(&members).await {
+    Ok(times_list) => {
+      println!("Retrieved values for set members: {:?}", times_list);
+    }
+    Err(err) => {
+      println!("Failed to retrieve values for set members: {}", err);
+    }
+  }
   println!("Members in the set '{}': {:?}", set_key, members);
   if let Ok(times_list) = redis_conn.mget::<_, Vec<i32>>(&members).await {
     println!("times_list: {:?}", times_list);
