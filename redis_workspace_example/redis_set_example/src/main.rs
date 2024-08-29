@@ -54,8 +54,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
       members
         .iter()
         .zip(times_list.iter())
-        .for_each(|(member, time)| {
-          println!("Member '{}' has value {:?}", member, time);
+        .zip(times_list.iter())
+        .for_each(|((member, time1), time2)| {
+          println!(
+            "Member '{}' has value {:?}, time : {:?}",
+            member, time1, time2
+          );
         });
     }
     Err(err) => {
