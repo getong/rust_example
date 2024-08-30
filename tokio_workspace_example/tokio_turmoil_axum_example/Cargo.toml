@@ -11,7 +11,7 @@ axum = "0.7.5"
 http-body-util = "0.1.2"
 hyper = { version = "1.4.1", features = ["full"] }
 hyper-util = { version = "0.1.7", features = ["full"] }
-tokio = { version = "1.39.3", features = ["full"] }
+tokio = { version = "1.40.0", features = ["full"] }
 tower = "0.5.0"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
