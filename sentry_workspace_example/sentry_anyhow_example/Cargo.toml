@@ -1,0 +1,9 @@
+[package]
+name = "sentry_anyhow_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+sentry = "0.34.0"
+sentry-anyhow = "0.34.0"

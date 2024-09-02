@@ -5,4 +5,14 @@ resolver = "2"
 members = [
         "sentry_before_send_example",
         "sentry_verify_example",
+        "sentry_anyhow_example",
+        "sentry_event_processors_example",
+        "sentry_health_example",
+        "sentry_log_demo_example",
+        "sentry_message_demo_example",
+        "sentry_panic_demo_example",
+        "sentry_performance_demo_example",
+        "sentry_send_with_extra_example",
+        "sentry_thread_demo_example",
+        "sentry_tracing_demo_example",
 ]
