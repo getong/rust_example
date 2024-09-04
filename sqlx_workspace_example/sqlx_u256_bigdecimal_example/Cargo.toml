@@ -1,0 +1,17 @@
+[package]
+name = "sqlx_u256_bigdecimal_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sqlx = { version = "0.8", features = [
+  "runtime-tokio-native-tls",
+  "postgres",
+  "chrono",
+  "any",
+  "bigdecimal",
+] }
+ethereum-types = "0.14"
+bigdecimal = "0.4.5"
+tokio = { version = "1", features = ["full"] }
+dotenv = "0.15.0"

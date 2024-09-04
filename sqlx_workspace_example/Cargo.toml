@@ -6,4 +6,5 @@ members = [
         "bigdecimal_basic_example",
         "sqlx_bigdecimal_example",
         "u256_bigdecimal_example",
+        "sqlx_u256_bigdecimal_example",
 ]
