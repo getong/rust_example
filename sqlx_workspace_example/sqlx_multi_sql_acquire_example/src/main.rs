@@ -1,7 +1,7 @@
 use chrono::{NaiveDateTime, Utc};
 use dotenv::dotenv;
 use rand::{distributions::Alphanumeric, Rng};
-use sqlx::{postgres::PgPoolOptions, query_as, FromRow};
+use sqlx::{postgres::PgPoolOptions, query_as, FromRow, PgConnection};
 use std::env;
 
 #[derive(Debug, FromRow)]
@@ -124,6 +124,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   .fetch_all(&mut *conn)
   .await?;
 
+  // Fetch all data from daily_data table using the helper function
+  let all_daily_data = get_all_daily_data(&mut *conn).await?;
+
   println!("Inserted data into both tables successfully");
 
   println!("Inserted into daily_data: {:?}", inserted_daily_data);
@@ -140,5 +143,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", data);
   }
 
+  // Print the fetched data from the helper function
+  println!("All Daily Data:");
+  for data in all_daily_data {
+    println!("{:?}", data);
+  }
+
   Ok(())
+}
+
+pub async fn get_all_daily_data(
+  conn: &mut PgConnection,
+) -> Result<Vec<DailyData>, Box<dyn std::error::Error>> {
+  let daily_data: Vec<DailyData> = query_as!(
+    DailyData,
+    "SELECT id, value, created_at, updated_at FROM daily_data"
+  )
+  .fetch_all(conn)
+  .await?;
+  Ok(daily_data)
 }
