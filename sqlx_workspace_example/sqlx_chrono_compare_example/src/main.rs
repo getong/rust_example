@@ -13,7 +13,7 @@ pub struct MyData {
 }
 
 #[derive(Debug, FromRow)]
-struct MyDataValue {
+pub struct MyDataValue {
   pub value: String,
 }
 
@@ -78,7 +78,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // Process the results
   for value in values {
-    println!("Value: {}", value.value);
+    println!("Value: {:?}", value);
+  }
+
+  // Corrected query for only the value column using sqlx::query_as
+  let rows: Vec<MyDataValue> =
+    sqlx::query_as::<_, MyDataValue>("SELECT value FROM my_data WHERE updated_at > $1")
+      .bind(time_24_hours_ago)
+      .fetch_all(&pool)
+      .await?;
+
+  // Print the queried data
+  for row in rows {
+    println!("{:?}", row);
   }
 
   Ok(())
