@@ -1,0 +1,21 @@
+* sqlx chrono compare example
+
+created by chatgpt
+
+** running postgresql docker
+
+#+begin_src shell
+docker run --name my_postgres -e POSTGRES_PASSWORD=mypassword -d -p 5432:5432 postgres:12.19-bullseye
+#+end_src
+
+** run sqlx
+
+#+begin_src shell
+sqlx db create --database-url postgres://postgres:mypassword@localhost/chs-host
+
+mkdir migrations
+
+sqlx migrate add create_table
+
+sqlx migrate run
+#+end_src

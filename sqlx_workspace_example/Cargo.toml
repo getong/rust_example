@@ -7,4 +7,5 @@ members = [
         "sqlx_bigdecimal_example",
         "u256_bigdecimal_example",
         "sqlx_u256_bigdecimal_example",
+        "sqlx_chrono_compare_example",
 ]

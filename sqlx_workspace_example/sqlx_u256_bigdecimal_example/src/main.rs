@@ -1,10 +1,8 @@
 use bigdecimal::BigDecimal;
 use dotenv::dotenv;
 use ethereum_types::U256;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{query, query_as, FromRow};
-use std::env;
-use std::str::FromStr;
+use sqlx::{postgres::PgPoolOptions, query, query_as, FromRow};
+use std::{env, str::FromStr};
 
 #[derive(Debug, FromRow)]
 pub struct MyData {
