@@ -1,0 +1,17 @@
+[package]
+name = "sqlx_multi_sql_acquire_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dotenv = "0.15.0"
+tokio = { version = "1.40.0", features = ["full"] }
+sqlx = { version = "0.8", features = [
+  "runtime-tokio-native-tls",
+  "postgres",
+  "chrono",
+  "any",
+  "bigdecimal",
+] }
+chrono = "0.4.38"
+rand = "0.8.5"
