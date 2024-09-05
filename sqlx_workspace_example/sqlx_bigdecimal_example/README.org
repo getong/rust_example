@@ -13,9 +13,7 @@ docker run --name my_postgres -e POSTGRES_PASSWORD=mypassword -d -p 5432:5432 po
 #+begin_src shell
 sqlx database create
 
-mkdir migrations
-
-sqlx migrate add add_bigdecimal
+sqlx migrate add -r add_bigdecimal
 
 sqlx migrate run
 
