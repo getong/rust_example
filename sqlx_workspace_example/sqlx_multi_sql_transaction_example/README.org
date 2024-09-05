@@ -1,0 +1,23 @@
+* sqlx multi sql transaction example
+
+created by github copilot
+
+** running postgresql docker
+
+#+begin_src shell
+docker run --name my_postgres -e POSTGRES_PASSWORD=mypassword -d -p 5432:5432 postgres:12.19-bullseye
+#+end_src
+
+** run sqlx
+
+#+begin_src shell
+sqlx database create
+
+sqlx migrate add -r create_table
+
+sqlx migrate add -r new_table
+
+sqlx migrate run
+
+sqlx database drop
+#+end_src
