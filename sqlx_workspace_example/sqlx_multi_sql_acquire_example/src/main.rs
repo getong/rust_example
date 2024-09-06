@@ -25,6 +25,11 @@ pub struct MyDataValue {
   pub value: String,
 }
 
+// Define a struct to hold the result
+pub struct SumResult {
+  pub sum: Option<i64>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Load environment variables from a .env file
@@ -150,7 +155,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 
   // Define the query
-  let row: (i64,) = sqlx::query_as("SELECT SUM(id) FROM daily_data")
+  let row: (i64,) = sqlx::query_as("SELECT SUM(id) FROM daily_data where id > $1")
+    .bind(1)
     .fetch_one(&mut *conn)
     .await?;
 
@@ -158,6 +164,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let sum_of_queries = row.0;
 
   println!("Sum of queries: {}", sum_of_queries);
+
+  // Execute the query and map the result to the struct
+  let result = query_as!(SumResult, "SELECT SUM(id) FROM daily_data where id > $1", 1)
+    .fetch_one(&mut *conn)
+    .await?;
+
+  // Extract the sum
+  let sum_of_queries = result.sum;
+
+  println!("Sum of queries: {:?}", sum_of_queries);
 
   Ok(())
 }
