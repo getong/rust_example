@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "chrono_example",
         "chrono_current_begin_hour_example",
+        "chrono_begin_naivedate_example",
 ]
