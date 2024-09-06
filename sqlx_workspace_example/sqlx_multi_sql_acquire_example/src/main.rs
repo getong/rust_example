@@ -149,6 +149,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", data);
   }
 
+  // Define the query
+  let row: (i64,) = sqlx::query_as("SELECT SUM(id) FROM daily_data")
+    .fetch_one(&mut *conn)
+    .await?;
+
+  // Extract the sum
+  let sum_of_queries = row.0;
+
+  println!("Sum of queries: {}", sum_of_queries);
+
   Ok(())
 }
 
