@@ -1,0 +1,9 @@
+[package]
+name = "chrono_sort_days_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bigdecimal = { version = "0.4.5", features = ["serde"] }
+chrono = "0.4.38"
+tokio = { version = "1.40.0", features = ["full"] }
