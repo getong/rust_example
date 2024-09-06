@@ -10,4 +10,5 @@ members = [
         "sqlx_chrono_compare_example",
         "sqlx_multi_sql_transaction_example",
         "sqlx_multi_sql_acquire_example",
+        "bigdecimal_serde_json_example",
 ]

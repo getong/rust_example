@@ -20,4 +20,12 @@ fn main() {
   println!("{} - {} = {}", dec1, dec2, difference);
   println!("{} * {} = {}", dec1, dec2, product);
   println!("{} / {} = {}", dec1, dec2, quotient);
+  // Initialize BigDecimal with zero
+  let zero = BigDecimal::from(0);
+
+  // Alternatively, you can use from_str
+  let zero_from_str = BigDecimal::from_str("0").unwrap();
+
+  println!("BigDecimal zero: {}", zero);
+  println!("BigDecimal zero from str: {}", zero_from_str);
 }
