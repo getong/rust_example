@@ -1,0 +1,17 @@
+[package]
+name = "iroh_local_swarm_discovery_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.87"
+clap = { version = "4.5.17", features = ["derive"] }
+console = "0.15.8"
+futures-lite = "2.3.0"
+indicatif = "0.17.8"
+iroh = "0.24.0"
+iroh-blobs = "0.24.0"
+iroh-net = "0.24.0"
+tokio = { version = "1.40.0", features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
