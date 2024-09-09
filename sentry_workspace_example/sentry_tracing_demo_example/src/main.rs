@@ -1,11 +1,15 @@
 use std::thread;
 use std::time::Duration;
-use tracing_subscriber::prelude::*;
+use tracing_subscriber::{
+  prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, EnvFilter,
+};
 
 const SENTRY_DSN: &str = "your-sentry-dsn";
 
 fn main() {
+  let log_level = "warn";
   tracing_subscriber::registry()
+    .with(EnvFilter::new(log_level))
     .with(tracing_subscriber::fmt::layer())
     .with(sentry_tracing::layer())
     .try_init()
@@ -23,6 +27,7 @@ fn main() {
 
   tracing::debug!("System is booting");
   tracing::info!("System is booting");
+  tracing::warn!("sentry is working with rust tracing");
 
   main_span1();
   thread::sleep(Duration::from_millis(100));
