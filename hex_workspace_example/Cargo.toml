@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "hex_example",
         "hex_add_0x_example",
+        "u256_hex_convert_example",
 ]
