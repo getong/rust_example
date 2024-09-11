@@ -1,21 +1,22 @@
-const SENTRY_DSN: &str = "your-sentry-dsn";
+use std::env;
+
+const SENTRY_DSN: &str = env!("SENTRY_DSN");
 
 fn main() {
+  dotenv::dotenv().ok();
+
   let _sentry = sentry::init((
     SENTRY_DSN,
     sentry::ClientOptions {
-      // release health requires a release to be set
       release: sentry::release_name!(),
       debug: true,
-      // session tracking is enabled by default, but we want to explicitly
-      // create the session
-      auto_session_tracking: false,
+      auto_session_tracking: true,
+      attach_stacktrace: true,
       ..Default::default()
     },
   ));
 
   let handle = std::thread::spawn(|| {
-    // this session will be set to crashed
     sentry::start_session();
     std::thread::sleep(std::time::Duration::from_secs(3));
     panic!("oh no!");
@@ -28,15 +29,14 @@ fn main() {
     sentry::Level::Error,
   );
 
-  // or any error that has an explicit exception attached
   let err = "NaN".parse::<usize>().unwrap_err();
   sentry::capture_error(&err);
 
   std::thread::sleep(std::time::Duration::from_secs(2));
 
-  // this session will have an error count of 2, but otherwise have
-  // a clean exit.
   sentry::end_session();
 
-  handle.join().ok();
+  if let Err(e) = handle.join() {
+    eprintln!("Thread panicked: {:?}", e);
+  }
 }
