@@ -15,4 +15,5 @@ members = [
         "sentry_send_with_extra_example",
         "sentry_thread_demo_example",
         "sentry_tracing_demo_example",
+        "sentry_crash_example",
 ]
