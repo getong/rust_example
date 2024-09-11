@@ -3,8 +3,6 @@ use std::env;
 const SENTRY_DSN: &str = env!("SENTRY_DSN");
 
 fn main() {
-  dotenv::dotenv().ok();
-
   let _sentry = sentry::init((
     SENTRY_DSN,
     sentry::ClientOptions {

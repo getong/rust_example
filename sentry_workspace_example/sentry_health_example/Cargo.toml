@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-dotenv = "0.15.0"
 sentry = "0.34.0"
 
 [build-dependencies]
