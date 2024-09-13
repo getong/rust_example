@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let client = reqwest::Client::new();
 
   let json1 = json!({
-  "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp"],
+      "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp", "QmTfhYrb3wusYS715KvHfaL56R8M1SrM8vwhuLyYVehfKB"],
   "start_date": "2024-09-01",
   });
 
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("1: {:#?}", res);
 
   let json2 = json!({
-      "indexer": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64"],
+      "indexer": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64", "0xbf3a286a477967ebd850cee2dbdbfa622222"],
       "start_date": "2024-09-01",
   });
 
@@ -46,8 +46,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("2: {:#?}", res);
 
   let json3 = json!({
-      "indexer": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64"],
-      "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp"],
+      "indexer": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64", "0xbf3a286a477967ebd850cee2dbdbfa6e5222224"],
+      "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp", "QmTfhYrb3wusYS715KvHfaL56R8M1SrM8vwhuLyYVehfKB"],
       "start_date": "2024-09-01",
   });
 
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("3: {:#?}", res);
 
   let json4 = json!({
-      "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp"],
+      "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp", "QmTfhYrb3wusYS715KvHfaL56R8M1SrM8vwhuLyYVehfKB"],
       "start_date": "2024-09-01",
   });
 
