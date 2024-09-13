@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("1: {:#?}", res);
 
   let json2 = json!({
       "indexer": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64"],
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("2: {:#?}", res);
 
   let json3 = json!({
       "indexer": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64"],
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("3: {:#?}", res);
 
   let json4 = json!({
       "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp"],
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("4 {:#?}", res);
 
   let res = client
     .get(URL3)
@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("5 {:#?}", res);
 
   let json4 = json!({
       "user_list": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64", "0xa499b9c52547db14d13216dcd73da0d4d43ba66e", "0x5e15ce35a3821e15d36988d9e0dd181c7c371a07"],
@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("6 {:#?}", res);
 
   let json4 = json!({
       "user_list": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64", "0xa499b9c52547db14d13216dcd73da0d4d43ba66e", "0x5e15ce35a3821e15d36988d9e0dd181c7c371a07"],
@@ -124,7 +124,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await
     .expect("failed to get payload");
 
-  println!("{:#?}", res);
+  println!("7 {:#?}", res);
 
   Ok(())
 }
