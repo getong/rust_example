@@ -94,6 +94,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let json4 = json!({
       "user_list": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64", "0xa499b9c52547db14d13216dcd73da0d4d43ba66e", "0x5e15ce35a3821e15d36988d9e0dd181c7c371a07"],
       "start": "2024-09-01",
+      "end": "2024-09-02"
+  });
+
+  let res = client
+    .post(URL4)
+    .json(&json4)
+    .send()
+    .await
+    .expect("failed to get response")
+    .json::<Value>()
+    .await
+    .expect("failed to get payload");
+
+  println!("{:#?}", res);
+
+  let json4 = json!({
+      "user_list": ["0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64", "0xa499b9c52547db14d13216dcd73da0d4d43ba66e", "0x5e15ce35a3821e15d36988d9e0dd181c7c371a07"],
+      "start": "2024-09-13"
   });
 
   let res = client
