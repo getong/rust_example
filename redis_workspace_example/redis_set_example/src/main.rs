@@ -1,6 +1,5 @@
-use redis::AsyncCommands;
+use redis::{AsyncCommands, RedisError, Value};
 use std::{env, error::Error};
-use tokio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -12,6 +11,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
   // Create Redis client and connection
   let redis_client = redis::Client::open(redis_url)?;
   let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
+  let members_result: ::std::result::Result<Vec<Value>, RedisError> = redis::pipe()
+    .cmd("SMEMBERS")
+    .arg("test_key")
+    .query_async(&mut redis_conn)
+    .await;
+  match members_result {
+    Ok(members) => {
+      println!("file line :{} members: {:#?}", line!(), members);
+    }
+    Err(e) => {
+      eprintln!("Error retrieving members from Redis: {:?}", e);
+    }
+  }
+
+    let members: Vec<String> = redis_conn.smembers("test_key").await?;
+  println!("file line :{} members: {:#?}", line!(), members);
+
+  match redis_conn
+        .smembers::<_, Vec<String>>("test_key")
+    .await
+  {
+    Ok(value_list) => println!("line : {}, value_list : {:?}", line!(), value_list),
+    _ => {}
+  }
+  println!("file line :{} members: {:#?}", line!(), members);
 
   for i in 0 .. 10 {
     let key = format!("my_counter_{}", i);
