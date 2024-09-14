@@ -2,7 +2,6 @@
 name = "tokio_turmoil_axum_example"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -11,8 +10,9 @@ axum = "0.7.5"
 http-body-util = "0.1.2"
 hyper = { version = "1.4.1", features = ["full"] }
 hyper-util = { version = "0.1.7", features = ["full"] }
+pin-project-lite = "0.2.14"
 tokio = { version = "1.40.0", features = ["full"] }
-tower = "0.5.0"
-tracing = "0.1.40"
+tower = { version = "0.5.0", features = ["util"] }
+tracing = "0.1"
 tracing-subscriber = "0.3.18"
 turmoil = "0.6.3"

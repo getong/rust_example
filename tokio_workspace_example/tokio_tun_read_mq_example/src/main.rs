@@ -7,11 +7,9 @@ use tokio::io::AsyncReadExt;
 #[cfg(target_os = "linux")]
 use tokio_tun::TunBuilder;
 
-use anyhow::Result;
-
 #[cfg(target_os = "linux")]
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
   let queues = 3;
 
   let tuns = TunBuilder::new()

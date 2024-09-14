@@ -75,8 +75,9 @@ fn main() {
 
 mod connector {
   use hyper::Uri;
+  use pin_project_lite::pin_project;
   use std::{future::Future, io::Error, pin::Pin};
-  use tokio::io::{AsyncRead, AsyncWrite};
+  use tokio::io::AsyncWrite;
   use tower::Service;
   use turmoil::net::TcpStream;
 
@@ -87,12 +88,17 @@ mod connector {
     tower::service_fn(|uri: Uri| {
       Box::pin(async move {
         let conn = TcpStream::connect(uri.authority().unwrap().as_str()).await?;
-        Ok::<_, Error>(TurmoilConnection(conn))
+        Ok::<_, Error>(TurmoilConnection { fut: conn })
       }) as Fut
     })
   }
 
-  pub struct TurmoilConnection(turmoil::net::TcpStream);
+  pin_project! {
+      pub struct TurmoilConnection{
+          #[pin]
+          fut: turmoil::net::TcpStream
+      }
+  }
 
   impl hyper::rt::Read for TurmoilConnection {
     fn poll_read(
@@ -100,47 +106,43 @@ mod connector {
       cx: &mut std::task::Context<'_>,
       mut buf: hyper::rt::ReadBufCursor<'_>,
     ) -> std::task::Poll<Result<(), Error>> {
-      let turmoil_connection = Pin::get_mut(self);
-      unsafe {
+      let n = unsafe {
         let mut tbuf = tokio::io::ReadBuf::uninit(buf.as_mut());
-
-        let result = Pin::new(&mut turmoil_connection.0).poll_read(cx, &mut tbuf);
+        let result = tokio::io::AsyncRead::poll_read(self.project().fut, cx, &mut tbuf);
         match result {
-          std::task::Poll::Ready(Ok(())) => {
-            let n = tbuf.filled().len();
-            buf.advance(n);
-            std::task::Poll::Ready(Ok(()))
-          }
-          other => other,
+          std::task::Poll::Ready(Ok(())) => tbuf.filled().len(),
+          other => return other,
         }
+      };
+
+      unsafe {
+        buf.advance(n);
       }
+      std::task::Poll::Ready(Ok(()))
     }
   }
 
   impl hyper::rt::Write for TurmoilConnection {
     fn poll_write(
-      self: Pin<&mut Self>,
+      mut self: Pin<&mut Self>,
       cx: &mut std::task::Context<'_>,
       buf: &[u8],
     ) -> std::task::Poll<Result<usize, Error>> {
-      let turmoil_connection = Pin::get_mut(self);
-      Pin::new(&mut turmoil_connection.0).poll_write(cx, buf)
+      Pin::new(&mut self.fut).poll_write(cx, buf)
     }
 
     fn poll_flush(
-      self: Pin<&mut Self>,
+      mut self: Pin<&mut Self>,
       cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Error>> {
-      let turmoil_connection = Pin::get_mut(self);
-      Pin::new(&mut turmoil_connection.0).poll_flush(cx)
+      Pin::new(&mut self.fut).poll_flush(cx)
     }
 
     fn poll_shutdown(
-      self: Pin<&mut Self>,
+      mut self: Pin<&mut Self>,
       cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Error>> {
-      let turmoil_connection = Pin::get_mut(self);
-      Pin::new(&mut turmoil_connection.0).poll_shutdown(cx)
+      Pin::new(&mut self.fut).poll_shutdown(cx)
     }
   }
 
