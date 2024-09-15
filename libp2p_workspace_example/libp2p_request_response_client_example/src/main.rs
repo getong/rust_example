@@ -48,10 +48,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("Local peer id: {:?}", local_peer_id);
 
   // Define the server's PeerId and Multiaddr here. Replace these with actual values.
-  let server_peer_id: PeerId = "12D3KooWG2xD9LHpKg5hsvYcJQoJBEMQ4ptFWtoZCDQN7orDoUzC"
+  // Ensure this is the actual base58 encoded peer ID string
+    let server_peer_id: PeerId = "12D3KooWB2QWhVng9gJaqSrSdUoyqiLokkn4P73AY3yBha77ceLs"
     .parse()
     .unwrap();
-  let server_address: Multiaddr = "/ip4/127.0.0.1/tcp/12345".parse().unwrap();
+  let server_address: Multiaddr = "/ip4/127.0.0.1/tcp/59778".parse().unwrap();
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()

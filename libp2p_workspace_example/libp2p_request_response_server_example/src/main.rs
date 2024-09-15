@@ -3,7 +3,7 @@
 // use std::collections::{hash_map, HashMap, HashSet};
 use futures::StreamExt;
 use libp2p::{
-  // core::Multiaddr,
+  Multiaddr,
   identity,
   kad,
   // multiaddr::Protocol,
@@ -492,7 +492,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       ),
     })?
     .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-    .build();
+        .build();
+
+    // Start listening on the given multiaddress
+    let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse()?; // Use 0.0.0.0 and port 0 to bind to an available port on all interfaces
+    println!(" listen_addr： {:?}", listen_addr);
+    swarm.listen_on(listen_addr)?;
 
   swarm
     .behaviour_mut()
@@ -517,6 +522,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
           .send_response(channel, response)
           .unwrap();
       }
+        SwarmEvent::NewListenAddr { address, .. } => {
+            println!("Listening on {:?}", address);
+        }
       _ => {}
     }
   }
