@@ -49,10 +49,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   // Define the server's PeerId and Multiaddr here. Replace these with actual values.
   // Ensure this is the actual base58 encoded peer ID string
-    let server_peer_id: PeerId = "12D3KooWB2QWhVng9gJaqSrSdUoyqiLokkn4P73AY3yBha77ceLs"
+  let server_peer_id: PeerId = "12D3KooWKqoj2avCva79pFaqgyjwxKyFQQhPeuJP4hwwTzDLLGyo"
     .parse()
     .unwrap();
-  let server_address: Multiaddr = "/ip4/127.0.0.1/tcp/59778".parse().unwrap();
+  let server_address: Multiaddr = "/ip4/127.0.0.1/tcp/4001".parse().unwrap();
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()
@@ -101,6 +101,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
       )) => {
         println!("Received response from {:?}: {:?}", peer, response.0);
+        println!(
+          "msg is {:?}",
+          String::from_utf8(response.0).unwrap_or("message_not_found".to_string())
+        );
         break; // Exit the loop after receiving the response
       }
       SwarmEvent::Behaviour(MyBehaviourEvent::RequestResponse(
