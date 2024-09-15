@@ -7,6 +7,6 @@ edition = "2021"
 futures = "0.3.30"
 hex = "0.4.3"
 libp2p = { version = "0.54.1", features = ["full"] }
-secp256k1 = { version = "0.29.0", features = ["alloc", "std", "hashes", "hashes-std", "rand", "rand-std", "serde"] }
+secp256k1 = "0.29.0"
 serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["full"] }

@@ -1,13 +1,13 @@
 use futures::StreamExt;
 use libp2p::{
-  identity, kad, noise,
+  identity::{self, Keypair},
+  kad, noise,
   request_response::{self, ProtocolSupport},
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm,
 };
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::time::Duration;
+use std::{error::Error, fs, time::Duration};
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "MyBehaviourEvent")]
@@ -47,11 +47,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let local_peer_id = PeerId::from(local_key.public());
   println!("Local peer id: {:?}", local_peer_id);
 
+  let private_key_str = fs::read_to_string("/tmp/identity.txt")?.trim().to_string();
+
+  if private_key_str.is_empty() {
+    return Err(format!("Private key is empty in file: /tmp/identity.txt").into());
+  }
+
+  // Decode the hex string into bytes
+  let private_key_bytes = hex::decode(private_key_str)?;
+
+  // Check if the length of the private key is valid
+  if private_key_bytes.len() != 32 {
+    return Err("Private key must be exactly 32 bytes".into());
+  }
+  let secret_key = identity::secp256k1::SecretKey::try_from_bytes(private_key_bytes)?;
+  let remote_key: Keypair = identity::secp256k1::Keypair::from(secret_key).into();
+
   // Define the server's PeerId and Multiaddr here. Replace these with actual values.
   // Ensure this is the actual base58 encoded peer ID string
-    let server_peer_id: PeerId = "16Uiu2HAm5mTFDbTMQFBYKTse1i8p2iVfhn2sdiDrn7ofzxtGs1eP"
-    .parse()
-    .unwrap();
+  let server_peer_id = PeerId::from(remote_key.public());
   let server_address: Multiaddr = "/ip4/127.0.0.1/tcp/4001".parse().unwrap();
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
