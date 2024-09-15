@@ -1,9 +1,20 @@
+/*
+# Step 1: Generate the private key in PEM format
+openssl ecparam -name secp256k1 -genkey -noout -out /tmp/private_key.pem
+
+# Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
+openssl ec -in /tmp/private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:' > /tmp/identity.txt
+
+# Optionally, remove the PEM file
+rm /tmp/private_key.pem
+ */
 // use futures::channel::{mpsc, oneshot};
 // use futures::prelude::*;
 // use std::collections::{hash_map, HashMap, HashSet};
+// use secp256k1::Secp256k1;
 use futures::StreamExt;
 use libp2p::{
-  identity,
+  identity::{self, Keypair},
   kad,
   // multiaddr::Protocol,
   noise,
@@ -18,7 +29,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 // use std::error::Error;
-use std::time::Duration;
+use std::{fs, time::Duration};
 
 /// Creates the network components, namely:
 ///
@@ -467,7 +478,34 @@ pub(crate) struct FileResponse(Vec<u8>);
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Generate a random keypair for the local peer
-  let local_key = identity::Keypair::generate_ed25519();
+  // let local_key = identity::Keypair::generate_ed25519();
+  // let local_peer_id = PeerId::from(local_key.public());
+
+  let private_key_str = fs::read_to_string("/tmp/identity.txt")?.trim().to_string();
+
+  if private_key_str.is_empty() {
+    return Err(format!("Private key is empty in file: /tmp/identity.txt").into());
+  }
+
+  // Decode the hex string into bytes
+  let private_key_bytes = hex::decode(private_key_str)?;
+
+  // Check if the length of the private key is valid
+  if private_key_bytes.len() != 32 {
+    return Err("Private key must be exactly 32 bytes".into());
+  }
+
+  // let secp = Secp256k1::new();
+
+  // Parse the private key from the slice
+  // let private_key = SecretKey::from_slice(&private_key_bytes)
+  //     .map_err(|_| "Invalid private key provided. Ensure it is a valid secp256k1 key.")?;
+
+  // let public_key = PublicKey::from_secret_key(&secp, &private_key);
+
+  // Create a libp2p Keypair from the secp256k1 private key
+  let secret_key = identity::secp256k1::SecretKey::try_from_bytes(private_key_bytes)?;
+  let local_key: Keypair = identity::secp256k1::Keypair::from(secret_key).into();
   let local_peer_id = PeerId::from(local_key.public());
   println!("Local peer id: {:?}", local_peer_id);
 
