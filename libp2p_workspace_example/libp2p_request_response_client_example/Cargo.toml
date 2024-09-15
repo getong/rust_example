@@ -1,0 +1,10 @@
+[package]
+name = "libp2p_request_response_client_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+futures = "0.3.30"
+libp2p = { version = "0.54.1", features = ["full"] }
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["full"] }
