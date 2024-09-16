@@ -65,6 +65,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   // Define the server's PeerId and Multiaddr here. Replace these with actual values.
   // Ensure this is the actual base58 encoded peer ID string
+  // let server_peer_id: PeerId = "16Uiu2HAm5mTFDbTMQFBYKTse1i8p2iVfhn2sdiDrn7ofzxtGs1eP"
+  //     .parse()
+  //     .unwrap();
   let server_peer_id = PeerId::from(remote_key.public());
   let server_address: Multiaddr = "/ip4/127.0.0.1/tcp/4001".parse().unwrap();
 
