@@ -27,3 +27,4 @@ buffer_example_workspace/sample.json
 **/*.ppm
 **/README.html
 **/*.pem
+**/*.bak
