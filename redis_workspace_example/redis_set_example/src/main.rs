@@ -25,13 +25,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
   }
 
-    let members: Vec<String> = redis_conn.smembers("test_key").await?;
+  let members: Vec<String> = redis_conn.smembers("test_key").await?;
   println!("file line :{} members: {:#?}", line!(), members);
 
-  match redis_conn
-        .smembers::<_, Vec<String>>("test_key")
-    .await
-  {
+  match redis_conn.smembers::<_, Vec<String>>("test_key").await {
     Ok(value_list) => println!("line : {}, value_list : {:?}", line!(), value_list),
     _ => {}
   }
