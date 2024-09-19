@@ -16,4 +16,5 @@ members = [
         "sentry_thread_demo_example",
         "sentry_tracing_demo_example",
         "sentry_crash_example",
+        "sentry_values_hash_example",
 ]
