@@ -1,5 +1,6 @@
 [workspace]
 
+resolver = "2"
 
 members = [
         "number_string_example",
@@ -8,4 +9,5 @@ members = [
         "string_deref_example",
         "string_example",
         "stringify_example",
+        "string_split_example"
 ]
