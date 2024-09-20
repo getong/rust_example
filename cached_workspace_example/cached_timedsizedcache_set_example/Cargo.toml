@@ -1,0 +1,7 @@
+[package]
+name = "cached_timedsizedcache_set_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cached = "0.53.1"

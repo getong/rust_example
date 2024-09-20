@@ -5,4 +5,5 @@ resolver = "2"
 members = [
         "cached_example",
         "cached_timedsizedcache_example",
+        "cached_timedsizedcache_set_example",
 ]
