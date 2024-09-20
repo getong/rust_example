@@ -6,4 +6,5 @@ members = [
         "cached_example",
         "cached_timedsizedcache_example",
         "cached_timedsizedcache_set_example",
+        "cached_basic_macro_example",
 ]
