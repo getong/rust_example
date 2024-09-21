@@ -46,7 +46,8 @@ async fn main() -> surrealdb::Result<()> {
       },
       marketing: true,
     })
-    .await?;
+    .await?
+    .expect("surreal db not connect");
   dbg!(created);
 
   // Update a person record with a specific id
