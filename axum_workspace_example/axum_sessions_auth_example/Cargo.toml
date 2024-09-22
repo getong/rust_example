@@ -10,10 +10,10 @@ anyhow = "1.0.86"
 async-trait = "0.1.81"
 axum = "0.7.5"
 axum-macros = "0.4.1"
-axum_session = { version = "0.14.1"}
+axum_session = { version = "0.14.2"}
+axum_session_surreal = "0.2"
 axum_session_auth = {version = "0.14.0"}
-surrealdb = { version = "1.5.4", features = ["kv-mem"] }
-axum_session_surreal = "0.1.1"
+surrealdb = { version = "2.0", features = ["kv-mem"] }
 http = "1.1.0"
 serde = { version = "1.0.204", features = ["derive"] }
 sqlx = "0.8.0"
