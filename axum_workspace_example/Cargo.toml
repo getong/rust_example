@@ -34,4 +34,5 @@ members = [
         "axum_tower_sessions_with_private_example",
         "axum_tower_http_example",
         "axum_from_request_parts_tower_sessions_example",
+        "axum_session_surrealdb_example",
 ]
