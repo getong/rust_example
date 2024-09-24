@@ -1,6 +1,6 @@
 use chrono::{
-  offset::FixedOffset, DateTime, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc,
-  Weekday,
+  offset::FixedOffset, DateTime, Local, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone,
+  Utc, Weekday,
 };
 use std::error::Error;
 
@@ -193,4 +193,19 @@ fn naivedatetime_func_example() {
   // Convert NaiveDateTime to DateTime<Utc>
   let datetime_utc: DateTime<Utc> = naive_datetime.and_utc();
   println!("Converted DateTime<Utc>: {}", datetime_utc);
+
+  let start = "2024-09-13";
+  let end = Some("2024-09-20");
+
+  let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d").unwrap_or(NaiveDate::MIN);
+  let start_at = NaiveDateTime::from(start_date);
+
+  let end_date = if let Some(end) = end {
+    NaiveDate::parse_from_str(&end, "%Y-%m-%d").unwrap_or(NaiveDate::MIN)
+  } else {
+    Utc::now().naive_utc().date()
+  };
+  let end_at = NaiveDateTime::new(end_date, NaiveTime::from_hms_opt(23, 59, 59).unwrap());
+  println!("start_at is {:#?}", start_at);
+  println!("end_at is {:#?}", end_at);
 }
