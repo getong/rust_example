@@ -1,0 +1,12 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "ray_tracing_example",
+        "tracing_bunyan_formatter_example",
+        "tracing_chrome_example",
+        "tracing_opentelemetry_example",
+        "trace_example",
+        "trace_macros_example",
+]
