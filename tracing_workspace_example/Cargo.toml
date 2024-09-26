@@ -9,4 +9,5 @@ members = [
         "tracing_opentelemetry_example",
         "trace_example",
         "trace_macros_example",
+        "tracing_span_example",
 ]
