@@ -45,4 +45,10 @@ fn main() {
 
     let total_value = U256::from_dec_str("1.1");
     println!("total_value : {:?}", total_value);
+
+    let a = U256::from(5636815);
+    let b = U256::from(2_000_000);
+    let c = U256::from(1_000_000);
+    let d = a * b / c;
+    println!("d is {}", d);
 }
