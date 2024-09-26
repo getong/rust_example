@@ -41,5 +41,8 @@ fn main() {
   // Convert U256 to i32
   let i32_value = u256_to_i32(u256_value).expect("Value out of range for i32");
 
-  println!("Converted value: {}", i32_value);
+    println!("Converted value: {}", i32_value);
+
+    let total_value = U256::from_dec_str("1.1");
+    println!("total_value : {:?}", total_value);
 }
