@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+        "alloy_basic_example",
+]
