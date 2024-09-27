@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
         "alloy_basic_example",
+        "alloy_arithmetic_example",
 ]
