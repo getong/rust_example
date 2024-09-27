@@ -1,0 +1,7 @@
+[package]
+name = "alloy_nonce_manager_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-primitives = "0.8.5"
