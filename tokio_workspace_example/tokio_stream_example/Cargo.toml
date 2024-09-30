@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.40.0", features = ["rt", "sync", "macros", "rt-multi-thread"] }
-tokio-stream = { version = "0.1.15", features = ["sync"] }
+tokio-stream = { version = "0.1.16", features = ["sync"] }
