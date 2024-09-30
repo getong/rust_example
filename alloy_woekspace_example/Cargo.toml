@@ -8,4 +8,5 @@ members = [
   "alloy_nonce_manager_example",
   "alloy_connect_to_geth_example",
   "geth_transaction_json_rpc_example",
+  "alloy_anvil_recommended_filters_example",
 ]
