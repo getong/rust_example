@@ -3,7 +3,8 @@
 resolver = "2"
 
 members = [
-        "alloy_basic_example",
-        "alloy_arithmetic_example",
-        "alloy_nonce_manager_example",
+  "alloy_basic_example",
+  "alloy_arithmetic_example",
+  "alloy_nonce_manager_example",
+  "alloy_connect_to_geth_example",
 ]
