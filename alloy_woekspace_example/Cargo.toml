@@ -9,4 +9,5 @@ members = [
   "alloy_connect_to_geth_example",
   "geth_transaction_json_rpc_example",
   "alloy_anvil_recommended_filters_example",
+  "alloy_anvil_transaction_example",
 ]
