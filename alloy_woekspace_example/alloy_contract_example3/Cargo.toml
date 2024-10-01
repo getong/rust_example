@@ -1,8 +1,9 @@
 [package]
-name = "alloy_contract_example"
+name = "alloy_contract_example3"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 alloy = { version = "0.4.0", features = ["contract", "full", "node-bindings"] }
+eyre = "0.6.12"
 tokio = { version = "1.40.0", features = ["full"] }

@@ -12,4 +12,5 @@ members = [
   "alloy_anvil_transaction_example",
   "alloy_contract_example",
   "alloy_contract_example2",
+  "alloy_contract_example3",
 ]
