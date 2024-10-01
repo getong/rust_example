@@ -10,4 +10,6 @@ members = [
   "geth_transaction_json_rpc_example",
   "alloy_anvil_recommended_filters_example",
   "alloy_anvil_transaction_example",
+  "alloy_contract_example",
+  "alloy_contract_example2",
 ]

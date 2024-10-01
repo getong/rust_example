@@ -1,0 +1,10 @@
+[package]
+name = "alloy_contract_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = { version = "0.4.0", features = ["contract", "full", "node-bindings", "sol-types", "pubsub"]}
+alloy-contract = "0.4.0"
+alloy-sol-types = "0.8.5"
+tokio = { version = "1.40.0", features = ["full"] }
