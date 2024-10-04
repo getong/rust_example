@@ -6,16 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.86"
-async-trait = "0.1.81"
-axum = "0.7.5"
-axum-macros = "0.4.1"
+anyhow = "1.0.89"
+async-trait = "0.1.83"
+axum = "0.7.7"
+axum-macros = "0.4.2"
 axum_session = { version = "0.14.2"}
 axum_session_surreal = "0.2"
-axum_session_auth = {version = "0.14.0"}
+axum_session_auth = {version = "0.14.1"}
 surrealdb = { version = "2.0", features = ["kv-mem"] }
 http = "1.1.0"
-serde = { version = "1.0.204", features = ["derive"] }
-sqlx = "0.8.0"
-tokio = { version = "1.39.2", features = ["full"] }
+serde = { version = "1.0.210", features = ["derive"] }
+sqlx = "0.8.2"
+tokio = { version = "1.40.0", features = ["full"] }
 tracing = "0.1.40"
