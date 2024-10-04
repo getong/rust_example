@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 cfg-if = "1.0.0"
-clap = { version = "4.5.18", features = ["derive"] }
+clap = { version = "4.5.19", features = ["derive"] }
 libp2p = { version = "0.54.1", features = ["full"] }
 rand = "0.8.5"
 tokio = { version = "1.40.0", features = ["full"] }
