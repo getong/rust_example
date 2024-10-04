@@ -13,4 +13,5 @@ members = [
   "alloy_contract_example",
   "alloy_contract_example2",
   "alloy_contract_example3",
+  "alloy_contract_read_write_events_example",
 ]
