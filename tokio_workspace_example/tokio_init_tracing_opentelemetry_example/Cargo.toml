@@ -1,0 +1,10 @@
+[package]
+name = "tokio_init_tracing_opentelemetry_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7.7"
+axum-tracing-opentelemetry = "0.21.1"
+init-tracing-opentelemetry = "0.22.0"
+tokio = { version = "1.40.0", features = ["full"] }
