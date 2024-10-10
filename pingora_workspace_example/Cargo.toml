@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+    "pingora_load_balance_example",
+]

@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.7.7", features = ["ws"] }
 axum-extra = "0.9.4"
-futures = "0.3.30"
-futures-util = "0.3.30"
+futures = "0.3.31"
+futures-util = "0.3.31"
 headers = "0.4.0"
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-tungstenite = "0.24.0"
