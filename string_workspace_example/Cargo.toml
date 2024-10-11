@@ -3,11 +3,12 @@
 resolver = "2"
 
 members = [
-        "number_string_example",
-        "pin_string_example",
-        "string_conversions_example",
-        "string_deref_example",
-        "string_example",
-        "stringify_example",
-        "string_split_example"
+    "number_string_example",
+    "pin_string_example",
+    "string_conversions_example",
+    "string_deref_example",
+    "string_example",
+    "stringify_example",
+    "string_split_example",
+    "string_from_utf8_example",
 ]
