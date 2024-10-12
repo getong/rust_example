@@ -3,6 +3,7 @@ use tower_http::services::ServeDir;
 
 #[tokio::main]
 async fn main() {
+  // Serve the "assets" directory
   let service = get_service(ServeDir::new("assets")).handle_error(|error| async move {
     (
       axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -10,15 +11,14 @@ async fn main() {
     )
   });
 
-  // Wrap the service in a Router
-  let assets_router = Router::new().route_service("/", service);
+  // Build the Router with a route to serve static files directly
+  let router = Router::new().fallback_service(service);
 
-  // Build our application with a route to serve static files
-  let router = Router::new().nest("/", assets_router);
-
+  // Bind to a TCP listener
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
-  println!("listen to http://localhost:3000/");
+  println!("Listening on http://localhost:3000/");
 
+  // Start the server
   axum::serve(listener, router).await.unwrap();
 }
