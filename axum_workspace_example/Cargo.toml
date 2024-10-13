@@ -36,4 +36,5 @@ members = [
     "axum_from_request_parts_tower_sessions_example",
     "axum_session_surrealdb_example",
     "axum_tower_http_servedir_example",
+    "axum_vs_nginx_example",
 ]

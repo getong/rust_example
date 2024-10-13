@@ -1,0 +1,28 @@
+* axum vs nginx
+
+This contains the example code from my blog article about replacing an nginx installation with a custom webserver written with Rust and Axum.
+
+copy from https://github.com/KnorrFG/axum_vs_nginx
+also see https://felix-knorr.net/posts/2024-10-13-replacing-nginx-with-axum.html
+
+** run command
+
+#+begin_src shell
+#!/bin/sh
+
+mkdir -p /tmp/serve_dir{,2,3}
+echo 'site 1 <a href="/page.html"> a link</a>' > /tmp/serve_dir/index.html
+echo 'site 1 page' > /tmp/serve_dir/page.html
+
+echo 'site 2 <a href="/page.html"> a link</a>' > /tmp/serve_dir2/index.html
+echo 'site 2 page' > /tmp/serve_dir2/page.html
+
+echo 'site 3 <a href="/page.html"> a link</a>' > /tmp/serve_dir3/index.html
+echo 'site 3 page' > /tmp/serve_dir3/page.html
+
+(cd /tmp/serve_dir3 && python3 -m http.server 3001) &
+bg_pid=$!
+trap 'kill $bg_pid' EXIT
+
+cargo run
+#+end_src

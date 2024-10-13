@@ -1,0 +1,21 @@
+[package]
+name = "axum_vs_nginx_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.89"
+axum = "0.7.7"
+axum-server = "0.6.0"
+futures = "0.3.31"
+futures-lite = "2.3.0"
+hyper = { version = "1.4.1", features = ["client", "http2"] }
+hyper-util = { version = "0.1.9", features = ["client-legacy"] }
+log = "0.4.22"
+pin-project = "1.1.6"
+pretty_env_logger = "0.5.0"
+rustls-acme = { version = "0.10.1", features = ["axum"] }
+tokio = { version = "1.40.0", features = ["rt-multi-thread"] }
+tokio-stream = "0.1.16"
+tower = "0.4.13"
+tower-http = { version = "0.5.2", features = ["auth", "fs"] }
