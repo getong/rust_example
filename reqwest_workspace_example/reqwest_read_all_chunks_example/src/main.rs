@@ -33,10 +33,42 @@
 
 //     Ok(())
 // }
-use futures_util::StreamExt; // For `.next()`
+// use futures_util::StreamExt; // For `.next()`
+// use reqwest::Client;
+// use std::error::Error;
+// use std::str;
+
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn Error>> {
+//   let url = "https://jsonplaceholder.typicode.com/posts"; // Example API
+//   let client = Client::new();
+
+//   let response = client.get(url).send().await?;
+
+//   if response.status().is_success() {
+//     let mut body = response.bytes_stream(); // Stream of bytes chunks
+//     let mut buffer = Vec::new();
+
+//     // Read all chunks and collect them into the buffer
+//     while let Some(chunk) = body.next().await {
+//       let chunk = chunk?; // Handle Result<Bytes, reqwest::Error>
+//       buffer.extend_from_slice(&chunk); // Collect bytes into the buffer
+//     }
+
+//     // Convert the buffer to a string (assuming UTF-8)
+//     let result = str::from_utf8(&buffer)?;
+//     println!("{}", result); // Print the response data to stdout
+//   } else {
+//     eprintln!("Request failed with status: {}", response.status());
+//   }
+
+//   Ok(())
+// }
+
 use reqwest::Client;
 use std::error::Error;
 use std::str;
+use tokio_stream::StreamExt; // Use StreamExt to work with streams
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -46,11 +78,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let response = client.get(url).send().await?;
 
   if response.status().is_success() {
-    let mut body = response.bytes_stream(); // Stream of bytes chunks
+    // Use the byte stream directly
+    let mut body_stream = response.bytes_stream();
     let mut buffer = Vec::new();
 
     // Read all chunks and collect them into the buffer
-    while let Some(chunk) = body.next().await {
+    while let Some(chunk) = body_stream.next().await {
       let chunk = chunk?; // Handle Result<Bytes, reqwest::Error>
       buffer.extend_from_slice(&chunk); // Collect bytes into the buffer
     }
