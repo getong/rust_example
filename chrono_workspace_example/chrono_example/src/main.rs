@@ -1,6 +1,6 @@
 use chrono::{
-  offset::FixedOffset, DateTime, Local, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone,
-  Utc, Weekday,
+  offset::FixedOffset, DateTime, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, NaiveTime,
+  TimeZone, Utc, Weekday,
 };
 use std::error::Error;
 
@@ -208,4 +208,13 @@ fn naivedatetime_func_example() {
   let end_at = NaiveDateTime::new(end_date, NaiveTime::from_hms_opt(23, 59, 59).unwrap());
   println!("start_at is {:#?}", start_at);
   println!("end_at is {:#?}", end_at);
+
+  let flag = subtract_three_days();
+  println!("flag is {}", flag);
+}
+
+fn subtract_three_days() -> bool {
+  let now = Utc::now();
+  let three_days_ago = now - Duration::days(3);
+  now - three_days_ago == Duration::days(3)
 }
