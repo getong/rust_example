@@ -92,6 +92,8 @@ fn main() -> Result<(), Box<dyn Error>> {
   assert_eq!(dt, fixed_dt);
   datetime_function_example();
   naivedatetime_func_example();
+
+  every_ten_minute();
   Ok(())
 }
 
@@ -217,4 +219,15 @@ fn subtract_three_days() -> bool {
   let now = Utc::now();
   let three_days_ago = now - Duration::days(3);
   now - three_days_ago == Duration::days(3)
+}
+
+fn every_ten_minute() {
+  let now_naive_time = Utc::now().naive_utc();
+  let now = now_naive_time.and_utc().timestamp();
+  let now_time = now / 600;
+  let start_time = now / 600 - 6;
+  println!("every_ten_minute, now_time is {}", now_time);
+  println!("every_ten_minute, start_time is {}", start_time);
+  // every_ten_minute, now_time is 2881908
+  // every_ten_minute, start_time is 2881902
 }
