@@ -1,0 +1,11 @@
+[package]
+name = "ethers_log_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ethers = "2.0.14"
+hex = { version = "0.4.3", features = ["serde"] }
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.129"
+tokio = { version = "1.40.0", features = ["full"] }
