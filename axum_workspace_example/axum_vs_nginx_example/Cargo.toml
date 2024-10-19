@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.89"
+anyhow = "1.0.90"
 axum = "0.7.7"
 axum-server = "0.6.0"
 futures = "0.3.31"
 futures-lite = "2.3.0"
-hyper = { version = "1.4.1", features = ["client", "http2"] }
+hyper = { version = "1.5.0", features = ["client", "http2"] }
 hyper-util = { version = "0.1.9", features = ["client-legacy"] }
 log = "0.4.22"
 pin-project = "1.1.6"
