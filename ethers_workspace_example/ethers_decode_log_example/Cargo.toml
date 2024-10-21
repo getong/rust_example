@@ -1,0 +1,9 @@
+[package]
+name = "ethers_decode_log_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ethers = { version = "2.0.14", features = ["ws"] }
+eyre = "0.6.12"
+tokio = { version = "1.40.0", features = ["full"] }
