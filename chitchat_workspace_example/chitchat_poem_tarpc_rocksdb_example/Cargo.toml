@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
-chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
+chitchat = "0.9"
+# chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
 openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde"]}
 clap = { version = "4.4.18", features = ["derive", "env"] }
 console-subscriber = "0.2.0"

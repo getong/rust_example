@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 # axum = "0.7.2"
-# chitchat = "0.5.0"
-chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
+chitchat = "0.9"
+# chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
 clap = { version = "4.4.18", features = ["derive"] }
 console-subscriber = "0.2.0"
 cool-id-generator = "1.0.1"

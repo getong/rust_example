@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 once_cell = "1.19.0"
 tokio = { version = "1.35.1", features = ["full"] }
-chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
+chitchat = "0.9"
+#chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
 cool-id-generator = "1.0.1"
 anyhow = "1.0.79"
 serde = { version = "1.0.195", features = ["derive"] }
