@@ -1,0 +1,6 @@
+[package]
+name = "load_env_into_shell_env_build_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
