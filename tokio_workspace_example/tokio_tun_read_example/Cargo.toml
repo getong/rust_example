@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.90"
-tokio = { version = "1.40.0", features = ["full"] }
+anyhow = "1.0.91"
+tokio = { version = "1.41.0", features = ["full"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-tun = "0.12"

@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 futures = "0.3.31"
 pin-utils = "0.1.0"
-tokio = { version = "1.40.0", features = ["full"] }
+tokio = { version = "1.41.0", features = ["full"] }
