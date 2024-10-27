@@ -1,5 +1,4 @@
 //! Example of using the `.with_recommended_fillers()` method in the provider.
-
 use alloy::{
   network::TransactionBuilder,
   primitives::{address, U256},
@@ -7,6 +6,7 @@ use alloy::{
   rpc::types::request::TransactionRequest,
 };
 use eyre::Result;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,7 +28,8 @@ async fn main() -> Result<()> {
     .with_value(U256::from(100));
 
   // Send the transaction, the nonce (0) is automatically managed by the provider.
-  let builder = provider.send_transaction(tx.clone()).await?;
+  let mut builder = provider.send_transaction(tx.clone()).await?;
+  builder.set_timeout(Some(Duration::from_secs(3600)));
   let node_hash = *builder.tx_hash();
   let pending_tx = provider
     .get_transaction_by_hash(node_hash)

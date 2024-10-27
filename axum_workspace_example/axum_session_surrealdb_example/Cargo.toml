@@ -9,4 +9,4 @@ axum = "0.7.7"
 axum_session = { version = "0.14.4" }
 axum_session_surreal = "0.2"
 surrealdb = { version = "2.0", features = ["kv-mem"] }
-tokio = { version = "1.40.0", features = ["full"] }
+tokio = { version = "1.41.0", features = ["full"] }
