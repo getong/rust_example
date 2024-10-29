@@ -1,0 +1,8 @@
+[package]
+name = "ethers_pretty_print_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ethers = "2.0.14"
+ethers-types = "0.0.0-alpha"

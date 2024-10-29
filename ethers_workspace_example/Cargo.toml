@@ -6,4 +6,5 @@ members = [
     # "ethers_u256_example",
     # "ethers_log_example",
     "ethers_decode_log_example",
+    "ethers_pretty_print_example",
 ]
