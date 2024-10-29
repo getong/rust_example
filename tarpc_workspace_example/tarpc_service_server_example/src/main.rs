@@ -1,4 +1,3 @@
-use chrono::{DateTime, Local, Utc};
 use clap::Parser;
 use futures::{future, prelude::*};
 use opentelemetry::trace::TracerProvider as _;
@@ -64,10 +63,7 @@ struct Flags {
 struct HelloServer(SocketAddr);
 
 impl World for HelloServer {
-  async fn hello(self, context_info: context::Context, name: String) -> String {
-    let datetime: DateTime<Utc> = context_info.deadline.into();
-    let local_datetime = datetime.with_timezone(&Local);
-    println!("context_time: {:?}", local_datetime);
+  async fn hello(self, _: context::Context, name: String) -> String {
     let sleep_time = Duration::from_millis(Uniform::new_inclusive(1, 10).sample(&mut thread_rng()));
     time::sleep(sleep_time).await;
     format!("Hello, {name}! You are connected from {}", self.0)
