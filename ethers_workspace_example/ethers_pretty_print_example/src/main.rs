@@ -1,6 +1,6 @@
 use ethers::types::U256;
 
-fn format_u256_with_underscores(num: U256, width: usize) -> String {
+fn format_u256_with_underscores_with_width(num: U256, width: usize) -> String {
   // Convert to a decimal string
   let mut num_str = num.to_string();
 
@@ -21,11 +21,30 @@ fn format_u256_with_underscores(num: U256, width: usize) -> String {
   formatted
 }
 
+fn format_u256_with_underscores(num: U256) -> String {
+  // Convert to a decimal string
+  let num_str = num.to_string();
+
+  // Insert underscores every three digits
+  let mut formatted = String::new();
+  for (i, ch) in num_str.chars().rev().enumerate() {
+    if i != 0 && i % 3 == 0 {
+      formatted.insert(0, '_');
+    }
+    formatted.insert(0, ch);
+  }
+
+  formatted
+}
+
 fn main() {
   let number = U256::from_dec_str("123456789").unwrap();
-  let formatted_number = format_u256_with_underscores(number, 15); // Adjust width as needed
+  let formatted_number = format_u256_with_underscores_with_width(number, 15); // Adjust width as needed
   println!("{}", formatted_number); // Outputs: 000_000_123_456_789
 
-  let formatted_number = format_u256_with_underscores(number, 9); // Adjust width as needed
+  let formatted_number = format_u256_with_underscores_with_width(number, 9); // Adjust width as needed
   println!("{}", formatted_number); // Outputs: 123_456_789
+
+  let formatted_number = format_u256_with_underscores(number); // Adjust width as needed
+  println!("{}", formatted_number); // Outputs: 000_000_123_456_789
 }
