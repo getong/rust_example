@@ -13,7 +13,7 @@ curl -i -X POST http://localhost:8080/signin \
   -H "Content-Type: application/json" \
   -d '{"email": "myemail@gmail.com", "password": "okon"}'
 
-"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3MzA1NjI4NTMsImlhdCI6MTczMDQ3NjQ1MywiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.SJ0-yYLy1WR5qh-UREj_-f5f-OKK6CW1TNWXPyZKeBI"
+"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3MzA1NjM5MDEsImlhdCI6MTczMDQ3NzUwMSwiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.9WgIFVLRSZrkPS6P8mSkiocV4jC8vzUc3NFpXUpi8vk"
 #+end_src
 
 
@@ -21,6 +21,8 @@ curl -i -X POST http://localhost:8080/signin \
 
 #+begin_src shell
 curl -i -X GET http://localhost:8080/protected \
-  -H "authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3MzA1NjI4NTMsImlhdCI6MTczMDQ3NjQ1MywiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.SJ0-yYLy1WR5qh-UREj_-f5f-OKK6CW1TNWXPyZKeBI"
+  -H "authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3MzA1NjQxNTMsImlhdCI6MTczMDQ3Nzc1MywiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.dfKPvWdAdM28yyaXx4J4Z5IC8fph_2QDvq-j2Ymak9c"
 
 #+end_src
+
+fix url, now is http://localhost:8080/protected , not http://localhost:8080/protected/

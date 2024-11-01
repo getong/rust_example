@@ -25,7 +25,7 @@ async fn main() {
     .route("/signin", post(sign_in))
     .route("/hello", get(|| async { " hello world!" }))
     .route(
-      "/protected/",
+      "/protected",
       get(hello).layer(middleware::from_fn(authorize)),
     );
 
