@@ -21,10 +21,13 @@ async fn main() {
 
   println!("Listening on {}", listener.local_addr().unwrap());
 
-  let app = Router::new().route("/signin", post(sign_in)).route(
-    "/protected/",
-    get(hello).layer(middleware::from_fn(authorize)),
-  );
+  let app = Router::new()
+    .route("/signin", post(sign_in))
+    .route("/hello", get(|| async { " hello world!" }))
+    .route(
+      "/protected/",
+      get(hello).layer(middleware::from_fn(authorize)),
+    );
 
   axum::serve(listener, app)
     .await

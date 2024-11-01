@@ -3,3 +3,24 @@
 see [[https://blog.logrocket.com/using-rust-axum-build-jwt-authentication-api/][Using Rust and Axum to build a JWT authentication API]]
 
 copy code from https://github.com/ezesundayeze/axum--auth
+
+** run command
+
+*** signin
+
+#+begin_src shell
+curl -i -X POST http://localhost:8080/signin \
+  -H "Content-Type: application/json" \
+  -d '{"email": "myemail@gmail.com", "password": "okon"}'
+
+"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3MzA1NjI4NTMsImlhdCI6MTczMDQ3NjQ1MywiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.SJ0-yYLy1WR5qh-UREj_-f5f-OKK6CW1TNWXPyZKeBI"
+#+end_src
+
+
+*** post
+
+#+begin_src shell
+curl -i -X GET http://localhost:8080/protected \
+  -H "authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE3MzA1NjI4NTMsImlhdCI6MTczMDQ3NjQ1MywiZW1haWwiOiJteWVtYWlsQGdtYWlsLmNvbSJ9.SJ0-yYLy1WR5qh-UREj_-f5f-OKK6CW1TNWXPyZKeBI"
+
+#+end_src
