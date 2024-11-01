@@ -1,0 +1,5 @@
+* axum bycrypt auth example
+
+see [[https://blog.logrocket.com/using-rust-axum-build-jwt-authentication-api/][Using Rust and Axum to build a JWT authentication API]]
+
+copy code from https://github.com/ezesundayeze/axum--auth
