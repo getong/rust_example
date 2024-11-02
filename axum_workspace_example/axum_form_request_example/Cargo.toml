@@ -1,0 +1,10 @@
+[package]
+name = "axum_form_request_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7.7"
+serde = { version = "1.0.214", features = ["derive"] }
+serde_urlencoded = "0.7.1"
+tokio = { version = "1.41.0", features = ["full"] }

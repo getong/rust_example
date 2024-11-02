@@ -39,4 +39,5 @@ members = [
     "axum_vs_nginx_example",
     "axum_bcrypt_auth_example",
     "axum_extra_javascript_example",
+    "axum_form_request_example",
 ]
