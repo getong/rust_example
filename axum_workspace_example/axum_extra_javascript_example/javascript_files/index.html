@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Axum JavaScript Interaction</title>
+</head>
+<body>
+  <h1>Welcome to the Axum JavaScript Example</h1>
+  <button id="greetButton">Get Greeting</button>
+  <button id="triggerJSButton">Trigger Inline JavaScript</button>
+  <p id="greetingMessage"></p>
+
+  <!-- Load external JavaScript file served by Axum -->
+  <script src="/js/example.js"></script>
+
+  <script>
+    // Function to handle fetching a greeting and displaying it
+    async function fetchGreeting() {
+      try {
+        const response = await fetch("/greet?name=HTML+User");
+        const text = await response.text();
+        document.getElementById("greetingMessage").innerText = text;
+      } catch (error) {
+        console.error("Error fetching greeting:", error);
+      }
+    }
+
+    // Function to trigger inline JavaScript on the server
+    async function triggerInlineJS() {
+      try {
+        const response = await fetch("/inline-js");
+        if (response.ok) {
+          console.log("Inline JavaScript endpoint triggered on server.");
+        }
+      } catch (error) {
+        console.error("Error triggering inline JavaScript:", error);
+      }
+    }
+
+    // Attach event listeners to buttons
+    document.getElementById("greetButton").addEventListener("click", fetchGreeting);
+    document.getElementById("triggerJSButton").addEventListener("click", triggerInlineJS);
+  </script>
+</body>
+</html>
