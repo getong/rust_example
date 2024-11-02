@@ -40,4 +40,5 @@ members = [
     "axum_bcrypt_auth_example",
     "axum_extra_javascript_example",
     "axum_form_request_example",
+    "tungstenite_url_example",
 ]
