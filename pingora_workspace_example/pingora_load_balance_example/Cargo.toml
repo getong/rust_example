@@ -8,8 +8,8 @@ async-trait = "0.1.83"
 clap = { version = "3", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
-pingora-core = "0.3.0"
-pingora-http = "0.3.0"
-pingora-load-balancing = "0.3.0"
-pingora-proxy = "0.3.0"
-tokio = { version = "1.40.0", features = ["full"] }
+pingora-core = "0.4.0"
+pingora-http = "0.4.0"
+pingora-load-balancing = "0.4.0"
+pingora-proxy = "0.4.0"
+tokio = { version = "1.41.0", features = ["full"] }
