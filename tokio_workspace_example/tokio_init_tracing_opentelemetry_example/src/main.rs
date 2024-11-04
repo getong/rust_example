@@ -1,4 +1,4 @@
-use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
+// use axum_tracing_opentelemetry::opentelemetry_tracing_layer;
 
 #[tokio::main]
 async fn main() -> Result<(), axum::BoxError> {
