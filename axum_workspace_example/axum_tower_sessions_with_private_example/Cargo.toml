@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.7.7"
-serde = { version = "1.0.213", features = ["derive"] }
+serde = { version = "1.0.214", features = ["derive"] }
 time = "0.3.36"
 tokio = { version = "1.41.0", features = ["full"] }
 tower-sessions = { version = "0.13.0", features = ["signed"] }
