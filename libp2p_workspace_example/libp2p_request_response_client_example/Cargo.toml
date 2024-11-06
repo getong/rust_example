@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-futures = "0.3.30"
+futures = "0.3.31"
 hex = "0.4.3"
 libp2p = { version = "0.54.1", features = ["full"] }
-serde = { version = "1.0.210", features = ["derive"] }
-tokio = { version = "1.40.0", features = ["full"] }
+serde = { version = "1.0.214", features = ["derive"] }
+tokio = { version = "1.41.0", features = ["full"] }
