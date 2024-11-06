@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures-util = "0.3.30"
-poem = { version = "3.0.3", features = ["websocket"] }
-tokio = { version = "1.39.0", features = ["full"] }
+futures-util = "0.3.31"
+poem = { version = "3.1.3", features = ["websocket"] }
+tokio = { version = "1.41.0", features = ["full"] }
 tracing-subscriber = "0.3.18"
