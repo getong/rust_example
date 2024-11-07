@@ -1,19 +1,26 @@
+use std::future::Future;
 use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
-async fn add_to_vec<F>(shared_value: Arc<i32>, vec: &mut Vec<i32>, length: usize, mut f: F)
-where
-  F: FnMut(Arc<i32>, &mut Vec<i32>) + Send,
+async fn add_to_vec<F, Fut>(
+  shared_value: Arc<i32>,
+  vec: Arc<tokio::sync::Mutex<Vec<i32>>>,
+  length: usize,
+  mut f: F,
+) where
+  F: FnMut(Arc<i32>, Arc<tokio::sync::Mutex<Vec<i32>>>) -> Fut + Send,
+  Fut: Future<Output = ()> + Send + 'static,
 {
   loop {
     // Simulate some asynchronous work
     sleep(Duration::from_millis(100)).await;
 
-    // Call the FnMut closure to add the shared value to the vector
-    f(shared_value.clone(), vec);
+    // Call the async FnMut closure to add the shared value to the vector
+    f(shared_value.clone(), vec.clone()).await;
 
     // Print the current state of the vector
-    println!("Current vector: {:?}", vec);
+    let vec = vec.lock().await;
+    println!("Current vector: {:?}", *vec);
 
     // Break the loop if the vector's length reaches the specified length
     if vec.len() >= length {
@@ -27,20 +34,24 @@ async fn main() {
   // Create an Arc<i32> to share the value
   let shared_value = Arc::new(42);
 
-  // Create a mutable vector
-  let mut vec = Vec::new();
+  // Create a mutable vector wrapped in a Mutex and Arc
+  let vec = Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
   // Specify the desired length
   let length = 5;
 
-  // Define the FnMut closure
-  let closure = |shared_value: Arc<i32>, vec: &mut Vec<i32>| {
-    vec.push(*shared_value);
+  // Define the async FnMut closure
+  let closure = |shared_value: Arc<i32>, vec: Arc<tokio::sync::Mutex<Vec<i32>>>| {
+    Box::pin(async move {
+      let mut vec = vec.lock().await;
+      vec.push(*shared_value);
+    })
   };
 
   // Call the async function to add elements to the vector
-  add_to_vec(shared_value, &mut vec, length, closure).await;
+  add_to_vec(shared_value, vec.clone(), length, closure).await;
 
   // Print the final state of the vector
-  println!("Final vector: {:?}", vec);
+  let vec = vec.lock().await;
+  println!("Final vector: {:?}", *vec);
 }
