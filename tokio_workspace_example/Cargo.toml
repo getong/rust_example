@@ -196,4 +196,5 @@ members = [
   "tokio_10k_tasks_10_batch_via_mpsc_example",
   "tokio_basic_example",
   "tokio_init_tracing_opentelemetry_example",
+  "tokio_async_loop_mut_variable_example",
 ]
