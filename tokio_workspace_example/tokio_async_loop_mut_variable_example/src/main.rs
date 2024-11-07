@@ -1,14 +1,16 @@
-use std::future::Future;
-use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use std::{future::Future, sync::Arc};
+use tokio::{
+  sync::Mutex,
+  time::{sleep, Duration},
+};
 
 async fn add_to_vec<F, Fut>(
   shared_value: Arc<i32>,
-  vec: Arc<tokio::sync::Mutex<Vec<i32>>>,
+  vec: Arc<Mutex<Vec<i32>>>,
   length: usize,
   mut f: F,
 ) where
-  F: FnMut(Arc<i32>, Arc<tokio::sync::Mutex<Vec<i32>>>) -> Fut + Send,
+  F: FnMut(Arc<i32>, Arc<Mutex<Vec<i32>>>) -> Fut + Send,
   Fut: Future<Output = ()> + Send + 'static,
 {
   loop {
@@ -35,13 +37,13 @@ async fn main() {
   let shared_value = Arc::new(42);
 
   // Create a mutable vector wrapped in a Mutex and Arc
-  let vec = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+  let vec = Arc::new(Mutex::new(Vec::new()));
 
   // Specify the desired length
   let length = 5;
 
   // Define the async FnMut closure
-  let closure = |shared_value: Arc<i32>, vec: Arc<tokio::sync::Mutex<Vec<i32>>>| {
+  let closure = |shared_value: Arc<i32>, vec: Arc<Mutex<Vec<i32>>>| {
     Box::pin(async move {
       let mut vec = vec.lock().await;
       vec.push(*shared_value);
