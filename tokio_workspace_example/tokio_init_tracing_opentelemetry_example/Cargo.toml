@@ -6,6 +6,5 @@ edition = "2021"
 [dependencies]
 axum = "0.7.7"
 axum-tracing-opentelemetry = "0.21.1"
-# init-tracing-opentelemetry = "0.22.0"
-init-tracing-opentelemetry = {  git = "https://github.com/getong/tracing-opentelemetry-instrumentation-sdk", branch = "opentelemetry-0.26", features = ["otlp", "tracing_subscriber_ext"] }
+init-tracing-opentelemetry = { version = "0.23.0", features = ["otlp", "tracing_subscriber_ext"] }
 tokio = { version = "1.41.0", features = ["full"] }
