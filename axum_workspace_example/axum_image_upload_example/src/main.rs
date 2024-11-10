@@ -1,3 +1,7 @@
+// curl -X POST \
+//     -H "Content-Type: image/jpeg" \
+//     --data-binary @"$HOME/hello.jpg" \
+//     http://127.0.0.1:3003/upload
 use axum::{
   async_trait,
   body::Bytes,
@@ -7,6 +11,9 @@ use axum::{
   routing::post,
   Router,
 };
+use tokio::io::AsyncWriteExt;
+use tower::ServiceBuilder;
+use tower_http::limit::RequestBodyLimitLayer;
 
 pub struct Jpeg(Bytes);
 
@@ -46,13 +53,18 @@ where
 }
 
 pub async fn upload_jpeg3(jpeg: Jpeg) -> impl IntoResponse {
-  tokio::fs::write("upload.jpg", jpeg.0).await.unwrap();
+  // Write the image bytes to a file
+  let mut file = tokio::fs::File::create("upload.jpg").await.unwrap();
+  file.write_all(&jpeg.0).await.unwrap();
   (StatusCode::CREATED, "image uploaded".to_string())
 }
 
 #[tokio::main]
 async fn main() {
-  let app = Router::new().route("/upload", post(upload_jpeg3));
+  let app = Router::new()
+    .route("/upload", post(upload_jpeg3))
+    // Add the request body size limit layer
+    .layer(ServiceBuilder::new().layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))); // Set limit to 10 MB
 
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
   axum::serve(listener, app).await.unwrap();
