@@ -41,4 +41,5 @@ members = [
     "axum_extra_javascript_example",
     "axum_form_request_example",
     "tungstenite_url_example",
+    "axum_image_upload_example",
 ]
