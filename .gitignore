@@ -28,3 +28,5 @@ buffer_example_workspace/sample.json
 **/README.html
 **/*.pem
 **/*.bak
+**/*.jpg
+**/*.jpeg
