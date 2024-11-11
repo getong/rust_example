@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::error::Error;
 
-const BASE_URL: &str = "http://192.168.80.222:8009";
+const BASE_URL: &str = "http://192.168.15.222:8009";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
