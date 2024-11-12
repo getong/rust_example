@@ -43,4 +43,5 @@ members = [
     "tungstenite_url_example",
     "axum_image_upload_example",
     "axum_image_upload_with_form_example",
+    "axum_html_table_example",
 ]
