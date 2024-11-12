@@ -3,12 +3,13 @@
 resolver = "2"
 
 members = [
-        "serde-basic-example",
-        "serde-custom",
-        "serde-server",
-        "serde_example",
-        "serde_json_example",
-        "serde_json_example2",
-        "serde_yaml_example",
-        "serde_json_server_client_example",
+    "serde-basic-example",
+    "serde-custom",
+    "serde-server",
+    "serde_example",
+    "serde_json_example",
+    "serde_json_example2",
+    "serde_yaml_example",
+    "serde_json_server_client_example",
+    "serde_string_u64_example",
 ]
