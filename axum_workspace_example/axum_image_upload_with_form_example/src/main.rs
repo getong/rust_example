@@ -4,6 +4,8 @@ use axum::{
   routing::get,
   Router,
 };
+use std::fs::File;
+use std::io::Write;
 use tower_http::limit::RequestBodyLimitLayer;
 
 #[tokio::main]
@@ -56,5 +58,8 @@ async fn accept_form(mut multipart: Multipart) {
       "Length of `{name}` (`{file_name}`: `{content_type}`) is {} bytes",
       data.len()
     );
+    // Write the bytes to a file
+    let mut file = File::create(file_name).unwrap();
+    file.write_all(&data).unwrap();
   }
 }
