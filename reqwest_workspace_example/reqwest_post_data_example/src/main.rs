@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::error::Error;
 
-const BASE_URL: &str = "http://192.168.15.222:8009";
+const BASE_URL: &str = "http://192.168.15.222:8011/stats";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("7 {:#?}", res);
 
   let url5 = format!(
-    "{}/statistic-indexer-channel?indexer=0x5ef51c9f449db7be2f0c636c6c137e65b8b96b9b&\
+      "{}/statistic-indexer-channel?indexer=0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64&\
      deployment=QmNevi2wSvFzigFXrQdPTQFQxVEbpfmZ2uLX1HKxYj5dY8",
     BASE_URL
   );
