@@ -13,4 +13,5 @@ members = [
     "reqwest_send_basic_auth_example",
     "reqwest_post_data_example",
     "reqwest_read_all_chunks_example",
+    "reqwest_one_client_multi_host_example",
 ]

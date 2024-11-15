@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("7 {:#?}", res);
 
   let url5 = format!(
-      "{}/statistic-indexer-channel?indexer=0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64&\
+    "{}/statistic-indexer-channel?indexer=0xbf3a286a477967ebd850cee2dbdbfa6e535a9e64&\
      deployment=QmNevi2wSvFzigFXrQdPTQFQxVEbpfmZ2uLX1HKxYj5dY8",
     BASE_URL
   );
