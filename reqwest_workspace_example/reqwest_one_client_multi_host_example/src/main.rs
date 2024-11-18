@@ -13,7 +13,7 @@ pub const AUTHORIZATION: &str = "Authorization";
 async fn main() {
   let mut rng = rand::thread_rng();
 
-  for i in 0 .. 9999 {
+  for i in 0 .. {
     for url in &[
       "https://jsonplaceholder.typicode.com/posts", // Example URL for testing
       "https://jsonplaceholder.typicode.com/comments", // Example URL for testing
