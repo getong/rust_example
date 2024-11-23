@@ -1,0 +1,9 @@
+[package]
+name = "axum_askama_template_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+askama = "0.12.1"
+axum = "0.7.9"
+tokio = { version = "1.41.1", features = ["full"] }
