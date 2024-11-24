@@ -46,4 +46,5 @@ members = [
     "axum_html_table_example",
     "axum_multipart_form_example",
     "axum_askama_template_example",
+    "axum_multi_static_file_server_example",
 ]
