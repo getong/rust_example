@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libp2p-identity = { version = "0.2.9", features = ["ed25519", "rand"] }
+libp2p-identity = { version = "0.2.10", features = ["ed25519", "rand"] }
 rand = "0.8.5"
