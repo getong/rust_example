@@ -3,7 +3,7 @@ name = "axum_multi_static_file_server_example"
 version = "0.1.0"
 edition = "2021"
 
-    [dependencies]
+[dependencies]
 axum = "0.7.9"
 tokio = { version = "1.41.1", features = ["full"] }
 tower = "0.5.1"
