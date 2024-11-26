@@ -1,0 +1,24 @@
+* libp2p Browser-Server WebRTC Example
+
+This example demonstrates how to use the `libp2p-webrtc-websys` transport library in a browser to ping the WebRTC Server.
+It uses [[https://rustwasm.github.io/docs/wasm-pack/][wasm-pack]] to build the project for use in the browser.
+
+#+begin_src shell
+cargo install wasm-pack
+#+end_src
+
+** Running the example
+
+*** Build the client library:
+
+#+begin_src shell
+wasm-pack build --target web --out-dir static
+#+end_src
+
+*** Start the server:
+
+#+begin_src shell
+cargo run
+#+end_src
+
+*** Open the URL printed in the terminal
