@@ -1,27 +1,29 @@
-use futures::executor::block_on;
-use futures::prelude::*;
-// use libp2p::ping::{Ping, PingConfig};
-use libp2p::ping::{Behaviour, Config};
-use libp2p::swarm::{SwarmBuilder, SwarmEvent};
-use libp2p::{identity, Multiaddr, PeerId};
-use std::error::Error;
-use std::task::Poll;
+use futures::{executor::block_on, future, StreamExt};
+use libp2p::{
+  identity, noise,
+  ping::{Behaviour, Config},
+  swarm::SwarmEvent,
+  tcp, yamux, Multiaddr, PeerId, SwarmBuilder,
+};
+use std::{error::Error, task::Poll, time::Duration};
 
 fn main() -> Result<(), Box<dyn Error>> {
   let local_key = identity::Keypair::generate_ed25519();
   let local_peer_id = PeerId::from(local_key.public());
   println!("Local peer id: {:?}", local_peer_id);
 
-  let transport = block_on(libp2p::development_transport(local_key))?;
-
-  // Create a ping network behaviour.
-  //
-  // For illustrative purposes, the ping protocol is configured to
-  // keep the connection alive, so a continuous sequence of pings
-  // can be observed.
-  let behaviour = Behaviour::new(Config::new());
-
-  let mut swarm = SwarmBuilder::without_executor(transport, behaviour, local_peer_id).build();
+  // let mut swarm = SwarmBuilder::without_executor(transport, behaviour, local_peer_id).build();
+  let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
+    .with_tokio()
+    .with_tcp(
+      tcp::Config::default(),
+      noise::Config::new,
+      yamux::Config::default,
+    )?
+    .with_dns()?
+    .with_behaviour(|_key| Behaviour::new(Config::default()))?
+    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(5)))
+    .build();
 
   // Tell the swarm to listen on all interfaces and a random, OS-assigned
   // port.

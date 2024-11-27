@@ -5,7 +5,7 @@ resolver = "2"
 members = [
     "libp2p_chat_example",
     "libp2p_chat2_example",
-    # "libp2p_example",
+    "libp2p_example",
     "libp2p_peer_example",
     # "libp2p_blockchain_example",
     "libp2p_floodsub_chat_example",
