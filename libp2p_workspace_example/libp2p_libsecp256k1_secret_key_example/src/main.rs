@@ -8,7 +8,10 @@ openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -
 # Optionally, remove the PEM file
 rm private_key.pem
 */
-use ethers::{prelude::Address, utils::keccak256};
+use ethers::{
+  prelude::Address,
+  utils::{keccak256, to_checksum},
+};
 use libp2p::{
   identity::{self, Keypair},
   PeerId,
@@ -57,7 +60,7 @@ pub fn pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String, Box<dyn
   let hash = keccak256(&pub_key_bytes[1 ..]); // Skip the 0x04 prefix
   let address = Address::from_slice(&hash[12 ..]);
 
-  Ok(format!("{:x}", address))
+  Ok(to_checksum(&address, None))
 }
 
 pub fn compress_pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String, Box<dyn Error>> {
@@ -68,7 +71,7 @@ pub fn compress_pub_key_to_eth_address(pub_key: &SecpPublicKey) -> Result<String
   let hash = keccak256(&pub_key_bytes);
   let address = Address::from_slice(&hash[12 ..]);
 
-  Ok(format!("{:x}", address))
+  Ok(to_checksum(&address, None))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
