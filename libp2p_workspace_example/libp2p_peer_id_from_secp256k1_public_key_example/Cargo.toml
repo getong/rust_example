@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ethers = "2.0.14"
 hex = "0.4.3"
 libp2p = { version = "0.54.1", features = ["full"] }
+secp256k1 = "0.30.0"
