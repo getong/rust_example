@@ -32,7 +32,7 @@ members = [
     "libp2p_tokio_discover_nodes_example",
     "libp2p_quic_server_example",
     "libp2p_quic_client_example",
-    # "libp2p_misc_server_example",
+    "libp2p_misc_server_example",
     "libp2p_peer_id_example",
     "libp2p_tokio_stream_example",
     "libp2p_tokio_stream_with_existing_key_example",

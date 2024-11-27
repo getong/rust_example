@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_keypair)
     .with_tokio()
     .with_tcp(
-      tcp::Config::default().port_reuse(true).nodelay(true),
+      tcp::Config::default().nodelay(true),
       noise::Config::new,
       yamux::Config::default,
     )?
@@ -137,6 +137,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
               protocols,
               ..
             },
+          ..
         } = e
         {
           if protocols.iter().any(|p| *p == kad::PROTOCOL_NAME) {
