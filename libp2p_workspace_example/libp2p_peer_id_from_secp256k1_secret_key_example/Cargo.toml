@@ -1,0 +1,10 @@
+[package]
+name = "libp2p_peer_id_from_secp256k1_secret_key_example2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethers = "2.0.14"
+hex = "0.4.3"
+libp2p = { version = "0.54.1", features = ["full"] }
+secp256k1 = { version = "0.30.0", features = ["alloc", "std", "hashes", "rand", "serde"] }
