@@ -2,9 +2,9 @@
 name = "libp2p_example"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 futures = "0.3.28"
 libp2p = { version = "0.54.1", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full"] }
