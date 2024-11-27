@@ -47,5 +47,5 @@ members = [
   "libp2p_request_response_server_example",
   "libp2p_request_response_client_example",
   "libp2p_browser_webrtc_example",
-  "libp2p_peer_id_from_public_key_string_example",
+  "libp2p_peer_id_from_secp256k1_public_key_example",
 ]

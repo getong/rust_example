@@ -1,9 +1,8 @@
 [package]
-name = "libp2p_peer_id_from_public_key_string_example"
+name = "libp2p_peer_id_from_secp256k1_public_key_example"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ethers = "2.0.14"
 hex = "0.4.3"
 libp2p = { version = "0.54.1", features = ["full"] }
