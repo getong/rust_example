@@ -85,12 +85,18 @@ fn main() -> Result<(), Box<dyn Error>> {
   );
   println!("libp2p Peer ID: {}", identity.peer_id);
 
+  let eth_address = compress_pub_key_to_eth_address(&identity.public_key)?;
+  println!(
+    "Compressed Ethereum Address: {}, which does nothing",
+    eth_address
+  );
+
   // Example usage of get_eth_addr_from_peer
   let eth_address = pub_key_to_eth_address(&identity.public_key)?;
-  println!("Ethereum Address: {}", eth_address);
-
-  let eth_address = compress_pub_key_to_eth_address(&identity.public_key)?;
-  println!("compress Ethereum Address: {}", eth_address);
+  println!(
+    "Ethereum Address: {}, it is the same with others",
+    eth_address
+  );
 
   Ok(())
 }
