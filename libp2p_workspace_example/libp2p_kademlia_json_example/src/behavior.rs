@@ -12,7 +12,7 @@ use libp2p::{
   swarm::NetworkBehaviour,
 };
 
-use crate::message::{GreeRequest, GreetResponse};
+use crate::message::Message;
 
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "Event")]
@@ -35,19 +35,17 @@ impl Behavior {
     self.kad.add_address(peer_id, addr)
   }
 
-  pub fn send_message(&mut self, peer_id: &PeerId, message: GreeRequest) -> OutboundRequestId {
-    let binary_message = message
-      .to_binary()
-      .expect("Failed to serialize GreeRequest");
+  pub fn send_message(&mut self, peer_id: &PeerId, message: Message) -> OutboundRequestId {
+    let binary_message = message.to_binary().expect("Failed to serialize message");
     self.rr.send_request(peer_id, binary_message)
   }
 
   pub fn send_response(
     &mut self,
     ch: RequestResponseChannel<Vec<u8>>,
-    rs: GreetResponse,
+    rs: Message,
   ) -> Result<(), Vec<u8>> {
-    let binary_response = rs.to_binary().expect("Failed to serialize GreetResponse");
+    let binary_response = rs.to_binary().expect("Failed to serialize response");
     self.rr.send_response(ch, binary_response)
   }
 

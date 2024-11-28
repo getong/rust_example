@@ -26,7 +26,7 @@ mod behavior;
 mod message;
 
 use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
-use message::{GreeRequest, GreetResponse};
+use message::{GreeRequest, GreetResponse, Message};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -128,10 +128,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
               .register_addr_kad(&peer_id, addr.clone());
 
             let local_peer_id = local_key.public().to_peer_id();
-            let message = GreeRequest {
+            let request = GreeRequest {
               message: format!("Send message from: {local_peer_id}: Hello gaess"),
             };
-            let request_id = swarm.behaviour_mut().send_message(&peer_id, message);
+            let resquest_message = Message::GreeRequest(request);
+            let request_id = swarm
+              .behaviour_mut()
+              .send_message(&peer_id, resquest_message);
             info!("RequestID: {request_id}")
           }
 
@@ -146,18 +149,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
             request,
             channel,
           } => {
-            let parsed_request =
-              GreeRequest::from_binary(&request).expect("Failed to decode request");
-            info!(
-              "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: {request_id} \
-               | RequestMessage: {0:?}",
-              parsed_request.message
-            );
+            let parsed_request = Message::from_binary(&request).expect("Failed to decode request");
+            match parsed_request {
+              Message::GreeRequest(req) => {
+                info!(
+                  "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: \
+                   {request_id} | RequestMessage: {0:?}",
+                  req.message
+                );
+              }
+              Message::AnotherMessage(msg) => {
+                info!(
+                  "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: \
+                   {request_id} | AnotherMessage: {0:?}",
+                  msg.info
+                );
+              }
+              _ => {
+                info!("Received unknown message type.");
+              }
+            }
             let local_peer_id = local_key.public().to_peer_id();
             let response = GreetResponse {
               message: format!("Response from: {local_peer_id}: hello too").to_string(),
             };
-            let result = swarm.behaviour_mut().send_response(channel, response);
+            let response_message = Message::GreetResponse(response);
+            let result = swarm
+              .behaviour_mut()
+              .send_response(channel, response_message);
             if result.is_err() {
               let err = result.unwrap_err();
               error!("Error sending response: {err:?}")
@@ -170,12 +189,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
             response,
           } => {
             let parsed_response =
-              GreetResponse::from_binary(&response).expect("Failed to decode response");
-            info!(
-              "RequestResponseEvent::Message::Response -> PeerID: {peer} | RequestID: \
-               {request_id} | Response: {0:?}",
-              parsed_response.message
-            )
+              Message::from_binary(&response).expect("Failed to decode response");
+            match parsed_response {
+              Message::GreetResponse(res) => {
+                info!(
+                  "RequestResponseEvent::Message::Response -> PeerID: {peer} | RequestID: \
+                   {request_id} | Response: {0:?}",
+                  res.message
+                )
+              }
+              _ => {
+                info!("Received unknown response type.");
+              }
+            }
           }
         },
         RequestResponseEvent::InboundFailure {
