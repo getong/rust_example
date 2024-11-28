@@ -38,6 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .with_tokio()
     .with_tcp(TcpConfig::default(), NoiceConfig::new, YamuxConfig::default)?
     .with_quic()
+    .with_dns()?
     .with_behaviour(|key| {
       let local_peer_id = PeerId::from(key.clone().public());
       info!("LocalPeerID: {local_peer_id}");
