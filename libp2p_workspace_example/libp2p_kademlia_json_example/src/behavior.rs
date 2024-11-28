@@ -1,5 +1,6 @@
 use libp2p::{
   Multiaddr, PeerId,
+  gossipsub::{Behaviour as GossipsubBehavior, Event as GossipsubEvent},
   identify::{Behaviour as IdentifyBehavior, Event as IdentifyEvent},
   kad::{
     Behaviour as KademliaBehavior, Event as KademliaEvent, RoutingUpdate,
@@ -20,6 +21,7 @@ pub(crate) struct Behavior {
   identify: IdentifyBehavior,
   kad: KademliaBehavior<KademliaInMemory>,
   rr: RequestResponseBehavior<Vec<u8>, Vec<u8>>,
+  gossipsub: GossipsubBehavior,
 }
 
 impl Behavior {
@@ -27,8 +29,14 @@ impl Behavior {
     kad: KademliaBehavior<KademliaInMemory>,
     identify: IdentifyBehavior,
     rr: RequestResponseBehavior<Vec<u8>, Vec<u8>>,
+    gossipsub: GossipsubBehavior,
   ) -> Self {
-    Self { kad, identify, rr }
+    Self {
+      kad,
+      identify,
+      rr,
+      gossipsub,
+    }
   }
 
   pub fn register_addr_kad(&mut self, peer_id: &PeerId, addr: Multiaddr) -> RoutingUpdate {
@@ -59,6 +67,7 @@ pub(crate) enum Event {
   Identify(IdentifyEvent),
   Kad(KademliaEvent),
   RequestResponse(RequestResponseEvent<Vec<u8>, Vec<u8>>),
+  Gossipsub(GossipsubEvent),
 }
 
 impl From<IdentifyEvent> for Event {
@@ -76,5 +85,11 @@ impl From<KademliaEvent> for Event {
 impl From<RequestResponseEvent<Vec<u8>, Vec<u8>>> for Event {
   fn from(value: RequestResponseEvent<Vec<u8>, Vec<u8>>) -> Self {
     Self::RequestResponse(value)
+  }
+}
+
+impl From<GossipsubEvent> for Event {
+  fn from(value: GossipsubEvent) -> Self {
+    Self::Gossipsub(value)
   }
 }

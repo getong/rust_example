@@ -1,10 +1,8 @@
 use env_logger::{Builder, Env};
-use log::{error, info, warn};
-use std::{collections::HashMap, env::args, error::Error, time::Duration};
-
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
   futures::StreamExt,
+  gossipsub,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
   identity,
   kad::{
@@ -21,10 +19,17 @@ use libp2p::{
   tcp::Config as TcpConfig,
   yamux::Config as YamuxConfig,
 };
+use log::{error, info, warn};
+use std::{
+  collections::{HashMap, hash_map::DefaultHasher},
+  env::args,
+  error::Error,
+  hash::{Hash, Hasher},
+  time::Duration,
+};
 
 mod behavior;
 mod message;
-
 use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
 use message::{GreeRequest, GreetResponse, Message};
 
@@ -61,7 +66,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
       );
 
       let identify = IdentifyBehavior::new(identify_config);
-      AgentBehavior::new(kad, identify, rr_behavior)
+
+      let message_id_fn = |message: &gossipsub::Message| {
+        let mut s = DefaultHasher::new();
+        message.data.hash(&mut s);
+        gossipsub::MessageId::from(s.finish().to_string())
+      };
+      // Set a custom gossipsub configuration
+      let gossipsub_config = gossipsub::ConfigBuilder::default()
+        .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
+        .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
+        .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
+        .build()
+        .unwrap();
+
+      // build a gossipsub network behaviour
+      let gossipsub = gossipsub::Behaviour::new(
+        gossipsub::MessageAuthenticity::Signed(key.clone()),
+        gossipsub_config,
+      )
+      .unwrap();
+
+      AgentBehavior::new(kad, identify, rr_behavior, gossipsub)
     })?
     .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(30)))
     .build();
@@ -101,6 +127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         peer_id,
         connection_id,
       } => info!("Dialing: {peer_id:?} | {connection_id}"),
+      SwarmEvent::Behaviour(AgentEvent::Gossipsub(event)) => info!("gossipsub: {event:?}"),
       SwarmEvent::Behaviour(AgentEvent::Identify(event)) => match event {
         IdentifyEvent::Sent { peer_id, .. } => info!("IdentifyEvent:Sent: {peer_id}"),
         IdentifyEvent::Pushed { peer_id, info, .. } => {
