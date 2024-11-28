@@ -13,4 +13,5 @@ members = [
   "serde_json_server_client_example",
   "serde_string_u64_example",
   "serde_json_server_example",
+  "serde_json_client_example",
 ]
