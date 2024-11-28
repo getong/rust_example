@@ -1,0 +1,50 @@
+* serde workspace example
+
+** serde_json server and serde_json client example
+
+*** There are four data types in message.rs
+
+#+begin_src rust
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GreeRequest {
+  pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GreetResponse {
+  pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnotherMessage {
+  pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FourthMessage {
+  pub message: String,
+}
+
+// Enum to wrap all message types
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")] // Optional: Use tags to differentiate types in JSON
+pub enum Message {
+  GreeRequest(GreeRequest),
+  GreetResponse(GreetResponse),
+  AnotherMessage(AnotherMessage),
+  FourthMessage(FourthMessage),
+}
+#+end_src
+
+*** test methods
+
+| serde_json Server Data Types | serde_json Client Data Types | Status   |
+|------------------------------+------------------------------+----------|
+| 1,2,3                        | 1,2,3,4                      | it works |
+| 1,2,3,4                      | 1,2,3                        | it works |
+| 1,2,3,4                      | 1,3,4                        | it works |
+| 1,2,3,4                      | 3,1,4                        | it works |
+| 3,1,4                        | 1,2,3,4                      | it works |
+| 4,1                          | 2,1                          | it works |
