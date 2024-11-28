@@ -2,7 +2,6 @@ use serde_json::de::from_slice;
 use std::error::Error;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
-
 mod message;
 use message::Message;
 
@@ -23,11 +22,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
         match socket.read(&mut buf).await {
           Ok(0) => break, // Connection was closed
           Ok(n) => {
-            // Parse the received JSON
+            // Parse the received JSON into the Message enum
             match from_slice::<Message>(&buf[.. n]) {
-              Ok(message) => {
-                println!("Received message: {:?}", message);
-              }
+              Ok(message) => match message {
+                Message::GreeRequest(req) => {
+                  println!("Received GreeRequest: {:?}", req);
+                }
+                Message::GreetResponse(res) => {
+                  println!("Received GreetResponse: {:?}", res);
+                }
+                Message::AnotherMessage(msg) => {
+                  println!("Received AnotherMessage: {:?}", msg);
+                }
+                Message::FourthMessage(msg) => {
+                  println!("Received FourthMessage: {:?}", msg);
+                }
+              },
               Err(e) => {
                 println!("Failed to deserialize message: {}", e);
               }

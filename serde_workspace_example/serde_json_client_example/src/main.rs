@@ -2,20 +2,18 @@ use serde_json::to_vec;
 use std::error::Error;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-
 mod message;
-use message::Message; // Import the Message struct
+use message::{GreeRequest, Message}; // Import the Message enum
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
   let mut socket = TcpStream::connect("127.0.0.1:8080").await?;
   println!("Connected to server!");
 
-  // Create a sample message
-  let message = Message {
-    id: 1,
-    content: String::from("Hello, server!"),
-  };
+  // Create a sample message (choose any of the Message variants)
+  let message = Message::GreeRequest(GreeRequest {
+    message: String::from("Hello from the client!"),
+  });
 
   // Serialize the message to JSON
   let serialized_message = to_vec(&message)?;
