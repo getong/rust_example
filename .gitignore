@@ -30,3 +30,5 @@ buffer_example_workspace/sample.json
 **/*.bak
 **/*.jpg
 **/*.jpeg
+**/node_modules
+**/pnpm-lock.yaml
