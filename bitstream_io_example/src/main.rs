@@ -1,7 +1,6 @@
-use bitstream_io::{BigEndian, BitRead, BitReader};
-use bitstream_io::{BitWrite, BitWriter};
-use std::io::Write;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Write};
+
+use bitstream_io::{BigEndian, BitRead, BitReader, BitWrite, BitWriter};
 
 fn main() {
   // println!("Hello, world!");

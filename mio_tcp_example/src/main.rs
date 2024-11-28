@@ -1,7 +1,9 @@
 use std::error::Error;
 
-use mio::net::{TcpListener, TcpStream};
-use mio::{Events, Interest, Poll, Token};
+use mio::{
+  net::{TcpListener, TcpStream},
+  Events, Interest, Poll, Token,
+};
 
 // Some tokens to allow us to identify which event is for which socket.
 const SERVER: Token = Token(0);

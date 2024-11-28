@@ -1,7 +1,7 @@
-use prost::Message;
-use reqwest::blocking::Client;
 // use reqwest::Client;
 use myapp::Todo;
+use prost::Message;
+use reqwest::blocking::Client;
 
 pub mod myapp {
   include!("myapp.rs");

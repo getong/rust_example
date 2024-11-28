@@ -1,8 +1,6 @@
-use tracing::info;
-use tracing::instrument;
+use tracing::{info, instrument};
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::Registry;
+use tracing_subscriber::{layer::SubscriberExt, Registry};
 
 #[instrument]
 pub fn a_unit_of_work(first_parameter: u64) {

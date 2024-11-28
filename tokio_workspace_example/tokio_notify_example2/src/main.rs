@@ -1,6 +1,9 @@
 use std::sync::Arc;
-use tokio::sync::Notify;
-use tokio::time::{sleep, Duration};
+
+use tokio::{
+  sync::Notify,
+  time::{sleep, Duration},
+};
 
 #[tokio::main]
 async fn main() {

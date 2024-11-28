@@ -1,7 +1,10 @@
 use std::error::Error;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-use tokio::runtime::Runtime;
+
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::TcpListener,
+  runtime::Runtime,
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
   // Create the runtime

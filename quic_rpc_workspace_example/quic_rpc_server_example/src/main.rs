@@ -1,10 +1,9 @@
+use std::{net::SocketAddr, sync::Arc};
+
 use async_stream::stream;
 use futures::stream::{Stream, StreamExt};
 use quic_rpc::server::run_server_loop;
 use quinn::{Endpoint, ServerConfig};
-use std::net::SocketAddr;
-use std::sync::Arc;
-
 use types::compute::*;
 
 #[derive(Clone)]

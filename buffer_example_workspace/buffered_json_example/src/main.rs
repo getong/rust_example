@@ -1,6 +1,7 @@
-use std::fs;
-
-use std::io::{self, BufReader};
+use std::{
+  fs,
+  io::{self, BufReader},
+};
 
 fn main() -> io::Result<()> {
   let mut f = BufReader::new(fs::File::open("sample.json")?);

@@ -1,5 +1,6 @@
-use actix_web_integration_test_example::run;
 use std::net::TcpListener;
+
+use actix_web_integration_test_example::run;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {

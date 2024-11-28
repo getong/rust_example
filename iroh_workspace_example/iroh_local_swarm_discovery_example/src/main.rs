@@ -1,21 +1,23 @@
 //! Example that runs and iroh node with local node discovery and no relay server
 //!
 //! Run the follow command to run the "accept" side, that hosts the content:
-//!  $ cargo run --example local_swarm_discovery --features="discovery-local-network" -- accept [FILE_PATH]
-//! Wait for output that looks like the following:
-//!  $ cargo run --example local_swarm_discovery --features="discovery-local-network" -- connect [NODE_ID] [HASH] -o [FILE_PATH]
-//! Run that command on another machine in the same local network, replacing [FILE_PATH] to the path on which you want to save the transferred content.
+//!  $ cargo run --example local_swarm_discovery --features="discovery-local-network" -- accept
+//! [FILE_PATH] Wait for output that looks like the following:
+//!  $ cargo run --example local_swarm_discovery --features="discovery-local-network" -- connect
+//! [NODE_ID] [HASH] -o [FILE_PATH] Run that command on another machine in the same local network,
+//! replacing [FILE_PATH] to the path on which you want to save the transferred content.
 use std::path::PathBuf;
 
 use anyhow::ensure;
 use clap::{Parser, Subcommand};
-use iroh::base::key::SecretKey;
-use iroh::client::blobs::WrapOption;
-use iroh::net::discovery::local_swarm_discovery::LocalSwarmDiscovery;
-use iroh::node::{DiscoveryConfig, Node};
+use iroh::{
+  base::key::SecretKey,
+  client::blobs::WrapOption,
+  net::discovery::local_swarm_discovery::LocalSwarmDiscovery,
+  node::{DiscoveryConfig, Node},
+};
 use iroh_blobs::Hash;
-use iroh_net::key::PublicKey;
-use iroh_net::NodeAddr;
+use iroh_net::{key::PublicKey, NodeAddr};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 use self::progress::show_download_progress;

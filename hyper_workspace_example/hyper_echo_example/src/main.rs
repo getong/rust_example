@@ -1,12 +1,16 @@
+use std::net::SocketAddr;
+
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::body::Frame;
-use hyper::service::service_fn;
-use hyper::{body::Body, Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
-use std::net::SocketAddr;
+use hyper::{
+  body::{Body, Frame},
+  service::service_fn,
+  Method, Request, Response, StatusCode,
+};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
 use tokio::net::TcpListener;
 
 /// This is our service handler. It receives a Request, routes on its

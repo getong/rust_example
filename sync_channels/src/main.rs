@@ -1,6 +1,5 @@
 // sync_channels.rs
-use std::sync::mpsc;
-use std::thread;
+use std::{sync::mpsc, thread};
 
 fn main() {
   let (tx, rx) = mpsc::sync_channel(1);

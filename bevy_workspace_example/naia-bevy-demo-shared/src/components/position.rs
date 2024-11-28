@@ -1,5 +1,4 @@
 use bevy_ecs::prelude::Component;
-
 use naia_bevy_shared::{Property, Replicate};
 
 #[derive(Component, Replicate)]

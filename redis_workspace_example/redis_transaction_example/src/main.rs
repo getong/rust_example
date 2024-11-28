@@ -1,5 +1,6 @@
-use redis::AsyncCommands;
 use std::{env, error::Error};
+
+use redis::AsyncCommands;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

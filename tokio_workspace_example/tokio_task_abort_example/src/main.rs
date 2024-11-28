@@ -1,5 +1,4 @@
-use tokio::task::JoinError;
-use tokio::{runtime::Runtime, time};
+use tokio::{runtime::Runtime, task::JoinError, time};
 
 fn main() {
   let rt = Runtime::new().unwrap();

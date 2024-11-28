@@ -1,8 +1,6 @@
-use rusty_ulid::generate_ulid_bytes;
-use rusty_ulid::generate_ulid_string;
-
-use rusty_ulid::Ulid;
 use std::str::FromStr;
+
+use rusty_ulid::{generate_ulid_bytes, generate_ulid_string, Ulid};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   // println!("Hello, world!");

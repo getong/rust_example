@@ -1,14 +1,8 @@
-use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::rc::Rc;
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use tokio::sync::oneshot;
 
-use crate::app::RequestTx;
-use crate::decode;
-use crate::encode;
-use crate::typ::RaftError;
-use crate::NodeId;
+use crate::{app::RequestTx, decode, encode, typ::RaftError, NodeId};
 
 /// Simulate a network router.
 #[derive(Debug, Clone, Default)]

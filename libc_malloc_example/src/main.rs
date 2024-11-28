@@ -1,6 +1,6 @@
+use std::{mem, ptr};
+
 use libc::{malloc, size_t};
-use std::mem;
-use std::ptr;
 
 fn main() {
   // How ugly it is to pretend Rust is unsafe C.

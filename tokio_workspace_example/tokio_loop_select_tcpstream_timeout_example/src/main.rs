@@ -1,8 +1,10 @@
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
-use tokio::io::{self, AsyncReadExt};
-use tokio::net::TcpStream;
-use tokio::time::timeout;
+
+use tokio::{
+  io::{self, AsyncReadExt, AsyncWriteExt},
+  net::TcpStream,
+  time::timeout,
+};
 
 // nc -l 8080
 

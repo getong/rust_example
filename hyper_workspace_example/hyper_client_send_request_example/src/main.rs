@@ -4,8 +4,10 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use hyper::Request;
 use hyper_util::rt::TokioIo;
-use tokio::io::{self, AsyncWriteExt as _};
-use tokio::net::TcpStream;
+use tokio::{
+  io::{self, AsyncWriteExt as _},
+  net::TcpStream,
+};
 
 // A simple type alias so as to DRY.
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

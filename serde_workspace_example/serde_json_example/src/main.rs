@@ -1,5 +1,4 @@
-use serde_json::json;
-use serde_json::{Error, Value};
+use serde_json::{json, Error, Value};
 
 fn main() -> Result<(), Error> {
   let j = r#"{

@@ -1,4 +1,4 @@
-use secp256k1::{Secp256k1, PublicKey, SecretKey};
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 fn main() {
   // Create a Secp256k1 context object

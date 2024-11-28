@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 
 // work with ../../../axum_workspace_example/axum_basic_auth_example/
 #[derive(Serialize, Deserialize)]

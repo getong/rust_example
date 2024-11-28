@@ -1,4 +1,4 @@
-//use rustler::Term;
+// use rustler::Term;
 
 mod test_atom;
 mod test_binary;

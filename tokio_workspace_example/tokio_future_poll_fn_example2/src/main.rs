@@ -1,5 +1,6 @@
-use futures::Future;
 use std::{pin::Pin, task::Poll, time::Duration};
+
+use futures::Future;
 use tokio::{macros::support::poll_fn, time::sleep};
 
 #[tokio::main]

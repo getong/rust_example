@@ -1,18 +1,13 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use actix_web::get;
-use actix_web::post;
-use actix_web::web::Data;
-use actix_web::web::Json;
-use actix_web::Responder;
-use openraft::error::Infallible;
-use openraft::BasicNode;
-use openraft::RaftMetrics;
+use actix_web::{
+  get, post,
+  web::{Data, Json},
+  Responder,
+};
+use openraft::{error::Infallible, BasicNode, RaftMetrics};
 
-use crate::app::App;
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{app::App, NodeId, TypeConfig};
 
 // --- Cluster management
 

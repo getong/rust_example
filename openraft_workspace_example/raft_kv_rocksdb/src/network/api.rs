@@ -1,15 +1,9 @@
 use std::sync::Arc;
 
-use openraft::error::CheckIsLeaderError;
-use openraft::error::Infallible;
-use tide::Body;
-use tide::Request;
-use tide::Response;
-use tide::StatusCode;
+use openraft::error::{CheckIsLeaderError, Infallible};
+use tide::{Body, Request, Response, StatusCode};
 
-use crate::app::App;
-use crate::Server;
-use crate::TypeConfig;
+use crate::{app::App, Server, TypeConfig};
 
 pub fn rest(app: &mut Server) {
   let mut api = app.at("/api");
@@ -17,15 +11,13 @@ pub fn rest(app: &mut Server) {
   api.at("/read").post(read);
   api.at("/consistent_read").post(consistent_read);
 }
-/**
- * Application API
- *
- * This is where you place your application, you can use the example below to create your
- * API. The current implementation:
- *
- *  - `POST - /write` saves a value in a key and sync the nodes.
- *  - `POST - /read` attempt to find a value from a given key.
- */
+/// Application API
+///
+/// This is where you place your application, you can use the example below to create your
+/// API. The current implementation:
+///
+///  - `POST - /write` saves a value in a key and sync the nodes.
+///  - `POST - /read` attempt to find a value from a given key.
 async fn write(mut req: Request<Arc<App>>) -> tide::Result {
   let body = req.body_json().await?;
   let res = req.state().raft.client_write(body).await;

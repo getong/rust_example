@@ -1,6 +1,5 @@
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
-
 use hyper_tls::HttpsConnector;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use tokio::io::{self, AsyncWriteExt};

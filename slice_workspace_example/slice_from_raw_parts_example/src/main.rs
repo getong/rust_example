@@ -3,7 +3,8 @@ use std::{slice::from_raw_parts, str::from_utf8_unchecked};
 
 fn get_memory_location() -> (usize, usize) {
   // “Hello World” 是字符串字面量，因此它的生命周期是 `'static`.
-  // 但持有它的变量 `string` 的生命周期就不一样了，它完全取决于变量作用域，对于该例子来说，也就是当前的函数范围
+  // 但持有它的变量 `string`
+  // 的生命周期就不一样了，它完全取决于变量作用域，对于该例子来说，也就是当前的函数范围
   let string = "Hello World!";
   let pointer = string.as_ptr() as usize;
   let length = string.len();

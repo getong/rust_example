@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use libp2p::{
   // core::transport::upgrade::Version,
@@ -16,9 +18,7 @@ use libp2p::{
 use log::{error, info};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use tokio::time::Duration;
-use tokio::{fs, io::AsyncBufReadExt};
+use tokio::{fs, io::AsyncBufReadExt, time::Duration};
 // use std::io::Result;
 // use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -153,7 +153,8 @@ async fn main() -> Result<()> {
 
   // let transp = TokioTcpConfig::new()
   //     .upgrade(upgrade::Version::V1)
-  //     .authenticate(NoiseConfig::xx(auth_keys).into_authenticated()) // XX Handshake pattern, IX exists as well and IK - only XX currently provides interop with other libp2p impls
+  //     .authenticate(NoiseConfig::xx(auth_keys).into_authenticated()) // XX Handshake pattern, IX
+  // exists as well and IK - only XX currently provides interop with other libp2p impls
   //     .multiplex(libp2p_mplex::MplexConfig::new())
   //     .boxed();
   // Create a TCP transport

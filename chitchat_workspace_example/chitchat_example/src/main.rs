@@ -1,18 +1,17 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::{
+  net::SocketAddr,
+  sync::Arc,
+  time::{Duration, SystemTime},
+};
 
-use chitchat::transport::UdpTransport;
 use chitchat::{
-  spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, ClusterStateSnapshot, FailureDetectorConfig,
+  spawn_chitchat, transport::UdpTransport, Chitchat, ChitchatConfig, ChitchatId,
+  ClusterStateSnapshot, FailureDetectorConfig,
 };
 use clap::Parser;
 use cool_id_generator::Size;
-use poem::listener::TcpListener;
-use poem::{Route, Server};
-use poem_openapi::param::Query;
-use poem_openapi::payload::Json;
-use poem_openapi::{OpenApi, OpenApiService};
+use poem::{listener::TcpListener, Route, Server};
+use poem_openapi::{param::Query, payload::Json, OpenApi, OpenApiService};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 

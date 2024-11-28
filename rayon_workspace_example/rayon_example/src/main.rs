@@ -1,5 +1,4 @@
-use rayon::join;
-use rayon::prelude::*;
+use rayon::{join, prelude::*};
 
 fn main() {
   // println!("Hello, world!");

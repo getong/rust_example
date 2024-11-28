@@ -1,8 +1,10 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::str;
-use std::sync::{Arc, Mutex};
-use std::time;
+use std::{
+  io::{Read, Write},
+  net::TcpStream,
+  str,
+  sync::{Arc, Mutex},
+  time,
+};
 
 pub struct User {
   pub stream: Arc<Mutex<TcpStream>>,

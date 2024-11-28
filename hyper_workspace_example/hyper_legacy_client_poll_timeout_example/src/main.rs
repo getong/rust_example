@@ -1,10 +1,11 @@
-use http_body_util::BodyExt;
-use http_body_util::Empty;
-use hyper::Request;
-use hyper_util::client::legacy::Client;
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioTimer;
 use std::time::Duration;
+
+use http_body_util::{BodyExt, Empty};
+use hyper::Request;
+use hyper_util::{
+  client::legacy::Client,
+  rt::{TokioExecutor, TokioTimer},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

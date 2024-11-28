@@ -10,7 +10,6 @@ use libp2p::{
   swarm::NetworkBehaviour,
   Multiaddr, PeerId,
 };
-
 use libp2p_stream::Behaviour as StreamBehavior;
 
 use crate::message::{GreeRequest, GreetResponse};

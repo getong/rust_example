@@ -1,9 +1,10 @@
-use futures::prelude::*;
-use pin_project::pin_project;
 use std::{
   pin::Pin,
   task::{Context, Poll},
 };
+
+use futures::prelude::*;
+use pin_project::pin_project;
 use tokio::{
   fs,
   io::{AsyncBufReadExt, AsyncRead, BufReader, Lines},

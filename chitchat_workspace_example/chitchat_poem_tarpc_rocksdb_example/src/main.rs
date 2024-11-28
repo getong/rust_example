@@ -1,5 +1,4 @@
-use chitchat_poem_tarpc_rocksdb_example::common::Opt;
-use chitchat_poem_tarpc_rocksdb_example::start_example_raft_node;
+use chitchat_poem_tarpc_rocksdb_example::{common::Opt, start_example_raft_node};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 

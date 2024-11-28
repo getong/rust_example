@@ -1,15 +1,12 @@
 // use std::net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
-use std::net::TcpListener;
-
-// use std::io::{self, Read, Write};
-
-use crate::client::Client;
 // use std::cell::RefCell;
 // use std::fs::File;
 // use std::marker::Sized;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time;
+use std::{net::TcpListener, thread, time};
+
+// use std::io::{self, Read, Write};
+use crate::client::Client;
 // use crate::server;
 
 pub struct Server {
@@ -119,8 +116,8 @@ mod test {
   //     handler.listen();
   //     thread::spawn(move || {
   //         thread::sleep(time::Duration::from_millis(500));
-  //         let mut stream = TcpStream::connect("127.0.0.1:9000").expect("couldnt connect to server");
-  //         stream.set_nonblocking(true).expect("nonblocking failed");
+  //         let mut stream = TcpStream::connect("127.0.0.1:9000").expect("couldnt connect to
+  // server");         stream.set_nonblocking(true).expect("nonblocking failed");
 
   //         stream.write(&"test".as_bytes()).unwrap();
   //         println!("client 1 is connected");
@@ -140,8 +137,8 @@ mod test {
   //     });
   //     thread::spawn(move || {
   //         thread::sleep(time::Duration::from_millis(700));
-  //         let mut stream = TcpStream::connect("127.0.0.1:9000").expect("couldnt connect to server");
-  //         stream.set_nonblocking(true).expect("nonblocking failed");
+  //         let mut stream = TcpStream::connect("127.0.0.1:9000").expect("couldnt connect to
+  // server");         stream.set_nonblocking(true).expect("nonblocking failed");
   //         stream.write(&"how are you?".as_bytes()).unwrap();
   //         println!("client 2 is connected");
 

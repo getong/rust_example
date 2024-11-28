@@ -1,5 +1,6 @@
-use super::*;
 use sea_orm::{entity::*, error::*, query::*, DbConn, FromQueryResult};
+
+use super::*;
 
 pub async fn all_about_select(db: &DbConn) -> Result<(), DbErr> {
   find_all(db).await?;
@@ -245,9 +246,10 @@ async fn count_fruits_by_cake_json(db: &DbConn) -> Result<(), DbErr> {
 }
 
 async fn find_all_stream(db: &DbConn) -> Result<(), DbErr> {
+  use std::time::Duration;
+
   use async_std::task::sleep;
   use futures::TryStreamExt;
-  use std::time::Duration;
 
   println!("find all cakes: ");
   let mut cake_paginator = cake::Entity::find().paginate(db, 2);

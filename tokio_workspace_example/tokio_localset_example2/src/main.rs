@@ -1,6 +1,5 @@
 use chrono::Local;
-use tokio::task::LocalSet;
-use tokio::{runtime::Runtime, time};
+use tokio::{runtime::Runtime, task::LocalSet, time};
 
 fn now() -> String {
   Local::now().format("%F %T").to_string()

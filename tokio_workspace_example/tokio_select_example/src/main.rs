@@ -1,3 +1,5 @@
+use std::{thread, time::Duration};
+
 use futures::{
   future::ready,
   // select,
@@ -5,8 +7,6 @@ use futures::{
   SinkExt,
   StreamExt,
 };
-use std::thread;
-use std::time::Duration;
 use tokio::runtime;
 
 struct G;

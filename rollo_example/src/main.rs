@@ -1,12 +1,12 @@
+use std::{sync::Arc, time::Duration};
+
 use rollo::{
   error::Error,
   game::GameTime,
-  packet::to_bytes,
-  packet::Packet,
+  packet::{to_bytes, Packet},
   server::{ListenerSecurity, SocketTools, World, WorldSession, WorldSocketMgr},
   tokio, AtomicCell,
 };
-use std::{sync::Arc, time::Duration};
 
 #[tokio::main]
 async fn main() {

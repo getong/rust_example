@@ -1,6 +1,5 @@
-use mmap_sync::synchronizer::Synchronizer;
-
 use bytecheck::CheckBytes;
+use mmap_sync::synchronizer::Synchronizer;
 use rkyv::{Archive, Deserialize, Serialize};
 
 /// Example data-structure shared between writer and reader(s)

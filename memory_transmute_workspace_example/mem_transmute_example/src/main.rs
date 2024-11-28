@@ -8,7 +8,7 @@ fn main() {
   assert_eq!(num, 0x12345678);
   assert_eq!(num, ret);
   // num = 305419896
-  //println!("num = {}", num);
+  // println!("num = {}", num);
   assert_eq!(305419896, num);
 
   another_example();

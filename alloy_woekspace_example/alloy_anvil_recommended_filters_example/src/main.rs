@@ -1,4 +1,6 @@
 //! Example of using the `.with_recommended_fillers()` method in the provider.
+use std::time::Duration;
+
 use alloy::{
   network::TransactionBuilder,
   primitives::{address, U256},
@@ -6,7 +8,6 @@ use alloy::{
   rpc::types::request::TransactionRequest,
 };
 use eyre::Result;
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {

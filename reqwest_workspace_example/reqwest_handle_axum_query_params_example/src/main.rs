@@ -1,5 +1,6 @@
-use reqwest::Client;
 use std::collections::HashMap;
+
+use reqwest::Client;
 
 // work with ../../../axum_workspace_example/axum_handle_parameter_example
 #[tokio::main]

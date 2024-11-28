@@ -1,8 +1,10 @@
 use std::{thread, time::Duration};
 
 mod sync_primitives {
-  use std::sync::atomic::{AtomicUsize, Ordering};
-  use std::sync::{Arc, Condvar, Mutex};
+  use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Condvar, Mutex,
+  };
 
   struct Wg {
     counter: AtomicUsize,

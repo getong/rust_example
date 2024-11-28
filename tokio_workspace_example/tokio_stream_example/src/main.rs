@@ -1,6 +1,5 @@
 use tokio::sync::watch;
-use tokio_stream::wrappers::WatchStream;
-use tokio_stream::StreamExt;
+use tokio_stream::{wrappers::WatchStream, StreamExt};
 
 #[tokio::main]
 async fn main() {

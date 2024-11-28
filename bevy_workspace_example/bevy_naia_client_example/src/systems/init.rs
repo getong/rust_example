@@ -1,7 +1,6 @@
 use bevy::prelude::{
   info, shape, Assets, Camera2dBundle, Color, ColorMaterial, Commands, Mesh, ResMut,
 };
-
 use naia_bevy_client::{transport::webrtc, Client};
 use naia_bevy_demo_shared::messages::Auth;
 

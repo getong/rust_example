@@ -1,11 +1,10 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
   msg,
   program_error::ProgramError,
   pubkey::Pubkey,
   sysvar::{rent::Rent, Sysvar},
 };
-
-use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Default)]
 pub struct CourseState {

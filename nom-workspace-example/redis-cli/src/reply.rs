@@ -1,12 +1,14 @@
-use bytes::BytesMut;
-use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::bytes::complete::{take_while, take_while1, take_while_m_n};
-use nom::combinator::map;
-use nom::multi::many_m_n;
-use nom::sequence::delimited;
-use nom::IResult;
 use std::fmt::{Display, Result};
+
+use bytes::BytesMut;
+use nom::{
+  branch::alt,
+  bytes::complete::{tag, take_while, take_while1, take_while_m_n},
+  combinator::map,
+  multi::many_m_n,
+  sequence::delimited,
+  IResult,
+};
 
 #[derive(Debug)]
 pub enum Reply {
@@ -99,7 +101,7 @@ fn parse_int(i: &str) -> IResult<&str, Reply> {
 
 fn parse_batch(i: &str) -> IResult<&str, Reply> {
   let (i, _) = tag("$")(i)?;
-  //TODO 调整为正确的512MB大小?
+  // TODO 调整为正确的512MB大小?
   let (i, len) = (take_while1(|c: char| c.is_digit(10) || c == '-'))(i)?;
   if len == "-1" {
     let (i, _) = tag("\r\n")(i)?;

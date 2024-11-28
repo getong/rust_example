@@ -1,19 +1,12 @@
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  sync::Arc,
+};
 
-use openraft::error::Infallible;
-use openraft::RaftMetrics;
-use tide::Body;
-use tide::Request;
-use tide::Response;
-use tide::StatusCode;
+use openraft::{error::Infallible, RaftMetrics};
+use tide::{Body, Request, Response, StatusCode};
 
-use crate::app::App;
-use crate::Node;
-use crate::NodeId;
-use crate::Server;
-use crate::TypeConfig;
+use crate::{app::App, Node, NodeId, Server, TypeConfig};
 
 // --- Cluster management
 

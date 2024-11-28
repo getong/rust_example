@@ -1,11 +1,8 @@
-use dashmap::DashMap;
+use std::{io, sync::Arc, thread::sleep, time::Duration};
 
-//use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
+// use dashmap::mapref::entry::Entry;
 use parking_lot::RwLock;
-use std::io;
-use std::sync::Arc;
-use std::thread::sleep;
-use std::time::Duration;
 
 fn main() {
   // println!("Hello, world!");

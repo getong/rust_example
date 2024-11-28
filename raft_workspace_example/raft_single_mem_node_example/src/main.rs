@@ -1,16 +1,14 @@
 // Copyright 2019 TiKV Project Authors. Licensed under Apache-2.0.
 
-use slog::{Drain, Logger};
-use std::collections::HashMap;
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+  collections::HashMap,
+  sync::mpsc::{self, RecvTimeoutError},
+  thread,
+  time::{Duration, Instant},
+};
 
-use raft::eraftpb::ConfState;
-use raft::prelude::*;
-use raft::storage::MemStorage;
-
-use slog::{info, o};
+use raft::{eraftpb::ConfState, prelude::*, storage::MemStorage};
+use slog::{info, o, Drain, Logger};
 
 type ProposeCallback = Box<dyn Fn() + Send>;
 

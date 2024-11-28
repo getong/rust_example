@@ -1,6 +1,6 @@
-use petgraph::graph::NodeIndex;
-use petgraph::Graph;
 use std::collections::HashMap;
+
+use petgraph::{graph::NodeIndex, Graph};
 
 #[derive(Debug)]
 pub struct HaGraph<'a> {

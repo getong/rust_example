@@ -1,6 +1,6 @@
-use intrusive_collections::intrusive_adapter;
-use intrusive_collections::{LinkedList, LinkedListLink};
 use std::cell::Cell;
+
+use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListLink};
 
 // A simple struct containing an instrusive link and a value
 struct Test {

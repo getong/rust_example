@@ -1,9 +1,10 @@
 #[cfg(target_os = "linux")]
-use anyhow::Result;
-#[cfg(target_os = "linux")]
 use std::net::Ipv4Addr;
 #[cfg(target_os = "linux")]
 use std::os::unix::io::AsRawFd;
+
+#[cfg(target_os = "linux")]
+use anyhow::Result;
 #[cfg(target_os = "linux")]
 use tokio::io::AsyncReadExt;
 #[cfg(target_os = "linux")]

@@ -1,5 +1,7 @@
-use tokio::runtime::Builder;
-use tokio::time::{sleep, Duration};
+use tokio::{
+  runtime::Builder,
+  time::{sleep, Duration},
+};
 
 fn main() {
   let runtime = Builder::new_multi_thread()

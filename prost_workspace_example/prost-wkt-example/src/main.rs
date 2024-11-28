@@ -1,5 +1,4 @@
 use chrono::prelude::*;
-
 use prost_wkt_types::*;
 
 include!(concat!(env!("OUT_DIR"), "/my.messages.rs"));

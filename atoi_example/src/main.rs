@@ -1,5 +1,4 @@
-use atoi::atoi;
-use atoi::FromRadix10;
+use atoi::{atoi, FromRadix10};
 
 fn main() {
   // println!("Hello, world!");

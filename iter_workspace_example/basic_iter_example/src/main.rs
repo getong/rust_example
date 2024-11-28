@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::iter::IntoIterator;
+use std::{collections::HashMap, iter::IntoIterator};
 
 struct Person {
   name: String,

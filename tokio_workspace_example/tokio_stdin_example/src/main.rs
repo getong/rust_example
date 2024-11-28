@@ -1,5 +1,6 @@
-use futures::future::try_join_all;
 use std::fmt;
+
+use futures::future::try_join_all;
 use tokio::io::AsyncBufReadExt;
 
 #[derive(Debug)]

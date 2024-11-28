@@ -1,5 +1,6 @@
-use serde_json::{json, Value};
 use std::error::Error;
+
+use serde_json::{json, Value};
 
 const BASE_URL: &str = "http://192.168.15.222:8011/stats";
 

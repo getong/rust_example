@@ -1,6 +1,4 @@
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
+use std::{fs::File, io, io::prelude::*};
 
 fn main() -> io::Result<()> {
   let mut f = File::open("foo.txt")?;

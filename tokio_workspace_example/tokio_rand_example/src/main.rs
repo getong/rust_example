@@ -1,5 +1,7 @@
-use rand::distributions::{Distribution, Uniform};
-use rand::Rng;
+use rand::{
+  distributions::{Distribution, Uniform},
+  Rng,
+};
 
 async fn random_number() -> u64 {
   let mut rng = rand::thread_rng();

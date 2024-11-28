@@ -1,5 +1,4 @@
-use regex::Regex;
-use regex::RegexSet;
+use regex::{Regex, RegexSet};
 
 fn simple_match_example() {
   let re = Regex::new(r"rust").unwrap();

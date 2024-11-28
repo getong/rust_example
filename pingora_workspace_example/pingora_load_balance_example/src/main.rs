@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{sync::Arc, time::Duration};
+
 use async_trait::async_trait;
 use clap::Parser;
 use log::info;
-use pingora_core::services::background::background_service;
-use std::{sync::Arc, time::Duration};
-
-use pingora_core::server::configuration::Opt;
-use pingora_core::server::Server;
-use pingora_core::upstreams::peer::HttpPeer;
-use pingora_core::Result;
+use pingora_core::{
+  server::{configuration::Opt, Server},
+  services::background::background_service,
+  upstreams::peer::HttpPeer,
+  Result,
+};
 use pingora_load_balancing::{health_check, selection::RoundRobin, LoadBalancer};
 use pingora_proxy::{ProxyHttp, Session};
 

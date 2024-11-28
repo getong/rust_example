@@ -1,8 +1,9 @@
+use std::time::{Duration, Instant};
+
 use async_io::{block_on, Timer};
 use async_stream::stream;
 use futures::StreamExt;
 use futures_lite::future::yield_now;
-use std::time::{Duration, Instant};
 fn main() {
   let result = block_on(async {
     stream! {

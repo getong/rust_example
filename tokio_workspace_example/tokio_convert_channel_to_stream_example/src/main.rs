@@ -1,11 +1,11 @@
-use futures::FutureExt;
-use futures::StreamExt;
+use std::pin::Pin;
+
 use futures::{
   channel::oneshot,
   stream::Stream,
   task::{Context, Poll},
+  FutureExt, StreamExt,
 };
-use std::pin::Pin;
 // use std::sync::Arc;
 
 #[derive(Debug)]

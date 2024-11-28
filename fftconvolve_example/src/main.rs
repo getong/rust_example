@@ -1,7 +1,5 @@
 use fftconvolve::fftconvolve;
-
 use ndarray::prelude::*;
-
 use ndarray_linalg::assert_aclose;
 
 fn main() {

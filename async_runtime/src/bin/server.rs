@@ -30,7 +30,6 @@ fn handle_stream(mut stream: TcpStream) {
 }
 
 /// TCP server to simulate slow response
-///
 fn main() {
   let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
   println!("Waiting for incoming connections");

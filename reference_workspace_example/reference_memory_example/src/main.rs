@@ -1,5 +1,6 @@
 struct Employee<'a> {
-  // The 'a defines the lifetime of the struct. Here it means the reference of `name` field must outlive the `Employee`
+  // The 'a defines the lifetime of the struct. Here it means the reference of `name` field must
+  // outlive the `Employee`
   name: &'a str,
   salary: i32,
   sales: i32,

@@ -1,6 +1,6 @@
-use mlua::prelude::LuaError;
-use mlua::{HookTriggers, Lua, Result as LuaResult};
 use std::time::Duration;
+
+use mlua::{prelude::LuaError, HookTriggers, Lua, Result as LuaResult};
 
 fn set_hook_example() -> LuaResult<()> {
   let lua = Lua::new();

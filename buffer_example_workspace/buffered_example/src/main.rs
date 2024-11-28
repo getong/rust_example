@@ -1,5 +1,7 @@
-use std::fs;
-use std::io::{self, BufWriter, Write};
+use std::{
+  fs,
+  io::{self, BufWriter, Write},
+};
 
 fn main() -> io::Result<()> {
   let mut f = BufWriter::new(fs::File::create("x.txt")?);

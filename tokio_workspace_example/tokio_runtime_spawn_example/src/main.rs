@@ -1,5 +1,5 @@
-use std::thread::sleep;
-use std::time::Duration;
+use std::{thread::sleep, time::Duration};
+
 use tokio::runtime;
 
 async fn random_print(num: i32) {
@@ -21,11 +21,9 @@ fn not_a_main_fn() {
   for j in 0 .. 10 {
     rt.spawn(random_print(j));
   }
-  /*
-   * I'm being lazy here, and just delaying to let all tasks complete.
-   * Using JoinHandle.await is much better. Also, comment out this line
-   * and you will notice the program most likely ends before all 10 tasks
-   * complete correctly!!! This is why JoinHandle.await is important!
-   */
+  // I'm being lazy here, and just delaying to let all tasks complete.
+  // Using JoinHandle.await is much better. Also, comment out this line
+  // and you will notice the program most likely ends before all 10 tasks
+  // complete correctly!!! This is why JoinHandle.await is important!
   sleep(Duration::from_millis(5000));
 }

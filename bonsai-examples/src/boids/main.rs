@@ -4,11 +4,11 @@ use boid::{game_tick, Action};
 use bonsai_bt::BT;
 use ggez::{conf, event, graphics, input, timer, Context, ContextBuilder, GameResult};
 
-//window stuff
+// window stuff
 const HEIGHT: f32 = 720.0;
 const WIDTH: f32 = HEIGHT * (16.0 / 9.0);
 
-//drawing stuff
+// drawing stuff
 const NUM_BOIDS: usize = 100; // n
 const BOID_SIZE: f32 = 32.0; // Pixels
 
@@ -92,7 +92,7 @@ impl event::EventHandler for GameState {
             boids_vec,
           );
 
-          //Convert new velocity to postion change
+          // Convert new velocity to postion change
           b.x += b.dx * tick;
           b.y += b.dy * tick;
 
@@ -145,7 +145,7 @@ impl event::EventHandler for GameState {
             boid.color.into(),
           )?;
         }
-        /*Highlight cursor..*/
+        // Highlight cursor..
         mb.circle(
           graphics::DrawMode::fill(),
           input::mouse::position(ctx),
@@ -174,8 +174,9 @@ impl event::EventHandler for GameState {
 }
 
 fn main() {
-  use bonsai_bt::{Action, WhenAll, While};
   use std::collections::HashMap;
+
+  use bonsai_bt::{Action, WhenAll, While};
   let (mut ctx, events_loop) = ContextBuilder::new("Boids", "Daniel Eisen")
     .window_mode(conf::WindowMode::default().dimensions(WIDTH, HEIGHT))
     .window_setup(conf::WindowSetup::default().samples(conf::NumSamples::Eight))

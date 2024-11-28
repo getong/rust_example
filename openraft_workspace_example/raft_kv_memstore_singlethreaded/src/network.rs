@@ -1,20 +1,14 @@
-use openraft::error::InstallSnapshotError;
-use openraft::error::RemoteError;
-use openraft::network::RPCOption;
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::AppendEntriesResponse;
-use openraft::raft::InstallSnapshotRequest;
-use openraft::raft::InstallSnapshotResponse;
-use openraft::raft::VoteRequest;
-use openraft::raft::VoteResponse;
-use openraft::BasicNode;
-use openraft::RaftNetwork;
-use openraft::RaftNetworkFactory;
+use openraft::{
+  error::{InstallSnapshotError, RemoteError},
+  network::RPCOption,
+  raft::{
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    VoteRequest, VoteResponse,
+  },
+  BasicNode, RaftNetwork, RaftNetworkFactory,
+};
 
-use crate::router::Router;
-use crate::typ;
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{router::Router, typ, NodeId, TypeConfig};
 
 pub struct Connection {
   router: Router,

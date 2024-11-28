@@ -9,13 +9,12 @@ use axum::{
   response::{IntoResponse, Redirect},
   Router,
 };
+use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use log::debug;
 use rustls_acme::{caches::DirCache, AcmeConfig};
 use tokio_stream::StreamExt;
 use tower::{util::BoxCloneService, ServiceExt};
 use tower_http::{services::ServeDir, validate_request::ValidateRequestHeaderLayer};
-
-use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
 #[tokio::main]

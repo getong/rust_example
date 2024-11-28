@@ -90,13 +90,14 @@ impl Foo {
 }
 
 // F: 'a + Send
-//   + for<'r> FnMut(&'r mut Ctxt, T) -> std::pin::Pin<
-//       Box<dyn std::future::Future<Output = ()> + Send + 'r>,
-//     >
+//   + for<'r> FnMut(&'r mut Ctxt, T) -> std::pin::Pin< Box<dyn std::future::Future<Output = ()> +
+//     Send + 'r>, >
 //   这个的精髓在于这个类型。
-//   一是Future的生命周期'r需要跟着传入的&'r mut Ctxt走，而这个'r不能加在FnMut本身的&mut self上，所以这个Ctxt省不了。
-//   二是为了加上这个'r，由于在where clause中不支持FnMut的返回值中使用impl Future，所以只能用Pin<Box<dyn Future>>。
-//   三是由于用了Pin<Box>，所以不能再用nightly的async closure这个特性，因为async closure不支持自定义返回的Future的类型。
-//   综上，因为Rust目前缺两个功能，所以实现这个的方式稍微有点绕。
+//   一是Future的生命周期'r需要跟着传入的&'r mut Ctxt走，而这个'r不能加在FnMut本身的&mut
+// self上，所以这个Ctxt省不了。   二是为了加上这个'r，由于在where
+// clause中不支持FnMut的返回值中使用impl Future，所以只能用Pin<Box<dyn Future>>。
+//   三是由于用了Pin<Box>，所以不能再用nightly的async closure这个特性，因为async
+// closure不支持自定义返回的Future的类型。   综上，因为Rust目前缺两个功能，
+// 所以实现这个的方式稍微有点绕。
 
 // copy from https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=cf9c73044c7c28bd5b5042a92f6997b3

@@ -1,5 +1,6 @@
-use crossbeam_channel::{select, unbounded};
 use std::time::Duration;
+
+use crossbeam_channel::{select, unbounded};
 
 fn main() {
   let (s1, r1) = unbounded::<i32>();

@@ -15,7 +15,7 @@ fn merge(mut arr: Vec<i32>, left: usize, mid: usize, right: usize) -> Vec<i32> {
   let r1 = arr.clone();
   let l = &l1[left .. mid];
   let r = &r1[mid .. right];
-  /* Merge the temp arrays back into arr[l..r]*/
+  // Merge the temp arrays back into arr[l..r]
   let mut i = 0; // Initial index of first subarray
   let mut j = 0; // Initial index of second subarray
   let mut k = left; // Initial index of merged subarray
@@ -34,8 +34,8 @@ fn merge(mut arr: Vec<i32>, left: usize, mid: usize, right: usize) -> Vec<i32> {
     i = i + 1;
     k = k + 1;
   }
-  /* Copy the remaining elements of R[], if there
-  are any */
+  // Copy the remaining elements of R[], if there
+  // are any
   while j < n2 {
     arr[k] = r[j];
     j = j + 1;

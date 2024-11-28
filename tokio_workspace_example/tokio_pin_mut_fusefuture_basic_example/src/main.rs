@@ -1,7 +1,8 @@
 // For .fuse()
-use futures::future::FutureExt;
 // use futures::pin_mut; // For pin_mut!
 use std::time::Duration;
+
+use futures::future::FutureExt;
 use tokio::time::sleep;
 
 // Example of an asynchronous function

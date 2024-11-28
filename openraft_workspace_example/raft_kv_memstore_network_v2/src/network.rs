@@ -1,24 +1,15 @@
 use std::future::Future;
 
-use openraft::error::ReplicationClosed;
-use openraft::network::v2::RaftNetworkV2;
-use openraft::network::RPCOption;
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::AppendEntriesResponse;
-use openraft::raft::SnapshotResponse;
-use openraft::raft::VoteRequest;
-use openraft::raft::VoteResponse;
-use openraft::BasicNode;
-use openraft::OptionalSend;
-use openraft::RaftNetworkFactory;
-use openraft::Snapshot;
-use openraft::Vote;
+use openraft::{
+  error::ReplicationClosed,
+  network::{v2::RaftNetworkV2, RPCOption},
+  raft::{
+    AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, VoteRequest, VoteResponse,
+  },
+  BasicNode, OptionalSend, RaftNetworkFactory, Snapshot, Vote,
+};
 
-use crate::router::Router;
-use crate::NodeId;
-use crate::RPCError;
-use crate::StreamingError;
-use crate::TypeConfig;
+use crate::{router::Router, NodeId, RPCError, StreamingError, TypeConfig};
 
 pub struct Connection {
   router: Router,

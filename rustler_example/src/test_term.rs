@@ -1,6 +1,6 @@
+use std::{cmp::Ordering, io::Write};
+
 use rustler::{Atom, Term};
-use std::cmp::Ordering;
-use std::io::Write;
 
 mod atoms {
   rustler::atoms! {

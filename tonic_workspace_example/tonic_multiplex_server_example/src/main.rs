@@ -8,14 +8,13 @@ pub mod echo {
   tonic::include_proto!("grpc.examples.unaryecho");
 }
 
-use hello_world::{
-  greeter_server::{Greeter, GreeterServer},
-  HelloReply, HelloRequest,
-};
-
 use echo::{
   echo_server::{Echo, EchoServer},
   EchoRequest, EchoResponse,
+};
+use hello_world::{
+  greeter_server::{Greeter, GreeterServer},
+  HelloReply, HelloRequest,
 };
 
 #[tokio::main]

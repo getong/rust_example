@@ -1,18 +1,11 @@
 //! Provide `LogStore`, which is a in-memory implementation of `RaftLogStore` for demonstration
 //! purpose only.
 
-use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::ops::RangeBounds;
-use std::sync::Arc;
+use std::{collections::BTreeMap, fmt::Debug, ops::RangeBounds, sync::Arc};
 
-use openraft::storage::IOFlushed;
-use openraft::LogId;
-use openraft::LogState;
-use openraft::RaftLogId;
-use openraft::RaftTypeConfig;
-use openraft::StorageError;
-use openraft::Vote;
+use openraft::{
+  storage::IOFlushed, LogId, LogState, RaftLogId, RaftTypeConfig, StorageError, Vote,
+};
 use tokio::sync::Mutex;
 
 /// RaftLogStore implementation with a in-memory storage
@@ -153,17 +146,12 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
 }
 
 mod impl_log_store {
-  use std::fmt::Debug;
-  use std::ops::RangeBounds;
+  use std::{fmt::Debug, ops::RangeBounds};
 
-  use openraft::storage::IOFlushed;
-  use openraft::storage::RaftLogStorage;
-  use openraft::LogId;
-  use openraft::LogState;
-  use openraft::RaftLogReader;
-  use openraft::RaftTypeConfig;
-  use openraft::StorageError;
-  use openraft::Vote;
+  use openraft::{
+    storage::{IOFlushed, RaftLogStorage},
+    LogId, LogState, RaftLogReader, RaftTypeConfig, StorageError, Vote,
+  };
 
   use crate::log_store::LogStore;
 

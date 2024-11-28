@@ -1,10 +1,10 @@
-use calamine::DataType::Float;
-use calamine::DataType::String as OtherString;
-use calamine::{open_workbook, Reader, Xlsx};
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::Write;
-use std::string::String;
+use std::{collections::HashSet, fs::File, io::Write, string::String};
+
+use calamine::{
+  open_workbook,
+  DataType::{Float, String as OtherString},
+  Reader, Xlsx,
+};
 
 const PATH: &str = "protobuf_list.xlsx";
 const SHEET_NAME: &str = "Sheet1";
@@ -115,7 +115,8 @@ async fn main() {
           "        {} => Ok(Box::new({}::{}::decode(bytes)?)),\n",
           new_variable_str, package_name, message_name,
         ));
-        // rust_decode_list.push(format!("        {} => ({}::{} as I)::decode(bytes)?,\n", new_variable_str, package_name, message_name));
+        // rust_decode_list.push(format!("        {} => ({}::{} as I)::decode(bytes)?,\n",
+        // new_variable_str, package_name, message_name));
 
         _ = dart_file.write(format!("const int {} = {};\n", new_variable_str, number).as_bytes());
 

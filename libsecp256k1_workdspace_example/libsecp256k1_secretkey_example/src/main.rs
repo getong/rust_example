@@ -1,6 +1,6 @@
+use std::{fs::File, io::Write};
+
 use libsecp256k1::SecretKey;
-use std::fs::File;
-use std::io::Write;
 
 fn main() {
   // Generate a new secp256k1 secret key

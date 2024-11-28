@@ -1,5 +1,6 @@
-use bytes::{Buf, BufMut, BytesMut};
 use std::io::Cursor;
+
+use bytes::{Buf, BufMut, BytesMut};
 
 fn main() {
   // println!("Hello, world!");

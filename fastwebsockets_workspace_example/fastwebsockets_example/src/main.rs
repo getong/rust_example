@@ -16,14 +16,13 @@ use std::future::Future;
 
 use anyhow::Result;
 use bytes::Bytes;
-use fastwebsockets::FragmentCollector;
-use fastwebsockets::Frame;
-use fastwebsockets::OpCode;
+use fastwebsockets::{FragmentCollector, Frame, OpCode};
 use http_body_util::Empty;
-use hyper::header::CONNECTION;
-use hyper::header::UPGRADE;
-use hyper::upgrade::Upgraded;
-use hyper::Request;
+use hyper::{
+  header::{CONNECTION, UPGRADE},
+  upgrade::Upgraded,
+  Request,
+};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 

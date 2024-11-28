@@ -1,13 +1,14 @@
+use std::{
+  net::{IpAddr, Ipv6Addr, SocketAddr},
+  time::Duration,
+};
+
 use clap::Parser;
 use futures::{future, prelude::*};
 use opentelemetry::trace::TracerProvider as _;
 use rand::{
   distributions::{Distribution, Uniform},
   thread_rng,
-};
-use std::{
-  net::{IpAddr, Ipv6Addr, SocketAddr},
-  time::Duration,
 };
 use tarpc::{
   context,

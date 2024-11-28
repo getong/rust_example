@@ -1,9 +1,6 @@
-use futures::channel::mpsc;
-use futures::executor;
-use futures::executor::ThreadPool;
-use futures::StreamExt;
+use futures::{channel::mpsc, executor, executor::ThreadPool, StreamExt};
 
-//fn main() {
+// fn main() {
 //    let pool = ThreadPool::new().expect("Failed to build pool");
 //    let (tx, rx) = mpsc::unbounded::<i32>();
 //
@@ -46,9 +43,9 @@ use futures::StreamExt;
 //}
 
 fn main() {
-  //创建一个executor线程池
+  // 创建一个executor线程池
   let pool = ThreadPool::new().expect("Failed to build pool");
-  //创建一个unbounded mpsc channel来进行任务间消息通信
+  // 创建一个unbounded mpsc channel来进行任务间消息通信
   let (tx, rx) = mpsc::unbounded::<i32>();
 
   // async代码块
@@ -69,7 +66,7 @@ fn main() {
     fut_values.await
   };
 
-  //开始执行fut_values, 将会调用Future::poll
+  // 开始执行fut_values, 将会调用Future::poll
   let values: Vec<i32> = executor::block_on(fut_values);
 
   println!("Values={:?}", values);

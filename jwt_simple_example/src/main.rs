@@ -1,10 +1,11 @@
-//src/main.rs
+// src/main.rs
 mod jwt_sign;
-use jwt_sign::create_jwt;
-use std::fs::File;
-use std::io::BufWriter;
-use std::io::Write;
+use std::{
+  fs::File,
+  io::{BufWriter, Write},
+};
 
+use jwt_sign::create_jwt;
 use jwt_simple::prelude::*;
 fn main() {
   let key = HS256Key::generate();

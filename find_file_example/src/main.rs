@@ -1,13 +1,13 @@
 // copy from [Find a file in current or parent directories](https://codereview.stackexchange.com/questions/236743/find-a-file-in-current-or-parent-directories)
 
-use std::env;
-use std::path::{Path, PathBuf};
+use std::{
+  env,
+  path::{Path, PathBuf},
+};
 
 const RUSV_FILENAME: &str = "Cargo.toml";
 
-/**
- * Find a rusv file in the current or parent directories of the given directory.
- */
+/// Find a rusv file in the current or parent directories of the given directory.
 
 fn find_rusv_file(starting_directory: &Path) -> Option<PathBuf> {
   let mut path: PathBuf = starting_directory.into();

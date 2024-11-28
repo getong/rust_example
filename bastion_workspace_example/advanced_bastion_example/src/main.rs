@@ -1,6 +1,9 @@
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
+};
+
 use bastion::prelude::*;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 fn main() {
   Bastion::init();

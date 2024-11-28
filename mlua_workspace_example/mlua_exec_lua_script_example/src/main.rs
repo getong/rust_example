@@ -1,5 +1,6 @@
-use mlua::{Lua, Result};
 use std::fs;
+
+use mlua::{Lua, Result};
 
 fn main() -> Result<()> {
   let lua = Lua::new(); // Create a new Lua state

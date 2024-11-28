@@ -1,5 +1,6 @@
-use crate::EventId;
 use std::collections::HashMap;
+
+use crate::EventId;
 
 pub struct Executor {
   event_map: HashMap<EventId, Box<dyn FnMut(&mut Self) + Sync + Send + 'static>>,

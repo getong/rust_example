@@ -1,5 +1,6 @@
-use chrono::Local;
 use std::sync::Arc;
+
+use chrono::Local;
 use tokio::{
   runtime::Runtime,
   sync::Semaphore,

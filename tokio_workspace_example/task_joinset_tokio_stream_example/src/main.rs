@@ -1,8 +1,8 @@
+use std::time::Duration;
+
 use async_stream::stream;
 use chrono::prelude::Local;
-use std::time::Duration;
-use tokio::task::JoinSet;
-use tokio::time::sleep;
+use tokio::{task::JoinSet, time::sleep};
 use tokio_stream::{Stream, StreamExt};
 
 #[allow(dead_code)]
@@ -79,6 +79,10 @@ fn aiter_until_error<T: 'static, E: 'static>(
 }
 
 // copy from https://users.rust-lang.org/t/pinning-issues-when-creating-a-stream-from-tokios-joinset/78519
-// join_all and try_join_all, as well as more versatile FuturesOrdered and FuturesUnordered utilities from the same crate futures, are executed as a single task. This is probably fine if the constituent futures are not often concurrently ready to perform work, but if you want to make use of CPU parallelism with the multi-threaded runtime, consider spawning the individual futures as separate tasks and waiting on the tasks to finish.
+// join_all and try_join_all, as well as more versatile FuturesOrdered and FuturesUnordered
+// utilities from the same crate futures, are executed as a single task. This is probably fine if
+// the constituent futures are not often concurrently ready to perform work, but if you want to make
+// use of CPU parallelism with the multi-threaded runtime, consider spawning the individual futures
+// as separate tasks and waiting on the tasks to finish.
 
 // see https://stackoverflow.com/questions/63589668/how-to-tokiojoin-multiple-tasks

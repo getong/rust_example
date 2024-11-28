@@ -35,5 +35,6 @@ fn main() {
   assert_eq!(x - Wrapping(200), Wrapping(181));
   // x *= 5; // if we mutate the variable x then we can use primitive integer types - x is now 113
 
-  // x / 5; // error! careful - we can only use primitives when we're assigning (i.e., using +=, -=, etc.)
+  // x / 5; // error! careful - we can only use primitives when we're assigning (i.e., using +=, -=,
+  // etc.)
 }

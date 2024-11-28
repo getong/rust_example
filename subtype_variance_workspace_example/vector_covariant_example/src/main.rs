@@ -29,7 +29,7 @@ fn main() {
     let mut i_2 = 3; // 假设其自动推导生存期为 '2
     dbg!(I_STATIC, i_1, i_2);
 
-    //lifetime_subtype(&mut i_1, &i_2); // 无法编译
+    // lifetime_subtype(&mut i_1, &i_2); // 无法编译
     lifetime_subtype(&mut i_2, &i_1); // 子类型关系为 `'1: '2` 满足函数泛型条件 `'long: 'short`
     dbg!(i_2);
   }

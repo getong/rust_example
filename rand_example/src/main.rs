@@ -1,7 +1,4 @@
-use rand::rngs::ThreadRng;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{rngs::ThreadRng, seq::SliceRandom, thread_rng, Rng};
 
 fn generate_float(generator: &mut ThreadRng) -> f64 {
   let placeholder: f64 = generator.gen();

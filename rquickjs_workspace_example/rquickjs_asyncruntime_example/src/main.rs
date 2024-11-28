@@ -1,5 +1,6 @@
-use rquickjs::{async_with, AsyncContext, AsyncRuntime, Error, Exception};
 use std::time::Duration;
+
+use rquickjs::{async_with, AsyncContext, AsyncRuntime, Error, Exception};
 use tokio::{fs::metadata, select, time::sleep};
 
 const FILE_NAME: &str = "script_module.js";

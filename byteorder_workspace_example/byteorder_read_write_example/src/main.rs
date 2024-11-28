@@ -1,6 +1,6 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Cursor;
+
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 // use std::pin::Pin;
 
 fn main() {

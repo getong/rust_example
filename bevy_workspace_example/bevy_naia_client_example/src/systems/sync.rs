@@ -1,5 +1,4 @@
 use bevy::prelude::{Query, Transform, With};
-
 use naia_bevy_client::Client;
 use naia_bevy_demo_shared::components::Position;
 

@@ -1,5 +1,5 @@
 use futures::future::BoxFuture;
-//use futures::future::Future;
+// use futures::future::Future;
 use futures::FutureExt;
 
 fn foo() -> BoxFuture<'static, u32> {

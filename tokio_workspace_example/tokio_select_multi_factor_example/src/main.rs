@@ -1,5 +1,7 @@
-use tokio::sync::mpsc;
-use tokio::time::{timeout, Duration};
+use tokio::{
+  sync::mpsc,
+  time::{timeout, Duration},
+};
 
 async fn some_computation(input: u32) -> String {
   format!("the result of computation {}", input)

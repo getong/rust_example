@@ -1,6 +1,5 @@
 // thread_rwlock.rs
-use std::sync::RwLock;
-use std::thread;
+use std::{sync::RwLock, thread};
 
 fn main() {
   let m = RwLock::new(5);

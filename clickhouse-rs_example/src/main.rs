@@ -1,5 +1,6 @@
-use clickhouse_rs::{Block, Pool};
 use std::error::Error;
+
+use clickhouse_rs::{Block, Pool};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

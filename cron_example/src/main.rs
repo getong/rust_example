@@ -1,6 +1,7 @@
+use std::str::FromStr;
+
 use chrono::Utc;
 use cron::Schedule;
-use std::str::FromStr;
 
 fn main() {
   //               sec  min   hour   day of month   month   day of week   year

@@ -1,6 +1,5 @@
 use futures::FutureExt;
-use tokio_stream::Stream;
-use tokio_stream::StreamExt;
+use tokio_stream::{Stream, StreamExt};
 
 fn outer() -> impl Stream<Item = i32> {
   inner().into_stream()

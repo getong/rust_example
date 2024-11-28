@@ -1,11 +1,13 @@
+use std::{
+  pin::Pin,
+  task::{Context, Poll},
+};
+
 use tokio_stream::{
   Stream,
   // for next() method
   StreamExt,
 };
-
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 // A simple stream that emits integers from 0 to 4
 struct MyStream {

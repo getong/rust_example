@@ -1,5 +1,4 @@
 use lazy_static::lazy_static;
-
 use regex::Regex;
 
 fn extract_login(input: &str) -> Option<&str> {

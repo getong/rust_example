@@ -1,7 +1,7 @@
-use serde_json::de::from_slice;
 use std::error::Error;
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
+
+use serde_json::de::from_slice;
+use tokio::{io::AsyncReadExt, net::TcpListener};
 mod message;
 use message::Message;
 

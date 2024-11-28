@@ -1,6 +1,7 @@
+use std::fmt::Debug;
+
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::fmt::Debug;
 use tracing::{trace, Instrument};
 
 #[derive(Debug)]

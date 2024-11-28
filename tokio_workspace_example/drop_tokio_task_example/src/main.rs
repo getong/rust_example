@@ -9,8 +9,8 @@ use tokio::{
 };
 
 struct MyClass {
-  tx: Option<Sender<()>>, // can have SomeStruct instead of ()
-                          // my_state: Option<SomeStruct>
+  tx: Option<Sender<()>>, /* can have SomeStruct instead of ()
+                           * my_state: Option<SomeStruct> */
 }
 
 impl MyClass {

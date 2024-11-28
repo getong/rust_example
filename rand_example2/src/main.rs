@@ -1,7 +1,7 @@
 extern crate rand;
 use rand::random;
-//use rand::seq::SliceRandom;
-//use rand::thread_rng;
+// use rand::seq::SliceRandom;
+// use rand::thread_rng;
 
 trait StreamSampler {
   // 每种抽样器只会在一种总体中抽样，而总体中所有个体都属于相同类型

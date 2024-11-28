@@ -1,9 +1,9 @@
-use std::net::TcpListener;
-
-use std::io::{Read, Write};
-
-use std::fs::File;
-use std::thread;
+use std::{
+  fs::File,
+  io::{Read, Write},
+  net::TcpListener,
+  thread,
+};
 
 pub struct NetworkHandler {
   listener: TcpListener,

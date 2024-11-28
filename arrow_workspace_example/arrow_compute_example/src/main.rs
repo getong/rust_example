@@ -1,12 +1,13 @@
-use std::fs::File;
-use std::sync::Arc;
+use std::{fs::File, sync::Arc};
 
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array};
-use arrow::compute::{filter, sort, sort_to_indices, sum, take};
-use arrow::csv;
-use arrow::datatypes::{DataType, Field, Schema};
-use arrow::error::Result as ArrowResult;
-use arrow::record_batch::RecordBatch;
+use arrow::{
+  array::{ArrayRef, BooleanArray, Float64Array, Int64Array},
+  compute::{filter, sort, sort_to_indices, sum, take},
+  csv,
+  datatypes::{DataType, Field, Schema},
+  error::Result as ArrowResult,
+  record_batch::RecordBatch,
+};
 
 fn main() -> ArrowResult<()> {
   let file = File::open("../../data/StudentACTResults.csv").unwrap();

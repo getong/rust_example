@@ -1,3 +1,5 @@
+use std::{error::Error, fs, time::Duration};
+
 use futures::StreamExt;
 use libp2p::{
   identity::{self, Keypair},
@@ -7,7 +9,6 @@ use libp2p::{
   tcp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm,
 };
 use serde::{Deserialize, Serialize};
-use std::{error::Error, fs, time::Duration};
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "MyBehaviourEvent")]

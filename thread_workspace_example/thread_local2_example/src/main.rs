@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::thread_local;
+use std::{cell::RefCell, thread_local};
 
 struct Foo(*const i32); // a non-Send/Sync type
 

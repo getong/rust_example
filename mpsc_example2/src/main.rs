@@ -1,7 +1,10 @@
 // copy from https://noz.ai/hash-pipeline/
+use std::{
+  thread,
+  time::{Duration, Instant},
+};
+
 use sha2::{Digest, Sha512};
-use std::thread;
-use std::time::{Duration, Instant};
 
 const N: usize = 1_000_000_000;
 

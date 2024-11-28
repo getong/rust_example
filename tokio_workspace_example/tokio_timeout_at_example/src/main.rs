@@ -1,8 +1,10 @@
-use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
-use tokio::time::{timeout_at, Instant};
-
 use std::time::Duration;
+
+use tokio::{
+  runtime::Runtime,
+  sync::oneshot,
+  time::{timeout_at, Instant},
+};
 
 fn main() {
   let rt = Runtime::new().unwrap();

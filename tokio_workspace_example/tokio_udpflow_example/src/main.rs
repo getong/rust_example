@@ -1,5 +1,7 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UdpSocket;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::UdpSocket,
+};
 use udpflow::{UdpListener, UdpStreamLocal, UdpStreamRemote};
 
 #[tokio::main]

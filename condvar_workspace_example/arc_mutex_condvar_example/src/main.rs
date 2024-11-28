@@ -1,8 +1,11 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::{
+  sync::{
+    atomic::{AtomicBool, Ordering::Relaxed},
+    Arc, Condvar, Mutex,
+  },
+  thread,
+  time::Duration,
+};
 
 fn main() {
   // println!("Hello, world!");

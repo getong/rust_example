@@ -1,15 +1,13 @@
 #![allow(clippy::uninlined_format_args)]
 
-use std::fmt::Display;
-use std::io::Cursor;
-use std::path::Path;
-use std::sync::Arc;
+use std::{fmt::Display, io::Cursor, path::Path, sync::Arc};
 
-use crate::network::Network;
-use crate::store::new_storage;
-use crate::store::Request;
-use crate::store::Response;
 use openraft::Config;
+
+use crate::{
+  network::Network,
+  store::{new_storage, Request, Response},
+};
 // use openraft::TokioRuntime;
 
 pub mod api_rpc;
@@ -18,17 +16,17 @@ pub mod common;
 pub mod network;
 pub mod store;
 pub mod web_openapi;
-use crate::api_rpc::World;
-use crate::common::Api;
+use std::net::{IpAddr, Ipv4Addr};
+
 use futures::prelude::*;
 use poem::{listener::TcpListener, Route};
 use poem_openapi::OpenApiService;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use tarpc::{
   server::{self, incoming::Incoming, Channel},
   tokio_serde::formats::Json,
 };
+
+use crate::{api_rpc::World, common::Api};
 pub type NodeId = u64;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]

@@ -1,6 +1,6 @@
 use std::io::Result;
-use tokio::net::UdpSocket;
-use tokio::time::Duration;
+
+use tokio::{net::UdpSocket, time::Duration};
 
 // copy from https://www.reddit.com/r/rust/comments/15tiukb/tokios_udpsockettry_send_toggles_between_err_and/
 // nc -l -u localhost 10000

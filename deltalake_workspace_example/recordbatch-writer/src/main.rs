@@ -1,18 +1,19 @@
-/*
- * This file is a self-contained example of writing to a Delta table using the Arrow
- * `RecordBatch` API rather than pushing the data through a JSON intermediary
- *
- *
- * This example was originally posted by @rtyler in:
- *      <https://github.com/buoyant-data/demo-recordbatch-writer>
- */
+// This file is a self-contained example of writing to a Delta table using the Arrow
+// `RecordBatch` API rather than pushing the data through a JSON intermediary
+//
+//
+// This example was originally posted by @rtyler in:
+//      <https://github.com/buoyant-data/demo-recordbatch-writer>
+
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::prelude::*;
-use deltalake::arrow::array::*;
-use deltalake::arrow::record_batch::RecordBatch;
-use deltalake::errors::DeltaTableError;
-use deltalake::writer::{DeltaWriter, RecordBatchWriter};
-use deltalake::*;
+use deltalake::{
+  arrow::{array::*, record_batch::RecordBatch},
+  errors::DeltaTableError,
+  writer::{DeltaWriter, RecordBatchWriter},
+  *,
+};
 use log::*;
 use object_store::path::Path;
 use parquet::{
@@ -20,13 +21,8 @@ use parquet::{
   file::properties::WriterProperties,
 };
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
-/*
- * The main function gets everything started, but does not contain any meaningful
- * example code for writing to Delta tables
- */
+// The main function gets everything started, but does not contain any meaningful
+// example code for writing to Delta tables
 #[tokio::main]
 async fn main() -> Result<(), DeltaTableError> {
   info!("Logger initialized");
@@ -73,11 +69,9 @@ async fn main() -> Result<(), DeltaTableError> {
 // Creating a simple type alias for improved readability
 type Fahrenheit = i32;
 
-/*
- * WeatherRecord is just a simple example structure to represent a row in the
- * delta table. Imagine a time-series of weather data which is being recorded
- * by a small sensor.
- */
+// WeatherRecord is just a simple example structure to represent a row in the
+// delta table. Imagine a time-series of weather data which is being recorded
+// by a small sensor.
 struct WeatherRecord {
   timestamp: DateTime<Utc>,
   temp: Fahrenheit,
@@ -127,10 +121,8 @@ impl Default for WeatherRecord {
   }
 }
 
-/*
- * This function just generates a series of 5 temperature readings to be written
- * to the table
- */
+// This function just generates a series of 5 temperature readings to be written
+// to the table
 fn fetch_readings() -> Vec<WeatherRecord> {
   let mut readings = vec![];
 
@@ -142,27 +134,25 @@ fn fetch_readings() -> Vec<WeatherRecord> {
   readings
 }
 
-/*
- * The convert to batch function does some of the heavy lifting for writing a
- * `RecordBatch` to a delta table. In essence, the Vec of WeatherRecord needs to
- * turned into a columnar format in order to be written correctly.
- *
- * That is to say that the following example rows:
- *  | ts | temp | lat | long |
- *  | 0  | 72   | 0.0 | 0.0  |
- *  | 1  | 71   | 0.0 | 0.0  |
- *  | 2  | 78   | 0.0 | 0.0  |
- *
- *  Must be converted into a data structure where all timestamps are together,
- *  ```
- *  let ts = vec![0, 1, 2];
- *  let temp = vec![72, 71, 78];
- *  ```
- *
- *  The Arrow Rust array primitives are _very_ fickle and so creating a direct
- *  transformation is quite tricky in Rust, whereas in Python or another loosely
- *  typed language it might be simpler.
- */
+// The convert to batch function does some of the heavy lifting for writing a
+// `RecordBatch` to a delta table. In essence, the Vec of WeatherRecord needs to
+// turned into a columnar format in order to be written correctly.
+//
+// That is to say that the following example rows:
+//  | ts | temp | lat | long |
+//  | 0  | 72   | 0.0 | 0.0  |
+//  | 1  | 71   | 0.0 | 0.0  |
+//  | 2  | 78   | 0.0 | 0.0  |
+//
+//  Must be converted into a data structure where all timestamps are together,
+//  ```
+//  let ts = vec![0, 1, 2];
+//  let temp = vec![72, 71, 78];
+//  ```
+//
+//  The Arrow Rust array primitives are _very_ fickle and so creating a direct
+//  transformation is quite tricky in Rust, whereas in Python or another loosely
+//  typed language it might be simpler.
 fn convert_to_batch(table: &DeltaTable, records: &Vec<WeatherRecord>) -> RecordBatch {
   let metadata = table
     .get_metadata()
@@ -194,10 +184,8 @@ fn convert_to_batch(table: &DeltaTable, records: &Vec<WeatherRecord>) -> RecordB
   RecordBatch::try_new(arrow_schema_ref, arrow_array).expect("Failed to create RecordBatch")
 }
 
-/*
- * Pilfered from writer/test_utils.rs in delta-rs. This code will basically create a new Delta
- * Table in an existing directory that doesn't currently contain a Delta table
- */
+// Pilfered from writer/test_utils.rs in delta-rs. This code will basically create a new Delta
+// Table in an existing directory that doesn't currently contain a Delta table
 async fn create_initialized_table(table_path: &Path) -> DeltaTable {
   DeltaOps::try_from_uri(table_path)
     .await

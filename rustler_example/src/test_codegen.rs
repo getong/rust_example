@@ -1,5 +1,7 @@
-use rustler::types::truthy::Truthy;
-use rustler::{NifException, NifMap, NifRecord, NifStruct, NifTuple, NifUnitEnum, NifUntaggedEnum};
+use rustler::{
+  types::truthy::Truthy, NifException, NifMap, NifRecord, NifStruct, NifTuple, NifUnitEnum,
+  NifUntaggedEnum,
+};
 
 #[derive(NifTuple)]
 pub struct AddTuple {

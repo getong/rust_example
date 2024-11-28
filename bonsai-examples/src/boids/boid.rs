@@ -1,7 +1,7 @@
 use bonsai_bt::{Event, Status::Success, UpdateArgs, BT, RUNNING};
 use ggez::mint;
 
-//algorithm stuff
+// algorithm stuff
 const SPEED_LIMIT: f32 = 400.0; // Pixels per second
 const VISUAL_RANGE: f32 = 32.0; // Pixels
 const MIN_DISTANCE: f32 = 16.0; // Pixels
@@ -38,7 +38,7 @@ impl Boid {
       dx: (rand::random::<f32>() - 0.5) * SPEED_LIMIT,
       dy: (rand::random::<f32>() - 0.5) * SPEED_LIMIT,
       color: [
-        //rgb
+        // rgb
         (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
         (rand::random::<f32>() * 128.0 + 128.0) / 255.0,
         (rand::random::<f32>() * 128.0 + 128.0) / 255.0,

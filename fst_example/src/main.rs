@@ -1,5 +1,4 @@
-use fst::automaton::Levenshtein;
-use fst::{IntoStreamer, Set};
+use fst::{automaton::Levenshtein, IntoStreamer, Set};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   // A convenient way to create sets in memory.

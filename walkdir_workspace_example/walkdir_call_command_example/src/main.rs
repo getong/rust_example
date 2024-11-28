@@ -1,7 +1,10 @@
-use std::env::set_current_dir;
-use std::io::Read;
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::{
+  env::set_current_dir,
+  io::Read,
+  path::Path,
+  process::{Command, Stdio},
+};
+
 use tokio::fs;
 use walkdir::WalkDir;
 

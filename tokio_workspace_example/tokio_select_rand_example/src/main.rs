@@ -1,5 +1,6 @@
-use rand::Rng;
 use std::time::Duration;
+
+use rand::Rng;
 use tokio::time::sleep;
 
 #[tokio::main]

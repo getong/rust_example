@@ -1,6 +1,6 @@
+use std::{collections::HashMap, path::Path};
+
 use config::*;
-use std::collections::HashMap;
-use std::path::Path;
 
 fn main() {
   // Option 1

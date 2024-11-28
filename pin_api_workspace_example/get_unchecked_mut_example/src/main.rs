@@ -1,6 +1,4 @@
-use std::marker::PhantomPinned;
-use std::pin::Pin;
-use std::ptr::NonNull;
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 #[derive(PartialEq, Debug)]
 struct Foo {

@@ -1,5 +1,6 @@
-use futures::{future, prelude::*};
 use std::net::{IpAddr, Ipv4Addr};
+
+use futures::{future, prelude::*};
 use tarpc::{
   context,
   server::{self, incoming::Incoming, Channel},

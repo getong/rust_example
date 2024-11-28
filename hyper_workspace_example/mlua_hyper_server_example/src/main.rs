@@ -1,3 +1,5 @@
+use std::{convert::Infallible, future::Future, net::SocketAddr, rc::Rc};
+
 use futures::future::LocalBoxFuture;
 use http_body_util::{combinators::BoxBody, BodyExt as _, Empty, Full};
 use hyper::{
@@ -9,7 +11,6 @@ use mlua::{
   chunk, Error as LuaError, Function, Lua, RegistryKey, String as LuaString, Table, UserData,
   UserDataMethods,
 };
-use std::{convert::Infallible, future::Future, net::SocketAddr, rc::Rc};
 use tokio::{net::TcpListener, task::LocalSet};
 
 /// Wrapper around incoming request that implements UserData

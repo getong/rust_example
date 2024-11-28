@@ -1,12 +1,8 @@
-use axum::response::IntoResponse;
-use axum::routing::*;
-use axum::Router;
+use axum::{body::Bytes, response::IntoResponse, routing::*, Router};
+use axum_streams::*;
 // use std::net::SocketAddr;
 use tokio_stream::Stream;
 use tokio_stream::StreamExt;
-
-use axum::body::Bytes;
-use axum_streams::*;
 
 mod mypackage {
   include!("protos/mypackage.rs");

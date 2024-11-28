@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::thread;
+use std::{cell::RefCell, thread};
 
 thread_local!(static FOO: RefCell<u32> = RefCell::new(1));
 

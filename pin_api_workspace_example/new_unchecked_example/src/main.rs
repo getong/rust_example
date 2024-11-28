@@ -1,5 +1,4 @@
-use std::marker::PhantomPinned;
-use std::pin::Pin;
+use std::{marker::PhantomPinned, pin::Pin};
 
 struct Foo {
   x: i32,

@@ -1,5 +1,4 @@
-use std::fs;
-use std::io::Read;
+use std::{fs, io::Read};
 
 use encoding_rs::UTF_16LE;
 use encoding_rs_io::DecodeReaderBytesBuilder;

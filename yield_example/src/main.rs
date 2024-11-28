@@ -1,8 +1,9 @@
 #![feature(coroutines, coroutine_trait)]
 
-use std::ops::Coroutine;
-use std::ops::CoroutineState;
-use std::pin::Pin;
+use std::{
+  ops::{Coroutine, CoroutineState},
+  pin::Pin,
+};
 
 fn main() {
   // Define a coroutine for Fibonacci sequence

@@ -1,5 +1,6 @@
-use prost_wkt_build::*;
 use std::{env, path::PathBuf};
+
+use prost_wkt_build::*;
 
 fn main() {
   let out = PathBuf::from(env::var("OUT_DIR").unwrap());

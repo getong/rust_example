@@ -1,8 +1,10 @@
 // todo remove deprecated
 #![allow(non_snake_case, deprecated)]
 
-use dioxus::events::{KeyCode, KeyboardEvent};
-use dioxus::prelude::*;
+use dioxus::{
+  events::{KeyCode, KeyboardEvent},
+  prelude::*,
+};
 use dioxus_tui::TuiContext;
 
 fn main() {

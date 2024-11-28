@@ -1,8 +1,8 @@
-use async_stream::try_stream;
 use std::io::Cursor;
+
+use async_stream::try_stream;
 use tokio::io::{self, AsyncReadExt};
-use tokio_stream::Stream;
-use tokio_stream::StreamExt;
+use tokio_stream::{Stream, StreamExt};
 
 // Function that simulates async data reading and returns a Stream of Vec<u8>
 pub fn read_stream<R>(mut reader: R) -> impl Stream<Item = io::Result<Vec<u8>>>

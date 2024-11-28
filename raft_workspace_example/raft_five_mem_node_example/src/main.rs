@@ -4,19 +4,21 @@
 // same time. And reassignment can be optimized by compiler.
 #![allow(clippy::field_reassign_with_default)]
 
-use slog::Drain;
-use std::collections::{HashMap, VecDeque};
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::{str, thread};
+use std::{
+  collections::{HashMap, VecDeque},
+  str,
+  sync::{
+    mpsc::{self, Receiver, Sender, SyncSender, TryRecvError},
+    Arc, Mutex,
+  },
+  thread,
+  time::{Duration, Instant},
+};
 
 use protobuf::Message as PbMessage;
-use raft::storage::MemStorage;
-use raft::{prelude::*, StateRole};
+use raft::{prelude::*, storage::MemStorage, StateRole};
 use regex::Regex;
-
-use slog::{error, info, o};
+use slog::{error, info, o, Drain};
 
 fn main() {
   let decorator = slog_term::TermDecorator::new().build();

@@ -1,13 +1,17 @@
 extern crate clap;
 
+use std::{
+  net::{SocketAddr, UdpSocket},
+  time::Duration,
+};
+
 use clap::{App, Arg};
 use rand;
-use std::net::{SocketAddr, UdpSocket};
-use std::time::Duration;
-use trust_dns_client::op::{Message, MessageType, OpCode, Query};
-use trust_dns_client::rr::domain::Name;
-use trust_dns_client::rr::record_type::RecordType;
-use trust_dns_client::serialize::binary::*;
+use trust_dns_client::{
+  op::{Message, MessageType, OpCode, Query},
+  rr::{domain::Name, record_type::RecordType},
+  serialize::binary::*,
+};
 
 fn main() {
   let app = App::new("resolve")

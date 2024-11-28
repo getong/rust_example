@@ -1,13 +1,11 @@
-use calamine::{open_workbook, DataType, Reader, Xlsx};
-
-use std::fs;
-use std::path::PathBuf;
-
 use std::{
+  fs,
   fs::File,
   io::{BufRead, BufReader},
+  path::PathBuf,
 };
 
+use calamine::{open_workbook, DataType, Reader, Xlsx};
 use walkdir::WalkDir;
 
 const PATH: &str = "a.xlsx";
@@ -28,10 +26,10 @@ fn main() {
     let mut english_str: String = "".to_string();
     for row in r.rows().rev() {
       // read file every two lines
-      //println!("row:{:?}", row);
+      // println!("row:{:?}", row);
 
       odd_num = (odd_num + 1) % 2;
-      //println!("line:{}, row:{:?}, odd_num:{:?}", line!(), row, odd_num);
+      // println!("line:{}, row:{:?}, odd_num:{:?}", line!(), row, odd_num);
       match odd_num {
         0 => match row.get(1) {
           Some(DataType::String(filename_and_line)) => {
@@ -42,7 +40,7 @@ fn main() {
                 // get the match filename and the line_number
                 match line_num_str.parse::<i32>() {
                   Ok(line_num) => {
-                    //println!(
+                    // println!(
                     //    "filename: {}, line_num:{}",
                     // match_filename, line_num
                     //);
@@ -71,21 +69,21 @@ fn main() {
         },
 
         _ => {
-          //println!("line:sssssss, {}", line!());
-          //println!(
+          // println!("line:sssssss, {}", line!());
+          // println!(
           //    "row:{:?}, 1 {:?},2 {:?}, 3 {:?}",
-          //row,
+          // row,
           // row.get(1),
           // row.get(2),
-          //row.get(3)
+          // row.get(3)
           //);
           if let Some(DataType::String(origin_whole_line)) = row.get(1) {
             if let Some(DataType::String(origin_chinese_str)) = row.get(2) {
               if let Some(DataType::String(origin_english_str)) = row.get(3) {
-                //println!(
+                // println!(
                 //  "origin_whole_line:{:?},
-                //origin_chinese_str:{:?},
-                //origin_english_str:{:?}",
+                // origin_chinese_str:{:?},
+                // origin_english_str:{:?}",
                 //  origin_whole_line, origin_chinese_str, origin_english_str
                 //);
                 whole_line = origin_whole_line.to_string();
@@ -107,7 +105,7 @@ fn change_file_with_translate_words(
   chinese_str: &str,
   english_str: &str,
 ) {
-  //println!(
+  // println!(
   //    "match_filename: {:?}, line_num:{:?}
   //, whole_line: {:?}, chinese_str: {:?},  english_str:{:?}",
   //    match_filename, line_num, whole_line, chinese_str, english_str
@@ -160,10 +158,10 @@ fn change_file_with_translate_words(
 
 fn read_write_line(path: PathBuf, file: File, line_num: i32, replace_whole_line: String) {
   let reader = BufReader::new(file);
-  //let mut lines_string: Vec<String> = vec![];
+  // let mut lines_string: Vec<String> = vec![];
   // println!("lines:{:?}", lines);
-  //for line in reader.lines() {
-  //println!("{}", line.as_ref().unwrap());
+  // for line in reader.lines() {
+  // println!("{}", line.as_ref().unwrap());
   //    lines_string.push(line.unwrap());
   //}
 
@@ -176,7 +174,7 @@ fn read_write_line(path: PathBuf, file: File, line_num: i32, replace_whole_line:
     *elem = replace_whole_line
   }
 
-  //if let Ok(mut file) = File::create(path) {
+  // if let Ok(mut file) = File::create(path) {
   //   for i in &lines_string {
   //    _ = writeln!(file, "{}", i);
   //}

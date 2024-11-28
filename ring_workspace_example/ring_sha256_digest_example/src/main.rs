@@ -1,8 +1,11 @@
+use std::{
+  fs::File,
+  io::{BufReader, Read, Write},
+};
+
 use data_encoding::HEXUPPER;
 use error_chain::error_chain;
 use ring::digest::{Context, Digest, SHA256};
-use std::fs::File;
-use std::io::{BufReader, Read, Write};
 
 error_chain! {
     foreign_links {

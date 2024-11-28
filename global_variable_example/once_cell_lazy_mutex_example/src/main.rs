@@ -1,5 +1,6 @@
-use once_cell::sync::Lazy;
 use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
 
 static LOG_FILE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
 

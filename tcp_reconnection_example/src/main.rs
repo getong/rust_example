@@ -1,14 +1,16 @@
+use std::{error::Error, future::Future, io, pin::Pin};
+
 use derive_deref::{Deref, DerefMut};
-use std::error::Error;
-use std::future::Future;
-use std::io;
-use std::pin::Pin;
-use stubborn_io::config::DurationIterator;
-use stubborn_io::tokio::{StubbornIo, UnderlyingIo};
-use stubborn_io::ReconnectOptions;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::time::{sleep, Duration};
+use stubborn_io::{
+  config::DurationIterator,
+  tokio::{StubbornIo, UnderlyingIo},
+  ReconnectOptions,
+};
+use tokio::{
+  io::{AsyncWrite, AsyncWriteExt},
+  net::TcpStream,
+  time::{sleep, Duration},
+};
 
 #[derive(Deref, DerefMut)]
 struct DurableTCPStream(TcpStream);

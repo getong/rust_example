@@ -1,6 +1,7 @@
+use std::net::SocketAddr;
+
 use axum::{response::IntoResponse, routing::get, Router};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use time::Duration;
 use tower_sessions::{cookie::Key, Expiry, MemoryStore, Session, SessionManagerLayer};
 

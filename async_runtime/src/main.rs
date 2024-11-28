@@ -1,5 +1,4 @@
-use async_runtime::net::AsyncTcpStream;
-use async_runtime::Runtime;
+use async_runtime::{net::AsyncTcpStream, Runtime};
 fn main() {
   let rt = Runtime;
   rt.run(async {

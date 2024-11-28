@@ -1,10 +1,8 @@
-use image::imageops;
-use image::RgbaImage;
 use std::rc::Rc;
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::{Clamped, JsCast};
-use yew::services::reader::File;
-use yew::{html, ChangeData, Component, ComponentLink, Html, ShouldRender};
+
+use image::{imageops, RgbaImage};
+use wasm_bindgen::{prelude::*, Clamped, JsCast};
+use yew::{html, services::reader::File, ChangeData, Component, ComponentLink, Html, ShouldRender};
 
 pub struct App {
   link: ComponentLink<Self>,

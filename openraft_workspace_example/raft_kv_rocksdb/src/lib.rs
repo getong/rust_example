@@ -1,22 +1,16 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::fmt::Display;
-use std::io::Cursor;
-use std::path::Path;
-use std::sync::Arc;
+use std::{fmt::Display, io::Cursor, path::Path, sync::Arc};
 
 use openraft::Config;
-use tokio::net::TcpListener;
-use tokio::task;
+use tokio::{net::TcpListener, task};
 
-use crate::app::App;
-use crate::network::api;
-use crate::network::management;
-use crate::network::Network;
-use crate::store::new_storage;
-use crate::store::Request;
-use crate::store::Response;
+use crate::{
+  app::App,
+  network::{api, management, Network},
+  store::{new_storage, Request, Response},
+};
 
 pub mod app;
 pub mod client;

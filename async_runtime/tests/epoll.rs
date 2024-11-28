@@ -1,9 +1,9 @@
 #[macro_use]
 extern crate async_runtime;
-use std::os::unix::prelude::*;
 use std::{
   io::{Read, Write},
   net::TcpStream,
+  os::unix::prelude::*,
 };
 
 #[test]

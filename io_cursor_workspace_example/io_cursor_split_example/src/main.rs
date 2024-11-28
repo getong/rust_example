@@ -1,7 +1,7 @@
-use std::io::Cursor;
-use std::io::Read;
-use std::io::Write;
-use std::net::TcpListener;
+use std::{
+  io::{Cursor, Read, Write},
+  net::TcpListener,
+};
 
 fn main() {
   let listener = TcpListener::bind("localhost:8080").unwrap();

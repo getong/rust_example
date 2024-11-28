@@ -1,6 +1,4 @@
-use coerce::actor::context::ActorContext;
-use coerce::actor::message::Handler;
-use coerce::actor::Actor;
+use coerce::actor::{context::ActorContext, message::Handler, Actor};
 use coerce_macros::JsonMessage;
 
 pub struct EchoActor;

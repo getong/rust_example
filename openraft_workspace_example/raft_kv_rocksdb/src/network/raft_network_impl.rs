@@ -1,29 +1,19 @@
-use std::any::Any;
-use std::fmt::Display;
+use std::{any::Any, fmt::Display};
 
-use openraft::error::InstallSnapshotError;
-use openraft::error::NetworkError;
-use openraft::error::RPCError;
-use openraft::error::RaftError;
-use openraft::error::RemoteError;
-use openraft::network::RPCOption;
-use openraft::network::RaftNetwork;
-use openraft::network::RaftNetworkFactory;
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::AppendEntriesResponse;
-use openraft::raft::InstallSnapshotRequest;
-use openraft::raft::InstallSnapshotResponse;
-use openraft::raft::VoteRequest;
-use openraft::raft::VoteResponse;
-use openraft::AnyError;
+use openraft::{
+  error::{InstallSnapshotError, NetworkError, RPCError, RaftError, RemoteError},
+  network::{RPCOption, RaftNetwork, RaftNetworkFactory},
+  raft::{
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    VoteRequest, VoteResponse,
+  },
+  AnyError,
+};
 use serde::de::DeserializeOwned;
-use toy_rpc::pubsub::AckModeNone;
-use toy_rpc::Client;
+use toy_rpc::{pubsub::AckModeNone, Client};
 
 use super::raft::RaftClientStub;
-use crate::Node;
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{Node, NodeId, TypeConfig};
 
 pub struct Network {}
 

@@ -1,10 +1,11 @@
+use std::net::SocketAddr;
+
 use axum::{
   async_trait, extract::FromRequestParts, http::request::Parts, response::Html, routing::get,
   Router,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use time::Duration;
 use tower_sessions::{cookie::Key, Expiry, MemoryStore, Session, SessionManagerLayer};
 

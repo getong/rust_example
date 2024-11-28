@@ -1,5 +1,7 @@
-use std::sync::{Arc, Barrier};
-use std::thread;
+use std::{
+  sync::{Arc, Barrier},
+  thread,
+};
 
 fn main() {
   let mut handles = Vec::with_capacity(5);

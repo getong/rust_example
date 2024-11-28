@@ -1,7 +1,7 @@
-use error_chain::error_chain;
-
-use regex::Regex;
 use std::fmt;
+
+use error_chain::error_chain;
+use regex::Regex;
 
 error_chain! {
     foreign_links {

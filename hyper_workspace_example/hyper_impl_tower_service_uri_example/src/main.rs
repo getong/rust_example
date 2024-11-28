@@ -1,3 +1,5 @@
+use std::task::{Context, Poll};
+
 use bytes::Bytes;
 use futures_util::{
   future::{self, BoxFuture},
@@ -5,7 +7,6 @@ use futures_util::{
 };
 use http_body_util::{BodyExt, Full};
 use hyper::{Error, Response, Uri};
-use std::task::{Context, Poll};
 use tower_service::Service;
 
 struct UriService;

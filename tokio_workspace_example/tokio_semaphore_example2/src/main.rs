@@ -1,7 +1,6 @@
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
+
+use tokio::{io::AsyncReadExt, net::TcpListener, sync::Semaphore};
 
 #[tokio::main]
 async fn main() {

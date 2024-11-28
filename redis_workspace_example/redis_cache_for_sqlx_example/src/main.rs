@@ -1,7 +1,8 @@
+use std::env;
+
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Pool, Postgres};
-use std::env;
 use tokio;
 
 #[derive(Serialize, Deserialize, Debug)]

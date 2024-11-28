@@ -1,5 +1,6 @@
-use futures::future::FutureExt;
 use std::time::Duration;
+
+use futures::future::FutureExt;
 use tokio::{sync::oneshot, time};
 use tokio_stream::{self as stream, StreamExt};
 

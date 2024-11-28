@@ -1,20 +1,24 @@
-use std::net::SocketAddr;
-use std::str;
+use std::{net::SocketAddr, str};
 
 use bytes::Bytes;
 use http_body_util::Empty;
-use hyper::header::{HeaderValue, UPGRADE};
 // use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::upgrade::Upgraded;
-use hyper::{Request, Response, StatusCode};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-use tokio::sync::watch;
-use tokio::time::Duration;
+use hyper::{
+  header::{HeaderValue, UPGRADE},
+  upgrade::Upgraded,
+  Request, Response, StatusCode,
+};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::TcpListener,
+  sync::watch,
+  time::Duration,
+};
 
 // A simple type alias so as to DRY.
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

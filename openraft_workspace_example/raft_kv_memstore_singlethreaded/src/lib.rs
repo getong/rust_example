@@ -1,16 +1,15 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::marker::PhantomData;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 use openraft::Config;
 
-use crate::app::App;
-use crate::router::Router;
-use crate::store::Request;
-use crate::store::Response;
+use crate::{
+  app::App,
+  router::Router,
+  store::{Request, Response},
+};
 
 pub mod router;
 

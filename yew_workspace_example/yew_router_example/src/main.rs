@@ -1,10 +1,8 @@
 mod pages;
 
-use yew::prelude::*;
-use yew_router::components::RouterAnchor;
-use yew_router::prelude::*;
-
 use pages::{home::Home, projects::Projects, users::Users};
+use yew::prelude::*;
+use yew_router::{components::RouterAnchor, prelude::*};
 
 #[derive(Switch, Debug, Clone, PartialEq)]
 pub enum Route {

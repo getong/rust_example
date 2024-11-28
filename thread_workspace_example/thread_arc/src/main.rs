@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::thread;
+use std::{sync::Arc, thread};
 
 fn main() {
   let nums = Arc::new(vec![0, 1, 2, 3, 4]);

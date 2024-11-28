@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use bevy_ecs::system::Commands;
 use bevy_log::info;
-
 use naia_bevy_server::{transport::webrtc, Server};
 
 use crate::resources::Global;

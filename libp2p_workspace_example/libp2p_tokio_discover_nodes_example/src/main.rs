@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use libp2p::{
   // floodsub::{self, Floodsub, FloodsubEvent},
   futures::StreamExt,
@@ -10,7 +12,6 @@ use libp2p::{
   PeerId,
   SwarmBuilder,
 };
-use std::error::Error;
 use tokio::time::Duration;
 
 #[tokio::main]

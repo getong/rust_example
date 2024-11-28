@@ -1,6 +1,6 @@
-use laminar::{Packet, Socket};
-
 use std::time::Instant;
+
+use laminar::{Packet, Socket};
 fn main() {
   let mut client = Socket::bind_any().unwrap();
   let server_addr = "127.0.0.1:6666".parse().unwrap();

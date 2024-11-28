@@ -1,12 +1,11 @@
+use std::{env, fs, io, str::FromStr};
+
 use http::Uri;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Bytes;
 use hyper_rustls::ConfigBuilderExt;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use rustls::RootCertStore;
-
-use std::str::FromStr;
-use std::{env, fs, io};
 
 #[tokio::main]
 async fn main() {

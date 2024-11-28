@@ -1,7 +1,8 @@
-use nom::bits::complete::take;
-use nom::error::Error;
-use nom::error::ErrorKind;
-use nom::IResult;
+use nom::{
+  bits::complete::take,
+  error::{Error, ErrorKind},
+  IResult,
+};
 
 // Input is a tuple of (input: I, bit_offset: usize)
 fn parser(input: (&[u8], usize), count: usize) -> IResult<(&[u8], usize), u8> {

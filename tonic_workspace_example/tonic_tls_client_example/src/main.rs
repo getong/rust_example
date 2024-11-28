@@ -1,10 +1,7 @@
-use hello_world::greeter_client::GreeterClient;
-use hello_world::HelloRequest;
-
 use std::time::Duration;
-use tonic::transport::Certificate;
-use tonic::transport::Channel;
-use tonic::transport::ClientTlsConfig;
+
+use hello_world::{greeter_client::GreeterClient, HelloRequest};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 // use tonic::Request;
 
 pub mod hello_world {

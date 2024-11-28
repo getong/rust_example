@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::LogStore;
-use crate::NodeId;
-use crate::Raft;
-use crate::StateMachineStore;
+use crate::{LogStore, NodeId, Raft, StateMachineStore};
 
 // Representation of an application state. This struct can be shared around to share
 // instances of raft, store and more.

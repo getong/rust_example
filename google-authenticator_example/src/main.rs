@@ -1,7 +1,9 @@
+use std::{
+  fs::File,
+  io::{Error, ErrorKind, Write},
+};
+
 use google_authenticator::{ErrorCorrectionLevel, GoogleAuthenticator};
-use std::fs::File;
-use std::io::Write;
-use std::io::{Error, ErrorKind};
 
 fn main() -> std::io::Result<()> {
   let secret = "I3VFM3JKMNDJCDH5BMBEEQAW6KJ6NOE3";

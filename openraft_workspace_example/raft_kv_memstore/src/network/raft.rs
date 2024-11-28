@@ -1,13 +1,11 @@
-use actix_web::post;
-use actix_web::web::Data;
-use actix_web::web::Json;
-use actix_web::Responder;
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::InstallSnapshotRequest;
-use openraft::raft::VoteRequest;
+use actix_web::{
+  post,
+  web::{Data, Json},
+  Responder,
+};
+use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
 
-use crate::app::App;
-use crate::TypeConfig;
+use crate::{app::App, TypeConfig};
 
 // --- Raft communication
 

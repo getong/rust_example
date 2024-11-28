@@ -1,9 +1,11 @@
+use std::{
+  net::SocketAddr,
+  pin::Pin,
+  task::{Context, Poll},
+};
+
 use futures::Future;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 use tower_service::Service;
 
 struct MyMakeConnection;

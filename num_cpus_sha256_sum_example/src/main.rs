@@ -1,8 +1,11 @@
+use std::{
+  fs::File,
+  io::{BufReader, Error, Read},
+  path::Path,
+  sync::mpsc::channel,
+};
+
 use ring::digest::{Context, Digest, SHA256};
-use std::fs::File;
-use std::io::{BufReader, Error, Read};
-use std::path::Path;
-use std::sync::mpsc::channel;
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
 

@@ -1,8 +1,9 @@
-use tokio_stream::Stream;
-use tokio_stream::StreamExt;
+use std::{
+  pin::Pin,
+  task::{Context, Poll},
+};
 
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use tokio_stream::{Stream, StreamExt};
 
 // a stream which alternates between Some and None
 struct Alternate {

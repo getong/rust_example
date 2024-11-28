@@ -1,9 +1,10 @@
-use std::net::SocketAddr;
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::timeout;
+use tokio::{
+  io::{self, AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+  time::timeout,
+};
 
 const LISTEN_ADDRESS: &str = "127.0.0.1:8080";
 const READ_TIMEOUT_SECONDS: u64 = 5;

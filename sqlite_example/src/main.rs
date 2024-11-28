@@ -1,7 +1,6 @@
-use sqlite;
-use sqlite::Connection;
-use std::env;
-use std::error::Error;
+use std::{env, error::Error};
+
+use sqlite::{self, Connection};
 mod dbfuncs;
 
 fn main() -> Result<(), Box<dyn Error>> {

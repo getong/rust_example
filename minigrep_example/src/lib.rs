@@ -1,6 +1,4 @@
-use std::env;
-use std::error::Error;
-use std::fs;
+use std::{env, error::Error, fs};
 
 pub struct GrepOpts<'a> {
   query: &'a str,

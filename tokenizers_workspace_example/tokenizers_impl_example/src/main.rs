@@ -1,13 +1,9 @@
-use tokenizers::models::bpe::BpeTrainer;
-use tokenizers::models::bpe::BPE;
-use tokenizers::pre_tokenizers::whitespace::Whitespace;
-use tokenizers::AddedToken;
-use tokenizers::DecoderWrapper;
-use tokenizers::NormalizerWrapper;
-use tokenizers::PostProcessorWrapper;
-use tokenizers::PreTokenizerWrapper;
-use tokenizers::Tokenizer;
-use tokenizers::TokenizerImpl;
+use tokenizers::{
+  models::bpe::{BpeTrainer, BPE},
+  pre_tokenizers::whitespace::Whitespace,
+  AddedToken, DecoderWrapper, NormalizerWrapper, PostProcessorWrapper, PreTokenizerWrapper,
+  Tokenizer, TokenizerImpl,
+};
 
 fn main() -> tokenizers::Result<()> {
   // println!("Hello, world!");

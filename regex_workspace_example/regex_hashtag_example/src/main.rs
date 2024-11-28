@@ -1,7 +1,7 @@
-use lazy_static::lazy_static;
-
-use regex::Regex;
 use std::collections::HashSet;
+
+use lazy_static::lazy_static;
+use regex::Regex;
 
 fn extract_hashtags(text: &str) -> HashSet<&str> {
   lazy_static! {

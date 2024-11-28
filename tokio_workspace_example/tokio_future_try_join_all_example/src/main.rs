@@ -44,16 +44,20 @@ async fn main() -> anyhow::Result<()> {
       })
       .await?;
   }
-  // Indicate that no more work will be sent by closing the channel. This will allow the worker loops to complete.
+  // Indicate that no more work will be sent by closing the channel. This will allow the worker
+  // loops to complete.
   drop(tx_work);
 
   // Wait for all workers to be done.
   futures::future::try_join_all(workers).await?;
 
-  // Close the tx_result channel since workers will not send on that anymore. All of the workers will have exited at this point and dropped their clones of this, so dropping this last sender closes the channel.
+  // Close the tx_result channel since workers will not send on that anymore. All of the workers
+  // will have exited at this point and dropped their clones of this, so dropping this last sender
+  // closes the channel.
   drop(tx_result);
 
-  // Wait for the consumer to be done. All senders to the result channel are closed which will allow the consumer loop to end.
+  // Wait for the consumer to be done. All senders to the result channel are closed which will allow
+  // the consumer loop to end.
   consumer.await?;
 
   Ok(())

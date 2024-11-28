@@ -1,8 +1,9 @@
+use std::error::Error;
+
 use chrono::{
   offset::FixedOffset, DateTime, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, NaiveTime,
   TimeZone, Utc, Weekday,
 };
-use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
   println!("Hello, time now is {:?}", Utc::now());

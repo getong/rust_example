@@ -1,9 +1,10 @@
-use futures::channel::oneshot; // futures-preview@0.3.0-alpha.17
 use std::{
   future::Future,
   pin::Pin,
   task::{Context, Poll},
 };
+
+use futures::channel::oneshot; // futures-preview@0.3.0-alpha.17
 
 pub struct ShutdownHandle {
   sender: oneshot::Sender<()>,

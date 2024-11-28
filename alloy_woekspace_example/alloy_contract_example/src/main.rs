@@ -27,12 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_recommended_fillers()
     .on_http(rpc_url);
 
-  // If `#[sol(bytecode = "0x...")]` is provided, the contract can be deployed with `MyContract::deploy`,
-  // and a new instance will be created.
+  // If `#[sol(bytecode = "0x...")]` is provided, the contract can be deployed with
+  // `MyContract::deploy`, and a new instance will be created.
   let constructor_arg = Address::ZERO;
   let _contract = MyContract::deploy(&provider, constructor_arg).await?;
 
-  // Otherwise, or if already deployed, a new contract instance can be created with `MyContract::new`.
+  // Otherwise, or if already deployed, a new contract instance can be created with
+  // `MyContract::new`.
   let address = Address::ZERO;
   let contract = MyContract::new(address, &provider);
 

@@ -1,11 +1,9 @@
-use std::mem::MaybeUninit;
-use std::sync::Mutex;
-use std::thread;
+use std::{mem::MaybeUninit, sync::Mutex, thread};
 
 static mut M: MaybeUninit<Mutex<u32>> = MaybeUninit::uninit();
 
 // deadlock example
-//fn main() {
+// fn main() {
 //    let a = Mutex::new(0);
 //    let b = a.lock().unwrap();
 //    let _c = a.lock().unwrap();

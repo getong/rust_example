@@ -1,7 +1,6 @@
+use std::{error::Error, thread, time::Duration};
+
 use laminar::{Packet, Socket};
-use std::error::Error;
-use std::thread;
-use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn Error>> {
   // println!("Hello, world!");
@@ -19,7 +18,8 @@ fn main() -> Result<(), Box<dyn Error>> {
   let unreliable = Packet::unreliable(destination, bytes.clone());
   let reliable = Packet::reliable_unordered(destination, bytes.clone());
 
-  // Specifies on which stream and how to order our packets, check out our book and documentation for more information
+  // Specifies on which stream and how to order our packets, check out our book and documentation
+  // for more information
   let unreliable_sequenced = Packet::unreliable_sequenced(destination, bytes.clone(), Some(1));
   let reliable_sequenced = Packet::reliable_sequenced(destination, bytes.clone(), Some(2));
   let reliable_ordered = Packet::reliable_ordered(destination, bytes, Some(3));

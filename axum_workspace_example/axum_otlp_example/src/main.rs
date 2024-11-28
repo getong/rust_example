@@ -1,8 +1,7 @@
 #![allow(clippy::let_with_type_underscore)]
 #![allow(clippy::default_constructed_unit_structs)] // warning since 1.71
 
-use axum::extract::Path;
-use axum::{response::IntoResponse, routing::get, BoxError, Router};
+use axum::{extract::Path, response::IntoResponse, routing::get, BoxError, Router};
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use serde_json::json;
 // use std::net::SocketAddr;
@@ -17,8 +16,8 @@ async fn main() -> Result<(), BoxError> {
   // run it
   // let addr = &"0.0.0.0:3003".parse::<SocketAddr>()?;
   // tracing::warn!("listening on {}", addr);
-  tracing::info!("try to call `curl -i http://127.0.0.1:3003/` (with trace)"); //Devskim: ignore DS137138
-  tracing::info!("try to call `curl -i http://127.0.0.1:3003/health` (with NO trace)"); //Devskim: ignore DS137138
+  tracing::info!("try to call `curl -i http://127.0.0.1:3003/` (with trace)"); // Devskim: ignore DS137138
+  tracing::info!("try to call `curl -i http://127.0.0.1:3003/health` (with NO trace)"); // Devskim: ignore DS137138
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3003").await.unwrap();
 
   axum::serve(listener, app)
@@ -38,7 +37,7 @@ fn app() -> Router {
     .route("/", get(index)) // request processed inside span
     // include trace context as header into the response
     .layer(OtelInResponseLayer::default())
-    //start OpenTelemetry trace on incoming request
+    // start OpenTelemetry trace on incoming request
     .layer(OtelAxumLayer::default())
     .route("/health", get(health)) // request processed without span / trace
 }
@@ -51,7 +50,7 @@ async fn health() -> impl IntoResponse {
 async fn index() -> impl IntoResponse {
   let trace_id = find_current_trace_id();
   dbg!(&trace_id);
-  //std::thread::sleep(std::time::Duration::from_secs(1));
+  // std::thread::sleep(std::time::Duration::from_secs(1));
   axum::Json(json!({ "my_trace_id": trace_id }))
 }
 

@@ -1,5 +1,6 @@
-use bytes::{Buf, Bytes};
 use std::io::Cursor;
+
+use bytes::{Buf, Bytes};
 
 fn main() {
   // Sample data: 4 bytes representing a u32 value in little-endian format (e.g., 42)

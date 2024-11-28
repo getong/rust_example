@@ -1,9 +1,13 @@
+use std::{
+  sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    Arc,
+  },
+  thread,
+  time::Duration,
+};
+
 use crossbeam_utils::Backoff;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 fn spin_wait(ready: &AtomicBool) {
   let backoff = Backoff::new();

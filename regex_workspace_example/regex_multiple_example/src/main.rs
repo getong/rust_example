@@ -1,8 +1,10 @@
-use error_chain::error_chain;
+use std::{
+  fs::File,
+  io::{BufRead, BufReader},
+};
 
+use error_chain::error_chain;
 use regex::RegexSetBuilder;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 error_chain! {
     foreign_links {

@@ -1,64 +1,32 @@
-use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::io::Cursor;
-use std::ops::RangeBounds;
-use std::path::Path;
-use std::sync::Arc;
+use std::{collections::BTreeMap, fmt::Debug, io::Cursor, ops::RangeBounds, path::Path, sync::Arc};
 
-use byteorder::BigEndian;
-use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
-use openraft::storage::IOFlushed;
-use openraft::storage::LogState;
-use openraft::storage::RaftLogStorage;
-use openraft::storage::RaftStateMachine;
-use openraft::storage::Snapshot;
-use openraft::AnyError;
-use openraft::Entry;
-use openraft::EntryPayload;
-use openraft::ErrorSubject;
-use openraft::ErrorVerb;
-use openraft::LogId;
-use openraft::OptionalSend;
-use openraft::RaftLogReader;
-use openraft::RaftSnapshotBuilder;
-use openraft::SnapshotMeta;
-use openraft::StorageError;
-use openraft::StoredMembership;
-use openraft::Vote;
-use rocksdb::ColumnFamily;
-use rocksdb::ColumnFamilyDescriptor;
-use rocksdb::Direction;
-use rocksdb::Options;
-use rocksdb::DB;
-use serde::Deserialize;
-use serde::Serialize;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use openraft::{
+  storage::{IOFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
+  AnyError, Entry, EntryPayload, ErrorSubject, ErrorVerb, LogId, OptionalSend, RaftLogReader,
+  RaftSnapshotBuilder, SnapshotMeta, StorageError, StoredMembership, Vote,
+};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Direction, Options, DB};
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::typ;
-use crate::NodeId;
-use crate::SnapshotData;
-use crate::TypeConfig;
+use crate::{typ, NodeId, SnapshotData, TypeConfig};
 
-/**
- * Here you will set the types of request that will interact with the raft nodes.
- * For example the `Set` will be used to write data (key and value) to the raft database.
- * The `AddNode` will append a new node to the current existing shared list of nodes.
- * You will want to add any request that can write data in all nodes here.
- */
+/// Here you will set the types of request that will interact with the raft nodes.
+/// For example the `Set` will be used to write data (key and value) to the raft database.
+/// The `AddNode` will append a new node to the current existing shared list of nodes.
+/// You will want to add any request that can write data in all nodes here.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
   Set { key: String, value: String },
 }
 
-/**
- * Here you will defined what type of answer you expect from reading the data of a node.
- * In this example it will return a optional value from a given key in
- * the `ExampleRequest.Set`.
- *
- * TODO: Should we explain how to create multiple `AppDataResponse`?
- *
- */
+/// Here you will defined what type of answer you expect from reading the data of a node.
+/// In this example it will return a optional value from a given key in
+/// the `ExampleRequest.Set`.
+///
+/// TODO: Should we explain how to create multiple `AppDataResponse`?
+///
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
   pub value: Option<String>,

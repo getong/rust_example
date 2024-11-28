@@ -1,6 +1,8 @@
-use std::convert::From;
-use std::fmt::{Display, Formatter, Result};
-use std::ops::Add;
+use std::{
+  convert::From,
+  fmt::{Display, Formatter, Result},
+  ops::Add,
+};
 
 #[derive(Default, Debug, PartialEq, Copy, Clone)]
 struct Complex<T> {

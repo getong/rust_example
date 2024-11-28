@@ -37,8 +37,8 @@ pub fn process_instruction(
   })?;
   msg!("Greeting passed to program is {:?}", message);
 
-  //let data = &mut &mut account.data.borrow_mut();
-  //msg!("Start save instruction into data");
+  // let data = &mut &mut account.data.borrow_mut();
+  // msg!("Start save instruction into data");
   // data[.._instruction_data.len()].copy_from_slice(&_instruction_data);
 
   msg!("Was sent message {}!", message.counter);

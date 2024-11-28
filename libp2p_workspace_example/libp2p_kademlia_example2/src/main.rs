@@ -1,7 +1,6 @@
-use env_logger::{Builder, Env};
-use log::{error, info, warn};
 use std::{collections::HashMap, env::args, error::Error, time::Duration};
 
+use env_logger::{Builder, Env};
 use libp2p::{
   futures::StreamExt,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
@@ -21,6 +20,7 @@ use libp2p::{
   yamux::Config as YamuxConfig,
   Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
+use log::{error, info, warn};
 
 mod behavior;
 mod message;

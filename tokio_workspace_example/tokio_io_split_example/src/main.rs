@@ -1,5 +1,4 @@
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpStream;
+use tokio::{io::AsyncReadExt, net::TcpStream};
 
 #[tokio::main]
 async fn main() {

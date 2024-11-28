@@ -1,8 +1,9 @@
-use rayon::prelude::*;
-use regex::Regex;
 use std::time::Instant;
 
-//lazy_static! {
+use rayon::prelude::*;
+use regex::Regex;
+
+// lazy_static! {
 //    static ref IS_INTEGER: Regex = Regex::new("^[0-9]+$").unwrap();
 //}
 thread_local! {
@@ -19,7 +20,7 @@ fn main() {
   let start = Instant::now();
   // let n_ints = strings.iter().filter(|s| IS_INTEGER.is_match(s)).count();
 
-  //let n_ints = strings
+  // let n_ints = strings
   //    .par_iter()
   //    .filter(|s| IS_INTEGER.is_match(s))
   //    .count();

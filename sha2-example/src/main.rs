@@ -1,11 +1,13 @@
 extern crate sha2;
+use std::{
+  env, fs,
+  fs::ReadDir,
+  io::{Read, Write},
+  os::unix::net::UnixStream,
+  thread,
+};
+
 use sha2::{Digest, Sha256};
-use std::fs::ReadDir;
-use std::io::Read;
-use std::io::Write;
-use std::os::unix::net::UnixStream;
-use std::thread;
-use std::{env, fs};
 
 fn sock_server(mut listener: UnixStream) {
   loop {

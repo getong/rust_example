@@ -1,8 +1,7 @@
+use std::{collections::BTreeMap, time::Duration};
+
 use openraft::BasicNode;
-use raft_kv_memstore_network_v2::store::Request;
-use raft_kv_memstore_network_v2::{new_raft, router::Router, Raft};
-use std::collections::BTreeMap;
-use std::time::Duration;
+use raft_kv_memstore_network_v2::{new_raft, router::Router, store::Request, Raft};
 use tokio::{task, task::LocalSet};
 use tracing_subscriber::EnvFilter;
 

@@ -1,12 +1,15 @@
+use std::{io, net::SocketAddr};
+
 use async_stream::try_stream;
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use http_body_util::Full;
 use hyper::{service::service_fn, Request, Response};
-use hyper_util::{rt::TokioExecutor, rt::TokioIo, server::conn::auto};
-use std::io;
-use std::net::SocketAddr;
-use tokio::{net::TcpListener, net::TcpStream};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
+use tokio::net::{TcpListener, TcpStream};
 
 #[derive(Debug, thiserror::Error)]
 enum Error {

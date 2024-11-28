@@ -1,16 +1,15 @@
-/*
-openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
+// openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
+//
+// openssl ec -in private_key.pem -pubout -outform DER | tail -c 65 | xxd -p -c 65 > public_key.txt
+//
+use std::{error::Error, fs};
 
-openssl ec -in private_key.pem -pubout -outform DER | tail -c 65 | xxd -p -c 65 > public_key.txt
-
- */
 use ethers::{
   prelude::Address,
   utils::{keccak256, to_checksum},
 };
 use libp2p::{PeerId, identity};
 use secp256k1::PublicKey;
-use std::{error::Error, fs};
 
 pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Error>> {
   // Serialize the public key in uncompressed format (65 bytes)

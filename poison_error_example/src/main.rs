@@ -1,5 +1,7 @@
-use std::sync::{Arc, RwLock};
-use std::thread;
+use std::{
+  sync::{Arc, RwLock},
+  thread,
+};
 
 fn main() {
   let lock = Arc::new(RwLock::new(11));

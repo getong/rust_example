@@ -1,11 +1,11 @@
-use anyhow::Result;
+use std::time::Duration;
 
+use anyhow::Result;
 use sea_streamer::{
   export::url::Url, Buffer, Consumer, ConsumerMode, ConsumerOptions, Message, Producer,
   SeaConsumer, SeaConsumerOptions, SeaMessage, SeaProducer, SeaStreamReset, SeaStreamer, StreamKey,
   Streamer, StreamerUri,
 };
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {

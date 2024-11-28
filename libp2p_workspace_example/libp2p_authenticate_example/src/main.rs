@@ -1,3 +1,7 @@
+use std::{
+  collections::HashMap, env, env::args, error::Error, fs, path::Path, str::FromStr, time::Duration,
+};
+
 use either::Either;
 use env_logger::{Builder, Env};
 use libp2p::{
@@ -22,9 +26,6 @@ use libp2p::{
   Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, Transport,
 };
 use log::{error, info, warn};
-use std::{
-  collections::HashMap, env, env::args, error::Error, fs, path::Path, str::FromStr, time::Duration,
-};
 use tokio::{
   io::{self, AsyncBufReadExt},
   signal::unix::{signal, Signal, SignalKind},

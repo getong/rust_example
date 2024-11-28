@@ -1,24 +1,30 @@
 #[macro_use]
 extern crate rocket;
 
-use rocket::http::Method;
-use rocket::http::Status;
-use rocket::serde::json::Json;
+use rocket::{
+  http::{Method, Status},
+  serde::json::Json,
+};
 use rocket_cors::{AllowedOrigins, CorsOptions};
 
-use crate::constants::{UNAUTHORIZED, UNKNOWN};
-use crate::database::connect_to_db::init;
-use crate::error_response::error_responses::{
-  ErrorResponse, NOT_FOUND_JSON, UNAUTHORIZED_JSON, UNKNOWN_JSON,
+use crate::{
+  constants::{UNAUTHORIZED, UNKNOWN},
+  database::connect_to_db::init,
+  error_response::error_responses::{
+    ErrorResponse, NOT_FOUND_JSON, UNAUTHORIZED_JSON, UNKNOWN_JSON,
+  },
+  helper::check_valid_text,
+  routes::{
+    authorization::{login::login, registration::registration},
+    routes::{
+      delete_user::delete_user,
+      get_data_user::get_data_user,
+      hello_name::{hello_name_user, hello_world},
+      patch_user::edit_user,
+      refresh_tokens::refresh_tokens,
+    },
+  },
 };
-use crate::helper::check_valid_text;
-use crate::routes::authorization::login::login;
-use crate::routes::authorization::registration::registration;
-use crate::routes::routes::delete_user::delete_user;
-use crate::routes::routes::get_data_user::get_data_user;
-use crate::routes::routes::hello_name::{hello_name_user, hello_world};
-use crate::routes::routes::patch_user::edit_user;
-use crate::routes::routes::refresh_tokens::refresh_tokens;
 
 pub mod constants;
 mod database;

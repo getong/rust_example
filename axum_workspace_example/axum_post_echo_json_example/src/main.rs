@@ -1,5 +1,8 @@
-use axum::response::IntoResponse;
-use axum::{response::Response, routing::post, Json, Router};
+use axum::{
+  response::{IntoResponse, Response},
+  routing::post,
+  Json, Router,
+};
 use serde_json::Value;
 
 // curl -X POST http://127.0.0.1:8080/ -H "Content-Type: application/json" -d '{"echo": "Hello, world!"}'

@@ -1,6 +1,4 @@
-use std::sync::atomic::compiler_fence;
-use std::sync::atomic::Ordering;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{compiler_fence, AtomicBool, AtomicUsize, Ordering};
 
 static IMPORTANT_VARIABLE: AtomicUsize = AtomicUsize::new(0);
 static IS_READY: AtomicBool = AtomicBool::new(false);

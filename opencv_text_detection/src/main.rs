@@ -1,12 +1,18 @@
-use std::env;
-use std::error::Error;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::{
+  env,
+  error::Error,
+  fs::File,
+  io::{BufRead, BufReader},
+};
 
 use dnn::{TextDetectionModel_EAST, TextRecognitionModel};
-use opencv::core::{CommandLineParser, Point, Point2f, Scalar, Size, Vector};
-use opencv::prelude::*;
-use opencv::{core, dnn, highgui, imgproc, videoio};
+use opencv::{
+  core,
+  core::{CommandLineParser, Point, Point2f, Scalar, Size, Vector},
+  dnn, highgui, imgproc,
+  prelude::*,
+  videoio,
+};
 use videoio::VideoCapture;
 
 type Result<T, E = Box<dyn Error>> = std::result::Result<T, E>;

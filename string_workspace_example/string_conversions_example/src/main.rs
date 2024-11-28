@@ -1,11 +1,13 @@
+use std::{
+  ffi::{CStr, CString},
+  os::raw::c_char,
+  str::FromStr,
+};
+
 use hex::ToHex;
 // use libc::c_char;
 use primitive_types::H160;
 use primitive_types::U256;
-use std::ffi::CStr;
-use std::ffi::CString;
-use std::os::raw::c_char;
-use std::str::FromStr;
 
 fn main() {
   // println!("Hello, world!");

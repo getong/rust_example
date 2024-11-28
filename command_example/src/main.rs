@@ -1,7 +1,9 @@
-//use std::process::Command;
+// use std::process::Command;
 
-use std::io::prelude::*;
-use std::process::{Command, Stdio};
+use std::{
+  io::prelude::*,
+  process::{Command, Stdio},
+};
 
 fn main() {
   Command::new("ls")

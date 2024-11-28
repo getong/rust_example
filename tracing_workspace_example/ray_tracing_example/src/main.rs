@@ -12,14 +12,13 @@ use std::io;
 // use std::rc::Rc;
 use std::sync::Arc;
 
-use rayon::prelude::*;
-
 use camera::Camera;
 use color::Color;
 use hittable::{HitRecord, Hittable};
 use hittable_list::HittableList;
 use material::{Dielectric, Lambertian, Metal};
 use ray::Ray;
+use rayon::prelude::*;
 use sphere::Sphere;
 use vec3::Point3;
 // use vec3::Point3;

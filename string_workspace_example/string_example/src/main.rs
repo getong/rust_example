@@ -1,5 +1,7 @@
-use std::io::{self, BufRead};
-use std::mem;
+use std::{
+  io::{self, BufRead},
+  mem,
+};
 
 fn main() {
   // println!("Hello, world!");

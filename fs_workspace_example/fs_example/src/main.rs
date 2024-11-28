@@ -1,10 +1,9 @@
-use std::fs;
-use std::fs::DirBuilder;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::os::unix::fs as fsunix;
-use std::path::Path;
-use std::path::PathBuf;
+use std::{
+  fs,
+  fs::{DirBuilder, File, OpenOptions},
+  os::unix::fs as fsunix,
+  path::{Path, PathBuf},
+};
 
 fn main() {
   println!("Hello, world!");
@@ -70,7 +69,7 @@ fn main() {
   let dir_entries = fs::read_dir(".").expect("Unable to read directory contents");
   // Read directory contents
   for entry in dir_entries {
-    //Get details of each directory entry
+    // Get details of each directory entry
     let entry = entry.unwrap();
     let entry_path = entry.path();
     let entry_metadata = entry.metadata().unwrap();

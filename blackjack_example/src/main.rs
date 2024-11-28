@@ -1,7 +1,7 @@
+use std::{cmp::Ordering, fmt};
+
 use dialoguer::{theme::ColorfulTheme, Select};
 use rand::seq::IteratorRandom;
-use std::cmp::Ordering;
-use std::fmt;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 

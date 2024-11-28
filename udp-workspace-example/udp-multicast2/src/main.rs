@@ -1,6 +1,8 @@
 // https://teukka.tech/peer-discovery.html
-use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
-use std::thread;
+use std::{
+  net::{Ipv4Addr, SocketAddrV4, UdpSocket},
+  thread,
+};
 
 use anyhow::Result;
 

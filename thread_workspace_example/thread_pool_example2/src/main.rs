@@ -1,9 +1,13 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread;
-
-use std::{borrow::BorrowMut, mem::take};
+use std::{
+  borrow::BorrowMut,
+  mem::take,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc::{channel, Sender},
+    Arc, Mutex,
+  },
+  thread,
+};
 
 struct QueueNode<T> {
   value: T,

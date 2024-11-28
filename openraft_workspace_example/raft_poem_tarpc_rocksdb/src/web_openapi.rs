@@ -1,11 +1,9 @@
-use crate::common::Api;
-use crate::Node;
-use crate::NodeId;
-use crate::Request;
-use crate::TypeConfig;
+use std::collections::{BTreeMap, BTreeSet};
+
 use openraft::error::CheckIsLeaderError;
 use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
-use std::collections::{BTreeMap, BTreeSet};
+
+use crate::{common::Api, Node, NodeId, Request, TypeConfig};
 
 #[derive(ApiResponse)]
 pub enum SearchResponse {

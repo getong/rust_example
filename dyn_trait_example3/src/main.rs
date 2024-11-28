@@ -14,11 +14,10 @@ impl Animal for Cat {
   }
 }
 
-//fn animal_speak<T: Animal>(animal: T) {
+// fn animal_speak<T: Animal>(animal: T) {
 //    animal.speak();
 //}
-//
-//fn main() {
+// fn main() {
 //    let dog = Dog;
 //    let cat = Cat;
 //

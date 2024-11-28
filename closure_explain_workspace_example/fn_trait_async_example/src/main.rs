@@ -1,5 +1,4 @@
-use std::future::Future;
-use std::pin::Pin;
+use std::{future::Future, pin::Pin};
 
 async fn async_square(num: i32) -> i32 {
   tokio::time::sleep(std::time::Duration::from_secs(1)).await;

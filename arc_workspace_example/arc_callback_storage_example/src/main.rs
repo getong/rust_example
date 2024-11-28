@@ -1,7 +1,9 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::{
+  collections::HashMap,
+  sync::{Arc, Mutex},
+  thread,
+  time::Duration,
+};
 
 pub struct CallbackStore {
   cid: u8,

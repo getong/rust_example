@@ -1,7 +1,6 @@
+use std::{env, fs, path::Path, process::Command};
+
 use regex::Regex;
-use std::path::Path;
-use std::process::Command;
-use std::{env, fs};
 
 const UNRAR_DIRECTORY: &str = "UNRAR_DIRECTORY";
 

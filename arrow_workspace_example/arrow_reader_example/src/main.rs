@@ -1,9 +1,10 @@
-use std::fs::File;
-use std::sync::Arc;
+use std::{fs::File, sync::Arc};
 
-use arrow::csv;
-use arrow::datatypes::{DataType, Field, Schema};
-use arrow::error::Result as ArrowResult;
+use arrow::{
+  csv,
+  datatypes::{DataType, Field, Schema},
+  error::Result as ArrowResult,
+};
 
 fn main() -> ArrowResult<()> {
   let _file = File::open("../../data/StudentACTResults.csv").unwrap();

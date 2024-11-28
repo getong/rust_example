@@ -1,5 +1,4 @@
-use std::net::UdpSocket;
-use std::{io, str};
+use std::{io, net::UdpSocket, str};
 
 fn main() {
   let socket = UdpSocket::bind("127.0.0.1:8000").expect("Could not bind client socket");

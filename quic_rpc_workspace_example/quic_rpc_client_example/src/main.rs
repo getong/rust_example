@@ -1,10 +1,8 @@
-use futures::sink::SinkExt;
-use futures::stream::StreamExt;
+use std::{io, net::SocketAddr, sync::Arc};
+
+use futures::{sink::SinkExt, stream::StreamExt};
 use quic_rpc::RpcClient;
 use quinn::{ClientConfig, Endpoint};
-use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use types::compute::*;
 
 // types::create_compute_client!(ComputeClient);

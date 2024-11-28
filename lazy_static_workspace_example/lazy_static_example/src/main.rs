@@ -1,7 +1,6 @@
+use std::{collections::HashMap, error::Error, sync::Mutex};
+
 use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::error::Error;
-use std::sync::Mutex;
 
 lazy_static! {
   static ref FRUIT: Mutex<Vec<String>> = Mutex::new(Vec::new());

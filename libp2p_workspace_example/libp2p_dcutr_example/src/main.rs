@@ -1,3 +1,5 @@
+use std::{error::Error, str::FromStr, time::Duration};
+
 use clap::Parser;
 use futures::{executor::block_on, future::FutureExt, stream::StreamExt};
 use libp2p::{
@@ -6,8 +8,6 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, PeerId,
 };
-use std::str::FromStr;
-use std::{error::Error, time::Duration};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]

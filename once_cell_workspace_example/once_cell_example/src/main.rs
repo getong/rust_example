@@ -1,5 +1,6 @@
-use once_cell::{sync, unsync};
 use std::{collections::HashMap, sync::Mutex};
+
+use once_cell::{sync, unsync};
 
 static GLOBAL_DATA: sync::Lazy<Mutex<HashMap<i32, String>>> = sync::Lazy::new(|| {
   let mut m = HashMap::new();

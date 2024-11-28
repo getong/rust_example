@@ -1,7 +1,7 @@
-use pad::PadStr;
-use recrypt::api::Plaintext;
-use recrypt::prelude::*;
 use std::env;
+
+use pad::PadStr;
+use recrypt::{api::Plaintext, prelude::*};
 
 fn unsize<T>(x: &[T]) -> &[T] {
   x

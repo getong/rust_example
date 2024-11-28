@@ -1,5 +1,6 @@
-use actix::prelude::*;
 use std::thread;
+
+use actix::prelude::*;
 
 struct Ping(usize);
 

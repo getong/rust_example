@@ -1,7 +1,5 @@
-use core::mem::MaybeUninit;
-use core::ptr;
-use std::sync::mpsc;
-use std::sync::Once;
+use core::{mem::MaybeUninit, ptr};
+use std::sync::{mpsc, Once};
 
 static mut CHANNEL: MaybeUninit<(mpsc::Sender<usize>, mpsc::Receiver<usize>)> =
   MaybeUninit::uninit();
@@ -17,5 +15,5 @@ fn get_channel() -> &'static (mpsc::Sender<usize>, mpsc::Receiver<usize>) {
 }
 
 fn main() {
-  get_channel(); //safe because call_once will sync
+  get_channel(); // safe because call_once will sync
 }

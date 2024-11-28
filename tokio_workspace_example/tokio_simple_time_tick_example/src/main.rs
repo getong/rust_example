@@ -1,11 +1,12 @@
 // use futures::future::FutureExt;
 use std::time::{SystemTime, UNIX_EPOCH};
-//use tokio::sync::oneshot;
+
+// use tokio::sync::oneshot;
 // use rand::distributions::{Distribution, Uniform};
 // use rand::{thread_rng, Rng};
 use rand::Rng;
 // use std::rc::Rc;
-//use std::sync::Arc;
+// use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{self, sleep, Duration};
 
@@ -20,7 +21,7 @@ async fn main() {
   let mut interval = time::interval(Duration::from_secs(2));
 
   // let start = SystemTime::now();
-  //let since_the_epoch = start
+  // let since_the_epoch = start
   //    .duration_since(UNIX_EPOCH)
   //.expect("Time went backwards");
 

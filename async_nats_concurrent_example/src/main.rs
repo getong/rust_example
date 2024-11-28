@@ -1,6 +1,7 @@
+use std::{env, str::from_utf8, time::Duration};
+
 use futures::stream::StreamExt;
 use rand::Rng;
-use std::{env, str::from_utf8, time::Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), async_nats::Error> {

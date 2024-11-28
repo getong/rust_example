@@ -1,5 +1,4 @@
-use tokenizers::models::wordpiece::WordPiece;
-use tokenizers::{AddedToken, Tokenizer};
+use tokenizers::{models::wordpiece::WordPiece, AddedToken, Tokenizer};
 
 fn main() {
   let start = std::time::Instant::now();

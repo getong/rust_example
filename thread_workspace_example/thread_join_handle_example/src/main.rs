@@ -1,5 +1,4 @@
-use std::thread::JoinHandle;
-use std::{thread, time};
+use std::{thread, thread::JoinHandle, time};
 
 fn do_something(number: i8) -> i8 {
   println!("number {} is running", number);

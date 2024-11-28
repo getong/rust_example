@@ -1,6 +1,6 @@
+use std::{env::set_current_dir, path::Path};
+
 use async_recursion::async_recursion;
-use std::env::set_current_dir;
-use std::path::Path;
 use tokio::fs;
 use walkdir::WalkDir;
 

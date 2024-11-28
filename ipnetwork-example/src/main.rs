@@ -1,7 +1,8 @@
 extern crate ipnetwork;
 
-use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use std::net::Ipv4Addr;
+
+use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 
 fn main() {
   let net =

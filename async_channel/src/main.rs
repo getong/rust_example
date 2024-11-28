@@ -1,6 +1,5 @@
 // async_channels.rs
-use std::sync::mpsc::channel;
-use std::thread;
+use std::{sync::mpsc::channel, thread};
 
 fn main() {
   let (tx, rx) = channel();

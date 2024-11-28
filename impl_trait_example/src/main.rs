@@ -21,7 +21,7 @@ fn impl_closure_demo() -> impl Fn(i32) -> i32 {
 }
 
 fn main() {
-  //println!("Hello, world!");
+  // println!("Hello, world!");
   let a = dyn_demo();
   println!("a : {:?}", a);
 

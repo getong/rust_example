@@ -1,6 +1,4 @@
-use std::env;
-use std::time::SystemTime;
-use url::Url;
+use std::{env, time::SystemTime};
 
 use alloy::{
   network::EthereumWallet,
@@ -12,6 +10,7 @@ use alloy::{
 };
 use eyre::Result;
 use futures_util::stream::StreamExt;
+use url::Url;
 
 sol!(
   #[allow(missing_docs)]
@@ -28,7 +27,8 @@ async fn main() -> Result<()> {
     env::var("baseSepoliaHTTPS").expect("$baseSepoliaHTTPS is not set");
 
   // // Fail RPC (Any network that is not Base Sepolia)
-  // let rpc_base_sepolia_infura_https = env::var("optimismSepoliaHTTPS").expect("$baseSepoliaHTTPS is not set");
+  // let rpc_base_sepolia_infura_https = env::var("optimismSepoliaHTTPS").expect("$baseSepoliaHTTPS
+  // is not set");
 
   let private_key_wallet_string =
     env::var("devTestnetPrivateKey").expect("$devTestnetPrivateKey is not set");
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
 
   println!("Sent transaction...",);
 
-  //Set up WSS for event listener filter.
+  // Set up WSS for event listener filter.
   let rpc_base_sepolia_infura_wss = env::var("baseSepoliaWSS").expect("$baseSepoliaWSS is not set");
   let rpc_url_wss =
     Url::parse(&rpc_base_sepolia_infura_wss).expect("RPC url string type covert error");
@@ -126,14 +126,14 @@ async fn main() -> Result<()> {
 }
 
 fn get_unix_time() -> usize {
-  let now = SystemTime::now(); //Credit: https://stackoverflow.com/questions/55849295/field-tv-sec-doesnt-exist-in-struct-systemtime
-  let now_str = format!("{:?}", now); //SystemTime { tv_sec: 1657846097, tv_nsec: 129747070 }
+  let now = SystemTime::now(); // Credit: https://stackoverflow.com/questions/55849295/field-tv-sec-doesnt-exist-in-struct-systemtime
+  let now_str = format!("{:?}", now); // SystemTime { tv_sec: 1657846097, tv_nsec: 129747070 }
   let now_str_digits_spaces: String = now_str
     .chars()
     .filter(|c| c.is_digit(10) || *c == ',')
     .collect(); //"1657846097,129747070"
   let now_splitted: Vec<&str> = now_str_digits_spaces.split(",").collect(); //["1657846097", "129747070"]
-  let tv_sec: usize = now_splitted[0].parse().unwrap(); //1657846097
+  let tv_sec: usize = now_splitted[0].parse().unwrap(); // 1657846097
   println!("Unix Time Now: {:?}", tv_sec);
   return tv_sec;
 }

@@ -1,7 +1,7 @@
+use std::{collections::HashMap, error::Error};
+
 use once_cell::sync::Lazy;
 use prost::{Message, Name};
-use std::collections::HashMap;
-use std::error::Error;
 
 mod mypackage {
   include!("protos/mypackage.rs");

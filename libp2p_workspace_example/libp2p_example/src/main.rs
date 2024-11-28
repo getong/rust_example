@@ -1,3 +1,5 @@
+use std::{error::Error, task::Poll, time::Duration};
+
 use futures::{executor::block_on, future, StreamExt};
 use libp2p::{
   identity, noise,
@@ -5,7 +7,6 @@ use libp2p::{
   swarm::SwarmEvent,
   tcp, yamux, Multiaddr, PeerId, SwarmBuilder,
 };
-use std::{error::Error, task::Poll, time::Duration};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

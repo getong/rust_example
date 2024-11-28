@@ -44,7 +44,7 @@ fn main() {
   }
 
   println!("point is ({}, {})", point.x, point.y);
-  //println!(
+  // println!(
   //    "mutable_point is ({}, {})",
   //    mutable_point.x, mutable_point.y
   //);

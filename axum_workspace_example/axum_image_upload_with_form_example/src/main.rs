@@ -1,11 +1,11 @@
+use std::{fs::File, io::Write};
+
 use axum::{
   extract::{DefaultBodyLimit, Multipart},
   response::Html,
   routing::get,
   Router,
 };
-use std::fs::File;
-use std::io::Write;
 use tower_http::limit::RequestBodyLimitLayer;
 
 #[tokio::main]
@@ -15,7 +15,7 @@ async fn main() {
     .route("/", get(show_form).post(accept_form))
     .layer(DefaultBodyLimit::disable())
     .layer(RequestBodyLimitLayer::new(
-      250 * 1024 * 1024, /* 250mb */
+      250 * 1024 * 1024, // 250mb
     ))
     .layer(tower_http::trace::TraceLayer::new_for_http());
 

@@ -1,19 +1,22 @@
-use crate::constants::{
-  LEN_FIRST_NAME, LEN_LAST_NAME, LEN_LOGIN, UNKNOWN, WEAK_LOGIN, WRONG_FIRST_NAME, WRONG_LAST_NAME,
-  WRONG_MAIL, WRONG_REQUEST,
+use rocket::{serde::json::Json, State};
+
+use crate::{
+  constants::{
+    LEN_FIRST_NAME, LEN_LAST_NAME, LEN_LOGIN, UNKNOWN, WEAK_LOGIN, WRONG_FIRST_NAME,
+    WRONG_LAST_NAME, WRONG_MAIL, WRONG_REQUEST,
+  },
+  database::connect_to_db::MongoDB,
+  helper::{parse_id_and_find_user_by_id, FindUserById},
+  models::request::patch_request::EditUserRequest,
+  routes::{
+    authorization::token::request_access_token::AuthorizedUser,
+    routes::EditUserRequestError,
+    validator_authorization::{valid_edit_model, ValidEditModelError},
+  },
+  ErrorResponse, Status, UNAUTHORIZED,
 };
-use rocket::serde::json::Json;
-use rocket::State;
 
-use crate::database::connect_to_db::MongoDB;
-use crate::helper::{parse_id_and_find_user_by_id, FindUserById};
-use crate::models::request::patch_request::EditUserRequest;
-use crate::routes::authorization::token::request_access_token::AuthorizedUser;
-use crate::routes::routes::EditUserRequestError;
-use crate::routes::validator_authorization::{valid_edit_model, ValidEditModelError};
-use crate::{ErrorResponse, Status, UNAUTHORIZED};
-
-//edit user data without id and password
+// edit user data without id and password
 #[patch("/user", data = "<option_edit_model>", format = "json")]
 pub async fn edit_user(
   auth: AuthorizedUser,

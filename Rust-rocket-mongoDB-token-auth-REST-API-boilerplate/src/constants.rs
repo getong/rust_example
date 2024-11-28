@@ -1,3 +1,5 @@
+use rocket::{http::Status, serde::json::Json};
+
 use crate::error_response::error_responses::{
   ErrorResponse, ALREADY_REGISTERED_EMAIL_JSON, ALREADY_REGISTERED_LOGIN_JSON,
   ERROR_ALREADY_REGISTERED_STATUS, ERROR_NOT_FOUND_STATUS, ERROR_UNAUTHORIZED_STATUS,
@@ -7,8 +9,6 @@ use crate::error_response::error_responses::{
   WEAK_PASSWORD_JSON, WRONG_FIRST_NAME_JSON, WRONG_LAST_NAME_JSON, WRONG_MAIL_JSON,
   WRONG_REQUEST_JSON,
 };
-use rocket::http::Status;
-use rocket::serde::json::Json;
 
 pub const EXPIRATION_REFRESH_TOKEN: i64 = 3600 * 24 * 30;
 pub const EXPIRATION_TOKEN: i64 = 3600;
@@ -18,19 +18,19 @@ pub struct LenText {
   pub(crate) max: usize,
 }
 
-//min && max len login
+// min && max len login
 pub const LEN_LOGIN: LenText = LenText { min: 2, max: 200 };
 
-//min && max len password
+// min && max len password
 pub const LEN_PASSWORD: LenText = LenText { min: 8, max: 200 };
 
-//min && max len first name
+// min && max len first name
 pub const LEN_FIRST_NAME: LenText = LenText { min: 2, max: 100 };
 
-//min && max len last name
+// min && max len last name
 pub const LEN_LAST_NAME: LenText = LenText { min: 2, max: 150 };
 
-//errors
+// errors
 pub const WRONG_REQUEST: (Status, Json<ErrorResponse>) =
   (ERROR_WRONG_REQUEST_STATUS, Json(WRONG_REQUEST_JSON));
 

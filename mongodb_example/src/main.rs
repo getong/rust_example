@@ -1,9 +1,8 @@
-use mongodb::bson::doc;
-use mongodb::sync::Client;
+use std::{fs::File, io::BufReader};
+
+use mongodb::{bson::doc, sync::Client};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::fs::File;
-use std::io::BufReader;
 
 #[derive(Serialize, Deserialize)]
 struct Person {

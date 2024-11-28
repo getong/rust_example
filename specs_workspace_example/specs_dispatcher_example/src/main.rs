@@ -10,7 +10,7 @@ struct Position {
   y: f32,
 }
 
-//impl Component for Position {
+// impl Component for Position {
 //    type Storage = VecStorage<Self>;
 // }
 
@@ -21,7 +21,7 @@ struct Velocity {
   y: f32,
 }
 
-//impl Component for Velocity {
+// impl Component for Velocity {
 //    type Storage = VecStorage<Self>;
 //}
 

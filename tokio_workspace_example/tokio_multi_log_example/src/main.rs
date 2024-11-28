@@ -1,22 +1,18 @@
 // copy from [API call tracing in high-loaded asynchronous Rust applications](https://medium.com/@disserman/api-call-tracing-in-high-loaded-asynchronous-rust-applications-bc7b126eb470)
+use std::{future::Future, net::SocketAddr};
+
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
-use hyper::service::service_fn;
-use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
+use hyper::{service::service_fn, Method, Request, Response, StatusCode};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
 use log::{trace, LevelFilter, Log};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use serde_json::to_value;
-use serde_json::Value;
-use std::future::Future;
-use std::net::SocketAddr;
-use tokio::net::TcpListener;
-use tokio::process::Command;
-use tokio::sync::mpsc;
-use tokio::task::futures::TaskLocalFuture;
+use serde_json::{to_value, Value};
+use tokio::{net::TcpListener, process::Command, sync::mpsc, task::futures::TaskLocalFuture};
 
 tokio::task_local! {
     static TRACE_LOG_TX: Option<mpsc::UnboundedSender<String>>;

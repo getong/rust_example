@@ -1,7 +1,9 @@
 use std::io::Write;
 
-use rustler::types::binary::{Binary, OwnedBinary};
-use rustler::{Env, Error, NifResult, Term};
+use rustler::{
+  types::binary::{Binary, OwnedBinary},
+  Env, Error, NifResult, Term,
+};
 
 #[rustler::nif]
 pub fn make_shorter_subbinary(binary: Binary) -> NifResult<Binary> {

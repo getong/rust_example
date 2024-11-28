@@ -1,8 +1,9 @@
+use std::time::Duration;
+
 use ethers::{
   providers::{Http, Middleware, Provider, ProviderError},
   types::U256,
 };
-use std::time::Duration;
 use tokio::time::sleep;
 
 async fn retry_with_fallback(endpoints: &[&str], max_retries: u32) -> Result<U256, ProviderError> {
@@ -15,7 +16,8 @@ async fn retry_with_fallback(endpoints: &[&str], max_retries: u32) -> Result<U25
       Ok(provider) => {
         loop {
           match provider.get_block_number().await {
-            Ok(block_number) => return Ok(U256::from(block_number.as_u64())), // Convert `U64` to `U256`
+            Ok(block_number) => return Ok(U256::from(block_number.as_u64())), /* Convert `U64`
+                                                                                * to `U256` */
             Err(err) if retries < max_retries => {
               // Retry after a delay
               retries += 1;

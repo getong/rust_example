@@ -14,7 +14,7 @@ struct Node {
 }
 
 fn main() {
-  //println!("Hello, world!");
+  // println!("Hello, world!");
   let boxed_one: Box<Foo> = Box::new(Foo);
   let unboxed_one: Foo = *boxed_one;
   println!("unboxed_one at {:?} is {:?}", boxed_one, unboxed_one);

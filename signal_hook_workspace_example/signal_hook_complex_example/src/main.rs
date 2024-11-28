@@ -1,15 +1,17 @@
-use std::io::Error;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::{
+  io::Error,
+  sync::{atomic::AtomicBool, Arc},
+};
 
-use signal_hook::consts::signal::*;
-use signal_hook::consts::TERM_SIGNALS;
-use signal_hook::flag;
 // A friend of the Signals iterator, but can be customized by what we want yielded about each
 // signal.
 use signal_hook::iterator::exfiltrator::WithOrigin;
-use signal_hook::iterator::SignalsInfo;
-use signal_hook::low_level;
+use signal_hook::{
+  consts::{signal::*, TERM_SIGNALS},
+  flag,
+  iterator::SignalsInfo,
+  low_level,
+};
 
 struct App;
 impl App {

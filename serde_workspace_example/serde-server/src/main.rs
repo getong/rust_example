@@ -1,8 +1,11 @@
-use serde::{Deserialize, Serialize};
+use std::{
+  env,
+  io::{stdin, BufRead, BufReader, Error, Write},
+  net::{TcpListener, TcpStream},
+  str, thread,
+};
 
-use std::io::{stdin, BufRead, BufReader, Error, Write};
-use std::net::{TcpListener, TcpStream};
-use std::{env, str, thread};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Point3D {

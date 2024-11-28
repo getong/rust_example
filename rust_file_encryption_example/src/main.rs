@@ -1,13 +1,14 @@
+use std::{
+  fs::{self, File},
+  io::{Read, Write},
+};
+
 use anyhow::anyhow;
 use chacha20poly1305::{
   aead::{stream, Aead, NewAead},
   XChaCha20Poly1305,
 };
 use rand::{rngs::OsRng, RngCore};
-use std::{
-  fs::{self, File},
-  io::{Read, Write},
-};
 
 fn main() -> Result<(), anyhow::Error> {
   let mut small_file_key = [0u8; 32];

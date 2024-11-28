@@ -1,5 +1,6 @@
-use futures::{stream, StreamExt}; // 0.3.13
 use std::time::{Duration, Instant};
+
+use futures::{stream, StreamExt}; // 0.3.13
 use tokio::time; // 1.3.0
 
 #[tokio::main]

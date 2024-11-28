@@ -2,8 +2,9 @@
 //     println!("Hello, world!");
 // }
 
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
+
+use once_cell::sync::Lazy;
 
 // Define the constant HashMap using once_cell
 static MY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {

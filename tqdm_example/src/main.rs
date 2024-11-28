@@ -1,5 +1,5 @@
-use std::thread;
-use std::time::Duration;
+use std::{thread, time::Duration};
+
 use tqdm::tqdm;
 
 fn main() {

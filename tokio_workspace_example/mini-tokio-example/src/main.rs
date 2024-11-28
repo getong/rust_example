@@ -2,18 +2,21 @@
 //! timer. The goal of this file is to provide some context into how the various
 //! building blocks fit together.
 
-use std::cell::RefCell;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::{
+  cell::RefCell,
+  future::Future,
+  pin::Pin,
+  sync::{Arc, Mutex},
+  task::{Context, Poll, Waker},
+  thread,
+  time::{Duration, Instant},
+};
+
+// Used as a channel to queue scheduled tasks.
+use crossbeam::channel;
 // A utility that allows us to implement a `std::task::Waker` without having to
 // use `unsafe` code.
 use futures::task::{self, ArcWake};
-// Used as a channel to queue scheduled tasks.
-use crossbeam::channel;
 
 // Main entry point. A mini-tokio instance is created and a few tasks are
 // spawned. Our mini-tokio implementation only supports spawning tasks and

@@ -1,5 +1,7 @@
-use std::mem::MaybeUninit;
-use std::sync::{Mutex, Once};
+use std::{
+  mem::MaybeUninit,
+  sync::{Mutex, Once},
+};
 
 static mut LOG_FILE: MaybeUninit<Mutex<String>> = MaybeUninit::uninit();
 static LOG_FILE_ONCE: Once = Once::new();

@@ -1,11 +1,12 @@
-use clap::{Arg, Command};
-use messenger::server::Server;
-use messenger::user::User;
-use std::thread;
-use std::time;
 // use std::io::stdin;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::{
+  sync::{Arc, Mutex},
+  thread, time,
+};
+
+use clap::{Arg, Command};
+use messenger::{server::Server, user::User};
 
 fn main() {
   let app = Command::new("messenger")

@@ -16,8 +16,8 @@ fn main() {
 
   let encoded: Vec<u8> = bincode::encode_to_vec(&world, config).unwrap();
 
-  // The length of the vector is encoded as a varint u64, which in this case gets collapsed to a single byte
-  // See the documentation on varint for more info for that.
+  // The length of the vector is encoded as a varint u64, which in this case gets collapsed to a
+  // single byte See the documentation on varint for more info for that.
   // The 4 floats are encoded in 4 bytes each.
   assert_eq!(encoded.len(), 1 + 4 * 4);
 

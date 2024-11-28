@@ -1,6 +1,6 @@
+use std::{error::Error, process::Command};
+
 use regex::Regex;
-use std::error::Error;
-use std::process::Command;
 
 #[derive(PartialEq, Default, Clone, Debug)]
 struct Commit {

@@ -7,8 +7,7 @@ use axum::{
 use axum_extra::response::JavaScript;
 use serde::Deserialize;
 use tower::ServiceBuilder;
-use tower_http::services::ServeDir;
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 
 #[tokio::main]
 async fn main() {

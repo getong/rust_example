@@ -1,5 +1,7 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader, Error, Write};
+use std::{
+  fs::File,
+  io::{BufRead, BufReader, Error, Write},
+};
 
 fn main() -> Result<(), Error> {
   let path = "/tmp/lines.txt";
@@ -12,7 +14,7 @@ fn main() -> Result<(), Error> {
 
   let mut line_string: Vec<String> = vec![];
   for line in buffered.lines() {
-    //println!("{}", line.as_ref().unwrap());
+    // println!("{}", line.as_ref().unwrap());
     line_string.push(line.unwrap());
   }
   for i in &line_string {

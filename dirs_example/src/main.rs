@@ -1,5 +1,6 @@
-use dirs::home_dir;
 use std::path::PathBuf;
+
+use dirs::home_dir;
 
 fn main() {
   let path_with_tilde = "~/.zshrc";

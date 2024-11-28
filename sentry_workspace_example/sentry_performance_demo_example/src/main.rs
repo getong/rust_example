@@ -1,6 +1,6 @@
+use std::{thread, time::Duration};
+
 use sentry::protocol::Request;
-use std::thread;
-use std::time::Duration;
 const SENTRY_DSN: &str = "your-sentry-dsn";
 
 // cargo run --example performance-demo

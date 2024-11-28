@@ -1,7 +1,6 @@
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
 use futures::StreamExt;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
 
 fn main() {
   let counter = Rc::new(RefCell::new(HashMap::<String, usize>::new()));

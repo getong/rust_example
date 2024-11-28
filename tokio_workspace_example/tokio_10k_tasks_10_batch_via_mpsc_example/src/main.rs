@@ -1,8 +1,9 @@
 use tokio::sync::mpsc::{self, Sender};
 const BATCH_SIZE: usize = 10;
 const TOTAL_SIZE: usize = 10000;
-use parking_lot::RwLock;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 #[tokio::main]
 async fn main() {

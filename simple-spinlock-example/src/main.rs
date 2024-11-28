@@ -1,6 +1,11 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::{hint, thread};
+use std::{
+  hint,
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
+  thread,
+};
 
 fn main() {
   let spinlock = Arc::new(AtomicUsize::new(1));

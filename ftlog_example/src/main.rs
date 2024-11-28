@@ -50,7 +50,7 @@ async fn main() {
   warn!("Hello world!");
   error!("Hello world!");
 
-  //在main最后加入flush，否则在程序结束时未写入的日志会丢失：
+  // 在main最后加入flush，否则在程序结束时未写入的日志会丢失：
 
   ftlog::logger().flush();
 }

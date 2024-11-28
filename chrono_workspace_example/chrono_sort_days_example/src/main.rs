@@ -1,6 +1,7 @@
+use std::{collections::HashMap, str::FromStr};
+
 use bigdecimal::BigDecimal;
 use chrono::{NaiveDate, NaiveDateTime};
-use std::{collections::HashMap, str::FromStr};
 
 fn main() {
   // Sample data: list of (NaiveDateTime, BigDecimal) tuples

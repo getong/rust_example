@@ -2,9 +2,9 @@ extern crate trust_dns_client;
 extern crate trust_dns_resolver;
 
 use std::env;
+
 use trust_dns_client::rr::record_type::RecordType;
-use trust_dns_resolver::config::*;
-use trust_dns_resolver::Resolver;
+use trust_dns_resolver::{config::*, Resolver};
 
 fn main() {
   let args: Vec<String> = env::args().collect();

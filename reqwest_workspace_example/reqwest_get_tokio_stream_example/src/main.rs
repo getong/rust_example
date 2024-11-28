@@ -2,16 +2,17 @@
 // use reqwest::Error;
 // // To use stream combinators like `next`
 // use prost::Message;
-use prost::bytes::Buf;
 use std::io::Cursor;
+
+use prost::bytes::Buf;
 // use tokio_stream::StreamExt;
 // mod protos;
 // use protos::*;
 
 // pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-// pub async fn fetch_url(url: &str) -> Result<impl tokio_stream::Stream<Item = Result<Bytes>>> {
-//     let response = reqwest::get(url).await?;
+// pub async fn fetch_url(url: &str) -> Result<impl tokio_stream::Stream<Item = Result<Bytes>>>
+// {     let response = reqwest::get(url).await?;
 //     Ok(response.bytes_stream())
 // }
 

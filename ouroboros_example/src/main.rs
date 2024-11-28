@@ -1,9 +1,7 @@
+use std::{fs::File, io, io::Read};
+
 use ouroboros::self_referencing;
-use std::fs::File;
-use std::io;
-use std::io::Read;
-use zip::read::ZipFile;
-use zip::ZipArchive;
+use zip::{read::ZipFile, ZipArchive};
 
 #[self_referencing]
 struct ZipStreamer {

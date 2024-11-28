@@ -1,5 +1,4 @@
-use std::sync::Mutex;
-use std::thread;
+use std::{sync::Mutex, thread};
 
 static I: i32 = 4;
 static M: Mutex<i32> = Mutex::new(5);

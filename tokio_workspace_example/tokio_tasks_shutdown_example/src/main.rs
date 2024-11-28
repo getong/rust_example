@@ -1,4 +1,7 @@
-use {std::time::Duration, tokio::time::sleep, tokio_tasks_shutdown::*};
+use std::time::Duration;
+
+use tokio::time::sleep;
+use tokio_tasks_shutdown::*;
 
 #[tokio::main]
 async fn main() {

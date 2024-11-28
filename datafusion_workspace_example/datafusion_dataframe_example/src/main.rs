@@ -1,5 +1,4 @@
-use datafusion::error::Result as DataFusionResult;
-use datafusion::prelude::*;
+use datafusion::{error::Result as DataFusionResult, prelude::*};
 
 #[tokio::main]
 async fn main() -> DataFusionResult<()> {

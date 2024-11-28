@@ -1,9 +1,13 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
-use std::time::Duration;
+use std::{
+  future::Future,
+  pin::Pin,
+  sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+  },
+  task::{Context, Poll, Waker},
+  time::Duration,
+};
 
 use tokio::time::sleep;
 

@@ -1,5 +1,6 @@
-use async_fuse::Fuse;
 use std::time::Duration;
+
+use async_fuse::Fuse;
 use tokio::time;
 
 #[tokio::main]

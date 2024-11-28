@@ -1,7 +1,9 @@
-use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::{
+  env,
+  fs::File,
+  io::Write,
+  process::{Command, Stdio},
+};
 
 fn main() {
   // println!("Hello, world!");

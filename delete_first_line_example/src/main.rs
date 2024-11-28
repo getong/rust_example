@@ -1,4 +1,4 @@
-//copy from [How to remove the first line of a text file in Rust?](https://stackoverflow.com/questions/62762204/how-to-remove-the-first-line-of-a-text-file-in-rust)
+// copy from [How to remove the first line of a text file in Rust?](https://stackoverflow.com/questions/62762204/how-to-remove-the-first-line-of-a-text-file-in-rust)
 use std::{
   fs::File,
   io::{self, prelude::*},

@@ -1,10 +1,11 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::task::JoinHandle;
+use std::{collections::VecDeque, sync::Arc};
 
-use std::collections::VecDeque;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::TcpStream,
+  sync::Mutex,
+  task::JoinHandle,
+};
 
 pub struct HeaderCrypt {}
 impl HeaderCrypt {

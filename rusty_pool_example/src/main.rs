@@ -1,6 +1,9 @@
+use std::sync::{
+  atomic::{AtomicI32, Ordering},
+  Arc,
+};
+
 use rusty_pool::Builder;
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
 
 // use std::time::Duration;
 const BATCH_SIZE: usize = 10;

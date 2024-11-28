@@ -1,6 +1,6 @@
-use futures::executor::block_on;
-use futures::join;
 use std::{thread, time};
+
+use futures::{executor::block_on, join};
 
 async fn do_something(number: i8) -> i8 {
   println!("number {} is running", number);

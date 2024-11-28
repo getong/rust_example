@@ -1,8 +1,8 @@
-use futures::Future;
-use futures::StreamExt;
+use std::time::Duration;
+
+use futures::{Future, StreamExt};
 use lazy_static::lazy_static;
 use rand::distributions::{Distribution, Uniform};
-use std::time::Duration;
 use tokio::time::{sleep, Instant};
 use tokio_stream::Stream;
 

@@ -136,7 +136,8 @@ fn generate_ecdsa() {
 }
 
 // Generated ed25519 PeerId: PeerId("12D3KooWDsFm6sQ3EPGmFQkv3xkVwKK12m1PaEgUuCUvaHVUFBw6")
-// ed25519 private key in hex: 08011240b119784c5e448588bfd780e9fb73a992bc55156b67b7e8e9fe892c38f3248c853c2c3eb8979aa9e059a7132a320312584aa75441ec25e75dabe65d2ead2ee989
+// ed25519 private key in hex:
+// 08011240b119784c5e448588bfd780e9fb73a992bc55156b67b7e8e9fe892c38f3248c853c2c3eb8979aa9e059a7132a320312584aa75441ec25e75dabe65d2ead2ee989
 // from string ed25519 PeerId: PeerId("12D3KooWDsFm6sQ3EPGmFQkv3xkVwKK12m1PaEgUuCUvaHVUFBw6")
 
 // Generated secp256k1 PeerId: PeerId("16Uiu2HAmJQii4E93Jpb8waH6YTjNiZeYVRBfCagNRT6RtQ1eqkK8")

@@ -1,6 +1,6 @@
+use std::time::{Duration, Instant};
+
 use crossbeam_channel::after;
-use std::time::Duration;
-use std::time::Instant;
 
 fn simple_after() {
   let start = Instant::now();

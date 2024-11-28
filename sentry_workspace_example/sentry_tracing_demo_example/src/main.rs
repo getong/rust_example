@@ -1,5 +1,5 @@
-use std::thread;
-use std::time::Duration;
+use std::{thread, time::Duration};
+
 use tracing_subscriber::{
   prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, EnvFilter,
 };

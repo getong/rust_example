@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use libp2p::{
   // core::transport::upgrade::Version,
   futures::StreamExt,
@@ -12,7 +14,6 @@ use libp2p::{
   SwarmBuilder,
   // Transport,
 };
-use std::error::Error;
 use tokio::time::Duration;
 
 #[tokio::main]

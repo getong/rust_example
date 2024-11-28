@@ -1,48 +1,40 @@
-use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::io::Cursor;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::{
+  collections::BTreeMap,
+  fmt::Debug,
+  io::Cursor,
+  sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+  },
+};
 
-use openraft::alias::SnapshotDataOf;
-use openraft::storage::RaftStateMachine;
-use openraft::storage::Snapshot;
-use openraft::Entry;
-use openraft::EntryPayload;
-use openraft::LogId;
-use openraft::RaftSnapshotBuilder;
-use openraft::SnapshotMeta;
-use openraft::StorageError;
-use openraft::StoredMembership;
-use serde::Deserialize;
-use serde::Serialize;
+use openraft::{
+  alias::SnapshotDataOf,
+  storage::{RaftStateMachine, Snapshot},
+  Entry, EntryPayload, LogId, RaftSnapshotBuilder, SnapshotMeta, StorageError, StoredMembership,
+};
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{NodeId, TypeConfig};
 
 pub type LogStore = memstore::LogStore<TypeConfig>;
 
-/**
- * Here you will set the types of request that will interact with the raft nodes.
- * For example the `Set` will be used to write data (key and value) to the raft database.
- * The `AddNode` will append a new node to the current existing shared list of nodes.
- * You will want to add any request that can write data in all nodes here.
- */
+/// Here you will set the types of request that will interact with the raft nodes.
+/// For example the `Set` will be used to write data (key and value) to the raft database.
+/// The `AddNode` will append a new node to the current existing shared list of nodes.
+/// You will want to add any request that can write data in all nodes here.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
   Set { key: String, value: String },
 }
 
-/**
- * Here you will defined what type of answer you expect from reading the data of a node.
- * In this example it will return a optional value from a given key in
- * the `Request.Set`.
- *
- * TODO: Should we explain how to create multiple `AppDataResponse`?
- *
- */
+/// Here you will defined what type of answer you expect from reading the data of a node.
+/// In this example it will return a optional value from a given key in
+/// the `Request.Set`.
+///
+/// TODO: Should we explain how to create multiple `AppDataResponse`?
+///
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
   pub value: Option<String>,
@@ -148,7 +140,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   where
     I: IntoIterator<Item = Entry<TypeConfig>> + Send,
   {
-    let mut res = Vec::new(); //No `with_capacity`; do not know `len` of iterator
+    let mut res = Vec::new(); // No `with_capacity`; do not know `len` of iterator
 
     let mut sm = self.state_machine.write().await;
 

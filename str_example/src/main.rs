@@ -24,7 +24,7 @@ fn first_word<'a>(s: &'a str) -> &'a str {
 }
 
 fn main() {
-  //println!("Hello, world!");
+  // println!("Hello, world!");
 
   let x1 = "hello world".to_owned();
   let mut x = x1.as_str();

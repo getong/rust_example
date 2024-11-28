@@ -1,8 +1,7 @@
-use h2::client;
-use http::{HeaderMap, Request};
-
 use std::error::Error;
 
+use h2::client;
+use http::{HeaderMap, Request};
 use tokio::net::TcpStream;
 
 #[tokio::main]

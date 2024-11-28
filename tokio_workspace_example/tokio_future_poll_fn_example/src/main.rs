@@ -1,8 +1,9 @@
-use futures::future::{poll_fn, Future};
-use futures::task::{Context, Poll};
-use std::pin::Pin;
-use std::task::Poll as TaskPoll;
-use std::time::Duration;
+use std::{pin::Pin, task::Poll as TaskPoll, time::Duration};
+
+use futures::{
+  future::{poll_fn, Future},
+  task::{Context, Poll},
+};
 use tokio::time::sleep;
 
 async fn my_async_operation() -> u32 {

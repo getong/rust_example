@@ -1,5 +1,4 @@
-use cgroups_rs::cgroup_builder::*;
-use cgroups_rs::*;
+use cgroups_rs::{cgroup_builder::*, *};
 
 fn main() {
   // println!("Hello, world!");

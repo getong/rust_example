@@ -1,22 +1,16 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::{
+  collections::BTreeSet,
+  sync::{Arc, Mutex},
+};
 
-use openraft::error::NetworkError;
-use openraft::error::RPCError;
-use openraft::error::RemoteError;
-use openraft::error::Unreachable;
-use openraft::RaftMetrics;
-use openraft::TryAsRef;
+use openraft::{
+  error::{NetworkError, RPCError, RemoteError, Unreachable},
+  RaftMetrics, TryAsRef,
+};
 use reqwest::Client;
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::typ;
-use crate::NodeId;
-use crate::Request;
-use crate::TypeConfig;
+use crate::{typ, NodeId, Request, TypeConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}

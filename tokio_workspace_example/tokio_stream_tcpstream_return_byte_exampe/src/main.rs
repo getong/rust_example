@@ -1,10 +1,11 @@
+use std::io;
+
 use bytes::Bytes;
 use futures::stream::unfold;
-use std::io;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::TcpStream;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{tcp::OwnedReadHalf, TcpStream},
+};
 use tokio_stream::{Stream, StreamExt};
 
 pub fn tcp_stream_into_stream(read_half: OwnedReadHalf) -> impl Stream<Item = io::Result<Bytes>> {

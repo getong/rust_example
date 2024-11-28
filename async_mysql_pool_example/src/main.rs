@@ -1,5 +1,4 @@
-use mysql::prelude::Queryable;
-use mysql::Pool;
+use mysql::{prelude::Queryable, Pool};
 
 // docker run --name my-own-mariadb -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 -d mariadb:10.4.10
 

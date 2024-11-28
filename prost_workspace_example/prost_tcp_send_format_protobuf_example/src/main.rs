@@ -1,8 +1,8 @@
-use bytes;
-use bytes::BufMut;
-use bytes::BytesMut;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use bytes::{self, BufMut, BytesMut};
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+};
 mod protos;
 use prost::{Message, Name};
 use protos::counter_number;

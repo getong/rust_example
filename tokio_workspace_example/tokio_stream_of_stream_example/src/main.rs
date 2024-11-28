@@ -1,5 +1,6 @@
-use async_stream::stream;
 use std::pin::Pin;
+
+use async_stream::stream;
 use tokio_stream::{Stream, StreamExt};
 
 // Function to create an inner stream

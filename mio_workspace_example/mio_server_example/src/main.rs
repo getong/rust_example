@@ -1,9 +1,11 @@
+use std::{
+  io::Write,
+  net::{TcpListener, TcpStream},
+  thread,
+  time::Duration,
+};
+
 use rand::Rng;
-use std::io::Write;
-use std::net::TcpListener;
-use std::net::TcpStream;
-use std::thread;
-use std::time::Duration;
 
 fn handle_client(label: u32, mut stream: TcpStream) {
   if label == 1 {

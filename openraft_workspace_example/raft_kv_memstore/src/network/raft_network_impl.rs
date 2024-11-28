@@ -1,23 +1,15 @@
-use openraft::error::InstallSnapshotError;
-use openraft::error::NetworkError;
-use openraft::error::RemoteError;
-use openraft::error::Unreachable;
-use openraft::network::RPCOption;
-use openraft::network::RaftNetwork;
-use openraft::network::RaftNetworkFactory;
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::AppendEntriesResponse;
-use openraft::raft::InstallSnapshotRequest;
-use openraft::raft::InstallSnapshotResponse;
-use openraft::raft::VoteRequest;
-use openraft::raft::VoteResponse;
-use openraft::BasicNode;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
+use openraft::{
+  error::{InstallSnapshotError, NetworkError, RemoteError, Unreachable},
+  network::{RPCOption, RaftNetwork, RaftNetworkFactory},
+  raft::{
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    VoteRequest, VoteResponse,
+  },
+  BasicNode,
+};
+use serde::{de::DeserializeOwned, Serialize};
 
-use crate::typ;
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{typ, NodeId, TypeConfig};
 
 pub struct Network {}
 
@@ -43,8 +35,8 @@ impl Network {
     tracing::debug!("client is created for: {}", url);
 
     let resp = client.post(url).json(&req).send().await.map_err(|e| {
-      // If the error is a connection error, we return `Unreachable` so that connection isn't retried
-      // immediately.
+      // If the error is a connection error, we return `Unreachable` so that connection isn't
+      // retried immediately.
       if e.is_connect() {
         return openraft::error::RPCError::Unreachable(Unreachable::new(&e));
       }

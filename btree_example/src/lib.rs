@@ -1,5 +1,4 @@
-use std::cmp;
-use std::mem;
+use std::{cmp, mem};
 
 #[derive(Clone, Debug)]
 pub struct IoTDevice {
@@ -262,7 +261,7 @@ impl DeviceDatabase {
   }
 
   fn validate(&self, node: &Tree, level: usize) -> (bool, usize, usize) {
-    //node.print(format!("Level: {}", level));
+    // node.print(format!("Level: {}", level));
     match node.node_type {
       NodeType::Leaf => (node.len() <= self.order, level, level),
       NodeType::Regular => {

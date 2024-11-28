@@ -1,7 +1,8 @@
+use std::env;
+
 use http_body_util::Empty;
 use hyper::Request;
 use hyper_util::client::legacy::Client;
-use std::env;
 use tower_service::Service;
 
 // cargo run -- http://www.baidu.com

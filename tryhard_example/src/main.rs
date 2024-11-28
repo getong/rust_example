@@ -1,4 +1,5 @@
 use std::time::Duration;
+
 use tryhard::RetryFutureConfig;
 
 // some async function that can fail

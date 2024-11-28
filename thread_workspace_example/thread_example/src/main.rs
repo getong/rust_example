@@ -1,5 +1,4 @@
-use std::thread;
-use std::time::Instant;
+use std::{thread, time::Instant};
 
 fn main() {
   // println!("Hello, world!");

@@ -1,5 +1,6 @@
-use lazy_static::lazy_static;
 use std::sync::mpsc::sync_channel;
+
+use lazy_static::lazy_static;
 
 pub mod lib {
   pub struct Bar(*mut i32);

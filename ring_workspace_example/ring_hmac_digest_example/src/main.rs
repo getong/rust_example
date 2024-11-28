@@ -1,6 +1,4 @@
-use ring::error::Unspecified;
-use ring::rand::SecureRandom;
-use ring::{hmac, rand};
+use ring::{error::Unspecified, hmac, rand, rand::SecureRandom};
 
 fn main() -> Result<(), Unspecified> {
   let mut key_value = [0u8; 48];

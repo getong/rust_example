@@ -1,6 +1,7 @@
 // copy from https://briansmith.org/rustdoc/ring/pbkdf2/index.html
-use ring::{digest, pbkdf2};
 use std::{collections::HashMap, num::NonZeroU32};
+
+use ring::{digest, pbkdf2};
 
 static PBKDF2_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA256;
 const CREDENTIAL_LEN: usize = digest::SHA256_OUTPUT_LEN;

@@ -4,10 +4,13 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 
-use pest::iterators::Pairs;
-use pest::pratt_parser::{Assoc, Op, PrattParser};
-use pest::Parser;
 use std::io::BufRead;
+
+use pest::{
+  iterators::Pairs,
+  pratt_parser::{Assoc, Op, PrattParser},
+  Parser,
+};
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]

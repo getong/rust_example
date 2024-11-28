@@ -1,13 +1,13 @@
-use ring::error::Unspecified;
-use ring::rand::SystemRandom;
 // use ring::signature;
 use ring::signature::EcdsaKeyPair;
-use ring::signature::Ed25519KeyPair;
-use ring::signature::KeyPair;
-use ring::signature::UnparsedPublicKey;
-use ring::signature::ECDSA_P256_SHA256_ASN1;
-use ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
-use ring::signature::ED25519;
+use ring::{
+  error::Unspecified,
+  rand::SystemRandom,
+  signature::{
+    Ed25519KeyPair, KeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_ASN1,
+    ECDSA_P256_SHA256_ASN1_SIGNING, ED25519,
+  },
+};
 
 fn main() -> Result<(), Unspecified> {
   // generate a new ECDSA key pair

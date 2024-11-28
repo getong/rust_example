@@ -1,8 +1,4 @@
-use std::cmp::Reverse;
-use std::collections::HashMap;
-use std::fs::File;
-use std::path::PathBuf;
-use std::{env, process};
+use std::{cmp::Reverse, collections::HashMap, env, fs::File, path::PathBuf, process};
 
 use memmap2::MmapOptions;
 use serde::Deserialize;

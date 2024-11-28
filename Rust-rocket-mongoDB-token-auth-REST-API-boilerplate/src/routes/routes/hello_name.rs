@@ -1,12 +1,12 @@
-use crate::database::connect_to_db::MongoDB;
-use crate::helper::{parse_id_and_find_user_by_id, FindUserById};
-use crate::models::hello_response::HelloNameResponse;
-use crate::routes::routes::HelloNameError;
-use crate::{ErrorResponse, Status, UNAUTHORIZED};
+use rocket::{serde::json::Json, State};
 
-use crate::routes::authorization::token::request_access_token::AuthorizedUser;
-use rocket::serde::json::Json;
-use rocket::State;
+use crate::{
+  database::connect_to_db::MongoDB,
+  helper::{parse_id_and_find_user_by_id, FindUserById},
+  models::hello_response::HelloNameResponse,
+  routes::{authorization::token::request_access_token::AuthorizedUser, routes::HelloNameError},
+  ErrorResponse, Status, UNAUTHORIZED,
+};
 
 //(private) request with authorization model (token)
 #[get("/private/hello")]
@@ -25,7 +25,7 @@ pub async fn hello_name_user(
   }
 }
 
-//we check if the first and last names are in the database
+// we check if the first and last names are in the database
 async fn check_from_db_real_names(database: &State<MongoDB>, id_str: String) -> HelloNameError {
   match parse_id_and_find_user_by_id(database, id_str).await {
     FindUserById::Ok(user) => {

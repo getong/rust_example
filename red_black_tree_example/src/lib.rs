@@ -1,7 +1,4 @@
-use std::cell::RefCell;
-use std::cmp;
-use std::mem;
-use std::rc::Rc;
+use std::{cell::RefCell, cmp, mem, rc::Rc};
 
 #[derive(Clone, Debug)]
 pub struct IoTDevice {

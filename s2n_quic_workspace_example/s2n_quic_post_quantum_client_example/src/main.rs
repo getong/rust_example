@@ -1,5 +1,6 @@
-use s2n_quic::{client::Connect, Client};
 use std::{error::Error, net::SocketAddr};
+
+use s2n_quic::{client::Connect, Client};
 use tokio::io::AsyncWriteExt;
 
 /// NOTE: this certificate is to be used for demonstration purposes only!

@@ -1,6 +1,9 @@
+use std::{
+  collections::HashMap,
+  sync::{Arc, Mutex},
+};
+
 use alloy_primitives::U256;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 // Define a struct for the nonce manager.
 #[derive(Clone)]

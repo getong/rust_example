@@ -1,5 +1,6 @@
-use spin_sleep::LoopHelper;
 use std::time::Duration;
+
+use spin_sleep::LoopHelper;
 
 fn main() {
   let mut loop_helper = LoopHelper::builder()

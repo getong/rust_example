@@ -1,5 +1,6 @@
-use crate::Status;
 use serde::Serialize;
+
+use crate::Status;
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {

@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use openraft::Config;
 
-use crate::app::App;
-use crate::router::Router;
-use crate::store::Request;
-use crate::store::Response;
-use crate::store::StateMachineData;
+use crate::{
+  app::App,
+  router::Router,
+  store::{Request, Response, StateMachineData},
+};
 
 pub mod router;
 

@@ -1,7 +1,4 @@
-use axum::response::IntoResponse;
-use axum::routing::*;
-use axum::Router;
-
+use axum::{response::IntoResponse, routing::*, Router};
 use axum_streams::*;
 use futures::prelude::*;
 use serde::{Deserialize, Serialize};

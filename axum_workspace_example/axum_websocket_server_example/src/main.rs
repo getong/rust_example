@@ -16,30 +16,24 @@
 //! cargo run -p example-websockets --bin example-client
 //! ```
 
+use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, path::PathBuf};
+
+// allows to extract the IP of connecting user
+use axum::extract::connect_info::ConnectInfo;
 use axum::{
-  extract::ws::{Message, WebSocket, WebSocketUpgrade},
+  extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
   response::IntoResponse,
   routing::get,
   Router,
 };
 use axum_extra::TypedHeader;
-
-use std::borrow::Cow;
-use std::ops::ControlFlow;
-use std::{net::SocketAddr, path::PathBuf};
+// allows to split the websocket stream into separate TX and RX branches
+use futures::{sink::SinkExt, stream::StreamExt};
 use tower_http::{
   services::ServeDir,
   trace::{DefaultMakeSpan, TraceLayer},
 };
-
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-//allows to extract the IP of connecting user
-use axum::extract::connect_info::ConnectInfo;
-use axum::extract::ws::CloseFrame;
-
-//allows to split the websocket stream into separate TX and RX branches
-use futures::{sink::SinkExt, stream::StreamExt};
 
 #[tokio::main]
 async fn main() {
@@ -91,7 +85,7 @@ async fn ws_handler(
 
 /// Actual websocket statemachine (one will be spawned per connection)
 async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
-  //send a ping (unsupported by some browsers) just to kick things off and get a response
+  // send a ping (unsupported by some browsers) just to kick things off and get a response
   if socket.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
     println!("Pinged {}...", who);
   } else {

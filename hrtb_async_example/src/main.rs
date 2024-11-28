@@ -1,6 +1,5 @@
-//use std::future::Future;
-use futures::future::BoxFuture;
-use futures::lock::Mutex;
+// use std::future::Future;
+use futures::{future::BoxFuture, lock::Mutex};
 
 pub async fn with_mutex<I, O, F>(mutex: &Mutex<I>, f: F) -> O
 where

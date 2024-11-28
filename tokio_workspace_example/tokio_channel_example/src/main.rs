@@ -1,6 +1,5 @@
 use bytes::Bytes;
-use http_body_util::BodyExt;
-use http_body_util::Empty;
+use http_body_util::{BodyExt, Empty};
 use hyper::Uri;
 use hyper_tls::HttpsConnector;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};

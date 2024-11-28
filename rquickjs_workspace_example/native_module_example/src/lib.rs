@@ -5,9 +5,9 @@ mod hand_written;
 use hand_written::NativeModule;
 
 //#[cfg(feature = "macro")]
-//mod using_macro;
+// mod using_macro;
 
 //#[cfg(feature = "macro")]
-//use using_macro::NativeModule;
+// use using_macro::NativeModule;
 
 rquickjs::module_init!(NativeModule);

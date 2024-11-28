@@ -1,8 +1,6 @@
-/*
-You can derive a `Diagnostic` from any `std::error::Error` type.
-
-`thiserror` is a great way to define them, and plays nicely with `miette`!
- */
+// You can derive a `Diagnostic` from any `std::error::Error` type.
+//
+// `thiserror` is a great way to define them, and plays nicely with `miette`!
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
@@ -23,13 +21,11 @@ struct MyBad {
   bad_bit: SourceSpan,
 }
 
-/*
-Now let's define a function!
-
-Use this `Result` type (or its expanded version) as the return type
-throughout your app (but NOT your libraries! Those should always return
-concrete types!).
- */
+// Now let's define a function!
+//
+// Use this `Result` type (or its expanded version) as the return type
+// throughout your app (but NOT your libraries! Those should always return
+// concrete types!).
 use miette::{NamedSource, Result};
 fn this_fails() -> Result<()> {
   // You can use plain strings as a `Source`, or anything that implements
@@ -45,13 +41,11 @@ fn this_fails() -> Result<()> {
   Ok(())
 }
 
-/*
-Now to get everything printed nicely, just return a `Result<()>`
-and you're all set!
-
-Note: You can swap out the default reporter for a custom one using
-`miette::set_hook()`
- */
+// Now to get everything printed nicely, just return a `Result<()>`
+// and you're all set!
+//
+// Note: You can swap out the default reporter for a custom one using
+// `miette::set_hook()`
 fn pretend_this_is_main() -> Result<()> {
   // kaboom~
   this_fails()?;

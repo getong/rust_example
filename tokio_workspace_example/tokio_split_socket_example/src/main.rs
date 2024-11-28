@@ -1,5 +1,7 @@
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::{
+  io::{self, AsyncReadExt, AsyncWriteExt},
+  net::TcpStream,
+};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {

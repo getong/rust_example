@@ -1,8 +1,6 @@
-use futures::future::BoxFuture;
-use futures::FutureExt;
-use std::collections::HashMap;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{collections::HashMap, pin::Pin, sync::Arc};
+
+use futures::{future::BoxFuture, FutureExt};
 use tokio::sync::Mutex;
 
 type CalcFn = Box<dyn Fn(String) -> BoxFuture<'static, i32> + Send + Sync>;

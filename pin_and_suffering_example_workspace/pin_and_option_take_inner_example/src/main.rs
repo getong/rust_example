@@ -1,14 +1,11 @@
-use std::future::Future;
-use std::task::Context;
-use tokio::fs::File;
-use tokio::io::AsyncRead;
-use tokio::io::AsyncReadExt;
-use tokio::io::ReadBuf;
-use tokio::macros::support::Pin;
-use tokio::macros::support::Poll;
-use tokio::time::Duration;
-use tokio::time::Instant;
-use tokio::time::Sleep;
+use std::{future::Future, task::Context};
+
+use tokio::{
+  fs::File,
+  io::{AsyncRead, AsyncReadExt, ReadBuf},
+  macros::support::{Pin, Poll},
+  time::{Duration, Instant, Sleep},
+};
 
 struct SlowRead<R> {
   //       👇 now optional!

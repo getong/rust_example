@@ -1,10 +1,14 @@
+use std::fmt::Debug;
+
 use graphql_client::GraphQLQuery;
 use serde_json::Value;
-use std::fmt::Debug;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use yew::web_sys::{Request, RequestInit, RequestMode, Response};
-use yew::{html, Component, ComponentLink, Html, ShouldRender};
+use yew::{
+  html,
+  web_sys::{Request, RequestInit, RequestMode, Response},
+  Component, ComponentLink, Html, ShouldRender,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FetchError {

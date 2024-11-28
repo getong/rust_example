@@ -1,5 +1,5 @@
-use std::any::Any;
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
+
 use sync_cow::SyncCow;
 
 fn main() -> Result<(), Box<dyn Any + Send>> {

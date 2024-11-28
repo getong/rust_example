@@ -1,7 +1,4 @@
-use crate::color::Color;
-use crate::hittable::HitRecord;
-use crate::ray::Ray;
-use crate::{common, vec3};
+use crate::{color::Color, common, hittable::HitRecord, ray::Ray, vec3};
 
 pub trait Material: Send + Sync {
   fn scatter(

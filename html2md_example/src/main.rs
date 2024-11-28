@@ -1,9 +1,10 @@
+use std::{collections::HashMap, str::FromStr};
+
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use colored::Colorize;
 use mime::Mime;
 use reqwest::{header, Client, Response, Url};
-use std::{collections::HashMap, str::FromStr};
 use syntect::{
   easy::HighlightLines,
   highlighting::{Style, ThemeSet},

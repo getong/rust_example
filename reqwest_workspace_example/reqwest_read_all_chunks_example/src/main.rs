@@ -65,9 +65,9 @@
 //   Ok(())
 // }
 
+use std::{error::Error, str};
+
 use reqwest::Client;
-use std::error::Error;
-use std::str;
 use tokio_stream::StreamExt; // Use StreamExt to work with streams
 
 #[tokio::main]

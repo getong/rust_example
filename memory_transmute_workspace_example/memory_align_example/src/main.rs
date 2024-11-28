@@ -1,5 +1,4 @@
-use std::mem;
-use std::rc::Rc;
+use std::{mem, rc::Rc};
 
 // 12 bytes
 #[repr(C)]

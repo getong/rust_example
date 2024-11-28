@@ -1,5 +1,7 @@
-use tokio::fs::File;
-use tokio::io::{self, AsyncReadExt};
+use tokio::{
+  fs::File,
+  io::{self, AsyncReadExt},
+};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {

@@ -1,5 +1,6 @@
-use sentry::{protocol::Event, Level};
 use std::{env, sync::Arc};
+
+use sentry::{protocol::Event, Level};
 
 const SENTRY_DSN: &str = env!("SENTRY_DSN");
 

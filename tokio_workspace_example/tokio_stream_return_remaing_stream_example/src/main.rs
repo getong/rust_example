@@ -1,12 +1,12 @@
-use futures::ready;
-use futures::{
-  stream::{FuturesUnordered, StreamFuture},
-  Stream, StreamExt,
-};
-
 use std::{
   pin::Pin,
   task::{Context, Poll},
+};
+
+use futures::{
+  ready,
+  stream::{FuturesUnordered, StreamFuture},
+  Stream, StreamExt,
 };
 
 // Define the InQReader struct.

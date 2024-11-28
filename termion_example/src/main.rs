@@ -1,13 +1,9 @@
-use std::io::stdout;
-use std::mem::drop;
-use std::process::exit;
-use std::time::Duration;
+use std::{io::stdout, mem::drop, process::exit, time::Duration};
 
 use futures::{future::Either, StreamExt};
-use tokio::{io::stdin, time::interval};
-
 use termion::{event::Key, raw::IntoRawMode};
 use termion_input_tokio::TermReadAsync;
+use tokio::{io::stdin, time::interval};
 use tokio_stream::wrappers::IntervalStream;
 
 #[tokio::main]

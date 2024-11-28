@@ -1,6 +1,4 @@
-use async_std::io::prelude::*;
-use async_std::net;
-use async_std::task;
+use async_std::{io::prelude::*, net, task};
 
 async fn cheapo_request(host: &str, port: u16, path: &str) -> std::io::Result<String> {
   let mut socket = net::TcpStream::connect((host, port)).await?;

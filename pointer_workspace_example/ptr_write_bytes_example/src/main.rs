@@ -8,7 +8,7 @@ fn zeroed_vector<T>(len: usize) -> Vec<T> {
   vec
 }
 fn main() {
-  //println!("Hello, world!");
+  // println!("Hello, world!");
   let v: Vec<usize> = zeroed_vector(100_000);
   assert!(v.iter().all(|&u| u == 0));
 }

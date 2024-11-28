@@ -1,8 +1,8 @@
-use libp2p::futures::StreamExt;
-use libp2p::Transport;
-use libp2p_core::muxing::StreamMuxerBox;
-use libp2p_core::transport::ListenerId;
-use libp2p_core::transport::TransportEvent;
+use libp2p::{futures::StreamExt, Transport};
+use libp2p_core::{
+  muxing::StreamMuxerBox,
+  transport::{ListenerId, TransportEvent},
+};
 use libp2p_quic as quic;
 
 #[tokio::main]

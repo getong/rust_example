@@ -1,13 +1,13 @@
 // copy from https://matthewtejo.substack.com/p/building-robust-server-with-async
 
-use rocket::get;
-use rocket::routes;
 use std::str::from_utf8;
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::runtime::Builder;
-use tokio::runtime::Handle;
+
+use rocket::{get, routes};
+use tokio::{
+  io::AsyncReadExt,
+  net::{TcpListener, TcpStream},
+  runtime::{Builder, Handle},
+};
 
 async fn stream_handler(mut t: TcpStream) {
   let mut buf = [0; 1024];

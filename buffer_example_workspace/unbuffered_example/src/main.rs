@@ -1,5 +1,7 @@
-use std::fs;
-use std::io::{self, Write};
+use std::{
+  fs,
+  io::{self, Write},
+};
 
 fn main() -> io::Result<()> {
   let mut f = fs::File::create("/tmp/unbuffered.txt")?;

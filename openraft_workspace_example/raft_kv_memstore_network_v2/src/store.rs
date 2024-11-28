@@ -1,24 +1,17 @@
-use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::{
+  collections::BTreeMap,
+  fmt::Debug,
+  sync::{Arc, Mutex},
+};
 
-use openraft::alias::SnapshotDataOf;
-use openraft::storage::RaftStateMachine;
-use openraft::storage::Snapshot;
-use openraft::Entry;
-use openraft::EntryPayload;
-use openraft::LogId;
-use openraft::RaftSnapshotBuilder;
-use openraft::SnapshotMeta;
-use openraft::StorageError;
-use openraft::StoredMembership;
-use serde::Deserialize;
-use serde::Serialize;
+use openraft::{
+  alias::SnapshotDataOf,
+  storage::{RaftStateMachine, Snapshot},
+  Entry, EntryPayload, LogId, RaftSnapshotBuilder, SnapshotMeta, StorageError, StoredMembership,
+};
+use serde::{Deserialize, Serialize};
 
-use crate::NodeId;
-use crate::SnapshotData;
-use crate::TypeConfig;
+use crate::{NodeId, SnapshotData, TypeConfig};
 pub type LogStore = crate::log_store::LogStore<TypeConfig>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -143,7 +136,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   where
     I: IntoIterator<Item = Entry<TypeConfig>>,
   {
-    let mut res = Vec::new(); //No `with_capacity`; do not know `len` of iterator
+    let mut res = Vec::new(); // No `with_capacity`; do not know `len` of iterator
 
     let mut sm = self.state_machine.lock().unwrap();
 

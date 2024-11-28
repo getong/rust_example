@@ -1,7 +1,7 @@
-use prost::Message;
 use std::error::Error;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+
+use prost::Message;
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 mod mypackage {
   include!("mypackage.rs");

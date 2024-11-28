@@ -1,6 +1,6 @@
-use sea_orm::ConnectOptions;
-use sea_orm::Database;
 use std::time::Duration;
+
+use sea_orm::{ConnectOptions, Database};
 
 fn main() {
   // println!("Hello, world!");

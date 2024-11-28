@@ -1,11 +1,12 @@
 mod pool;
 
-use pool::ThreadPool;
-use std::net::{Shutdown, TcpListener, TcpStream};
 use std::{
   io,
   io::{Read, Write},
+  net::{Shutdown, TcpListener, TcpStream},
 };
+
+use pool::ThreadPool;
 
 fn handle_client(mut stream: TcpStream, id: i32) {
   println!("handle stream({}) ...\n", id);

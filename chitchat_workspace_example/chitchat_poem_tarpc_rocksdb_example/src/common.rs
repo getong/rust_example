@@ -1,13 +1,11 @@
-use crate::ExampleRaft;
-use crate::NodeId;
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
+
 use chitchat::Chitchat;
 use clap::Parser;
 use openraft::Config;
-use std::collections::BTreeMap;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+
+use crate::{ExampleRaft, NodeId};
 
 #[derive(Clone)]
 pub struct Api {

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ethers::{
   core::{
     abi::AbiDecode,
@@ -6,7 +8,6 @@ use ethers::{
   providers::{Middleware, Provider, StreamExt, Ws},
 };
 use eyre::Result;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -44,9 +45,13 @@ async fn main() -> Result<()> {
   Ok(())
 }
 
-/*
-last_block: 21011384
-block: Some(21011359), tx: Some(0xeda2adfed4cdae3e5525eb0a386dd23248e77d230ba8316d6da00748a0872cf5), token: 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2, from: 0x1f2f10d1c40777ae1da742455c65828ff36df387, to: 0x52c77b0cb827afbad022e6d6caf2c44452edbc39, amount: Ok(19243454729497346048)
-block: Some(21011359), tx: Some(0xeda2adfed4cdae3e5525eb0a386dd23248e77d230ba8316d6da00748a0872cf5), token: 0xe0f63a424a4439cbe457d80e4f4b51ad25b2c56c, from: 0x52c77b0cb827afbad022e6d6caf2c44452edbc39, to: 0x1f2f10d1c40777ae1da742455c65828ff36df387, amount: Ok(6112330711040)
-*/
+// last_block: 21011384
+// block: Some(21011359), tx:
+// Some(0xeda2adfed4cdae3e5525eb0a386dd23248e77d230ba8316d6da00748a0872cf5), token:
+// 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2, from: 0x1f2f10d1c40777ae1da742455c65828ff36df387, to:
+// 0x52c77b0cb827afbad022e6d6caf2c44452edbc39, amount: Ok(19243454729497346048)
+// block: Some(21011359), tx:
+// Some(0xeda2adfed4cdae3e5525eb0a386dd23248e77d230ba8316d6da00748a0872cf5), token:
+// 0xe0f63a424a4439cbe457d80e4f4b51ad25b2c56c, from: 0x52c77b0cb827afbad022e6d6caf2c44452edbc39, to:
+// 0x1f2f10d1c40777ae1da742455c65828ff36df387, amount: Ok(6112330711040)
 // code copy from https://www.gakonst.com/ethers-rs/subscriptions/logs.html

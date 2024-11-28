@@ -64,7 +64,8 @@ fn clone_rw(p: *const ()) -> RawWaker {
   // new RawWaker with data pointer to same resource
   RawWaker::new(
     p as *const (),
-    // the `RawWakerVTable::new` is a magic `const` function can create a object with 'static lifetime
+    // the `RawWakerVTable::new` is a magic `const` function can create a object with 'static
+    // lifetime
     &RawWakerVTable::new(clone_rw, wake_rw, wake_by_ref_rw, drop_rw),
   )
 }

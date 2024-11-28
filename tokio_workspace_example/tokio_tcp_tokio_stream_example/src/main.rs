@@ -1,7 +1,8 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::wrappers::TcpListenerStream;
-use tokio_stream::StreamExt;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+};
+use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 
 // telnet localhost 8080
 

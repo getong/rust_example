@@ -10,7 +10,7 @@ fn main() {
   // With an exclusive reference, we can mutate the contents for free.
   *p_unique.get_mut() = 0;
   // Or, equivalently:
-  //x = UnsafeCell::new(0);
+  // x = UnsafeCell::new(0);
 
   // When we own the value, we can extract the contents for free.
   let contents: i32 = x.into_inner();

@@ -1,15 +1,12 @@
 use std::sync::Arc;
 
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::AppendEntriesResponse;
-use openraft::raft::InstallSnapshotRequest;
-use openraft::raft::InstallSnapshotResponse;
-use openraft::raft::VoteRequest;
-use openraft::raft::VoteResponse;
+use openraft::raft::{
+  AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+  VoteRequest, VoteResponse,
+};
 use toy_rpc::macros::export_impl;
 
-use crate::app::App;
-use crate::TypeConfig;
+use crate::{app::App, TypeConfig};
 
 /// Raft protocol service.
 pub struct Raft {

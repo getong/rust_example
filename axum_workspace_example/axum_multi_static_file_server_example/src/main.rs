@@ -1,7 +1,8 @@
+use std::net::SocketAddr;
+
 use axum::{
   extract::Request, handler::HandlerWithoutStateExt, http::StatusCode, routing::get, Router,
 };
-use std::net::SocketAddr;
 use tower::ServiceExt;
 use tower_http::{
   services::{ServeDir, ServeFile},

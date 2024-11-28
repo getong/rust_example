@@ -1,5 +1,4 @@
-use libc::kill;
-use libc::SIGQUIT;
+use libc::{kill, SIGQUIT};
 
 pub fn panic_handler_generate_coredump() {
   let default_panic = std::panic::take_hook();

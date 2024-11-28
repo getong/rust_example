@@ -1,13 +1,14 @@
-/*
-# Step 1: Generate the private key in PEM format
-openssl ecparam -name secp256k1 -genkey -noout -out /tmp/private_key.pem
+// # Step 1: Generate the private key in PEM format
+// openssl ecparam -name secp256k1 -genkey -noout -out /tmp/private_key.pem
+//
+// # Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
+// openssl ec -in /tmp/private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d
+// '\n[:space:]:' > /tmp/identity.txt
+//
+// # Optionally, remove the PEM file
+// rm /tmp/private_key.pem
+use std::{fs, time::Duration};
 
-# Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
-openssl ec -in /tmp/private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:' > /tmp/identity.txt
-
-# Optionally, remove the PEM file
-rm /tmp/private_key.pem
- */
 use futures::StreamExt;
 use libp2p::{
   identity::{self, Keypair},
@@ -17,7 +18,6 @@ use libp2p::{
   tcp, yamux, Multiaddr, PeerId, StreamProtocol,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs, time::Duration};
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {

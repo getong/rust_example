@@ -1,14 +1,13 @@
-use chitchat::transport::UdpTransport;
-use chitchat::{spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
-use once_cell::sync::OnceCell;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Mutex;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use chitchat::{
+  spawn_chitchat, transport::UdpTransport, Chitchat, ChitchatConfig, ChitchatId,
+  FailureDetectorConfig,
+};
 use clap::Parser;
-
 use cool_id_generator::Size;
+use once_cell::sync::OnceCell;
+use tokio::sync::Mutex;
 
 static SHARED_DATA: OnceCell<Arc<Mutex<Chitchat>>> = OnceCell::new();
 

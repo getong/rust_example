@@ -1,5 +1,6 @@
-use bigdecimal::BigDecimal;
 use std::str::FromStr;
+
+use bigdecimal::BigDecimal;
 
 fn main() {
   let input1 = "0.8";

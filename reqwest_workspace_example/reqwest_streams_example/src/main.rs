@@ -1,11 +1,8 @@
-use axum::response::IntoResponse;
-use axum::routing::*;
-
+use axum::{response::IntoResponse, routing::*};
+use axum_streams::*;
 use futures::prelude::*;
 use tokio::net::TcpListener;
 use tokio_stream::StreamExt;
-
-use axum_streams::*;
 
 #[derive(Clone, prost::Message)]
 struct MyTestStructure {

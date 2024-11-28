@@ -1,5 +1,7 @@
-use futures::executor::block_on;
-use futures::future::{ready, AbortHandle, Abortable, Aborted};
+use futures::{
+  executor::block_on,
+  future::{ready, AbortHandle, Abortable, Aborted},
+};
 // use futures::prelude::*;
 
 #[tokio::main]

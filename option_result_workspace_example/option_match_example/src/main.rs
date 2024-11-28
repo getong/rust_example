@@ -39,7 +39,7 @@ fn match_borrow_option_method3() {
   println!("{:?}", opt);
 }
 
-//pub const fn as_ref(&self) -> Option<&T> {
+// pub const fn as_ref(&self) -> Option<&T> {
 //    // 将 opt 的引用&opt 作为参数
 //    match *self {
 //        // 对 opt 进行模式匹配

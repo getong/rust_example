@@ -1,7 +1,4 @@
-use std::any::Any;
-use std::borrow::Borrow;
-use std::collections::HashMap;
-use std::hash::Hash;
+use std::{any::Any, borrow::Borrow, collections::HashMap, hash::Hash};
 
 #[derive(Default)]
 struct AnyMap<K>(HashMap<K, Box<dyn Any>>);

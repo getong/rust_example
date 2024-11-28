@@ -1,11 +1,15 @@
-use pnet::datalink::Channel::Ethernet;
-use pnet::datalink::{self, NetworkInterface};
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::Packet;
 use std::env;
+
+use pnet::{
+  datalink::{self, Channel::Ethernet, NetworkInterface},
+  packet::{
+    ethernet::{EtherTypes, EthernetPacket},
+    ip::IpNextHeaderProtocols,
+    ipv4::Ipv4Packet,
+    tcp::TcpPacket,
+    Packet,
+  },
+};
 
 // Handles a single ethernet packet
 fn handle_packet(ethernet: &EthernetPacket) {

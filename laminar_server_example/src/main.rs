@@ -1,7 +1,8 @@
-use laminar::{Socket, SocketEvent};
 use std::error::Error;
-//use std::net::SocketAddr;
+// use std::net::SocketAddr;
 use std::thread;
+
+use laminar::{Socket, SocketEvent};
 
 fn main() -> Result<(), Box<dyn Error>> {
   // Creates the socket

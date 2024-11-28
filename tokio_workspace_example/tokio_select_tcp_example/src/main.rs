@@ -1,8 +1,11 @@
 use std::error::Error;
-use tokio::io::{self, Interest};
-use tokio::net::TcpStream;
-use tokio::sync::oneshot;
-use tokio::time::{sleep, Duration};
+
+use tokio::{
+  io::{self, Interest},
+  net::TcpStream,
+  sync::oneshot,
+  time::{sleep, Duration},
+};
 
 #[tokio::main]
 async fn main() {

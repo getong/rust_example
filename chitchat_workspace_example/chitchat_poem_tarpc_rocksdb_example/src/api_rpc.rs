@@ -1,14 +1,14 @@
-use crate::common::Api;
-use crate::TypeConfig;
+use std::io;
+
 use openraft::raft::{
   AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
   VoteRequest, VoteResponse,
 };
-use tarpc::context;
-
 use serde::{Deserialize, Serialize};
-use std::io;
+use tarpc::context;
 use thiserror::Error;
+
+use crate::{common::Api, TypeConfig};
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize)]
 pub enum ServiceError {

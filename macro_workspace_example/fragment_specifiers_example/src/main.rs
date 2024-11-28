@@ -95,7 +95,7 @@ patterns! {
 //    ($( $( $pat:pat_param )|+ )*) => {};
 // }
 
-//patterns! {
+// patterns! {
 //    "literal"
 //    _
 //    0..5

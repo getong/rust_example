@@ -1,8 +1,6 @@
-use std::io::stdin;
-use std::thread;
-use std::time::Duration;
-use tokio::sync::mpsc;
-use tokio::time::sleep;
+use std::{io::stdin, thread, time::Duration};
+
+use tokio::{sync::mpsc, time::sleep};
 
 async fn create_timeout(duration: Duration) {
   tokio::spawn(sleep(duration)).await.unwrap();

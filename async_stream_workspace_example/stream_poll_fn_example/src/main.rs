@@ -1,5 +1,6 @@
-use futures::{prelude::*, stream::poll_fn};
 use std::task::Poll;
+
+use futures::{prelude::*, stream::poll_fn};
 
 #[tokio::main]
 async fn main() {

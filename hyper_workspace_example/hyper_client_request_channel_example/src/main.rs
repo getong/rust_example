@@ -1,8 +1,6 @@
 use bytes::Bytes;
-use http_body_util::BodyExt;
-use http_body_util::Full;
-use hyper::Request;
-use hyper::Uri;
+use http_body_util::{BodyExt, Full};
+use hyper::{Request, Uri};
 use hyper_tls::HttpsConnector;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use tokio::sync::{mpsc, oneshot};

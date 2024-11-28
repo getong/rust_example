@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 fn main() {
   let shared_vec: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));

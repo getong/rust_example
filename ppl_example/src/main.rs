@@ -1,6 +1,5 @@
 use std::env;
 // use ppl::prelude::*;
-
 use std::{
   collections::HashMap,
   fs::File,
@@ -164,7 +163,7 @@ pub fn ppl_map(dataset: &str, threads: usize) {
 
   let mut total_words = 0;
   for (_str, count) in res {
-    //println!("{}: {}", str, count);
+    // println!("{}: {}", str, count);
     total_words += count;
   }
 

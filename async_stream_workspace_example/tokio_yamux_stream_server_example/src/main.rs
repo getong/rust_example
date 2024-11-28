@@ -1,6 +1,5 @@
 use anyhow::Result;
-use futures::prelude::*;
-use futures::Stream as FutureStream;
+use futures::{prelude::*, Stream as FutureStream};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::{
   codec::{Framed, LinesCodec},

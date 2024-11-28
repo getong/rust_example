@@ -1,13 +1,14 @@
-/*
-# Step 1: Generate the private key in PEM format
-openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
+// # Step 1: Generate the private key in PEM format
+// openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
+//
+// # Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
+// openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:'
+// > identity.txt
+//
+// # Optionally, remove the PEM file
+// rm private_key.pem
+use std::{error::Error, fs};
 
-# Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
-openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:' > identity.txt
-
-# Optionally, remove the PEM file
-rm private_key.pem
-*/
 use ethers::{
   prelude::Address,
   utils::{keccak256, to_checksum},
@@ -17,7 +18,6 @@ use libp2p::{
   PeerId,
 };
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
-use std::{error::Error, fs};
 
 pub struct Identity {
   pub private_key: SecretKey,

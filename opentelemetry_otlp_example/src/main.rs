@@ -1,11 +1,12 @@
+use std::time::Duration;
+
 use opentelemetry::{trace::Tracer, KeyValue};
 use opentelemetry_otlp::{ExportConfig, Protocol, WithExportConfig};
-use opentelemetry_sdk::metrics::reader::{DefaultAggregationSelector, DefaultTemporalitySelector};
 use opentelemetry_sdk::{
+  metrics::reader::{DefaultAggregationSelector, DefaultTemporalitySelector},
   trace::{self, RandomIdGenerator, Sampler},
   Resource,
 };
-use std::time::Duration;
 use tonic::metadata::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {

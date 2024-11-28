@@ -1,13 +1,16 @@
 // copy from [Dealing with long-lived child processes in Rust: Part 1](https://www.nikbrendler.com/rust-process-communication/)
 
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
-
-use std::thread;
-use std::thread::sleep;
-use std::time::Duration;
+use std::{
+  io::{BufRead, BufReader, Write},
+  process::{Command, Stdio},
+  sync::{
+    mpsc::{channel, Receiver, Sender},
+    Mutex,
+  },
+  thread,
+  thread::sleep,
+  time::Duration,
+};
 
 fn start_process(sender: Sender<String>, receiver: Receiver<String>) {
   let child = Command::new("cat")

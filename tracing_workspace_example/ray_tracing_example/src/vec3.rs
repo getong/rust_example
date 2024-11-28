@@ -1,5 +1,8 @@
-use std::fmt::{Display, Formatter, Result};
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub};
+use std::{
+  fmt::{Display, Formatter, Result},
+  ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub},
+};
+
 // use std::io::Write;
 use crate::common;
 

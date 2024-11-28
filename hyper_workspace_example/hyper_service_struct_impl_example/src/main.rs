@@ -1,14 +1,16 @@
-use bytes::Bytes;
-use http_body_util::Full;
-use hyper::{body::Incoming, service::Service, Request, Response};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
 use std::{
   future::Future,
   net::SocketAddr,
   pin::Pin,
   sync::{Arc, Mutex},
+};
+
+use bytes::Bytes;
+use http_body_util::Full;
+use hyper::{body::Incoming, service::Service, Request, Response};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
 };
 use tokio::net::TcpListener;
 

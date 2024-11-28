@@ -3,7 +3,12 @@ use bevy_ecs::{
   system::{Commands, Query, ResMut},
 };
 use bevy_log::info;
-
+use naia_bevy_demo_shared::{
+  behavior as shared_behavior,
+  channels::{EntityAssignmentChannel, PlayerCommandChannel},
+  components::{Color, ColorValue, Position, Shape, ShapeValue},
+  messages::{Auth, EntityAssignment, KeyCommand},
+};
 use naia_bevy_server::{
   events::{
     AuthEvents, ConnectEvent, DespawnEntityEvent, DisconnectEvent, ErrorEvent,
@@ -11,13 +16,6 @@ use naia_bevy_server::{
     UpdateComponentEvents,
   },
   CommandsExt, Random, Server,
-};
-
-use naia_bevy_demo_shared::{
-  behavior as shared_behavior,
-  channels::{EntityAssignmentChannel, PlayerCommandChannel},
-  components::{Color, ColorValue, Position, Shape, ShapeValue},
-  messages::{Auth, EntityAssignment, KeyCommand},
 };
 
 use crate::resources::Global;

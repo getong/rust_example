@@ -3,8 +3,9 @@
 //! <=> λf.(λx.f(xx))(λx.f(xx))
 
 /// A function type that takes its own type as an input is an infinite recursive type.
-/// We introduce the "Apply" trait, which will allow us to have an input with the same type as self, and break the recursion.
-/// The input is going to be a trait object that implements the desired function in the interface.
+/// We introduce the "Apply" trait, which will allow us to have an input with the same type as self,
+/// and break the recursion. The input is going to be a trait object that implements the desired
+/// function in the interface.
 trait Apply<T, R> {
   fn apply(&self, f: &dyn Apply<T, R>, t: T) -> R;
 }

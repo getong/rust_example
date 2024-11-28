@@ -1,5 +1,7 @@
-use std::fmt::{Debug, Display};
-use std::mem::transmute;
+use std::{
+  fmt::{Debug, Display},
+  mem::transmute,
+};
 
 fn main() {
   let s1 = String::from("hello world!");

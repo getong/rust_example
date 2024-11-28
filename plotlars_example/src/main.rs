@@ -1,5 +1,4 @@
 use plotlars::{Plot, ScatterPlot};
-
 use polars::prelude::*;
 
 fn main() {

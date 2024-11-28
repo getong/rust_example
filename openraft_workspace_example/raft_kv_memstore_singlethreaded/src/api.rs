@@ -1,19 +1,13 @@
 //! This mod implements a network API for raft node.
 
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::error::CheckIsLeaderError;
-use openraft::error::Infallible;
-use openraft::error::RaftError;
-use openraft::BasicNode;
-use openraft::RaftMetrics;
+use openraft::{
+  error::{CheckIsLeaderError, Infallible, RaftError},
+  BasicNode, RaftMetrics,
+};
 
-use crate::app::App;
-use crate::decode;
-use crate::encode;
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{app::App, decode, encode, NodeId, TypeConfig};
 
 pub async fn write(app: &mut App, req: String) -> String {
   let res = app.raft.client_write(decode(&req)).await;

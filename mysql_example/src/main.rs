@@ -1,5 +1,4 @@
-use mysql::prelude::*;
-use mysql::*;
+use mysql::{prelude::*, *};
 
 #[derive(Debug, PartialEq, Eq)]
 struct Payment {

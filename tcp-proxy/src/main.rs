@@ -1,8 +1,9 @@
 use clap::{App, Arg};
-use tokio::io;
-use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::select;
+use tokio::{
+  io,
+  net::{TcpListener, TcpStream},
+  select,
+};
 
 async fn proxy(client: &str, server: &str) -> io::Result<()> {
   let listener = TcpListener::bind(client).await?;

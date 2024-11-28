@@ -106,7 +106,7 @@ fn for_each() {
     .iter() // iter over num_vec
     .enumerate() // get (index, number)
     .for_each(|(index, number)| println!("Index number {} has number {}", index, number));
-  //do something for each one
+  // do something for each one
 }
 
 fn main() {

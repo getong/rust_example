@@ -68,9 +68,10 @@ impl<'a> Item<'a> {
   }
 }
 
-use std::cmp::Ordering;
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::{
+  cmp::{Ordering, Reverse},
+  collections::BinaryHeap,
+};
 
 fn merge(arrays: Vec<Vec<i32>>) -> Vec<i32> {
   let mut sorted = vec![];

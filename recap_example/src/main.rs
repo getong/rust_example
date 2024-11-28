@@ -1,7 +1,8 @@
-use std::fs;
-use std::io::prelude::*;
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::{
+  fs,
+  io::prelude::*,
+  net::{TcpListener, TcpStream},
+};
 
 fn main() {
   // Listen for incoming TCP connections on localhost port 7878

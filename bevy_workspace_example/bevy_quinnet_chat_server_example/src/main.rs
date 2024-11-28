@@ -8,7 +8,6 @@ use bevy_quinnet::{
   },
   shared::{channel::ChannelId, ClientId},
 };
-
 use protocol::{ClientMessage, ServerMessage};
 
 mod protocol;

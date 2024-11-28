@@ -1,10 +1,11 @@
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use axum::{http::Method, routing::get, Router};
 use axum_session::{SessionConfig, SessionLayer, SessionStore};
 use axum_session_auth::*;
 use axum_session_surreal::SessionSurrealPool;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use surrealdb::{
   engine::any::{connect, Any},
   opt::auth::Root,
@@ -81,7 +82,8 @@ impl User {
       .take(0)
       .unwrap();
 
-    //lets just get all the tokens the user can use, we will only use the full permissions if modifing them.
+    // lets just get all the tokens the user can use, we will only use the full permissions if
+    // modifing them.
     let sql_user_perms: Vec<SqlPermissionTokens> = pool
       .query("SELECT token FROM user_permissions where user_id = $user_id")
       .bind(("user_id", id))
@@ -170,8 +172,8 @@ async fn main() {
   // Set the database and namespace we will function within.
   db.use_ns("test").use_db("test").await.unwrap();
 
-  //This Defaults as normal Cookies.
-  //To enable Private cookies for integrity, and authenticity please check the next Example.
+  // This Defaults as normal Cookies.
+  // To enable Private cookies for integrity, and authenticity please check the next Example.
   let session_config = SessionConfig::default().with_table_name("test_table");
   let auth_config = AuthConfig::<i64>::default().with_anonymous_user_id(Some(1));
 
@@ -218,7 +220,7 @@ async fn perm(
 ) -> String {
   let current_user = auth.current_user.clone().unwrap_or_default();
 
-  //lets check permissions only and not worry about if they are anon or not
+  // lets check permissions only and not worry about if they are anon or not
   if !Auth::<User, i64, Surreal<Any>>::build([Method::GET], false)
     .requires(Rights::any([
       Rights::permission("Category::View"),

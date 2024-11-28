@@ -1,5 +1,4 @@
-use std::process::Command;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 
 fn main() {
   // println!("Hello, world!");

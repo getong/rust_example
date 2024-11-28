@@ -1,8 +1,9 @@
+use std::net::SocketAddr;
+
 use async_trait::async_trait;
 use axum::{extract::FromRequestParts, routing::get, Router};
 use axum_auth::{AuthBasicCustom, AuthBearerCustom, Rejection};
 use http::{request::Parts, StatusCode};
-use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 struct MyCustomBasic((String, Option<String>));

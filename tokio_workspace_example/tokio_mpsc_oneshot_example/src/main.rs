@@ -1,6 +1,7 @@
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+use tokio::{
+  sync::{mpsc, oneshot},
+  time::{timeout, Duration},
+};
 
 type MpscInnerTy<T, U> = (T, oneshot::Sender<U>);
 

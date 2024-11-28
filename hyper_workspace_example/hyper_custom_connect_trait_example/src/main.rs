@@ -1,9 +1,12 @@
+use std::{
+  error::Error,
+  task::{Context, Poll},
+};
+
 use futures_util::future::{BoxFuture, FutureExt};
 use http_body_util::Empty;
 use hyper::{Request, Uri};
 use hyper_util::client::legacy::{connect::HttpConnector, Client};
-use std::error::Error;
-use std::task::{Context, Poll};
 use tower_service::Service;
 
 // Define your custom connector type.

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::Result;
 use libp2p::{
   floodsub::{self, Floodsub, FloodsubEvent},
@@ -6,7 +8,6 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, PeerId, Swarm, SwarmBuilder,
 };
-use std::borrow::Cow;
 use tokio::{
   io::{stdin, AsyncBufReadExt, BufReader},
   time::Duration,

@@ -1,7 +1,11 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::thread::{sleep, spawn};
-use std::time::Duration;
+use std::{
+  sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+  },
+  thread::{sleep, spawn},
+  time::Duration,
+};
 
 #[derive(Clone)]
 pub struct Interval {

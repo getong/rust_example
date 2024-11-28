@@ -1,18 +1,20 @@
-use futures::{
-  task::{waker_ref, ArcWake}, // to create `context` from type implements ArcWake trait
-  FutureExt,                  // to use `Future::boxed` method
-};
 use std::{
   future::Future,
   sync::Arc,
   task::{Context, Poll},
 };
 
+use futures::{
+  task::{waker_ref, ArcWake}, // to create `context` from type implements ArcWake trait
+  FutureExt,                  // to use `Future::boxed` method
+};
+
 /// rustc will do the magic below for `async` function
 /// 1. automatically implement `Future`trait
 /// 2. generate state machine
-/// the `fut_top` state will be `Poll::Ready` when and only when all its dependent futures are completed.
-/// `fut_top` is a task from executor's view. Tasks are the top-level futures that have been submitted to an executor.
+/// the `fut_top` state will be `Poll::Ready` when and only when all its dependent futures are
+/// completed. `fut_top` is a task from executor's view. Tasks are the top-level futures that have
+/// been submitted to an executor.
 async fn fut_top() {
   println!("poll top future");
   let fake = FakeFuture;

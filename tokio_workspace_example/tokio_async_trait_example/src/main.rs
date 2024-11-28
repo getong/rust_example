@@ -3,8 +3,7 @@
 // #![allow(incomplete_features)]
 // #![feature(async_fn_in_trait)]
 
-use std::fmt::Display;
-use std::future;
+use std::{fmt::Display, future};
 
 trait AsyncIterator {
   type Item;

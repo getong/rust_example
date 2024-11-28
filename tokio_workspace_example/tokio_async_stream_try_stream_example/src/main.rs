@@ -1,12 +1,12 @@
+use std::{io, net::SocketAddr};
+
 use async_stream::try_stream;
 use futures_core::stream::Stream;
-use std::io;
-use std::net::SocketAddr;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::timeout;
-use tokio::time::Duration;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+  time::{timeout, Duration},
+};
 use tokio_stream::StreamExt;
 
 const READ_TIMEOUT_SECONDS: u64 = 5;

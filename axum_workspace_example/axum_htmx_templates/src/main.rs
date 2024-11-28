@@ -1,4 +1,6 @@
 // use anyhow::Context;
+use std::sync::{Arc, Mutex};
+
 use askama::Template;
 use axum::{
   Form, Router,
@@ -8,8 +10,6 @@ use axum::{
   routing::{get, post},
 };
 use serde::Deserialize;
-use std::sync::Arc;
-use std::sync::Mutex;
 use tower_http::services::ServeDir;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -105,7 +105,8 @@ async fn hello() -> impl IntoResponse {
 #[template(path = "hello.html")]
 struct HelloTemplate;
 
-/// A wrapper type that we'll use to encapsulate HTML parsed by askama into valid HTML for axum to serve.
+/// A wrapper type that we'll use to encapsulate HTML parsed by askama into valid HTML for axum to
+/// serve.
 struct HtmlTemplate<T>(T);
 
 /// Allows us to convert Askama HTML templates into valid HTML for axum to serve in the response.

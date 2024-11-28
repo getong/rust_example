@@ -1,5 +1,4 @@
-use std::env;
-use std::net::ToSocketAddrs;
+use std::{env, net::ToSocketAddrs};
 
 fn main() {
   let args: Vec<_> = env::args().collect();

@@ -1,6 +1,6 @@
+use std::{env, process};
+
 use minigrep_example::GrepOpts;
-use std::env;
-use std::process;
 
 fn main() {
   let argv: Vec<String> = env::args().collect();

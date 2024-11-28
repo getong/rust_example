@@ -1,14 +1,14 @@
-use bytes::Bytes;
 use std::net::SocketAddr;
+
+use bytes::Bytes;
 // use futures_util::future::join;
 use http_body_util::Full;
-use hyper::service::service_fn;
-use hyper::{Request, Response};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
-use tokio::join;
-use tokio::net::TcpListener;
+use hyper::{service::service_fn, Request, Response};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
+use tokio::{join, net::TcpListener};
 
 static INDEX1: &[u8] = b"The 1st service!";
 static INDEX2: &[u8] = b"The 2nd service!";

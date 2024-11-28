@@ -1,6 +1,7 @@
+use std::time::Instant;
+
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::time::Instant;
 
 lazy_static! {
   static ref IS_INTEGER: Regex = Regex::new("^[0-9]+$").unwrap();

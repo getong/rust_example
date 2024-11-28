@@ -1,6 +1,6 @@
-use prost::bytes::Bytes;
-use prost::Message;
 use std::io::{Cursor, Read};
+
+use prost::{bytes::Bytes, Message};
 
 // Define your Protocol Buffers message type
 #[derive(Clone, PartialEq, ::prost::Message)]

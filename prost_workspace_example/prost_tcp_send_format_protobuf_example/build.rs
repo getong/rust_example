@@ -1,5 +1,5 @@
-use std::fs::create_dir_all;
-use std::process::Command;
+use std::{fs::create_dir_all, process::Command};
+
 use walkdir::WalkDir;
 
 fn main() {

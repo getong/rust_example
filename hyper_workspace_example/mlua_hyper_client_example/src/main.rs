@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use http_body_util::BodyExt as _;
 use hyper::body::Incoming;
 use hyper_util::{client::legacy::Client as HyperClient, rt::TokioExecutor};
 use mlua::{chunk, ExternalResult, Lua, Result, UserData, UserDataMethods};
-use std::collections::HashMap;
 
 struct BodyReader(Incoming);
 

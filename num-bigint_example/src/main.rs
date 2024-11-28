@@ -1,7 +1,7 @@
-use num_bigint::BigUint;
-use num_bigint::{RandBigInt, ToBigInt};
-use num_traits::{One, Zero};
 use std::mem::replace;
+
+use num_bigint::{BigUint, RandBigInt, ToBigInt};
+use num_traits::{One, Zero};
 
 // Calculate large fibonacci numbers.
 fn fib(n: usize) -> BigUint {

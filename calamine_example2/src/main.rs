@@ -1,6 +1,8 @@
-use calamine::DataType::Float;
-use calamine::DataType::String;
-use calamine::{open_workbook, Error, Reader, Xlsx};
+use calamine::{
+  open_workbook,
+  DataType::{Float, String},
+  Error, Reader, Xlsx,
+};
 
 fn main() -> Result<(), Error> {
   // println!("Hello, world!");

@@ -1,7 +1,7 @@
-use arc_swap::ArcSwap;
-use once_cell::sync;
-use once_cell::sync::OnceCell;
 use std::sync::Arc;
+
+use arc_swap::ArcSwap;
+use once_cell::{sync, sync::OnceCell};
 
 static GLOBAL_CONFIG: sync::Lazy<ArcSwap<Option<String>>> =
   sync::Lazy::new(|| ArcSwap::from(Arc::new(Some("hello".into()))));

@@ -1,6 +1,9 @@
 use std::sync::Mutex;
-use todo::todo_server::{Todo, TodoServer};
-use todo::{CreateTodoRequest, CreateTodoResponse, GetTodosResponse, TodoItem};
+
+use todo::{
+  todo_server::{Todo, TodoServer},
+  CreateTodoRequest, CreateTodoResponse, GetTodosResponse, TodoItem,
+};
 use tonic::{transport::Server, Request, Response, Status};
 
 pub mod todo {

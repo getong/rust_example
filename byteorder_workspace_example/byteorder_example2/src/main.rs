@@ -1,5 +1,6 @@
-use byteorder::{LittleEndian, WriteBytesExt};
 use std::{mem, slice};
+
+use byteorder::{LittleEndian, WriteBytesExt};
 
 fn main() {
   let i: i64 = 12345;

@@ -1,8 +1,7 @@
-//extern crate mio;
-use mio::net::TcpListener;
-use mio::{Events, Interest, Poll, Token};
-use std::env;
-use std::net::SocketAddr;
+// extern crate mio;
+use std::{env, net::SocketAddr};
+
+use mio::{net::TcpListener, Events, Interest, Poll, Token};
 
 // This will be later used to identify the server on the event loop
 const SERVER: Token = Token(0);

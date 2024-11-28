@@ -1,5 +1,4 @@
 use arc_swap::ArcSwap;
-
 use deadpool_redis::{redis::cmd, Config, Pool, Runtime};
 use lazy_static::lazy_static;
 

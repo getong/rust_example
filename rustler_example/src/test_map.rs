@@ -1,6 +1,7 @@
-use rustler::types::map::MapIterator;
-use rustler::types::tuple::make_tuple;
-use rustler::{Encoder, Env, NifResult, Term};
+use rustler::{
+  types::{map::MapIterator, tuple::make_tuple},
+  Encoder, Env, NifResult, Term,
+};
 
 #[rustler::nif]
 pub fn sum_map_values(iter: MapIterator) -> NifResult<i64> {

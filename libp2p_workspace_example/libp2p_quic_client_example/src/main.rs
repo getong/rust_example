@@ -5,7 +5,6 @@ use libp2p::{
   },
   Transport,
 };
-
 use libp2p_quic as quic;
 
 #[tokio::main]

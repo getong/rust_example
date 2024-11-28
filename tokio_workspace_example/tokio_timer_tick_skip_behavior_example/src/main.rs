@@ -1,6 +1,8 @@
 use chrono::Local;
-use tokio::runtime::Runtime;
-use tokio::time::{self, Duration, Instant, MissedTickBehavior};
+use tokio::{
+  runtime::Runtime,
+  time::{self, Duration, Instant, MissedTickBehavior},
+};
 
 fn now() -> String {
   Local::now().format("%F %T").to_string()

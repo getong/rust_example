@@ -1,8 +1,9 @@
-use crate::models::tokens::Token;
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
+
+use crate::models::tokens::Token;
 
 pub enum EncodeJwtHelper {
   Ok(String),

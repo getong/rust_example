@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::engine::local::Mem;
-use surrealdb::sql::Thing;
-use surrealdb::Surreal;
+use surrealdb::{engine::local::Mem, sql::Thing, Surreal};
 
 #[derive(Debug, Serialize)]
 struct Name<'a> {

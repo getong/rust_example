@@ -1,6 +1,4 @@
-use nt_string::unicode_string::NtUnicodeStr;
-use nt_string::unicode_string::NtUnicodeString;
-
+use nt_string::unicode_string::{NtUnicodeStr, NtUnicodeString};
 use u16cstr::{u16cstr, u16str};
 
 fn subfunction(str_ref: &NtUnicodeStr) {

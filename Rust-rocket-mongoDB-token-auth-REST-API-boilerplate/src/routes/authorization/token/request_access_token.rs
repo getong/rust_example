@@ -1,9 +1,14 @@
-use crate::helper::check_data_from_auth_header;
-use crate::private::JWT_SECRET;
-use crate::routes::authorization::token::create_token::{decode_jwt, DecodeJwtHelper};
-use rocket::http::Status;
-use rocket::request::{FromRequest, Outcome};
-use rocket::Request;
+use rocket::{
+  http::Status,
+  request::{FromRequest, Outcome},
+  Request,
+};
+
+use crate::{
+  helper::check_data_from_auth_header,
+  private::JWT_SECRET,
+  routes::authorization::token::create_token::{decode_jwt, DecodeJwtHelper},
+};
 
 pub struct AuthorizedUser {
   pub user_id: String,

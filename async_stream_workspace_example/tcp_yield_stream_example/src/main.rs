@@ -1,7 +1,7 @@
+use std::{collections::BTreeMap, net::SocketAddr};
+
 use async_stream::stream;
 use futures::TryStreamExt;
-use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use tokio::{
   io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
   net::TcpListener,

@@ -20,10 +20,9 @@ use bevy_quinnet::{
   },
   shared::ClientId,
 };
+use protocol::{ClientMessage, ServerMessage};
 use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::mpsc;
-
-use protocol::{ClientMessage, ServerMessage};
 
 mod protocol;
 
@@ -125,7 +124,8 @@ fn start_connection(mut client: ResMut<Client>) {
     )
     .unwrap();
 
-  // You can already send message(s) even before being connected, they will be buffered. In this example we will wait for a ConnectionEvent.
+  // You can already send message(s) even before being connected, they will be buffered. In this
+  // example we will wait for a ConnectionEvent.
 }
 
 fn handle_client_events(

@@ -1,5 +1,7 @@
-use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError};
+use std::{
+  ops::{Deref, DerefMut},
+  sync::{Arc, LockResult, Mutex, MutexGuard, PoisonError},
+};
 
 pub type OnTheFlyInner<T> = Box<T>;
 
@@ -74,7 +76,7 @@ fn main() {
     }
     std::thread::sleep(std::time::Duration::from_secs(1));
   });
-  //Waits a little before substituting the inner object on-the-fly
+  // Waits a little before substituting the inner object on-the-fly
   std::thread::sleep(std::time::Duration::from_secs(5));
   o.replace(Some(Box::new(12345)));
   std::thread::sleep(std::time::Duration::from_secs(100))

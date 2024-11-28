@@ -1,5 +1,6 @@
-use cached::{stores::TimedSizedCache, Cached};
 use std::time::Duration;
+
+use cached::{stores::TimedSizedCache, Cached};
 
 fn main() {
   // Simulate a HashSet using a cache (only care about the keys, not the values)

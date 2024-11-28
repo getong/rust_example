@@ -1,6 +1,7 @@
+use std::{net::SocketAddr, time::Duration};
+
 use clap::Parser;
 use opentelemetry::trace::TracerProvider as _;
-use std::{net::SocketAddr, time::Duration};
 use tarpc::{client, context, tokio_serde::formats::Json};
 use tokio::time::sleep;
 use tracing::Instrument;

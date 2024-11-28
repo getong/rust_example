@@ -1,5 +1,4 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TreeNode {

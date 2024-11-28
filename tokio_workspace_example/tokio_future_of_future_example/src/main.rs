@@ -1,7 +1,7 @@
 // For .fuse()
+use std::{future::Future, pin::Pin};
+
 use futures::future::FutureExt;
-use std::future::Future;
-use std::pin::Pin;
 use tokio::time::{sleep, Duration};
 
 async fn inner_future(value: i32) -> i32 {

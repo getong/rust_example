@@ -68,7 +68,7 @@ fn main() {
   // sum
   let vec = vec![1, 2, 3, 4, 5];
   let sum = vec.iter().sum::<i32>();
-  eprint!("{}", sum); //输出15
+  eprint!("{}", sum); // 输出15
 
   // fold
   let vec = vec![1, 2, 3, 4, 5];
@@ -82,5 +82,5 @@ fn main() {
     Some(*acc)
   }) {
     eprint!("{} ", step);
-  } //打印1 3 6 10 15
+  } // 打印1 3 6 10 15
 }

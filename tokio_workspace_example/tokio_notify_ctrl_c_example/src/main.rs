@@ -1,13 +1,19 @@
-use std::io;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+  io,
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
+  time::Duration,
+};
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::select;
-use tokio::signal::ctrl_c;
-use tokio::sync::Notify;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+  select,
+  signal::ctrl_c,
+  sync::Notify,
+};
 
 #[tokio::main]
 pub async fn main() {

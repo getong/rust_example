@@ -1,8 +1,9 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use tokio::runtime::Builder;
-use tokio::sync::Barrier;
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
+};
+
+use tokio::{runtime::Builder, sync::Barrier};
 
 fn main() {
   // println!("Hello, world!");

@@ -1,22 +1,17 @@
-use std::collections::BTreeSet;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::time::Duration;
+use std::{
+  collections::BTreeSet,
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
-use openraft::error::ForwardToLeader;
-use openraft::error::NetworkError;
-use openraft::error::RemoteError;
-use openraft::RaftMetrics;
-use openraft::TryAsRef;
-use serde::de::DeserializeOwned;
-use serde::Deserialize;
-use serde::Serialize;
+use openraft::{
+  error::{ForwardToLeader, NetworkError, RemoteError},
+  RaftMetrics, TryAsRef,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::time::timeout;
 
-use crate::typ;
-use crate::NodeId;
-use crate::Request;
-use crate::TypeConfig;
+use crate::{typ, NodeId, Request, TypeConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}

@@ -1,5 +1,4 @@
-use todo::todo_client::TodoClient;
-use todo::CreateTodoRequest;
+use todo::{todo_client::TodoClient, CreateTodoRequest};
 
 pub mod todo {
   tonic::include_proto!("todo");

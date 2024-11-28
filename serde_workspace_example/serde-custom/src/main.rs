@@ -1,7 +1,9 @@
-use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-
 use std::fmt;
+
+use serde::{
+  de::{self, Deserialize, Deserializer, MapAccess, Visitor},
+  ser::{Serialize, SerializeStruct, Serializer},
+};
 
 #[derive(Debug, PartialEq)]
 struct KubeConfig {

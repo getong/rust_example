@@ -1,6 +1,6 @@
-use lazy_static::lazy_static;
-
 use std::sync::{Arc, Mutex};
+
+use lazy_static::lazy_static;
 
 lazy_static! {
     // static ref CONTEXT = Rc:new();

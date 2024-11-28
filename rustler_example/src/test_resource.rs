@@ -1,5 +1,6 @@
-use rustler::{Env, ResourceArc};
 use std::sync::RwLock;
+
+use rustler::{Env, ResourceArc};
 
 pub struct TestResource {
   test_field: RwLock<i32>,

@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use arc_swap::ArcSwap;
 use deadpool_redis::{redis::cmd, Config, Pool, Runtime};
 use once_cell::sync::Lazy;
-use std::sync::Arc;
 
 // must write like this, because pool can not be captured at once
 static GLOBAL_REDIS_POOL_STRING: Lazy<ArcSwap<Option<Pool>>> =

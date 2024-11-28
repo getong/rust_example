@@ -1,25 +1,22 @@
 #![allow(clippy::uninlined_format_args)]
 
-use crate::common::ChitchatApi;
+use std::{fmt::Display, io::Cursor, net::SocketAddr, path::Path, sync::Arc, time::SystemTime};
 
-use crate::network::Network;
-use crate::store::new_storage;
-use crate::store::Request;
-use crate::store::Response;
-use chitchat::transport::UdpTransport;
-use chitchat::{spawn_chitchat, Chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig};
+use chitchat::{
+  spawn_chitchat, transport::UdpTransport, Chitchat, ChitchatConfig, ChitchatId,
+  FailureDetectorConfig,
+};
 use cool_id_generator::Size;
 use openraft::Config;
 // use openraft::TokioRuntime;
 use poem::Server;
-use std::fmt::Display;
-use std::io::Cursor;
-use std::net::SocketAddr;
-use std::path::Path;
-use std::sync::Arc;
-use std::time::SystemTime;
-use tokio::sync::Mutex;
-use tokio::time::Duration;
+use tokio::{sync::Mutex, time::Duration};
+
+use crate::{
+  common::ChitchatApi,
+  network::Network,
+  store::{new_storage, Request, Response},
+};
 
 pub mod api_rpc;
 pub mod chitchat_web_cmd;
@@ -28,16 +25,19 @@ pub mod common;
 pub mod network;
 pub mod store;
 pub mod web_openapi;
-use crate::api_rpc::World;
-use crate::common::{Api, Opt};
+use std::net::{IpAddr, Ipv4Addr};
+
 use futures::prelude::*;
 use poem::{listener::TcpListener, Route};
 use poem_openapi::OpenApiService;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use tarpc::{
   server::{self, incoming::Incoming, Channel},
   tokio_serde::formats::Json,
+};
+
+use crate::{
+  api_rpc::World,
+  common::{Api, Opt},
 };
 pub type NodeId = u64;
 

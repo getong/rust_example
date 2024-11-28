@@ -1,5 +1,6 @@
-use async_std::task;
 use std::time::Duration;
+
+use async_std::task;
 
 fn main() {
   // println!("Hello, world!");

@@ -1,6 +1,5 @@
 // use std::sync::{Arc, Mutex};
-use rayon::iter::IntoParallelRefIterator;
-use rayon::iter::ParallelIterator;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 fn main() {
   // println!("Hello, world!");

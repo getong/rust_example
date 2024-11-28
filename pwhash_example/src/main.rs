@@ -1,5 +1,6 @@
-use pwhash::{bcrypt, bsdi_crypt, md5_crypt, sha1_crypt, sha256_crypt, unix_crypt};
 use std::env;
+
+use pwhash::{bcrypt, bsdi_crypt, md5_crypt, sha1_crypt, sha256_crypt, unix_crypt};
 
 fn main() {
   let mut password = "password";

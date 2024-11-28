@@ -5,7 +5,7 @@ use std::ptr;
 /// * `ptr` 必须与其类型正确对齐并且非零。
 /// * `ptr` 必须对读取 `elts` 类型为 `T` 的连续元素有效。
 /// * 调用此函数后不得使用这些元素，除非`T: Copy`。
-//unsafe fn from_buf_raw<T>(ptr: *const T, elts: usize) -> Vec<T> {
+// unsafe fn from_buf_raw<T>(ptr: *const T, elts: usize) -> Vec<T> {
 //    let mut dst = Vec::with_capacity(elts);
 //
 //    // 安全：我们的先决条件确保源对齐且有效，

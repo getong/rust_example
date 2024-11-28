@@ -1,6 +1,7 @@
-use std::cell::Cell;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{
+  cell::{Cell, RefCell},
+  rc::Rc,
+};
 
 trait Position {}
 struct Coordinates(f64, f64);
@@ -47,5 +48,7 @@ fn memory_size() {
   assert_eq!(std::mem::size_of::<*mut [u8]>(), 16); // 16B，胖指针，还有8B的⻓度
   assert_eq!(std::mem::size_of::<*mut [u8; 4]>(), 8); // 8B，裸指针（⻓度就是4）
   assert_eq!(std::mem::size_of::<*mut str>(), 16); // 16B，胖指针，额外8B的⻓度
-                                                   // assert_eq!(std::mem::size_of::<*mut dyn Drop>(), 16); // 16B，胖指针，额外8B的vtable指针
+                                                   // assert_eq!(std::mem::size_of::<*mut dyn
+                                                   // Drop>(), 16); //
+                                                   // 16B，胖指针，额外8B的vtable指针
 }

@@ -1,12 +1,12 @@
-use axum::extract::Query;
+use std::collections::HashMap;
+
 use axum::{
-  extract::Path,
+  extract::{Path, Query},
   routing::{get, post},
   Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Params {

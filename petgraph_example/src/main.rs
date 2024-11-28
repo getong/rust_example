@@ -1,12 +1,10 @@
-use petgraph::algo::dijkstra;
-use petgraph::dot::Dot;
-use petgraph::prelude::*;
+use petgraph::{algo::dijkstra, dot::Dot, prelude::*};
 
 fn main() {
   // println!("Hello, world!");
-  //let root = TypedArena::<Node<_>>::new();
+  // let root = TypedArena::<Node<_>>::new();
   let mut gr = UnGraphMap::new();
-  //let node = |&: name: &'static str| Ptr(root.alloc(Node(name.to_string())));
+  // let node = |&: name: &'static str| Ptr(root.alloc(Node(name.to_string())));
   let a = gr.add_node("A");
   let b = gr.add_node("B");
   let c = gr.add_node("C");

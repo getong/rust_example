@@ -1,5 +1,6 @@
-use rcgen::{date_time_ymd, Certificate, CertificateParams, DistinguishedName, DnType, SanType};
 use std::fs;
+
+use rcgen::{date_time_ymd, Certificate, CertificateParams, DistinguishedName, DnType, SanType};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut params: CertificateParams = Default::default();

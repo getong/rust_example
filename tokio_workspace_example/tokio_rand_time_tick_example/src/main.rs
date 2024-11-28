@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use chrono::Utc;
 use rand::distributions::{Distribution, Uniform};
-use std::time::Duration;
 use tokio::time;
 
 #[tokio::main]

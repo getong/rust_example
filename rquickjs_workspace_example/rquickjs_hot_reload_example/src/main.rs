@@ -1,10 +1,11 @@
+use std::{path::Path, time::Duration};
+
 use notify::{RecursiveMode, Result, Watcher};
 use rquickjs::{
   async_with,
   loader::{FileResolver, ScriptLoader},
   AsyncContext, AsyncRuntime, Function,
 };
-use std::{path::Path, time::Duration};
 use tokio::{fs, sync::watch, time::sleep};
 
 const FILE_NAME: &str = "script_module.js";

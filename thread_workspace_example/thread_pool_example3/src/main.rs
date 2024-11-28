@@ -1,5 +1,7 @@
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::{
+  collections::VecDeque,
+  sync::{Arc, Mutex},
+};
 
 pub struct Tasker {
   queue: VecDeque<Box<dyn Fn() + Send>>,
@@ -48,12 +50,14 @@ impl ThreadPool {
       handles.push(std::thread::spawn(move || loop {
         let mut m_guard = task_queue.lock().unwrap();
         let mut start_guard = start_tracker.lock().unwrap();
-        //if queue is empty and no thread has started, then simply continue running
-        //if queue is empty and a thread has started, it means that the entire queue is processed and it is time to stop
+        // if queue is empty and no thread has started, then simply continue running
+        // if queue is empty and a thread has started, it means that the entire queue is processed
+        // and it is time to stop
         if (*m_guard).is_empty() && *start_guard {
           return;
         }
-        //if queue contains tasks, each available thread will pull one task out of the queue and process it
+        // if queue contains tasks, each available thread will pull one task out of the queue and
+        // process it
         if !(*m_guard).is_empty() {
           let task: Box<dyn Fn() + Send> = (*m_guard).pop_back().unwrap();
           *start_guard = true;

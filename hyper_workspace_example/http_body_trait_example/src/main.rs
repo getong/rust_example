@@ -1,10 +1,15 @@
+use std::{
+  pin::Pin,
+  task::{Context, Poll},
+};
+
 use bytes::{Bytes, BytesMut};
 use futures::task::noop_waker_ref;
 use http_body::{Body, Frame, SizeHint};
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use tokio::io::{self, AsyncReadExt, Error};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+  io::{self, AsyncReadExt, Error},
+  net::{TcpListener, TcpStream},
+};
 
 #[derive(Debug)]
 struct MyBody {
@@ -64,8 +69,8 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), io::Error> {
   // Since MyBody::new expects a &[u8], and body_bytes is &[u8], this matches.
   let my_body = MyBody::new(body_bytes);
 
-  // Process the body. Note: You'll need to adjust the process_body function to match expected types.
-  // Assuming process_body now returns a Result<Bytes, io::Error> for simplicity.
+  // Process the body. Note: You'll need to adjust the process_body function to match expected
+  // types. Assuming process_body now returns a Result<Bytes, io::Error> for simplicity.
   let processed_result = process_body(Box::pin(my_body)).await?;
 
   // Print the processed result. Assuming it's of a type that implements Debug.
@@ -102,7 +107,8 @@ async fn process_body(
       }
       Poll::Ready(Some(Err(e))) => return Err(e),
       Poll::Ready(None) => break, // End of the stream.
-      Poll::Pending => continue, // This line simplifies handling, but you need proper async handling.
+      Poll::Pending => continue,  /* This line simplifies handling, but you need proper async
+                                    * handling. */
     }
   }
 

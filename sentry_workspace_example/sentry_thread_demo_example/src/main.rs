@@ -1,5 +1,4 @@
-use std::sync::Arc;
-use std::thread;
+use std::{sync::Arc, thread};
 
 const SENTRY_DSN: &str = "your-sentry-dsn";
 

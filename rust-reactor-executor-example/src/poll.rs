@@ -1,7 +1,10 @@
+use std::{
+  collections::{HashMap, HashSet},
+  io,
+  os::unix::io::RawFd,
+};
+
 use crate::EventId;
-use std::collections::{HashMap, HashSet};
-use std::io;
-use std::os::unix::io::RawFd;
 
 const READ_FLAGS: i32 = libc::EPOLLONESHOT | libc::EPOLLIN;
 const WRITE_FLAGS: i32 = libc::EPOLLONESHOT | libc::EPOLLOUT;

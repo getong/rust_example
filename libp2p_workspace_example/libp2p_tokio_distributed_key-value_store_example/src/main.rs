@@ -1,16 +1,14 @@
+use std::{error::Error, time::Duration};
+
 use futures::prelude::*;
-use libp2p::kad;
-use libp2p::kad::store::MemoryStore;
-use libp2p::kad::Mode;
 use libp2p::{
+  kad,
+  kad::{store::MemoryStore, Mode},
   mdns, noise,
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
-use std::error::Error;
-use std::time::Duration;
-use tokio::io;
-use tokio::io::AsyncBufReadExt;
+use tokio::{io, io::AsyncBufReadExt};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]

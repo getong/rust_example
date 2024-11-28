@@ -1,7 +1,4 @@
-use frunk::hlist;
-use frunk::hlist_pat;
-use frunk::LabelledGeneric;
-use frunk::{self, monoid, Generic, Semigroup};
+use frunk::{self, hlist, hlist_pat, monoid, Generic, LabelledGeneric, Semigroup};
 
 #[derive(Generic, LabelledGeneric)]
 struct ApiUser<'a> {
@@ -72,7 +69,8 @@ fn main() {
   assert_eq!(s_user.last_name, "Blow");
   assert_eq!(s_user.age, 30);
 
-  // let d_user = <DeletedUser as LabelledGeneric>::convert_from(s_user); <-- this would fail at compile time :)
+  // let d_user = <DeletedUser as LabelledGeneric>::convert_from(s_user); <-- this would fail at
+  // compile time :)
 
   // This will, however, work, because we make use of the Sculptor type-class
   // to type-safely reshape the representations to align/match each other.

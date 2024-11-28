@@ -1,5 +1,7 @@
-use std::sync::{Arc, RwLock};
-use std::thread;
+use std::{
+  sync::{Arc, RwLock},
+  thread,
+};
 fn main() {
   let resource: Arc<RwLock<u16>> = Arc::new(RwLock::new(0));
   let total_readers = 5;

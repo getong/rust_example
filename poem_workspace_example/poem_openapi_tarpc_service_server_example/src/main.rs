@@ -1,7 +1,11 @@
+use std::{
+  net::{IpAddr, Ipv4Addr},
+  sync::Arc,
+};
+
 use futures::prelude::*;
 use poem::{listener::TcpListener, Route};
 use poem_openapi::OpenApiService;
-use std::{net::IpAddr, net::Ipv4Addr, sync::Arc};
 use tarpc::{
   server::{self, incoming::Incoming, Channel},
   tokio_serde::formats::Json,

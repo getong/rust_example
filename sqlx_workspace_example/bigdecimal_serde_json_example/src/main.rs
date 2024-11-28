@@ -1,7 +1,8 @@
+use std::str::FromStr;
+
 use bigdecimal::BigDecimal;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct MyStruct {

@@ -1,7 +1,8 @@
+use std::io::Cursor;
+
 use bytes::Bytes;
 use prost::Message;
 use reqwest::{Client, Error};
-use std::io::Cursor;
 use tokio_stream::StreamExt;
 
 mod protos;

@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use futures::{stream, StreamExt};
 use rand::{thread_rng, Rng};
-use std::time::Duration;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {

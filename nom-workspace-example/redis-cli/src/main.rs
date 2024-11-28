@@ -1,10 +1,11 @@
-use bytes::{BufMut, BytesMut};
 use std::error::Error;
-use structopt::StructOpt;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 
-use tokio::net::TcpStream;
+use bytes::{BufMut, BytesMut};
+use structopt::StructOpt;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::TcpStream,
+};
 
 mod commands;
 mod reply;

@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     },
   ];
 
-  let database_url = "mysql://root:123456@localhost:3306"; /* ... */
+  let database_url = "mysql://root:123456@localhost:3306"; // ...
 
   let pool = mysql_async::Pool::new(database_url);
   let mut conn = pool.get_conn().await?;

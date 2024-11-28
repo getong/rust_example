@@ -1,8 +1,9 @@
+use std::ffi::CStr;
+
 use mlua_sys::lua54::{
   lua_Integer, lua_State, lua_gettop, lua_pushcfunction, lua_pushinteger, lua_settop, lua_type,
   lua_typename,
 };
-use std::ffi::CStr;
 
 extern "C-unwind" fn _c_l_testfunc(lua_state: *mut lua_State) -> i32 {
   unsafe {

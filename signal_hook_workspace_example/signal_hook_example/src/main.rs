@@ -1,5 +1,6 @@
-use signal_hook::{consts::SIGINT, iterator::Signals};
 use std::{error::Error, thread, time::Duration};
+
+use signal_hook::{consts::SIGINT, iterator::Signals};
 
 fn main() -> Result<(), Box<dyn Error>> {
   let mut signals = Signals::new(&[SIGINT])?;

@@ -1,4 +1,5 @@
 use std::time::Duration;
+
 use string_obfuscation_example::xor_string;
 
 fn main() {

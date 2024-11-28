@@ -1,8 +1,7 @@
 // copy from https://medium.com/@rasnaut/the-easiest-way-to-send-traces-from-the-rust-app-to-grafana-cloud-7a66baf2e45b
 use std::{error::Error, thread, time::Duration};
 
-use opentelemetry;
-use opentelemetry::global::shutdown_tracer_provider;
+use opentelemetry::{self, global::shutdown_tracer_provider};
 use opentelemetry_otlp::{self, WithExportConfig};
 use tracing::{event, info_span, span, warn, Level};
 // use tracing_attributes::instrument;

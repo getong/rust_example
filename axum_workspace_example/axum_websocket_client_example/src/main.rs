@@ -1,39 +1,36 @@
-use futures_util::stream::FuturesUnordered;
-use futures_util::{SinkExt, StreamExt};
-use std::borrow::Cow;
-use std::ops::ControlFlow;
-use std::time::Instant;
+use std::{borrow::Cow, ops::ControlFlow, time::Instant};
 
+use futures_util::{stream::FuturesUnordered, SinkExt, StreamExt};
 // we will use tungstenite for websocket client impl (same library as what axum is using)
 use tokio_tungstenite::{
   connect_async,
   tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message},
 };
 
-const N_CLIENTS: usize = 2; //set to desired number
+const N_CLIENTS: usize = 2; // set to desired number
 const SERVER: &str = "ws://127.0.0.1:3000/ws";
 
 #[tokio::main]
 async fn main() {
   let start_time = Instant::now();
-  //spawn several clients that will concurrently talk to the server
+  // spawn several clients that will concurrently talk to the server
   let mut clients = (0 .. N_CLIENTS)
     .map(|cli| tokio::spawn(spawn_client(cli)))
     .collect::<FuturesUnordered<_>>();
 
-  //wait for all our clients to exit
+  // wait for all our clients to exit
   while clients.next().await.is_some() {}
 
   let end_time = Instant::now();
 
-  //total time should be the same no matter how many clients we spawn
+  // total time should be the same no matter how many clients we spawn
   println!(
     "Total time taken {:#?} with {N_CLIENTS} concurrent clients, should be about 6.45 seconds.",
     end_time - start_time
   );
 }
 
-//creates a client. quietly exits on failure.
+// creates a client. quietly exits on failure.
 async fn spawn_client(who: usize) {
   let ws_stream = match connect_async(SERVER).await {
     Ok((stream, response)) => {
@@ -51,13 +48,13 @@ async fn spawn_client(who: usize) {
 
   let (mut sender, mut receiver) = ws_stream.split();
 
-  //we can ping the server for start
+  // we can ping the server for start
   sender
     .send(Message::Ping("Hello, Server!".into()))
     .await
     .expect("Can not send!");
 
-  //spawn an async sender to push some more messages into the server
+  // spawn an async sender to push some more messages into the server
   let mut send_task = tokio::spawn(async move {
     for i in 1 .. 30 {
       // In any websocket error, break loop.
@@ -66,7 +63,7 @@ async fn spawn_client(who: usize) {
         .await
         .is_err()
       {
-        //just as with server, if send fails there is nothing we can do but exit.
+        // just as with server, if send fails there is nothing we can do but exit.
         return;
       }
 
@@ -86,7 +83,7 @@ async fn spawn_client(who: usize) {
     };
   });
 
-  //receiver just prints whatever it gets
+  // receiver just prints whatever it gets
   let mut recv_task = tokio::spawn(async move {
     while let Some(Ok(msg)) = receiver.next().await {
       // print message and break if instructed to do so
@@ -96,7 +93,7 @@ async fn spawn_client(who: usize) {
     }
   });
 
-  //wait for either task to finish and kill the other task
+  // wait for either task to finish and kill the other task
   tokio::select! {
       _ = (&mut send_task) => {
           recv_task.abort();

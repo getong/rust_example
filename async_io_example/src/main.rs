@@ -1,5 +1,4 @@
-use std::ffi::OsString;
-use std::io;
+use std::{ffi::OsString, io};
 
 use async_io::Async;
 use futures_lite::future;

@@ -1,10 +1,13 @@
 // use futures::future::poll_fn;
 use std::error::Error;
-use tokio::io::{self, Interest};
+
 // use tokio::io::{self, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
-use tokio::time::{sleep, Duration};
+use tokio::{
+  io::{self, Interest},
+  sync::oneshot,
+  time::{sleep, Duration},
+};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {

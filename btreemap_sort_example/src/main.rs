@@ -1,7 +1,9 @@
-use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::iter::FromIterator;
+use std::{
+  collections::BTreeMap,
+  fs::File,
+  io::{self, BufRead},
+  iter::FromIterator,
+};
 
 fn fill_tree() -> BTreeMap<String, i32> {
   let file = match File::open("values.txt") {

@@ -1,5 +1,6 @@
-use cached::{stores::TimedSizedCache, Cached};
 use std::time::Duration;
+
+use cached::{stores::TimedSizedCache, Cached};
 
 fn main() {
   // Create a TimedSizedCache with a size of 1000, lifespan of 5 seconds, and refresh enabled

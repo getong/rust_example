@@ -1,16 +1,18 @@
 use log::LevelFilter;
-
-use log4rs::append::console::ConsoleAppender;
-use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
-use log4rs::append::rolling_file::policy::compound::{
-  roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger,
+use log4rs::{
+  append::{
+    console::ConsoleAppender,
+    rolling_file::{
+      policy::compound::{
+        roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger, CompoundPolicy,
+      },
+      RollingFileAppender,
+    },
+  },
+  config::{Appender, Logger, Root},
+  encode::pattern::PatternEncoder,
+  Config,
 };
-use log4rs::append::rolling_file::RollingFileAppender;
-
-use log4rs::encode::pattern::PatternEncoder;
-
-use log4rs::config::{Appender, Logger, Root};
-use log4rs::Config;
 
 fn main() {
   // let log_line_pattern = "{d(%Y-%m-%d %H:%M:%S)} | {({l}):5.5} | {f}:{L} — {m}{n}";

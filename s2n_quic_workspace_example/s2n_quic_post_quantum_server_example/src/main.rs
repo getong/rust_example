@@ -1,5 +1,6 @@
-use s2n_quic::Server;
 use std::error::Error;
+
+use s2n_quic::Server;
 use tokio::io::AsyncWriteExt;
 
 /// NOTE: this certificate is to be used for demonstration purposes only!

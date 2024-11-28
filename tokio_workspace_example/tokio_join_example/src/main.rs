@@ -1,4 +1,5 @@
 use std::time::Duration;
+
 use tokio::join;
 
 async fn count_and_wait(n: u64) -> u64 {

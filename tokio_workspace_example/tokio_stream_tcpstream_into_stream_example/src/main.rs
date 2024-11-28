@@ -1,8 +1,9 @@
 use std::io;
-use tokio::io::AsyncWriteExt;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::TcpStream;
+
+use tokio::{
+  io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+  net::{tcp::OwnedReadHalf, TcpStream},
+};
 use tokio_stream::{wrappers::LinesStream, Stream, StreamExt};
 
 // Assume each message is a line

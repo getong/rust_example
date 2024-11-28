@@ -1,7 +1,8 @@
+use std::net::{IpAddr, Ipv4Addr};
+
 use axum::{body::Body, extract::Path, http::Request, routing::get, Router};
 use http_body_util::BodyExt as _;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use std::net::{IpAddr, Ipv4Addr};
 use tracing::{info_span, Instrument};
 use turmoil::{net, Builder};
 
@@ -74,9 +75,10 @@ fn main() {
 }
 
 mod connector {
+  use std::{future::Future, io::Error, pin::Pin};
+
   use hyper::Uri;
   use pin_project_lite::pin_project;
-  use std::{future::Future, io::Error, pin::Pin};
   use tokio::io::AsyncWrite;
   use tower::Service;
   use turmoil::net::TcpStream;

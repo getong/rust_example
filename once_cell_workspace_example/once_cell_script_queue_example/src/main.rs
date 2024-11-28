@@ -1,6 +1,8 @@
 use once_cell::sync::OnceCell;
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::{sleep, Duration};
+use tokio::{
+  sync::{mpsc, oneshot},
+  time::{sleep, Duration},
+};
 
 #[derive(Debug)]
 pub enum Packet {

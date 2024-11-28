@@ -1,13 +1,16 @@
+use std::{
+  future::Future,
+  pin::Pin,
+  sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    Arc,
+  },
+  task::{Context, Poll},
+  thread,
+  time::Duration,
+};
+
 use futures::task::AtomicWaker;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::Arc;
-use std::task::Context;
-use std::task::Poll;
-use std::thread;
-use std::time::Duration;
 
 struct TimerFuture {
   shared_state: Arc<SharedState>,

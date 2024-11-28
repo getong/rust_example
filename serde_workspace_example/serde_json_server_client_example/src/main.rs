@@ -1,7 +1,10 @@
-use serde::{Deserialize, Serialize};
 use std::error::Error;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+
+use serde::{Deserialize, Serialize};
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct MyStruct {

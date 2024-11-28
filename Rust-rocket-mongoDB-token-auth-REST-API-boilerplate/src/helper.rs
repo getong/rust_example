@@ -1,12 +1,13 @@
-use crate::database::connect_to_db::MongoDB;
-use crate::database::FindUserBy;
-use crate::models::model_user::User;
 use bcrypt::hash;
 use mongodb::bson::oid::ObjectId;
-use rocket::http::Status;
-use rocket::State;
+use rocket::{http::Status, State};
 
-//check valid text
+use crate::{
+  database::{connect_to_db::MongoDB, FindUserBy},
+  models::model_user::User,
+};
+
+// check valid text
 pub fn check_valid_text(text: &str, max_size: usize, min_size: usize) -> bool {
   return if !text.is_empty() && text.len() <= max_size && text.len() >= min_size {
     true
@@ -15,7 +16,7 @@ pub fn check_valid_text(text: &str, max_size: usize, min_size: usize) -> bool {
   };
 }
 
-//check valid name
+// check valid name
 pub fn check_valid_name(text: &str, max_size: usize, min_size: usize) -> bool {
   return if text.is_empty() || text.len() <= max_size && text.len() >= min_size {
     true
@@ -24,7 +25,7 @@ pub fn check_valid_name(text: &str, max_size: usize, min_size: usize) -> bool {
   };
 }
 
-//hash text
+// hash text
 pub fn hash_text(text: String, cost: u32) -> Result<String, Status> {
   return match hash(text, cost) {
     Ok(hash_text) => Ok(hash_text),
@@ -32,7 +33,7 @@ pub fn hash_text(text: String, cost: u32) -> Result<String, Status> {
   };
 }
 
-//parse str to objectId
+// parse str to objectId
 pub fn object_id_parse_str(id_str: String) -> Result<ObjectId, String> {
   match ObjectId::parse_str(id_str) {
     Ok(to_id) => Ok(to_id),
@@ -57,7 +58,7 @@ pub async fn find_user_by_login_and_mail(
   }
 }
 
-//check data from request auth
+// check data from request auth
 pub fn check_data_from_auth_header(auth_header: Option<&str>) -> Result<Vec<&str>, ()> {
   return if let Some(auth_string) = auth_header {
     let vec_header = auth_string.split_whitespace().collect::<Vec<_>>();

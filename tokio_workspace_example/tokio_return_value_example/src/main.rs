@@ -1,6 +1,7 @@
-use tokio::sync::mpsc;
-
-use tokio::time::{sleep, Duration};
+use tokio::{
+  sync::mpsc,
+  time::{sleep, Duration},
+};
 
 async fn foo() -> i32 {
   sleep(Duration::from_secs(2)).await;

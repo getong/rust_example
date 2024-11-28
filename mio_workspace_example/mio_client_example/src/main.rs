@@ -1,13 +1,11 @@
-use mio::net::TcpStream;
-use mio::{Events, Interest, Poll as Mio_Poll, Token};
 use std::io::Read;
-/*
-So i have create a Executor,
-    It has a Events register (task themselves will register or unregister)
 
-    we poll for I/O events in a loop
-
-*/
+use mio::{net::TcpStream, Events, Interest, Poll as Mio_Poll, Token};
+// So i have create a Executor,
+// It has a Events register (task themselves will register or unregister)
+//
+// we poll for I/O events in a loop
+//
 
 struct Executor {
   clients: Vec<TcpStream>,

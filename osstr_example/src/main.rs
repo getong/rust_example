@@ -1,5 +1,4 @@
-use std::ffi::OsStr;
-use std::path::Path;
+use std::{ffi::OsStr, path::Path};
 
 fn main() {
   // println!("Hello, world!");

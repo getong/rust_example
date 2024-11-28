@@ -1,8 +1,10 @@
+use std::{error::Error, net::ToSocketAddrs};
+
 use native_tls::TlsConnector;
-use std::error::Error;
-use std::net::ToSocketAddrs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::TcpStream,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {

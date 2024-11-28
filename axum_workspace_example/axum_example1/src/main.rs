@@ -1,15 +1,13 @@
 use axum::{
+  extract::Path,
   http::StatusCode,
   response::IntoResponse,
   routing::{get, get_service, post},
   Json, Router,
 };
-
-use axum::extract::Path;
-use tower_http::services::ServeFile;
-
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tower_http::services::ServeFile;
 
 // use std::io;
 

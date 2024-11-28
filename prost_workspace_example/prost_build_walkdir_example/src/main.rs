@@ -1,7 +1,6 @@
-use prost::Message;
-use prost::Name;
-use std::any::Any;
-use std::error::Error;
+use std::{any::Any, error::Error};
+
+use prost::{Message, Name};
 
 // mod mypackage {
 //     include!("protos/mypackage.rs");

@@ -1,12 +1,15 @@
-use crate::check_valid_text;
-use crate::constants::LenText;
-use crate::helper::check_valid_name;
-use crate::models::request::patch_request::EditUserRequest;
-use crate::models::request::registration_request::RegistrationRequest;
-use crate::routes::TypeValidDataFromRegistration::*;
-use crate::routes::{TypeValidDataFromRegistration, TypeValidMail, TypeValidTwoStr};
 use regex::Regex;
 use rocket::serde::json::Json;
+
+use crate::{
+  check_valid_text,
+  constants::LenText,
+  helper::check_valid_name,
+  models::request::{patch_request::EditUserRequest, registration_request::RegistrationRequest},
+  routes::{
+    TypeValidDataFromRegistration, TypeValidDataFromRegistration::*, TypeValidMail, TypeValidTwoStr,
+  },
+};
 
 pub fn get_valid_login_and_password(
   login: &str,

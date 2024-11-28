@@ -1,5 +1,4 @@
-use std::mem::size_of_val;
-use std::ops::Deref;
+use std::{mem::size_of_val, ops::Deref};
 
 fn main() {
   let mut v1 = vec![1, 2, 3, 4];

@@ -1,5 +1,6 @@
-use bitflags::bitflags;
 use std::fmt;
+
+use bitflags::bitflags;
 
 bitflags! {
     struct MyFlags: u32 {

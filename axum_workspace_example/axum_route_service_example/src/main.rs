@@ -1,6 +1,7 @@
+use std::convert::Infallible;
+
 use axum::{body::Body, extract::Request, routing::any_service, Router};
 use http::Response;
-use std::convert::Infallible;
 use tower::service_fn;
 use tower_http::services::ServeFile;
 

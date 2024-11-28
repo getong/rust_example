@@ -1,7 +1,6 @@
-use sqlite;
-use sqlite::Connection;
-use sqlite::State;
 use std::io;
+
+use sqlite::{self, Connection, State};
 
 pub fn addrecord(conn: &Connection) -> io::Result<()> {
   let mut title = String::new();

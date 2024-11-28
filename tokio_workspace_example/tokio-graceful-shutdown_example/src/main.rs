@@ -1,7 +1,9 @@
-use std::error::Error;
-use std::time::Duration;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::time::sleep;
+use std::{error::Error, time::Duration};
+
+use tokio::{
+  signal::unix::{signal, SignalKind},
+  time::sleep,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

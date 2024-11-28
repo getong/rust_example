@@ -1,6 +1,4 @@
-use async_std::io::prelude::*;
-use async_std::net;
-use async_std::task;
+use async_std::{io::prelude::*, net, task};
 
 async fn cheapo_request(host: &str, port: u16, path: &str) -> std::io::Result<String> {
   let mut socket = net::TcpStream::connect((host, port)).await?;
@@ -15,7 +13,7 @@ async fn cheapo_request(host: &str, port: u16, path: &str) -> std::io::Result<St
 }
 
 fn main() -> std::io::Result<()> {
-  //println!("Hello, world!");
+  // println!("Hello, world!");
 
   let response = task::block_on(cheapo_request("baidu.com", 80, "/"))?;
   println!("{}", response);

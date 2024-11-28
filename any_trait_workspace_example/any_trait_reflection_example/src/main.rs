@@ -1,5 +1,4 @@
-use std::any::Any;
-use std::fmt::Debug;
+use std::{any::Any, fmt::Debug};
 
 fn load_config<T: Any + Debug>(value: &T) -> Vec<String> {
   let mut cfgs: Vec<String> = vec![];

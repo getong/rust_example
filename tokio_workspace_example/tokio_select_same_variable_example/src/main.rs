@@ -1,8 +1,10 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration};
+use std::{net::SocketAddr, sync::Arc};
+
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  sync::Mutex,
+  time::{sleep, Duration},
+};
 
 async fn receive(
   mut reader: tokio::net::tcp::OwnedReadHalf,

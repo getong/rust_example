@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tokio::task;
+
+use tokio::{sync::Semaphore, task};
 
 async fn perform_task(id: usize) {
   println!("Task {} is running", id);

@@ -1,6 +1,7 @@
-use argmin::prelude::*;
-use argmin::solver::gradientdescent::SteepestDescent;
-use argmin::solver::linesearch::MoreThuenteLineSearch;
+use argmin::{
+  prelude::*,
+  solver::{gradientdescent::SteepestDescent, linesearch::MoreThuenteLineSearch},
+};
 use argmin_testfunctions::{rosenbrock_2d, rosenbrock_2d_derivative, rosenbrock_2d_hessian};
 
 /// First, create a struct for your problem

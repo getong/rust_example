@@ -1,5 +1,4 @@
-use std::marker::PhantomPinned;
-use std::pin::Pin;
+use std::{marker::PhantomPinned, pin::Pin};
 
 #[derive(Debug)]
 pub struct Test {

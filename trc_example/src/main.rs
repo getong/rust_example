@@ -1,7 +1,6 @@
 use std::thread;
-use trc::SharedTrc;
-use trc::Trc;
-use trc::Weak;
+
+use trc::{SharedTrc, Trc, Weak};
 
 fn basic_trc() {
   let mut trc = Trc::new(100);

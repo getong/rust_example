@@ -1,7 +1,9 @@
-use std::error::Error;
-use std::fmt::{self, Display};
-use std::fs::File;
-use std::io::Read;
+use std::{
+  error::Error,
+  fmt::{self, Display},
+  fs::File,
+  io::Read,
+};
 
 fn read_file() -> Result<String, Box<dyn Error>> {
   let mut file = File::open("example.txt")?;

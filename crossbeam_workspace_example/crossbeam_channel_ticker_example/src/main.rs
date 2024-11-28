@@ -1,6 +1,6 @@
+use std::time::{Duration, Instant};
+
 use crossbeam_channel::tick;
-use std::time::Duration;
-use std::time::Instant;
 
 fn simple_ticker() {
   let start = Instant::now();

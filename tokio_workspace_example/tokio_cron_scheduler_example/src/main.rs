@@ -1,7 +1,7 @@
+use std::{error::Error, time::Duration};
+
 use anyhow::Result;
 use chrono::Utc;
-use std::error::Error;
-use std::time::Duration;
 use tokio_cron_scheduler::{Job, JobBuilder, JobScheduler, JobSchedulerError};
 use tracing::{error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;

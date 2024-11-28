@@ -3,8 +3,8 @@
 
 const SHEET_NAME: &str = "client_translate";
 const COMMENT_PREFIX: &str = "//";
-//const SHEET_NAME: &str = "server_translate";
-//const COMMENT_PREFIX: &str = "--";
+// const SHEET_NAME: &str = "server_translate";
+// const COMMENT_PREFIX: &str = "--";
 
 use office::{DataType, Excel};
 
@@ -24,7 +24,7 @@ fn main() {
         0 => {
           match i.get(1) {
             Some(DataType::String(filename_and_line)) => {
-              //println!("line 0, filename_and_line:{:?}", filename_and_line);
+              // println!("line 0, filename_and_line:{:?}", filename_and_line);
               let mut split = filename_and_line.split(':');
               if let Some(match_filename2) = split.next() {
                 if let Some(line_str) = split.next() {
@@ -47,8 +47,8 @@ fn main() {
         }
         _ => {
           // 找到要替换的文字， i[1]是整行，i[2]是被替换的中文汉字，i[3]是替换的
-          //英文翻译
-          //println!("line 1 i[2]:{:?}, i[3]:{:?}", i[2], i[3]);
+          // 英文翻译
+          // println!("line 1 i[2]:{:?}, i[3]:{:?}", i[2], i[3]);
           if let Some(DataType::String(whole_line)) = i.get(1) {
             if let Some(DataType::String(chinese_str)) = i.get(2) {
               if let Some(DataType::String(english_str)) = i.get(3) {

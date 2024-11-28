@@ -1,11 +1,11 @@
-use futures::FutureExt;
 use std::{
   future::Future,
   pin::Pin,
   task::{Context, Poll},
 };
-use tokio::time::Duration;
-use tokio::time::Sleep;
+
+use futures::FutureExt;
+use tokio::time::{Duration, Sleep};
 
 #[tokio::main]
 async fn main() {

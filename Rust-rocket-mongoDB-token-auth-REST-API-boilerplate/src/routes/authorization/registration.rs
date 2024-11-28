@@ -1,20 +1,19 @@
-use rocket::http::Status;
-use rocket::serde::json::Json;
-use rocket::State;
+use rocket::{http::Status, serde::json::Json, State};
 
-use crate::constants::{
-  ALREADY_REGISTERED_LOGIN, ALREADY_REGISTERED_MAIL, LEN_FIRST_NAME, LEN_LAST_NAME, LEN_LOGIN,
-  LEN_PASSWORD, UNKNOWN, WEAK_LOGIN, WEAK_PASSWORD, WRONG_FIRST_NAME, WRONG_LAST_NAME, WRONG_MAIL,
-  WRONG_REQUEST,
+use crate::{
+  constants::{
+    ALREADY_REGISTERED_LOGIN, ALREADY_REGISTERED_MAIL, LEN_FIRST_NAME, LEN_LAST_NAME, LEN_LOGIN,
+    LEN_PASSWORD, UNKNOWN, WEAK_LOGIN, WEAK_PASSWORD, WRONG_FIRST_NAME, WRONG_LAST_NAME,
+    WRONG_MAIL, WRONG_REQUEST,
+  },
+  database::{connect_to_db::MongoDB, RegistrationError},
+  error_response::error_responses::ErrorResponse,
+  models::{request::registration_request::RegistrationRequest, tokens::Token},
+  routes::{
+    authorization::RegistrationRequestError, validator_authorization::valid_registration_data_user,
+    TypeValidDataFromRegistration,
+  },
 };
-use crate::database::connect_to_db::MongoDB;
-use crate::database::RegistrationError;
-use crate::error_response::error_responses::ErrorResponse;
-use crate::models::request::registration_request::RegistrationRequest;
-use crate::models::tokens::Token;
-use crate::routes::authorization::RegistrationRequestError;
-use crate::routes::validator_authorization::valid_registration_data_user;
-use crate::routes::TypeValidDataFromRegistration;
 
 #[post(
   "/registration",

@@ -10,8 +10,7 @@ impl DVD {
   }
 }
 
-use std::iter::FromIterator;
-use std::thread;
+use std::{iter::FromIterator, thread};
 
 fn main() {
   let mut movies = vec![

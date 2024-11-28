@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use arrow::array::*;
-use arrow::datatypes::*;
-use arrow::error::Result as ArrowResult;
-use arrow::record_batch::*;
+use arrow::{array::*, datatypes::*, error::Result as ArrowResult, record_batch::*};
 
 fn main() -> ArrowResult<()> {
   // Define a schema with a vector of fields

@@ -1,8 +1,8 @@
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
-use tokio::net::{TcpListener, TcpStream};
-
-use tokio::io::AsyncWriteExt;
+use tokio::{
+  fs::File,
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

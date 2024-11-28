@@ -1,15 +1,12 @@
 use anyhow::Result;
 use futures::StreamExt;
-
 use libp2p::{
   floodsub::{self, Floodsub, FloodsubEvent},
   identity, mdns, noise,
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, Multiaddr, PeerId, SwarmBuilder,
 };
-use tokio::io;
-use tokio::io::AsyncBufReadExt;
-use tokio::time::Duration;
+use tokio::{io, io::AsyncBufReadExt, time::Duration};
 
 // 自定义网络行为，组合floodsub和mDNS。
 #[derive(NetworkBehaviour)]

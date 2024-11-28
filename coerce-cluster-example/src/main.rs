@@ -1,11 +1,10 @@
 use actor::{Echo, EchoActor};
-use coerce::actor::system::ActorSystem;
-use coerce::actor::IntoActor;
-use coerce::remote::system::RemoteActorSystem;
-use opentelemetry::global;
-use opentelemetry::sdk::propagation::TraceContextPropagator;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use coerce::{
+  actor::{system::ActorSystem, IntoActor},
+  remote::system::RemoteActorSystem,
+};
+use opentelemetry::{global, sdk::propagation::TraceContextPropagator};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod actor;
 

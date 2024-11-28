@@ -1,5 +1,4 @@
-use std::net::SocketAddr;
-use std::path::Path;
+use std::{net::SocketAddr, path::Path};
 
 #[volo::main]
 async fn main() {

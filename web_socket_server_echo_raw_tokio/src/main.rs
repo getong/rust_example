@@ -1,6 +1,6 @@
-use tokio::net::TcpListener;
-
 use std::borrow::BorrowMut;
+
+use tokio::net::TcpListener;
 use wtx::{
   web_socket::{
     handshake::{WebSocketAccept, WebSocketAcceptRaw},

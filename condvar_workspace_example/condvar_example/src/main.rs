@@ -1,5 +1,7 @@
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
+use std::{
+  sync::{Arc, Condvar, Mutex},
+  thread,
+};
 
 fn main() {
   // println!("Hello, world!");

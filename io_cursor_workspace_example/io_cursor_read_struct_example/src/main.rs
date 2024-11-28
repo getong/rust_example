@@ -10,15 +10,15 @@ struct DataParse {
 
 // use byteorder::BigEndian;
 // use byteorder::NativeEndian;
-use serde::Deserialize;
-use serde::Serialize;
+use std::{
+  fs::File,
+  io::{self, prelude::*, Cursor, Write},
+  path::Path,
+};
+
 // use bincode::{serialize, deserialize};
 use byteorder::{LittleEndian, ReadBytesExt};
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::Cursor;
-use std::io::{self, Write};
-use std::path::Path;
+use serde::{Deserialize, Serialize};
 
 const FILENAME: &str = "abc.txt";
 

@@ -1,25 +1,16 @@
-use actix_web::post;
-use actix_web::web;
-use actix_web::web::Data;
-use actix_web::Responder;
-use openraft::error::CheckIsLeaderError;
-use openraft::error::Infallible;
-use openraft::error::RaftError;
+use actix_web::{post, web, web::Data, Responder};
+use openraft::error::{CheckIsLeaderError, Infallible, RaftError};
 use web::Json;
 
-use crate::app::App;
-use crate::store::Request;
-use crate::TypeConfig;
+use crate::{app::App, store::Request, TypeConfig};
 
-/**
- * Application API
- *
- * This is where you place your application, you can use the example below to create your
- * API. The current implementation:
- *
- *  - `POST - /write` saves a value in a key and sync the nodes.
- *  - `POST - /read` attempt to find a value from a given key.
- */
+/// Application API
+///
+/// This is where you place your application, you can use the example below to create your
+/// API. The current implementation:
+///
+///  - `POST - /write` saves a value in a key and sync the nodes.
+///  - `POST - /read` attempt to find a value from a given key.
 #[post("/write")]
 pub async fn write(app: Data<App>, req: Json<Request>) -> actix_web::Result<impl Responder> {
   let response = app.raft.client_write(req.0).await;

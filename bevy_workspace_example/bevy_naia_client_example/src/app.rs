@@ -4,7 +4,6 @@ use bevy::{
   },
   DefaultPlugins,
 };
-
 use naia_bevy_client::{ClientConfig, Plugin as ClientPlugin, ReceiveEvents};
 use naia_bevy_demo_shared::protocol;
 

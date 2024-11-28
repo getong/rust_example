@@ -1,19 +1,17 @@
-use bonsai_bt::Behavior::{If, Invert, Wait, WhenAny, While};
-use bonsai_bt::Status::{self};
-use bonsai_bt::{Action, RUNNING};
-use bonsai_bt::{Event, Status::Failure, Status::Success, UpdateArgs};
-use bonsai_bt::{Timer, BT};
-use kiss3d::event::EventManager;
-use kiss3d::text::Font;
-use kiss3d::window::Window;
-use kiss3d::{light::Light, scene::SceneNode};
+use std::{collections::HashMap, thread::sleep, time::Duration};
+
+use bonsai_bt::{
+  Action,
+  Behavior::{If, Invert, Wait, WhenAny, While},
+  Event,
+  Status::{self, Failure, Success},
+  Timer, UpdateArgs, BT, RUNNING,
+};
+use kiss3d::{event::EventManager, light::Light, scene::SceneNode, text::Font, window::Window};
 use na::{Point2, Point3, Translation3, UnitQuaternion, Vector3};
 use nalgebra as na;
 use rand::Rng;
 use serde_json::{Number, Value};
-use std::collections::HashMap;
-use std::thread::sleep;
-use std::time::Duration;
 
 /// Underlying numeric type.
 pub type Scalar = f32;

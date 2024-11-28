@@ -1,7 +1,8 @@
+use std::time::Duration;
+
 use once_cell::sync::Lazy;
 use rand::Rng;
 use reqwest::Client;
-use std::time::Duration;
 use tokio::time::sleep;
 
 pub static REQUEST_CLIENT: Lazy<Client> = Lazy::new(reqwest::Client::new);

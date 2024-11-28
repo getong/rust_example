@@ -1,6 +1,4 @@
-use rustler::thread;
-use rustler::types::atom;
-use rustler::{Atom, Encoder, Env};
+use rustler::{thread, types::atom, Atom, Encoder, Env};
 
 #[rustler::nif]
 pub fn threaded_fac(env: Env, n: u64) -> Atom {

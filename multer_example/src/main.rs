@@ -1,9 +1,10 @@
+use std::convert::Infallible;
+
 use bytes::Bytes;
-use futures::stream::Stream;
 // Import multer types.
 use futures::stream;
+use futures::stream::Stream;
 use multer::Multipart;
-use std::convert::Infallible;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,7 +1,9 @@
 #![feature(generators, generator_trait)]
 
-use std::ops::{Generator, GeneratorState};
-use std::pin::Pin;
+use std::{
+  ops::{Generator, GeneratorState},
+  pin::Pin,
+};
 
 fn main() {
   let mut generator = || {

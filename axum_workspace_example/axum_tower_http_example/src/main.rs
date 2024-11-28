@@ -1,9 +1,10 @@
+use std::net::SocketAddr;
+
 use axum::{response::Json, routing::get, Router};
 use http::{
   header::{ACCEPT, AUTHORIZATION},
   Method,
 };
-use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
 #[tokio::main]

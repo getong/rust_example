@@ -1,5 +1,7 @@
-use std::cmp::{Ord, Ordering};
-use std::collections::HashSet;
+use std::{
+  cmp::{Ord, Ordering},
+  collections::HashSet,
+};
 
 #[derive(Clone, Debug)]
 pub struct IoTDevice {

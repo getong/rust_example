@@ -1,8 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-use s2n_quic::Server;
 use std::error::Error;
+
+use s2n_quic::Server;
 
 /// NOTE: this certificate is to be used for demonstration purposes only!
 // pub static CERT_PEM: &str = include_str!(concat!(

@@ -1,6 +1,6 @@
 use std::io::{self};
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpStream;
+
+use tokio::{io::AsyncReadExt, net::TcpStream};
 
 const BUFFER_SIZE: usize = 1024;
 

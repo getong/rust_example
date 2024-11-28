@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use delay_timer::prelude::*;
 #[allow(deprecated)]
@@ -5,7 +7,6 @@ use delay_timer::utils::convenience::functions::unblock_process_task_fn;
 use http_body_util::{BodyExt, Empty};
 use hyper::Request;
 use hyper_util::client::legacy::Client;
-use std::time::Duration;
 use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
@@ -22,7 +23,8 @@ async fn main() -> Result<()> {
     .init();
 
   // In addition to the mixed (smol & tokio) runtime
-  // You can also share a tokio runtime with delayTimer, please see api `DelayTimerBuilder::tokio_runtime` for details.
+  // You can also share a tokio runtime with delayTimer, please see api
+  // `DelayTimerBuilder::tokio_runtime` for details.
 
   // Build an DelayTimer that uses the default configuration of the Smol runtime internally.
   let delay_timer = DelayTimerBuilder::default().build();

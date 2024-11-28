@@ -1,5 +1,6 @@
-use rustler::Atom;
 use std::time::Duration;
+
+use rustler::Atom;
 
 mod atoms {
   rustler::atoms! { ok }

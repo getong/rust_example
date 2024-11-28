@@ -1,6 +1,8 @@
 // arc_mutex.rs
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::{
+  sync::{Arc, Mutex},
+  thread::{self, JoinHandle},
+};
 
 struct MySharedData {
   pub counter: u32,

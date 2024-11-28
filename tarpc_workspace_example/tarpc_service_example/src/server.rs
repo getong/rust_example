@@ -4,6 +4,11 @@
 // license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
 
+use std::{
+  net::{IpAddr, Ipv6Addr, SocketAddr},
+  time::Duration,
+};
+
 use clap::Parser;
 use futures::{future, prelude::*};
 use rand::{
@@ -11,10 +16,6 @@ use rand::{
   thread_rng,
 };
 use service::{init_tracing, World};
-use std::{
-  net::{IpAddr, Ipv6Addr, SocketAddr},
-  time::Duration,
-};
 use tarpc::{
   context,
   server::{self, incoming::Incoming, Channel},

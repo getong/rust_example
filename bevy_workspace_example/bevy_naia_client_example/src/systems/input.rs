@@ -1,5 +1,4 @@
 use bevy::prelude::{Input, KeyCode, Query, Res, ResMut, Vec2, Window};
-
 use naia_bevy_client::Client;
 use naia_bevy_demo_shared::{components::Position, messages::KeyCommand};
 

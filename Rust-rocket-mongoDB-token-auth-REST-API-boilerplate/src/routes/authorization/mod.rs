@@ -1,6 +1,8 @@
-use crate::models::request::login_request::LoginRequest;
-use crate::models::request::registration_request::RegistrationRequest;
 use rocket::serde::json::Json;
+
+use crate::models::request::{
+  login_request::LoginRequest, registration_request::RegistrationRequest,
+};
 
 pub mod login;
 pub mod registration;

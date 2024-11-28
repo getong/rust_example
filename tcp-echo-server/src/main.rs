@@ -1,11 +1,13 @@
 extern crate rand;
 
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use std::io::{Error, Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::thread;
-use std::time::Duration;
+use std::{
+  io::{Error, Read, Write},
+  net::{TcpListener, TcpStream},
+  thread,
+  time::Duration,
+};
+
+use rand::{seq::SliceRandom, thread_rng};
 
 // Handles a single client
 fn handle_client(mut stream: TcpStream) -> Result<(), Error> {

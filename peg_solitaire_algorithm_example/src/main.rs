@@ -1,5 +1,7 @@
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
+use std::{
+  collections::HashSet,
+  hash::{Hash, Hasher},
+};
 
 #[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Debug)]
 pub struct Field([[bool; 7]; 7]);

@@ -1,6 +1,7 @@
+use std::error::Error;
+
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, USER_AGENT};
 use serde_json::json;
-use std::error::Error;
 
 fn construct_headers() -> HeaderMap {
   let mut headers = HeaderMap::new();

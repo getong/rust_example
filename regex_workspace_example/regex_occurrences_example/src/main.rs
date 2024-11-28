@@ -1,7 +1,7 @@
-use lazy_static::lazy_static;
-
-use regex::Regex;
 use std::borrow::Cow;
+
+use lazy_static::lazy_static;
+use regex::Regex;
 
 fn reformat_dates(before: &str) -> Cow<str> {
   lazy_static! {

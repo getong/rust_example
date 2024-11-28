@@ -1,4 +1,5 @@
-// (module-load "/Users/gerald/personal_infos/rust_example/greet-emacs/target/debug/libgreet_emacs.dylib")
+// (module-load
+// "/Users/gerald/personal_infos/rust_example/greet-emacs/target/debug/libgreet_emacs.dylib")
 
 //     (greeting-say-hello "rust")
 

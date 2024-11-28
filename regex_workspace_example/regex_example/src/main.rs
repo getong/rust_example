@@ -1,8 +1,6 @@
+use std::{env, io, io::prelude::*, net::TcpStream};
+
 use regex::Regex;
-use std::env;
-use std::io;
-use std::io::prelude::*;
-use std::net::TcpStream;
 
 fn validate_input(input: &String) -> bool {
   let valid: bool;

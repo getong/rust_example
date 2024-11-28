@@ -1,5 +1,4 @@
-use rand::rngs::OsRng;
-use rand::Rng;
+use rand::{rngs::OsRng, Rng};
 use tokio::time::{sleep, Duration};
 
 #[tokio::main]

@@ -1,10 +1,12 @@
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
+
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::{service::service_fn, Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
 use tokio::net::TcpListener;
 // curl http://localhost:1337
 

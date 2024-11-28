@@ -3,9 +3,10 @@ use std::{convert::Infallible, future::Future, net::SocketAddr, pin::Pin, sync::
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{body::Incoming, service::service_fn, Request, Response, StatusCode};
-use hyper_util::rt::TokioExecutor;
-use hyper_util::rt::TokioIo;
-use hyper_util::server::conn::auto;
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto,
+};
 use path_tree::PathTree;
 use tokio::net::TcpListener;
 

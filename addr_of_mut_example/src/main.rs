@@ -1,5 +1,4 @@
-use std::mem::MaybeUninit;
-use std::ptr::addr_of_mut;
+use std::{mem::MaybeUninit, ptr::addr_of_mut};
 
 struct Role {
   name: &'static str,

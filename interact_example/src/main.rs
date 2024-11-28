@@ -1,8 +1,9 @@
 extern crate interact;
 
+use std::{cell::RefCell, rc::Rc};
+
 use interact::Interact;
 use interact_prompt::{LocalRegistry, Settings};
-use std::{cell::RefCell, rc::Rc};
 
 #[derive(Interact)]
 struct Point {

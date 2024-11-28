@@ -1,4 +1,5 @@
 use std::time::Duration;
+
 use tokio_task_manager::TaskManager;
 
 #[tokio::main]
@@ -16,8 +17,8 @@ async fn main() {
     let n = i;
 
     // create a task per task that we spawn, such that:
-    // - the application can wait until the task is dropped,
-    //   identifying the spawned task is finished;
+    // - the application can wait until the task is dropped, identifying the spawned task is
+    //   finished;
     // - the spawn task knows that the application is gracefully shutting down (.wait);
     let mut task = tm.task();
     tokio::spawn(async move {

@@ -64,11 +64,11 @@ fn main() {
     point_capnp::point::Owned,
   > = capnp::message::TypedReader::new(deserialized);
 
-  // Because the point_reader is now working with OwnedSegments (which are owned vectors) and an Owned message
-  // (which is 'static lifetime), this is now safe
+  // Because the point_reader is now working with OwnedSegments (which are owned vectors) and an
+  // Owned message (which is 'static lifetime), this is now safe
   let handle = std::thread::spawn(move || {
-    // The point_reader owns its data, and we use .get() to retrieve the actual point_capnp::point::Reader
-    // object from it
+    // The point_reader owns its data, and we use .get() to retrieve the actual
+    // point_capnp::point::Reader object from it
     let point_root = point_reader.get().unwrap();
 
     assert_eq!(point_root.get_x(), 12);

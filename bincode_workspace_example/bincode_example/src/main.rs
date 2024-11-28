@@ -1,9 +1,11 @@
-use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
 // use std::io::{, Write};
 use std::io::Seek;
-use std::io::SeekFrom;
-use std::io::{Read, Write};
+use std::{
+  fs::OpenOptions,
+  io::{Read, SeekFrom, Write},
+};
+
+use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct Entity {
   x: f32,

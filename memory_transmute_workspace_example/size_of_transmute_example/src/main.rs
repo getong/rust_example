@@ -1,5 +1,4 @@
-use std::mem::size_of;
-use std::mem::transmute;
+use std::mem::{size_of, transmute};
 
 fn main() {
   println!("{:?}", size_of::<&[i32; 3]>());

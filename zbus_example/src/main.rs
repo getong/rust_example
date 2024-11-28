@@ -1,4 +1,5 @@
 use std::{error::Error, thread::sleep, time::Duration};
+
 use zbus::{dbus_interface, ConnectionBuilder};
 
 struct Greeter {

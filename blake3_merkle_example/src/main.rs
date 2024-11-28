@@ -1,6 +1,6 @@
-use blake3_merkle::Merkle;
-
 use std::{env, error::Error, fs::File, io::copy};
+
+use blake3_merkle::Merkle;
 
 fn main() -> Result<(), Box<dyn Error>> {
   let key = "hello world";

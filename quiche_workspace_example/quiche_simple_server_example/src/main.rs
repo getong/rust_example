@@ -1,5 +1,6 @@
-use quiche::ConnectionId;
 use std::net::UdpSocket;
+
+use quiche::ConnectionId;
 
 #[tokio::main]
 async fn main() {

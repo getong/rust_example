@@ -1,7 +1,6 @@
 use std::default::Default;
 
 use bevy::prelude::{ColorMaterial, Entity, Handle, Mesh, Resource};
-
 use naia_bevy_client::CommandHistory;
 use naia_bevy_demo_shared::messages::KeyCommand;
 

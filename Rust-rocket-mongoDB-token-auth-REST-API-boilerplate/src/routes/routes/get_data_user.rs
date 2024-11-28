@@ -1,11 +1,12 @@
-use rocket::serde::json::Json;
-use rocket::State;
+use rocket::{serde::json::Json, State};
 
-use crate::database::connect_to_db::MongoDB;
-use crate::helper::{parse_id_and_find_user_by_id, FindUserById};
-use crate::models::response::public_data_for_user::PublicDataForUser;
-use crate::routes::authorization::token::request_access_token::AuthorizedUser;
-use crate::{ErrorResponse, Status, UNAUTHORIZED};
+use crate::{
+  database::connect_to_db::MongoDB,
+  helper::{parse_id_and_find_user_by_id, FindUserById},
+  models::response::public_data_for_user::PublicDataForUser,
+  routes::authorization::token::request_access_token::AuthorizedUser,
+  ErrorResponse, Status, UNAUTHORIZED,
+};
 
 #[get("/user")]
 pub async fn get_data_user(

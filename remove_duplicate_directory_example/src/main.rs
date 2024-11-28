@@ -1,8 +1,9 @@
 // use error_chain::error_chain;
-use std::fs;
-use std::io::Error;
-use std::path::Path;
-use std::path::PathBuf;
+use std::{
+  fs,
+  io::Error,
+  path::{Path, PathBuf},
+};
 
 // when TWO_DIRECTORY_FLAG is true
 // mkdir -p /tmp/a/b/c/d

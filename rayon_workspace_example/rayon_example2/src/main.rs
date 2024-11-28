@@ -1,5 +1,6 @@
-use rayon::prelude::*;
 use std::time::Instant;
+
+use rayon::prelude::*;
 
 fn main() {
   // Create a large vector of numbers

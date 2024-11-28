@@ -1,9 +1,10 @@
-use rand::rngs::OsRng;
-use rand::Rng;
 use std::sync::Arc;
-use tokio::sync::oneshot;
-use tokio::sync::Mutex;
-use tokio::time::{timeout, Duration};
+
+use rand::{rngs::OsRng, Rng};
+use tokio::{
+  sync::{oneshot, Mutex},
+  time::{timeout, Duration},
+};
 
 #[tokio::main]
 async fn main() {

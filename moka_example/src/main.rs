@@ -1,7 +1,7 @@
 // Use the synchronous cache.
-use moka::sync::Cache;
-
 use std::thread;
+
+use moka::sync::Cache;
 
 fn value(n: usize) -> String {
   format!("value {}", n)

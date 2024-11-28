@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 
 fn main() {
-  //println!("Hello, world!");
+  // println!("Hello, world!");
   // count the frequency of each letter in a sentence.
   let mut letters = IndexMap::new();
   for ch in "a short treatise on fungi".chars() {

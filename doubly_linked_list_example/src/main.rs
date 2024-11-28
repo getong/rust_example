@@ -1,9 +1,11 @@
 // copy from https://gist.github.com/anonymous/c3db81ec94bf231b721ef483f58deb35
 
 //! A doubly-linked list in 50 LOCs of stable and safe Rust.
-use std::cell::RefCell;
-use std::fmt::Display;
-use std::rc::{Rc, Weak};
+use std::{
+  cell::RefCell,
+  fmt::Display,
+  rc::{Rc, Weak},
+};
 
 // The node type stores the data and two pointers.
 //

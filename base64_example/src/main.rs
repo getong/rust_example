@@ -1,5 +1,4 @@
-use base64::{alphabet, engine};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{alphabet, engine, engine::general_purpose, Engine as _};
 
 fn basic_decode() {
   let bytes = general_purpose::STANDARD

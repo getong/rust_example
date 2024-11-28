@@ -1,5 +1,4 @@
-use flatten_json_object::ArrayFormatting;
-use flatten_json_object::Flattener;
+use flatten_json_object::{ArrayFormatting, Flattener};
 use serde_json::json;
 
 fn main() {

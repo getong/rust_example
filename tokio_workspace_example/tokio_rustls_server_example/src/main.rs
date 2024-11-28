@@ -1,15 +1,19 @@
-use std::fs::File;
-use std::io::{self, BufReader};
-use std::net::ToSocketAddrs;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+  fs::File,
+  io::{self, BufReader},
+  net::ToSocketAddrs,
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use argh::FromArgs;
 use rustls_pemfile::{certs, rsa_private_keys};
 // use rustls_pki_types::ServerName;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use tokio::io::{copy, sink, split, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::{
+  io::{copy, sink, split, AsyncWriteExt},
+  net::TcpListener,
+};
 use tokio_rustls::TlsAcceptor;
 
 /// Tokio Rustls server example

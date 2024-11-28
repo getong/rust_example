@@ -1,15 +1,12 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::{
+  collections::BTreeMap,
+  sync::{Arc, Mutex},
+};
 
 use openraft::error::Unreachable;
 use tokio::sync::oneshot;
 
-use crate::app::RequestTx;
-use crate::decode;
-use crate::encode;
-use crate::NodeId;
-use crate::RaftError;
+use crate::{app::RequestTx, decode, encode, NodeId, RaftError};
 
 /// Simulate a network router.
 #[derive(Debug, Clone, Default)]

@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use quickwit_actors::{Actor, ActorContext, ActorExitStatus, Handler, Mailbox, Universe};
-use std::time::Duration;
 
 #[derive(Default)]
 struct PingReceiver;

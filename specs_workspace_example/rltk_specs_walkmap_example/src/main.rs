@@ -1,7 +1,8 @@
+use std::cmp::{max, min};
+
 use rltk::{GameState, Rltk, VirtualKeyCode, RGB};
 use specs::prelude::*;
 use specs_derive::*;
-use std::cmp::{max, min};
 
 #[derive(Component)]
 struct Position {

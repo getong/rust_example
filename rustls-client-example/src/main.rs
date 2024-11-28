@@ -1,6 +1,8 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::sync::Arc;
+use std::{
+  io::{Read, Write},
+  net::TcpStream,
+  sync::Arc,
+};
 
 extern crate rustls;
 extern crate webpki;

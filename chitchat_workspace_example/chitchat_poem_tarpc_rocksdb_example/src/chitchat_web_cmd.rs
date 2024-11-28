@@ -1,10 +1,8 @@
 use chitchat::{ChitchatId, ClusterStateSnapshot};
+use poem_openapi::{param::Query, payload::Json, OpenApi};
+use serde::{Deserialize, Serialize};
 
 use crate::common::ChitchatApi;
-use poem_openapi::param::Query;
-use poem_openapi::payload::Json;
-use poem_openapi::OpenApi;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexResponse {

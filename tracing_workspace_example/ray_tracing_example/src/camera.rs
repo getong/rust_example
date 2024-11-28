@@ -1,6 +1,8 @@
-use crate::common;
-use crate::ray::Ray;
-use crate::vec3::{self, Point3, Vec3};
+use crate::{
+  common,
+  ray::Ray,
+  vec3::{self, Point3, Vec3},
+};
 
 pub struct Camera {
   origin: Point3,

@@ -1,6 +1,9 @@
+use std::{
+  io::{Read, Write},
+  net::TcpStream,
+};
+
 use openssl::ssl::{SslConnector, SslMethod};
-use std::io::{Read, Write};
-use std::net::TcpStream;
 
 fn main() {
   let connector = SslConnector::builder(SslMethod::tls()).unwrap().build();

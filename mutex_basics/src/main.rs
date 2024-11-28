@@ -1,6 +1,5 @@
 // mutex_basics.rs
-use std::sync::Mutex;
-use std::thread;
+use std::{sync::Mutex, thread};
 
 fn main() {
   let m = Mutex::new(0);

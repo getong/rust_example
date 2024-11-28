@@ -1,10 +1,9 @@
+use std::{io, os::unix::io::RawFd, sync::mpsc::Sender};
+
 use crate::{
   poll::{Poll, Registry},
   EventId,
 };
-use std::io;
-use std::os::unix::io::RawFd;
-use std::sync::mpsc::Sender;
 
 pub struct Reactor {
   pub registry: Option<Registry>,

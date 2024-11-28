@@ -1,5 +1,6 @@
-use rand;
 use std::io::Read;
+
+use rand;
 
 trait Checksum<R: Read> {
   fn calc(&mut self, r: R) -> Vec<u8>;

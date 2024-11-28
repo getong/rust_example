@@ -1,12 +1,14 @@
-use lazy_static::lazy_static;
-//use rand::prelude::*;
+// use rand::prelude::*;
 use std::collections::HashMap;
-use std::io;
-use std::io::prelude::*;
-use std::net::{TcpListener, TcpStream};
-use std::os::unix::io::AsRawFd;
-use std::sync::mpsc::channel;
-use std::sync::Mutex;
+use std::{
+  io,
+  io::prelude::*,
+  net::{TcpListener, TcpStream},
+  os::unix::io::AsRawFd,
+  sync::{mpsc::channel, Mutex},
+};
+
+use lazy_static::lazy_static;
 
 mod executor;
 mod poll;

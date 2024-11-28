@@ -1,5 +1,4 @@
-use std::ffi::CStr;
-use std::os::raw::c_char;
+use std::{ffi::CStr, os::raw::c_char};
 
 extern "C" {
   static environ: *mut *mut c_char;

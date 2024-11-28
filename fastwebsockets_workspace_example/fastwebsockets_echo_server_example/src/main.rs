@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use fastwebsockets::upgrade;
-use fastwebsockets::OpCode;
-use fastwebsockets::WebSocketError;
+use fastwebsockets::{upgrade, OpCode, WebSocketError};
 use http_body_util::Empty;
-use hyper::body::Bytes;
-use hyper::body::Incoming;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::Request;
-use hyper::Response;
+use hyper::{
+  body::{Bytes, Incoming},
+  server::conn::http1,
+  service::service_fn,
+  Request, Response,
+};
 use tokio::net::TcpListener;
 
 async fn handle_client(fut: upgrade::UpgradeFut) -> Result<(), WebSocketError> {

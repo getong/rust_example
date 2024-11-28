@@ -1,3 +1,11 @@
+use std::{
+  collections::{HashMap, hash_map::DefaultHasher},
+  env::args,
+  error::Error,
+  hash::{Hash, Hasher},
+  time::Duration,
+};
+
 use env_logger::{Builder, Env};
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
@@ -20,13 +28,6 @@ use libp2p::{
   yamux::Config as YamuxConfig,
 };
 use log::{error, info, warn};
-use std::{
-  collections::{HashMap, hash_map::DefaultHasher},
-  env::args,
-  error::Error,
-  hash::{Hash, Hasher},
-  time::Duration,
-};
 
 mod behavior;
 mod message;

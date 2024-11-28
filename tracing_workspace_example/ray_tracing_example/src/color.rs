@@ -1,6 +1,6 @@
-use crate::common;
-use crate::vec3::Vec3;
 use std::io::Write;
+
+use crate::{common, vec3::Vec3};
 
 // Type alias
 pub type Color = Vec3;

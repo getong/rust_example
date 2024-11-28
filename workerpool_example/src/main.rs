@@ -1,7 +1,9 @@
-use std::io::prelude::*;
-use std::io::{self, BufReader};
-use std::process::{ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::mpsc::channel;
+use std::{
+  io::{self, prelude::*, BufReader},
+  process::{ChildStdin, ChildStdout, Command, Stdio},
+  sync::mpsc::channel,
+};
+
 use workerpool::{Pool, Worker};
 
 struct LineDelimitedProcess {

@@ -1,5 +1,6 @@
-use notify::{RecursiveMode, Result, Watcher};
 use std::path::Path;
+
+use notify::{RecursiveMode, Result, Watcher};
 use tokio::sync::watch;
 
 #[tokio::main]

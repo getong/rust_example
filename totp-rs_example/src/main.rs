@@ -1,6 +1,6 @@
-//use std::fs::File;
-//use std::io::Write;
-//use std::time::SystemTime;
+// use std::fs::File;
+// use std::io::Write;
+// use std::time::SystemTime;
 use totp_rs::{Algorithm, Secret, TOTP};
 
 fn main() {

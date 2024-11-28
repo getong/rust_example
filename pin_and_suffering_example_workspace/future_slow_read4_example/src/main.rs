@@ -1,9 +1,8 @@
 use std::{
+  future::Future,
   pin::Pin,
   task::{Context, Poll},
 };
-
-use std::future::Future;
 
 use tokio::{
   fs::File,

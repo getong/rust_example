@@ -1,8 +1,10 @@
-use nom::bits::{bits, bytes, streaming::take};
-use nom::combinator::rest;
-use nom::error::Error;
-use nom::sequence::tuple;
-use nom::IResult;
+use nom::{
+  bits::{bits, bytes, streaming::take},
+  combinator::rest,
+  error::Error,
+  sequence::tuple,
+  IResult,
+};
 
 fn parse(input: &[u8]) -> IResult<&[u8], (u8, u8, &[u8])> {
   bits::<_, _, Error<(&[u8], usize)>, _, _>(tuple((

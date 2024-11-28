@@ -1,11 +1,11 @@
+use std::{future::Future, pin::Pin, task::Context};
+
 use tokio::{
   fs::File,
   io::{AsyncRead, AsyncReadExt, ReadBuf},
   macros::support::Poll,
   time::{Duration, Instant, Sleep},
 };
-
-use std::{future::Future, pin::Pin, task::Context};
 
 struct SlowRead<R> {
   reader: Pin<Box<R>>,

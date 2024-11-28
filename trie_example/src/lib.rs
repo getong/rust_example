@@ -1,5 +1,4 @@
-use std::boxed::Box;
-use std::collections::HashMap;
+use std::{boxed::Box, collections::HashMap};
 
 #[derive(Clone, Debug)]
 pub struct IoTDevice {

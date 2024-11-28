@@ -1,8 +1,12 @@
-use std::str;
-use std::sync::{Arc, Mutex, MutexGuard};
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::{TcpListener, TcpStream};
+use std::{
+  str,
+  sync::{Arc, Mutex, MutexGuard},
+};
+
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::{TcpListener, TcpStream},
+};
 
 #[tokio::main]
 async fn main() {

@@ -1,31 +1,17 @@
-use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::fmt::Debug;
-use std::io::Cursor;
-use std::marker::PhantomData;
-use std::ops::RangeBounds;
-use std::rc::Rc;
+use std::{
+  cell::RefCell, collections::BTreeMap, fmt::Debug, io::Cursor, marker::PhantomData,
+  ops::RangeBounds, rc::Rc,
+};
 
-use openraft::alias::SnapshotDataOf;
-use openraft::storage::IOFlushed;
-use openraft::storage::LogState;
-use openraft::storage::RaftLogStorage;
-use openraft::storage::RaftStateMachine;
-use openraft::storage::Snapshot;
-use openraft::Entry;
-use openraft::EntryPayload;
-use openraft::LogId;
-use openraft::RaftLogReader;
-use openraft::RaftSnapshotBuilder;
-use openraft::SnapshotMeta;
-use openraft::StorageError;
-use openraft::StoredMembership;
-use openraft::Vote;
-use serde::Deserialize;
-use serde::Serialize;
+use openraft::{
+  alias::SnapshotDataOf,
+  storage::{IOFlushed, LogState, RaftLogStorage, RaftStateMachine, Snapshot},
+  Entry, EntryPayload, LogId, RaftLogReader, RaftSnapshotBuilder, SnapshotMeta, StorageError,
+  StoredMembership, Vote,
+};
+use serde::{Deserialize, Serialize};
 
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{NodeId, TypeConfig};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
@@ -205,7 +191,7 @@ impl RaftStateMachine<TypeConfig> for Rc<StateMachineStore> {
   where
     I: IntoIterator<Item = Entry<TypeConfig>>,
   {
-    let mut res = Vec::new(); //No `with_capacity`; do not know `len` of iterator
+    let mut res = Vec::new(); // No `with_capacity`; do not know `len` of iterator
 
     let mut sm = self.state_machine.borrow_mut();
 

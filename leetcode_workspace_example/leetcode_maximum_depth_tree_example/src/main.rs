@@ -19,8 +19,7 @@ impl TreeNode {
 
 pub struct Solution;
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 impl Solution {
   pub fn max_depth(root: Option<Rc<RefCell<TreeNode>>>) -> i32 {
     Self::next_node(root.as_ref(), 0)

@@ -1,6 +1,7 @@
+use std::env;
+
 use bigdecimal::BigDecimal;
 use sqlx::postgres::PgPoolOptions;
-use std::env;
 
 // CREATE TABLE IF NOT EXISTS financial_data (
 //     id SERIAL PRIMARY KEY,

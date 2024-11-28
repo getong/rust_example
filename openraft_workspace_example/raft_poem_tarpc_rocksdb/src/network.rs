@@ -1,28 +1,20 @@
 // use std::fmt::Display;
-use openraft::error::InstallSnapshotError;
-use openraft::error::NetworkError;
-use openraft::error::RPCError;
-use openraft::error::RaftError;
-use openraft::network::RPCOption;
-
-use crate::api_rpc::ServiceError;
-use crate::api_rpc::WorldClient;
-use openraft::network::RaftNetwork;
-use openraft::network::RaftNetworkFactory;
-use openraft::raft::AppendEntriesRequest;
-use openraft::raft::AppendEntriesResponse;
-use openraft::raft::InstallSnapshotRequest;
-use openraft::raft::InstallSnapshotResponse;
-use openraft::raft::VoteRequest;
-use openraft::raft::VoteResponse;
-use openraft::AnyError;
+use openraft::{
+  error::{InstallSnapshotError, NetworkError, RPCError, RaftError},
+  network::{RPCOption, RaftNetwork, RaftNetworkFactory},
+  raft::{
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    VoteRequest, VoteResponse,
+  },
+  AnyError,
+};
 use serde::de::DeserializeOwned;
-
 use tarpc::{client, context, tokio_serde::formats::Json};
 
-use crate::Node;
-use crate::NodeId;
-use crate::TypeConfig;
+use crate::{
+  api_rpc::{ServiceError, WorldClient},
+  Node, NodeId, TypeConfig,
+};
 
 pub struct Network {}
 

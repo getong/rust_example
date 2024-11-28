@@ -1,6 +1,7 @@
+use std::time::Duration;
+
 use chrono::{DateTime, Local};
 use rand::Rng;
-use std::time::Duration;
 use tokio::time;
 
 #[tokio::main]

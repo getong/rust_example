@@ -22,7 +22,7 @@ async fn main() {
     .route("/", get(show_form).post(accept_form))
     .layer(DefaultBodyLimit::disable())
     .layer(RequestBodyLimitLayer::new(
-      250 * 1024 * 1024, /* 250mb */
+      250 * 1024 * 1024, // 250mb
     ))
     .layer(tower_http::trace::TraceLayer::new_for_http());
 

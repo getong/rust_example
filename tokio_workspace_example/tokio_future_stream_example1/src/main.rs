@@ -1,6 +1,5 @@
 use async_stream::stream;
-use futures::stream::Stream;
-use futures::StreamExt;
+use futures::{stream::Stream, StreamExt};
 use tokio::time::{sleep, Duration};
 
 async fn async_stream_generator() -> impl Stream<Item = i32> {

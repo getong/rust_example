@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use tokio::runtime::Runtime;
-use tokio::sync::Notify;
+
+use tokio::{runtime::Runtime, sync::Notify};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Create the runtime

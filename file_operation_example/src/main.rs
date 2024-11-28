@@ -1,9 +1,8 @@
-use encoding_rs::UTF_8;
 // use encoding_rs::ASCII;
 use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::Path;
+use std::{fs::File, io::prelude::*, path::Path};
+
+use encoding_rs::UTF_8;
 
 fn read_file() -> std::io::Result<()> {
   let mut file = fs::File::open("test.txt")?;

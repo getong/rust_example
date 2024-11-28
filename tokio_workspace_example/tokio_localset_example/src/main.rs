@@ -1,6 +1,8 @@
-use tokio::runtime::Builder;
-use tokio::sync::{mpsc, oneshot};
-use tokio::task::LocalSet;
+use tokio::{
+  runtime::Builder,
+  sync::{mpsc, oneshot},
+  task::LocalSet,
+};
 
 // This struct describes the task you want to spawn. Here we include
 // some simple examples. The oneshot channel allows sending a response

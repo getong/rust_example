@@ -1,8 +1,10 @@
-use std::future::Future;
-use std::io::Write;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::{fmt, fs};
+use std::{
+  fmt, fs,
+  future::Future,
+  io::Write,
+  pin::Pin,
+  task::{Context, Poll},
+};
 
 enum WriteHelloFile {
   Init(String),

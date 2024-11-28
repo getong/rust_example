@@ -1,5 +1,6 @@
-use actix::prelude::*;
 use std::time::Duration;
+
+use actix::prelude::*;
 
 #[derive(Message)]
 #[rtype(result = "()")]

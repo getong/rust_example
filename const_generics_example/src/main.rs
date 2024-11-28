@@ -6,20 +6,20 @@ use std::fmt::{Debug, Display};
 use std::mem::size_of;
 // use std::ops::{Add, Mul};
 fn main() {
-  //This is how we specify the type generic type explicitly.
-  //In this code rust won't be able to infer the type themselves.
+  // This is how we specify the type generic type explicitly.
+  // In this code rust won't be able to infer the type themselves.
   const_generics1::<true, &str>("string");
   const_generics1::<false, i32>(67);
 
-  //In this code rust is able to infer both the type and value.
+  // In this code rust is able to infer both the type and value.
   const_generics2([1, 2, 3, 4]);
   const_generics2(['a', 'b', 'c']); //[i32;4]
   let _m: [char; 3] = ['a', 'b', 'a']; //[char;3]
 
-  //let unsize1: ToString;
-  //let unsize2: Fn(&str) -> bool;
+  // let unsize1: ToString;
+  // let unsize2: Fn(&str) -> bool;
 
-  //Any type that implements Display trait.
+  // Any type that implements Display trait.
   // let sized1: &dyn ToString;
   // sized1 = &45;
   // let sized2: Box<String>;

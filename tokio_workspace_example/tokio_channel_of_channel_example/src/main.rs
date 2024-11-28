@@ -1,5 +1,4 @@
-use tokio::sync::mpsc;
-use tokio::task;
+use tokio::{sync::mpsc, task};
 // use std::time::Duration;
 
 #[tokio::main]

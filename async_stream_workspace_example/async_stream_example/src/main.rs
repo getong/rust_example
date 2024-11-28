@@ -1,7 +1,5 @@
 use async_stream::stream;
-
-use futures_util::pin_mut;
-use futures_util::stream::StreamExt;
+use futures_util::{pin_mut, stream::StreamExt};
 
 #[tokio::main]
 async fn main() {

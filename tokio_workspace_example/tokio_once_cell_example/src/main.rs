@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use tokio::sync::{OnceCell, RwLock};
 
 async fn some_computation() -> u32 {

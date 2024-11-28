@@ -1,9 +1,11 @@
+use std::{
+  future::Future,
+  pin::Pin,
+  task::{Context, Poll},
+  time::Duration,
+};
+
 use futures::FutureExt;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::Context;
-use std::task::Poll;
-use std::time::Duration;
 use tokio::time::Sleep;
 
 #[tokio::main]

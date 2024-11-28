@@ -1,5 +1,4 @@
-use std::boxed::Box;
-use std::mem;
+use std::{boxed::Box, mem};
 
 #[derive(Clone, Debug)]
 pub struct IoTDevice {

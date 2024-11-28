@@ -1,6 +1,7 @@
+use std::net::SocketAddr;
+
 use axum::{routing::get, Router};
 use axum_server::tls_rustls::RustlsConfig;
-use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {

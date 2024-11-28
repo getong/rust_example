@@ -1,5 +1,4 @@
-use std::mem;
-use std::pin::Pin;
+use std::{mem, pin::Pin};
 
 fn main() {
   // println!("Hello, world!");

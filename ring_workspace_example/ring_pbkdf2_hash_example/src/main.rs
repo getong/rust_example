@@ -1,8 +1,7 @@
-use data_encoding::HEXUPPER;
-use ring::error::Unspecified;
-use ring::rand::SecureRandom;
-use ring::{digest, pbkdf2, rand};
 use std::num::NonZeroU32;
+
+use data_encoding::HEXUPPER;
+use ring::{digest, error::Unspecified, pbkdf2, rand, rand::SecureRandom};
 
 fn main() -> Result<(), Unspecified> {
   const CREDENTIAL_LEN: usize = digest::SHA512_OUTPUT_LEN;

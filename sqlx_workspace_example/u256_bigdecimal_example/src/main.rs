@@ -1,6 +1,7 @@
+use std::str::FromStr;
+
 use bigdecimal::BigDecimal;
 use ethers::types::U256;
-use std::str::FromStr;
 
 fn u256_to_bigdecimal(value: U256) -> BigDecimal {
   // Convert U256 to string

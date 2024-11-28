@@ -1,5 +1,4 @@
-use std::io::prelude::*;
-use std::net::TcpStream;
+use std::{io::prelude::*, net::TcpStream};
 fn main() -> std::io::Result<()> {
   let mut connection = TcpStream::connect("www.baidu.com:80")?;
   connection.write_all(b"GET / HTTP/1.0")?;

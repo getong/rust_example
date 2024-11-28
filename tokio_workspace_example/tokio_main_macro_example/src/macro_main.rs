@@ -1,6 +1,9 @@
 use std::error::Error;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::TcpListener,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

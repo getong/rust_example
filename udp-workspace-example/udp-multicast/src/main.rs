@@ -1,5 +1,8 @@
-use std::net::{Ipv4Addr, UdpSocket};
-use std::{env, str};
+use std::{
+  env,
+  net::{Ipv4Addr, UdpSocket},
+  str,
+};
 
 fn main() {
   let mcast_group: Ipv4Addr = "239.0.0.1".parse().unwrap();

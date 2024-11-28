@@ -1,7 +1,8 @@
+use std::time::Duration;
+
 use bytecheck::CheckBytes;
 use mmap_sync::synchronizer::Synchronizer;
 use rkyv::{Archive, Deserialize, Serialize};
-use std::time::Duration;
 
 /// Example data-structure shared between writer and reader(s)
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq)]

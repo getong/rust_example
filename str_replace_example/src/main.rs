@@ -4,6 +4,6 @@ fn main() {
   // println!("Hello, world!");
   let result: String = str::replace("Hello World!", "!", "?");
   // Equivalently:
-  //result = "Hello World!".replace("!", "?");
+  // result = "Hello World!".replace("!", "?");
   println!("{}", result); // => "Hello World?"
 }

@@ -1,8 +1,9 @@
-use std::fs::OpenOptions;
-use std::io::Read;
-use std::io::Seek;
 // use std::io::SeekFrom;
 use std::io::Write;
+use std::{
+  fs::OpenOptions,
+  io::{Read, Seek},
+};
 
 #[global_allocator]
 static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;

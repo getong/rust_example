@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use futures::StreamExt;
 use libp2p::{
   // core::transport::upgrade::Version,
@@ -16,9 +18,10 @@ use libp2p::{
   SwarmBuilder,
   // Transport,
 };
-use std::error::Error;
-use tokio::io::{self, AsyncBufReadExt};
-use tokio::time::Duration;
+use tokio::{
+  io::{self, AsyncBufReadExt},
+  time::Duration,
+};
 // We create a custom network behaviour that combines floodsub and mDNS.
 // The derive generates a delegating `NetworkBehaviour` impl which in turn
 // requires the implementations of `NetworkBehaviourEventProcess` for

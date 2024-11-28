@@ -1,8 +1,8 @@
-use tokio::io::{
-  self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf,
+use tokio::{
+  io::{self, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, ReadHalf, WriteHalf},
+  net::TcpStream,
+  sync::mpsc::{self, Receiver},
 };
-use tokio::net::TcpStream;
-use tokio::sync::mpsc::{self, Receiver};
 
 const BUFFER_SIZE: usize = 1024;
 
@@ -32,12 +32,12 @@ async fn main() {
   println!("echo via tcp, type 'quit' to exit.");
 
   loop {
-    // When using stdin_reader.read_line(&mut line).await, you might encounter the "very long line" error if the input line is longer than
-    // the buffer capacity. To handle longer lines, you can use the AsyncBufReadExt::read_line method with
-    // a custom buffer that can dynamically resize.
-    // In this updated code, instead of using stdin_reader.read_line(&mut line).await, we use stdin_reader.read_until(b'\n', &mut line).await
-    // to read the input until a newline (\n) delimiter is encountered.
-    // let mut line = String::new();
+    // When using stdin_reader.read_line(&mut line).await, you might encounter the "very long line"
+    // error if the input line is longer than the buffer capacity. To handle longer lines, you
+    // can use the AsyncBufReadExt::read_line method with a custom buffer that can dynamically
+    // resize. In this updated code, instead of using stdin_reader.read_line(&mut line).await,
+    // we use stdin_reader.read_until(b'\n', &mut line).await to read the input until a newline
+    // (\n) delimiter is encountered. let mut line = String::new();
     let mut line = vec![0u8; BUFFER_SIZE];
     // match stdin_reader.read_line(&mut line).await {
     match stdin_reader.read_until(b'\n', &mut line).await {

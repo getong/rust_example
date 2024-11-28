@@ -1,12 +1,8 @@
-use axum::response::IntoResponse;
-use axum::routing::*;
-use axum::Router;
-
+use axum::{response::IntoResponse, routing::*, Router};
+use axum_streams::*;
 use futures::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-
-use axum_streams::*;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct MyTestStructure {
@@ -30,8 +26,8 @@ fn source_test_stream() -> impl Stream<Item = MyTestStructure> {
 async fn test_csv_stream() -> impl IntoResponse {
   StreamBodyAs::csv(source_test_stream())
 
-  // If you need more control for CSV format, you can use the following code instead of the previous line:
-  // StreamBodyAs::new(
+  // If you need more control for CSV format, you can use the following code instead of the previous
+  // line: StreamBodyAs::new(
   //     CsvStreamFormat::new(
   //         true, // with_header
   //         b',', // CSV delimiter

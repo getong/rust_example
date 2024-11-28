@@ -1,7 +1,8 @@
 #![feature(never_type)]
 
-use socket2::{Domain, Socket, Type};
 use std::net::{SocketAddr, TcpListener};
+
+use socket2::{Domain, Socket, Type};
 
 fn main() -> Result<!, Box<dyn std::error::Error>> {
   // Create a TCP listener bound to two addresses.
@@ -16,5 +17,5 @@ fn main() -> Result<!, Box<dyn std::error::Error>> {
 
   // ...
   loop {}
-  //Ok(())
+  // Ok(())
 }

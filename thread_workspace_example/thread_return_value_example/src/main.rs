@@ -1,7 +1,11 @@
+use std::{
+  sync::{mpsc, mpsc::Receiver, Arc, Mutex},
+  thread,
+  thread::JoinHandle,
+  time::Duration,
+};
+
 use rand::{self, Rng};
-use std::sync::mpsc::Receiver;
-use std::sync::{mpsc, Arc, Mutex};
-use std::{thread, thread::JoinHandle, time::Duration};
 use threadpool::ThreadPool;
 
 fn main() {

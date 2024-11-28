@@ -1,9 +1,10 @@
 extern crate pom;
-use pom::parser::*;
-use pom::Parser;
+use std::{
+  collections::HashMap,
+  str::{self, FromStr},
+};
 
-use std::collections::HashMap;
-use std::str::{self, FromStr};
+use pom::{parser::*, Parser};
 
 #[derive(Debug, PartialEq)]
 pub enum JsonValue {

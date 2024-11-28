@@ -1,10 +1,9 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
-use crate::ExampleRaft;
-use crate::NodeId;
 use openraft::Config;
-use std::collections::BTreeMap;
 use tokio::sync::RwLock;
+
+use crate::{ExampleRaft, NodeId};
 
 #[derive(Clone)]
 pub struct Api {

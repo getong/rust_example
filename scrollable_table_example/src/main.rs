@@ -1,19 +1,17 @@
-use std::io;
-use std::io::stdin;
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
+use std::{io, io::stdin, sync::mpsc, thread, time::Duration};
 
-use tui::backend::TermionBackend;
-use tui::layout::Constraint;
-use tui::widgets::{Block, Row, Table, TableState};
-use tui::Terminal;
-
-use termion::event::Key;
-use termion::input::MouseTerminal;
-use termion::input::TermRead;
-use termion::raw::IntoRawMode;
-use termion::screen::AlternateScreen;
+use termion::{
+  event::Key,
+  input::{MouseTerminal, TermRead},
+  raw::IntoRawMode,
+  screen::AlternateScreen,
+};
+use tui::{
+  backend::TermionBackend,
+  layout::Constraint,
+  widgets::{Block, Row, Table, TableState},
+  Terminal,
+};
 
 // enum Event<I> {
 //     Input(I),

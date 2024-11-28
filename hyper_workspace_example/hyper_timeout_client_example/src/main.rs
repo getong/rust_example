@@ -1,14 +1,11 @@
-use std::env;
-use std::time::Duration;
+use std::{env, time::Duration};
 
 use http_body_util::{BodyExt, Empty};
 use hyper::body::Bytes;
+use hyper_timeout::TimeoutConnector;
+use hyper_tls::HttpsConnector;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use tokio::io::{self, AsyncWriteExt};
-
-use hyper_tls::HttpsConnector;
-
-use hyper_timeout::TimeoutConnector;
 
 // cargo run -- https://www.baidu.com
 #[tokio::main(flavor = "current_thread")]

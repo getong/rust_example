@@ -1,7 +1,7 @@
-use serde_json::to_vec;
 use std::error::Error;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+
+use serde_json::to_vec;
+use tokio::{io::AsyncWriteExt, net::TcpStream};
 mod message;
 use message::{GreeRequest, Message}; // Import the Message enum
 

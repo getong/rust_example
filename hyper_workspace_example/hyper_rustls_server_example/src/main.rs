@@ -5,16 +5,22 @@
 //! hyper will automatically use HTTP/2 if a client starts talking HTTP/2,
 //! otherwise HTTP/1.1 will be used.
 
-use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
-use std::{env, fs, io};
+use std::{
+  env, fs, io,
+  net::{Ipv4Addr, SocketAddr},
+  sync::Arc,
+};
 
 use http::{Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
-use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use hyper_util::server::conn::auto::Builder;
+use hyper::{
+  body::{Bytes, Incoming},
+  service::service_fn,
+};
+use hyper_util::{
+  rt::{TokioExecutor, TokioIo},
+  server::conn::auto::Builder,
+};
 use rustls::ServerConfig;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
