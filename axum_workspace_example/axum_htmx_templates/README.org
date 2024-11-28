@@ -1,0 +1,17 @@
+* axum htmx templates
+
+** reference
+
+see [[https://joeymckenzie.tech/blog/templates-with-rust-axum-htmx-askama][Back to the server with Rust, Axum, and htmx]]
+
+** source code
+
+see [[https://github.com/JoeyMckenzie/joeymckenzie.tech/tree/main/examples/rust/with-axum-htmx-askama][with-axum-htmx-askama]]
+
+** run command
+
+#+begin_src shell
+cargo run
+#+end_src
+
+visit http://localhost:8000
