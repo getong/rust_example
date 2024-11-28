@@ -34,6 +34,12 @@ impl Identity {
       return Err(format!("Private key is empty in file: {}", file_path).into());
     }
 
+    let private_key_str = if private_key_str.starts_with("0x") {
+      &private_key_str[2 ..]
+    } else {
+      &private_key_str
+    };
+
     // Decode the hex string into bytes
     let private_key_bytes = hex::decode(private_key_str)?;
 

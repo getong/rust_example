@@ -31,6 +31,11 @@ fn main() -> Result<(), Box<dyn Error>> {
   if public_key_str.is_empty() {
     return Err(format!("Public key is empty in file: {}", file_path).into());
   }
+  let public_key_str = if public_key_str.starts_with("0x") {
+    &public_key_str[2 ..]
+  } else {
+    &public_key_str
+  };
 
   let public_key_bytes =
     hex::decode(public_key_str).map_err(|_| "Invalid hex format in public_key.txt")?;
