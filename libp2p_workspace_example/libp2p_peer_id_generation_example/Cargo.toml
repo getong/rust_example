@@ -1,0 +1,9 @@
+[package]
+name = "libp2p_peer_id_generation_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bs58 = "0.5.1"
+hex = "0.4.3"
+libp2p = { version = "0.54.1", features = ["full"] }

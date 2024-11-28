@@ -49,4 +49,5 @@ members = [
   "libp2p_browser_webrtc_example",
   "libp2p_peer_id_from_secp256k1_public_key_example",
   "libp2p_peer_id_from_secp256k1_secret_key_example",
+  "libp2p_peer_id_generation_example",
 ]
