@@ -1,7 +1,6 @@
 // use std::io::stdin;
-use std::sync::mpsc;
 use std::{
-  sync::{Arc, Mutex},
+  sync::{mpsc, Arc, Mutex},
   thread, time,
 };
 

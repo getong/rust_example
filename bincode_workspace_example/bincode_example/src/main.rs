@@ -1,8 +1,7 @@
 // use std::io::{, Write};
-use std::io::Seek;
 use std::{
   fs::OpenOptions,
-  io::{Read, SeekFrom, Write},
+  io::{Read, Seek, SeekFrom, Write},
 };
 
 use serde::{Deserialize, Serialize};

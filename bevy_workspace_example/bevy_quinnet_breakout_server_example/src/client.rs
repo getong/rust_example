@@ -156,8 +156,8 @@ pub(crate) fn spawn_bricks(
   columns: usize,
 ) {
   let mut brick_id = 0;
-  for row in 0..rows {
-    for column in 0..columns {
+  for row in 0 .. rows {
+    for column in 0 .. columns {
       let brick_position = Vec2::new(
         offset.x + column as f32 * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),
         offset.y + row as f32 * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),

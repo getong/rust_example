@@ -1,8 +1,9 @@
+use std::sync::Arc;
+
 use candle_core::{DType, Device, Module, Result, Tensor};
 use candle_lora::{LinearLayerLike, LoraConfig, LoraLinearConfig};
 use candle_lora_macro::{replace_layer_fields, AutoLoraConvert};
 use candle_nn::{init, Linear, VarBuilder, VarMap};
-use std::sync::Arc;
 
 #[replace_layer_fields]
 #[derive(AutoLoraConvert, Debug)]

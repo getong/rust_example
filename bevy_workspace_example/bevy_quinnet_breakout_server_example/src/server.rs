@@ -344,8 +344,8 @@ fn start_game(commands: &mut Commands, server: &mut ResMut<Server>, players: &Re
     + (available_height_for_bricks - height_occupied_by_bricks) / 2.; // Offset so that both players are at an equal distance of the bricks
 
   let mut brick_id = 0;
-  for row in 0..n_rows {
-    for column in 0..n_columns {
+  for row in 0 .. n_rows {
+    for column in 0 .. n_columns {
       let brick_position = Vec2::new(
         offset_x + column as f32 * (BRICK_SIZE.x + GAP_BETWEEN_BRICKS),
         offset_y + row as f32 * (BRICK_SIZE.y + GAP_BETWEEN_BRICKS),

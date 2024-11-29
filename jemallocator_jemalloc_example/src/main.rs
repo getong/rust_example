@@ -1,8 +1,7 @@
 // use std::io::SeekFrom;
-use std::io::Write;
 use std::{
   fs::OpenOptions,
-  io::{Read, Seek},
+  io::{Read, Seek, Write},
 };
 
 #[global_allocator]

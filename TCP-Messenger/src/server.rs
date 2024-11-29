@@ -2,8 +2,11 @@
 // use std::cell::RefCell;
 // use std::fs::File;
 // use std::marker::Sized;
-use std::sync::{Arc, Mutex};
-use std::{net::TcpListener, thread, time};
+use std::{
+  net::TcpListener,
+  sync::{Arc, Mutex},
+  thread, time,
+};
 
 // use std::io::{self, Read, Write};
 use crate::client::Client;

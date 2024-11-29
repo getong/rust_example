@@ -1,10 +1,9 @@
 // use ring::signature;
-use ring::signature::EcdsaKeyPair;
 use ring::{
   error::Unspecified,
   rand::SystemRandom,
   signature::{
-    Ed25519KeyPair, KeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_ASN1,
+    EcdsaKeyPair, Ed25519KeyPair, KeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_ASN1,
     ECDSA_P256_SHA256_ASN1_SIGNING, ED25519,
   },
 };

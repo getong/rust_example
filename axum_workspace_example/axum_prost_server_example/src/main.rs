@@ -1,11 +1,11 @@
+use std::sync::Arc;
+
 use axum::{
   routing::{get, post},
   Extension, Router,
 };
-
 use axum_extra::protobuf::Protobuf;
 use myapp::Todo;
-use std::sync::Arc;
 
 pub mod myapp {
   include!("myapp.rs");

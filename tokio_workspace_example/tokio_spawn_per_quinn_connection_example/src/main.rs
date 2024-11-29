@@ -1,5 +1,6 @@
-use quinn::{ClientConfig, Endpoint, ServerConfig};
 use std::{error::Error, net::SocketAddr, sync::Arc};
+
+use quinn::{ClientConfig, Endpoint, ServerConfig};
 
 /// Constructs a QUIC endpoint configured for use a client only.
 ///

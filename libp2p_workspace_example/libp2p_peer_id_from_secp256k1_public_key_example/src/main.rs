@@ -8,7 +8,7 @@ use ethers::{
   prelude::Address,
   utils::{keccak256, to_checksum},
 };
-use libp2p::{PeerId, identity};
+use libp2p::{identity, PeerId};
 use secp256k1::PublicKey;
 
 pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Error>> {

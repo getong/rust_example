@@ -1,13 +1,5 @@
 #![cfg(feature = "rustls")]
 
-use crate::{anyhow::anyhow, internal_config::RTT_LEN, time::Instant, ResultType};
-use bytes::{BufMut, Bytes, BytesMut};
-use futures_util::StreamExt;
-use protobuf::Message;
-pub use quinn;
-use quinn::{ClientConfig, Endpoint, Incoming, IncomingUniStreams, NewConnection, ServerConfig};
-use rustls;
-use sodiumoxide::crypto::secretbox::Key;
 use std::{
   fs::File,
   io::{BufReader, Error},
@@ -15,7 +7,17 @@ use std::{
   str,
   sync::Arc,
 };
+
+use bytes::{BufMut, Bytes, BytesMut};
+use futures_util::StreamExt;
+use protobuf::Message;
+pub use quinn;
+use quinn::{ClientConfig, Endpoint, Incoming, IncomingUniStreams, NewConnection, ServerConfig};
+use rustls;
+use sodiumoxide::crypto::secretbox::Key;
 use tokio::{self, sync::mpsc};
+
+use crate::{anyhow::anyhow, internal_config::RTT_LEN, time::Instant, ResultType};
 
 const SERVER_NAME: &str = "xremote.autox.tech";
 const CHANNEL_LATENCY: i64 = 1_000;
@@ -367,9 +369,11 @@ pub fn load_private_key(filename: &str) -> rustls::PrivateKey {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use futures_util::StreamExt;
   use std::{error::Error, net::SocketAddr};
+
+  use futures_util::StreamExt;
+
+  use super::*;
 
   #[tokio::test]
   async fn quic() -> Result<(), Box<dyn Error>> {

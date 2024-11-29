@@ -1,5 +1,6 @@
-use prost::Message;
 use std::path::PathBuf;
+
+use prost::Message;
 
 fn main() {
   let file_descriptors = protox::compile(["helloworld.proto"], ["."]).unwrap();

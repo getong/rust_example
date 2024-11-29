@@ -1,6 +1,6 @@
 // use rand::prelude::*;
-use std::collections::HashMap;
 use std::{
+  collections::HashMap,
   io,
   io::prelude::*,
   net::{TcpListener, TcpStream},

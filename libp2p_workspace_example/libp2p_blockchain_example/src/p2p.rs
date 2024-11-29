@@ -1,4 +1,5 @@
-use super::{App, Block};
+use std::collections::HashSet;
+
 use libp2p::{
   floodsub::{Floodsub, FloodsubEvent, Topic},
   identity, mdns,
@@ -8,8 +9,9 @@ use libp2p::{
 use log::info;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use tokio::sync::mpsc;
+
+use super::{App, Block};
 
 pub static KEYS: Lazy<identity::Keypair> = Lazy::new(identity::Keypair::generate_ed25519);
 pub static PEER_ID: Lazy<PeerId> = Lazy::new(|| PeerId::from(KEYS.public()));
@@ -92,8 +94,8 @@ impl AppBehaviour {
 //                     info!("Response from {}:", msg.source);
 //                     resp.blocks.iter().for_each(|r| info!("{:?}", r));
 
-//                     self.app.blocks = self.app.choose_chain(self.app.blocks.clone(), resp.blocks);
-//                 }
+//                     self.app.blocks = self.app.choose_chain(self.app.blocks.clone(),
+// resp.blocks);                 }
 //             } else if let Ok(resp) = serde_json::from_slice::<LocalChainRequest>(&msg.data) {
 //                 info!("sending local chain to {}", msg.source.to_string());
 //                 let peer_id = resp.from_peer_id;

@@ -1,6 +1,5 @@
 // use encoding_rs::ASCII;
-use std::fs;
-use std::{fs::File, io::prelude::*, path::Path};
+use std::{fs, fs::File, io::prelude::*, path::Path};
 
 use encoding_rs::UTF_8;
 

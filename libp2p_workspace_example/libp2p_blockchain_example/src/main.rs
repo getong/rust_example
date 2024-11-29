@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use chrono::prelude::*;
 use libp2p::{
   core::transport::upgrade::Version,
@@ -10,11 +12,9 @@ use libp2p::{
   yamux,
   Transport,
 };
-
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
 use tokio::{
   io::{stdin, AsyncBufReadExt, BufReader},
   select, spawn,
@@ -157,7 +157,7 @@ impl App {
   }
 
   fn is_chain_valid(&self, chain: &[Block]) -> bool {
-    for i in 0..chain.len() {
+    for i in 0 .. chain.len() {
       if i == 0 {
         continue;
       }

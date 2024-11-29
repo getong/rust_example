@@ -14,8 +14,8 @@ use ethers::{
   utils::{keccak256, to_checksum},
 };
 use libp2p::{
-  PeerId,
   identity::{self, Keypair},
+  PeerId,
 };
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 

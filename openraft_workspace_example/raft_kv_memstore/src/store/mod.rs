@@ -34,7 +34,6 @@ pub enum Request {
 /// the `Request.Set`.
 ///
 /// TODO: Should we explain how to create multiple `AppDataResponse`?
-///
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
   pub value: Option<String>,

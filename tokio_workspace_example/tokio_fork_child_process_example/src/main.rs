@@ -1,12 +1,15 @@
 // use tokio::prelude::*;
 // use nix::sys::wait;
-use nix::sys::wait::wait;
-use nix::unistd::{fork, ForkResult};
-use std::io::Error;
-use std::io::ErrorKind;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::UnixStream;
+use std::io::{Error, ErrorKind};
+
+use nix::{
+  sys::wait::wait,
+  unistd::{fork, ForkResult},
+};
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt},
+  net::UnixStream,
+};
 // use wait::wait;
 
 // Limit to 1 thread
