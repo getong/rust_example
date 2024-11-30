@@ -1,0 +1,17 @@
+[package]
+name = "axum_todo_utoipa_swagger_ui_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.7.9"
+hyper = { version = "1.5.1", features = ["full"] }
+serde = "1.0.215"
+serde_json = "1.0.133"
+tokio = { version = "1.41.1", features = ["full"] }
+utoipa = "5.2.0"
+utoipa-axum = "0.1.2"
+utoipa-rapidoc = { version = "5.0.0", features = ["axum"] }
+utoipa-redoc = { version = "5.0.0", features = ["axum"] }
+utoipa-scalar = { version = "0.2.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
