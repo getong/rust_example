@@ -1,13 +1,16 @@
-use libp2p::{futures::StreamExt, Transport};
-use libp2p_core::{
-  muxing::StreamMuxerBox,
-  transport::{ListenerId, TransportEvent},
+use libp2p::{
+  core::{
+    muxing::StreamMuxerBox,
+    transport::{ListenerId, TransportEvent},
+  },
+  futures::StreamExt,
+  identity::Keypair,
+  quic, Transport,
 };
-use libp2p_quic as quic;
 
 #[tokio::main]
 async fn main() {
-  let keypair = libp2p_identity::Keypair::generate_ed25519();
+  let keypair = Keypair::generate_ed25519();
   let quic_config = quic::Config::new(&keypair);
 
   let mut quic_transport = quic::GenTransport::<quic::tokio::Provider>::new(quic_config)

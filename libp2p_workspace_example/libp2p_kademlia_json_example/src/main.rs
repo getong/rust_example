@@ -1,5 +1,5 @@
 use std::{
-  collections::{hash_map::DefaultHasher, HashMap},
+  collections::{HashMap, hash_map::DefaultHasher},
   env::args,
   error::Error,
   hash::{Hash, Hasher},
@@ -8,24 +8,24 @@ use std::{
 
 use env_logger::{Builder, Env};
 use libp2p::{
+  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
   futures::StreamExt,
   gossipsub,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
   identity,
   kad::{
-    store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
-    Event as KadEvent, RoutingUpdate,
+    Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent, RoutingUpdate,
+    store::MemoryStore as KadInMemory,
   },
   noise::Config as NoiceConfig,
   request_response::{
-    cbor::Behaviour as RequestResponseBehavior, Config as RequestResponseConfig,
-    Event as RequestResponseEvent, Message as RequestResponseMessage,
-    ProtocolSupport as RequestResponseProtocolSupport,
+    Config as RequestResponseConfig, Event as RequestResponseEvent,
+    Message as RequestResponseMessage, ProtocolSupport as RequestResponseProtocolSupport,
+    cbor::Behaviour as RequestResponseBehavior,
   },
   swarm::SwarmEvent,
   tcp::Config as TcpConfig,
   yamux::Config as YamuxConfig,
-  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
 use log::{error, info, warn};
 

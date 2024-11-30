@@ -2,7 +2,6 @@
 name = "libp2p_tokio_relay_server_example"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -11,6 +10,5 @@ clap = { version = "4.5.21", features = ["derive"] }
 env_logger = "0.11.5"
 futures = "0.3.31"
 libp2p = { version = "0.54.1", features = ["full"] }
-libp2p-quic = "0.11.1"
 tokio = { version = "1.41.1", features = ["full"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

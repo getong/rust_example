@@ -2,12 +2,10 @@
 name = "libp2p_floodsub_chat_example"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 env_logger = "0.11.5"
 futures = "0.3.31"
 libp2p = { version = "0.54.1", features = ["full"] }
-libp2p-mplex = "0.42.0"
 tokio = { version = "1.41.1", features = ["full"] }

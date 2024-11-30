@@ -3,13 +3,13 @@ use libp2p::{
     transport::{DialOpts, PortUse},
     Endpoint,
   },
-  Transport,
+  identity::Keypair,
+  quic, Transport,
 };
-use libp2p_quic as quic;
 
 #[tokio::main]
 async fn main() {
-  let keypair = libp2p_identity::Keypair::generate_ed25519();
+  let keypair = Keypair::generate_ed25519();
   let quic_config = quic::Config::new(&keypair);
 
   let mut quic_transport = quic::tokio::Transport::new(quic_config);
