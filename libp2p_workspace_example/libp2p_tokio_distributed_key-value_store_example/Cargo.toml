@@ -11,5 +11,5 @@ futures = "0.3.31"
 libp2p = { version = "0.54.1", features = ["full"] }
 tokio = { version = "1.41.1", features = ["full"] }
 tokio-stream = { version = "0.1.16", features = ["full"] }
-tracing = "0.1.40"
+tracing = "0.1.41"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
