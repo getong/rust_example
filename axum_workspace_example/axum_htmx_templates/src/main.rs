@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 
 use askama::Template;
 use axum::{
+  Form, Router,
   extract::State,
   http::StatusCode,
   response::{Html, IntoResponse, Response},
   routing::{get, post},
-  Form, Router,
 };
 use serde::Deserialize;
 use tower_http::services::ServeDir;
