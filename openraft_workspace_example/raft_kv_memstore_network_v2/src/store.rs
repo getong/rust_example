@@ -11,8 +11,9 @@ use openraft::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{NodeId, SnapshotData, TypeConfig};
-pub type LogStore = crate::log_store::LogStore<TypeConfig>;
+use crate::{typ, NodeId, TypeConfig};
+
+pub type LogStore = memstore::LogStore<TypeConfig>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
@@ -38,10 +39,12 @@ pub struct StoredSnapshot {
   pub meta: SnapshotMeta<TypeConfig>,
 
   /// The data of the state machine at the time of this snapshot.
-  pub data: Box<SnapshotData>,
+  pub data: Box<typ::SnapshotData>,
 }
 
-/// Data contained in the Raft state machine. Note that we are using `serde` to serialize the
+/// Data contained in the Raft state machine.
+///
+/// Note that we are using `serde` to serialize the
 /// `data`, which has a implementation to be serialized. Note that for this test we set both the key
 /// and value as String, but you could set any type of value that has the serialization impl.
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]

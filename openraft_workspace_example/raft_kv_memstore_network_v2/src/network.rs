@@ -9,7 +9,7 @@ use openraft::{
   BasicNode, OptionalSend, RaftNetworkFactory, Snapshot, Vote,
 };
 
-use crate::{router::Router, NodeId, RPCError, StreamingError, TypeConfig};
+use crate::{router::Router, typ, NodeId, TypeConfig};
 
 pub struct Connection {
   router: Router,
@@ -32,7 +32,7 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     &mut self,
     req: AppendEntriesRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError> {
+  ) -> Result<AppendEntriesResponse<TypeConfig>, typ::RPCError> {
     let resp = self.router.send(self.target, "/raft/append", req).await?;
     Ok(resp)
   }
@@ -44,7 +44,7 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     snapshot: Snapshot<TypeConfig>,
     _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     _option: RPCOption,
-  ) -> Result<SnapshotResponse<TypeConfig>, StreamingError> {
+  ) -> Result<SnapshotResponse<TypeConfig>, typ::StreamingError> {
     let resp = self
       .router
       .send(
@@ -60,7 +60,7 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     &mut self,
     req: VoteRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<VoteResponse<TypeConfig>, RPCError> {
+  ) -> Result<VoteResponse<TypeConfig>, typ::RPCError> {
     let resp = self.router.send(self.target, "/raft/vote", req).await?;
     Ok(resp)
   }

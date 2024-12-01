@@ -6,7 +6,7 @@ use std::{
 use openraft::error::Unreachable;
 use tokio::sync::oneshot;
 
-use crate::{app::RequestTx, decode, encode, NodeId, RaftError};
+use crate::{app::RequestTx, decode, encode, typ::RaftError, NodeId};
 
 /// Simulate a network router.
 #[derive(Debug, Clone, Default)]

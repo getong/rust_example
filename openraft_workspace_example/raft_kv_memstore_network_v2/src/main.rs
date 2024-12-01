@@ -1,12 +1,49 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{backtrace::Backtrace, collections::BTreeMap, panic::PanicHookInfo, time::Duration};
 
 use openraft::BasicNode;
-use raft_kv_memstore_network_v2::{new_raft, router::Router, store::Request, Raft};
+use raft_kv_memstore_network_v2::{new_raft, router::Router, store::Request, typ};
 use tokio::{task, task::LocalSet};
 use tracing_subscriber::EnvFilter;
 
+pub fn log_panic(panic: &PanicHookInfo) {
+  let backtrace = format!("{:?}", Backtrace::force_capture());
+
+  eprintln!("{}", panic);
+
+  if let Some(location) = panic.location() {
+    tracing::error!(
+        message = %panic,
+        backtrace = %backtrace,
+        panic.file = location.file(),
+        panic.line = location.line(),
+        panic.column = location.column(),
+    );
+    eprintln!(
+      "{}:{}:{}",
+      location.file(),
+      location.line(),
+      location.column()
+    );
+  } else {
+    tracing::error!(message = %panic, backtrace = %backtrace);
+  }
+
+  eprintln!("{}", backtrace);
+}
+
+/// This test shows how to transfer a snapshot from one node to another:
+///
+/// - Setup a single node cluster, write some logs, take a snapshot;
+/// - Add a learner node-2 to receive snapshot replication, via the complete-snapshot API:
+///   - The sending end sends snapshot with `RaftNetwork::full_snapshot()`;
+///   - The receiving end deliver the received snapshot to `Raft` with
+///     `Raft::install_full_snapshot()`.
 #[tokio::main]
 async fn main() {
+  std::panic::set_hook(Box::new(|panic| {
+    log_panic(panic);
+  }));
+
   tracing_subscriber::fmt()
     .with_target(true)
     .with_thread_ids(true)
@@ -15,27 +52,28 @@ async fn main() {
     .with_env_filter(EnvFilter::from_default_env())
     .init();
 
+  let router = Router::default();
+
   let local = LocalSet::new();
 
-  // Move the creation of Raft nodes and their apps inside the LocalSet
+  let (raft1, app1) = new_raft(1, router.clone()).await;
+  let (raft2, app2) = new_raft(2, router.clone()).await;
+
+  let rafts = [raft1, raft2];
+
   local
     .run_until(async move {
-      let router = Router::default();
-      let (raft1, app1) = new_raft(1, router.clone()).await;
-      let (raft2, app2) = new_raft(2, router.clone()).await;
-
       task::spawn_local(app1.run());
       task::spawn_local(app2.run());
 
-      let rafts = [raft1, raft2];
-
-      // Run your test after spawning the local tasks
-      run_test(&rafts).await;
+      run_test(&rafts, router).await;
     })
     .await;
 }
 
-async fn run_test(rafts: &[Raft]) {
+async fn run_test(rafts: &[typ::Raft], router: Router) {
+  let _ = router;
+
   // Wait for server to start up.
   tokio::time::sleep(Duration::from_millis(200)).await;
 

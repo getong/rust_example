@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{api, router::Router, NodeId, Raft, StateMachineStore};
+use crate::{api, router::Router, typ, NodeId, StateMachineStore};
+
 pub type Path = String;
 pub type Payload = String;
 pub type ResponseTx = oneshot::Sender<String>;
@@ -11,7 +12,7 @@ pub type RequestTx = mpsc::UnboundedSender<(Path, Payload, ResponseTx)>;
 /// Representation of an application state.
 pub struct App {
   pub id: NodeId,
-  pub raft: Raft,
+  pub raft: typ::Raft,
 
   /// Receive application requests, Raft protocol request or management requests.
   pub rx: mpsc::UnboundedReceiver<(Path, Payload, ResponseTx)>,
@@ -23,7 +24,7 @@ pub struct App {
 impl App {
   pub fn new(
     id: NodeId,
-    raft: Raft,
+    raft: typ::Raft,
     router: Router,
     state_machine: Arc<StateMachineStore>,
   ) -> Self {

@@ -34,6 +34,7 @@ pub enum Request {
 /// the `Request.Set`.
 ///
 /// TODO: Should we explain how to create multiple `AppDataResponse`?
+///
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
   pub value: Option<String>,
@@ -47,7 +48,9 @@ pub struct StoredSnapshot {
   pub data: Vec<u8>,
 }
 
-/// Data contained in the Raft state machine. Note that we are using `serde` to serialize the
+/// Data contained in the Raft state machine.
+///
+/// Note that we are using `serde` to serialize the
 /// `data`, which has a implementation to be serialized. Note that for this test we set both the key
 /// and value as String, but you could set any type of value that has the serialization impl.
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
