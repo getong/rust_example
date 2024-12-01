@@ -22,3 +22,6 @@ tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 thiserror = "1.0.64"
 futures = "0.3.30"
+
+[features]
+serde = []
