@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 byteorder = "1.5.0"
 clap = { version = "4.5", features = ["derive", "env"] }
-openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde", "type-alias"] }
+openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"] }
 poem = "3.1.0"
 poem-openapi = { version = "5.1.1", features = ["swagger-ui", "email"] }
 reqwest = { version = "0.12", features = ["json"] }
