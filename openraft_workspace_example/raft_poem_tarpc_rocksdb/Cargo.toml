@@ -2,12 +2,12 @@
 name = "raft_poem_tarpc_rocksdb"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 byteorder = "1.5.0"
 clap = { version = "4.5", features = ["derive", "env"] }
+futures = "0.3.30"
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"] }
 poem = "3.1.0"
 poem-openapi = { version = "5.1.1", features = ["swagger-ui", "email"] }
@@ -16,12 +16,11 @@ rocksdb = "0.22.0"
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 tarpc = { version = "0.34.0", features = ["full"] }
+thiserror = "1.0.64"
 tokio = { version = "1.40.0", features = ["full"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-thiserror = "1.0.64"
-futures = "0.3.30"
 
 [features]
 serde = []
