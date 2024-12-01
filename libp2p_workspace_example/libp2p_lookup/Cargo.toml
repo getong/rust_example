@@ -1,0 +1,15 @@
+[package]
+name = "libp2p_lookup"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ansi_term = "0.12.1"
+clap = { version = "4.5.21", features = ["derive"] }
+env_logger = "0.11.5"
+futures = "0.3.31"
+libp2p = { version = "0.54.1", features = ["full"] }
+log = "0.4.22"
+structopt = "0.3.26"
+thiserror = "2.0.3"
+tokio = { version = "1.41.1", features = ["full"] }
