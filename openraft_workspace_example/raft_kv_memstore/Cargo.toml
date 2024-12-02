@@ -18,6 +18,3 @@ tokio = { version = "1.40.0", default-features = false, features = ["sync"] }
 tracing = "0.1.40"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-
-[features]
-serde = []
