@@ -1,0 +1,10 @@
+[package]
+name = "libp2p_pnet_presharedkey_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.22.1"
+hex = "0.4.3"
+libp2p = { version = "0.54.1", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full"] }

@@ -227,3 +227,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
   }
 }
+
+// mkdir -p ~/.ipfs
+// openssl rand -base64 32 > ~/.ipfs/swarm.key
