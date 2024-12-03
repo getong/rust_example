@@ -9,7 +9,9 @@ use libp2p::pnet::PreSharedKey;
 /// Helper function to decode a base64-encoded key
 fn decode_base64_key(base64_key: &str) -> Result<[u8; 32], Box<dyn Error>> {
   let bytes = STANDARD.decode(base64_key)?;
-  let key: [u8; 32] = bytes.try_into().expect("Decoded key must be 32 bytes long");
+  let key: [u8; 32] = bytes
+    .try_into()
+    .map_err(|_| "Decoded key must be 32 bytes long")?;
   Ok(key)
 }
 
@@ -37,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 1b7d402355c4c00b52dbaa1c7f1df37d7c65d716f140d5da9fd55e34ee98ced4";
 
   // Parse the PSK string and print its fingerprint
-  let parsed_psk = PreSharedKey::from_str(PSK_STRING).expect("Failed to parse PSK string");
+  let parsed_psk = PreSharedKey::from_str(PSK_STRING).map_err(|_| "Failed to parse PSK string")?;
   println!("Parsed PSK Fingerprint: {}", parsed_psk.fingerprint());
 
   Ok(())
