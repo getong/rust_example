@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, str::FromStr};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use libp2p::pnet::PreSharedKey;
@@ -25,6 +25,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   // Print the fingerprint
   println!("Fingerprint: {}", fingerprint);
+
+  let psk_string = psk.to_string();
+  println!("psk_string: {}", psk_string);
+
+  let psk_string = "/key/swarm/psk/1.0.0/
+/base16/
+1b7d402355c4c00b52dbaa1c7f1df37d7c65d716f140d5da9fd55e34ee98ced4";
+
+  let psk = PreSharedKey::from_str(psk_string).expect("not work");
+  println!("psk finger print: {}", psk.fingerprint());
 
   Ok(())
 }
