@@ -8,11 +8,11 @@ use std::{
 
 use env_logger::{Builder, Env};
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
+  Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
   futures::StreamExt,
   gossipsub,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
-  identity,
+  identity::{self, Keypair},
   kad::{
     Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent, RoutingUpdate,
     store::MemoryStore as KadInMemory,
@@ -108,190 +108,199 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
   loop {
-    match swarm.select_next_some().await {
-      SwarmEvent::NewListenAddr {
-        listener_id,
-        address,
-      } => info!("NewListenAddr: {listener_id:?} | {address:?}"),
-      SwarmEvent::ConnectionEstablished {
-        peer_id,
-        connection_id,
-        endpoint,
-        num_established,
-        concurrent_dial_errors,
-        established_in,
-      } => info!(
-        "ConnectionEstablished: {peer_id} | {connection_id} | {endpoint:?} | {num_established} | \
-         {concurrent_dial_errors:?} | {established_in:?}"
-      ),
-      SwarmEvent::Dialing {
-        peer_id,
-        connection_id,
-      } => info!("Dialing: {peer_id:?} | {connection_id}"),
-      SwarmEvent::Behaviour(AgentEvent::Gossipsub(event)) => info!("gossipsub: {event:?}"),
-      SwarmEvent::Behaviour(AgentEvent::Identify(event)) => match event {
-        IdentifyEvent::Sent { peer_id, .. } => info!("IdentifyEvent:Sent: {peer_id}"),
-        IdentifyEvent::Pushed { peer_id, info, .. } => {
-          info!("IdentifyEvent:Pushed: {peer_id} | {info:?}")
-        }
-        IdentifyEvent::Received { peer_id, info, .. } => {
-          info!("IdentifyEvent:Received: {peer_id} | {info:?}");
-          peers.insert(peer_id, info.clone().listen_addrs);
+    let event = swarm.select_next_some().await;
+    handle_event(event, &mut peers, &mut swarm, local_key.clone()).await;
+  }
+}
 
-          for addr in info.clone().listen_addrs {
-            let agent_routing = swarm
-              .behaviour_mut()
-              .register_addr_kad(&peer_id, addr.clone());
-            match agent_routing {
-              RoutingUpdate::Failed => {
-                error!("IdentifyReceived: Failed to register address to Kademlia")
-              }
-              RoutingUpdate::Pending => warn!("IdentifyReceived: Register address pending"),
-              RoutingUpdate::Success => {
-                info!("IdentifyReceived: {addr}: Success register address");
-              }
+async fn handle_event(
+  event: SwarmEvent<AgentEvent>,
+  peers: &mut HashMap<PeerId, Vec<Multiaddr>>,
+  swarm: &mut Swarm<AgentBehavior>,
+  local_key: Keypair,
+) {
+  match event {
+    SwarmEvent::NewListenAddr {
+      listener_id,
+      address,
+    } => info!("NewListenAddr: {listener_id:?} | {address:?}"),
+    SwarmEvent::ConnectionEstablished {
+      peer_id,
+      connection_id,
+      endpoint,
+      num_established,
+      concurrent_dial_errors,
+      established_in,
+    } => info!(
+      "ConnectionEstablished: {peer_id} | {connection_id} | {endpoint:?} | {num_established} | \
+       {concurrent_dial_errors:?} | {established_in:?}"
+    ),
+    SwarmEvent::Dialing {
+      peer_id,
+      connection_id,
+    } => info!("Dialing: {peer_id:?} | {connection_id}"),
+    SwarmEvent::Behaviour(AgentEvent::Gossipsub(event)) => info!("gossipsub: {event:?}"),
+    SwarmEvent::Behaviour(AgentEvent::Identify(event)) => match event {
+      IdentifyEvent::Sent { peer_id, .. } => info!("IdentifyEvent:Sent: {peer_id}"),
+      IdentifyEvent::Pushed { peer_id, info, .. } => {
+        info!("IdentifyEvent:Pushed: {peer_id} | {info:?}")
+      }
+      IdentifyEvent::Received { peer_id, info, .. } => {
+        info!("IdentifyEvent:Received: {peer_id} | {info:?}");
+        peers.insert(peer_id, info.clone().listen_addrs);
+
+        for addr in info.clone().listen_addrs {
+          let agent_routing = swarm
+            .behaviour_mut()
+            .register_addr_kad(&peer_id, addr.clone());
+          match agent_routing {
+            RoutingUpdate::Failed => {
+              error!("IdentifyReceived: Failed to register address to Kademlia")
             }
-
-            _ = swarm
-              .behaviour_mut()
-              .register_addr_kad(&peer_id, addr.clone());
-
-            let local_peer_id = local_key.public().to_peer_id();
-            let request = GreeRequest {
-              message: format!("Send message from: {local_peer_id}: Hello gaess"),
-            };
-            let resquest_message = Message::GreeRequest(request);
-            let request_id = swarm
-              .behaviour_mut()
-              .send_message(&peer_id, resquest_message);
-            info!("RequestID: {request_id}")
-          }
-
-          info!("Available peers: {peers:?}");
-        }
-        _ => {}
-      },
-      SwarmEvent::Behaviour(AgentEvent::RequestResponse(event)) => match event {
-        RequestResponseEvent::Message { peer, message } => match message {
-          RequestResponseMessage::Request {
-            request_id,
-            request,
-            channel,
-          } => {
-            let parsed_request = Message::from_binary(&request).expect("Failed to decode request");
-            match parsed_request {
-              Message::GreeRequest(req) => {
-                info!(
-                  "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: \
-                   {request_id} | RequestMessage: {0:?}",
-                  req.message
-                );
-              }
-              Message::AnotherMessage(msg) => {
-                info!(
-                  "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: \
-                   {request_id} | AnotherMessage: {0:?}",
-                  msg.info
-                );
-              }
-              _ => {
-                info!("Received unknown message type.");
-              }
-            }
-            let local_peer_id = local_key.public().to_peer_id();
-            let response = GreetResponse {
-              message: format!("Response from: {local_peer_id}: hello too").to_string(),
-            };
-            let response_message = Message::GreetResponse(response);
-            let result = swarm
-              .behaviour_mut()
-              .send_response(channel, response_message);
-            if result.is_err() {
-              let err = result.unwrap_err();
-              error!("Error sending response: {err:?}")
-            } else {
-              info!("Sending a message was success")
+            RoutingUpdate::Pending => warn!("IdentifyReceived: Register address pending"),
+            RoutingUpdate::Success => {
+              info!("IdentifyReceived: {addr}: Success register address");
             }
           }
-          RequestResponseMessage::Response {
-            request_id,
-            response,
-          } => {
-            let parsed_response =
-              Message::from_binary(&response).expect("Failed to decode response");
-            match parsed_response {
-              Message::GreetResponse(res) => {
-                info!(
-                  "RequestResponseEvent::Message::Response -> PeerID: {peer} | RequestID: \
-                   {request_id} | Response: {0:?}",
-                  res.message
-                )
-              }
-              _ => {
-                info!("Received unknown response type.");
-              }
-            }
-          }
-        },
-        RequestResponseEvent::InboundFailure {
-          peer,
-          request_id,
-          error,
-        } => {
-          warn!(
-            "RequestResponseEvent::InboundFailure -> PeerID: {peer} | RequestID: {request_id} | \
-             Error: {error}"
-          )
+
+          _ = swarm
+            .behaviour_mut()
+            .register_addr_kad(&peer_id, addr.clone());
+
+          let local_peer_id = local_key.public().to_peer_id();
+          let request = GreeRequest {
+            message: format!("Send message from: {local_peer_id}: Hello gaess"),
+          };
+          let resquest_message = Message::GreeRequest(request);
+          let request_id = swarm
+            .behaviour_mut()
+            .send_message(&peer_id, resquest_message);
+          info!("RequestID: {request_id}")
         }
-        RequestResponseEvent::ResponseSent { peer, request_id } => {
-          info!("RequestResponseEvent::ResponseSent -> PeerID: {peer} | RequestID: {request_id}")
-        }
-        RequestResponseEvent::OutboundFailure {
-          peer,
-          request_id,
-          error,
-        } => {
-          warn!(
-            "RequestResponseEvent::OutboundFailure -> PeerID: {peer} | RequestID: {request_id} | \
-             Error: {error}"
-          )
-        }
-      },
-      SwarmEvent::Behaviour(AgentEvent::Kad(event)) => match event {
-        KadEvent::ModeChanged { new_mode } => info!("KadEvent:ModeChanged: {new_mode}"),
-        KadEvent::RoutablePeer { peer, address } => {
-          info!("KadEvent:RoutablePeer: {peer} | {address}")
-        }
-        KadEvent::PendingRoutablePeer { peer, address } => {
-          info!("KadEvent:PendingRoutablePeer: {peer} | {address}")
-        }
-        KadEvent::InboundRequest { request } => info!("KadEvent:InboundRequest: {request:?}"),
-        KadEvent::RoutingUpdated {
-          peer,
-          is_new_peer,
-          addresses,
-          bucket_range,
-          old_peer,
-        } => {
-          info!(
-            "KadEvent:RoutingUpdated: {peer} | IsNewPeer? {is_new_peer} | {addresses:?} | \
-             {bucket_range:?} | OldPeer: {old_peer:?}"
-          );
-        }
-        KadEvent::OutboundQueryProgressed {
-          id,
-          result,
-          stats,
-          step,
-        } => {
-          info!(
-            "KadEvent:OutboundQueryProgressed: ID: {id:?} | Result: {result:?} | Stats: {stats:?} \
-             | Step: {step:?}"
-          )
-        }
-        _ => {}
-      },
+
+        info!("Available peers: {peers:?}");
+      }
       _ => {}
-    }
+    },
+    SwarmEvent::Behaviour(AgentEvent::RequestResponse(event)) => match event {
+      RequestResponseEvent::Message { peer, message } => match message {
+        RequestResponseMessage::Request {
+          request_id,
+          request,
+          channel,
+        } => {
+          let parsed_request = Message::from_binary(&request).expect("Failed to decode request");
+          match parsed_request {
+            Message::GreeRequest(req) => {
+              info!(
+                "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: \
+                 {request_id} | RequestMessage: {0:?}",
+                req.message
+              );
+            }
+            Message::AnotherMessage(msg) => {
+              info!(
+                "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: \
+                 {request_id} | AnotherMessage: {0:?}",
+                msg.info
+              );
+            }
+            _ => {
+              info!("Received unknown message type.");
+            }
+          }
+          let local_peer_id = local_key.public().to_peer_id();
+          let response = GreetResponse {
+            message: format!("Response from: {local_peer_id}: hello too").to_string(),
+          };
+          let response_message = Message::GreetResponse(response);
+          let result = swarm
+            .behaviour_mut()
+            .send_response(channel, response_message);
+          if result.is_err() {
+            let err = result.unwrap_err();
+            error!("Error sending response: {err:?}")
+          } else {
+            info!("Sending a message was success")
+          }
+        }
+        RequestResponseMessage::Response {
+          request_id,
+          response,
+        } => {
+          let parsed_response = Message::from_binary(&response).expect("Failed to decode response");
+          match parsed_response {
+            Message::GreetResponse(res) => {
+              info!(
+                "RequestResponseEvent::Message::Response -> PeerID: {peer} | RequestID: \
+                 {request_id} | Response: {0:?}",
+                res.message
+              )
+            }
+            _ => {
+              info!("Received unknown response type.");
+            }
+          }
+        }
+      },
+      RequestResponseEvent::InboundFailure {
+        peer,
+        request_id,
+        error,
+      } => {
+        warn!(
+          "RequestResponseEvent::InboundFailure -> PeerID: {peer} | RequestID: {request_id} | \
+           Error: {error}"
+        )
+      }
+      RequestResponseEvent::ResponseSent { peer, request_id } => {
+        info!("RequestResponseEvent::ResponseSent -> PeerID: {peer} | RequestID: {request_id}")
+      }
+      RequestResponseEvent::OutboundFailure {
+        peer,
+        request_id,
+        error,
+      } => {
+        warn!(
+          "RequestResponseEvent::OutboundFailure -> PeerID: {peer} | RequestID: {request_id} | \
+           Error: {error}"
+        )
+      }
+    },
+    SwarmEvent::Behaviour(AgentEvent::Kad(event)) => match event {
+      KadEvent::ModeChanged { new_mode } => info!("KadEvent:ModeChanged: {new_mode}"),
+      KadEvent::RoutablePeer { peer, address } => {
+        info!("KadEvent:RoutablePeer: {peer} | {address}")
+      }
+      KadEvent::PendingRoutablePeer { peer, address } => {
+        info!("KadEvent:PendingRoutablePeer: {peer} | {address}")
+      }
+      KadEvent::InboundRequest { request } => info!("KadEvent:InboundRequest: {request:?}"),
+      KadEvent::RoutingUpdated {
+        peer,
+        is_new_peer,
+        addresses,
+        bucket_range,
+        old_peer,
+      } => {
+        info!(
+          "KadEvent:RoutingUpdated: {peer} | IsNewPeer? {is_new_peer} | {addresses:?} | \
+           {bucket_range:?} | OldPeer: {old_peer:?}"
+        );
+      }
+      KadEvent::OutboundQueryProgressed {
+        id,
+        result,
+        stats,
+        step,
+      } => {
+        info!(
+          "KadEvent:OutboundQueryProgressed: ID: {id:?} | Result: {result:?} | Stats: {stats:?} | \
+           Step: {step:?}"
+        )
+      }
+      _ => {}
+    },
+    _ => {}
   }
 }
