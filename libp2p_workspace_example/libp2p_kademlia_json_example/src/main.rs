@@ -3,10 +3,11 @@ use std::{
   env::args,
   error::Error,
   hash::{Hash, Hasher},
+  io::Write,
   time::Duration,
 };
 
-use env_logger::{Builder, Env};
+use env_logger::Builder;
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
   futures::StreamExt,
@@ -36,7 +37,20 @@ use message::{GreeRequest, GreetResponse, Message};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  Builder::from_env(Env::default().default_filter_or("debug")).init();
+  Builder::new()
+    .format(|buf, record| {
+      writeln!(
+        buf,
+        "{}:{} {} [{}] - {}",
+        record.file().unwrap_or("unknown"),
+        record.line().unwrap_or(0),
+        chrono::Local::now().format("%Y-%m-%dT%H:%M:%S"),
+        record.level(),
+        record.args()
+      )
+    })
+    .filter(None, log::LevelFilter::Debug)
+    .init();
 
   let local_key = identity::Keypair::generate_ed25519();
 
