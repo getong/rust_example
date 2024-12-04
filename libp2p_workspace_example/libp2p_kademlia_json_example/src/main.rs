@@ -114,12 +114,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn handle_event(
-  event: SwarmEvent<AgentEvent>,
+  swarm_event: SwarmEvent<AgentEvent>,
   peers: &mut HashMap<PeerId, Vec<Multiaddr>>,
   swarm: &mut Swarm<AgentBehavior>,
   local_key: Keypair,
 ) {
-  match event {
+  match swarm_event {
     SwarmEvent::NewListenAddr {
       listener_id,
       address,
