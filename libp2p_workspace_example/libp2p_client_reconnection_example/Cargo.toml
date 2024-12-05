@@ -1,0 +1,9 @@
+[package]
+name = "libp2p_client_reconnection_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bs58 = "0.5.1"
+libp2p = { version = "0.54.1", features = ["full"] }
+tokio = { version = "1.42.0", features = ["full"] }

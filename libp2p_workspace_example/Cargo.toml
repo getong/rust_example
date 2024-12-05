@@ -52,4 +52,5 @@ members = [
   "libp2p_kademlia_json_example",
   "libp2p_lookup",
   "libp2p_pnet_presharedkey_example",
+  "libp2p_client_reconnection_example",
 ]
