@@ -7,3 +7,4 @@ edition = "2024"
 bs58 = "0.5.1"
 libp2p = { version = "0.54.1", features = ["full"] }
 tokio = { version = "1.42.0", features = ["full"] }
+tracing = "0.1.41"
