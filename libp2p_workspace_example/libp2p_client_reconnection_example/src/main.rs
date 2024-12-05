@@ -28,7 +28,7 @@ async fn monitor_connection(
 
   bootstrap_peer_id: PeerId,
   bootstrap_addr: Multiaddr,
-) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
     .with_tcp(TcpConfig::default(), NoiseConfig::new, YamuxConfig::default)?
