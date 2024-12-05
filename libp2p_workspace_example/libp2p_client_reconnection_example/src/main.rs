@@ -6,7 +6,7 @@ use libp2p::{
     Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent,
     store::MemoryStore as KadInMemory,
   },
-  noise::Config as NoiceConfig,
+  noise::Config as NoiseConfig,
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp::Config as TcpConfig,
   yamux::Config as YamuxConfig,
@@ -29,7 +29,7 @@ async fn monitor_connection(
 ) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
-    .with_tcp(TcpConfig::default(), NoiceConfig::new, YamuxConfig::default)?
+    .with_tcp(TcpConfig::default(), NoiseConfig::new, YamuxConfig::default)?
     .with_behaviour(|_key| {
       let kad_config = KadConfig::new(StreamProtocol::new("/agent/connection/1.0.0"));
 
@@ -82,7 +82,7 @@ async fn monitor_connection(
 async fn main() {
   let local_key = Keypair::generate_secp256k1();
   let local_peer_id = PeerId::from(local_key.public());
-  // fake name here, donot use in production
+  // fake name here, do not use in production
   let remote_peer_name = "1AidRwssZM3a86w66WJhtc9rYS3TmWZ6XQHqNdMnz1UPUR";
   let bootstrap_peer_id = PeerId::from_bytes(
     &bs58::decode(remote_peer_name)
