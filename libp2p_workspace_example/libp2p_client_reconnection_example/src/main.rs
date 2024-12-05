@@ -43,6 +43,7 @@ async fn monitor_connection(
 
       MyBehaviour { kademlia: kad }
     })?
+    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
     .build();
 
   // Listen on a local address
