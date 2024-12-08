@@ -1,0 +1,11 @@
+[package]
+name = "identity_iota_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.94"
+identity_iota = { version = "1.4.0", features = ["memstore"] }
+iota-sdk = { version = "1.1.5", features = ["tls", "client", "stronghold"] }
+rand = "0.8.5"
+tokio = { version = "1.42.0", features = ["full"] }
