@@ -49,4 +49,5 @@ members = [
   "axum_multi_static_file_server_example",
   "axum_htmx_templates",
   "axum_todo_utoipa_swagger_ui_example",
+  "axum_userp_memory_store_oauth_only_example",
 ]
