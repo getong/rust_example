@@ -13,8 +13,6 @@ use tower_http::{
   services::ServeFile,
 };
 
-// use std::io;
-
 #[derive(Deserialize)]
 struct CreateUser {
   username: String,
