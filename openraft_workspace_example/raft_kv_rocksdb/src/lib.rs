@@ -44,7 +44,6 @@ openraft::declare_raft_types!(
         Node = Node,
 );
 
-
 pub mod typ {
   use openraft::error::Infallible;
 
