@@ -51,4 +51,5 @@ members = [
   "axum_todo_utoipa_swagger_ui_example",
   "axum_userp_memory_store_oauth_only_example",
   "axum_csrf_minimal_example",
+  "axum_handlebars_example",
 ]

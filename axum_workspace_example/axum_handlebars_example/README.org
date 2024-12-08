@@ -1,0 +1,9 @@
+* axum handlebars example
+
+** source code
+
+copy from [[https://github.com/fstephany/axum-di-example][axum-di-example]]
+
+** docs
+
+see [[https://tulipemoutarde.be/posts/2023-08-20-depencency-injection-rust-axum/][Dependency injection in Axum handlers. A quick tour]]
