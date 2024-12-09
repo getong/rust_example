@@ -6,11 +6,11 @@ pub mod struct_static;
 pub mod trait_static;
 
 pub fn build_templates() -> Handlebars<'static> {
-    let mut handlebars = handlebars::Handlebars::new();
-    handlebars
-        .register_template_string(
-            "index",
-            r#"
+  let mut handlebars = handlebars::Handlebars::new();
+  handlebars
+    .register_template_string(
+      "index",
+      r#"
                 <html>
                     <body>
                         <h1>{{ title }}</h1>
@@ -22,13 +22,13 @@ pub fn build_templates() -> Handlebars<'static> {
                     </body>
                 </html>
             "#,
-        )
-        .expect("Invalid <index> template");
+    )
+    .expect("Invalid <index> template");
 
-    handlebars
-        .register_template_string(
-            "show",
-            r#"
+  handlebars
+    .register_template_string(
+      "show",
+      r#"
                 <html>
                     <body>
                         <h1>{{ name }}</h1>
@@ -37,8 +37,8 @@ pub fn build_templates() -> Handlebars<'static> {
                     </body>
                 </html>
             "#,
-        )
-        .expect("Invalid template");
+    )
+    .expect("Invalid template");
 
-    handlebars
+  handlebars
 }
