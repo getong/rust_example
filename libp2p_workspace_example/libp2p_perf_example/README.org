@@ -1,0 +1,19 @@
+* libp2p perf example
+
+** source code
+
+copy from https://github.com/libp2p/rust-libp2p/tree/master/protocols/perf/src/bin
+
+** run command
+
+*** server
+
+#+begin_src shell
+./target/debug/libp2p_perf_example --server-address '127.0.0.1:8080' --run-server
+#+end_src
+
+*** client
+
+#+begin_src shell
+./target/debug/libp2p_perf_example --server-address '127.0.0.1:8080' --transport tcp --upload-bytes 104857600 --download-bytes 104857600
+#+end_src

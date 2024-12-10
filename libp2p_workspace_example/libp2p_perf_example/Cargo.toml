@@ -1,0 +1,18 @@
+[package]
+name = "libp2p_perf_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.94"
+clap = { version = "4.5.23", features = ["derive"] }
+futures = "0.3.31"
+futures-timer = "3.0.3"
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", version = "0.54.1", features = ["full"] }
+libp2p-perf = { git = "https://github.com/libp2p/rust-libp2p" }
+serde = { version = "1.0.215", features = ["derive"] }
+serde_json = "1.0.133"
+tokio = { version = "1.42.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+web-time = "1.1.0"
