@@ -12,7 +12,6 @@ use libp2p::{
 };
 use libp2p_perf::{Final, Intermediate, Run, RunParams, RunUpdate, client, server};
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::EnvFilter;
 use web_time::{Duration, Instant};
 
 #[derive(Debug, Parser)]
@@ -54,7 +53,13 @@ impl FromStr for Transport {
 #[tokio::main]
 async fn main() -> Result<()> {
   let _ = tracing_subscriber::fmt()
-    .with_env_filter(EnvFilter::from_default_env())
+    .event_format(
+      tracing_subscriber::fmt::format()
+        .with_file(true)
+        .with_line_number(true),
+    )
+    .with_ansi(false)
+    .with_env_filter("libp2p_perf_example=debug,libp2p_ping=debug")
     .try_init();
 
   let opts = Opts::parse();
@@ -158,7 +163,7 @@ async fn client(
 
     perf(&mut swarm, server_peer_id, params).await?;
 
-    println!(
+    tracing::info!(
       "{}",
       serde_json::to_string(&BenchmarkResult {
         upload_bytes: params.to_send,
@@ -250,7 +255,7 @@ async fn perf(
           received,
         } = progressed;
 
-        println!(
+        tracing::info!(
           "{}",
           serde_json::to_string(&BenchmarkResult {
             r#type: "intermediate".to_string(),
