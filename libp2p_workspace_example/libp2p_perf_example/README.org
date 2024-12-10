@@ -6,14 +6,20 @@ copy from https://github.com/libp2p/rust-libp2p/tree/master/protocols/perf/src/b
 
 ** run command
 
+*** compile
+
+#+begin_src shell
+cargo build
+#+end_src
+
 *** server
 
 #+begin_src shell
-./target/debug/libp2p_perf_example --server-address '127.0.0.1:8080' --run-server
+../target/debug/libp2p_perf_example --server-address '127.0.0.1:8080' --run-server
 #+end_src
 
 *** client
 
 #+begin_src shell
-./target/debug/libp2p_perf_example --server-address '127.0.0.1:8080' --transport tcp --upload-bytes 104857600 --download-bytes 104857600
+../target/debug/libp2p_perf_example --server-address '127.0.0.1:8080' --transport tcp --upload-bytes 104857600 --download-bytes 104857600
 #+end_src
