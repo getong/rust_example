@@ -1,20 +1,46 @@
 #![allow(non_snake_case)]
-// import the prelude to get access to the `rsx!` macro and the `Scope` and `Element` types
 use dioxus::prelude::*;
 
 fn main() {
-  // launch the dioxus app in a webview
-  dioxus_desktop::launch(App);
+  // Set the url of the server where server functions are hosted.
+  #[cfg(not(feature = "server"))]
+  dioxus::fullstack::prelude::server_fn::client::set_server_url("http://127.0.0.1:8080");
+  dioxus::launch(app);
 }
 
-// define a component that renders a div with the text "Hello, world!"
-fn App(cx: Scope) -> Element {
-  cx.render(rsx! {
-      div {
-          "Hello, world!"
+pub fn app() -> Element {
+  let mut count = use_signal(|| 0);
+  let mut text = use_signal(|| "...".to_string());
+
+  rsx! {
+      h1 { "High-Five counter: {count}" }
+      button { onclick: move |_| count += 1, "Up high!" }
+      button { onclick: move |_| count -= 1, "Down low!" }
+      button {
+          onclick: move |_| async move {
+              if let Ok(data) = get_server_data().await {
+                  println!("Client received: {}", data);
+                  text.set(data.clone());
+                  post_server_data(data).await.unwrap();
+              }
+          },
+          "Run a server function"
       }
-  })
+      "Server said: {text}"
+  }
+}
+
+#[server(PostServerData)]
+async fn post_server_data(data: String) -> Result<(), ServerFnError> {
+  println!("Server received: {}", data);
+
+  Ok(())
+}
+
+#[server(GetServerData)]
+async fn get_server_data() -> Result<String, ServerFnError> {
+  Ok("Hello from the server!".to_string())
 }
 
 // copy from https://dioxuslabs.com/learn/0.4/getting_started/desktop
-// dx serve --hot-reload --platform desktop
+// dx serve --platform desktop
