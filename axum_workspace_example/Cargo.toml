@@ -52,4 +52,5 @@ members = [
   "axum_userp_memory_store_oauth_only_example",
   "axum_csrf_minimal_example",
   "axum_handlebars_example",
+  "axum_serve_with_hyper_example",
 ]
