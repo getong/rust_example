@@ -3,10 +3,11 @@
 resolver = "2"
 
 members = [
-        "vec_example",
-        "vec_filter_example",
-        "ref_mut_vec_example",
-        "vec_ref_raw_pointer",
-        "vec_ref_raw_pointer",
-        "vec_drain_truncate_example",
+  "vec_example",
+  "vec_filter_example",
+  "ref_mut_vec_example",
+  "vec_ref_raw_pointer",
+  "vec_ref_raw_pointer",
+  "vec_drain_truncate_example",
+  "vec_put_slice_example",
 ]
