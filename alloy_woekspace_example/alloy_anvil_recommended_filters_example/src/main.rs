@@ -1,7 +1,7 @@
 //! Example of using the `.with_recommended_fillers()` method in the provider.
-use std::time::Duration;
 
 use alloy::{
+  consensus::Transaction,
   network::TransactionBuilder,
   primitives::{address, U256},
   providers::{Provider, ProviderBuilder},
@@ -29,16 +29,15 @@ async fn main() -> Result<()> {
     .with_value(U256::from(100));
 
   // Send the transaction, the nonce (0) is automatically managed by the provider.
-  let mut builder = provider.send_transaction(tx.clone()).await?;
-  builder.set_timeout(Some(Duration::from_secs(3600)));
+  let builder = provider.send_transaction(tx.clone()).await?;
   let node_hash = *builder.tx_hash();
   let pending_tx = provider
     .get_transaction_by_hash(node_hash)
     .await?
     .expect("Pending transaction not found");
-  assert_eq!(pending_tx.nonce, 0);
+  assert_eq!(pending_tx.nonce(), 0);
 
-  println!("Transaction sent with nonce: {}", pending_tx.nonce);
+  println!("Transaction sent with nonce: {}", pending_tx.nonce());
 
   // Send the transaction, the nonce (1) is automatically managed by the provider.
   let builder = provider.send_transaction(tx).await?;
@@ -47,9 +46,9 @@ async fn main() -> Result<()> {
     .get_transaction_by_hash(node_hash)
     .await?
     .expect("Pending transaction not found");
-  assert_eq!(pending_tx.nonce, 1);
+  assert_eq!(pending_tx.nonce(), 1);
 
-  println!("Transaction sent with nonce: {}", pending_tx.nonce);
+  println!("Transaction sent with nonce: {}", pending_tx.nonce());
 
   Ok(())
 }
