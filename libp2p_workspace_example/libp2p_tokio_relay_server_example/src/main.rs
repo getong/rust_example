@@ -4,8 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-// use futures::executor::block_on;
-use futures::stream::StreamExt;
+use futures::StreamExt;
 use libp2p::{
   core::{multiaddr::Protocol, Multiaddr},
   identify, identity, noise, ping, relay,
