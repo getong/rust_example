@@ -9,7 +9,7 @@ use libp2p::{
   core::{multiaddr::Protocol, Multiaddr},
   identify, identity, noise, ping, relay,
   swarm::{NetworkBehaviour, SwarmEvent},
-  tcp, yamux,
+  tcp, yamux, PeerId,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   // Create a static known PeerId based on given secret
   let local_key: identity::Keypair = generate_ed25519(opt.secret_key_seed);
+  let peer_id = PeerId::from(local_key.public());
+
+  println!("Generated PeerId: {:?}", peer_id);
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()
