@@ -82,7 +82,7 @@ mod handlers {
 mod database {
   use std::collections::HashMap;
 
-  use axum::async_trait;
+  use async_trait::async_trait;
   use uuid::{Uuid, uuid};
 
   #[async_trait]
