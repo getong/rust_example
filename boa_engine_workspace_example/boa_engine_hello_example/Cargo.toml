@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-boa_engine = "0.18.0"
+boa_engine = "0.20.0"
