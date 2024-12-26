@@ -13,6 +13,7 @@ fn App() -> impl IntoView {
           on:click=move |_| {
               *set_count.write() += 1;
           }
+      class:red=move || count.get() % 2 == 1
       >
           "Click me: "
       {count}
