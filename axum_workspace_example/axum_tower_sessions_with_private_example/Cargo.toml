@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7.7"
-serde = { version = "1.0.214", features = ["derive"] }
-time = "0.3.36"
-tokio = { version = "1.41.0", features = ["full"] }
+axum = "0.7.9"
+serde = { version = "1.0.216", features = ["derive"] }
+time = "0.3.37"
+tokio = { version = "1.42.0", features = ["full"] }
 tower-sessions = { version = "0.13.0", features = ["signed"] }

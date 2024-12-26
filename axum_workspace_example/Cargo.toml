@@ -53,4 +53,5 @@ members = [
   "axum_csrf_minimal_example",
   "axum_handlebars_example",
   "axum_serve_with_hyper_example",
+  "axum-leptos-example",
 ]
