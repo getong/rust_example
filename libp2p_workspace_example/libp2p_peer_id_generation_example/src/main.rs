@@ -1,3 +1,4 @@
+use bs58::decode;
 use libp2p::PeerId;
 
 fn main() {
@@ -14,7 +15,7 @@ fn main() {
 
   // Revert base58 string back to PeerId
   let peer_id_from_base58 = PeerId::from_bytes(
-    &bs58::decode(base58_str)
+    &decode(base58_str)
       .into_vec()
       .expect("Invalid base58 string"),
   )
