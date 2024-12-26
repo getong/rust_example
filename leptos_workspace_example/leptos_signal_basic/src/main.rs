@@ -1,10 +1,8 @@
-use leptos::mount::mount_to_body;
+use leptos::{mount::mount_to_body, prelude::*};
 
 fn main() {
   mount_to_body(App);
 }
-
-use leptos::prelude::*;
 
 #[component]
 fn App() -> impl IntoView {
@@ -12,8 +10,10 @@ fn App() -> impl IntoView {
 
   view! {
       <button
-          on:click=move |_| set_count.set(count.get() + 1)
-          >
+          on:click=move |_| {
+              *set_count.write() += 1;
+          }
+      >
           "Click me: "
       {count}
       </button>
