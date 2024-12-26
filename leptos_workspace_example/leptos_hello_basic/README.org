@@ -1,0 +1,10 @@
+* leptos hello basic example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/getting_started/index.html][Getting Started]]
