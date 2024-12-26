@@ -1,0 +1,10 @@
+* leptos signal basic example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/view/01_basic_component.html][A Basic Component]]
