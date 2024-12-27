@@ -21,11 +21,8 @@ fn ProgressBar(
   progress: Signal<i32>,
 ) -> impl IntoView {
   view! {
-      <progress
-          max={max}
-      value=progress
-          />
-          <br/>
+      <progress max=max value=progress />
+      <br />
   }
 }
 
@@ -36,23 +33,19 @@ fn App() -> impl IntoView {
   let double_count = move || count.get() * 2;
 
   view! {
-      <button
-          on:click=move |_| {
-              *set_count.write() += 1;
-          }
-      >
-          "Click me"
-          </button>
-          <br/>
+      <button on:click=move |_| {
+          *set_count.write() += 1;
+      }>"Click me"</button>
+      <br />
       // If you have this open in CodeSandbox or an editor with
       // rust-analyzer support, try hovering over `ProgressBar`,
       // `max`, or `progress` to see the docs we defined above
-          <ProgressBar max=50 progress=count/>
+      <ProgressBar max=50 progress=count />
       // Let's use the default max value on this one
       // the default is 100, so it should move half as fast
-          <ProgressBar progress=count/>
+      <ProgressBar progress=count />
       // Signal::derive creates a Signal wrapper from our derived signal
       // using double_count means it should move twice as fast
-          <ProgressBar max=50 progress=Signal::derive(double_count)/>
+      <ProgressBar max=50 progress=Signal::derive(double_count) />
   }
 }

@@ -12,10 +12,10 @@ fn App() -> impl IntoView {
       <h1>"Iteration"</h1>
       <h2>"Static List"</h2>
       <p>"Use this pattern if the list itself is static."</p>
-      <StaticList length=5/>
+      <StaticList length=5 />
       <h2>"Dynamic List"</h2>
       <p>"Use this pattern if the rows in your list will change."</p>
-      <DynamicList initial_length=5/>
+      <DynamicList initial_length=5 />
   }
 }
 
@@ -36,11 +36,7 @@ fn StaticList(
     .map(|count| {
       view! {
           <li>
-              <button
-                  on:click=move |_| *count.write() += 1
-              >
-                  {count}
-              </button>
+              <button on:click=move |_| *count.write() += 1>{count}</button>
           </li>
       }
     })
@@ -49,9 +45,7 @@ fn StaticList(
   // Note that if `counter_buttons` were a reactive list
   // and its value changed, this would be very inefficient:
   // it would rerender every row every time the list changed.
-  view! {
-      <ul>{counter_buttons}</ul>
-  }
+  view! { <ul>{counter_buttons}</ul> }
 }
 
 /// A list of counters that allows you to add or
@@ -104,9 +98,7 @@ fn DynamicList(
 
   view! {
       <div>
-          <button on:click=add_counter>
-              "Add Counter"
-          </button>
+          <button on:click=add_counter>"Add Counter"</button>
           <ul>
               // The <For/> component is central here
               // This allows for efficient, key list rendering
@@ -123,27 +115,17 @@ fn DynamicList(
                   // `children` receives each item from your `each` iterator
                   // and returns a view
                   children=move |(id, count)| {
+                      let count = RwSignal::from(count);
                       // we can convert our ArcRwSignal to a Copy-able RwSignal
                       // for nicer DX when moving it into the view
-                      let count = RwSignal::from(count);
                       view! {
                           <li>
-                              <button
-                                  on:click=move |_| *count.write() += 1
-                              >
-                                  {count}
-                              </button>
-                              <button
-                                  on:click=move |_| {
-                                      set_counters
-                                          .write()
-                                          .retain(|(counter_id, _)| {
-                                              counter_id != &id
-                                          });
-                                  }
-                              >
-                                  "Remove"
-                              </button>
+                              <button on:click=move |_| *count.write() += 1>{count}</button>
+                              <button on:click=move |_| {
+                                  set_counters
+                                      .write()
+                                      .retain(|(counter_id, _)| { counter_id != &id });
+                              }>"Remove"</button>
                           </li>
                       }
                   }
