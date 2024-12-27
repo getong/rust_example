@@ -1,4 +1,4 @@
-* leptos for basic example
+* leptos for form input
 
 ** run example
 
@@ -7,4 +7,4 @@ trunk serve --open
 #+end_src
 
 
-copy from [[https://book.leptos.dev/view/04b_iteration.html][Iterating over More Complex Data with <For/>]]
+copy from [[https://book.leptos.dev/view/05_forms.html][Forms and Inputs]]

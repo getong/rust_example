@@ -1,220 +1,98 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use leptos::{ev::SubmitEvent};
+use leptos::prelude::*;
 
-use chrono::{Local, NaiveDate};
-use leptos::{logging::warn, mount::mount_to_body, prelude::*};
-use reactive_stores::{Field, Patch, Store};
-use serde::{Deserialize, Serialize};
-
-// ID starts higher than 0 because we have a few starting todos by default
-static NEXT_ID: AtomicUsize = AtomicUsize::new(3);
-
-#[derive(Debug, Store, Serialize, Deserialize)]
-struct Todos {
-  user: User,
-  #[store(key: usize = |todo| todo.id)]
-  todos: Vec<Todo>,
-}
-
-#[derive(Debug, Store, Patch, Serialize, Deserialize)]
-struct User {
-  name: String,
-  email: String,
-}
-
-#[derive(Debug, Store, Serialize, Deserialize)]
-struct Todo {
-  id: usize,
-  label: String,
-  status: Status,
-}
-
-#[derive(Debug, Default, Clone, Store, Serialize, Deserialize)]
-enum Status {
-  #[default]
-  Pending,
-  Scheduled,
-  ScheduledFor {
-    date: NaiveDate,
-  },
-  Done,
-}
-
-impl Status {
-  pub fn next_step(&mut self) {
-    *self = match self {
-      Status::Pending => Status::ScheduledFor {
-        date: Local::now().naive_local().into(),
-      },
-      Status::Scheduled | Status::ScheduledFor { .. } => Status::Done,
-      Status::Done => Status::Done,
-    };
-  }
-}
-
-impl Todo {
-  pub fn new(label: impl ToString) -> Self {
-    Self {
-      id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-      label: label.to_string(),
-      status: Status::Pending,
+#[component]
+fn App() -> impl IntoView {
+    view! {
+        <h2>"Controlled Component"</h2>
+            <ControlledComponent/>
+            <h2>"Uncontrolled Component"</h2>
+            <UncontrolledComponent/>
     }
-  }
-}
-
-fn data() -> Todos {
-  Todos {
-    user: User {
-      name: "Bob".to_string(),
-      email: "lawblog@bobloblaw.com".into(),
-    },
-    todos: vec![
-      Todo {
-        id: 0,
-        label: "Create reactive store".to_string(),
-        status: Status::Pending,
-      },
-      Todo {
-        id: 1,
-        label: "???".to_string(),
-        status: Status::Pending,
-      },
-      Todo {
-        id: 2,
-        label: "Profit".to_string(),
-        status: Status::Pending,
-      },
-    ],
-  }
 }
 
 #[component]
-pub fn App() -> impl IntoView {
-  let store = Store::new(data());
+fn ControlledComponent() -> impl IntoView {
+    // create a signal to hold the value
+    let (name, set_name) = signal("Controlled".to_string());
 
-  let input_ref = NodeRef::new();
+    view! {
+        <input type="text"
+        // fire an event whenever the input changes
+        // adding :target after the event gives us access to
+        // a correctly-typed element at ev.target()
+            on:input:target=move |ev| {
+                set_name.set(ev.target().value());
+            }
 
-  view! {
-      <p>"Hello, " {move || store.user().name().get()}</p>
-      <UserForm user=store.user() />
-      <hr />
-      <form on:submit=move |ev| {
-          ev.prevent_default();
-          store.todos().write().push(Todo::new(input_ref.get().unwrap().value()));
-      }>
-          <label>"Add a Todo" <input type="text" node_ref=input_ref /></label>
-          <input type="submit" />
-      </form>
-      <ol>
-          // because `todos` is a keyed field, `store.todos()` returns a struct that
-          // directly implements IntoIterator, so we can use it in <For/> and
-          // it will manage reactivity for the store fields correctly
-          <For each=move || store.todos() key=|row| row.id().get() let:todo>
-              <TodoRow store todo />
-          </For>
-
-      </ol>
-      <pre>{move || serde_json::to_string_pretty(&*store.read())}</pre>
-  }
+        // the `prop:` syntax lets you update a DOM property,
+        // rather than an attribute.
+        //
+        // IMPORTANT: the `value` *attribute* only sets the
+        // initial value, until you have made a change.
+        // The `value` *property* sets the current value.
+        // This is a quirk of the DOM; I didn't invent it.
+        // Other frameworks gloss this over; I think it's
+        // more important to give you access to the browser
+        // as it really works.
+        //
+        // tl;dr: use prop:value for form inputs
+        prop:value=name
+            />
+            <p>"Name is: " {name}</p>
+    }
 }
 
 #[component]
-fn UserForm(#[prop(into)] user: Field<User>) -> impl IntoView {
-  let error = RwSignal::new(None);
+fn UncontrolledComponent() -> impl IntoView {
+    // import the type for <input>
+    use leptos::html::Input;
 
-  view! {
-      {move || error.get().map(|n| view! { <p>{n}</p> })}
-      <form on:submit:target=move |ev| {
-          ev.prevent_default();
-          match User::from_event(&ev) {
-              Ok(new_user) => {
-                  error.set(None);
-                  user.patch(new_user);
-              }
-              Err(e) => error.set(Some(e.to_string())),
-          }
-      }>
-          <label>
-              "Name" <input type="text" name="name" prop:value=move || user.name().get() />
-          </label>
-          <label>
-              "Email" <input type="email" name="email" prop:value=move || user.email().get() />
-          </label>
-          <input type="submit" />
-      </form>
-  }
+    let (name, set_name) = signal("Uncontrolled".to_string());
+
+    // we'll use a NodeRef to store a reference to the input element
+    // this will be filled when the element is created
+    let input_element: NodeRef<Input> = NodeRef::new();
+
+    // fires when the form `submit` event happens
+    // this will store the value of the <input> in our signal
+    let on_submit = move |ev: SubmitEvent| {
+        // stop the page from reloading!
+        ev.prevent_default();
+
+        // here, we'll extract the value from the input
+        let value = input_element.get()
+        // event handlers can only fire after the view
+        // is mounted to the DOM, so the `NodeRef` will be `Some`
+            .expect("<input> to exist")
+        // `NodeRef` implements `Deref` for the DOM element type
+        // this means we can call`HtmlInputElement::value()`
+        // to get the current value of the input
+            .value();
+        set_name.set(value);
+    };
+
+    view! {
+        <form on:submit=on_submit>
+            <input type="text"
+        // here, we use the `value` *attribute* to set only
+        // the initial value, letting the browser maintain
+        // the state after that
+            value=name
+
+        // store a reference to this input in `input_element`
+            node_ref=input_element
+            />
+            <input type="submit" value="Submit"/>
+            </form>
+            <p>"Name is: " {name}</p>
+    }
 }
 
-#[component]
-fn TodoRow(store: Store<Todos>, #[prop(into)] todo: Field<Todo>) -> impl IntoView {
-  let status = todo.status();
-  let title = todo.label();
-
-  let editing = RwSignal::new(true);
-
-  view! {
-      <li style:text-decoration=move || {
-          status.done().then_some("line-through").unwrap_or_default()
-      }>
-
-          <p
-              class:hidden=move || editing.get()
-              on:click=move |_| {
-                  editing.update(|n| *n = !*n);
-              }
-          >
-
-              {move || title.get()}
-          </p>
-          <input
-              class:hidden=move || !(editing.get())
-              type="text"
-              prop:value=move || title.get()
-              on:change=move |ev| {
-                  title.set(event_target_value(&ev));
-              }
-          />
-
-          <button on:click=move |_| {
-              status.write().next_step()
-          }>
-              {move || {
-                  if todo.status().done() {
-                      "Done"
-                  } else if status.scheduled() || status.scheduled_for() {
-                      "Scheduled"
-                  } else {
-                      "Pending"
-                  }
-              }}
-
-          </button>
-
-          <button on:click=move |_| {
-              let id = todo.id().get();
-              store.todos().write().retain(|todo| todo.id != id);
-          }>"X"</button>
-          <input
-              type="date"
-              prop:value=move || { todo.status().scheduled_for_date().map(|n| n.get().to_string()) }
-
-              class:hidden=move || !todo.status().scheduled_for()
-              on:change:target=move |ev| {
-                  if let Some(date) = todo.status().scheduled_for_date() {
-                      let value = ev.target().value();
-                      match NaiveDate::parse_from_str(&value, "%Y-%m-%d") {
-                          Ok(new_date) => {
-                              date.set(new_date);
-                          }
-                          Err(e) => warn!("{e}"),
-                      }
-                  }
-              }
-          />
-
-      </li>
-  }
-}
-
+// This `main` function is the entry point into the app
+// It just mounts our component to the <body>
+// Because we defined it as `fn App`, we can now use it in a
+// template as <App/>
 fn main() {
-  mount_to_body(App);
+    leptos::mount::mount_to_body(App)
 }
