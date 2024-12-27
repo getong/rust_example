@@ -1,0 +1,10 @@
+* leptos for basic example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/view/04b_iteration.html][Iterating over More Complex Data with <For/>]]
