@@ -1,0 +1,10 @@
+* leptos frontend log
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+created by chatgpt
