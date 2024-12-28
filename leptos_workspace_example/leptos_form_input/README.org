@@ -1,4 +1,4 @@
-* leptos for form input
+* leptos for control flow
 
 ** run example
 
