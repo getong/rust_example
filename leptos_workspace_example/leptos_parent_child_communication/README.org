@@ -1,0 +1,10 @@
+* leptos for Parent-Child Communication
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/view/08_parent_child.html][Parent-Child Communication]]
