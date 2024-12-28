@@ -1,0 +1,10 @@
+* leptos async suspense
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/async/11_suspense.html][Suspense]]
