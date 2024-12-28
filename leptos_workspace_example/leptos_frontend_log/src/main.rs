@@ -1,12 +1,11 @@
-use console_log;
 use leptos::prelude::*;
 
 #[component]
 fn App() -> impl IntoView {
-    let (count, set_count) = signal(0);
+  let (count, set_count) = signal(0);
 
   Effect::new(move || {
-    log::info!("Current count: {}", count.get());
+    leptos::logging::log!("Current count: {}", count.get());
   });
 
   view! {
@@ -17,7 +16,5 @@ fn App() -> impl IntoView {
 }
 
 fn main() {
-  console_log::init_with_level(log::Level::Info).expect("Failed to initialize logger");
-  console_error_panic_hook::set_once(); // Optional: Better panic messages
   leptos::mount::mount_to_body(App);
 }
