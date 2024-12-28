@@ -1,0 +1,10 @@
+* leptos Params and Queries example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/router/18_params_and_queries.html][Params and Queries]]
