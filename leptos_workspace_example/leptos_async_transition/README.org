@@ -1,0 +1,10 @@
+* leptos async transition
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/async/12_transition.html][<Transition/>]]
