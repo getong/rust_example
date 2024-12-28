@@ -1,0 +1,10 @@
+* leptos for control flow
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/view/06_control_flow.html][Control Flow]]
