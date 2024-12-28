@@ -1,0 +1,10 @@
+* leptos Nested Routing example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/router/17_nested_routing.html][Nested Routing]]
