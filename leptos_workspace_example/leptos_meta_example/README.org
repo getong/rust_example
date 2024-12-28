@@ -1,0 +1,10 @@
+* leptos meta example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://docs.rs/leptos_meta/latest/leptos_meta/][Crate leptos_meta]]
