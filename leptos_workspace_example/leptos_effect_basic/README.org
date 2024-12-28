@@ -1,0 +1,10 @@
+* leptos effect basic example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/reactivity/14_create_effect.html][Responding to Changes with Effects]]
