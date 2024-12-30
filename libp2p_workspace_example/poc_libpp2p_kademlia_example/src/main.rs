@@ -2,31 +2,30 @@ use std::{collections::HashMap, env::args, error::Error, time::Duration};
 
 use env_logger::{Builder, Env};
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
   futures::StreamExt,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
   identity,
   kad::{
-    Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent, RoutingUpdate,
-    store::MemoryStore as KadInMemory,
+    store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
+    Event as KadEvent, RoutingUpdate,
   },
   noise::Config as NoiceConfig,
   request_response::{
-    Config as RequestResponseConfig, Event as RequestResponseEvent,
-    Message as RequestResponseMessage, ProtocolSupport as RequestResponseProtocolSupport,
-    cbor::Behaviour as RequestResponseBehavior,
+    cbor::Behaviour as RequestResponseBehavior, Config as RequestResponseConfig,
+    Event as RequestResponseEvent, Message as RequestResponseMessage,
+    ProtocolSupport as RequestResponseProtocolSupport,
   },
   swarm::SwarmEvent,
   tcp::Config as TcpConfig,
   yamux::Config as YamuxConfig,
+  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
 use log::{error, info, warn};
-use tokio;
 
 mod behavior;
-use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
-
 mod message;
+
+use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
 use message::{GreeRequest, GreetResponse};
 
 #[tokio::main]
@@ -38,6 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
     .with_tcp(TcpConfig::default(), NoiceConfig::new, YamuxConfig::default)?
+    .with_quic()
     .with_behaviour(|key| {
       let local_peer_id = PeerId::from(key.clone().public());
       info!("LocalPeerID: {local_peer_id}");
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       let kad_memory = KadInMemory::new(local_peer_id);
       let kad = KadBehavior::with_config(local_peer_id, kad_memory, kad_config);
 
-      let identity_config =
+      let identify_config =
         IdentifyConfig::new("/agent/connection/1.0.0".to_string(), key.clone().public())
           .with_push_listen_addr_updates(true)
           .with_interval(Duration::from_secs(30));
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rr_config,
       );
 
-      let identify = IdentifyBehavior::new(identity_config);
+      let identify = IdentifyBehavior::new(identify_config);
       AgentBehavior::new(kad, identify, rr_behavior)
     })?
     .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(30)))
@@ -123,7 +123,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
               }
             }
 
-            _ = swarm.add_peer_address(peer_id, addr.clone());
+            _ = swarm
+              .behaviour_mut()
+              .register_addr_kad(&peer_id, addr.clone());
 
             let local_peer_id = local_key.public().to_peer_id();
             let message = GreeRequest {

@@ -8,3 +8,27 @@ code is copy and modified by [[https://github.com/hiraqdev/poc-rust-libp2p-kadem
 Each time a node is connected to another node, these two nodes will
 keep synchronizing their peer information and updating the routing table (DHT).
 #+end_quote
+
+
+** run command
+
+*** first terminal
+#+begin_src shell
+$ cargo run
+
+ "/ip4/127.0.0.1/tcp/8000"
+#+end_src
+
+*** the other terminal
+
+#+begin_src shell
+cargo run --  "/ip4/127.0.0.1/tcp/8000"
+
+ "/ip4/127.0.0.1/tcp/54307"
+#+end_src
+
+*** third terminal
+
+#+begin_src shell
+cargo run -- "/ip4/127.0.0.1/tcp/54307"
+#+end_src
