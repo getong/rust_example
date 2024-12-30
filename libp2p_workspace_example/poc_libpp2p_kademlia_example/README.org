@@ -1,0 +1,10 @@
+* poc libp2p kademlia example
+
+copy from [[https://medium.com/lifefunk/playing-with-decentralized-p2p-network-rust-libp2p-stacks-2022abdf3503][Playing with decentralized p2p network & Rust Libp2p Stacks]]
+
+code is copy and modified by [[https://github.com/hiraqdev/poc-rust-libp2p-kademlia][poc rust-libp2p-kademlia-dht]]
+
+#+begin_quote
+Each time a node is connected to another node, these two nodes will
+keep synchronizing their peer information and updating the routing table (DHT).
+#+end_quote
