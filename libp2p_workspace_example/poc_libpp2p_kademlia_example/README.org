@@ -32,3 +32,15 @@ cargo run --  "/ip4/127.0.0.1/tcp/8000"
 #+begin_src shell
 cargo run -- "/ip4/127.0.0.1/tcp/54307"
 #+end_src
+
+** run output example
+
+#+begin_quote
+A 12D3KooWBfWuSXUdQ59jeU47MNXmRYo2HgWZPBRR7HirsDWEgipc   /ip4/127.0.0.1/tcp/8000
+B 12D3KooWH2r2yNVkbo1jZWS2rqrkWKRtc2A5mPa1BcajXfVWrxoB   /ip4/127.0.0.1/tcp/55401
+C 12D3KooWS8wZeVUDgRj5EquGaok6WPxnVbQoWTmgkVUEfQMfmfhF  /ip4/127.0.0.1/tcp/55471
+
+in C terminal
+[2024-12-30T15:11:28Z INFO  poc_libpp2p_kademlia_example] RequestResponseEvent::Message::Response -> PeerID: 12D3KooWBfWuSXUdQ59jeU47MNXmRYo2HgWZPBRR7HirsDWEgipc | RequestID: 11 | Response: GreetResponse { message: "Response from: 12D3KooWBfWuSXUdQ59jeU47MNXmRYo2HgWZPBRR7HirsDWEgipc: hello too" }
+[2024-12-30T15:11:28Z INFO  poc_libpp2p_kademlia_example] RequestResponseEvent::Message::Response -> PeerID: 12D3KooWBfWuSXUdQ59jeU47MNXmRYo2HgWZPBRR7HirsDWEgipc | RequestID: 12 | Response: GreetResponse { message: "Response from: 12D3KooWBfWuSXUdQ59jeU47MNXmRYo2HgWZPBRR7HirsDWEgipc: hello too" }
+#+end_quote

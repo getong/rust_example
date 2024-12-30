@@ -2,23 +2,23 @@ use std::{collections::HashMap, env::args, error::Error, time::Duration};
 
 use env_logger::{Builder, Env};
 use libp2p::{
+  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
   futures::StreamExt,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
   identity,
   kad::{
-    store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
-    Event as KadEvent, RoutingUpdate,
+    Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent, RoutingUpdate,
+    store::MemoryStore as KadInMemory,
   },
   noise::Config as NoiceConfig,
   request_response::{
-    cbor::Behaviour as RequestResponseBehavior, Config as RequestResponseConfig,
-    Event as RequestResponseEvent, Message as RequestResponseMessage,
-    ProtocolSupport as RequestResponseProtocolSupport,
+    Config as RequestResponseConfig, Event as RequestResponseEvent,
+    Message as RequestResponseMessage, ProtocolSupport as RequestResponseProtocolSupport,
+    cbor::Behaviour as RequestResponseBehavior,
   },
   swarm::SwarmEvent,
   tcp::Config as TcpConfig,
   yamux::Config as YamuxConfig,
-  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
 };
 use log::{error, info, warn};
 
@@ -37,7 +37,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
     .with_tcp(TcpConfig::default(), NoiceConfig::new, YamuxConfig::default)?
-    .with_quic()
     .with_behaviour(|key| {
       let local_peer_id = PeerId::from(key.clone().public());
       info!("LocalPeerID: {local_peer_id}");

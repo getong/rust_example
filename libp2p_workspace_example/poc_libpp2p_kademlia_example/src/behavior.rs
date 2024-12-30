@@ -1,15 +1,15 @@
 use libp2p::{
+  Multiaddr, PeerId,
   identify::{Behaviour as IdentifyBehavior, Event as IdentifyEvent},
   kad::{
-    store::MemoryStore as KademliaInMemory, Behaviour as KademliaBehavior, Event as KademliaEvent,
-    RoutingUpdate,
+    Behaviour as KademliaBehavior, Event as KademliaEvent, RoutingUpdate,
+    store::MemoryStore as KademliaInMemory,
   },
   request_response::{
-    cbor::Behaviour as RequestResponseBehavior, Event as RequestResponseEvent, OutboundRequestId,
-    ResponseChannel as RequestResponseChannel,
+    Event as RequestResponseEvent, OutboundRequestId, ResponseChannel as RequestResponseChannel,
+    cbor::Behaviour as RequestResponseBehavior,
   },
   swarm::NetworkBehaviour,
-  Multiaddr, PeerId,
 };
 
 use crate::message::{GreeRequest, GreetResponse};
