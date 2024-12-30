@@ -55,4 +55,5 @@ members = [
   "libp2p_client_reconnection_example",
   "libp2p_perf_example",
   "libp2p_p2prpc_example",
+  "poc_libpp2p_kademlia_example",
 ]
