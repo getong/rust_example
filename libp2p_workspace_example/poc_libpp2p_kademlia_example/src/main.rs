@@ -42,14 +42,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
       info!("LocalPeerID: {local_peer_id}");
 
       let kad_config = KadConfig::new(StreamProtocol::new("/agent/connection/1.0.0"));
-
       let kad_memory = KadInMemory::new(local_peer_id);
       let kad = KadBehavior::with_config(local_peer_id, kad_memory, kad_config);
-
-      let identify_config =
-        IdentifyConfig::new("/agent/connection/1.0.0".to_string(), key.clone().public())
-          .with_push_listen_addr_updates(true)
-          .with_interval(Duration::from_secs(30));
 
       let rr_config = RequestResponseConfig::default();
       let rr_protocol = StreamProtocol::new("/agent/message/1.0.0");
@@ -58,6 +52,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rr_config,
       );
 
+      let identify_config =
+        IdentifyConfig::new("/agent/connection/1.0.0".to_string(), key.clone().public())
+          .with_push_listen_addr_updates(true)
+          .with_interval(Duration::from_secs(30));
       let identify = IdentifyBehavior::new(identify_config);
       AgentBehavior::new(kad, identify, rr_behavior)
     })?
@@ -121,10 +119,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 info!("IdentifyReceived: {addr}: Success register address");
               }
             }
-
-            _ = swarm
-              .behaviour_mut()
-              .register_addr_kad(&peer_id, addr.clone());
 
             let local_peer_id = local_key.public().to_peer_id();
             let message = GreeRequest {
