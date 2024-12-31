@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22.1"
+dotenv = "0.15.0"
+either = "1.13.0"
 env_logger = "0.11.6"
-libp2p = { version = "0.54.1", features = ["tcp", "tls", "kad", "identify", "request-response", "cbor", "tokio", "dns", "noise", "yamux", "macros"] }
+libp2p = { version = "0.54.1", features = ["tcp", "tls", "kad", "identify", "request-response", "cbor", "tokio", "dns", "noise", "yamux", "macros", "pnet", "secp256k1"] }
 log = "0.4.22"
 serde = { version = "1.0.217", features = ["derive"] }
 tokio = { version = "1.42.0", features = ["full"] }

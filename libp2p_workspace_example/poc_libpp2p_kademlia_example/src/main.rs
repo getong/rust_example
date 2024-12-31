@@ -1,8 +1,11 @@
 use std::{collections::HashMap, env::args, error::Error, time::Duration};
 
+use base64::{Engine, engine::general_purpose::STANDARD};
+use either::Either;
 use env_logger::{Builder, Env};
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, SwarmBuilder,
+  Multiaddr, PeerId, StreamProtocol, SwarmBuilder, Transport,
+  core::transport::upgrade::Version,
   futures::StreamExt,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
   identity,
@@ -10,15 +13,15 @@ use libp2p::{
     Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent, RoutingUpdate,
     store::MemoryStore as KadInMemory,
   },
-  noise::Config as NoiceConfig,
+  noise,
+  pnet::{PnetConfig, PreSharedKey},
   request_response::{
     Config as RequestResponseConfig, Event as RequestResponseEvent,
     Message as RequestResponseMessage, ProtocolSupport as RequestResponseProtocolSupport,
     cbor::Behaviour as RequestResponseBehavior,
   },
   swarm::SwarmEvent,
-  tcp::Config as TcpConfig,
-  yamux::Config as YamuxConfig,
+  tcp, yamux,
 };
 use log::{error, info, warn};
 
@@ -28,15 +31,43 @@ mod message;
 use behavior::{Behavior as AgentBehavior, Event as AgentEvent};
 use message::{GreeRequest, GreetResponse};
 
+/// Read the pre shared key file from the given ipfs directory
+fn get_psk() -> Result<PreSharedKey, Box<dyn Error>> {
+  let base64_key =
+    std::env::var("PRIVITE_NET_KEY").map_err(|_| "PRIVITE_NET_KEY missing in .env")?;
+  let bytes = STANDARD.decode(&base64_key)?;
+  let key: [u8; 32] = bytes
+    .try_into()
+    .map_err(|_| "Decoded key must be 32 bytes long")?;
+  Ok(PreSharedKey::new(key))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+  dotenv::dotenv().ok();
   Builder::from_env(Env::default().default_filter_or("debug")).init();
 
-  let local_key = identity::Keypair::generate_ed25519();
+  let psk = get_psk();
+  let local_key = identity::Keypair::generate_secp256k1();
 
   let mut swarm = SwarmBuilder::with_existing_identity(local_key.clone())
     .with_tokio()
-    .with_tcp(TcpConfig::default(), NoiceConfig::new, YamuxConfig::default)?
+    .with_other_transport(|key| {
+      let noise_config = noise::Config::new(key).unwrap();
+      let mut yamux_config = yamux::Config::default();
+      yamux_config.set_max_num_streams(1024 * 1024);
+      let base_transport = tcp::tokio::Transport::new(tcp::Config::default().nodelay(true));
+      let maybe_encrypted = match psk {
+        Ok(psk) => Either::Left(
+          base_transport.and_then(move |socket, _| PnetConfig::new(psk).handshake(socket)),
+        ),
+        Err(_) => Either::Right(base_transport),
+      };
+      maybe_encrypted
+        .upgrade(Version::V1Lazy)
+        .authenticate(noise_config)
+        .multiplex(yamux_config)
+    })?
     .with_behaviour(|key| {
       let local_peer_id = PeerId::from(key.clone().public());
       info!("LocalPeerID: {local_peer_id}");
