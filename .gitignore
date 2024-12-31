@@ -32,3 +32,4 @@ buffer_example_workspace/sample.json
 **/*.jpeg
 **/node_modules
 **/pnpm-lock.yaml
+**/.env
