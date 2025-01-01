@@ -8,10 +8,7 @@ use ethers::{
   prelude::Address,
   utils::{keccak256, to_checksum},
 };
-use libp2p::{
-  PeerId,
-  identity::{self, secp256k1::PublicKey as Secp256k1PublicKey},
-};
+use libp2p::{PeerId, identity::secp256k1::PublicKey as Secp256k1PublicKey};
 use secp256k1::PublicKey;
 
 pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Error>> {
@@ -91,7 +88,7 @@ fn main() -> Result<(), Box<dyn Error>> {
       // If compressed fails, try uncompressed format
       let uncompressed_pub_key = secp_key.serialize_uncompressed(); // 65 bytes
       println!("Uncompressed Public Key: {:?}", uncompressed_pub_key);
-      identity::secp256k1::PublicKey::try_from_bytes(&uncompressed_pub_key)
+      Secp256k1PublicKey::try_from_bytes(&uncompressed_pub_key)
     })
     .map_err(|e| format!("Failed to parse libp2p secp256k1 public key: {}", e))?;
 
