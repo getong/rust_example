@@ -8,7 +8,10 @@ use ethers::{
   prelude::Address,
   utils::{keccak256, to_checksum},
 };
-use libp2p::{PeerId, identity};
+use libp2p::{
+  PeerId,
+  identity::{self, secp256k1::PublicKey as Secp256k1PublicKey},
+};
 use secp256k1::PublicKey;
 
 pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Error>> {
@@ -16,6 +19,17 @@ pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Err
   let pub_key_bytes = pub_key.serialize_uncompressed();
 
   // Calculate the Ethereum address by hashing the X and Y coordinates (skip the first byte)
+  let hash = keccak256(&pub_key_bytes[1 ..]); // Skip the 0x04 prefix
+  let address = Address::from_slice(&hash[12 ..]);
+
+  Ok(to_checksum(&address, None))
+}
+
+pub fn secpe256k1_publickey_to_eth_address(
+  pub_key: &Secp256k1PublicKey,
+) -> Result<String, Box<dyn Error>> {
+  let pub_key_bytes = pub_key.to_bytes_uncompressed();
+
   let hash = keccak256(&pub_key_bytes[1 ..]); // Skip the 0x04 prefix
   let address = Address::from_slice(&hash[12 ..]);
 
@@ -72,7 +86,7 @@ fn main() -> Result<(), Box<dyn Error>> {
   let compressed_pub_key = secp_key.serialize(); // 33 bytes
   println!("Compressed Public Key: {:?}", compressed_pub_key);
 
-  let libp2p_pub_key = identity::secp256k1::PublicKey::try_from_bytes(&compressed_pub_key)
+  let libp2p_pub_key = Secp256k1PublicKey::try_from_bytes(&compressed_pub_key)
     .or_else(|_| {
       // If compressed fails, try uncompressed format
       let uncompressed_pub_key = secp_key.serialize_uncompressed(); // 65 bytes
@@ -80,6 +94,12 @@ fn main() -> Result<(), Box<dyn Error>> {
       identity::secp256k1::PublicKey::try_from_bytes(&uncompressed_pub_key)
     })
     .map_err(|e| format!("Failed to parse libp2p secp256k1 public key: {}", e))?;
+
+  let libp2p_eth_address = secpe256k1_publickey_to_eth_address(&libp2p_pub_key)?;
+  println!(
+    "libp2p Ethereum Address: {}, it is the same with others",
+    libp2p_eth_address
+  );
 
   let peer_id = PeerId::from_public_key(&libp2p_pub_key.into());
   println!("Generated PeerId: {}", peer_id);
