@@ -22,6 +22,7 @@ wasm-bindgen = "=0.2.99"
 
 [features]
 hydrate = ["leptos/hydrate"]
+csr = ["leptos/csr"]
 ssr = [
     "dep:axum",
     "dep:tokio",
