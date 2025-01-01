@@ -22,7 +22,7 @@ pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Err
   let hash = keccak256(&pub_key_bytes[1 ..]); // Skip the 0x04 prefix
   let address = Address::from_slice(&hash[12 ..]);
 
-  Ok(to_checksum(&address, None))
+  Ok(to_checksum(&address, None).to_lowercase())
 }
 
 pub fn secpe256k1_publickey_to_eth_address(
@@ -33,7 +33,7 @@ pub fn secpe256k1_publickey_to_eth_address(
   let hash = keccak256(&pub_key_bytes[1 ..]); // Skip the 0x04 prefix
   let address = Address::from_slice(&hash[12 ..]);
 
-  Ok(to_checksum(&address, None))
+  Ok(to_checksum(&address, None).to_lowercase())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
