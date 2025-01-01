@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1.83"
-axum = { version = "0.8.0", features = ["macros"] }
+axum = { version = "0.8.1", features = ["macros"] }
 handlebars = "6.2.0"
 serde = { version = "1.0.217", features = ["derive"] }
 tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread"] }
