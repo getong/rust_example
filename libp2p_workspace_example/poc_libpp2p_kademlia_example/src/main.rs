@@ -3,12 +3,16 @@ use std::{collections::HashMap, env::args, error::Error, time::Duration};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use either::Either;
 use env_logger::{Builder, Env};
+use ethers::{
+  prelude::Address,
+  utils::{keccak256, to_checksum},
+};
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, SwarmBuilder, Transport,
   core::transport::upgrade::Version,
   futures::StreamExt,
   identify::{Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent},
-  identity,
+  identity::{self, secp256k1::PublicKey as Secp256k1PublicKey},
   kad::{
     Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent, RoutingUpdate,
     store::MemoryStore as KadInMemory,
@@ -135,6 +139,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         IdentifyEvent::Received { peer_id, info, .. } => {
           info!("IdentifyEvent:Received: {peer_id} | {info:?}");
+          if let Ok(libp2p_public_key) = info.public_key.clone().try_into_secp256k1() {
+            if let Ok(libp2p_eth_address) = secpe256k1_publickey_to_eth_address(&libp2p_public_key)
+            {
+              info!("libp2p Ethereum Address: {}", libp2p_eth_address);
+            }
+          }
+
           peers.insert(peer_id, info.clone().listen_addrs);
 
           for addr in info.clone().listen_addrs {
@@ -257,4 +268,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
       _ => {}
     }
   }
+}
+
+pub fn secpe256k1_publickey_to_eth_address(
+  pub_key: &Secp256k1PublicKey,
+) -> Result<String, Box<dyn Error>> {
+  let pub_key_bytes = pub_key.to_bytes_uncompressed();
+
+  let hash = keccak256(&pub_key_bytes[1 ..]); // Skip the 0x04 prefix
+  let address = Address::from_slice(&hash[12 ..]);
+
+  Ok(to_checksum(&address, None).to_lowercase())
 }
