@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7.9"
-axum-extra = "0.9.6"
-serde = { version = "1.0.216", features = ["derive"] }
+axum = "0.8.0"
+axum-extra = "0.10.0"
+serde = { version = "1.0.217", features = ["derive"] }
 tokio = { version = "1.42.0", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }

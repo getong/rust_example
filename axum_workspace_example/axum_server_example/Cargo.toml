@@ -5,6 +5,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.7.9"
+axum = "0.8.0"
 axum-server = { version = "0.7.1", features = ["rustls", "arc-swap", "rustls-pemfile", "tls-rustls", "tokio-rustls"] }
 tokio = { version = "1.42.0", features = ["full"] }
