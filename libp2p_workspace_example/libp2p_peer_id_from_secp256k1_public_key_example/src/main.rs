@@ -8,7 +8,10 @@ use ethers::{
   prelude::Address,
   utils::{keccak256, to_checksum},
 };
-use libp2p::{PeerId, identity::secp256k1::PublicKey as Secp256k1PublicKey};
+use libp2p::{
+  PeerId,
+  identity::{self, Keypair, secp256k1::PublicKey as Secp256k1PublicKey},
+};
 use secp256k1::PublicKey;
 
 pub fn pub_key_to_eth_address(pub_key: &PublicKey) -> Result<String, Box<dyn Error>> {
@@ -31,6 +34,13 @@ pub fn secpe256k1_publickey_to_eth_address(
   let address = Address::from_slice(&hash[12 ..]);
 
   Ok(to_checksum(&address, None).to_lowercase())
+}
+
+pub fn make_fake_libp2p_keypair() -> Keypair {
+  let private_key_bytes =
+    hex::decode("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
+  let secret_key = identity::secp256k1::SecretKey::try_from_bytes(private_key_bytes).unwrap();
+  identity::secp256k1::Keypair::from(secret_key).into()
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -66,8 +76,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     return Err("Public key does not start with the uncompressed prefix (0x04).".into());
   }
 
-  // Validate with secp256k1 crate
-  // let secp = Secp256k1::new();
   let secp_key = PublicKey::from_slice(&public_key_bytes)
     .map_err(|e| format!("Failed to parse secp256k1 public key: {}", e))?;
   println!("Valid secp256k1 Public Key: {:?}", secp_key);
@@ -100,6 +108,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
   let peer_id = PeerId::from_public_key(&libp2p_pub_key.into());
   println!("Generated PeerId: {}", peer_id);
+
+  let fake_keypair = make_fake_libp2p_keypair();
+
+  let libp2p_eth_address =
+    secpe256k1_publickey_to_eth_address(&fake_keypair.public().try_into_secp256k1().unwrap())?;
+  println!(
+    "libp2p fake Ethereum Address: {}, it is the same with others",
+    libp2p_eth_address
+  );
+  let fake_peer_id = PeerId::from_public_key(&fake_keypair.public());
+  println!("Generated fake PeerId: {}", fake_peer_id);
 
   Ok(())
 }
