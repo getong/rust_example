@@ -1,0 +1,10 @@
+* leptos struct table bootstrap basic example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://github.com/Synphonyte/leptos-struct-table][leptos-struct-table]]
