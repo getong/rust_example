@@ -2,12 +2,11 @@
 name = "hyper_upgrade_example"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytes = "1.6.1"
+bytes = "1.9.0"
 http-body-util = "0.1.2"
-hyper = { version = "1.4.1", features = ["full"] }
-hyper-util = { version = "0.1.6", features = ["full"] }
-tokio = { version = "1.38.0", features = ["full"] }
+hyper = { version = "1.5.2", features = ["full"] }
+hyper-util = { version = "0.1.10", features = ["full"] }
+tokio = { version = "1.42.0", features = ["full"] }

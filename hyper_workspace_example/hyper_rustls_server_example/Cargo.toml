@@ -4,12 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-http = "1.1.0"
+http = "1.2.0"
 http-body-util = "0.1.2"
-hyper = { version = "1.4.1", features = ["full"] }
-hyper-util = { version = "0.1.6", features = ["full"] }
-rustls = "0.23.11"
-rustls-pemfile = "2.1.2"
-rustls-pki-types = "1.7.0"
-tokio = { version = "1.38.0", features = ["full"] }
-tokio-rustls = "0.26.0"
+hyper = { version = "1.5.2", features = ["full"] }
+hyper-util = { version = "0.1.10", features = ["full"] }
+rustls = "0.23.20"
+rustls-pemfile = "2.2.0"
+rustls-pki-types = "1.10.1"
+tokio = { version = "1.42.0", features = ["full"] }
+tokio-rustls = "0.26.1"
+
+[features]
+ring = []

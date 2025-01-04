@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-futures = "0.3.30"
+futures = "0.3.31"
 http-body-util = "0.1.2"
 hyper = { version = "1", features = ["client", "server"] }
-hyper-util = { version = "0.1.6", features = ["server", "client", "client-legacy", "tokio", "http1"] }
+hyper-util = { version = "0.1.10", features = ["server", "client", "client-legacy", "tokio", "http1"] }
 mlua = { version = "0.9.9", features = ["macros", "lua54", "async", "send", "lua54"] }
-tokio = { version = "1.38.0", features = ["macros", "rt"] }
+tokio = { version = "1.42.0", features = ["macros", "rt"] }

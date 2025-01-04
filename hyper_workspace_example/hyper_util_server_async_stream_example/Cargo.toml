@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-stream = "0.3.5"
-bytes = "1.6.1"
-futures = "0.3.30"
+async-stream = "0.3.6"
+bytes = "1.9.0"
+futures = "0.3.31"
 http-body-util = "0.1.2"
-hyper = { version = "1.4.1", features = ["full"] }
-hyper-util = { version = "0.1.6", features = ["full"] }
-thiserror = "1.0.62"
-tokio = { version = "1.38.0", features = ["full"] }
+hyper = { version = "1.5.2", features = ["full"] }
+hyper-util = { version = "0.1.10", features = ["full"] }
+thiserror = "1.0.69"
+tokio = { version = "1.42.0", features = ["full"] }

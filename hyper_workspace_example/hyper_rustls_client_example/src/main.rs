@@ -24,8 +24,8 @@ async fn run_client() -> io::Result<()> {
   // Set a process wide default crypto provider.
   #[cfg(feature = "ring")]
   let _ = rustls::crypto::ring::default_provider().install_default();
-  #[cfg(feature = "aws-lc-rs")]
-  let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  // #[cfg(feature = "aws-lc-rs")]
+  // let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
   // First parameter is target URL (mandatory).
   let url = match env::args().nth(1) {
