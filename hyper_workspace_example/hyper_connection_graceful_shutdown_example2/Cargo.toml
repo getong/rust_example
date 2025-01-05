@@ -1,0 +1,12 @@
+[package]
+name = "hyper_connection_graceful_shutdown_example2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytes = "1.9.0"
+http-body-util = "0.1.2"
+hyper = { version = "1.5.2", features = ["full"] }
+hyper-util = { version = "0.1.10", features = ["full"] }
+pretty_env_logger = "0.5.0"
+tokio = { version = "1.42.0", features = ["full"] }
