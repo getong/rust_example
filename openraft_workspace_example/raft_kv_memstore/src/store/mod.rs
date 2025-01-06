@@ -16,7 +16,7 @@ use openraft::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::{NodeId, TypeConfig};
+use crate::TypeConfig;
 
 pub type LogStore = memstore::LogStore<TypeConfig>;
 
@@ -55,7 +55,7 @@ pub struct StoredSnapshot {
 /// and value as String, but you could set any type of value that has the serialization impl.
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct StateMachineData {
-  pub last_applied_log: Option<LogId<NodeId>>,
+  pub last_applied_log: Option<LogId<TypeConfig>>,
 
   pub last_membership: StoredMembership<TypeConfig>,
 
@@ -129,7 +129,8 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
 
   async fn applied_state(
     &mut self,
-  ) -> Result<(Option<LogId<NodeId>>, StoredMembership<TypeConfig>), StorageError<TypeConfig>> {
+  ) -> Result<(Option<LogId<TypeConfig>>, StoredMembership<TypeConfig>), StorageError<TypeConfig>>
+  {
     let state_machine = self.state_machine.read().await;
     Ok((
       state_machine.last_applied_log,

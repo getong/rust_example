@@ -5,13 +5,13 @@ use std::{
 };
 
 use openraft::{
-  error::{ForwardToLeader, NetworkError, RemoteError},
+  error::{NetworkError, RemoteError},
   RaftMetrics, TryAsRef,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::time::timeout;
 
-use crate::{typ, NodeId, Request, TypeConfig};
+use crate::{typ::*, NodeId, Request, TypeConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}
@@ -45,14 +45,14 @@ impl ExampleClient {
   pub async fn write(
     &self,
     req: &Request,
-  ) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
+  ) -> Result<ClientWriteResponse, RPCError<RaftError<ClientWriteError>>> {
     self.send_rpc_to_leader("write", Some(req)).await
   }
 
   /// Read value by key, in an inconsistent mode.
   ///
   /// This method may return stale value because it does not force to read on a legal leader.
-  pub async fn read(&self, req: &String) -> Result<String, typ::RPCError> {
+  pub async fn read(&self, req: &String) -> Result<String, RPCError<RaftError>> {
     self.do_send_rpc_to_leader("read", Some(req)).await
   }
 
@@ -62,7 +62,7 @@ impl ExampleClient {
   pub async fn consistent_read(
     &self,
     req: &String,
-  ) -> Result<String, typ::RPCError<typ::CheckIsLeaderError>> {
+  ) -> Result<String, RPCError<RaftError<CheckIsLeaderError>>> {
     self
       .do_send_rpc_to_leader("consistent_read", Some(req))
       .await
@@ -76,7 +76,7 @@ impl ExampleClient {
   /// With a initialized cluster, new node can be added with [`write`].
   /// Then setup replication with [`add_learner`].
   /// Then make the new node a member with [`change_membership`].
-  pub async fn init(&self) -> Result<(), typ::RPCError<typ::InitializeError>> {
+  pub async fn init(&self) -> Result<(), RPCError<RaftError<InitializeError>>> {
     self
       .do_send_rpc_to_leader("init", Some(&Vec::<(NodeId, String)>::new()))
       .await
@@ -88,7 +88,7 @@ impl ExampleClient {
   pub async fn add_learner(
     &self,
     req: (NodeId, String),
-  ) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
+  ) -> Result<ClientWriteResponse, RPCError<RaftError<ClientWriteError>>> {
     self.send_rpc_to_leader("add-learner", Some(&req)).await
   }
 
@@ -99,7 +99,7 @@ impl ExampleClient {
   pub async fn change_membership(
     &self,
     req: &BTreeSet<NodeId>,
-  ) -> Result<typ::ClientWriteResponse, typ::RPCError<typ::ClientWriteError>> {
+  ) -> Result<ClientWriteResponse, RPCError<RaftError<ClientWriteError>>> {
     self
       .send_rpc_to_leader("change-membership", Some(req))
       .await
@@ -110,7 +110,7 @@ impl ExampleClient {
   /// Metrics contains various information about the cluster, such as current leader,
   /// membership config, replication status etc.
   /// See [`RaftMetrics`].
-  pub async fn metrics(&self) -> Result<RaftMetrics<TypeConfig>, typ::RPCError> {
+  pub async fn metrics(&self) -> Result<RaftMetrics<TypeConfig>, RPCError<RaftError>> {
     self.do_send_rpc_to_leader("metrics", None::<&()>).await
   }
 
@@ -126,7 +126,7 @@ impl ExampleClient {
     &self,
     uri: &str,
     req: Option<&Req>,
-  ) -> Result<Resp, typ::RPCError<Err>>
+  ) -> Result<Resp, RPCError<RaftError<Err>>>
   where
     Req: Serialize + 'static,
     Resp: Serialize + DeserializeOwned,
@@ -153,24 +153,24 @@ impl ExampleClient {
 
     let res = timeout(Duration::from_millis(3_000), fu).await;
     let resp = match res {
-      Ok(x) => x.map_err(|e| typ::RPCError::Network(NetworkError::new(&e)))?,
+      Ok(x) => x.map_err(|e| RPCError::Network(NetworkError::new(&e)))?,
       Err(timeout_err) => {
         tracing::error!("timeout {} to url: {}", timeout_err, url);
-        return Err(typ::RPCError::Network(NetworkError::new(&timeout_err)));
+        return Err(RPCError::Network(NetworkError::new(&timeout_err)));
       }
     };
 
-    let res: Result<Resp, typ::RaftError<Err>> = resp
+    let res: Result<Resp, RaftError<Err>> = resp
       .json()
       .await
-      .map_err(|e| typ::RPCError::Network(NetworkError::new(&e)))?;
+      .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
     tracing::debug!(
       "<<< client recv reply from {}: {}",
       url,
       serde_json::to_string_pretty(&res).unwrap()
     );
 
-    res.map_err(|e| typ::RPCError::RemoteError(RemoteError::new(leader_id, e)))
+    res.map_err(|e| RPCError::RemoteError(RemoteError::new(leader_id, e)))
   }
 
   /// Try the best to send a request to the leader.
@@ -181,17 +181,17 @@ impl ExampleClient {
     &self,
     uri: &str,
     req: Option<&Req>,
-  ) -> Result<Resp, typ::RPCError<Err>>
+  ) -> Result<Resp, RPCError<RaftError<Err>>>
   where
     Req: Serialize + 'static,
     Resp: Serialize + DeserializeOwned,
-    Err: std::error::Error + Serialize + DeserializeOwned + TryAsRef<typ::ForwardToLeader> + Clone,
+    Err: std::error::Error + Serialize + DeserializeOwned + TryAsRef<ForwardToLeader> + Clone,
   {
     // Retry at most 3 times to find a valid leader.
     let mut n_retry = 3;
 
     loop {
-      let res: Result<Resp, typ::RPCError<Err>> = self.do_send_rpc_to_leader(uri, req).await;
+      let res: Result<Resp, RPCError<RaftError<Err>>> = self.do_send_rpc_to_leader(uri, req).await;
 
       let rpc_err = match res {
         Ok(x) => return Ok(x),
