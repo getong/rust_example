@@ -31,4 +31,5 @@ members = [
   "hyper_util_server_async_stream_example",
   "hyper_rustls_server_example",
   "hyper_rustls_client_example",
+  "hyper_server_proxy_hyper_client_example",
 ]
