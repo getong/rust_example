@@ -15,4 +15,12 @@ pretty_env_logger = "0.5.0"
 serde = { version = "1.0.171", features = ["derive"] }
 serde_json = "1.0.103"
 sha2 = "0.10.7"
-tokio = { version = "1.29.1", features = ["io-util", "io-std", "macros", "rt", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.29.1", features = [
+  "io-util",
+  "io-std",
+  "macros",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }

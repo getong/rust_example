@@ -8,8 +8,12 @@ cfg-if = "1.0.0"
 clap = { version = "4.5.21", features = ["derive"] }
 libp2p = { version = "0.54.1", features = ["full"] }
 opentelemetry = { version = "0.27.1", optional = true }
-opentelemetry-jaeger = { version = "0.22.0", optional = true, features = ["rt-tokio"] }
-opentelemetry_sdk = { version = "0.27.1", optional = true, features = ["rt-tokio"] }
+opentelemetry-jaeger = { version = "0.22.0", optional = true, features = [
+  "rt-tokio",
+] }
+opentelemetry_sdk = { version = "0.27.1", optional = true, features = [
+  "rt-tokio",
+] }
 rand = "0.8.5"
 tokio = { version = "1.41.1", features = ["full"] }
 tracing = "0.1.41"
@@ -17,7 +21,12 @@ tracing-opentelemetry = { version = "0.28.0", optional = true }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 [features]
-jaeger = ["opentelemetry", "opentelemetry_sdk", "tracing-opentelemetry", "opentelemetry-jaeger"]
+jaeger = [
+  "opentelemetry",
+  "opentelemetry_sdk",
+  "tracing-opentelemetry",
+  "opentelemetry-jaeger",
+]
 opentelemetry = ["dep:opentelemetry"]
 opentelemetry_sdk = ["dep:opentelemetry_sdk"]
 tracing-opentelemetry = ["dep:tracing-opentelemetry"]
