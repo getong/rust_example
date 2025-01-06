@@ -3,10 +3,10 @@ use std::{
   sync::Arc,
 };
 
-use openraft::{error::Infallible, RaftMetrics};
+use openraft::error::Infallible;
 use tide::{Body, Request, Response, StatusCode};
 
-use crate::{app::App, Node, NodeId, Server, TypeConfig};
+use crate::{app::App, typ::*, Node, NodeId, Server};
 
 // --- Cluster management
 
@@ -66,7 +66,7 @@ async fn init(req: Request<Arc<App>>) -> tide::Result {
 async fn metrics(req: Request<Arc<App>>) -> tide::Result {
   let metrics = req.state().raft.metrics().borrow().clone();
 
-  let res: Result<RaftMetrics<TypeConfig>, Infallible> = Ok(metrics);
+  let res: Result<RaftMetrics, Infallible> = Ok(metrics);
   Ok(
     Response::builder(StatusCode::Ok)
       .body(Body::from_json(&res)?)

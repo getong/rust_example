@@ -2,25 +2,25 @@
 name = "raft_kv_rocksdb"
 version = "0.1.0"
 edition = "2021"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rocksdb = "0.22.0"
-tide = "0.16.0"
-clap = { version = "4.5.18", features = ["derive", "env"] }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+byteorder = "1.5.0"
+clap = { version = "4.5.23", features = ["derive", "env"] }
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
+openraft-rocksstore = { path = "../rocksstore" }
 reqwest = { version = "0.12", features = ["json"] }
-serde = { version = "1.0.210", features = ["derive"] }
-serde_json = "1.0.128"
-tracing = "0.1.40"
-tracing-futures = "0.2.5"
+rocksdb = "0.23.0"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.134"
+tide = "0.16.0"
+tokio = { version = "1.42.0", features = ["full"] }
 toy-rpc = { version = "0.10.0", features = [
   "ws_tokio",
   "server",
   "client",
   "tokio_runtime",
 ] }
-byteorder = "1.5.0"
-tokio = { version = "1.40.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-futures = "0.2.5"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

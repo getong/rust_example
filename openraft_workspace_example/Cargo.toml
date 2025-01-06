@@ -9,4 +9,5 @@ members = [
   "raft_kv_memstore_network_v2",
   "raft_kv_memstore_grpc",
   "raft_poem_tarpc_rocksdb",
+  "rocksstore",
 ]

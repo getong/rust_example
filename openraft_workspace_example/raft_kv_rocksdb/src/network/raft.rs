@@ -1,12 +1,8 @@
 use std::sync::Arc;
 
-use openraft::raft::{
-  AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
-  VoteRequest, VoteResponse,
-};
 use toy_rpc::macros::export_impl;
 
-use crate::{app::App, TypeConfig};
+use crate::{app::App, typ::*};
 
 /// Raft protocol service.
 pub struct Raft {
@@ -20,10 +16,7 @@ impl Raft {
   }
 
   #[export_method]
-  pub async fn vote(
-    &self,
-    vote: VoteRequest<TypeConfig>,
-  ) -> Result<VoteResponse<TypeConfig>, toy_rpc::Error> {
+  pub async fn vote(&self, vote: VoteRequest) -> Result<VoteResponse, toy_rpc::Error> {
     self
       .app
       .raft
@@ -35,8 +28,8 @@ impl Raft {
   #[export_method]
   pub async fn append(
     &self,
-    req: AppendEntriesRequest<TypeConfig>,
-  ) -> Result<AppendEntriesResponse<TypeConfig>, toy_rpc::Error> {
+    req: AppendEntriesRequest,
+  ) -> Result<AppendEntriesResponse, toy_rpc::Error> {
     tracing::debug!("handle append");
     self
       .app
@@ -49,8 +42,8 @@ impl Raft {
   #[export_method]
   pub async fn snapshot(
     &self,
-    req: InstallSnapshotRequest<TypeConfig>,
-  ) -> Result<InstallSnapshotResponse<TypeConfig>, toy_rpc::Error> {
+    req: InstallSnapshotRequest,
+  ) -> Result<InstallSnapshotResponse, toy_rpc::Error> {
     self
       .app
       .raft
