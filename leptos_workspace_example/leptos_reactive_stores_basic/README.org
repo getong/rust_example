@@ -1,0 +1,10 @@
+* leptos reactive stores basic example
+
+** run example
+
+#+begin_src shell
+trunk serve --open
+#+end_src
+
+
+copy from [[https://book.leptos.dev/15_global_state.html][Global State Management]]
