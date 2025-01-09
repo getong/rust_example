@@ -1,8 +1,7 @@
 use std::net::SocketAddr;
 
 use axum::{
-  async_trait, extract::FromRequestParts, http::request::Parts, response::Html, routing::get,
-  Router,
+  extract::FromRequestParts, http::request::Parts, response::Html, routing::get, Extension, Router,
 };
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -74,8 +73,8 @@ async fn set_session_handler(session: Session) -> Html<&'static str> {
   }
 }
 
-async fn home_handler(user_data: Option<MySessionData>) -> Html<String> {
-  match user_data {
+async fn home_handler(Extension(session_data): Extension<Option<MySessionData>>) -> Html<String> {
+  match session_data {
     Some(data) => {
       println!("Retrieved session data: {:?}", data);
       Html(format!("Hello, {}!", data.username))
@@ -88,31 +87,23 @@ async fn home_handler(user_data: Option<MySessionData>) -> Html<String> {
 }
 
 // Custom extraction of session data from the request parts
-#[async_trait]
 impl<S> FromRequestParts<S> for MySessionData
 where
   S: Send + Sync,
 {
-  type Rejection = Html<&'static str>;
+  type Rejection = Html<String>;
 
   async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-    let session = Session::from_request_parts(parts, &state)
+    // Extract session from request
+    let session = Session::from_request_parts(parts, state)
       .await
-      .map_err(|e| {
-        println!("Failed to extract session handle: {}", e.1);
-        Html("Failed to extract session handle.")
-      })?;
-    // Get the session handle from the request extensions
-    // let session = parts
-    //   .extensions
-    //   .get::<Session>()
-    //   .ok_or(Html("Session not found"))?;
+      .map_err(|e| Html(format!("Failed to extract session handle: {}", e.1)))?;
 
-    // Extract the session data
+    // Try to get the session data
     if let Ok(Some(data)) = session.get::<MySessionData>("user_data").await {
       Ok(data)
     } else {
-      Err(Html("No session data found"))
+      Err(Html("No session data found".to_string()))
     }
   }
 }
