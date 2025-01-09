@@ -128,5 +128,4 @@ fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
   }
 }
 
-
 // see https://github.com/tokio-rs/axum/discussions/2561

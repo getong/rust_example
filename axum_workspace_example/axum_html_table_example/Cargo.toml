@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.8.1", features = ["multipart"] }
 serde = { version = "1.0.217", features = ["derive"] }
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }

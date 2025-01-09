@@ -10,7 +10,7 @@ use tracing_opentelemetry_instrumentation_sdk::find_current_trace_id;
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
   // very opinionated init of tracing, look as is source to make your own
-  init_tracing_opentelemetry::tracing_subscriber_ext::init_subscribers()?;
+  _ = init_tracing_opentelemetry::tracing_subscriber_ext::init_subscribers()?;
 
   let app = app();
   // run it

@@ -2,8 +2,8 @@
 //     -H "Content-Type: image/jpeg" \
 //     --data-binary @"$HOME/hello.jpg" \
 //     http://127.0.0.1:3003/upload
+use async_trait::async_trait;
 use axum::{
-  async_trait,
   body::Bytes,
   extract::{FromRequest, Multipart, Request},
   http::{header::CONTENT_TYPE, StatusCode},

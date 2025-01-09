@@ -6,15 +6,15 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
-async-trait = "0.1.83"
-axum = "0.7.9"
-axum-macros = "0.4.2"
-axum_session = { version = "0.14.4" }
-axum_session_auth = { version = "0.14.1" }
-axum_session_surreal = "0.2"
+async-trait = "0.1.85"
+axum = "0.8.1"
+axum-macros = "0.5.0"
+axum_session = { version = "0.15.0" }
+axum_session_auth = { version = "0.15.0" }
+axum_session_surreal = "0.3"
 http = "1.2.0"
-serde = { version = "1.0.216", features = ["derive"] }
-sqlx = "0.8.2"
+serde = { version = "1.0.217", features = ["derive"] }
+sqlx = "0.8.3"
 surrealdb = { version = "2.1", features = ["kv-mem"] }
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
 tracing = "0.1.41"

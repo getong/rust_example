@@ -1,54 +1,6 @@
-use async_trait::async_trait;
-use axum::{extract::FromRequestParts, routing::get, Router};
-use axum_auth::{AuthBasicCustom, AuthBearerCustom, Rejection};
-use http::{request::Parts, StatusCode};
-// use std::net::SocketAddr;
-
-struct MyCustomBasic((String, Option<String>));
-
-impl AuthBasicCustom for MyCustomBasic {
-  const ERROR_CODE: StatusCode = StatusCode::IM_A_TEAPOT;
-  const ERROR_OVERWRITE: Option<&'static str> = None;
-
-  fn from_header(contents: (String, Option<String>)) -> Self {
-    Self(contents)
-  }
-}
-
-#[async_trait]
-impl<B> FromRequestParts<B> for MyCustomBasic
-where
-  B: Send + Sync,
-{
-  type Rejection = Rejection;
-
-  async fn from_request_parts(parts: &mut Parts, _: &B) -> Result<Self, Self::Rejection> {
-    Self::decode_request_parts(parts)
-  }
-}
-
-struct MyCustomBearer(String);
-
-impl AuthBearerCustom for MyCustomBearer {
-  const ERROR_CODE: StatusCode = StatusCode::IM_A_TEAPOT;
-  const ERROR_OVERWRITE: Option<&'static str> = None;
-
-  fn from_header(contents: &str) -> Self {
-    Self(contents.to_string())
-  }
-}
-
-#[async_trait]
-impl<B> FromRequestParts<B> for MyCustomBearer
-where
-  B: Send + Sync,
-{
-  type Rejection = Rejection;
-
-  async fn from_request_parts(parts: &mut Parts, _: &B) -> Result<Self, Self::Rejection> {
-    Self::decode_request_parts(parts)
-  }
-}
+use axum::{routing::get, Router};
+use axum_auth::{AuthBasic, AuthBearer};
+use http::StatusCode;
 
 /// Launches spin-off axum instance
 async fn launcher() {
@@ -58,20 +10,26 @@ async fn launcher() {
     .route("/bearer", get(auth_bearer));
 
   // Launch
-  let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await.unwrap();
-  axum::serve(listener, app).await.unwrap();
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    .await
+    .unwrap();
 
-  async fn tester_basic(MyCustomBasic((id, password)): MyCustomBasic) -> String {
+  println!("listening on {}", listener.local_addr().unwrap());
+  axum::serve(listener, app.into_make_service())
+    .await
+    .unwrap();
+
+  async fn tester_basic(AuthBasic((id, password)): AuthBasic) -> String {
     format!("Got {} and {:?}", id, password)
   }
 
-  async fn auth_bearer(MyCustomBearer(token): MyCustomBearer) -> String {
+  async fn auth_bearer(AuthBearer(token): AuthBearer) -> String {
     format!("Got {}", token)
   }
 }
 
 fn url(end: &str) -> String {
-  format!("http://127.0.0.1:3001{}", end)
+  format!("http://127.0.0.1:3000{}", end)
 }
 
 #[tokio::main]
@@ -82,31 +40,94 @@ async fn main() {
   // Wait for boot
   tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
 
-  // Try bad basic
+  // Tests
+  good().await;
+  switched().await;
+  nothing().await;
+}
+
+/// The requests which should be returned fine
+async fn good() {
+  // Try good basic
   let client = reqwest::Client::new();
   let resp = client
     .get(url("/basic"))
-    .bearer_auth("My Crap Username")
+    .basic_auth("My Username", Some("My Password"))
     .send()
     .await
     .unwrap();
-  // assert_eq!(resp.status(), StatusCode::IM_A_TEAPOT);
+  assert_eq!(resp.status().as_u16(), StatusCode::OK.as_u16());
+  assert_eq!(
+    resp.text().await.unwrap(),
+    String::from("Got My Username and Some(\"My Password\")")
+  );
+
+  // Try good bearer
+  let client = reqwest::Client::new();
+  let resp = client
+    .get(url("/bearer"))
+    .bearer_auth("My Token")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status().as_u16(), StatusCode::OK.as_u16());
+  assert_eq!(resp.text().await.unwrap(), String::from("Got My Token"))
+}
+
+async fn switched() {
+  // Try bearer in basic
+  let client = reqwest::Client::new();
+  let resp = client
+    .get(url("/basic"))
+    .bearer_auth("123124nfienrign")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status().as_u16(), StatusCode::BAD_REQUEST.as_u16());
   assert_eq!(
     resp.text().await.unwrap(),
     String::from("`Authorization` header must be for basic authentication")
   );
 
-  // Try bad bearer
+  // Try basic in bearer
   let client = reqwest::Client::new();
   let resp = client
     .get(url("/bearer"))
-    .basic_auth("My Crap Token", None::<&str>)
+    .basic_auth("123", Some("Hello"))
     .send()
     .await
     .unwrap();
-  // assert_eq!(resp.status(), StatusCode::IM_A_TEAPOT);
+  assert_eq!(resp.status().as_u16(), StatusCode::BAD_REQUEST.as_u16());
   assert_eq!(
     resp.text().await.unwrap(),
     String::from("`Authorization` header must be a bearer token")
   )
+}
+
+/// Sees if we can get nothing from basic or bearer successfully
+async fn nothing() {
+  // Try basic
+  let client = reqwest::Client::new();
+  let resp = client
+    .get(url("/basic"))
+    .basic_auth("", Some(""))
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status().as_u16(), StatusCode::OK.as_u16());
+  assert_eq!(
+    resp.text().await.unwrap(),
+    String::from("Got  and Some(\"\")")
+  );
+
+  // Try bearer
+  let client = reqwest::Client::new();
+  let resp = client
+    .get(url("/bearer"))
+    .bearer_auth("")
+    .send()
+    .await
+    .unwrap();
+  assert_eq!(resp.status().as_u16(), StatusCode::OK.as_u16());
+  assert_eq!(resp.text().await.unwrap(), String::from("Got "))
 }
