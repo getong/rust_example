@@ -3,8 +3,7 @@
 :CUSTOM_ID: axum-type-safe-routing-example
 :END:
 It is mainly copied from
-[[https://mixi-developers.mixi.co.jp/how-to-use-type-safe-routing-of-axum-c06c1b1b1ab][How
-to use "Type safe routing" of axum]]
+[[https://mixi-developers.mixi.co.jp/how-to-use-type-safe-routing-of-axum-c06c1b1b1ab][How to use "Type safe routing" of axum]]
 
 ** build comamnd
 :PROPERTIES:

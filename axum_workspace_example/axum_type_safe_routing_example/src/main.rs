@@ -7,7 +7,7 @@ fn app() -> Router {
 }
 
 #[derive(TypedPath, Deserialize, Serialize)]
-#[typed_path("/api/users/:user_id")]
+#[typed_path("/api/users/{user_id}")]
 pub struct PathParam {
   pub user_id: String,
 }
