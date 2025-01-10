@@ -41,6 +41,7 @@ pub fn App() -> impl IntoView {
           <main>
               <Routes fallback=|| "Page not found.".into_view()>
                   <Route path=StaticSegment("") view=HomePage />
+                  <Route path=StaticSegment("hello") view=HelloWorld />
               </Routes>
           </main>
       </Router>
@@ -57,5 +58,19 @@ fn HomePage() -> impl IntoView {
   view! {
       <h1>"Welcome to Leptos!"</h1>
       <button on:click=on_click>"Click Me: " {count}</button>
+      <p>
+          <a href="/hello">Go to Hello World page</a>
+      </p>
   }
+}
+
+/// A new component that renders "Hello World" and a button to go back to the homepage.
+#[component]
+fn HelloWorld() -> impl IntoView {
+    view! {
+        <h1>"Hello, World!"</h1>
+        <p>
+            <a href="/">Back to Home</a>
+        </p>
+    }
 }
