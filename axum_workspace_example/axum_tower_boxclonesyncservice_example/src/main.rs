@@ -1,4 +1,13 @@
-use std::{convert::Infallible, sync::Arc};
+use std::{
+  convert::Infallible,
+  future::Future,
+  pin::Pin,
+  sync::Arc,
+  task::{
+    Context,
+    Poll::{self, Ready},
+  },
+};
 
 use async_trait::async_trait;
 use axum::{
@@ -10,6 +19,9 @@ use axum::{
 };
 use tokio::net::TcpListener;
 use tower::util::BoxCloneSyncService;
+
+// curl -H "host: 127.0.0.1" http://localhost:3000/other
+// curl -H "host: localhost" http://localhost:3000/other
 
 // Define a simple state to pass to our service
 #[derive(Clone)]
@@ -27,12 +39,10 @@ struct MyService {
 impl tower::Service<Request<Body>> for MyService {
   type Response = Response<Body>;
   type Error = Infallible;
-  type Future = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
-  >;
+  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-  fn poll_ready(&mut self, _: &mut std::task::Context) -> std::task::Poll<Result<(), Self::Error>> {
-    std::task::Poll::Ready(Ok(()))
+  fn poll_ready(&mut self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
+    Ready(Ok(()))
   }
 
   fn call(&mut self, _req: Request<Body>) -> Self::Future {
@@ -51,12 +61,10 @@ struct HostnameService {
 impl tower::Service<Request<Body>> for HostnameService {
   type Response = Response<Body>;
   type Error = Infallible;
-  type Future = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
-  >;
+  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-  fn poll_ready(&mut self, _: &mut std::task::Context) -> std::task::Poll<Result<(), Self::Error>> {
-    std::task::Poll::Ready(Ok(()))
+  fn poll_ready(&mut self, _: &mut Context) -> Poll<Result<(), Self::Error>> {
+    Ready(Ok(()))
   }
 
   fn call(&mut self, req: Request<Body>) -> Self::Future {
