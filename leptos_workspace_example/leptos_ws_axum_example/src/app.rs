@@ -15,7 +15,7 @@ pub struct History {
 pub fn App() -> impl IntoView {
   // Provide websocket connection
   leptos_ws::provide_websocket("ws://localhost:3000/ws");
-  let count = leptos_ws::ServerSignal::new("count".to_string(), 0 as i32).unwrap();
+  let count = leptos_ws::ServerSignal::new("count".to_string(), 0_i32).unwrap();
 
   let history =
     leptos_ws::ServerSignal::new("history".to_string(), History { entries: vec![] }).unwrap();

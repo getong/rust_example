@@ -1,39 +1,34 @@
 #[cfg(feature = "ssr")]
-pub mod fileserv;
+pub mod app;
 #[cfg(feature = "ssr")]
-use axum::response::Response as AxumResponse;
+pub mod fileserv;
 #[cfg(feature = "ssr")]
 use axum::{
   Router,
-  routing::{get, post},
-};
-#[cfg(feature = "ssr")]
-use axum::{
   extract::{FromRef, Path, Request, State},
-  response::IntoResponse,
+  response::{IntoResponse, Response as AxumResponse},
+  routing::{get, post},
 };
 #[cfg(feature = "ssr")]
 use config::get_configuration;
 #[cfg(feature = "ssr")]
 use http::HeaderMap;
 #[cfg(feature = "ssr")]
-use leptos::*;
-#[cfg(feature = "ssr")]
 use leptos::{
   config::LeptosOptions,
   prelude::{provide_context, *},
+  *,
 };
 #[cfg(feature = "ssr")]
-use leptos_axum::{AxumRouteListing, handle_server_fns_with_context};
-#[cfg(feature = "ssr")]
-use leptos_axum::{LeptosRoutes, generate_route_list_with_exclusions_and_ssg_and_context};
+use leptos_axum::{
+  AxumRouteListing, LeptosRoutes, generate_route_list_with_exclusions_and_ssg_and_context,
+  handle_server_fns_with_context,
+};
 #[cfg(feature = "ssr")]
 use leptos_ws::server_signals::ServerSignals;
-#[cfg(feature = "ssr")]
-use leptos_ws_axum_example::app::*;
 
 #[cfg(feature = "ssr")]
-use crate::fileserv::file_and_error_handler;
+use crate::{app::*, fileserv::file_and_error_handler};
 
 #[cfg(feature = "ssr")]
 #[derive(Clone, FromRef)]
@@ -131,9 +126,7 @@ async fn main() {
   // `axum::Server` is a re-export of `hyper::Server`
   leptos::logging::log!("listening on http://{}", &addr);
   let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-  axum::serve(listener, app.into_make_service())
-    .await
-    .unwrap();
+  axum::serve(listener, app).await.unwrap();
 }
 
 #[cfg(not(feature = "ssr"))]
