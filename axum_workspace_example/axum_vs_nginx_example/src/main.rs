@@ -3,24 +3,25 @@ use std::{collections::HashMap, convert::Infallible, fs, net::SocketAddr, path::
 use anyhow::{Context, Result};
 use axum::{
   body::Body,
-  extract::{Host, State},
+  extract::State,
   handler::{Handler, HandlerWithoutStateExt},
   http::{Request, Response, StatusCode, Uri},
   response::{IntoResponse, Redirect},
   Router,
 };
+use axum_extra::extract::Host;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use log::debug;
 use rustls_acme::{caches::DirCache, AcmeConfig};
 use tokio_stream::StreamExt;
-use tower::{util::BoxCloneService, ServiceExt};
+use tower::{util::BoxCloneSyncService, ServiceExt};
 use tower_http::{services::ServeDir, validate_request::ValidateRequestHeaderLayer};
 type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let site1_svc = Router::new().nest_service("/", ServeDir::new("/tmp/serve_dir"));
-  let site2_svc = Router::new().nest_service("/", ServeDir::new("/tmp/serve_dir2"));
+  let site1_svc = Router::new().nest_service("/a", ServeDir::new("/tmp/serve_dir"));
+  let site2_svc = Router::new().nest_service("/b", ServeDir::new("/tmp/serve_dir2"));
 
   let debug_mode = !std::env::args().any(|x| x == "--production");
   let (name_site1, name_site2, external_app) = if debug_mode {
@@ -41,7 +42,7 @@ async fn main() -> Result<()> {
     .build(HttpConnector::new());
   let rev_proxy_svc = Router::new()
     .nest_service(
-      "/",
+      "/d",
       (|state, req| reverse_proxy_http_handler(3001, state, req)).with_state(client),
     )
     .layer(ValidateRequestHeaderLayer::basic("user", "super safe pw"));
@@ -55,7 +56,7 @@ async fn main() -> Result<()> {
     .into(),
   );
 
-  let app = Router::new().nest_service("/", hostname_router);
+  let app = Router::new().nest_service("/c", hostname_router);
 
   if debug_mode {
     server_locally(app, 3000).await.context("Serving locally")?;
@@ -184,8 +185,8 @@ pub async fn server_locally(app: Router, port: u16) -> Result<()> {
 
 pub fn mk_hostname_router(
   map: HashMap<String, Router>,
-) -> BoxCloneService<Request<Body>, Response<Body>, Infallible> {
-  BoxCloneService::new(
+) -> BoxCloneSyncService<Request<Body>, Response<Body>, Infallible> {
+  BoxCloneSyncService::new(
     (move |Host(hostname): Host, request: Request<Body>| async move {
       for (name, router) in map {
         if hostname == name {
