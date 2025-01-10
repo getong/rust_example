@@ -632,7 +632,7 @@ pub fn hydrate() {{
              inside "<code>"Suspense"</code>
           " block (in this live example, it's triggered by providing the
           following JavaScript code via a "<code>"provide_context"</code> " which the code rendering
-            component will then use within a "<code>"Suspend"</code>"):
+          component will then use within a "<code>"Suspend"</code>"):
           "
       </p>
       <div>
