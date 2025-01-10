@@ -5,7 +5,7 @@ use leptos_router::{
   components::{Route, Router, Routes},
 };
 use leptos_use::{docs::Note, use_active_element};
-use thaw::{ssr::SSRMountStyleProvider, *};
+use thaw::{Button, Calendar, ConfigProvider, Space, ssr::SSRMountStyleProvider};
 use wasm_bindgen::JsCast;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
@@ -52,6 +52,7 @@ pub fn App() -> impl IntoView {
                           path=StaticSegment("leptos_use_active_element")
                           view=ActiveElementDemo
                       />
+                      <Route path=StaticSegment("calendar") view=CalendarElement />
                   </Routes>
               </main>
           </Router>
@@ -74,6 +75,9 @@ fn HomePage() -> impl IntoView {
       </p>
       <p>
           <a href="/leptos_use_active_element">Go to leptos use element page</a>
+      </p>
+      <p>
+          <a href="/calendar">Go to view calendar</a>
       </p>
   }
 }
@@ -115,6 +119,29 @@ fn ActiveElementDemo() -> impl IntoView {
       </div>
 
       <div class="mt-2">"Current Active Element: " <span class="text-primary">{key}</span></div>
+      <p>
+          <a href="/">Back to Home</a>
+      </p>
+  }
+}
+
+#[component]
+fn CalendarElement() -> impl IntoView {
+  use chrono::prelude::*;
+  let value = RwSignal::new(Local::now().date_naive());
+  let option_value = RwSignal::new(Some(Local::now().date_naive()));
+
+  view! {
+      <Space vertical=true>
+          <Calendar value />
+          <Calendar value=option_value let(date: &NaiveDate)>
+              {date.year()}
+              "-"
+              {date.month()}
+              "-"
+              {date.day()}
+          </Calendar>
+      </Space>
       <p>
           <a href="/">Back to Home</a>
       </p>

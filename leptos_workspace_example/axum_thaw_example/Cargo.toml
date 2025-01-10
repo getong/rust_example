@@ -8,6 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 axum = { version = "0.7", optional = true }
+chrono = "0.4.39"
 console_error_panic_hook = "0.1"
 http = "1"
 leptos = { version = "0.7", features = ["nightly"] }
