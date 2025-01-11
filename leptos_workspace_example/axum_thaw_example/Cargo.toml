@@ -13,6 +13,7 @@ console_error_panic_hook = "0.1"
 http = "1"
 leptos = { version = "0.7", features = ["nightly"] }
 leptos-use = { version = "0.15.3", default-features = false, features = [
+  "use_calendar",
   "use_active_element",
   "docs",
 ] }
