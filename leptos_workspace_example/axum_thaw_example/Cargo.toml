@@ -12,7 +12,7 @@ chrono = "0.4.39"
 console_error_panic_hook = "0.1"
 http = "1"
 leptos = { version = "0.7", features = ["nightly"] }
-leptos-chartistry = "0.2.1"
+# leptos-chartistry = "0.2.1"
 leptos-use = { version = "0.15.3", default-features = false, features = [
   "use_calendar",
   "use_active_element",
@@ -21,6 +21,7 @@ leptos-use = { version = "0.15.3", default-features = false, features = [
 leptos_axum = { version = "0.7", optional = true }
 leptos_meta = { version = "0.7" }
 leptos_router = { version = "0.7", features = ["nightly"] }
+# lucide-leptos = "1.1.0"
 thaw = { version = "0.4", features = ["nightly"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }

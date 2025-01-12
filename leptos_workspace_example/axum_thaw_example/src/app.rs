@@ -11,7 +11,7 @@ use leptos_use::{
 use thaw::{Button, Calendar, ConfigProvider, Space, ssr::SSRMountStyleProvider};
 use wasm_bindgen::JsCast;
 
-use crate::component::chartistry::ChartistryDemo;
+// use crate::component::{chartistry::ChartistryDemo, lucide::CameraDemo};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
   view! {
@@ -59,7 +59,8 @@ pub fn App() -> impl IntoView {
                       />
                       <Route path=StaticSegment("calendar") view=CalendarElement />
                       <Route path=StaticSegment("leptos_use_calendar") view=UseCalendarDemo />
-                      <Route path=StaticSegment("chartistry_demo") view=ChartistryDemo />
+                      // <Route path=StaticSegment("chartistry_demo") view=ChartistryDemo />
+                      // <Route path=StaticSegment("camera_demo") view=CameraDemo />
                   </Routes>
               </main>
           </Router>
@@ -89,9 +90,12 @@ fn HomePage() -> impl IntoView {
       <p>
           <a href="/leptos_use_calendar">Go to view leptos use calendar</a>
       </p>
-      <p>
-          <a href="/chartistry_demo">Go to view chartistry demo</a>
-      </p>
+      // <p>
+      //     <a href="/chartistry_demo">Go to view chartistry demo</a>
+      // </p>
+      // <p>
+      //     <a href="/camera_demo">Go to view lucide camera demo</a>
+      // </p>
   }
 }
 
