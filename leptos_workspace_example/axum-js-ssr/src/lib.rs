@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod component;
 pub mod consts;
 pub mod hljs;
 
