@@ -54,4 +54,5 @@ members = [
   "axum_handlebars_example",
   "axum_serve_with_hyper_example",
   "axum_tower_boxclonesyncservice_example",
+  "axum_ssr_rs_example",
 ]
