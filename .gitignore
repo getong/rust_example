@@ -33,3 +33,4 @@ buffer_example_workspace/sample.json
 **/node_modules
 **/pnpm-lock.yaml
 **/.env
+**/bun.lockb
