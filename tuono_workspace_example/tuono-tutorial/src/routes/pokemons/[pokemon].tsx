@@ -1,13 +1,13 @@
-import type { JSX } from 'react'
-import type { TuonoProps } from 'tuono'
+import type { JSX } from "react";
+import type { TuonoProps } from "tuono";
 
-import PokemonView from '@/components/PokemonView'
+import PokemonView from "@/components/PokemonView";
 
 interface Pokemon {
-  name: string
-  id: string
-  weight: number
-  height: number
+  name: string;
+  id: string;
+  weight: number;
+  height: number;
 }
 
 export default function PokemonPage({
@@ -15,9 +15,9 @@ export default function PokemonPage({
 }: TuonoProps<Pokemon>): JSX.Element {
   return (
     <>
-      <title>{`Pokemon: ${data?.name ?? ''}`}</title>
+      <title>{`Pokemon: ${data?.name ?? ""}`}</title>
 
       <PokemonView pokemon={data} />
     </>
-  )
+  );
 }

@@ -2,6 +2,9 @@
   "name": "tuono-tutorial",
   "description": "The basic tutorial for tuono applications",
   "version": "0.0.1",
+  "scripts": {
+    "format": "prettier -w *"
+  },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

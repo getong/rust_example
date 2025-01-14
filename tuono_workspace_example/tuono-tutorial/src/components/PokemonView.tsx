@@ -1,22 +1,22 @@
-import { Link } from 'tuono'
+import { Link } from "tuono";
 
-import styles from './PokemonView.module.css'
+import styles from "./PokemonView.module.css";
 
 interface Pokemon {
-  name: string
-  id: string
-  weight: number
-  height: number
+  name: string;
+  id: string;
+  weight: number;
+  height: number;
 }
 
 export default function PokemonView({
   pokemon,
 }: {
-  pokemon?: Pokemon
+  pokemon?: Pokemon;
 }): JSX.Element {
   return (
     <div>
-      <Link className={styles['back-btn']} href="/">
+      <Link className={styles["back-btn"]} href="/">
         Back
       </Link>
       {pokemon?.name && (
@@ -38,5 +38,5 @@ export default function PokemonView({
         </div>
       )}
     </div>
-  )
+  );
 }

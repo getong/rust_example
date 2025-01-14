@@ -1,18 +1,18 @@
-import type { JSX } from 'react'
-import { Link } from 'tuono'
+import type { JSX } from "react";
+import { Link } from "tuono";
 
-import styles from './PokemonLink.module.css'
+import styles from "./PokemonLink.module.css";
 
 interface Pokemon {
-  name: string
+  name: string;
 }
 
 export default function PokemonLink({
   pokemon,
   id,
 }: {
-  pokemon: Pokemon
-  id: number
+  pokemon: Pokemon;
+  id: number;
 }): JSX.Element {
   return (
     <Link
@@ -25,5 +25,5 @@ export default function PokemonLink({
         src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`}
       />
     </Link>
-  )
+  );
 }
