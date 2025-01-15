@@ -1,0 +1,7 @@
+[package]
+name = "dotenvy_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dotenvy = { git = "https://github.com/allan2/dotenvy", features = ["cli"] }
