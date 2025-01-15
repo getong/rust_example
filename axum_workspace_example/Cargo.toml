@@ -56,4 +56,5 @@ members = [
   "axum_tower_boxclonesyncservice_example",
   "axum_ssr_rs_example",
   "axum_utf8bytes_example",
+  "axum_wildcard_router_example",
 ]
