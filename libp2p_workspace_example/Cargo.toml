@@ -56,4 +56,5 @@ members = [
   "libp2p_perf_example",
   "libp2p_p2prpc_example",
   "poc_libpp2p_kademlia_example",
+  "libp2p_parse_dns_multiaddress_example",
 ]
