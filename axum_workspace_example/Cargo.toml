@@ -48,7 +48,7 @@ members = [
   # "axum_askama_template_example", # not 0.8
   "axum_multi_static_file_server_example",
   # "axum_htmx_templates", # not 0.8
-  # "axum_todo_utoipa_swagger_ui_example", # not 0.8
+  "axum_todo_utoipa_swagger_ui_example",
   # "axum_userp_memory_store_oauth_only_example", # not 0.8
   "axum_csrf_minimal_example",
   "axum_handlebars_example",
