@@ -8,7 +8,7 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tuono": "0.17.0"
+    "tuono": "0.17.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.2",
