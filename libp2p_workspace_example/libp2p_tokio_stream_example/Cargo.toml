@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.93"
 futures = "0.3.31"
-libp2p = { version = "0.54.1", features = ["tokio", "quic"] }
+libp2p = { version = "0.55", features = ["tokio", "quic"] }
 libp2p-stream = "0.2.0-alpha"
 rand = "0.8.5"
 tokio = { version = "1.41.1", features = ["full"] }

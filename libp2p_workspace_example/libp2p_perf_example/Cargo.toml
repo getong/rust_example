@@ -8,7 +8,7 @@ anyhow = "1.0.94"
 clap = { version = "4.5.23", features = ["derive"] }
 futures = "0.3.31"
 futures-timer = "3.0.3"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", version = "0.54.1", features = [
+libp2p = { version = "0.55", features = [
   "full",
 ] }
 libp2p-perf = { git = "https://github.com/libp2p/rust-libp2p" }
