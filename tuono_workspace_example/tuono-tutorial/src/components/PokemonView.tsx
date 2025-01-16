@@ -1,5 +1,5 @@
 import { Link } from "tuono";
-
+import type { JSX } from "react";
 import styles from "./PokemonView.module.css";
 
 interface Pokemon {
