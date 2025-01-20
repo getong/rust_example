@@ -1,7 +1,11 @@
 use std::error::Error;
 
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, USER_AGENT};
-use serde_json::json;
+use serde_json::{json, Value};
+
+// TODO change your domain and check args
+const CHECK_URL: &str = "check_domain";
+const CHECK_ARGS: &str = "check_args";
 
 fn construct_headers() -> HeaderMap {
   let mut headers = HeaderMap::new();
@@ -12,6 +16,8 @@ fn construct_headers() -> HeaderMap {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+  _ = complicated_example().await?;
+
   let client = reqwest::Client::new();
 
   let json_body = json!({
@@ -42,4 +48,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   Ok(())
 }
+
+async fn complicated_example() -> Result<(), Box<dyn std::error::Error>> {
+  let client = reqwest::Client::new();
+
+  let query = json!({
+      "query": format!("{{\n  indexers(filter: {{controller: {{equalToInsensitive: \"{}\"}}}}) {{\n    nodes {{\n      id\n    }}\n  }}\n}}", CHECK_ARGS)
+  });
+
+  let response = client.post(CHECK_URL).json(&query).send().await?;
+
+  let body = response.text().await?;
+  println!("{}", body);
+
+  let v: Value = serde_json::from_str(&body)?;
+  if let Some(id) = v
+    .get("data")
+    .and_then(|data| data.get("indexers"))
+    .and_then(|indexers| indexers.get("nodes"))
+    .and_then(|nodes| nodes.get(0))
+    .and_then(|node| node.get("id"))
+    .and_then(|id| id.as_str())
+  {
+    println!("ID: {}", id);
+    Ok(())
+  } else {
+    println!("ID not found");
+    Err("ID not found".into())
+  }
+}
+
 // copy from https://github.com/serpentacademy/http-post-request-in-rust-to-solana-api
