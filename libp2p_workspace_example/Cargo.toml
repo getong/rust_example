@@ -48,6 +48,7 @@ members = [
   "libp2p_peer_id_from_secp256k1_public_key_example",
   "libp2p_peer_id_from_secp256k1_secret_key_example",
   "libp2p_peer_id_from_secp256k1_secret_key_alloy_example",
+  "libp2p_public_key_alloy_address_example",
   "libp2p_peer_id_generation_example",
   "libp2p_kademlia_json_example",
   "libp2p_lookup",
