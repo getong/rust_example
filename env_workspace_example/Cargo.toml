@@ -6,4 +6,5 @@ members = [
   "dotenvy_example",
   "env_macro_example",
   "std-env-example",
+  "option_env_constant_example",
 ]
