@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "dotenvy_example",
+  "env_macro_example",
+  "std-env-example",
+]
