@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use libp2p::{
   Multiaddr, PeerId,
   gossipsub::{Behaviour as GossipsubBehavior, Event as GossipsubEvent},
@@ -59,6 +61,19 @@ impl Behavior {
 
   pub fn set_server_mode(&mut self) {
     self.kad.set_mode(Some(libp2p::kad::Mode::Server))
+  }
+
+  pub fn known_peers(&mut self) -> HashSet<PeerId> {
+    let mut peers = HashSet::new();
+    for b in self.kademlia.kbuckets() {
+      for e in b.iter() {
+        if !peers.contains(e.node.key.preimage()) {
+          peers.insert(*e.node.key.preimage());
+        }
+      }
+    }
+
+    peers
   }
 }
 

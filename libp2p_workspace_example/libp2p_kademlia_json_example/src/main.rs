@@ -123,7 +123,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut peers: HashMap<PeerId, Vec<Multiaddr>> = HashMap::new();
   loop {
     let event = swarm.select_next_some().await;
-    handle_event(event, &mut peers, &mut swarm, local_key.clone()).await;
+      handle_event(event, &mut peers, &mut swarm, local_key.clone()).await;
+      println!("all peer are {:?}", swarm.behaviour_mut().known_peers());
   }
 }
 
