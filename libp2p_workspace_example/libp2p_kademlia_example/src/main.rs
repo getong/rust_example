@@ -180,17 +180,34 @@ async fn main() -> Result<()> {
   swarm.listen_on("/ip4/127.0.0.1/tcp/0".parse()?)?;
 
   loop {
+    let mut internal_timer1 = tokio::time::interval(Duration::from_secs(3));
+    let mut internal_timer2 = tokio::time::interval(Duration::from_secs(5));
     tokio::select! {
-        line = stdin.next_line() => {
-            let line = line?.expect("stdin closed");
-            handle_input_line(&mut swarm.behaviour_mut().kademlia, line);
-        },
-        event = swarm.select_next_some() => {
-            if let SwarmEvent::NewListenAddr { address, .. } = event {
-                println!("本地监听地址: {address}");
-            }
+    line = stdin.next_line() => {
+        let line = line?.expect("stdin closed");
+        handle_input_line(&mut swarm.behaviour_mut().kademlia, line);
+    },
+    event = swarm.select_next_some() => {
+        if let SwarmEvent::NewListenAddr { address, .. } = event {
+            println!("本地监听地址: {address}");
         }
     }
+    _ = internal_timer1.tick() => {
+        let mut peers = HashSet::new();
+        for connected_peer in swarm.connected_peers() {
+            peers.insert(connected_peer.clone());
+        }
+
+        for i in peers.iter() {
+            println!("swarm connected peer is {:?}", i);
+        }
+    }
+    _ = internal_timer2.tick() => {
+        let peers = swarm.behaviour_mut().known_peers();
+        for i in peers.iter() {
+            println!("swarm kad connected peer is {:?}", i);
+        }
+    }}
   }
 }
 
