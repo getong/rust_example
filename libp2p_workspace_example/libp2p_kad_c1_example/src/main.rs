@@ -167,13 +167,15 @@ pub async fn handle_event(swarm: &mut Swarm<MyBehaviour>, event: SwarmEvent<MyBe
 }
 
 async fn handle_identify_event(swarm: &mut Swarm<MyBehaviour>, event: IdentifyEvent) {
-  println!("event: {:?}, file: {}, line: {}", event, file!(), line!());
+  println!("event: {:?}, file: {}, line: {}\n", event, file!(), line!());
   if let IdentifyEvent::Received {
     peer_id,
     info: IdentifyInfo { listen_addrs, .. },
     ..
   } = event
   {
+    let peer_str = peer_id.to_base58();
+    println!("peer_str: {}\n", peer_str);
     for addr in listen_addrs {
       swarm.behaviour_mut().kad.add_address(&peer_id, addr);
     }

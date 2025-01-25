@@ -1,9 +1,11 @@
 // # Step 1: Generate the private key in PEM format
 // openssl ecparam -name secp256k1 -genkey -noout -out private_key.pem
 //
-// # Step 2: Convert the PEM key to a raw hex format and save it to identity.txt
-// openssl ec -in private_key.pem -text -noout | grep priv -A 3 | tail -n +2 | tr -d '\n[:space:]:'
-// > identity.txt
+// openssl ec -in private_key.pem -noout -text |
+// grep 'priv:' -A 3 |
+// sed '1d' |
+// tr -d '\n[:space:]:' |
+// head -c 64 > identity.txt
 //
 // # Optionally, remove the PEM file
 // rm private_key.pem
@@ -39,8 +41,8 @@ pub struct MyBehaviour {
 
 // TODO modify two peer id here
 const PEER_ID_LIST: [&str; 2] = [
-  "16Uiu2HAmP7fsgPdvJjmUtVqHCiXk2AwGaXCJ85ogVpJJn881s1bu",
-  "16Uiu2HAm2YDN9zrCvCwEfRtRV4H1EophytSiqtuvuvBg5LqAeYcV",
+  "16Uiu2HAmLcQLkKXtGAeUjm7t8F6SV4hfkUGnXmLeyHegBxg21FRz",
+  "16Uiu2HAmNbKY1j8vSHHkU8f2KSU3VN8by4ZTpJ3LSQWZTf94MeS2",
 ];
 
 // dial address
@@ -116,7 +118,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .build();
 
   swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-
+  swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
   loop {
     tokio::select! {
         event = swarm.select_next_some() => {
@@ -179,7 +181,9 @@ async fn handle_identify_event(swarm: &mut Swarm<MyBehaviour>, event: IdentifyEv
   } = event
   {
     let peer_str = peer_id.to_base58();
+    println!("peer_str: {}", peer_str);
     if PEER_ID_LIST.contains(&peer_str.as_str()) {
+      println!("peer_str: {}, true", peer_str);
       for addr in listen_addrs {
         swarm.behaviour_mut().kad.add_address(&peer_id, addr);
       }
