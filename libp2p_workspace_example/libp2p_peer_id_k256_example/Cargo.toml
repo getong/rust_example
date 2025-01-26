@@ -1,0 +1,10 @@
+[package]
+name = "libp2p_peer_id_k256_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+k256 = "0.13.4"
+libp2p = { version = "0.55.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
