@@ -113,17 +113,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
+  let mut interval1 = tokio::time::interval(tokio::time::Duration::from_secs(3));
+  let mut interval2 = tokio::time::interval(tokio::time::Duration::from_secs(2));
   loop {
     tokio::select! {
         event = swarm.select_next_some() => {
             handle_event(&mut swarm, event).await;
+        }
+        _ = interval1.tick() => {
+            let peer_list = swarm.behaviour_mut().known_peers();
+            println!("\n------ 3 secs, local_peer_id is {:?}, kad peer list is {:?}\n\n", swarm.local_peer_id(), peer_list);
+        }
+
+        _ = interval2.tick() => {
+            let mut peer_list = HashSet::new();
+            for peer in swarm.connected_peers() {
+                peer_list.insert(peer);
+            }
+            println!("\n------ 2 secs, local_peer_id is {:?}, swarm peer list is {:?}\n\n", swarm.local_peer_id(), peer_list);
         }
     }
   }
 }
 
 pub async fn handle_event(swarm: &mut Swarm<MyBehaviour>, event: SwarmEvent<MyBehaviourEvent>) {
-  println!("------event is {:?}-----", event);
+  println!("------event is {:?}-----\n", event);
   match event {
         SwarmEvent::NewListenAddr {
             // listener_id,
@@ -167,7 +181,12 @@ pub async fn handle_event(swarm: &mut Swarm<MyBehaviour>, event: SwarmEvent<MyBe
 }
 
 async fn handle_identify_event(swarm: &mut Swarm<MyBehaviour>, event: IdentifyEvent) {
-  println!("event: {:?}, file: {}, line: {}\n", event, file!(), line!());
+  println!(
+    "event: {:?}, file: {}, line: {}\n\n",
+    event,
+    file!(),
+    line!()
+  );
   if let IdentifyEvent::Received {
     peer_id,
     info: IdentifyInfo { listen_addrs, .. },
@@ -175,7 +194,7 @@ async fn handle_identify_event(swarm: &mut Swarm<MyBehaviour>, event: IdentifyEv
   } = event
   {
     let peer_str = peer_id.to_base58();
-    println!("peer_str: {}\n", peer_str);
+    println!("\n--------identify peer_str: {}------\n\n", peer_str);
     for addr in listen_addrs {
       swarm.behaviour_mut().kad.add_address(&peer_id, addr);
     }

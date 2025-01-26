@@ -42,8 +42,8 @@ pub struct MyBehaviour {
 
 // TODO modify two peer id here
 const PEER_ID_LIST: [&str; 2] = [
-  "16Uiu2HAmLcQLkKXtGAeUjm7t8F6SV4hfkUGnXmLeyHegBxg21FRz",
-  "16Uiu2HAmNbKY1j8vSHHkU8f2KSU3VN8by4ZTpJ3LSQWZTf94MeS2",
+  "16Uiu2HAmEQsneQVk7AtniZfUXdNTHgcv4RPSj62K6Dm3mjguRfDS",
+  "16Uiu2HAmKW8CcvFg7uZGb4DUmUdugywUHJPF3dqmDBquPjNXTrKP",
 ];
 
 impl MyBehaviour {
@@ -117,11 +117,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   swarm.listen_on("/ip4/0.0.0.0/tcp/9090".parse()?)?;
   swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
-
+  let mut interval1 = tokio::time::interval(tokio::time::Duration::from_secs(3));
+  let mut interval2 = tokio::time::interval(tokio::time::Duration::from_secs(2));
   loop {
     tokio::select! {
         event = swarm.select_next_some() => {
             handle_event(&mut swarm, event).await;
+        }
+        _ = interval1.tick() => {
+            let peer_list = swarm.behaviour_mut().known_peers();
+            println!("\n------ 3 secs, local_peer_id is {:?}, kad peer list is {:?}\n\n", swarm.local_peer_id(), peer_list);
+        }
+
+        _ = interval2.tick() => {
+            let mut peer_list = HashSet::new();
+            for peer in swarm.connected_peers() {
+                peer_list.insert(peer);
+            }
+            println!("\n------ 2 secs, local_peer_id is {:?}, swarm peer list is {:?}\n\n", swarm.local_peer_id(), peer_list);
         }
     }
   }
