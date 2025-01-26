@@ -27,6 +27,7 @@ use libp2p::{
     store::MemoryStore as KadInMemory,
   },
   noise,
+  ping::{Behaviour as PingBehaviour, Config as PingConfig, Event as PingEvent},
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
@@ -37,6 +38,7 @@ use tokio::time::Duration;
 pub struct MyBehaviour {
   pub kad: kad::Behaviour<kad::store::MemoryStore>,
   pub identify: IdentifyBehavior,
+  pub ping: PingBehaviour,
 }
 
 // dial address
@@ -56,8 +58,16 @@ impl MyBehaviour {
         .with_push_listen_addr_updates(true)
         .with_interval(Duration::from_secs(120));
     let identify = IdentifyBehavior::new(identify_config);
-
-    Ok(Self { kad, identify })
+    let ping = PingBehaviour::new(
+      PingConfig::new()
+        .with_interval(Duration::from_secs(10))
+        .with_timeout(Duration::from_secs(10)),
+    );
+    Ok(Self {
+      kad,
+      identify,
+      ping,
+    })
   }
 
   pub fn known_peers(&mut self) -> HashSet<PeerId> {
@@ -78,6 +88,7 @@ impl MyBehaviour {
 pub enum MyBehaviourEvent {
   Kad(KadEvent),
   Identify(IdentifyEvent),
+  Ping(PingEvent),
 }
 
 impl From<KadEvent> for MyBehaviourEvent {
@@ -89,6 +100,12 @@ impl From<KadEvent> for MyBehaviourEvent {
 impl From<IdentifyEvent> for MyBehaviourEvent {
   fn from(value: IdentifyEvent) -> Self {
     Self::Identify(value)
+  }
+}
+
+impl From<PingEvent> for MyBehaviourEvent {
+  fn from(value: PingEvent) -> Self {
+    Self::Ping(value)
   }
 }
 
@@ -108,7 +125,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       println!("peer id : {}", peer_id.to_base58());
       MyBehaviour::new(peer_id, key.clone()).unwrap()
     })?
-    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(15)))
     .build();
 
   swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
