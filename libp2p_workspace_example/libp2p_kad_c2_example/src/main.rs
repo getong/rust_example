@@ -128,7 +128,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(15)))
     .build();
 
-  swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+  // swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+  tokio::time::sleep(Duration::from_secs(3)).await;
+  let multiaddr: Multiaddr = DIAL_ADDRESS.parse().unwrap();
+  println!("multiaddr: {}", multiaddr);
+  _ = swarm.dial(multiaddr);
 
   let mut interval1 = tokio::time::interval(tokio::time::Duration::from_secs(3));
   let mut interval2 = tokio::time::interval(tokio::time::Duration::from_secs(2));
