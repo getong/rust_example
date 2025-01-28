@@ -16,6 +16,7 @@ use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+  allow_block_list::{AllowedPeers, Behaviour as AllowListBehaviour},
   core::ConnectedPoint,
   identify::{
     Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent,
@@ -39,6 +40,7 @@ pub struct MyBehaviour {
   pub kad: kad::Behaviour<kad::store::MemoryStore>,
   pub identify: IdentifyBehavior,
   pub ping: PingBehaviour,
+  pub allowed_peers: AllowListBehaviour<AllowedPeers>,
 }
 
 // TODO modify two peer id here
@@ -69,10 +71,12 @@ impl MyBehaviour {
         .with_interval(Duration::from_secs(10))
         .with_timeout(Duration::from_secs(10)),
     );
+    let allowed_peers = AllowListBehaviour::default();
     Ok(Self {
       kad,
       identify,
       ping,
+      allowed_peers,
     })
   }
 
@@ -112,6 +116,12 @@ impl From<IdentifyEvent> for MyBehaviourEvent {
 impl From<PingEvent> for MyBehaviourEvent {
   fn from(value: PingEvent) -> Self {
     Self::Ping(value)
+  }
+}
+
+impl From<std::convert::Infallible> for MyBehaviourEvent {
+  fn from(_: std::convert::Infallible) -> Self {
+    panic!("NodeBehaviour is not Infallible!")
   }
 }
 
@@ -211,6 +221,10 @@ async fn handle_identify_event(swarm: &mut Swarm<MyBehaviour>, event: IdentifyEv
     ..
   } = event
   {
+    swarm
+      .behaviour_mut()
+      .allowed_peers
+      .allow_peer(peer_id.clone());
     let peer_str = peer_id.to_base58();
     println!("peer_str: {}", peer_str);
     if PEER_ID_LIST.contains(&peer_str.as_str()) {
