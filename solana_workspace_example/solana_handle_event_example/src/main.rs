@@ -37,5 +37,18 @@ async fn main() {
         eprintln!("Error fetching transaction: {}", e);
       }
     }
+
+    // Fetching the transaction details for each signature
+    match client.get_transaction(
+      &Signature::from_str(&sig.signature).unwrap(),
+      UiTransactionEncoding::JsonParsed,
+    ) {
+      Ok(transaction) => {
+        println!("Transaction details: {:?}", transaction);
+      }
+      Err(e) => {
+        eprintln!("Error fetching transaction: {}", e);
+      }
+    }
   }
 }
