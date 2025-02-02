@@ -1,0 +1,15 @@
+[package]
+name = "solana_handle_transaction_with_config_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.95"
+clap = { version = "4.5.27", features = ["derive"] }
+dirs = "6.0.0"
+serde = { version = "1.0.217", features = ["derive"] }
+solana-client = "2.1.12"
+solana-sdk = "2.1.12"
+solana-transaction-status = "2.1.12"
+spl-token = "7.0.0"
+tokio = { version = "1.43.0", features = ["full"] }

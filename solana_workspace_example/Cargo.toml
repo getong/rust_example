@@ -9,4 +9,5 @@ members = [
   "solana_serialize_deserialize_example",
   "solana_handle_event_example",
   "solana_get_signatures_for_address_with_config_example",
+  "solana_handle_transaction_with_config_example",
 ]
