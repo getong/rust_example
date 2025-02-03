@@ -7,27 +7,32 @@ export default function IndexPage(): JSX.Element {
   return (
     <>
       <p>pathname: {router.pathname}</p>
-      <button
-        onClick={() => {
-          router.push("/");
-        }}
-      >
-        My link
-      </button>
 
       <div></div>
 
-      <Link href="/">Home Page</Link>
+      <Link
+        href="/"
+        className="button-link" // Add a class for styling
+        onClick={(e) => {
+          e.preventDefault(); // Prevent default link behavior
+          router.push("/"); // Use router.push to navigate
+        }}
+      >
+        Home Page
+      </Link>
 
       <div></div>
 
-      <button
-        onClick={() => {
-          router.push("/");
+      <Link
+        href="/"
+        className="button-link" // Add a class for styling
+        onClick={(e) => {
+          e.preventDefault(); // Prevent default link behavior
+          router.push("/"); // Use router.push to navigate
         }}
       >
-        About
-      </button>
+        Another homepage
+      </Link>
     </>
   );
 }
