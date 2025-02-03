@@ -10,16 +10,23 @@ export default function IndexPage(): JSX.Element {
 
       <div></div>
 
-      <Link
-        href="/"
-        className="button-link" // Add a class for styling
-        onClick={(e) => {
-          e.preventDefault(); // Prevent default link behavior
-          router.push("/"); // Use router.push to navigate
+      <button
+        onClick={() => {
+          router.push("/"); // Navigate programmatically
+        }}
+        style={{
+          padding: "10px 20px",
+          backgroundColor: "#007bff",
+          color: "white",
+          borderRadius: "5px",
+          cursor: "pointer",
+          border: "none",
         }}
       >
-        Home Page
-      </Link>
+        <Link href="/" style={{ textDecoration: "none", color: "inherit" }}>
+          Home Page
+        </Link>
+      </button>
 
       <div></div>
 
