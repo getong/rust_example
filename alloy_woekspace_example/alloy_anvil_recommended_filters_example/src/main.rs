@@ -1,11 +1,12 @@
-//! Example of using the `.with_recommended_fillers()` method in the provider.
+//! Example of using the `ProviderBuilder` to create a provider with a signer and network.
 
 use alloy::{
-  consensus::Transaction,
-  network::TransactionBuilder,
-  primitives::{address, U256},
+  network::{EthereumWallet, TransactionBuilder},
+  node_bindings::Anvil,
+  primitives::U256,
   providers::{Provider, ProviderBuilder},
-  rpc::types::request::TransactionRequest,
+  rpc::types::TransactionRequest,
+  signers::local::PrivateKeySigner,
 };
 use eyre::Result;
 
@@ -13,42 +14,43 @@ use eyre::Result;
 async fn main() -> Result<()> {
   // Spin up a local Anvil node.
   // Ensure `anvil` is available in $PATH.
-  let provider = ProviderBuilder::new()
-    // Adds the `ChainIdFiller`, `GasFiller` and the `NonceFiller` layers.
-    // This is the recommended way to set up the provider.
-    .with_recommended_fillers()
-    .on_anvil_with_wallet();
+  let anvil = Anvil::new().block_time(1).try_spawn()?;
 
-  // Build an EIP-1559 type transaction to send 100 wei to Vitalik.
-  // Notice that the `nonce` field is set by the `NonceFiller`.
-  // Notice that the gas related fields are set by the `GasFiller`.
-  // Notice that the `chain_id` field is set by the `ChainIdFiller`.
-  let vitalik = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+  // Set up signer from the first default Anvil account (Alice).
+  let signer: PrivateKeySigner = anvil.keys()[0].clone().into();
+  let wallet = EthereumWallet::from(signer.clone());
+
+  // Create two users, Alice and Bob.
+  let alice = signer.address();
+  let bob = anvil.addresses()[1];
+
+  // Set up the HTTP provider with the `reqwest` crate.
+  let rpc_url = anvil.endpoint_url();
+  let provider = ProviderBuilder::new()
+    // .with_recommended_fillers()
+    .wallet(wallet)
+    .on_http(rpc_url);
+
+  // Create a transaction.
   let tx = TransactionRequest::default()
-    .with_to(vitalik)
+    .with_to(bob)
     .with_value(U256::from(100));
 
-  // Send the transaction, the nonce (0) is automatically managed by the provider.
-  let builder = provider.send_transaction(tx.clone()).await?;
-  let node_hash = *builder.tx_hash();
-  let pending_tx = provider
-    .get_transaction_by_hash(node_hash)
-    .await?
-    .expect("Pending transaction not found");
-  assert_eq!(pending_tx.nonce(), 0);
+  // Send the transaction and wait for the broadcast.
+  let pending_tx = provider.send_transaction(tx).await?;
 
-  println!("Transaction sent with nonce: {}", pending_tx.nonce());
+  println!("Pending transaction... {}", pending_tx.tx_hash());
 
-  // Send the transaction, the nonce (1) is automatically managed by the provider.
-  let builder = provider.send_transaction(tx).await?;
-  let node_hash = *builder.tx_hash();
-  let pending_tx = provider
-    .get_transaction_by_hash(node_hash)
-    .await?
-    .expect("Pending transaction not found");
-  assert_eq!(pending_tx.nonce(), 1);
+  // Wait for the transaction to be included and get the receipt.
+  let receipt = pending_tx.get_receipt().await?;
 
-  println!("Transaction sent with nonce: {}", pending_tx.nonce());
+  println!(
+    "Transaction included in block {}",
+    receipt.block_number.expect("Failed to get block number")
+  );
+
+  assert_eq!(receipt.from, alice);
+  assert_eq!(receipt.to, Some(bob));
 
   Ok(())
 }

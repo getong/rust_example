@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
     Url::parse(&rpc_base_sepolia_infura_https).expect("RPC url string type covert error");
 
   let provider_http = ProviderBuilder::new()
-    .with_recommended_fillers()
+    // .with_recommended_fillers()
     .wallet(wallet)
     .on_http(rpc_url_http);
 

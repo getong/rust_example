@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Create a provider.
   let rpc_url = anvil.endpoint().parse()?;
   let provider = ProviderBuilder::new()
-    .with_recommended_fillers()
+    // .with_recommended_fillers()
     .on_http(rpc_url);
 
   // If `#[sol(bytecode = "0x...")]` is provided, the contract can be deployed with

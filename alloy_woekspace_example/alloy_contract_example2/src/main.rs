@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
   // Spin up a local Anvil node.
   // Ensure `anvil` is available in $PATH.
   let provider = ProviderBuilder::new()
-    .with_recommended_fillers()
+    // .with_recommended_fillers()
     .on_anvil_with_wallet();
 
   // Deploy the `Counter` contract from bytecode at runtime.
