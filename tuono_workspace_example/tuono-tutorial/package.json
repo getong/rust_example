@@ -6,6 +6,7 @@
     "format": "prettier -w *"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tuono": "0.17.6"
