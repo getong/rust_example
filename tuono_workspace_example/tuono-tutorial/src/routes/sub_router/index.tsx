@@ -1,5 +1,5 @@
 import { JSX } from "react";
-import { useRouter } from "tuono";
+import { useRouter, Link } from "tuono";
 
 export default function IndexPage(): JSX.Element {
   const router = useRouter();
@@ -13,6 +13,20 @@ export default function IndexPage(): JSX.Element {
         }}
       >
         My link
+      </button>
+
+      <div></div>
+
+      <Link href="/">Home Page</Link>
+
+      <div></div>
+
+      <button
+        onClick={() => {
+          router.push("/");
+        }}
+      >
+        About
       </button>
     </>
   );
