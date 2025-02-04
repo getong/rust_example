@@ -2,6 +2,8 @@
   "name": "tuono-tutorial",
   "description": "The basic tutorial for tuono applications",
   "version": "0.0.1",
+  "private": true,
+  "type": "module",
   "scripts": {
     "format": "prettier -w *"
   },
