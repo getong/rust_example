@@ -1,0 +1,45 @@
+//! The RetryClient is a type that wraps around a JsonRpcClient and automatically retries failed
+//! requests using an exponential backoff and filtering based on a RetryPolicy. It presents as a
+//! JsonRpcClient, but with additional functionality for retrying requests.
+//!
+//! The RetryPolicy can be customized for specific applications and endpoints, mainly to handle
+//! rate-limiting errors. In addition to the RetryPolicy, errors caused by connectivity issues such
+//! as timed out connections or responses in the 5xx range can also be retried separately.
+
+use std::time::Duration;
+
+// use ethers::prelude::*;
+use ethers::{
+  providers::{Http, JsonRpcClient, RetryClientBuilder},
+  types::{Block, H256},
+};
+use url::Url;
+
+const RPC_URL: &str = "https://eth.llamarpc.com";
+
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
+  let provider = Http::new(Url::parse(RPC_URL)?);
+
+  let client = RetryClientBuilder::default()
+    .rate_limit_retries(10)
+    .timeout_retries(3)
+    .initial_backoff(Duration::from_millis(500))
+    .build(
+      provider,
+      Box::<ethers::providers::HttpRateLimitRetryPolicy>::default(),
+    );
+
+  // Send a JSON-RPC request for the latest block
+  let block_num = "latest".to_string();
+  let txn_details = false;
+  let params = (block_num, txn_details);
+
+  let block: Block<H256> = JsonRpcClient::request(&client, "eth_getBlockByNumber", params).await?;
+
+  println!("{block:?}");
+
+  Ok(())
+}
+
+// https://www.gakonst.com/ethers-rs/providers/retry.html
