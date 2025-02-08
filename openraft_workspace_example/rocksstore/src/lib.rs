@@ -15,9 +15,10 @@ use std::{collections::BTreeMap, fmt::Debug, io::Cursor, path::Path, sync::Arc};
 use log_store::RocksLogStore;
 use openraft::{
   alias::SnapshotDataOf,
+  entry::RaftEntry,
   storage::{RaftStateMachine, Snapshot},
-  AnyError, Entry, EntryPayload, LogId, RaftLogId, RaftSnapshotBuilder, RaftTypeConfig,
-  SnapshotMeta, StorageError, StoredMembership,
+  AnyError, Entry, EntryPayload, LogId, RaftSnapshotBuilder, RaftTypeConfig, SnapshotMeta,
+  StorageError, StoredMembership,
 };
 use rand::Rng;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -110,7 +111,12 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let snapshot_idx: u64 = rand::thread_rng().gen_range(0 .. 1000);
 
     let snapshot_id = if let Some(last) = last_applied_log {
-      format!("{}-{}-{}", last.leader_id, last.index, snapshot_idx)
+      format!(
+        "{}-{}-{}",
+        last.committed_leader_id(),
+        last.index(),
+        snapshot_idx
+      )
     } else {
       format!("--{}", snapshot_idx)
     };
@@ -140,7 +146,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
 
     Ok(Snapshot {
       meta,
-      snapshot: Box::new(Cursor::new(data)),
+      snapshot: Cursor::new(data),
     })
   }
 }
@@ -167,7 +173,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     for entry in entries_iter {
       tracing::debug!(%entry.log_id, "replicate to sm");
 
-      sm.last_applied_log = Some(*entry.get_log_id());
+      sm.last_applied_log = Some(entry.log_id());
 
       match entry.payload {
         EntryPayload::Blank => res.push(RocksResponse { value: None }),
@@ -194,14 +200,14 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
   async fn begin_receiving_snapshot(
     &mut self,
-  ) -> Result<Box<SnapshotDataOf<TypeConfig>>, StorageError<TypeConfig>> {
-    Ok(Box::new(Cursor::new(Vec::new())))
+  ) -> Result<SnapshotDataOf<TypeConfig>, StorageError<TypeConfig>> {
+    Ok(Cursor::new(Vec::new()))
   }
 
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMeta<TypeConfig>,
-    snapshot: Box<SnapshotDataOf<TypeConfig>>,
+    snapshot: SnapshotDataOf<TypeConfig>,
   ) -> Result<(), StorageError<TypeConfig>> {
     tracing::info!(
       { snapshot_size = snapshot.get_ref().len() },
@@ -260,7 +266,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
     Ok(Some(Snapshot {
       meta: snapshot.meta,
-      snapshot: Box::new(Cursor::new(data)),
+      snapshot: Cursor::new(data),
     }))
   }
 }

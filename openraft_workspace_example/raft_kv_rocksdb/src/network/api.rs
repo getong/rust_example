@@ -9,7 +9,7 @@ pub fn rest(app: &mut Server) {
   let mut api = app.at("/api");
   api.at("/write").post(write);
   api.at("/read").post(read);
-  api.at("/consistent_read").post(consistent_read);
+  api.at("/linearizable_read").post(linearizable_read);
 }
 /// Application API
 ///
@@ -41,7 +41,7 @@ async fn read(mut req: Request<Arc<App>>) -> tide::Result {
   )
 }
 
-async fn consistent_read(mut req: Request<Arc<App>>) -> tide::Result {
+async fn linearizable_read(mut req: Request<Arc<App>>) -> tide::Result {
   let ret = req.state().raft.ensure_linearizable().await;
 
   match ret {

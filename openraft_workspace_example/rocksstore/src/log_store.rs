@@ -4,8 +4,9 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use meta::StoreMeta;
 use openraft::{
   alias::{EntryOf, LogIdOf, VoteOf},
+  entry::RaftEntry,
   storage::{IOFlushed, RaftLogStorage},
-  LogState, OptionalSend, RaftLogId, RaftLogReader, RaftTypeConfig, StorageError,
+  LogState, OptionalSend, RaftLogReader, RaftTypeConfig, StorageError,
 };
 use rocksdb::{ColumnFamily, Direction, DB};
 
@@ -103,7 +104,7 @@ where
 
       let entry: EntryOf<C> = serde_json::from_slice(&val).map_err(read_logs_err)?;
 
-      assert_eq!(id, entry.get_log_id().index);
+      assert_eq!(id, entry.index());
 
       res.push(entry);
     }
@@ -132,7 +133,7 @@ where
       Some(res) => {
         let (_log_index, entry_bytes) = res.map_err(read_logs_err)?;
         let ent = serde_json::from_slice::<EntryOf<C>>(&entry_bytes).map_err(read_logs_err)?;
-        Some(ent.get_log_id().clone())
+        Some(ent.log_id())
       }
     };
 
@@ -167,8 +168,8 @@ where
     I: IntoIterator<Item = EntryOf<C>> + Send,
   {
     for entry in entries {
-      let id = id_to_bin(entry.get_log_id().index);
-      assert_eq!(bin_to_id(&id), entry.get_log_id().index);
+      let id = id_to_bin(entry.index());
+      assert_eq!(bin_to_id(&id), entry.index());
       self
         .db
         .put_cf(
@@ -192,7 +193,7 @@ where
   async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), StorageError<C>> {
     tracing::debug!("truncate: [{:?}, +oo)", log_id);
 
-    let from = id_to_bin(log_id.index);
+    let from = id_to_bin(log_id.index());
     let to = id_to_bin(0xff_ff_ff_ff_ff_ff_ff_ff);
     self
       .db
@@ -215,7 +216,7 @@ where
     self.put_meta::<meta::LastPurged>(&log_id)?;
 
     let from = id_to_bin(0);
-    let to = id_to_bin(log_id.index + 1);
+    let to = id_to_bin(log_id.index() + 1);
     self
       .db
       .delete_range_cf(self.cf_logs(), &from, &to)

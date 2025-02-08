@@ -1,13 +1,16 @@
+//! Declare the Raft type with the TypeConfig.
+
 // Reference the containing module's type config.
 use super::TypeConfig;
 
 pub type Raft = openraft::Raft<TypeConfig>;
 
-pub type Vote = openraft::Vote<TypeConfig>;
+pub type Vote = <TypeConfig as openraft::RaftTypeConfig>::Vote;
 pub type LeaderId = <TypeConfig as openraft::RaftTypeConfig>::LeaderId;
 pub type LogId = openraft::LogId<TypeConfig>;
-pub type Entry = openraft::Entry<TypeConfig>;
+pub type Entry = <TypeConfig as openraft::RaftTypeConfig>::Entry;
 pub type EntryPayload = openraft::EntryPayload<TypeConfig>;
+pub type Membership = openraft::membership::Membership<TypeConfig>;
 pub type StoredMembership = openraft::StoredMembership<TypeConfig>;
 
 pub type Node = <TypeConfig as openraft::RaftTypeConfig>::Node;
