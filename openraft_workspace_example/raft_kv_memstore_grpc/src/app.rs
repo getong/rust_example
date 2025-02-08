@@ -1,42 +1,22 @@
 use std::sync::Arc;
 
-use clap::Parser;
 use openraft::Config;
-use raft_kv_memstore_grpc::{
-  LogStore, StateMachineStore,
-  grpc::{app_service::AppServiceImpl, raft_service::RaftServiceImpl},
-  network::Network,
-  protobuf::{app_service_server::AppServiceServer, raft_service_server::RaftServiceServer},
-  typ::Raft,
-};
 use tonic::transport::Server;
 use tracing::info;
 
-#[derive(Parser, Clone, Debug)]
-#[clap(author, version, about, long_about = None)]
-pub struct Opt {
-  #[clap(long)]
-  pub id: u64,
+use crate::{
+  NodeId,
+  grpc::{app_service::AppServiceImpl, raft_service::RaftServiceImpl},
+  network::Network,
+  pb::{app_service_server::AppServiceServer, raft_service_server::RaftServiceServer},
+  store::{LogStore, StateMachineStore},
+  typ::*,
+};
 
-  #[clap(long)]
-  /// Network address to bind the server to (e.g., "127.0.0.1:50051")
-  pub addr: String,
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  // Initialize tracing first, before any logging happens
-  tracing_subscriber::fmt()
-    .with_max_level(tracing::Level::INFO)
-    .with_file(true)
-    .with_line_number(true)
-    .init();
-
-  // Parse the parameters passed by arguments.
-  let options = Opt::parse();
-  let node_id = options.id;
-  let addr = options.addr;
-
+pub async fn start_raft_app(
+  node_id: NodeId,
+  http_addr: String,
+) -> Result<(), Box<dyn std::error::Error>> {
   // Create a configuration for the raft instance.
   let config = Arc::new(
     Config {
@@ -71,9 +51,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let server_future = Server::builder()
     .add_service(RaftServiceServer::new(internal_service))
     .add_service(AppServiceServer::new(api_service))
-    .serve(addr.parse()?);
+    .serve(http_addr.parse()?);
 
-  info!("Node {node_id} starting server at {addr}");
+  info!("Node {node_id} starting server at {http_addr}");
   server_future.await?;
 
   Ok(())
