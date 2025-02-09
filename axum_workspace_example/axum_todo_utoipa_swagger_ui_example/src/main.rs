@@ -18,30 +18,30 @@ mod todo;
 
 const TODO_TAG: &str = "todo";
 
-#[derive(OpenApi)]
-#[openapi(
-    modifiers(&SecurityAddon),
-    tags(
-        (name = TODO_TAG, description = "Todo items management API")
-    )
-)]
-struct ApiDoc;
-
-struct SecurityAddon;
-
-impl Modify for SecurityAddon {
-  fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-    if let Some(components) = openapi.components.as_mut() {
-      components.add_security_scheme(
-        "api_key",
-        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("todo_apikey"))),
-      )
-    }
-  }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+  #[derive(OpenApi)]
+  #[openapi(
+        modifiers(&SecurityAddon),
+        tags(
+            (name = TODO_TAG, description = "Todo items management API")
+        )
+    )]
+  struct ApiDoc;
+
+  struct SecurityAddon;
+
+  impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+      if let Some(components) = openapi.components.as_mut() {
+        components.add_security_scheme(
+          "api_key",
+          SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("todo_apikey"))),
+        )
+      }
+    }
+  }
+
   let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
     .nest("/api/v1/todos", todo::router())
     .split_for_parts();

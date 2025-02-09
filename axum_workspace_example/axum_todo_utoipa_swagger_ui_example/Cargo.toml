@@ -5,13 +5,14 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.1"
-hyper = { version = "1.5.2", features = ["full"] }
+futures-util = { version = "0.3.31", features = ["sink", "std"] }
+hyper = { version = "1.6.0", features = ["full"] }
 serde = "1.0.217"
-serde_json = "1.0.135"
+serde_json = "1.0.138"
 tokio = { version = "1.43.0", features = ["full"] }
 utoipa = "5.3.1"
-utoipa-axum = "0.1.4"
-utoipa-rapidoc = { version = "5.0.1", features = ["axum"] }
-utoipa-redoc = { version = "5.0.1", features = ["axum"] }
-utoipa-scalar = { version = "0.2.1", features = ["axum"] }
-utoipa-swagger-ui = { version = "8.1.1", features = ["axum"] }
+utoipa-axum = "0.2"
+utoipa-rapidoc = { version = "6", features = ["axum"] }
+utoipa-redoc = { version = "6", features = ["axum"] }
+utoipa-scalar = { version = "0.3", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }

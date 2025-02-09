@@ -52,13 +52,13 @@ pub(super) fn router() -> OpenApiRouter {
 ///
 /// List all Todo items from in-memory storage.
 #[utoipa::path(
-        get,
-        path = "",
-        tag = TODO_TAG,
-        responses(
-            (status = 200, description = "List all todos successfully", body = [Todo])
-        )
-    )]
+    get,
+    path = "",
+    tag = TODO_TAG,
+    responses(
+        (status = 200, description = "List all todos successfully", body = [Todo])
+    )
+)]
 async fn list_todos(State(store): State<Arc<Store>>) -> Json<Vec<Todo>> {
   let todos = store.lock().await.clone();
 
@@ -78,16 +78,16 @@ struct TodoSearchQuery {
 ///
 /// Search `Todo`s by query params and return matching `Todo`s.
 #[utoipa::path(
-        get,
-        path = "/search",
-        tag = TODO_TAG,
-        params(
-            TodoSearchQuery
-        ),
-        responses(
-            (status = 200, description = "List matching todos by query", body = [Todo])
-        )
-    )]
+    get,
+    path = "/search",
+    tag = TODO_TAG,
+    params(
+        TodoSearchQuery
+    ),
+    responses(
+        (status = 200, description = "List matching todos by query", body = [Todo])
+    )
+)]
 async fn search_todos(
   State(store): State<Arc<Store>>,
   query: Query<TodoSearchQuery>,
@@ -110,14 +110,14 @@ async fn search_todos(
 /// Tries to create a new Todo item to in-memory storage or fails with 409 conflict if already
 /// exists.
 #[utoipa::path(
-        post,
-        path = "",
-        tag = TODO_TAG,
-        responses(
-            (status = 201, description = "Todo item created successfully", body = Todo),
-            (status = 409, description = "Todo already exists", body = TodoError)
-        )
-    )]
+    post,
+    path = "",
+    tag = TODO_TAG,
+    responses(
+        (status = 201, description = "Todo item created successfully", body = Todo),
+        (status = 409, description = "Todo already exists", body = TodoError)
+    )
+)]
 async fn create_todo(State(store): State<Arc<Store>>, Json(todo): Json<Todo>) -> impl IntoResponse {
   let mut todos = store.lock().await;
 
@@ -143,24 +143,23 @@ async fn create_todo(State(store): State<Arc<Store>>, Json(todo): Json<Todo>) ->
 
 /// Mark Todo item done by id
 ///
-/// Mark Todo item done by given id. Return only status 200 on success or 404 if Todo is not
-/// found.
+/// Mark Todo item done by given id. Return only status 200 on success or 404 if Todo is not found.
 #[utoipa::path(
-        put,
-        path = "/{id}",
-        tag = TODO_TAG,
-        responses(
-            (status = 200, description = "Todo marked done successfully"),
-            (status = 404, description = "Todo not found")
-        ),
-        params(
-            ("id" = i32, Path, description = "Todo database id")
-        ),
-        security(
-            (), // <-- make optional authentication
-            ("api_key" = [])
-        )
-    )]
+    put,
+    path = "/{id}",
+    tag = TODO_TAG,
+    responses(
+        (status = 200, description = "Todo marked done successfully"),
+        (status = 404, description = "Todo not found")
+    ),
+    params(
+        ("id" = i32, Path, description = "Todo database id")
+    ),
+    security(
+        (), // <-- make optional authentication
+        ("api_key" = [])
+    )
+)]
 async fn mark_done(
   Path(id): Path<i32>,
   State(store): State<Arc<Store>>,
@@ -185,24 +184,24 @@ async fn mark_done(
 
 /// Delete Todo item by id
 ///
-/// Delete Todo item from in-memory storage by id. Returns either 200 success of 404 with
-/// TodoError if Todo is not found.
+/// Delete Todo item from in-memory storage by id. Returns either 200 success of 404 with TodoError
+/// if Todo is not found.
 #[utoipa::path(
-        delete,
-        path = "/{id}",
-        tag = TODO_TAG,
-        responses(
-            (status = 200, description = "Todo marked done successfully"),
-            (status = 401, description = "Unauthorized to delete Todo", body = TodoError, example = json!(TodoError::Unauthorized(String::from("missing api key")))),
-            (status = 404, description = "Todo not found", body = TodoError, example = json!(TodoError::NotFound(String::from("id = 1"))))
-        ),
-        params(
-            ("id" = i32, Path, description = "Todo database id")
-        ),
-        security(
-            ("api_key" = [])
-        )
-    )]
+    delete,
+    path = "/{id}",
+    tag = TODO_TAG,
+    responses(
+        (status = 200, description = "Todo marked done successfully"),
+        (status = 401, description = "Unauthorized to delete Todo", body = TodoError, example = json!(TodoError::Unauthorized(String::from("missing api key")))),
+        (status = 404, description = "Todo not found", body = TodoError, example = json!(TodoError::NotFound(String::from("id = 1"))))
+    ),
+    params(
+        ("id" = i32, Path, description = "Todo database id")
+    ),
+    security(
+        ("api_key" = [])
+    )
+)]
 async fn delete_todo(
   Path(id): Path<i32>,
   State(store): State<Arc<Store>>,

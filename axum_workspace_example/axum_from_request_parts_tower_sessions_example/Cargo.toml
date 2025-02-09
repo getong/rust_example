@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1.85"
+async-trait = "0.1.86"
 axum = "0.8.1"
 rand = "0.8.5"
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
+serde_json = "1.0.138"
 time = "0.3.37"
 tokio = { version = "1.43.0", features = ["full"] }
 tower-sessions = { version = "0.14.0", features = ["signed"] }

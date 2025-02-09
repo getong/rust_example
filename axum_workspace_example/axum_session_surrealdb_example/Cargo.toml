@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1.85"
+async-trait = "0.1.86"
 axum = "0.8.1"
 axum_session = { version = "0.15.0" }
 axum_session_surreal = "0.3"
