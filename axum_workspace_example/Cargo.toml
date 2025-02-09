@@ -57,4 +57,5 @@ members = [
   "axum_ssr_rs_example",
   "axum_utf8bytes_example",
   "axum_wildcard_router_example",
+  "axum_websocket_http2_example",
 ]
