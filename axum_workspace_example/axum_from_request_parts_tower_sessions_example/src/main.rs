@@ -109,7 +109,7 @@ where
 }
 
 fn generate_random_username() -> String {
-  let mut rng = rand::thread_rng();
-  let random_suffix: u32 = rng.gen_range(1000 .. 10000); // Generate a random number between 1000 and 9999
+  let mut rng = rand::rng();
+  let random_suffix: u32 = rng.random_range(1000 .. 10000); // Generate a random number between 1000 and 9999
   format!("user_{}", random_suffix)
 }

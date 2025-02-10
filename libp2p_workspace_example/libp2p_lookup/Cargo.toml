@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 ansi_term = "0.12.1"
-clap = { version = "4.5.21", features = ["derive"] }
-env_logger = "0.11.5"
+clap = { version = "4.5.28", features = ["derive"] }
+env_logger = "0.11.6"
 futures = "0.3.31"
 libp2p = { version = "0.55", features = ["full"] }
-log = "0.4.22"
+log = "0.4.25"
 structopt = "0.3.26"
-thiserror = "2.0.3"
-tokio = { version = "1.41.1", features = ["full"] }
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", features = ["full"] }

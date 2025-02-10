@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1.85"
 axum = { version = "0.8.1", features = ["multipart"] }
 tokio = { version = "1.43.0", features = ["full"] }
 tower = "0.5.2"

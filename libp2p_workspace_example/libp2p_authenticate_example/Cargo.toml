@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 either = "1.13.0"
-env_logger = "0.11.5"
+env_logger = "0.11.6"
 libp2p = { version = "0.55", features = ["full"] }
-log = "0.4.22"
-serde = { version = "1.0.215", features = ["derive"] }
+log = "0.4.25"
+serde = { version = "1.0.217", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }

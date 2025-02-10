@@ -41,15 +41,15 @@ members = [
   "axum_extra_javascript_example",
   "axum_form_request_example",
   "tungstenite_url_example",
-  # "axum_image_upload_example", # not 0.8
+  "axum_image_upload_example",
   "axum_image_upload_with_form_example",
   "axum_html_table_example",
   "axum_multipart_form_example",
-  # "axum_askama_template_example", # not 0.8
+  "axum_askama_template_example",
   "axum_multi_static_file_server_example",
-  # "axum_htmx_templates", # not 0.8
+  "axum_htmx_templates",
   "axum_todo_utoipa_swagger_ui_example",
-  # "axum_userp_memory_store_oauth_only_example", # not 0.8
+  "axum_userp_memory_store_oauth_only_example",
   "axum_csrf_minimal_example",
   "axum_handlebars_example",
   "axum_serve_with_hyper_example",

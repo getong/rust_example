@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.1"
-bcrypt = "0.16.0"
+bcrypt = "0.17.0"
 chrono = { version = "0.4.39", features = ["serde"] }
 jsonwebtoken = "9.3.1"
 serde = { version = "1.0.217", features = ["derive"] }

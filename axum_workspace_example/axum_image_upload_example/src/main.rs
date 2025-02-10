@@ -2,7 +2,6 @@
 //     -H "Content-Type: image/jpeg" \
 //     --data-binary @"$HOME/hello.jpg" \
 //     http://127.0.0.1:3003/upload
-use async_trait::async_trait;
 use axum::{
   body::Bytes,
   extract::{FromRequest, Multipart, Request},
@@ -17,7 +16,6 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 pub struct Jpeg(Bytes);
 
-#[async_trait]
 impl<S> FromRequest<S> for Jpeg
 where
   Bytes: FromRequest<S>,

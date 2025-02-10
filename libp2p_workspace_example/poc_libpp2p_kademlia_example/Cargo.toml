@@ -24,6 +24,6 @@ libp2p = { version = "0.55", features = [
   "pnet",
   "secp256k1",
 ] }
-log = "0.4.22"
+log = "0.4.25"
 serde = { version = "1.0.217", features = ["derive"] }
-tokio = { version = "1.42.0", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }

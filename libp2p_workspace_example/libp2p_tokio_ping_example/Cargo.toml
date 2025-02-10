@@ -5,10 +5,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.83"
+async-trait = "0.1.86"
 console-subscriber = "0.4.1"
 futures = "0.3.31"
 libp2p = { version = "0.55", features = ["full"] }
-tokio = { version = "1.41.1", features = ["full"] }
+tokio = { version = "1.43.0", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
