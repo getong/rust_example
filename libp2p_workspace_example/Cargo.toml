@@ -64,4 +64,6 @@ members = [
   "libp2p_kad_c2_example",
   "libp2p_peer_id_k256_example",
   "libp2p_dns_example",
+  "libp2p_quic_tls_server_example",
+  "libp2p_quic_tls_client_example",
 ]
