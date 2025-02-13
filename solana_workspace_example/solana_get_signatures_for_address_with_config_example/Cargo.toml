@@ -1,7 +1,7 @@
 [package]
 name = "solana_get_signatures_for_address_with_config_example"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 solana-client = "2.1.11"
