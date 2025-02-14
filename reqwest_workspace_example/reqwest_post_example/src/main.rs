@@ -52,14 +52,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn complicated_example() -> Result<(), Box<dyn std::error::Error>> {
   let client = reqwest::Client::new();
 
-  let query = json!({
-      "query": format!("{{\n  indexers(filter: {{controller: {{equalToInsensitive: \"{}\"}}}}) {{\n    nodes {{\n      id\n    }}\n  }}\n}}", CHECK_ARGS)
+    let query = json!({
+      // "query": format!("{{\n  indexers(filter: {{controller: {{equalToInsensitive: \"{}\"}}}}) {{\n    nodes {{\n      id\n    }}\n  }}\n}}", CHECK_ARGS)
+      "query": format!("{{\n  stateChannels(filter: {{id: {{equalTo: \"0x{}\"}}}}) {{\n    nodes {{\n      id\n    }}\n  }}\n}}", CHECK_ARGS)
   });
 
   let response = client.post(CHECK_URL).json(&query).send().await?;
 
   let body = response.text().await?;
-  println!("{}", body);
+  println!("graphql query result: {}", body);
 
   let v: Value = serde_json::from_str(&body)?;
   if let Some(id) = v
