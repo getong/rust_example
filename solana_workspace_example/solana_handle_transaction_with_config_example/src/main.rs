@@ -8,15 +8,21 @@ use solana_sdk::{
   // bs58,
   commitment_config::CommitmentConfig,
   pubkey::Pubkey,
-    signature::{
-        // read_keypair_file,
-        Signature},
+  signature::{
+    // read_keypair_file,
+    Signature,
+  },
   // transaction::Transaction,
 };
 use solana_transaction_status::{
-  EncodedTransaction, UiInstruction, UiMessage, UiParsedInstruction, UiParsedMessage,
-    // UiPartiallyDecodedInstruction,
-    UiTransactionEncoding, UiTransactionStatusMeta,
+  EncodedTransaction,
+  UiInstruction,
+  UiMessage,
+  UiParsedInstruction,
+  UiParsedMessage,
+  // UiPartiallyDecodedInstruction,
+  UiTransactionEncoding,
+  UiTransactionStatusMeta,
   // UiTransactionTokenBalance,
 };
 // use spl_token::state::{Account as TokenAccount, GenericTokenAccount};
@@ -203,8 +209,8 @@ async fn parse_raydium_swap(
 
 // Helper function to calculate the token balance changes for input and output tokens
 fn calculate_token_balance_changes(meta: &UiTransactionStatusMeta) -> Result<(u64, u64)> {
-  let  input_amount: u64 = 0;
-  let  output_amount: u64 = 0;
+  let input_amount: u64 = 0;
+  let output_amount: u64 = 0;
 
   println!("meta: {:?}", meta);
   // Maybe do something with the meta data to calculate the input and output amounts and get the
