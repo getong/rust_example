@@ -31,24 +31,21 @@ fn process_instruction(
   let pda_account = next_account_info(account_info_iter)?;
   let system_program = next_account_info(account_info_iter)?;
 
-  let payload;
   let instruction = CourseInstruction::unpack(instruction_data)?;
-  match instruction {
-    CourseInstruction::AddCourse {
-      name,
-      degree,
-      institution,
-      start_date,
-    } => {
-      payload = CourseState {
-        name,
-        degree,
-        institution,
-        start_date,
-      };
-      msg!("This is an instruction to add a course...");
-    }
-  }
+  let CourseInstruction::AddCourse {
+    name,
+    degree,
+    institution,
+    start_date,
+  } = instruction;
+  let payload = CourseState {
+    name,
+    degree,
+    institution,
+    start_date,
+  };
+  msg!("This is an instruction to add a course...");
+
   //
   let (pda, bump) = derive_pda_address(&payload, program_id);
   let (size, rent) = calculate_acc_size_and_rent(&payload);
