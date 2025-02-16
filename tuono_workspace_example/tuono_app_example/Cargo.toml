@@ -7,6 +7,10 @@ edition = "2021"
 name = "tuono"
 path = ".tuono/main.rs"
 
+[[bin]]
+name = "main"
+path = "src/bin/main.rs"
+
 [dependencies]
 tuono_lib = "0.17.8"
 serde = { version = "1.0.202", features = ["derive"] }
