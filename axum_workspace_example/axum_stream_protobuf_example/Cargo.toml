@@ -7,11 +7,11 @@ edition = "2021"
 [dependencies]
 axum = "0.8.1"
 axum-streams = { version = "0.20.0", features = ["protobuf"] }
-prost = "0.13.4"
-prost-types = "0.13.4"
+prost = "0.13.5"
+prost-types = "0.13.5"
 tokio = { version = "1.43.0", features = ["full"] }
 tokio-stream = "0.1.17"
 
 [build-dependencies]
-prost-build = "0.13.4"
+prost-build = "0.13.5"
 walkdir = "2.5.0"

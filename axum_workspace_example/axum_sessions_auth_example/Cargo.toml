@@ -15,6 +15,6 @@ axum_session_surreal = "0.4"
 http = "1.2.0"
 serde = { version = "1.0.217", features = ["derive"] }
 sqlx = "0.8.3"
-surrealdb = { version = "2.1", features = ["kv-mem"] }
+surrealdb = { version = "2.2", features = ["kv-mem"] }
 tokio = { version = "1.43.0", features = ["full"] }
 tracing = "0.1.41"
