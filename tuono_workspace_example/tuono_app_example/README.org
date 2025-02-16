@@ -1,0 +1,19 @@
+* Tuono starter
+:PROPERTIES:
+:CUSTOM_ID: tuono-starter
+:END:
+This is the starter tuono project. To download it run in your terminal:
+
+#+begin_src sh
+$ tuono new tuono_openraft_example
+Success! 🎉
+
+Go to the project directory:
+cd tuono_openraft_example/
+
+Install the dependencies:
+npm install
+
+Run the local environment:
+tuono dev
+#+end_src
