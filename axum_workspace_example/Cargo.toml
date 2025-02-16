@@ -58,4 +58,6 @@ members = [
   "axum_utf8bytes_example",
   "axum_wildcard_router_example",
   "axum_websocket_http2_example",
+  "axum_with_state_example",
+  "axum_extension_example",
 ]
