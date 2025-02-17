@@ -1,0 +1,8 @@
+[package]
+name = "ethers_u256_hex_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethers = "2.0.14"
+hex = "0.4.3"

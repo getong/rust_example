@@ -1,0 +1,8 @@
+[package]
+name = "alloy_string_to_u256_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = "0.11.1"
+hex = "0.4.3"

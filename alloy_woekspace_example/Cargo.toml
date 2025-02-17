@@ -15,4 +15,5 @@ members = [
   "alloy_contract_example3",
   "alloy_contract_read_write_events_example",
   "alloy_with_required_confirmations_timeout_example",
+  "alloy_string_to_u256_example",
 ]
