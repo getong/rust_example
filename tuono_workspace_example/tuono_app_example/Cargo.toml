@@ -3,9 +3,9 @@ name = "tuono_app_example"
 version = "0.0.1"
 edition = "2021"
 
-[[bin]]
-name = "tuono"
-path = ".tuono/main.rs"
+# [[bin]]
+# name = "tuono"
+# path = ".tuono/main.rs"
 
 [[bin]]
 name = "main"
