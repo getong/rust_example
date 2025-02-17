@@ -198,4 +198,5 @@ members = [
   "tokio_init_tracing_opentelemetry_example",
   "tokio_async_loop_mut_variable_example",
   "tokio_task_id_example",
+  "tokio_once_cell_mutex_timeout_example",
 ]
