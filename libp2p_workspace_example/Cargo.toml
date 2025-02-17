@@ -66,4 +66,8 @@ members = [
   "libp2p_dns_example",
   "libp2p_quic_tls_server_example",
   "libp2p_quic_tls_client_example",
+  "libp2p_tuono_a_example",
+  "libp2p_tuono_b_example",
+  "libp2p_tuono_c1_example",
+  "libp2p_tuono_c2_example",
 ]
