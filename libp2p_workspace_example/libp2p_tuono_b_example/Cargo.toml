@@ -1,13 +1,28 @@
 [package]
-name = "tuono-app"
+name = "libp2p_tuono_b_example"
 version = "0.0.1"
 edition = "2021"
 
+# [[bin]]
+# name = "tuono"
+# path = ".tuono/main.rs"
 [[bin]]
-name = "tuono"
-path = ".tuono/main.rs"
+name = "main"
+path = "src/bin/main.rs"
 
 [dependencies]
-tuono_lib = "0.17.8"
+alloy = "0.11.0"
+anyhow = "1.0.95"
+futures = "0.3.31"
+hex = "0.4.3"
+libp2p = { version = "0.55.0", features = ["full"] }
+secp256k1 = { version = "0.30.0", features = [
+  "alloc",
+  "std",
+  "hashes",
+  "rand",
+  "serde",
+] }
 serde = { version = "1.0.202", features = ["derive"] }
-
+tokio = { version = "1.43.0", features = ["full"] }
+tuono_lib = "0.17.8"
