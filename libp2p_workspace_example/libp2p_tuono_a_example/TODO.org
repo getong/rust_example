@@ -1,0 +1,4 @@
+* todo
+
+- [ ] openraft use libp2p, see https://github.com/renegade-fi/renegade
+- [ ] tuono use openraft state, see https://tuono.dev/documentation/application-state
