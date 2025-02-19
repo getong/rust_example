@@ -11,4 +11,5 @@ members = [
   "solana_get_signatures_for_address_with_config_example",
   "solana_handle_transaction_with_config_example",
   "solana_rust_example",
+  "solana_rpc_getblock_example",
 ]
