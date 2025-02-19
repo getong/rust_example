@@ -12,4 +12,5 @@ members = [
   "solana_handle_transaction_with_config_example",
   "solana_rust_example",
   "solana_rpc_getblock_example",
+  "solana_rpc_getslot_example",
 ]
