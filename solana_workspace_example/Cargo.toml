@@ -14,4 +14,5 @@ members = [
   "solana_rpc_getblock_example",
   "solana_rpc_getslot_example",
   "solana_rpc_genesis_block_example",
+  "solana_rpc_get_latest_block_hash_example",
 ]
