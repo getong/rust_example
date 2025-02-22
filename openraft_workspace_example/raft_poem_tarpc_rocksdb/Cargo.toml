@@ -10,6 +10,7 @@ byteorder = "1.5"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures = "0.3"
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"] }
+openraft-rocksstore = { path = "../rocksstore" }
 poem = "3.1"
 poem-openapi = { version = "5.1", features = ["swagger-ui", "email"] }
 reqwest = { version = "0.12", features = ["json"] }
