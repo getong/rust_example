@@ -20,11 +20,11 @@ repository = "https://github.com/databendlabs/openraft"
 [dependencies]
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
 rocksdb = "0.23.0"
-rand = "0.8"
+rand = "0.9"
 byteorder = "1.5.0"
 
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.138"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.139"
 tokio = { version = "1.43", default-features = false, features = [
     "io-util",
     "macros",
@@ -36,4 +36,4 @@ tokio = { version = "1.43", default-features = false, features = [
 tracing = { version = "0.1.41" }
 
 [dev-dependencies]
-tempfile = { version = "3.16.0" }
+tempfile = { version = "3.17.1" }
