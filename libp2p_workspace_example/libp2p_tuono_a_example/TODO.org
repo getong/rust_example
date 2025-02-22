@@ -3,3 +3,4 @@
 - [ ] openraft use libp2p, see https://github.com/renegade-fi/renegade
 - [ ] tuono use openraft state, see https://tuono.dev/documentation/application-state
 - [ ] modify libp2p code by using https://github.com/libp2p/rust-libp2p/blob/c34a77bae7a877fbc9a691f8a0ef23c127dca7d7/examples/file-sharing/src/network.rs
+- [ ] surrealdb might be better, https://www.feldera.com/blog/rocksdb-not-a-good-choice-for-high-performance-streaming
