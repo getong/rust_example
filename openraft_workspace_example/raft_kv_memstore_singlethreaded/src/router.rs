@@ -1,8 +1,14 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+use openraft::error::{RemoteError, Unreachable};
 use tokio::sync::oneshot;
 
-use crate::{app::RequestTx, decode, encode, typ::RaftError, NodeId};
+use crate::{
+  app::RequestTx,
+  decode, encode,
+  typ::{RPCError, RaftError},
+  NodeId,
+};
 
 /// Simulate a network router.
 #[derive(Debug, Clone, Default)]
@@ -11,16 +17,17 @@ pub struct Router {
 }
 
 impl Router {
-  /// Send request `Req` to target node `to`, and wait for response `Result<Resp, RaftError<E>>`.
+  /// Send request `Req` to target node `to`, and wait for response `Result<Resp, E>`.
   pub async fn send<Req, Resp, E>(
     &self,
     to: NodeId,
     path: &str,
     req: Req,
-  ) -> Result<Resp, RaftError<E>>
+  ) -> Result<Resp, RPCError<E>>
   where
     Req: serde::Serialize,
     Result<Resp, RaftError<E>>: serde::de::DeserializeOwned,
+    E: std::error::Error,
   {
     let (resp_tx, resp_rx) = oneshot::channel();
 
@@ -37,6 +44,13 @@ impl Router {
     let resp_str = resp_rx.await.unwrap();
     tracing::debug!("resp from: {}, {}, {}", to, path, resp_str);
 
-    decode::<Result<Resp, RaftError<E>>>(&resp_str)
+    let res = decode::<Result<Resp, RaftError<E>>>(&resp_str);
+    match res {
+      Ok(r) => Ok(r),
+      Err(e) => match e {
+        RaftError::APIError(x) => Err(RPCError::RemoteError(RemoteError::new(to, x))),
+        RaftError::Fatal(f) => Err(RPCError::Unreachable(Unreachable::new(&f))),
+      },
+    }
   }
 }

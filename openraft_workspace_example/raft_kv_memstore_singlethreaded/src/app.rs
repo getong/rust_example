@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{api, router::Router, NodeId, Raft, StateMachineStore};
+use crate::{api, router::Router, typ::Raft, NodeId, StateMachineStore};
 
 pub type Path = String;
 pub type Payload = String;

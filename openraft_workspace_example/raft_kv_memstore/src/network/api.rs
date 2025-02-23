@@ -27,8 +27,8 @@ pub async fn read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl R
   Ok(Json(res))
 }
 
-#[post("/consistent_read")]
-pub async fn consistent_read(
+#[post("/linearizable_read")]
+pub async fn linearizable_read(
   app: Data<App>,
   req: Json<String>,
 ) -> actix_web::Result<impl Responder> {
