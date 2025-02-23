@@ -3,13 +3,10 @@ use std::future::Future;
 use openraft::{
   error::ReplicationClosed,
   network::{v2::RaftNetworkV2, RPCOption},
-  raft::{
-    AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, VoteRequest, VoteResponse,
-  },
-  BasicNode, OptionalSend, RaftNetworkFactory, Snapshot, Vote,
+  BasicNode, OptionalSend, RaftNetworkFactory,
 };
 
-use crate::{router::Router, typ, NodeId, TypeConfig};
+use crate::{router::Router, typ::*, NodeId, TypeConfig};
 
 pub struct Connection {
   router: Router,
@@ -30,9 +27,9 @@ impl RaftNetworkFactory<TypeConfig> for Router {
 impl RaftNetworkV2<TypeConfig> for Connection {
   async fn append_entries(
     &mut self,
-    req: AppendEntriesRequest<TypeConfig>,
+    req: AppendEntriesRequest,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse<TypeConfig>, typ::RPCError> {
+  ) -> Result<AppendEntriesResponse, RPCError> {
     let resp = self.router.send(self.target, "/raft/append", req).await?;
     Ok(resp)
   }
@@ -40,11 +37,11 @@ impl RaftNetworkV2<TypeConfig> for Connection {
   /// A real application should replace this method with customized implementation.
   async fn full_snapshot(
     &mut self,
-    vote: Vote<NodeId>,
-    snapshot: Snapshot<TypeConfig>,
+    vote: Vote,
+    snapshot: Snapshot,
     _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     _option: RPCOption,
-  ) -> Result<SnapshotResponse<TypeConfig>, typ::StreamingError> {
+  ) -> Result<SnapshotResponse, StreamingError> {
     let resp = self
       .router
       .send(
@@ -56,11 +53,7 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     Ok(resp)
   }
 
-  async fn vote(
-    &mut self,
-    req: VoteRequest<TypeConfig>,
-    _option: RPCOption,
-  ) -> Result<VoteResponse<TypeConfig>, typ::RPCError> {
+  async fn vote(&mut self, req: VoteRequest, _option: RPCOption) -> Result<VoteResponse, RPCError> {
     let resp = self.router.send(self.target, "/raft/vote", req).await?;
     Ok(resp)
   }

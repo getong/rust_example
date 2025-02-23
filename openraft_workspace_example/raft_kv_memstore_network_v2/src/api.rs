@@ -2,12 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::{
-  error::{CheckIsLeaderError, Infallible, RaftError},
-  BasicNode, RaftMetrics,
-};
+use openraft::BasicNode;
 
-use crate::{app::App, decode, encode, typ, NodeId, TypeConfig};
+use crate::{app::App, decode, encode, typ::*, NodeId};
 
 pub async fn write(app: &mut App, req: String) -> String {
   let res = app.raft.client_write(decode(&req)).await;
@@ -24,8 +21,7 @@ pub async fn read(app: &mut App, req: String) -> String {
       let state_machine = app.state_machine.state_machine.lock().unwrap();
       let value = state_machine.data.get(&key).cloned();
 
-      let res: Result<String, RaftError<TypeConfig, CheckIsLeaderError<TypeConfig>>> =
-        Ok(value.unwrap_or_default());
+      let res: Result<String, RaftError<CheckIsLeaderError>> = Ok(value.unwrap_or_default());
       res
     }
     Err(e) => Err(e),
@@ -47,17 +43,16 @@ pub async fn append(app: &mut App, req: String) -> String {
 
 /// Receive a snapshot and install it.
 pub async fn snapshot(app: &mut App, req: String) -> String {
-  let (vote, snapshot_meta, snapshot_data): (typ::Vote, typ::SnapshotMeta, typ::SnapshotData) =
-    decode(&req);
-  let snapshot = typ::Snapshot {
+  let (vote, snapshot_meta, snapshot_data): (Vote, SnapshotMeta, SnapshotData) = decode(&req);
+  let snapshot = Snapshot {
     meta: snapshot_meta,
-    snapshot: Box::new(snapshot_data),
+    snapshot: snapshot_data,
   };
   let res = app
     .raft
     .install_full_snapshot(vote, snapshot)
     .await
-    .map_err(typ::RaftError::<typ::Infallible>::Fatal);
+    .map_err(RaftError::<Infallible>::Fatal);
   encode(res)
 }
 
@@ -101,6 +96,6 @@ pub async fn init(app: &mut App) -> String {
 pub async fn metrics(app: &mut App) -> String {
   let metrics = app.raft.metrics().borrow().clone();
 
-  let res: Result<RaftMetrics<TypeConfig>, Infallible> = Ok(metrics);
+  let res: Result<RaftMetrics, Infallible> = Ok(metrics);
   encode(res)
 }
