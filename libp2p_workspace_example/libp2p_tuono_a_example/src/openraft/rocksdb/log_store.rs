@@ -9,7 +9,7 @@ use openraft::{
 };
 use rocksdb::{ColumnFamily, Direction, DB};
 
-use crate::openraft::rocksdb::meta::{LastPurged, Vote, StoreMeta};
+use crate::openraft::rocksdb::meta::{LastPurged, StoreMeta, Vote};
 
 #[derive(Debug, Clone)]
 pub struct RocksLogStore<C>

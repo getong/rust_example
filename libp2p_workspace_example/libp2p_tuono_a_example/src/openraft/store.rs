@@ -3,12 +3,11 @@ use std::{collections::BTreeMap, fmt::Debug, io::Cursor, path::Path, sync::Arc};
 use openraft::{
   storage::RaftStateMachine, AnyError, EntryPayload, ErrorVerb, OptionalSend, RaftSnapshotBuilder,
 };
-use crate::openraft::rocksdb::log_store::RocksLogStore;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::openraft::{typ::*, TypeConfig};
+use crate::openraft::{rocksdb::log_store::RocksLogStore, typ::*, TypeConfig};
 
 /// Here you will set the types of request that will interact with the raft nodes.
 /// For example the `Set` will be used to write data (key and value) to the raft database.

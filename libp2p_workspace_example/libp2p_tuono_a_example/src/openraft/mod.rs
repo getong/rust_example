@@ -44,7 +44,6 @@ openraft::declare_raft_types!(
 
 pub mod typ;
 
-
 // pub async fn start_example_raft_node<P>(
 //   node_id: NodeId,
 //   dir: P,
