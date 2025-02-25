@@ -28,9 +28,11 @@ use libp2p::{
   },
   noise,
   ping::{Behaviour as PingBehaviour, Config as PingConfig, Event as PingEvent},
+  request_response::{self, OutboundRequestId, ProtocolSupport, ResponseChannel},
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
+use libp2p_tuono_a_example::libp2p::behaviour::{RaftRequest, RaftResponse};
 use tokio::time::Duration;
 
 #[derive(NetworkBehaviour)]
@@ -66,11 +68,19 @@ impl MyBehaviour {
         .with_interval(Duration::from_secs(10))
         .with_timeout(Duration::from_secs(10)),
     );
+    let request_response = request_response::json::Behaviour::<RaftRequest, RaftResponse>::new(
+      [(
+        StreamProtocol::new("/my-json-protocol"),
+        ProtocolSupport::Full,
+      )],
+      request_response::Config::default(),
+    );
 
     Ok(Self {
       kad,
       identify,
       ping,
+      request_response,
     })
   }
 
@@ -93,6 +103,7 @@ pub enum MyBehaviourEvent {
   Kad(KadEvent),
   Identify(IdentifyEvent),
   Ping(PingEvent),
+  RequestResponse(request_response::RequestResponseEvent<RaftRequest, RaftResponse>),
 }
 
 impl From<KadEvent> for MyBehaviourEvent {
