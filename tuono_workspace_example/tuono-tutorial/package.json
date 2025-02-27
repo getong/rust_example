@@ -19,7 +19,7 @@
     "formik": "^2.4.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tuono": "0.17.8",
+    "tuono": "0.17.9",
     "yup": "^1.6.1"
   },
   "devDependencies": {
