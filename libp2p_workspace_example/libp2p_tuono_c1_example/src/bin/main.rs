@@ -15,7 +15,6 @@ use std::{collections::HashSet, error::Error, fs};
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
   core::ConnectedPoint,
   identify::{
     Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent,
@@ -23,13 +22,13 @@ use libp2p::{
   },
   identity::{self, Keypair},
   kad::{
-    self, Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent,
-    store::MemoryStore as KadInMemory,
+    self, store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
+    Event as KadEvent,
   },
   noise,
   ping::{Behaviour as PingBehaviour, Config as PingConfig, Event as PingEvent},
   swarm::{NetworkBehaviour, SwarmEvent},
-  tcp, yamux,
+  tcp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use tokio::time::Duration;
 
