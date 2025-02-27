@@ -1,5 +1,6 @@
 use std::{future::Future, io, net::IpAddr, pin::Pin, str};
 
+use anyhow::Result;
 use hickory_resolver::{
   TokioAsyncResolver,
   config::{ResolverConfig, ResolverOpts},
@@ -10,11 +11,20 @@ use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 async fn main() {
   match resolve_libp2p_dnsaddr("bootstrap.libp2p.io").await {
     Ok(pairs) => {
-      for (peer_id, addr) in pairs {
-        match resolve_multiaddr_to_ip(addr).await {
-          Ok(ip_addr) => println!("Peer ID: {}, Resolved IP Address: {}", peer_id, ip_addr),
-          Err(e) => eprintln!("Failed to resolve IP for Peer ID {}: {:?}", peer_id, e),
-        }
+      let tasks: Vec<_> = pairs
+        .into_iter()
+        .map(|(peer_id, addr)| {
+          tokio::spawn(async move {
+            match resolve_multiaddr_to_ip(addr).await {
+              Ok(ip_addr) => println!("Peer ID: {}, Resolved IP Address: {}", peer_id, ip_addr),
+              Err(e) => eprintln!("Failed to resolve IP for Peer ID {}: {:?}", peer_id, e),
+            }
+          })
+        })
+        .collect();
+
+      for task in tasks {
+        let _ = task.await;
       }
     }
     Err(e) => {
@@ -23,7 +33,7 @@ async fn main() {
   }
 }
 
-async fn resolve_libp2p_dnsaddr(domain: &str) -> anyhow::Result<Vec<(PeerId, Multiaddr)>> {
+async fn resolve_libp2p_dnsaddr(domain: &str) -> Result<Vec<(PeerId, Multiaddr)>> {
   let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
   let txt_records = resolver.txt_lookup(format!("_dnsaddr.{}", domain)).await?;
 
@@ -58,7 +68,7 @@ fn parse_dnsaddr_txt(txt: &[u8]) -> io::Result<Multiaddr> {
 /// Resolves the `dns` parts of a `Multiaddr` into an IP address.
 fn resolve_multiaddr_to_ip(
   multiaddr: Multiaddr,
-) -> Pin<Box<dyn Future<Output = anyhow::Result<Multiaddr>> + Send>> {
+) -> Pin<Box<dyn Future<Output = Result<Multiaddr>> + Send>> {
   Box::pin(async move {
     let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
 
