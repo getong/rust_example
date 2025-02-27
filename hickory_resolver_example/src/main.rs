@@ -53,3 +53,5 @@ fn parse_dnsaddr_txt(txt: &[u8]) -> io::Result<Multiaddr> {
 }
 
 // copy from https://github.com/ChainSafe/forest/blob/main/src/libp2p/discovery.rs
+// dig -t TXT _dnsaddr.bootstrap.libp2p.io
+// copy from dig -t TXT _dnsaddr.bootstrap.libp2p.io
