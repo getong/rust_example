@@ -1,4 +1,4 @@
-use std::{io, str};
+use std::{future::Future, io, net::IpAddr, pin::Pin, str};
 
 use hickory_resolver::{
   TokioAsyncResolver,
@@ -11,7 +11,10 @@ async fn main() {
   match resolve_libp2p_dnsaddr("bootstrap.libp2p.io").await {
     Ok(pairs) => {
       for (peer_id, addr) in pairs {
-        println!("Peer ID: {}, Address: {}", peer_id, addr);
+        match resolve_multiaddr_to_ip(addr).await {
+          Ok(ip_addr) => println!("Peer ID: {}, Resolved IP Address: {}", peer_id, ip_addr),
+          Err(e) => eprintln!("Failed to resolve IP for Peer ID {}: {:?}", peer_id, e),
+        }
       }
     }
     Err(e) => {
@@ -50,6 +53,42 @@ fn parse_dnsaddr_txt(txt: &[u8]) -> io::Result<Multiaddr> {
       "Missing `dnsaddr=` prefix.",
     ))
   }
+}
+
+/// Resolves the `dns` parts of a `Multiaddr` into an IP address.
+fn resolve_multiaddr_to_ip(
+  multiaddr: Multiaddr,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<Multiaddr>> + Send>> {
+  Box::pin(async move {
+    let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
+
+    let mut new_addr = Vec::new();
+    for protocol in multiaddr.iter() {
+      match protocol {
+        Protocol::Dns4(domain) | Protocol::Dns6(domain) => {
+          let response = resolver.lookup_ip(domain.to_string()).await?;
+          if let Some(ip) = response.iter().next() {
+            match ip {
+              IpAddr::V4(ipv4) => new_addr.push(Protocol::Ip4(ipv4)),
+              IpAddr::V6(ipv6) => new_addr.push(Protocol::Ip6(ipv6)),
+            }
+          } else {
+            return Err(anyhow::anyhow!("No IP addresses found for {}", domain));
+          }
+        }
+        Protocol::Dnsaddr(domain) => {
+          let resolved_addrs = resolve_libp2p_dnsaddr(&domain).await?;
+          if let Some((_, resolved_addr)) = resolved_addrs.into_iter().next() {
+            return resolve_multiaddr_to_ip(resolved_addr).await; // Recursive call via Box::pin
+          } else {
+            return Err(anyhow::anyhow!("No resolved addresses for {}", domain));
+          }
+        }
+        other => new_addr.push(other),
+      }
+    }
+    Ok(Multiaddr::from_iter(new_addr))
+  })
 }
 
 // copy from https://github.com/ChainSafe/forest/blob/main/src/libp2p/discovery.rs
