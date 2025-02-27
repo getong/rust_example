@@ -1,13 +1,13 @@
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
-  PeerId, SwarmBuilder, Transport,
+  Multiaddr, PeerId, SwarmBuilder, Transport,
   core::transport::upgrade::Version,
   dns, identity,
   kad::{self, Event as KademliaEvent, store::MemoryStore},
   noise,
   swarm::{NetworkBehaviour, SwarmEvent},
-  tcp, yamux,
+  tcp, tls, yamux,
 };
 use tokio::time::Duration;
 
@@ -42,6 +42,12 @@ async fn main() -> Result<()> {
 
   let mut swarm = SwarmBuilder::with_existing_identity(key_pair)
     .with_tokio()
+    .with_tcp(
+      Default::default(),
+      (tls::Config::new, noise::Config::new),
+      yamux::Config::default,
+    )?
+    .with_quic()
     .with_other_transport(|key| {
       let noise_config = noise::Config::new(key).unwrap();
       let mut yamux_config = yamux::Config::default();
@@ -65,7 +71,7 @@ async fn main() -> Result<()> {
     .build();
 
   swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-  // swarm.listen_on("/dns4/localhost/tcp/0".parse()?)?;
+  swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
 
   loop {
     tokio::select! {
@@ -73,9 +79,17 @@ async fn main() -> Result<()> {
             if let SwarmEvent::NewListenAddr { address, .. } = event {
                 // Print the listen address and show the equivalent DNS address
                 println!("Listening on: {address}");
-                if let Some(port) = address.iter().last() {
-                    println!("You can dial this node using: /dns4/localhost/tcp/{port}");
-                }
+                // if let Some(port) = address.iter().last() {
+                //     println!("You can dial this node using: /dns4/localhost/tcp/{port}");
+                // }
+                // let addr1: Multiaddr = "/dns4/localhost/tcp/9001".parse()?;
+                // let addr2: Multiaddr = "/dns4/localhost/udp/9002/quic-v1".parse()?;
+                // swarm.dial(addr1)?;
+                // swarm.dial(addr2)?;
+                let addr1: Multiaddr = "/dns4/boot_node/tcp/9001".parse()?;
+                let addr2: Multiaddr = "/dns4/boot_node/udp/9002/quic-v1".parse()?;
+                swarm.dial(addr1)?;
+                swarm.dial(addr2)?;
             }
         }
     }
