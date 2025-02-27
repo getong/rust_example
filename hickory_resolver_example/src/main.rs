@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, str};
 
 use hickory_resolver::{
   TokioAsyncResolver,
@@ -8,36 +8,31 @@ use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 
 #[tokio::main]
 async fn main() {
-  if let Ok(pairs) = resolve_libp2p_dnsaddr("/dns4/bootstrap.libp2p.io/tcp/8080").await {
-    for (peer_id, addr) in pairs {
-      println!("Peer ID: {}, Address: {}", peer_id, addr);
+  match resolve_libp2p_dnsaddr("bootstrap.libp2p.io").await {
+    Ok(pairs) => {
+      for (peer_id, addr) in pairs {
+        println!("Peer ID: {}, Address: {}", peer_id, addr);
+      }
+    }
+    Err(e) => {
+      eprintln!("Failed to resolve DNS: {:?}", e);
     }
   }
 }
 
-async fn resolve_libp2p_dnsaddr(name: &str) -> anyhow::Result<Vec<(PeerId, Multiaddr)>> {
+async fn resolve_libp2p_dnsaddr(domain: &str) -> anyhow::Result<Vec<(PeerId, Multiaddr)>> {
   let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
-  // let name = ["_dnsaddr.", name].concat();
-  let txts = resolver.txt_lookup(name).await?;
+  let txt_records = resolver.txt_lookup(format!("_dnsaddr.{}", domain)).await?;
 
-  let mut pairs = vec![];
-  for txt in txts {
-    match txt.txt_data().first() {
-      Some(chars) => match parse_dnsaddr_txt(chars) {
-        Err(e) => {
-          // Skip over seemingly invalid entries.
-          println!("Invalid TXT record: {:?}", e);
+  let mut pairs = Vec::new();
+  for txt in txt_records {
+    for record in txt.txt_data() {
+      if let Ok(addr) = parse_dnsaddr_txt(record) {
+        if let Some(Protocol::P2p(peer_id)) = addr.iter().last() {
+          pairs.push((peer_id, addr));
+        } else {
+          eprintln!("Failed to extract PeerId from address: {}", addr);
         }
-        Ok(mut addr) => {
-          if let Some(Protocol::P2p(peer_id)) = addr.pop() {
-            pairs.push((peer_id, addr))
-          } else {
-            println!("Failed to parse peer id from {addr}")
-          }
-        }
-      },
-      None => {
-        println!(" txt is {}, none", txt);
       }
     }
   }
@@ -47,14 +42,13 @@ async fn resolve_libp2p_dnsaddr(name: &str) -> anyhow::Result<Vec<(PeerId, Multi
 /// Parses a `<character-string>` of a `dnsaddr` `TXT` record.
 fn parse_dnsaddr_txt(txt: &[u8]) -> io::Result<Multiaddr> {
   let s = str::from_utf8(txt).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-  match s.strip_prefix("dnsaddr=") {
-    None => Err(io::Error::new(
+  if let Some(addr) = s.strip_prefix("dnsaddr=") {
+    Multiaddr::try_from(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+  } else {
+    Err(io::Error::new(
       io::ErrorKind::InvalidData,
       "Missing `dnsaddr=` prefix.",
-    )),
-    Some(a) => {
-      Ok(Multiaddr::try_from(a).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?)
-    }
+    ))
   }
 }
 
