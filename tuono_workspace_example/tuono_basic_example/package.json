@@ -5,7 +5,7 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tuono": "0.17.9"
+    "tuono": "0.17.10"
   },
   "devDependencies": {
     "@types/react": "19.0.8",

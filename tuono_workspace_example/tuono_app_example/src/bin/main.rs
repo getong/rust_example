@@ -15,7 +15,7 @@ use tuono_app_example::routes::{api as api_mod, index};
 #[tokio::main]
 async fn main() {
   tuono_internal_init_v8_platform();
-  println!("\n  ⚡ Tuono v0.17.9");
+  println!("\n  ⚡ Tuono v0.17.10");
 
   let router = Router::new()
     // ROUTE_BUILDER

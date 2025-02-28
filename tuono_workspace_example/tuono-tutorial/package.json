@@ -14,21 +14,21 @@
     "@material-ui/pickers": "^3.3.11",
     "@material-ui/styles": "^4.11.5",
     "@types/yup": "^0.32.0",
-    "axios": "^1.7.9",
+    "axios": "^1.8.1",
     "clsx": "^2.1.1",
     "formik": "^2.4.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tuono": "0.17.9",
+    "tuono": "0.17.10",
     "yup": "^1.6.1"
   },
   "devDependencies": {
-    "@types/react": "^19.0.8",
-    "@types/react-dom": "^19.0.3",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
     "concurrently": "^9.1.2",
-    "cypress": "^14.0.1",
+    "cypress": "^14.1.0",
     "json-server": "^1.0.0-beta.3",
     "json-server-auth": "^2.1.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.8.2"
   }
 }
