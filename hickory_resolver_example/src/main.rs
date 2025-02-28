@@ -103,4 +103,4 @@ fn resolve_multiaddr_to_ip(
 
 // copy from https://github.com/ChainSafe/forest/blob/main/src/libp2p/discovery.rs
 // dig -t TXT _dnsaddr.bootstrap.libp2p.io
-// copy from dig -t TXT _dnsaddr.bootstrap.libp2p.io
+// copy from https://discuss.libp2p.io/t/how-to-interpret-multiaddr/1424/2
