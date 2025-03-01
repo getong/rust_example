@@ -13,14 +13,14 @@ BINDINGS_OUT_PATH=$(CONTRACTS_PATH)/out/$(BINDINGS_FOLDER)
 
 # Target for generating bindings
 bindings:
-	rm -rf $(BINDINGS_CRATES_FOLDER)
-	rm -rf $(BINDINGS_OUT_PATH)
+	# rm -rf $(BINDINGS_CRATES_FOLDER)
+	# rm -rf $(BINDINGS_OUT_PATH)
 
 # Generate new bindings
-	@forge bind --root $(CONTRACTS_PATH) --crate-name $(BINDINGS_FOLDER)
-
+	# @forge bind --root $(CONTRACTS_PATH) --crate-name $(BINDINGS_FOLDER)
+	forge bind --overwrite --bindings-path ./crates/foundry-contracts --root ./contracts --crate-name foundry-contracts --alloy-version "v0.11.1"
 # Move bindings to the correct location
-	@mv -f $(BINDINGS_OUT_PATH) $(CRATES_FOLDER)
+	# @mv -f $(BINDINGS_OUT_PATH) $(CRATES_FOLDER)
 
 # Target for building the project
 build: bindings
