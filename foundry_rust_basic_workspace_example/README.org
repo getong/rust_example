@@ -4,7 +4,7 @@ mkdir foundry_rust_basic_workspace_example
 
 forge init --offline contracts --no-git
 cd contracts
-forge install foundry-rs/forge-std --no-commit
+forge install foundry-rs/forge-std --no-commit --no-git --shallow
 forge build
 
 cd ..
