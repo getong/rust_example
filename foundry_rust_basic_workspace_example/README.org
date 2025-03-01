@@ -6,4 +6,12 @@ forge init --offline contracts --no-git
 cd contracts
 forge install foundry-rs/forge-std --no-commit
 forge build
+
+cd ..
+forge bind --overwrite  --bindings-path ./crates/foundry-contracts --root ./contracts --crate-name foundry-contracts --alloy-version "v0.11.1"
+
+cargo new foundry_hello_example
+
+touch Cargo.toml
+
 #+end_src

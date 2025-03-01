@@ -1,0 +1,10 @@
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = { git = "https://github.com/alloy-rs/alloy", rev = "v0.11.1", features = ["sol-types", "contract", "node-bindings"] }
+eyre = "0.6"
+foundry-contracts.workspace = true
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread"] }
