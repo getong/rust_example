@@ -1,4 +1,4 @@
-use rand::{prelude::IndexedMutRandom, rng, rngs::ThreadRng,  Rng};
+use rand::{prelude::IndexedMutRandom, rng, rngs::ThreadRng, Rng};
 
 fn generate_float(generator: &mut ThreadRng) -> f64 {
   let placeholder: f64 = generator.random();
