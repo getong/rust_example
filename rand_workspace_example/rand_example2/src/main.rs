@@ -1,27 +1,16 @@
-extern crate rand;
-use rand::random;
-// use rand::seq::SliceRandom;
-// use rand::thread_rng;
+use rand::Rng;
 
 trait StreamSampler {
-  // 每种抽样器只会在一种总体中抽样，而总体中所有个体都属于相同类型
   type Item;
 
-  // 流式采样器无法知道总体数据有多少个样本，因此只逐个处理
   fn process(&mut self, it: Self::Item);
 
-  // 任意时候应当知道当前抽取的样本有哪些
   fn samples(&self) -> &[Self::Item];
 }
 
 struct Lottery<P> {
-  // 记录当前参与的总人数
   total: usize,
-
-  // 奖品的名称与人数
   prices: Vec<Price>,
-
-  // 当前的幸运儿
   lucky: Vec<Option<P>>,
 }
 
@@ -36,11 +25,10 @@ impl<P> StreamSampler for Lottery<P> {
 
   fn process(&mut self, it: Self::Item) {
     let lucky_cap = self.lucky.capacity();
-
     self.total += 1;
 
-    // 概率渐小的随机替换
-    let r = random::<usize>() % self.total + 1;
+    let mut rng = rand::rng();
+    let r = rng.random_range(1 ..= self.total);
     if r < self.total && self.total <= lucky_cap {
       self.lucky[self.total - 1] = self.lucky[r - 1].take();
     }
@@ -65,11 +53,11 @@ impl<P> Lottery<P> {
 
     let mut final_lucky = self.lucky.into_iter().collect::<Vec<Option<P>>>();
     let mut i = self.total;
+    let mut rng = rand::rng();
     while i < lucky_cap {
       i += 1;
 
-      // 概率渐小的随机替换
-      let r = random::<usize>() % i + 1;
+      let r = rng.random_range(1 ..= i);
       if r < self.total && self.total <= lucky_cap {
         final_lucky[i - 1] = final_lucky[r - 1].take();
       }
@@ -94,8 +82,6 @@ impl<P> Lottery<P> {
   }
 }
 
-// 构建者模式（Builder Pattern），将所有可能的初始化行为提取到单独的构建者结构中，以保证初始化
-// 后的对象(Target)的数据可靠性。此处用以保证所有奖品都确定后才能开始抽奖
 struct LotteryBuilder {
   prices: Vec<Price>,
 }
@@ -119,7 +105,7 @@ impl LotteryBuilder {
     Lottery {
       total: 0,
       prices: self.prices.clone(),
-      lucky: std::vec::from_elem(Option::<P>::None, lucky_cap),
+      lucky: vec![None; lucky_cap],
     }
   }
 }
