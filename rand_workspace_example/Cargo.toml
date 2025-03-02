@@ -1,0 +1,11 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "rand_core_example",
+  "rand_distr_example",
+  "rand_example",
+  "rand_example2",
+  "rand_uniform_distribution_example",
+]
