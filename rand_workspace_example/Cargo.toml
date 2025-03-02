@@ -8,4 +8,5 @@ members = [
   "rand_example",
   "rand_example2",
   "rand_uniform_distribution_example",
+  "rand_rngcore_example",
 ]
