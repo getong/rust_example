@@ -10,4 +10,5 @@ members = [
   "rand_uniform_distribution_example",
   "rand_rngcore_example",
   "rand_rng_trait_enum_example",
+  "rand_rng_trait_enum_example2",
 ]
