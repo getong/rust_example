@@ -29,8 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn parse_and_resolve_multiaddr(
   multiaddr_str: &str,
 ) -> Result<Vec<Multiaddr>, Box<dyn std::error::Error>> {
+  println!("Parsed multiaddress: {:?}", multiaddr_str);
   let multiaddr = Multiaddr::from_str(multiaddr_str)?;
-  println!("Parsed multiaddress: {:?}", multiaddr);
 
   let mut dns_name = None;
   let mut port = None;
@@ -52,18 +52,18 @@ fn parse_and_resolve_multiaddr(
 
   if let (Some(dns_name), Some(port)) = (dns_name, port) {
     let addr = format!("{}:{}", dns_name, port);
-    let resolved = addr.to_socket_addrs()?;
+    if let Ok(resolved) = addr.to_socket_addrs() {
+      for resolved_ip in resolved {
+        let mut resolved_multiaddr = Multiaddr::empty();
+        resolved_multiaddr.push(Protocol::Ip4(resolved_ip.ip().to_string().parse()?));
 
-    for resolved_ip in resolved {
-      let mut resolved_multiaddr = Multiaddr::empty();
-      resolved_multiaddr.push(Protocol::Ip4(resolved_ip.ip().to_string().parse()?));
+        // Append the transport protocol and port
+        for protocol in &transport_protocols {
+          resolved_multiaddr.push(protocol.clone());
+        }
 
-      // Append the transport protocol and port
-      for protocol in &transport_protocols {
-        resolved_multiaddr.push(protocol.clone());
+        resolved_multiaddrs.push(resolved_multiaddr);
       }
-
-      resolved_multiaddrs.push(resolved_multiaddr);
     }
   }
 
