@@ -79,9 +79,20 @@ impl RngCore for TestRng {
   }
 }
 
-impl rand_core::CryptoRng for TestRng {}
-
 fn main() {
+  chacha_rng_example();
+
+  println!();
+  xorshift_rng_example();
+
+  println!();
+  passthrough_rng_example();
+
+  println!();
+  record_rng_example();
+}
+
+fn chacha_rng_example() {
   let mut seed_rng = rand::rng();
   let chacha_rng = ChaChaRng::from_rng(&mut seed_rng);
 
@@ -89,13 +100,77 @@ fn main() {
     rng: TestRngImpl::ChaCha(chacha_rng),
   };
 
-  // Now, we can use Rng's `gen` method!
+  // Now, we can use Rng's `random` method!
   let random_number: u32 = rng.random();
-  println!("Random number: {}", random_number);
+  println!("chacha Random number: {}", random_number);
 
   let random_float: f64 = rng.random();
-  println!("Random float: {}", random_float);
+  println!("chacha Random float: {}", random_float);
 
   let random_range: u32 = rng.random_range(10 .. 50);
-  println!("Random number in range 10-50: {}", random_range);
+  println!("chacha Random number in range 10-50: {}", random_range);
+}
+
+fn xorshift_rng_example() {
+  let mut seed_rng = rand::rng();
+  let xorshift_rng = XorShiftRng::from_rng(&mut seed_rng);
+
+  let mut rng = TestRng {
+    rng: TestRngImpl::XorShift(xorshift_rng),
+  };
+
+  // Now, we can use Rng's `random` method!
+  let random_number: u32 = rng.random();
+  println!("xorshift Random number: {}", random_number);
+
+  let random_float: f64 = rng.random();
+  println!("xorshift Random float: {}", random_float);
+
+  let random_range: u32 = rng.random_range(10 .. 50);
+  println!("xorshift Random number in range 10-50: {}", random_range);
+}
+
+fn passthrough_rng_example() {
+  let pass_through_data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10].into();
+  let pass_through_rng = TestRngImpl::PassThrough {
+    off: 0,
+    end: 10,
+    data: pass_through_data,
+  };
+
+  let mut rng = TestRng {
+    rng: pass_through_rng,
+  };
+
+  // Now, we can use Rng's `random` method!
+  let random_number: u32 = rng.random();
+  println!("passthrough Random number: {}", random_number);
+
+  let random_float: f64 = rng.random();
+  println!("passthrough Random float: {}", random_float);
+
+  let random_range: u32 = rng.random_range(10 .. 50);
+  println!("passthrough Random number in range 10-50: {}", random_range);
+}
+
+fn record_rng_example() {
+  let mut seed_rng = rand::rng();
+  let chacha_rng = ChaChaRng::from_rng(&mut seed_rng);
+  let record = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  let record_rng = TestRngImpl::Recorder {
+    rng: chacha_rng,
+    record,
+  };
+
+  let mut rng = TestRng { rng: record_rng };
+
+  // Now, we can use Rng's `random` method!
+  let random_number: u32 = rng.random();
+  println!("record Random number: {}", random_number);
+
+  let random_float: f64 = rng.random();
+  println!("record Random float: {}", random_float);
+
+  let random_range: u32 = rng.random_range(10 .. 50);
+  println!("record Random number in range 10-50: {}", random_range);
 }
