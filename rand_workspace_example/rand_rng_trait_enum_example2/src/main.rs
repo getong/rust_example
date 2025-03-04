@@ -101,10 +101,10 @@ fn chacha_rng_example() {
   };
 
   // Now, we can use Rng's `random` method!
-  let random_number: u32 = rng.random();
+  let random_number: f32 = rng.random();
   println!("chacha Random number: {}", random_number);
 
-  let random_float: f64 = rng.random();
+  let random_float: f32 = rng.random();
   println!("chacha Random float: {}", random_float);
 
   let random_range: u32 = rng.random_range(10 .. 50);
@@ -120,7 +120,7 @@ fn xorshift_rng_example() {
   };
 
   // Now, we can use Rng's `random` method!
-  let random_number: u32 = rng.random();
+  let random_number: f32 = rng.random();
   println!("xorshift Random number: {}", random_number);
 
   let random_float: f64 = rng.random();
@@ -143,10 +143,10 @@ fn passthrough_rng_example() {
   };
 
   // Now, we can use Rng's `random` method!
-  let random_number: u32 = rng.random();
+  let random_number: f32 = rng.random();
   println!("passthrough Random number: {}", random_number);
 
-  let random_float: f64 = rng.random();
+  let random_float: f32 = rng.random();
   println!("passthrough Random float: {}", random_float);
 
   let random_range: u32 = rng.random_range(10 .. 50);
@@ -165,10 +165,10 @@ fn record_rng_example() {
   let mut rng = TestRng { rng: record_rng };
 
   // Now, we can use Rng's `random` method!
-  let random_number: u32 = rng.random();
+  let random_number: f32 = rng.random();
   println!("record Random number: {}", random_number);
 
-  let random_float: f64 = rng.random();
+  let random_float = rng.random::<f32>();
   println!("record Random float: {}", random_float);
 
   let random_range: u32 = rng.random_range(10 .. 50);
