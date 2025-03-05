@@ -1,0 +1,20 @@
+[package]
+name = "back-end"
+version = "0.1.0"
+edition = "2021"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["poem-openapi/swagger-ui"]
+
+[dependencies]
+poem = "3"
+poem-openapi = "5"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+poem = "3"
+poem-openapi = "5"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
