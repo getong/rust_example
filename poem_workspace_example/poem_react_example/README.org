@@ -1,0 +1,5 @@
+* poem react example
+
+copy from [[https://medium.com/@etiennedx00/creating-a-full-stack-app-with-rust-and-react-61783d6afd80][Creating a full-stack app with Rust and React]]
+
+frontend code changes to use vite
