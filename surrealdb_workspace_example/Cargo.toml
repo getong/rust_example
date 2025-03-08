@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
   "surrealdb_tikv_example",
+  "surrealdb_response_example",
 ]
