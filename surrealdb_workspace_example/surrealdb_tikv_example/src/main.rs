@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::{engine::local::Mem, sql::Thing, Surreal};
+use surrealdb::{
+  engine::remote::ws::{Client, Ws},
+  opt::auth::Root,
+  sql::Thing,
+  Surreal,
+};
 
 #[derive(Debug, Serialize)]
 struct Name<'a> {
@@ -27,12 +32,20 @@ struct Record {
 
 #[tokio::main]
 async fn main() -> surrealdb::Result<()> {
-  // Create database connection
-  let db = Surreal::new::<Mem>(()).await?;
+  let db: Surreal<Client> = Surreal::init();
+  let addr = "ws://127.0.0.1:9000";
+
+  // Create database connection using WebSocket (not TCP)
+  db.connect::<Ws>(addr).await?;
+  // Sign in as root user
+  db.signin(Root {
+    username: "root",
+    password: "root",
+  })
+  .await?;
 
   // Select a specific namespace / database
   db.use_ns("test").use_db("test").await?;
-
   // Create a new person with a random id
   let created: Vec<Record> = db
     .create("person")
@@ -45,7 +58,7 @@ async fn main() -> surrealdb::Result<()> {
       marketing: true,
     })
     .await?
-    .expect("surreal db not connect");
+    .expect("SurrealDB not connected");
   dbg!(created);
 
   // Update a person record with a specific id
