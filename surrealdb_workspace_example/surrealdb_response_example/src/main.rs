@@ -12,11 +12,11 @@ struct NewUser<'a> {
 }
 
 #[derive(Debug, Deserialize)]
-struct User {
-  id: RecordId,
-  name: String,
-  balance: String,
-  address: Option<String>, // ✅ Fix: Allow None
+pub struct User {
+  pub id: RecordId,
+  pub name: String,
+  pub balance: String,
+  pub address: Option<String>, // ✅ Fix: Allow None
 }
 
 #[tokio::main]
