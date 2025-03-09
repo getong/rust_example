@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.95"
+anyhow = "1.0.97"
 axum = "0.8.1"
 axum-extra = "0.10"
 axum-server = "0.7.1"
@@ -12,11 +12,11 @@ futures = "0.3.31"
 futures-lite = "2.6.0"
 hyper = { version = "1.6.0", features = ["client", "http2"] }
 hyper-util = { version = "0.1.10", features = ["client-legacy"] }
-log = "0.4.25"
-pin-project = "1.1.9"
+log = "0.4.26"
+pin-project = "1.1.10"
 pretty_env_logger = "0.5.0"
 rustls-acme = { version = "0.13.0", features = ["axum"] }
-tokio = { version = "1.43.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.44.0", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.17"
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["auth", "fs"] }

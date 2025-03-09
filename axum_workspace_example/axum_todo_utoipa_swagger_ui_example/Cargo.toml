@@ -7,9 +7,9 @@ edition = "2024"
 axum = "0.8.1"
 futures-util = { version = "0.3.31", features = ["sink", "std"] }
 hyper = { version = "1.6.0", features = ["full"] }
-serde = "1.0.217"
-serde_json = "1.0.138"
-tokio = { version = "1.43.0", features = ["full"] }
+serde = "1.0.218"
+serde_json = "1.0.140"
+tokio = { version = "1.44.0", features = ["full"] }
 utoipa = "5.3.1"
 utoipa-axum = "0.2"
 utoipa-rapidoc = { version = "6", features = ["axum"] }

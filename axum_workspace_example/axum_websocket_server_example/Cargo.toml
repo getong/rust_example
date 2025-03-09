@@ -10,7 +10,7 @@ axum-extra = { version = "0.10.0", features = ["typed-header"] }
 futures = "0.3.31"
 futures-util = { version = "0.3.31", features = ["sink", "std"] }
 headers = "0.4.0"
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.44.0", features = ["full"] }
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
