@@ -71,7 +71,7 @@ async fn main() {
     .route("/users", get(get_users))
     .with_state(db_state);
 
-  println!("Server running on http://127.0.0.1:3000");
+  println!("Server running on http://127.0.0.1:3000/users");
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
   axum::serve(listener, app).await.unwrap();
 }
@@ -80,7 +80,7 @@ async fn main() {
 async fn get_users(State(db): State<DbState>) -> Result<Json<serde_json::Value>, StatusCode> {
   let db = db.lock().await;
 
-  let mut response = match db.query("SELECT * FROM user").await {
+  let mut response = match db.query("SELECT * FROM user limit 10;").await {
     Ok(res) => res,
     Err(e) => {
       eprintln!("Query error: {:?}", e);
