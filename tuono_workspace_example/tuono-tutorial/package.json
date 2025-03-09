@@ -14,12 +14,12 @@
     "@material-ui/pickers": "^3.3.11",
     "@material-ui/styles": "^4.11.5",
     "@types/yup": "^0.32.0",
-    "axios": "^1.8.1",
+    "axios": "^1.8.2",
     "clsx": "^2.1.1",
     "formik": "^2.4.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "tuono": "0.17.10",
+    "tuono": "0.18.0",
     "yup": "^1.6.1"
   },
   "devDependencies": {
