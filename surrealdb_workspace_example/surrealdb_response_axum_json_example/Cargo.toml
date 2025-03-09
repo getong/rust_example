@@ -1,0 +1,11 @@
+[package]
+name = "surrealdb_response_axum_json_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.1"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.140"
+surrealdb = { version = "2.2", features = ["kv-tikv", "kv-mem"] }
+tokio = { version = "1.44.0", features = ["macros", "rt-multi-thread"] }

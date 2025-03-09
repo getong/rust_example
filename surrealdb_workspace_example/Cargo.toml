@@ -5,4 +5,5 @@ resolver = "2"
 members = [
   "surrealdb_tikv_example",
   "surrealdb_response_example",
+  "surrealdb_response_axum_json_example",
 ]
