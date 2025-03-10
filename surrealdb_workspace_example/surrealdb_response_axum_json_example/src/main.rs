@@ -1,6 +1,12 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use axum::{Router, extract::State, http::StatusCode, response::Json, routing::get};
+use axum::{
+  Router,
+  extract::{Query, State},
+  http::StatusCode,
+  response::Json,
+  routing::get,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use surrealdb::{
@@ -76,11 +82,29 @@ async fn main() {
   axum::serve(listener, app).await.unwrap();
 }
 
-// Route to fetch all users
-async fn get_users(State(db): State<DbState>) -> Result<Json<serde_json::Value>, StatusCode> {
+#[derive(Deserialize)]
+pub struct Pagination {
+  pub page: Option<usize>,
+  pub limit: Option<usize>,
+}
+
+// Route to fetch all users with pagination
+async fn get_users(
+  State(db): State<DbState>,
+  Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
   let db = db.lock().await;
 
-  let mut response = match db.query("SELECT * FROM user limit 10;").await {
+  let page: usize = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
+  let limit: usize = params
+    .get("limit")
+    .and_then(|l| l.parse().ok())
+    .unwrap_or(10);
+  let start = (page - 1) * limit;
+
+  let query = format!("SELECT * FROM user LIMIT {} START AT {};", limit, start);
+
+  let mut response = match db.query(&query).await {
     Ok(res) => res,
     Err(e) => {
       eprintln!("Query error: {:?}", e);
