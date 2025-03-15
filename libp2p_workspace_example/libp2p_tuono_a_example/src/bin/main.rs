@@ -12,7 +12,7 @@
 // rm private_key.pem
 
 use std::{collections::HashSet, error::Error, fs};
-use libp2p_tuono_a_example::libp2p::behaviour::{RaftRequest, RaftResponse};
+
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
@@ -68,7 +68,7 @@ impl MyBehaviour {
         .with_interval(Duration::from_secs(10))
         .with_timeout(Duration::from_secs(10)),
     );
-      let request_response = request_response::json::Behaviour::<RaftRequest, RaftResponse>::new(
+    let request_response = request_response::json::Behaviour::<RaftRequest, RaftResponse>::new(
       [(
         StreamProtocol::new("/my-json-protocol"),
         ProtocolSupport::Full,
