@@ -28,7 +28,9 @@ use libp2p::{
   },
   noise,
   ping::{Behaviour as PingBehaviour, Config as PingConfig, Event as PingEvent},
-  request_response::{self, OutboundRequestId, ProtocolSupport, ResponseChannel},
+  request_response::{
+    self, Event as RequestResponseEvent, OutboundRequestId, ProtocolSupport, ResponseChannel,
+  },
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
@@ -41,6 +43,7 @@ pub struct MyBehaviour {
   pub kad: kad::Behaviour<kad::store::MemoryStore>,
   pub identify: IdentifyBehavior,
   pub ping: PingBehaviour,
+  pub request_response: request_response::json::Behaviour<RaftRequest, RaftResponse>,
 }
 
 // TODO modify two peer id here
@@ -103,7 +106,7 @@ pub enum MyBehaviourEvent {
   Kad(KadEvent),
   Identify(IdentifyEvent),
   Ping(PingEvent),
-  RequestResponse(request_response::RequestResponseEvent<RaftRequest, RaftResponse>),
+  RequestResponse(RequestResponseEvent<RaftRequest, RaftResponse>),
 }
 
 impl From<KadEvent> for MyBehaviourEvent {
@@ -121,6 +124,12 @@ impl From<IdentifyEvent> for MyBehaviourEvent {
 impl From<PingEvent> for MyBehaviourEvent {
   fn from(value: PingEvent) -> Self {
     Self::Ping(value)
+  }
+}
+
+impl From<RequestResponseEvent<RaftRequest, RaftResponse>> for MyBehaviourEvent {
+  fn from(value: RequestResponseEvent<RaftRequest, RaftResponse>) -> Self {
+    Self::RequestResponse(value)
   }
 }
 
