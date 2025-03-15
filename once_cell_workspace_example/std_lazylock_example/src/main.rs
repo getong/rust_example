@@ -1,6 +1,3 @@
-// #![feature(once_cell)]
-#![feature(lazy_cell)]
-
 use std::{collections::HashMap, sync::LazyLock};
 
 static HASHMAP: LazyLock<HashMap<i32, String>> = LazyLock::new(|| {
