@@ -34,9 +34,12 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
-use libp2p_tuono_a_example::libp2p::{
-  behaviour::{RaftRequest, RaftResponse},
-  LAZY_EVENT_SENDER, RECEIVER_GROUP,
+use libp2p_tuono_a_example::{
+  libp2p::{
+    behaviour::{RaftRequest, RaftResponse},
+    LAZY_EVENT_SENDER, RECEIVER_GROUP,
+  },
+  openraft::start_example_raft_node,
 };
 use tokio::{
   sync::{
@@ -144,6 +147,7 @@ impl From<RequestResponseEvent<RaftRequest, RaftResponse>> for MyBehaviourEvent 
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+  _ = start_example_raft_node(1, "data").await;
   let key_pair = make_libp2p_keypair().await.unwrap();
 
   let mut swarm = SwarmBuilder::with_existing_identity(key_pair)
@@ -168,14 +172,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let (event_sender, mut event_receiver) =
     channel::<(RaftRequest, OneshotSender<RaftResponse>)>(10);
   {
-    let mut event_lock = LAZY_EVENT_SENDER.lock();
+    let mut event_lock = LAZY_EVENT_SENDER.lock().await;
     *event_lock = Some(event_sender);
   }
   loop {
     tokio::select! {
           Some((request, oneshot_sender)) = event_receiver.recv() => {
               let req_id = swarm.behaviour_mut().request_response.send_request(&PeerId::random(), request);
-              let mut req_group = RECEIVER_GROUP.lock();
+              let mut req_group = RECEIVER_GROUP.lock().await;
               req_group.insert(req_id, oneshot_sender);
               drop(req_group);
           }
@@ -209,7 +213,7 @@ pub async fn handle_event(swarm: &mut Swarm<MyBehaviour>, event: SwarmEvent<MyBe
                         request_id,
                         response,
                     } = message {
-                        let mut req_group = RECEIVER_GROUP.lock();
+                        let mut req_group = RECEIVER_GROUP.lock().await;
                         if let Some(sender) = req_group.remove(&request_id) {
                             let _ = sender.send(response);
                         }

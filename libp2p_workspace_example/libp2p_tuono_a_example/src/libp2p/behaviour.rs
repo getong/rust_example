@@ -26,7 +26,7 @@ pub enum RaftResponse {
   /// A response to an append entries request
   AppendEntries(AppendEntriesResponse<TypeConfig>),
   /// A response to an install snapshot request
-  InstallSnapshot(Result<InstallSnapshotResponse<TypeConfig>, InstallSnapshotError>),
+  InstallSnapshot(InstallSnapshotResponse<TypeConfig>),
   /// A response to a vote request
   Vote(VoteResponse<TypeConfig>),
 }
