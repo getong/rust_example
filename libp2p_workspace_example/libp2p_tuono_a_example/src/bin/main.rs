@@ -34,8 +34,17 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
-use libp2p_tuono_a_example::libp2p::behaviour::{RaftRequest, RaftResponse};
-use tokio::time::Duration;
+use libp2p_tuono_a_example::libp2p::{
+  behaviour::{RaftRequest, RaftResponse},
+  LAZY_EVENT_SENDER, RECEIVER_GROUP,
+};
+use tokio::{
+  sync::{
+    mpsc::{channel, Receiver as MpscReceiver, Sender as MpscSender},
+    oneshot::{Receiver as OneshotReceiver, Sender as OneshotSender},
+  },
+  time::Duration,
+};
 
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "MyBehaviourEvent")]
@@ -156,11 +165,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
   swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Server));
   let mut interval1 = tokio::time::interval(Duration::from_secs(3));
   let mut interval2 = tokio::time::interval(Duration::from_secs(2));
+  let (event_sender, mut event_receiver) =
+    channel::<(RaftRequest, OneshotSender<RaftResponse>)>(10);
+  {
+    let mut event_lock = LAZY_EVENT_SENDER.lock();
+    *event_lock = Some(event_sender);
+  }
   loop {
     tokio::select! {
+          Some((request, oneshot_sender)) = event_receiver.recv() => {
+              let req_id = swarm.behaviour_mut().request_response.send_request(&PeerId::random(), request);
+              let mut req_group = RECEIVER_GROUP.lock();
+              req_group.insert(req_id, oneshot_sender);
+              drop(req_group);
+          }
         event = swarm.select_next_some() => {
             handle_event(&mut swarm, event).await;
         }
+
         _ = interval1.tick() => {
             let peer_list = swarm.behaviour_mut().known_peers();
             println!("\n------ 3 secs, local_peer_id is {:?}, kad peer list is {:?}\n\n", swarm.local_peer_id(), peer_list);
@@ -180,6 +202,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
 pub async fn handle_event(swarm: &mut Swarm<MyBehaviour>, event: SwarmEvent<MyBehaviourEvent>) {
   println!("\n------event is {:?}-----\n", event);
   match event {
+        SwarmEvent::Behaviour(MyBehaviourEvent::RequestResponse(event)) => {
+            match event {
+                RequestResponseEvent::Message { message, ..} => {
+                    if let request_response::Message::Response {
+                        request_id,
+                        response,
+                    } = message {
+                        let mut req_group = RECEIVER_GROUP.lock();
+                        if let Some(sender) = req_group.remove(&request_id) {
+                            let _ = sender.send(response);
+                        }
+                    }
+
+                }
+                _ => {}
+            }
+        }
         SwarmEvent::NewListenAddr {
             // listener_id,
             // address,

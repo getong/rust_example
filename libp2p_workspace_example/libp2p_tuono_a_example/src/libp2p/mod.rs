@@ -12,10 +12,10 @@ use tokio::sync::{
   oneshot::{Receiver as OneshotReceiver, Sender as OneshotSender},
 };
 
-static LAZY_EVENT_SENDER: LazyLock<
+pub static LAZY_EVENT_SENDER: LazyLock<
   Arc<Mutex<Option<MpscSender<(RaftRequest, OneshotSender<RaftResponse>)>>>>,
 > = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
-static RECEIVER_GROUP: LazyLock<
+pub static RECEIVER_GROUP: LazyLock<
   Arc<Mutex<HashMap<OutboundRequestId, OneshotSender<RaftResponse>>>>,
 > = LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
