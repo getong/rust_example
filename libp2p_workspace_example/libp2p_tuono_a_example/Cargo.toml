@@ -18,6 +18,7 @@ futures = "0.3.31"
 hex = "0.4.3"
 libp2p = { version = "0.55.0", features = ["full"] }
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
+parking_lot = "0.12"
 rand = "0.8"
 reqwest = { version = "0.12.12", features = ["json"] }
 rocksdb = "0.23.0"
@@ -30,6 +31,7 @@ secp256k1 = { version = "0.30.0", features = [
 ] }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.138"
+thiserror = "2.0"
 tokio = { version = "1.43.0", features = ["full"] }
 tracing = "0.1.41"
 tuono_lib = "0.18.0"
