@@ -1,15 +1,18 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::{fmt::Display, path::Path, sync::Arc};
+use std::{
+  fmt::Display,
+  path::Path,
+  sync::{Arc, LazyLock},
+};
 
 use openraft::Config;
-use tokio::{net::TcpListener, task};
+use tokio::{net::TcpListener, sync::Mutex, task};
 
 use crate::openraft::{
   app::App,
   network::Network,
-  // network::{api, management, Network},
   store::{new_storage, Request, Response},
 };
 
@@ -18,8 +21,12 @@ pub mod client;
 pub mod network;
 pub mod rocksdb;
 pub mod store;
+pub mod typ;
 
 pub type NodeId = u64;
+
+pub static LAZY_RAFT: LazyLock<Arc<Mutex<Option<openraft::Raft<TypeConfig>>>>> =
+  LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
 pub struct Node {
@@ -43,8 +50,6 @@ openraft::declare_raft_types!(
         R = Response,
         Node = Node,
 );
-
-pub mod typ;
 
 pub async fn start_example_raft_node<P>(node_id: NodeId, dir: P) -> std::io::Result<()>
 where
@@ -77,6 +82,10 @@ where
   )
   .await
   .unwrap();
+  {
+    let mut raft_lock = LAZY_RAFT.lock().await;
+    *raft_lock = Some(raft);
+  }
 
   Ok(())
 }

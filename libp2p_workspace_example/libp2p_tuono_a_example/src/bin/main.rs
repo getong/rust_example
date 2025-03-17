@@ -39,7 +39,7 @@ use libp2p_tuono_a_example::{
     behaviour::{RaftRequest, RaftResponse},
     LAZY_EVENT_SENDER, RECEIVER_GROUP,
   },
-  openraft::start_example_raft_node,
+  openraft::{start_example_raft_node, LAZY_RAFT},
 };
 use tokio::{
   sync::{
@@ -209,16 +209,26 @@ pub async fn handle_event(swarm: &mut Swarm<MyBehaviour>, event: SwarmEvent<MyBe
         SwarmEvent::Behaviour(MyBehaviourEvent::RequestResponse(event)) => {
             match event {
                 RequestResponseEvent::Message { message, ..} => {
-                    if let request_response::Message::Response {
-                        request_id,
-                        response,
-                    } = message {
-                        let mut req_group = RECEIVER_GROUP.lock().await;
-                        if let Some(sender) = req_group.remove(&request_id) {
-                            let _ = sender.send(response);
+                    match message {
+                        request_response::Message::Request { request, channel,.. } => {
+                            if let Ok(resp) = handle_open_raft_request(request).await {
+                                swarm
+                                    .behaviour_mut()
+                                    .request_response
+                                    .send_response(channel, resp)
+                                    .expect("Connection to peer to be still open.");
+                            }
+                        }
+                        request_response::Message::Response {
+                            request_id,
+                            response,
+                        } => {
+                            let mut req_group = RECEIVER_GROUP.lock().await;
+                            if let Some(sender) = req_group.remove(&request_id) {
+                                let _ = sender.send(response);
+                            }
                         }
                     }
-
                 }
                 _ => {}
             }
@@ -300,4 +310,36 @@ async fn make_libp2p_keypair() -> Result<Keypair, Box<dyn Error>> {
   let secret_key = identity::secp256k1::SecretKey::try_from_bytes(private_key_bytes)?;
   let libp2p_keypair = identity::secp256k1::Keypair::from(secret_key).into();
   Ok(libp2p_keypair)
+}
+
+async fn handle_open_raft_request(
+  request: RaftRequest,
+) -> Result<RaftResponse, Box<dyn std::error::Error>> {
+  let raft_lock = LAZY_RAFT.lock();
+  match raft_lock.await.as_ref() {
+    Some(raft) => match request {
+      RaftRequest::AppendEntries(req) => {
+        let resp = raft
+          .append_entries(req)
+          .await
+          .map_err(Box::<dyn std::error::Error>::from)?;
+        Ok(RaftResponse::AppendEntries(resp))
+      }
+      RaftRequest::InstallSnapshot(req) => {
+        let resp = raft
+          .install_snapshot(req)
+          .await
+          .map_err(Box::<dyn std::error::Error>::from)?;
+        Ok(RaftResponse::InstallSnapshot(resp))
+      }
+      RaftRequest::Vote(req) => {
+        let resp = raft
+          .vote(req)
+          .await
+          .map_err(Box::<dyn std::error::Error>::from)?;
+        Ok(RaftResponse::Vote(resp))
+      }
+    },
+    _ => Err("not found".into()),
+  }
 }
