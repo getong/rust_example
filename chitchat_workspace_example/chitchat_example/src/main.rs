@@ -57,6 +57,16 @@ impl Api {
 
     Json(serde_json::to_value(&SetKeyValueResponse { status: true }).unwrap())
   }
+
+  /// Marks a key for deletion on this node (without validation).
+  #[oai(path = "/mark_for_deletion/", method = "get")]
+  async fn mark_for_deletion(&self, key: Query<String>) -> Json<serde_json::Value> {
+    let mut chitchat_guard = self.chitchat.lock().await;
+
+    let cc_state = chitchat_guard.self_node_state();
+    cc_state.delete(key.as_str());
+    Json(serde_json::to_value(&SetKeyValueResponse { status: true }).unwrap())
+  }
 }
 
 #[derive(Debug, Parser)]
