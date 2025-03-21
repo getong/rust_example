@@ -36,7 +36,15 @@ impl FromRef<AppState> for ApiState {
   }
 }
 
-async fn create_user(Json(payload): Json<CreateUser>) -> impl IntoResponse {
+// curl -X POST http://localhost:3000/create_user \
+// -H "Content-Type: application/json" \
+// -d '{"username": "abc"}'
+
+async fn create_user(
+  State(app_state): State<AppState>,
+  Json(payload): Json<CreateUser>,
+) -> impl IntoResponse {
+  println!("app_state is {:?}", app_state);
   let user = User {
     id: 1337,
     username: payload.username,
@@ -44,6 +52,10 @@ async fn create_user(Json(payload): Json<CreateUser>) -> impl IntoResponse {
 
   (StatusCode::CREATED, Json(user))
 }
+
+// curl -X POST http://localhost:3000/api/create_user \
+// -H "Content-Type: application/json" \
+// -d '{"username": "abc"}'
 
 async fn api_users(
   // access the api specific state
@@ -75,8 +87,8 @@ async fn main() {
 
   let router = Router::new()
     .route("/", get(handler))
-    .route("/api/users", post(api_users))
     .route("/create_user", post(create_user))
+    .nest("/api", Router::new().route("/create_user", post(api_users)))
     .with_state(state);
 
   let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
