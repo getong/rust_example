@@ -60,4 +60,5 @@ members = [
   "axum_websocket_http2_example",
   "axum_with_state_example",
   "axum_extension_example",
+  "axum_sub_state_example",
 ]
