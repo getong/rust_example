@@ -21,6 +21,7 @@ fn main() {
   println!("{} - {} = {}", dec1, dec2, difference);
   println!("{} * {} = {}", dec1, dec2, product);
   println!("{} / {} = {}", dec1, dec2, quotient);
+
   // Initialize BigDecimal with zero
   let zero = BigDecimal::from(0);
 
@@ -29,4 +30,12 @@ fn main() {
 
   println!("BigDecimal zero: {}", zero);
   println!("BigDecimal zero from str: {}", zero_from_str);
+
+  let input = "12000000000000000000000000000";
+  // Convert to BigDecimal and convert back to string
+  let big_dec = BigDecimal::from_str(input).unwrap();
+  let big_dec_str = big_dec.to_plain_string();
+
+  println!("BigDecimal from input: {}", big_dec);
+  println!("BigDecimal back to string: {}", big_dec_str);
 }
