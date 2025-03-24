@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1.87"
+async-trait = "0.1.88"
 axum = "0.8.1"
 axum_session = { version = "0.16.0" }
 axum_session_surreal = "0.4"
 surrealdb = { version = "2.2", features = ["kv-mem"] }
-tokio = { version = "1.44.0", features = ["full"] }
+tokio = { version = "1.44.1", features = ["full"] }

@@ -61,4 +61,5 @@ members = [
   "axum_with_state_example",
   "axum_extension_example",
   "axum_sub_state_example",
+  "axum_aide_example",
 ]
