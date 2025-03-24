@@ -12,6 +12,6 @@ name = "main"
 path = "src/bin/main.rs"
 
 [dependencies]
-tuono_lib = "0.18.0"
+tuono_lib = "0.19.0"
 serde = { version = "1.0.202", features = ["derive"] }
 tokio = { version = "1.43.0", features = ["full"] }
