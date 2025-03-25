@@ -19,10 +19,10 @@ leptos-use = { version = "=0.16.0-beta", default-features = false, features = [
   "use_active_element",
   "docs",
 ] }
-leptos_axum = { version = "0.7", optional = true }
+leptos_axum = { version = "0.8.0-beta", optional = true }
 leptos_icons = "0.5.0"
-leptos_meta = { version = "0.7" }
-leptos_router = { version = "0.7", features = ["nightly"] }
+leptos_meta = { version = "0.8.0-beta" }
+leptos_router = { version = "0.8.0-beta", features = ["nightly"] }
 # lucide-leptos = "1.1.0"
 thaw = { version = "0.4", features = ["nightly"] }
 thiserror = "2"
