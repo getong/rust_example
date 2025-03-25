@@ -7,7 +7,7 @@ edition = "2024"
 chrono = { version = "0.4" }
 console_error_panic_hook = "0.1"
 console_log = "1"
-leptos = { version = "0.7.2", features = ["csr"] }
+leptos = { version = "=0.8.0-beta", features = ["csr"] }
 leptos-struct-table = { version = "=0.14.0-beta1", features = ["chrono"] }
 log = "0.4"
 

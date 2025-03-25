@@ -7,20 +7,20 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-axum = { version = "0.7", optional = true }
-chrono = "0.4.39"
+axum = { version = "0.8", optional = true }
+chrono = "0.4.40"
 console_error_panic_hook = "0.1"
 http = "1"
 icondata = { version = "0.5.0", features = ["ant-design-icons", "box-icons"] }
 leptos = { version = "0.7", features = ["nightly"] }
 # leptos-chartistry = "0.2.1"
-leptos-use = { version = "0.15", default-features = false, features = [
+leptos-use = { version = "=0.16.0-beta", default-features = false, features = [
   "use_calendar",
   "use_active_element",
   "docs",
 ] }
 leptos_axum = { version = "0.7", optional = true }
-leptos_icons = "0.4.0"
+leptos_icons = "0.5.0"
 leptos_meta = { version = "0.7" }
 leptos_router = { version = "0.7", features = ["nightly"] }
 # lucide-leptos = "1.1.0"

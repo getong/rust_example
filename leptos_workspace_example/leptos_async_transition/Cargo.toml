@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-leptos = { version = "0.7.2", features = ["csr"] }
+leptos = { version = "=0.8.0-beta", features = ["csr"] }
