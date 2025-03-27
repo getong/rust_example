@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct CreateUser {
   username: String,
 }
@@ -55,7 +55,7 @@ async fn create_user(
 
 // curl -X POST http://localhost:3000/api/create_user \
 // -H "Content-Type: application/json" \
-// -d '{"username": "abc"}'
+// -d '{"username": "abc", "password": "123"}'
 
 async fn api_users(
   // access the api specific state
@@ -63,6 +63,7 @@ async fn api_users(
   Json(payload): Json<CreateUser>,
 ) -> impl IntoResponse {
   println!("api_state is {:?}", api_state);
+  println!("payload is {:?}", payload);
   let user = User {
     id: 1337,
     username: payload.username,
