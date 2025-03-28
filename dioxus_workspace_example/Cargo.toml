@@ -3,14 +3,15 @@
 resolver = "2"
 
 members = [
-        "dioxus_example",
-        "dioxus_web_basic_example",
-        # "dioxus_liveview_example",
-        "dioxus_fullstack_example",
-        "dioxus_desktop_example",
-        # "dioxus_mobile_example",
-        # "dioxus_tui_example",
-        "dioxus_fermi_example",
+  "dioxus_example",
+  "dioxus_web_basic_example",
+  # "dioxus_liveview_example",
+  "dioxus_fullstack_example",
+  "dioxus_desktop_example",
+  # "dioxus_mobile_example",
+  # "dioxus_tui_example",
+  "dioxus_fermi_example",
+  "dioxus_hot_dog_example",
 ]
 
 [profile]
