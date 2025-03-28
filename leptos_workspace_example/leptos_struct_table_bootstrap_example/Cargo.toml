@@ -8,7 +8,7 @@ chrono = { version = "0.4" }
 console_error_panic_hook = "0.1"
 console_log = "1"
 leptos = { version = "=0.8.0-beta", features = ["csr"] }
-leptos-struct-table = { version = "=0.14.0-beta1", features = ["chrono"] }
+leptos-struct-table = { version = "=0.14.0-beta2", features = ["chrono"] }
 log = "0.4"
 
 [dev-dependencies]
