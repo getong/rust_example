@@ -45,12 +45,12 @@ async fn main() {
     .unwrap();
 }
 
-fn app(cx: Scope) -> Element {
-  cx.render(rsx! {
+fn app() -> Element {
+  rsx! {
       div {
           "Hello, world!"
       }
-  })
+  }
 }
 
 // dx serve --hot-reload --platform desktop

@@ -10,3 +10,7 @@ axum = "0.8.1"
 dioxus = "0.6.3"
 dioxus-liveview = { version = "0.6.2", features = ["axum"] }
 tokio = { version = "1.44.1", features = ["full"] }
+
+[features]
+default = []
+web = ["dioxus/web"]

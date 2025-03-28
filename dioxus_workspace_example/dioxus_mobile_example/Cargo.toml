@@ -10,3 +10,7 @@ anyhow = "1.0.97"
 dioxus = "0.6.3"
 dioxus-desktop = { version = "0.6.3", default-features = false, features = ["tokio_runtime"] }
 log = "0.4.27"
+
+[features]
+default = []
+web = ["dioxus/web"]
