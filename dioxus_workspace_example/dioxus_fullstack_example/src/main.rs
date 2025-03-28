@@ -1,24 +1,27 @@
-#![allow(non_snake_case, unused)]
 use dioxus::prelude::*;
-use dioxus_fullstack::prelude::*;
 
 fn main() {
-  LaunchBuilder::new(app).launch();
+  dioxus::launch(app);
 }
 
-fn app(cx: Scope) -> Element {
-  let mut count = use_state(cx, || 0);
+fn app() -> Element {
+  let count = use_signal(|| 0);
 
-  cx.render(rsx! {
-      h1 { "High-Five counter: {count}" }
-      button { onclick: move |_| count += 1, "Up high!" }
-      button { onclick: move |_| count -= 1, "Down low!" }
-  })
+  rsx! {
+      Child { state: count }
+  }
 }
 
-// copy from https://dioxuslabs.com/learn/0.4/getting_started/fullstack
-// dx build --features web --release
-// cargo run --features ssr --release
+#[component]
+fn Child(state: Signal<u32>) -> Element {
+  use_future(move || async move {
+    *state.write() += 1;
+  });
 
-// dx build --features web
-// dx serve --features ssr --hot-reload --platform desktop
+  rsx! {
+      button {
+          onclick: move |_| *state.write() += 1,
+          "state is {state.read()}"
+      }
+  }
+}
