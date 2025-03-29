@@ -1,0 +1,6 @@
+run this command
+
+#+begin_src sh
+cargo binstall wasm-pack
+wasm-pack build --target web --out-dir ../target/
+#+end_src

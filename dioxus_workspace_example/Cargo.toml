@@ -13,6 +13,7 @@ members = [
   # "dioxus_fermi_example",
   "dioxus_hot_dog_example",
   "axum_dioxus_ssr_example",
+  "dioxus_web_sys_example",
 ]
 
 [profile]
