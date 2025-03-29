@@ -10,3 +10,8 @@ dioxus = "0.6.3"
 dioxus-router = "0.6.3"
 dioxus-web = "0.6.3"
 fermi = "0.4.3"
+
+[features]
+default = []
+server = ["dioxus/server"]
+web = ["dioxus/web"]

@@ -2,6 +2,6 @@
 
 use dioxus::prelude::*;
 
-pub fn Register(cx: Scope) -> Element {
-  cx.render(rsx! {""})
+pub fn Register() -> Element {
+    rsx! {""}
 }

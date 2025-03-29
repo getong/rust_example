@@ -10,7 +10,7 @@ members = [
   "dioxus_desktop_example",
   # "dioxus_mobile_example",
   # "dioxus_tui_example",
-  "dioxus_fermi_example",
+  # "dioxus_fermi_example",
   "dioxus_hot_dog_example",
 ]
 
