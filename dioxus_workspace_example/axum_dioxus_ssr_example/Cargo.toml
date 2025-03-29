@@ -1,0 +1,10 @@
+[package]
+name = "axum_dioxus_ssr_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8"
+dioxus = "0.6"
+dioxus-ssr = "0.6"
+tokio = { version = "1.44", features = ["full"] }
