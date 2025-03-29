@@ -8,8 +8,11 @@ edition = "2021"
 dioxus = { version = "0.6.3", features = ["fullstack"] }
 reqwest = "0.12.15"
 serde = "1.0.219"
+web-sys = { version = "0.3.77", features = ["console"] }
 
 [features]
-default = []
+default = ["web"]
 server = ["dioxus/server"]
 web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]

@@ -16,6 +16,7 @@ fn app() -> Element {
   rsx! {
       document::Link { href: asset!("/assets/hello.css"), rel: "stylesheet" }
       h1 { "High-Five counter: {count}" }
+      button { onclick: move |_| web_sys::console::log_1(&"hello world".into()), "click" }
       button { onclick: move |_| count += 1, "Up high!" }
       button { onclick: move |_| count -= 1, "Down low!" }
       button {
