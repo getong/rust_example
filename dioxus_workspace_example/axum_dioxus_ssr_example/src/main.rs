@@ -13,6 +13,7 @@ async fn main() {
     listener,
     Router::new()
       .route("/", get(app_endpoint))
+      .route("/about", get(about_endpoint))
       .into_make_service(),
   )
   .await
@@ -38,4 +39,28 @@ async fn app_endpoint() -> Html<String> {
 
   // render the VirtualDom to HTML
   Html(dioxus_ssr::render(&app))
+}
+
+async fn about_endpoint() -> Html<String> {
+  // create a component that renders a div with the text "hello world"
+
+  // create a VirtualDom with the app component
+  let mut app = VirtualDom::new(About);
+  // rebuild the VirtualDom before rendering
+  app.rebuild_in_place();
+
+  // render the VirtualDom to HTML
+  Html(dioxus_ssr::render(&app))
+}
+
+#[component]
+fn About() -> Element {
+  rsx!(
+      button {
+          onclick: move |_| async move {
+              let _a = document::eval("console.log('hello world')");
+          },
+          "click"
+      }
+  )
 }
