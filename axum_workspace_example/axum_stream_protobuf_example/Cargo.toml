@@ -5,7 +5,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.8.1"
+axum = "0.8.3"
 axum-streams = { version = "0.20.0", features = ["protobuf"] }
 prost = "0.13.5"
 prost-types = "0.13.5"

@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-askama = "0.12.1"
+askama = "0.13.0"
 askama_axum = "0.4.0"
-axum = "0.8.1"
+axum = "0.8.3"
 axum_csrf = "0.11.0"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.44.1", features = ["full"] }

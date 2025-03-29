@@ -7,7 +7,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.97"
 async-trait = "0.1.88"
-axum = "0.8.1"
+axum = "0.8.3"
 axum-macros = "0.5.0"
 axum_session = { version = "0.16.0" }
 axum_session_auth = { version = "0.16.0" }

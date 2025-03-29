@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.97"
-askama = "0.12.1"
-axum = "0.8.1"
+askama = "0.13.0"
+axum = "0.8.3"
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.44.1", features = ["full"] }
 tower = "0.5.2"

@@ -5,7 +5,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.8.1"
+axum = "0.8.3"
 axum-tracing-opentelemetry = "0.26.1"
 init-tracing-opentelemetry = { version = "0.27", features = ["otlp", "tracing_subscriber_ext"] }
 opentelemetry = { version = "0.29.0", features = ["default"] }
