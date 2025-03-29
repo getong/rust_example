@@ -1,5 +1,6 @@
 use axum::{Router, response::Html, routing::get};
 use dioxus::prelude::*;
+use web_sys::console;
 
 #[tokio::main]
 async fn main() {
@@ -20,47 +21,33 @@ async fn main() {
   .unwrap();
 }
 
-// async fn app_endpoint() -> Html<String> {
-//     // render the rsx! macro to HTML
-//     Html(dioxus_ssr::render_element(rsx! { div { "hello world!" } }))
-// }
-
 fn app() -> Element {
   rsx! { div { "hello world" } }
 }
 
 async fn app_endpoint() -> Html<String> {
-  // create a component that renders a div with the text "hello world"
-
-  // create a VirtualDom with the app component
   let mut app = VirtualDom::new(app);
-  // rebuild the VirtualDom before rendering
   app.rebuild_in_place();
-
-  // render the VirtualDom to HTML
   Html(dioxus_ssr::render(&app))
 }
 
 async fn about_endpoint() -> Html<String> {
-  // create a component that renders a div with the text "hello world"
-
-  // create a VirtualDom with the app component
   let mut app = VirtualDom::new(About);
-  // rebuild the VirtualDom before rendering
   app.rebuild_in_place();
-
-  // render the VirtualDom to HTML
   Html(dioxus_ssr::render(&app))
 }
 
 #[component]
 fn About() -> Element {
   rsx!(
-      button {
-          onclick: move |_| async move {
-              let _a = document::eval("console.log('hello world')");
-          },
-          "click"
+      div {
+          h1 { "hello from client!" }
+          button {
+              onclick: move |_| {
+                  console::log_1(&"hello world".into());
+              },
+              "click me"
+          }
       }
   )
 }

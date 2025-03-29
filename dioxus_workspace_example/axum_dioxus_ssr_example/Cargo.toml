@@ -5,6 +5,15 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8"
-dioxus = "0.6"
+dioxus = { version = "0.6", features = ["ssr"] }
 dioxus-ssr = "0.6"
 tokio = { version = "1.44", features = ["full"] }
+web-sys = { version = "0.3.77", features = [
+  "Document",
+  "console",
+  "HtmlDocument",
+  "Window",
+  "Event",
+  "AddEventListenerOptions",
+  "Navigator",
+] }
