@@ -7,9 +7,13 @@ edition = "2021"
 
 [dependencies]
 dioxus = { version = "0.6", features = ["router", "fullstack"] }
+dioxus-ssr = "0.6"
+tokio = { version = "1", features = ["full"], optional = true }
+web-sys = { version = "0.3.60", features = ["console"], optional = true }
 
 [features]
 default = ["web"]
-web = ["dioxus/web"]
+web = ["dioxus/web", "dep:web-sys"]
 desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
+server = ["dioxus/server", "dep:tokio"]
