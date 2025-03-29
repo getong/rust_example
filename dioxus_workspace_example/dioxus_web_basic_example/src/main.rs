@@ -1,18 +1,17 @@
 use dioxus::prelude::*;
-use fermi::use_init_atom_root;
+
 
 pub const ROOT_API_URL: &str = "http://127.0.0.1:8080/";
 
 fn main() {
   // println!("Hello, world!");
-  dioxus_web::launch(app)
+  dioxus::launch(app)
 }
 
-pub fn app(cx: Scope) -> Element {
-  use_init_atom_root(cx);
-  cx.render(rsx! {
+pub fn app() -> Element {
+  rsx! {
       div {"hello, world!"}
-  })
+  }
 }
 
 // cargo install dioxus-cli
