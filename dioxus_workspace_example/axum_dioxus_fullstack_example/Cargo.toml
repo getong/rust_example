@@ -1,0 +1,20 @@
+[package]
+name = "axum_dioxus_fullstack_example"
+version = "0.1.0"
+authors = ["19年梦醒 <3949379+getong@users.noreply.github.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.6", features = ["router","fullstack"] }
+axum = { version = "0.7", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+dioxus-cli-config = { version = "*", optional = true }
+
+[features]
+default = ["server"]
+server = ["dioxus/server", "dep:axum", "dep:tokio", "dioxus-cli-config"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
