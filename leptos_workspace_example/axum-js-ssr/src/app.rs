@@ -282,7 +282,7 @@ pub fn CodeDemoWasm(mode: WasmDemo) -> impl IntoView {
                     <pre>
                         <code class="language-rust">{code.await}</code>
                     </pre>
-                    {#[cfg(not(feature = "ssr"))]
+                    {#[cfg(feature = "hydrate")]
                     {
                         use crate::hljs::highlight_all;
                         leptos::logging::log!("calling highlight_all");
@@ -302,7 +302,7 @@ pub fn CodeDemoWasm(mode: WasmDemo) -> impl IntoView {
                     <pre>
                         <code class="language-rust">{code.await}</code>
                     </pre>
-                    {#[cfg(not(feature = "ssr"))]
+                    {#[cfg(feature = "hydrate")]
                     {
                         use crate::hljs;
                         use wasm_bindgen::{closure::Closure, JsCast};
@@ -354,23 +354,26 @@ pub fn CodeDemoWasm(mode: WasmDemo) -> impl IntoView {
         <Suspense fallback=move || {
             view! { <p>"Loading code example..."</p> }
         }>
-            {move || Suspend::new(async move {
-                Effect::new(move |_| {
-                    request_animation_frame(move || {
-                        leptos::logging::log!(
-                            "request_animation_frame invoking hljs::highlight_all"
-                        );
-                        crate::hljs::highlight_all();
-                    });
-                });
-                // under SSR this is an noop, but it wouldn't be called under there anyway because
-                // it isn't the isomorphic version, i.e. Effect::new_isomorphic(...).
-                view! {
-                    <pre>
-                        <code class="language-rust">{code.await}</code>
-                    </pre>
-                }
-            })}
+        {#[cfg(feature = "hydrate")]
+         move || Suspend::new(async move {
+             Effect::new(move |_| {
+                 request_animation_frame(move || {
+                     leptos::logging::log!(
+                         "request_animation_frame invoking hljs::highlight_all"
+                     );
+                     crate::hljs::highlight_all();
+                 });
+             });
+             // under SSR this is an noop, but it wouldn't be called under there anyway because
+             // it isn't the isomorphic version, i.e. Effect::new_isomorphic(...).
+             view! {
+                 <pre>
+                     <code class="language-rust">{code.await}</code>
+                     </pre>
+             }
+         })
+        }
+
         </Suspense>
     }
     .into_any(),
@@ -420,7 +423,7 @@ pub fn CodeInner(code: String, lang: String) -> impl IntoView {
   if use_context::<InnerEffect>().is_none() {
     #[cfg(feature = "ssr")]
     let inner = Some(html_escape::encode_text(&code).into_owned());
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(feature = "hydrate")]
     let inner = {
       let inner = crate::hljs::highlight(code, lang);
       leptos::logging::log!("about to populate inner_html with: {inner:?}");
@@ -438,7 +441,7 @@ pub fn CodeInner(code: String, lang: String) -> impl IntoView {
     {
       set_inner.set(html_escape::encode_text(&code).into_owned());
     };
-    #[cfg(not(feature = "ssr"))]
+    #[cfg(feature = "hydrate")]
     {
       leptos::logging::log!("calling out to hljs::highlight");
       let result = crate::hljs::highlight(code, lang);

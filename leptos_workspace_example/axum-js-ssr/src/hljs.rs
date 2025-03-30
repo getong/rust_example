@@ -1,4 +1,4 @@
-#[cfg(not(feature = "ssr"))]
+#[cfg(feature = "hydrate")]
 mod csr {
   use gloo_utils::format::JsValueSerdeExt;
   use js_sys::{
@@ -23,7 +23,7 @@ mod csr {
   // `highlight_ignore_illegals`), much like how `web_sys` does it for the browser APIs.  For
   // simplicity, only the highlighted HTML code is returned on success, and None on error.
   pub fn highlight(code: String, lang: String) -> Option<String> {
-    let options = js_sys::Object::new();
+    let options = Object::new();
     set(&options, &"language".into(), &lang.into()).expect("failed to assign lang to options");
     highlight_lang(code, options)
       .map(|result| {
@@ -47,7 +47,7 @@ mod ssr {
   // }
 }
 
-#[cfg(not(feature = "ssr"))]
+#[cfg(feature = "hydrate")]
 pub use csr::*;
 #[cfg(feature = "ssr")]
 pub use ssr::*;
