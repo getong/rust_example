@@ -24,7 +24,7 @@ leptos_icons = "0.5.0"
 leptos_meta = { version = "0.8.0-beta" }
 leptos_router = { version = "0.8.0-beta", features = ["nightly"] }
 # lucide-leptos = "1.1.0"
-thaw = { version = "0.4", features = ["nightly"] }
+thaw = { version = "0.5.0-alpha", features = ["nightly"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tower = { version = "0.5", optional = true }
