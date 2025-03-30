@@ -422,19 +422,30 @@ pub fn CodeInner(code: String, lang: String) -> impl IntoView {
   drop(lang);
   if use_context::<InnerEffect>().is_none() {
     #[cfg(feature = "ssr")]
-    let inner = Some(html_escape::encode_text(&code).into_owned());
-    #[cfg(feature = "hydrate")]
-    let inner = {
-      let inner = crate::hljs::highlight(code, lang);
-      leptos::logging::log!("about to populate inner_html with: {inner:?}");
-      inner
-    };
-    view! {
-        <pre>
-            <code inner_html=inner></code>
-        </pre>
+    {
+      let inner = Some(html_escape::encode_text(&code).into_owned());
+      view! {
+          <pre>
+              <code inner_html=inner></code>
+              </pre>
+      }
+      .into_any();
     }
-    .into_any()
+
+    #[cfg(feature = "hydrate")]
+    {
+      let inner = {
+        let inner = crate::hljs::highlight(code, lang);
+        leptos::logging::log!("about to populate inner_html with: {inner:?}");
+        inner
+      };
+      view! {
+          <pre>
+              <code inner_html=inner></code>
+              </pre>
+      }
+      .into_any();
+    }
   } else {
     let (inner, set_inner) = signal(String::new());
     #[cfg(feature = "ssr")]
@@ -457,6 +468,6 @@ pub fn CodeInner(code: String, lang: String) -> impl IntoView {
             <code inner_html=inner></code>
         </pre>
     }
-    .into_any()
+    .into_any();
   }
 }
