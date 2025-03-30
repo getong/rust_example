@@ -49,7 +49,7 @@ members = [
   "axum_multi_static_file_server_example",
   "axum_htmx_templates",
   "axum_todo_utoipa_swagger_ui_example",
-  "axum_userp_memory_store_oauth_only_example",
+  # "axum_userp_memory_store_oauth_only_example",
   "axum_csrf_minimal_example",
   "axum_handlebars_example",
   "axum_serve_with_hyper_example",
@@ -62,4 +62,9 @@ members = [
   "axum_extension_example",
   "axum_sub_state_example",
   "axum_aide_example",
+  "axum_serve_wasm_example",
+]
+
+exclude = [
+  "axum_serve_wasm_example/wasm-project",
 ]

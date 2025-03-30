@@ -1,0 +1,16 @@
+* axum serve wasm
+
+** Axum & WASM
+copy from https://qiita.com/ringo-apo/items/b2ccf1668bc6f21e5f4a
+
+** wasm-pack new wasm project
+
+#+begin_src shell
+mkdir static
+wasm-pack new wasm-project
+cd wasm-project
+
+wasm-pack build --target web -d ../static
+#+end_src
+
+** axum serve wasm file
