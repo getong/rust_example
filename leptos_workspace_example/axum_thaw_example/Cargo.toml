@@ -12,15 +12,15 @@ chrono = "0.4.40"
 console_error_panic_hook = "0.1"
 http = "1"
 icondata = { version = "0.5.0", features = ["ant-design-icons", "box-icons"] }
-leptos = { version = "0.7", features = ["nightly"] }
+leptos = { version = "0.8.0-beta", features = ["nightly"] }
 # leptos-chartistry = "0.2.1"
-leptos-use = { version = "=0.16.0-beta", default-features = false, features = [
+leptos-use = { version = "0.16.0-beta", default-features = false, features = [
   "use_calendar",
   "use_active_element",
   "docs",
 ] }
 leptos_axum = { version = "0.8.0-beta", optional = true }
-leptos_icons = "0.5.0"
+# leptos_icons = "0.5.0"
 leptos_meta = { version = "0.8.0-beta" }
 leptos_router = { version = "0.8.0-beta", features = ["nightly"] }
 # lucide-leptos = "1.1.0"

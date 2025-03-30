@@ -9,7 +9,7 @@ use thaw::{Button, ConfigProvider, ssr::SSRMountStyleProvider};
 use wasm_bindgen::JsCast;
 
 use crate::component::{
-  leptos_icons::IconDemo,
+  // leptos_icons::IconDemo,
   leptos_use::UseCalendarDemo,
   // chartistry::ChartistryDemo, lucide::CameraDemo
   thaw::CalendarElement,
@@ -63,7 +63,7 @@ pub fn App() -> impl IntoView {
                       <Route path=StaticSegment("leptos_use_calendar") view=UseCalendarDemo />
                       // <Route path=StaticSegment("chartistry_demo") view=ChartistryDemo />
                       // <Route path=StaticSegment("camera_demo") view=CameraDemo />
-                      <Route path=StaticSegment("icon_demo") view=IconDemo />
+                      // <Route path=StaticSegment("icon_demo") view=IconDemo />
                   </Routes>
               </main>
           </Router>
