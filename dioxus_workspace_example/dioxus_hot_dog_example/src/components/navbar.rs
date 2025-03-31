@@ -19,6 +19,10 @@ pub fn Navbar() -> Element {
               to: Route::Blog { id: 1 },
               "Blog"
           }
+          Link {
+              to: Route::JsSample {},
+              "Js Sample"
+          }
       }
 
       Outlet::<Route> {}
