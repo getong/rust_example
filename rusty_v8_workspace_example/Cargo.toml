@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
   "rusty_v8_example",
+  "rusty_v8_compile_module_example",
 ]
