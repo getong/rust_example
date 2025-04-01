@@ -7,4 +7,5 @@ members = [
   "rusty_v8_compile_module_example",
   "deno_core_basic_example",
   "deno_core_add_runtime_example",
+  "deno_core_add_filesystem_example",
 ]
