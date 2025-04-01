@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "rusty_v8_example",
+]
