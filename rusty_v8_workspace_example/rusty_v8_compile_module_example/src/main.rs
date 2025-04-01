@@ -135,3 +135,4 @@ pub fn run_worker(
 }
 
 // copy from https://dev.to/pul/2-daily-rabbit-holes-diving-deeper-into-rust-v8-and-the-javascript-saga-5ajc
+// also see https://dzx.cz/2023-03-08/how_do_cloudflare_workers_work/
