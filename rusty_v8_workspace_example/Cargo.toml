@@ -10,4 +10,5 @@ members = [
   "deno_core_add_filesystem_example",
   "deno_core_impl_fetch_example",
   "deno_core_support_typescript_example",
+  "build_rs_deno_core_support_typescript_example",
 ]
