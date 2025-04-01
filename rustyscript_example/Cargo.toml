@@ -1,0 +1,9 @@
+[package]
+name = "rustscript_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# rustyscript = "0.11"
+rustyscript = { git = "https://github.com/rscarson/rustyscript", rev = "58c198e543e48e5cf296a70229037c82a2816290" }
+tokio = { version = "1.44.1", features = ["full"] }
