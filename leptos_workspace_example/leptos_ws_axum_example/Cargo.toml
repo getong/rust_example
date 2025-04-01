@@ -15,7 +15,7 @@ futures = { version = "0.3.31", default-features = false, optional = true }
 http = "1.3"
 leptos = { version = "0.8.0-beta" }
 leptos_axum = { version = "0.8.0-beta", optional = true }
-leptos_ws = "0.7"
+leptos_ws = "0.8.0-beta"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 server_fn = "0.8.0-beta"
