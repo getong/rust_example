@@ -8,4 +8,5 @@ members = [
   "deno_core_basic_example",
   "deno_core_add_runtime_example",
   "deno_core_add_filesystem_example",
+  "deno_core_impl_fetch_example",
 ]

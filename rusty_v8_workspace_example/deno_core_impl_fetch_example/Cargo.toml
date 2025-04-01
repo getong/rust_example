@@ -1,0 +1,10 @@
+[package]
+name = "deno_core_impl_fetch_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_core = "0.341.0"
+deno_error = "0.5.6"
+reqwest = "0.12.15"
+tokio = { version = "1.44.1", features = ["full"] }
