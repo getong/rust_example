@@ -52,14 +52,6 @@ impl RaftNetworkFactory<TypeConfig> for Network {
 #[derive(Debug)]
 pub struct NetworkConnection {}
 
-impl NetworkConnection {
-  async fn c<E: std::error::Error + DeserializeOwned>(
-    &mut self,
-  ) -> Result<&NetworkConnection, RPCError<TypeConfig, E>> {
-    Ok(self)
-  }
-}
-
 fn to_error<E: std::error::Error + 'static + Clone>(
   _e: ServiceError,
   _target: NodeId,
