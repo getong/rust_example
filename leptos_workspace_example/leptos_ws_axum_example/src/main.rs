@@ -57,14 +57,14 @@ async fn main() {
         <!DOCTYPE html>
         <html lang="en">
             <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <link rel="stylesheet" href="pkg/axum_example.css"/>
-                <AutoReload options=options.clone()/>
-                <HydrationScripts options=options islands=true/>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <link rel="stylesheet" href="pkg/axum_example.css" />
+                <AutoReload options=options.clone() />
+                <HydrationScripts options=options islands=true />
             </head>
             <body>
-                <App/>
+                <App />
             </body>
         </html>
     }
@@ -135,7 +135,7 @@ async fn main() {
   let addr = leptos_options.site_addr;
   let state2 = state.clone();
   let (routes, _) = generate_route_list_with_exclusions_and_ssg_and_context(
-    || view! { <App/> },
+    || view! { <App /> },
     None,
     move || provide_context(state2.server_signals.clone()),
   );

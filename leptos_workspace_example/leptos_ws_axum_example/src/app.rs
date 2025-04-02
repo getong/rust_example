@@ -21,33 +21,37 @@ pub fn App() -> impl IntoView {
       <div class="messages">
           <div class="messages_inner">
               <For
-              each=move || messages.get().get().clone().into_iter().enumerate()
-              key=move |(index,text)| (index.clone(),text.text())
-              let:data
+                  each=move || messages.get().get().clone().into_iter().enumerate()
+                  key=move |(index, text)| (index.clone(), text.text())
+                  let:data
               >
-                  <MessageComp message=data.1.clone()/>
+                  <MessageComp message=data.1.clone() />
               </For>
           </div>
       </div>
       <div class="new_message">
-          <h3>
-              New Message
-          </h3>
+          <h3>New Message</h3>
           <div class="column">
               <div class="form-input">
-                  <label for="text">Message </label>
-                  <input id="text" type="text" prop:value=new_message on:input=move|e| {
-                      let mut text = event_target_value(&e);
-                      text.truncate(500);
-                      new_message.set(text)
-                  } on:keypress=move|e| {
-                      if e.key() == "Enter" {
-                          spawn_local(async move {
-                              let _ = add_message(new_message.get_untracked()).await;
-                              new_message.set("".to_string());
-                          });
+                  <label for="text">Message</label>
+                  <input
+                      id="text"
+                      type="text"
+                      prop:value=new_message
+                      on:input=move |e| {
+                          let mut text = event_target_value(&e);
+                          text.truncate(500);
+                          new_message.set(text)
                       }
-                  }></input>
+                      on:keypress=move |e| {
+                          if e.key() == "Enter" {
+                              spawn_local(async move {
+                                  let _ = add_message(new_message.get_untracked()).await;
+                                  new_message.set("".to_string());
+                              });
+                          }
+                      }
+                  />
               </div>
               <button on:click=move |_| spawn_local(async move {
                   let _ = add_message(new_message.get_untracked()).await;
@@ -55,7 +59,6 @@ pub fn App() -> impl IntoView {
               })>Send</button>
           </div>
       </div>
-
   }
 }
 
