@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use deno_ast::{MediaType, ParseParams};
 use deno_core::{
-  ModuleLoadResponse, ModuleSourceCode,
+  ModuleLoadResponse, ModuleSource, ModuleSourceCode,
   error::{AnyError, ModuleLoaderError},
   extension, op2,
 };
@@ -38,8 +38,8 @@ impl deno_core::ModuleLoader for TsModuleLoader {
         MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
           (deno_core::ModuleType::JavaScript, false)
         }
-        MediaType::Jsx => (deno_core::ModuleType::JavaScript, true),
-        MediaType::TypeScript
+        MediaType::Jsx
+        | MediaType::TypeScript
         | MediaType::Mts
         | MediaType::Cts
         | MediaType::Dts
@@ -73,7 +73,7 @@ impl deno_core::ModuleLoader for TsModuleLoader {
       } else {
         code
       };
-      let module = deno_core::ModuleSource::new(
+      let module = ModuleSource::new(
         module_type,
         ModuleSourceCode::String(code.into()),
         &module_specifier,
