@@ -1,34 +1,40 @@
 #[cfg(feature = "ssr")]
-pub mod app;
-#[cfg(feature = "ssr")]
 pub mod fileserv;
+pub mod messages;
+#[cfg(feature = "ssr")]
+use axum::response::Response as AxumResponse;
 #[cfg(feature = "ssr")]
 use axum::{
   Router,
-  extract::{FromRef, Path, Request, State},
-  response::{IntoResponse, Response as AxumResponse},
   routing::{get, post},
+};
+#[cfg(feature = "ssr")]
+use axum::{
+  extract::{FromRef, Path, Request, State},
+  response::IntoResponse,
 };
 #[cfg(feature = "ssr")]
 use config::get_configuration;
 #[cfg(feature = "ssr")]
 use http::HeaderMap;
 #[cfg(feature = "ssr")]
+use leptos::*;
+#[cfg(feature = "ssr")]
 use leptos::{
   config::LeptosOptions,
   prelude::{provide_context, *},
-  *,
 };
 #[cfg(feature = "ssr")]
-use leptos_axum::{
-  AxumRouteListing, LeptosRoutes, generate_route_list_with_exclusions_and_ssg_and_context,
-  handle_server_fns_with_context,
-};
+use leptos_axum::{AxumRouteListing, handle_server_fns_with_context};
+#[cfg(feature = "ssr")]
+use leptos_axum::{LeptosRoutes, generate_route_list_with_exclusions_and_ssg_and_context};
 #[cfg(feature = "ssr")]
 use leptos_ws::server_signals::ServerSignals;
+#[cfg(feature = "ssr")]
+use leptos_ws_axum_example::app::*;
 
 #[cfg(feature = "ssr")]
-use crate::{app::*, fileserv::file_and_error_handler};
+use crate::fileserv::file_and_error_handler;
 
 #[cfg(feature = "ssr")]
 #[derive(Clone, FromRef)]
@@ -41,18 +47,24 @@ pub struct AppState {
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
+  use std::{net::SocketAddr, sync::Arc, time::Duration};
+
+  use tokio::time::sleep;
+  use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+
   pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
         <html lang="en">
             <head>
-                <meta charset="utf-8" />
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <AutoReload options=options.clone() />
-                <HydrationScripts options=options islands=true />
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <link rel="stylesheet" href="pkg/axum_example.css"/>
+                <AutoReload options=options.clone()/>
+                <HydrationScripts options=options islands=true/>
             </head>
             <body>
-                <App />
+                <App/>
             </body>
         </html>
     }
@@ -87,7 +99,23 @@ async fn main() {
     )
     .await
   }
+  let governor_conf = Arc::new(
+    GovernorConfigBuilder::default()
+      .per_second(2)
+      .burst_size(5)
+      .finish()
+      .unwrap(),
+  );
 
+  let governor_limiter = governor_conf.limiter().clone();
+  let interval = Duration::from_secs(60);
+  // a separate background task to clean up
+  tokio::spawn(async move {
+    loop {
+      sleep(interval).await;
+      governor_limiter.retain_recent();
+    }
+  });
   simple_logger::init_with_level(log::Level::Debug).expect("couldn't initialize logging");
   let server_signals = ServerSignals::new();
   // let signal = ServerSignal::new("counter".to_string(), 1);
@@ -106,15 +134,17 @@ async fn main() {
   // The file would need to be included with the executable when moved to deployment
   let addr = leptos_options.site_addr;
   let state2 = state.clone();
-
   let (routes, _) = generate_route_list_with_exclusions_and_ssg_and_context(
-    || view! { <App /> },
+    || view! { <App/> },
     None,
     move || provide_context(state2.server_signals.clone()),
   );
   state.routes = Some(routes.clone());
   let app = Router::new()
     .route("/api/{*fn_name}", post(server_fn_handler))
+    .layer(GovernorLayer {
+      config: governor_conf,
+    })
     .route(
       "/ws",
       get(leptos_ws::axum::websocket(state.server_signals.clone())),
@@ -126,7 +156,12 @@ async fn main() {
   // `axum::Server` is a re-export of `hyper::Server`
   leptos::logging::log!("listening on http://{}", &addr);
   let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-  axum::serve(listener, app).await.unwrap();
+  axum::serve(
+    listener,
+    app.into_make_service_with_connect_info::<SocketAddr>(),
+  )
+  .await
+  .unwrap();
 }
 
 #[cfg(not(feature = "ssr"))]

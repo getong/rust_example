@@ -1,6 +1,6 @@
 use cfg_if::cfg_if;
 pub mod app;
-
+pub mod messages;
 cfg_if! { if #[cfg(feature = "hydrate")] {
     use leptos::*;
     use wasm_bindgen::prelude::wasm_bindgen;

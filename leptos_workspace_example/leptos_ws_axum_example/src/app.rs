@@ -1,70 +1,70 @@
 use leptos::{prelude::*, task::spawn_local};
-use serde::{Deserialize, Serialize};
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct HistoryEntry {
-  name: String,
-  number: u16,
-}
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct History {
-  entries: Vec<HistoryEntry>,
+use crate::messages::{Message, Messages};
+
+#[component]
+pub fn MessageComp(message: Message) -> impl IntoView {
+  view! {
+      <div class="message">
+          <p>{move || message.text()}</p>
+      </div>
+  }
 }
 
 #[component]
 pub fn App() -> impl IntoView {
   // Provide websocket connection
   leptos_ws::provide_websocket("ws://localhost:3000/ws");
-  let count = leptos_ws::ServerSignal::new("count".to_string(), 0_i32).unwrap();
-
-  let history =
-    leptos_ws::ServerSignal::new("history".to_string(), History { entries: vec![] }).unwrap();
-
-  let count = move || count.get();
-
+  let messages = leptos_ws::ServerSignal::new("messages".to_string(), Messages::new()).unwrap();
+  let new_message = RwSignal::new("".to_string());
   view! {
-      <button on:click=move |_| {
-          spawn_local(async move {
-              _ = update_count().await;
-          });
-      }>Start Counter</button>
-      <h1>"Count: " {count}</h1>
-      <button on:click=move |_| {
-          spawn_local(async move {
-              _ = update_history().await;
-          });
-      }>Start History Changes</button>
-      <p>{move || format!("history: {:?}", history.get())}</p>
+      <div class="messages">
+          <div class="messages_inner">
+              <For
+              each=move || messages.get().get().clone().into_iter().enumerate()
+              key=move |(index,text)| (index.clone(),text.text())
+              let:data
+              >
+                  <MessageComp message=data.1.clone()/>
+              </For>
+          </div>
+      </div>
+      <div class="new_message">
+          <h3>
+              New Message
+          </h3>
+          <div class="column">
+              <div class="form-input">
+                  <label for="text">Message </label>
+                  <input id="text" type="text" prop:value=new_message on:input=move|e| {
+                      let mut text = event_target_value(&e);
+                      text.truncate(500);
+                      new_message.set(text)
+                  } on:keypress=move|e| {
+                      if e.key() == "Enter" {
+                          spawn_local(async move {
+                              let _ = add_message(new_message.get_untracked()).await;
+                              new_message.set("".to_string());
+                          });
+                      }
+                  }></input>
+              </div>
+              <button on:click=move |_| spawn_local(async move {
+                  let _ = add_message(new_message.get_untracked()).await;
+                  new_message.set("".to_string());
+              })>Send</button>
+          </div>
+      </div>
+
   }
 }
-#[server]
-async fn update_count() -> Result<(), ServerFnError> {
-  use std::time::Duration;
-
-  use tokio::time::sleep;
-  let count = leptos_ws::ServerSignal::new("count".to_string(), 0 as i32).unwrap();
-  for i in 0 .. 1000 {
-    count.update(move |value| *value = i);
-    sleep(Duration::from_secs(1)).await;
-  }
-  Ok(())
-}
 
 #[server]
-async fn update_history() -> Result<(), ServerFnError> {
-  use std::time::Duration;
-
-  use tokio::time::sleep;
-  let history =
-    leptos_ws::ServerSignal::new("history".to_string(), History { entries: vec![] }).unwrap();
-  for i in 0 .. 255 {
-    history.update(move |value| {
-      value.entries.push(HistoryEntry {
-        name: format!("{}", i).to_string(),
-        number: i as u16,
-      })
-    });
-    sleep(Duration::from_millis(1000)).await;
-  }
+async fn add_message(message: String) -> Result<(), ServerFnError> {
+  let messages = leptos_ws::ServerSignal::new("messages".to_string(), Messages::new()).unwrap();
+  messages.update(move |x| {
+    x.add_message(Message::new(message));
+  });
+  log::warn!("len: {}", messages.get().len());
   Ok(())
 }
