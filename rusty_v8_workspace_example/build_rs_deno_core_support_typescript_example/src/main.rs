@@ -41,8 +41,8 @@ impl deno_core::ModuleLoader for TsModuleLoader {
         MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
           (deno_core::ModuleType::JavaScript, false)
         }
-        MediaType::Jsx => (deno_core::ModuleType::JavaScript, true),
-        MediaType::TypeScript
+        MediaType::Jsx
+        | MediaType::TypeScript
         | MediaType::Mts
         | MediaType::Cts
         | MediaType::Dts
