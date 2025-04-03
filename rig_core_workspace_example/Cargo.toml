@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "rig_core_basic_example",
+]
