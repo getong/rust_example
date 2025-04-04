@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 base64 = "0.22"
 libp2p = { version = "0.55", features = ["full"] }
-tokio = { version = "1.43", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }

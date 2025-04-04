@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 base64 = "0.22.1"
 dotenv = "0.15.0"
-either = "1.13.0"
-env_logger = "0.11.6"
+either = "1.15.0"
+env_logger = "0.11.8"
 ethers = "2.0.14"
 libp2p = { version = "0.55", features = [
   "tcp",
@@ -24,6 +24,6 @@ libp2p = { version = "0.55", features = [
   "pnet",
   "secp256k1",
 ] }
-log = "0.4.25"
-serde = { version = "1.0.217", features = ["derive"] }
-tokio = { version = "1.43.0", features = ["full"] }
+log = "0.4.27"
+serde = { version = "1.0.219", features = ["derive"] }
+tokio = { version = "1.44.1", features = ["full"] }

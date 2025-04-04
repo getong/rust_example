@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 libp2p = { version = "0.55.0", features = ["full"] }
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.44.1", features = ["full"] }
