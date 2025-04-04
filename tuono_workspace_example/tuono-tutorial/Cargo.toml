@@ -1,13 +1,13 @@
 [package]
 name = "tuono-tutorial"
 version = "0.0.1"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "tuono"
 path = ".tuono/main.rs"
 
 [dependencies]
-tuono_lib = "0.19.1"
+tuono_lib = "0.19.2"
 serde = { version = "1.0.217", features = ["derive"] }
 reqwest = "0.12.12"

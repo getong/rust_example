@@ -1,6 +1,7 @@
 use tuono_lib::{
-  axum::{routing::get, Router},
-  tokio, tuono_internal_init_v8_platform, Mode, Server,
+  Mode, Server,
+  axum::{Router, routing::get},
+  tokio, tuono_internal_init_v8_platform,
 };
 
 const MODE: Mode = Mode::Prod;
@@ -15,7 +16,7 @@ use tuono_app_example::routes::{api as api_mod, index};
 #[tokio::main]
 async fn main() {
   tuono_internal_init_v8_platform();
-  println!("\n  ⚡ Tuono v0.19.1");
+  println!("\n  ⚡ Tuono v0.19.2");
 
   let router = Router::new()
     // ROUTE_BUILDER

@@ -3,13 +3,13 @@
   "description": "Basic tuono application",
   "version": "0.0.1",
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "tuono": "0.19.1"
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tuono": "0.19.2"
   },
   "devDependencies": {
-    "@types/react": "19.0.8",
-    "@types/react-dom": "19.0.3",
-    "typescript": "5.7.3"
+    "@types/react": "19.1.0",
+    "@types/react-dom": "19.1.1",
+    "typescript": "5.8.2"
   }
 }
