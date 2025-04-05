@@ -65,7 +65,7 @@ impl Behavior {
 
   pub fn known_peers(&mut self) -> HashSet<PeerId> {
     let mut peers = HashSet::new();
-    for b in self.kademlia.kbuckets() {
+    for b in self.kad.kbuckets() {
       for e in b.iter() {
         if !peers.contains(e.node.key.preimage()) {
           peers.insert(*e.node.key.preimage());

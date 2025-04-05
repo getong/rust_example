@@ -16,6 +16,7 @@ use std::{collections::HashSet, error::Error, fs};
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p::{
+  PeerId, StreamProtocol, Swarm, SwarmBuilder,
   core::ConnectedPoint,
   identify::{
     Behaviour as IdentifyBehavior, Config as IdentifyConfig, Event as IdentifyEvent,
@@ -23,8 +24,8 @@ use libp2p::{
   },
   identity::{self, Keypair},
   kad::{
-    self, store::MemoryStore as KadInMemory, Behaviour as KadBehavior, Config as KadConfig,
-    Event as KadEvent,
+    self, Behaviour as KadBehavior, Config as KadConfig, Event as KadEvent,
+    store::MemoryStore as KadInMemory,
   },
   noise,
   ping::{Behaviour as PingBehaviour, Config as PingConfig, Event as PingEvent},
@@ -32,18 +33,18 @@ use libp2p::{
     self, Event as RequestResponseEvent, OutboundRequestId, ProtocolSupport, ResponseChannel,
   },
   swarm::{NetworkBehaviour, SwarmEvent},
-  tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+  tcp, yamux,
 };
 use libp2p_tuono_a_example::{
   libp2p::{
-    behaviour::{RaftRequest, RaftResponse},
     LAZY_EVENT_SENDER, RECEIVER_GROUP,
+    behaviour::{RaftRequest, RaftResponse},
   },
-  openraft::{start_example_raft_node, LAZY_RAFT},
+  openraft::{LAZY_RAFT, start_example_raft_node},
 };
 use tokio::{
   sync::{
-    mpsc::{channel, Receiver as MpscReceiver, Sender as MpscSender},
+    mpsc::{Receiver as MpscReceiver, Sender as MpscSender, channel},
     oneshot::{Receiver as OneshotReceiver, Sender as OneshotSender},
   },
   time::Duration,

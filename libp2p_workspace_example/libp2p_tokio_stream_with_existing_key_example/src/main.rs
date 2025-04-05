@@ -146,7 +146,7 @@ async fn send(mut stream: Stream) -> io::Result<()> {
   let num_bytes = rand::random::<usize>() % 1000;
 
   let mut bytes = vec![0; num_bytes];
-  rand::thread_rng().fill_bytes(&mut bytes);
+  rand::rng().fill_bytes(&mut bytes);
 
   stream.write_all(&bytes).await?;
 

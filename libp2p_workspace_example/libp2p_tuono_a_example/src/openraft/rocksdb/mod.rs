@@ -12,14 +12,14 @@ use std::{collections::BTreeMap, fmt::Debug, io::Cursor, path::Path, sync::Arc};
 
 use log_store::RocksLogStore;
 use openraft::{
+  AnyError, Entry, EntryPayload, LogId, RaftSnapshotBuilder, RaftTypeConfig, SnapshotMeta,
+  StorageError, StoredMembership,
   alias::SnapshotDataOf,
   entry::RaftEntry,
   storage::{RaftStateMachine, Snapshot},
-  AnyError, Entry, EntryPayload, LogId, RaftSnapshotBuilder, RaftTypeConfig, SnapshotMeta,
-  StorageError, StoredMembership,
 };
 use rand::Rng;
-use rocksdb::{ColumnFamilyDescriptor, Options, DB};
+use rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use serde::{Deserialize, Serialize};
 // #![deny(unused_crate_dependencies)]
 // To make the above rule happy, tokio is used, but only in tests

@@ -4,13 +4,13 @@ use std::{
 };
 
 use openraft::{
-  error::{NetworkError, RemoteError, Unreachable},
   TryAsRef,
+  error::{NetworkError, RemoteError, Unreachable},
 };
 use reqwest::Client;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::openraft::{typ::*, NodeId, Request};
+use crate::openraft::{NodeId, Request, typ::*};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}

@@ -7,9 +7,9 @@ use std::{
 use behaviour::{RaftRequest, RaftResponse};
 use libp2p::request_response::OutboundRequestId;
 use tokio::sync::{
+  Mutex,
   mpsc::{Receiver as MpscReceiver, Sender as MpscSender},
   oneshot::{Receiver as OneshotReceiver, Sender as OneshotSender},
-  Mutex,
 };
 
 pub static LAZY_EVENT_SENDER: LazyLock<

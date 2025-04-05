@@ -1,6 +1,6 @@
 use openraft::{
-  alias::{LogIdOf, VoteOf},
   AnyError, ErrorSubject, ErrorVerb, RaftTypeConfig, StorageError,
+  alias::{LogIdOf, VoteOf},
 };
 
 /// Defines metadata key and value

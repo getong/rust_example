@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use openraft::Config;
 use tokio::sync::RwLock;
 
-use crate::openraft::{typ::Raft, NodeId};
+use crate::openraft::{NodeId, typ::Raft};
 
 // Representation of an application state. This struct can be shared around to share
 // instances of raft, store and more.

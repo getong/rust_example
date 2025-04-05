@@ -2,22 +2,22 @@ use std::io;
 
 use futures::Future;
 use openraft::{
+  AnyError,
   error::{InstallSnapshotError, NetworkError, RPCError, RaftError},
   network::{RPCOption, RaftNetwork, RaftNetworkFactory},
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
   },
-  AnyError,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
-use tokio::sync::oneshot::{channel, Receiver as OneshotReceiver, Sender as OneshotSender};
+use tokio::sync::oneshot::{Receiver as OneshotReceiver, Sender as OneshotSender, channel};
 
 use crate::{
   libp2p::{
-    behaviour::{RaftRequest, RaftResponse},
     LAZY_EVENT_SENDER,
+    behaviour::{RaftRequest, RaftResponse},
   },
   openraft::{Node, NodeId, TypeConfig},
 };

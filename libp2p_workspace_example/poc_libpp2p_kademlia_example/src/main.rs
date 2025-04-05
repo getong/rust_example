@@ -180,6 +180,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             request_id,
             request,
             channel,
+            ..
           } => {
             info!(
               "RequestResponseEvent::Message::Request -> PeerID: {peer} | RequestID: {request_id} \
@@ -211,19 +212,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
           peer,
           request_id,
           error,
+          ..
         } => {
           warn!(
             "RequestResponseEvent::InboundFailure -> PeerID: {peer} | RequestID: {request_id} | \
              Error: {error}"
           )
         }
-        RequestResponseEvent::ResponseSent { peer, request_id } => {
+        RequestResponseEvent::ResponseSent {
+          peer, request_id, ..
+        } => {
           info!("RequestResponseEvent::ResponseSent -> PeerID: {peer} | RequestID: {request_id}")
         }
         RequestResponseEvent::OutboundFailure {
           peer,
           request_id,
           error,
+          ..
         } => {
           warn!(
             "RequestResponseEvent::OutboundFailure -> PeerID: {peer} | RequestID: {request_id} | \

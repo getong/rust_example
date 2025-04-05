@@ -13,7 +13,7 @@ use tokio::{net::TcpListener, sync::Mutex, task};
 use crate::openraft::{
   app::App,
   network::Network,
-  store::{new_storage, Request, Response},
+  store::{Request, Response, new_storage},
 };
 
 pub mod app;

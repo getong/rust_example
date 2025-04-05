@@ -198,7 +198,7 @@ async fn handle_event(
       _ => {}
     },
     SwarmEvent::Behaviour(AgentEvent::RequestResponse(event)) => match event {
-      RequestResponseEvent::Message { peer, message } => match message {
+      RequestResponseEvent::Message { peer, message, .. } => match message {
         RequestResponseMessage::Request {
           request_id,
           request,
@@ -262,19 +262,23 @@ async fn handle_event(
         peer,
         request_id,
         error,
+        ..
       } => {
         warn!(
           "RequestResponseEvent::InboundFailure -> PeerID: {peer} | RequestID: {request_id} | \
            Error: {error}"
         )
       }
-      RequestResponseEvent::ResponseSent { peer, request_id } => {
+      RequestResponseEvent::ResponseSent {
+        peer, request_id, ..
+      } => {
         info!("RequestResponseEvent::ResponseSent -> PeerID: {peer} | RequestID: {request_id}")
       }
       RequestResponseEvent::OutboundFailure {
         peer,
         request_id,
         error,
+        ..
       } => {
         warn!(
           "RequestResponseEvent::OutboundFailure -> PeerID: {peer} | RequestID: {request_id} | \

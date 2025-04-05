@@ -2,12 +2,12 @@ use std::{error::Error, fmt::Debug, marker::PhantomData, ops::RangeBounds, sync:
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use openraft::{
+  LogState, OptionalSend, RaftLogReader, RaftTypeConfig, StorageError,
   alias::{EntryOf, LogIdOf, VoteOf},
   entry::RaftEntry,
   storage::{IOFlushed, RaftLogStorage},
-  LogState, OptionalSend, RaftLogReader, RaftTypeConfig, StorageError,
 };
-use rocksdb::{ColumnFamily, Direction, DB};
+use rocksdb::{ColumnFamily, DB, Direction};
 
 use crate::openraft::rocksdb::meta::{LastPurged, StoreMeta, Vote};
 
@@ -234,8 +234,8 @@ where
 /// This sub mod defines the key-value pairs of these metadata.
 mod meta {
   use openraft::{
-    alias::{LogIdOf, VoteOf},
     AnyError, ErrorSubject, ErrorVerb, RaftTypeConfig, StorageError,
+    alias::{LogIdOf, VoteOf},
   };
 
   /// Defines metadata key and value
