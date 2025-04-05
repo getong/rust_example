@@ -34,4 +34,5 @@ buffer_example_workspace/sample.json
 **/pnpm-lock.yaml
 **/.env
 **/bun.lockb
+**/bun.lock
 **/.gitmodules
