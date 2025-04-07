@@ -12,7 +12,7 @@ pub const AUTHORIZATION: &str = "Authorization";
 
 #[tokio::main]
 async fn main() {
-  let mut rng = rand::thread_rng();
+  let mut rng = rand::rng();
 
   for i in 0 .. {
     for url in &[
@@ -42,7 +42,7 @@ async fn main() {
       });
 
       // Generate a random sleep duration between 1 and 3 seconds
-      let sleep_duration = rng.gen_range(1 ..= 3);
+      let sleep_duration = rng.random_range(1 ..= 3);
       println!("Sleeping for {} seconds", sleep_duration);
       sleep(Duration::from_secs(sleep_duration)).await;
     }

@@ -6,13 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.7.5"
-axum-streams = { version = "0.18.0", features = ["protobuf"] }
-futures = "0.3.30"
-hyper = "1.4.1"
-prost = "0.13.1"
+axum = "0.8.3"
+axum-streams = { version = "0.20.0", features = ["protobuf"] }
+futures = "0.3.31"
+hyper = "1.6.0"
+prost = "0.13.5"
 reqwest = "0.12"
-reqwest-streams = { version = "0.7.0", features = ["protobuf"] }
-tokio = { version = "1.39.2", features = ["full"] }
-tokio-stream = { version = "0.1.15", features = ["full"] }
-tower = "0.4.13"
+reqwest-streams = { version = "0.9.0", features = ["protobuf"] }
+tokio = { version = "1.44.2", features = ["full"] }
+tokio-stream = { version = "0.1.17", features = ["full"] }
+tower = "0.5.2"

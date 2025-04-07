@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn complicated_example() -> Result<(), Box<dyn std::error::Error>> {
   let client = reqwest::Client::new();
 
-    let query = json!({
+  let query = json!({
       // "query": format!("{{\n  indexers(filter: {{controller: {{equalToInsensitive: \"{}\"}}}}) {{\n    nodes {{\n      id\n    }}\n  }}\n}}", CHECK_ARGS)
       "query": format!("{{\n  stateChannels(filter: {{id: {{equalTo: \"0x{}\"}}}}) {{\n    nodes {{\n      id\n    }}\n  }}\n}}", CHECK_ARGS)
   });
