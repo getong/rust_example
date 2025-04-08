@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use bigdecimal::BigDecimal;
+use bigdecimal::{num_traits::Pow, BigDecimal};
 
 fn main() {
   let input1 = "0.8";
@@ -38,4 +38,17 @@ fn main() {
 
   println!("BigDecimal from input: {}", big_dec);
   println!("BigDecimal back to string: {}", big_dec_str);
+
+  // Raise BigDecimal to the power of 10^6
+  // let base = BigDecimal::from_str("2").unwrap();
+  // let exponent = 1_000_000;
+  // let result = base.pow(exponent);
+
+  // println!("{} raised to the power of {} is {}", base, exponent, result);
+  assert_eq!(Pow::pow(10u32, 2u32), 100);
+  println!("d is {:?}", Pow::pow(10u32, 2u32));
+  let a = BigDecimal::from(1_000_000u64);
+  let b = BigDecimal::from(1_000_000_000_000_000_000u64);
+  let c = a / b;
+  println!("c is {:?}", c);
 }
