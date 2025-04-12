@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use opentelemetry::{trace::Tracer, KeyValue};
-use opentelemetry_otlp::{ExportConfig, Protocol, WithExportConfig};
+use opentelemetry::{global, trace::Tracer, KeyValue};
+use opentelemetry_otlp::{Protocol, WithExportConfig, WithTonicConfig};
 use opentelemetry_sdk::{
-  metrics::reader::{DefaultAggregationSelector, DefaultTemporalitySelector},
-  trace::{self, RandomIdGenerator, Sampler},
+  // metrics::Temporality,
+  trace::{RandomIdGenerator, Sampler},
   Resource,
 };
 use tonic::metadata::*;
@@ -18,52 +18,43 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     "trace-proto-bin",
     MetadataValue::from_bytes(b"[binary data]"),
   );
+  let exporter = opentelemetry_otlp::SpanExporter::builder()
+    .with_tonic()
+    .with_endpoint("http://localhost:4317")
+    .with_timeout(Duration::from_secs(3))
+    .with_metadata(map)
+    .build()?;
 
-  let tracer = opentelemetry_otlp::new_pipeline()
-    .tracing()
-    .with_exporter(
-      opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint("http://localhost:4317")
-        .with_timeout(Duration::from_secs(3))
-        .with_metadata(map),
+  let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+    .with_batch_exporter(exporter)
+    .with_sampler(Sampler::AlwaysOn)
+    .with_id_generator(RandomIdGenerator::default())
+    .with_max_events_per_span(64)
+    .with_max_attributes_per_span(16)
+    .with_resource(
+      Resource::builder_empty()
+        .with_attributes([KeyValue::new("service.name", "example")])
+        .build(),
     )
-    .with_trace_config(
-      trace::config()
-        .with_sampler(Sampler::AlwaysOn)
-        .with_id_generator(RandomIdGenerator::default())
-        .with_max_events_per_span(64)
-        .with_max_attributes_per_span(16)
-        .with_max_events_per_span(16)
-        .with_resource(Resource::new(vec![KeyValue::new(
-          "service.name",
-          "example",
-        )])),
-    )
-    .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+    .build();
+  global::set_tracer_provider(tracer_provider.clone());
+  let tracer = global::tracer("tracer-name");
 
-  let export_config = ExportConfig {
-    endpoint: "http://localhost:4317".to_string(),
-    timeout: Duration::from_secs(3),
-    protocol: Protocol::Grpc,
-  };
+  let exporter = opentelemetry_otlp::MetricExporter::builder()
+    .with_tonic()
+    .with_endpoint("http://localhost:4318/v1/metrics")
+    .with_protocol(Protocol::Grpc)
+    .with_timeout(Duration::from_secs(3))
+    .build()
+    .unwrap();
 
-  let _meter = opentelemetry_otlp::new_pipeline()
-    .metrics(opentelemetry_sdk::runtime::Tokio)
-    .with_exporter(
-      opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_export_config(export_config),
-      // can also config it using with_* functions like the tracing part above.
+  let _provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+    .with_periodic_exporter(exporter)
+    .with_resource(
+      Resource::builder_empty()
+        .with_attributes([KeyValue::new("service.name", "example")])
+        .build(),
     )
-    .with_resource(Resource::new(vec![KeyValue::new(
-      "service.name",
-      "example",
-    )]))
-    .with_period(Duration::from_secs(3))
-    .with_timeout(Duration::from_secs(10))
-    .with_aggregation_selector(DefaultAggregationSelector::new())
-    .with_temporality_selector(DefaultTemporalitySelector::new())
     .build();
 
   tracer.in_span("doing_work", |_cx| {
