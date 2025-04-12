@@ -17,9 +17,9 @@ reqwest = { version = "0.12", features = ["json"] }
 rocksdb = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tarpc = { version = "0.35", features = ["full"] }
+tarpc = { version = "0.36", features = ["full"] }
 thiserror = "2"
-tokio = { version = "1.43", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
