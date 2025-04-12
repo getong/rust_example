@@ -11,4 +11,5 @@ members = [
   "raft_poem_tarpc_rocksdb",
   "rocksstore",
   "memstore",
+  "chitchat_poem_tarpc_rocksdb_example",
 ]

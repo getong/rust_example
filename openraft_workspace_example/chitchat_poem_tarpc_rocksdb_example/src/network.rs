@@ -1,4 +1,3 @@
-// use std::fmt::Display;
 use openraft::{
   error::{InstallSnapshotError, NetworkError, RPCError, RaftError},
   network::{RPCOption, RaftNetwork, RaftNetworkFactory},

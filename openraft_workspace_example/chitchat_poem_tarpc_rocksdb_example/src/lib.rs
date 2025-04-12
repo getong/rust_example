@@ -24,6 +24,7 @@ pub mod client;
 pub mod common;
 pub mod network;
 pub mod store;
+pub mod typ;
 pub mod web_openapi;
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -65,24 +66,6 @@ openraft::declare_raft_types!(
         R = Response,
         Node = Node,
 );
-
-pub mod typ {
-  use openraft::error::Infallible;
-
-  use crate::TypeConfig;
-
-  pub type Entry = openraft::Entry<TypeConfig>;
-
-  pub type RaftError<E = Infallible> = openraft::error::RaftError<TypeConfig, E>;
-  pub type RPCError<E = Infallible> = openraft::error::RPCError<TypeConfig, RaftError<E>>;
-
-  pub type ClientWriteError = openraft::error::ClientWriteError<TypeConfig>;
-  pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<TypeConfig>;
-  pub type ForwardToLeader = openraft::error::ForwardToLeader<TypeConfig>;
-  pub type InitializeError = openraft::error::InitializeError<TypeConfig>;
-
-  pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
-}
 
 pub type ExampleRaft = openraft::Raft<TypeConfig>;
 
