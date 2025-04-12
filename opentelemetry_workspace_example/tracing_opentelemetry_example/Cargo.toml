@@ -1,0 +1,12 @@
+[package]
+name = "tracing_opentelemetry_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+opentelemetry = "0.29.1"
+opentelemetry-stdout = "0.29.0"
+opentelemetry_sdk = "0.29.0"
+tracing = "0.1.41"
+tracing-opentelemetry = "0.30.0"
+tracing-subscriber = "0.3.19"

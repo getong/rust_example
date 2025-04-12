@@ -4,4 +4,6 @@ resolver = "2"
 
 members = [
   "opentelemetry_otlp_example",
+  "tracing_opentelemetry_example",
+  "opentelemetry_tracing_subscriber_example",
 ]
