@@ -1,0 +1,12 @@
+[package]
+name = "clickhouse_async_insert_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clickhouse = "0.13.2"
+serde = { version = "1.0.219", features = ["derive"] }
+tokio = { version = "1.44.2", features = ["full"] }
+
+[dev-dependencies]
+clickhouse = { version = "0.13.2", features = ["test-util"] }

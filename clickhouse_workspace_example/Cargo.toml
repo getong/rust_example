@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "clickhouse_async_insert_example"
+]
