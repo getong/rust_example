@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = "0.13.0"
+alloy = "0.14.0"
 hex = "0.4.3"
