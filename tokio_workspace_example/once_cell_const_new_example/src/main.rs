@@ -8,10 +8,28 @@ pub static NUM3: OnceCell<RwLock<U256>> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() {
+  {
+    if let Some(num_lock) = NUM.get() {
+      let num = *num_lock.read().await;
+      println!("uninitial, the num is {}", num);
+    } else {
+      println!("uninitial, cannot read num");
+    }
+  }
+
   // Initialize the NUM variable using set()
   NUM
     .set(RwLock::new(U256::from(42)))
     .expect("Failed to initialize NUM");
+
+  {
+    if let Some(num_lock) = NUM.get() {
+      let num = *num_lock.read().await;
+      println!("after initial, the num is {}", num);
+    } else {
+      println!("after initial, cannot read num");
+    }
+  }
 
   let num_read = NUM.get().expect("NUM is not initialized").read().await; // Await the read lock
   println!("The value of NUM is: {}", *num_read);
