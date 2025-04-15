@@ -1,0 +1,8 @@
+[package]
+name = "once_cell_const_new_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+primitive-types = "0.13.1"
+tokio = { version = "1.44.2", features = ["full"] }
