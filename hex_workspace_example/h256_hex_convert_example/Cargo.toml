@@ -1,0 +1,8 @@
+[package]
+name = "h256_hex_convert_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ethers-core = "2.0.14"
+hex = "0.4.3"
