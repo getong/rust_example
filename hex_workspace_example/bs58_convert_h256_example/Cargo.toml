@@ -1,0 +1,8 @@
+[package]
+name = "bs58_convert_h256_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bs58 = "0.5.1"
+ethers-core = "2.0.14"

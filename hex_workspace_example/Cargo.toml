@@ -8,4 +8,5 @@ members = [
   "u256_hex_convert_example",
   "hex_decode_bytes_example",
   "h256_hex_convert_example",
+  "bs58_convert_h256_example",
 ]
