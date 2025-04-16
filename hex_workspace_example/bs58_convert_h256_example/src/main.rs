@@ -45,5 +45,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   assert_eq!(original_ipfs_hash, recovered_ipfs_hash);
   println!("✅ Hash conversion verified successfully!");
 
+  let h256_string = "04ae8b5e6e416fccce32397ac1e4f812f91e2b2d69f201958dd7007442b2007d";
+
+  // Convert hex string to H256
+  let hash_bytes = hex::decode(h256_string)?;
+  if hash_bytes.len() != 32 {
+    return Err("Invalid H256 string length".into());
+  }
+  let h256_from_hex = H256::from_slice(&hash_bytes);
+  println!("H256 from hex: {:?}", h256_from_hex);
+
+  // Convert the new H256 back to IPFS hash
+  let ipfs_from_h256 = h256_to_ipfs_hash(&h256_from_hex);
+  println!("IPFS hash from H256: {}", ipfs_from_h256);
+
   Ok(())
 }

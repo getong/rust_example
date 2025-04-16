@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 bs58 = "0.5.1"
 ethers-core = "2.0.14"
+hex = "0.4.3"
