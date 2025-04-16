@@ -14,21 +14,36 @@ fn ipfs_hash_to_h256(ipfs_hash: &str) -> Result<H256, Box<dyn std::error::Error>
   let digest_bytes = &decoded_bytes[2 ..];
 
   // Convert to H256 (32-byte hash)
-  let h256 = H256::from_slice(digest_bytes);
+  Ok(H256::from_slice(digest_bytes))
+}
 
-  Ok(h256)
+// Converts H256 back to IPFS Base58 hash
+fn h256_to_ipfs_hash(hash: &H256) -> String {
+  // Multihash format:
+  // First byte: hash function (0x12 = sha2-256)
+  // Second byte: digest length (0x20 = 32 bytes)
+  let mut multihash_bytes = Vec::with_capacity(34);
+  multihash_bytes.push(0x12);
+  multihash_bytes.push(0x20);
+  multihash_bytes.extend_from_slice(hash.as_bytes());
+
+  bs58::encode(multihash_bytes).into_string()
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let ipfs_hash = "QmQbSumWfjgEfrPGsnNGAhq7SyXDjxKQCXLSjRiPpgFktd";
-  let h256_hash = ipfs_hash_to_h256(ipfs_hash)?;
+  let original_ipfs_hash = "QmQbSumWfjgEfrPGsnNGAhq7SyXDjxKQCXLSjRiPpgFktd";
+  println!("Original IPFS hash: {}", original_ipfs_hash);
 
-  println!("H256: {:?}", h256_hash);
-  println!("Hex: {:?}", h256_hash);
+  // Convert IPFS hash to H256
+  let h256_hash = ipfs_hash_to_h256(original_ipfs_hash)?;
+  println!("Converted to H256: {:?}", h256_hash);
 
-  // Output in hexadecimal string (with 0x prefix)
-  let hex_str = format!("{:#x}", h256_hash);
-  println!("Hex string: {}", hex_str);
+  // Convert H256 back to IPFS hash
+  let recovered_ipfs_hash = h256_to_ipfs_hash(&h256_hash);
+  println!("Recovered IPFS hash: {}", recovered_ipfs_hash);
+
+  assert_eq!(original_ipfs_hash, recovered_ipfs_hash);
+  println!("✅ Hash conversion verified successfully!");
 
   Ok(())
 }
