@@ -3,12 +3,13 @@
 resolver = "2"
 
 members = [
-        "bigdecimal_basic_example",
-        "sqlx_bigdecimal_example",
-        "u256_bigdecimal_example",
-        "sqlx_u256_bigdecimal_example",
-        "sqlx_chrono_compare_example",
-        "sqlx_multi_sql_transaction_example",
-        "sqlx_multi_sql_acquire_example",
-        "bigdecimal_serde_json_example",
+  "bigdecimal_basic_example",
+  "sqlx_bigdecimal_example",
+  "u256_bigdecimal_example",
+  "sqlx_u256_bigdecimal_example",
+  "sqlx_chrono_compare_example",
+  "sqlx_multi_sql_transaction_example",
+  "sqlx_multi_sql_acquire_example",
+  "bigdecimal_serde_json_example",
+  "sqlx_track_caller_example",
 ]
