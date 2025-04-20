@@ -11,7 +11,7 @@ name = "main"
 path = "src/bin/main.rs"
 
 [dependencies]
-alloy = "0.13.0"
+alloy = "0.14.0"
 anyhow = "1.0.97"
 byteorder = "1.5.0"
 futures = "0.3.31"
@@ -33,4 +33,4 @@ serde_json = "1.0.140"
 thiserror = "2.0"
 tokio = { version = "1.44.1", features = ["full"] }
 tracing = "0.1.41"
-tuono_lib = "0.19.3"
+tuono_lib = "0.19.4"
