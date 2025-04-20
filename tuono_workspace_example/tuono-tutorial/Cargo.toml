@@ -8,6 +8,6 @@ name = "tuono"
 path = ".tuono/main.rs"
 
 [dependencies]
-tuono_lib = "0.19.3"
+tuono_lib = "0.19.4"
 serde = { version = "1.0.217", features = ["derive"] }
 reqwest = "0.12.12"
