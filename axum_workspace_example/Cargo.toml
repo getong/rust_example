@@ -64,6 +64,7 @@ members = [
   "axum_aide_example",
   "axum_serve_wasm_example",
   "axum_tower_otel_http_example",
+  "axum_react_ssr_example",
 ]
 
 exclude = [
