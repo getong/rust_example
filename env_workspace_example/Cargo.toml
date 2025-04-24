@@ -7,4 +7,5 @@ members = [
   "env_macro_example",
   "std-env-example",
   "option_env_constant_example",
+  "cwd_example",
 ]
