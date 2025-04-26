@@ -1,0 +1,8 @@
+[package]
+name = "tikv_jemallocator_basic_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
+tikv-jemallocator = "0.6.0"
