@@ -4,4 +4,7 @@
 cargo-build-sbf
 
 solana program deploy ../target/deploy/solana_program_entry_example.so
+
+# or
+solana program deploy ../target/sbpf-solana-solana/release/solana_program_entry_example.so
 #+end_src
