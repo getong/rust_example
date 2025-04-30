@@ -1,9 +1,10 @@
-use ecdsa::signature::{Signer, Verifier};
-// Import the older version through the re-exports from k256
-use k256::elliptic_curve::rand_core::OsRng as K256OsRng;
 use k256::{
   SecretKey,
-  ecdsa::{Signature, SigningKey, VerifyingKey},
+  ecdsa::{
+    Signature, SigningKey, VerifyingKey,
+    signature::{Signer, Verifier},
+  },
+  elliptic_curve::rand_core::OsRng as K256OsRng,
 };
 
 fn main() {
