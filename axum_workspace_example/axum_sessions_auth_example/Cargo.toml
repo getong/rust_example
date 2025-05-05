@@ -5,16 +5,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.97"
+anyhow = "1.0.98"
 async-trait = "0.1.88"
-axum = "0.8.3"
+axum = "0.8.4"
 axum-macros = "0.5.0"
 axum_session = { version = "0.16.0" }
 axum_session_auth = { version = "0.16.0" }
 axum_session_surreal = "0.4"
 http = "1.3.1"
 serde = { version = "1.0.219", features = ["derive"] }
-sqlx = "0.8.3"
-surrealdb = { version = "2.2", features = ["kv-mem"] }
-tokio = { version = "1.44.1", features = ["full"] }
+sqlx = "0.8.5"
+surrealdb = { version = "2.3", features = ["kv-mem"] }
+tokio = { version = "1.44.2", features = ["full"] }
 tracing = "0.1.41"
