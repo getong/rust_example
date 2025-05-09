@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
   let provider_http = ProviderBuilder::new()
     // .with_recommended_fillers()
     .wallet(wallet)
-    .on_http(rpc_url_http);
+    .connect_http(rpc_url_http);
 
   // println!("{:?}", provider_http);
 
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     provider_http,
   );
 
-  let stored_data_before = contract.storedData().call().await?._0;
+  let stored_data_before = contract.storedData().call().await?;
   println!("stored_data_before {}", stored_data_before);
 
   println!("Set storage to current UNIX time...");
@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
     Url::parse(&rpc_base_sepolia_infura_wss).expect("RPC url string type covert error");
 
   let ws = WsConnect::new(rpc_url_wss);
-  let provider_wss = ProviderBuilder::new().on_ws(ws).await?;
+  let provider_wss = ProviderBuilder::new().connect_ws(ws).await?;
 
   let simple_storage_address = address!("eD62F27e9e886A27510Dc491F5530996719cEd3d");
   let filter = Filter::new()
@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
   while let Some(log) = stream.next().await {
     println!("setEvent() log detected: {log:?}");
 
-    let stored_data_after = contract.storedData().call().await?._0;
+    let stored_data_after = contract.storedData().call().await?;
     println!("stored_data_after {:?}", stored_data_after);
 
     println!("Start to listen to event stream...");

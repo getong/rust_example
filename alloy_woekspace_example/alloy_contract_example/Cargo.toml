@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy = { version = "0.14.0", features = ["contract", "full", "node-bindings", "providers"] }
-tokio = { version = "1.44.2", features = ["full"] }
+alloy = { version = "0.15.10", features = ["contract", "full", "node-bindings", "providers"] }
+tokio = { version = "1.45.0", features = ["full"] }

@@ -17,7 +17,8 @@ async fn main() -> eyre::Result<()> {
   let rpc_url = "https://rpc.testnet.rootstock.io/{YOUR_APIKEY}".parse()?;
 
   // Create a provider with the HTTP transport using the `reqwest` crate.
-  let provider = ProviderBuilder::new().on_http(rpc_url);
+  // Fix the deprecated method by using connect_http instead of on_http
+  let provider = ProviderBuilder::new().connect_http(rpc_url);
 
   // Address without 0x prefix
   let alice = address!("8F1C0185bB6276638774B9E94985d69D3CDB444a");
@@ -34,8 +35,8 @@ async fn main() -> eyre::Result<()> {
     provider,
   );
 
-  let RIF::balanceOfReturn { balance } = contract.balanceOf(alice).call().await?;
-
+  // Fix the pattern match to handle the Uint type correctly
+  let balance = contract.balanceOf(alice).call().await?;
   println!("Rif balance: {:?}", balance);
 
   Ok(())

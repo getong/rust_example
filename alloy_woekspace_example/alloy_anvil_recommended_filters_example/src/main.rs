@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
   let provider = ProviderBuilder::new()
     // .with_recommended_fillers()
     .wallet(wallet)
-    .on_http(rpc_url);
+    .connect_http(rpc_url); // Updated from on_http to connect_http
 
   // Create a transaction.
   let tx = TransactionRequest::default()

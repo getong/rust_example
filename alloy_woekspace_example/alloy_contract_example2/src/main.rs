@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
   // Ensure `anvil` is available in $PATH.
   let provider = ProviderBuilder::new()
     // .with_recommended_fillers()
-    .on_anvil_with_wallet();
+    .connect_anvil_with_wallet();
 
   // Deploy the `Counter` contract from bytecode at runtime.
   let bytecode = hex::decode(
@@ -68,7 +68,8 @@ async fn main() -> Result<()> {
 
   // Retrieve the number, which should be 43.
   let builder = contract.number();
-  let number = builder.call().await?.number.to_string();
+  // Fix: The return value is a Uint<256, 4> directly, not a struct with a number field
+  let number = builder.call().await?.to_string();
 
   println!("Retrieved number: {number}");
 
