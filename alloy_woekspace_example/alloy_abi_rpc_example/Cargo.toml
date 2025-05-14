@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = "0.15.10"
+alloy = "1.0.1"
 eyre = "0.6.12"
 tokio = { version = "1.45.0", features = ["full"] }
