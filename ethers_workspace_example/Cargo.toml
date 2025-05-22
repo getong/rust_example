@@ -11,4 +11,5 @@ members = [
   "ethers_retryclientbuilder_example",
   "ethers_retryclientbuilder_provider_example",
   "ethers_u256_hex_example",
+  "ethers_request_fail_example",
 ]
