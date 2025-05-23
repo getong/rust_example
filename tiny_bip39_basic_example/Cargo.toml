@@ -1,8 +1,9 @@
 [package]
-name = "tiny_bip39_basic_example"
+name = "tiny-bip39-basic-example"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-anyhow = "1.0.98"
-tiny-bip39 = "2.0.0"
+anyhow = "1.0"
+hex = "0.4"
+tiny-bip39 = "1.0"
