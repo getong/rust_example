@@ -1,0 +1,8 @@
+[package]
+name = "tiny_bip39_basic_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+tiny-bip39 = "2.0.0"
