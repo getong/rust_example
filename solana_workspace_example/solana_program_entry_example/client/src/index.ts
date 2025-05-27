@@ -6,31 +6,33 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
   clusterApiUrl,
-} from '@solana/web3.js';
-import fs from 'fs';
-import path from 'path';
+} from "@solana/web3.js";
+import fs from "fs";
+import path from "path";
 
 // Configuration
-const CLUSTER = 'http://localhost:8899'; // Use local validator
-const PROGRAM_ID = new PublicKey('FP9Ui3292EvHcidbQPJcHqDQsstZP7Wb4uJEEQLS3Qos');
-const WALLET_PATH = path.join(process.env.HOME!, 'solana-wallets', 'bob.json');
+const CLUSTER = "http://localhost:8899"; // Use local validator
+const PROGRAM_ID = new PublicKey(
+  "FP9Ui3292EvHcidbQPJcHqDQsstZP7Wb4uJEEQLS3Qos",
+);
+const WALLET_PATH = path.join(process.env.HOME!, "solana-wallets", "bob.json");
 
 class SolanaProgramClient {
   private connection: Connection;
   private payer!: Keypair; // <-- Add definite assignment assertion
 
   constructor() {
-    this.connection = new Connection(CLUSTER, 'confirmed');
+    this.connection = new Connection(CLUSTER, "confirmed");
     this.loadWallet();
   }
 
   private loadWallet() {
     try {
-      const walletData = JSON.parse(fs.readFileSync(WALLET_PATH, 'utf8'));
+      const walletData = JSON.parse(fs.readFileSync(WALLET_PATH, "utf8"));
       this.payer = Keypair.fromSecretKey(new Uint8Array(walletData));
-      console.log('Wallet loaded:', this.payer.publicKey.toString());
+      console.log("Wallet loaded:", this.payer.publicKey.toString());
     } catch (error) {
-      console.error('Error loading wallet:', error);
+      console.error("Error loading wallet:", error);
       process.exit(1);
     }
   }
@@ -38,11 +40,16 @@ class SolanaProgramClient {
   async validateConnection(): Promise<boolean> {
     try {
       const version = await this.connection.getVersion();
-      console.log('Connected to Solana cluster version:', version['solana-core']);
+      console.log(
+        "Connected to Solana cluster version:",
+        version["solana-core"],
+      );
       return true;
     } catch (error) {
-      console.error('Failed to connect to Solana cluster at:', CLUSTER);
-      console.error('Make sure the local validator is running with: solana-test-validator');
+      console.error("Failed to connect to Solana cluster at:", CLUSTER);
+      console.error(
+        "Make sure the local validator is running with: solana-test-validator",
+      );
       return false;
     }
   }
@@ -70,7 +77,7 @@ class SolanaProgramClient {
     const signature = await sendAndConfirmTransaction(
       this.connection,
       transaction,
-      [this.payer]
+      [this.payer],
     );
 
     return signature;
@@ -78,34 +85,35 @@ class SolanaProgramClient {
 
   async run() {
     try {
-      console.log('Connecting to Solana...');
-      
+      console.log("Connecting to Solana...");
+
       // Validate connection first
       const isConnected = await this.validateConnection();
       if (!isConnected) {
         process.exit(1);
       }
 
-      console.log('Getting wallet balance...');
+      console.log("Getting wallet balance...");
       const balance = await this.getBalance();
       console.log(`Wallet balance: ${balance} SOL`);
 
       // Check if wallet has sufficient balance
       if (balance === 0) {
-        console.log('Wallet has no SOL. Requesting airdrop...');
+        console.log("Wallet has no SOL. Requesting airdrop...");
         await this.requestAirdrop();
         // Get balance again after airdrop
         const newBalance = await this.getBalance();
         console.log(`New wallet balance: ${newBalance} SOL`);
       }
 
-      console.log('Calling program...');
+      console.log("Calling program...");
       const signature = await this.callProgram();
-      console.log('Transaction signature:', signature);
-
+      console.log("Transaction signature:", signature);
     } catch (error) {
-      console.error('Error:', error);
-      console.error('Make sure solana-test-validator is running and try again.');
+      console.error("Error:", error);
+      console.error(
+        "Make sure solana-test-validator is running and try again.",
+      );
     }
   }
 
@@ -113,12 +121,12 @@ class SolanaProgramClient {
     try {
       const signature = await this.connection.requestAirdrop(
         this.payer.publicKey,
-        2 * 1e9 // 2 SOL
+        2 * 1e9, // 2 SOL
       );
       await this.connection.confirmTransaction(signature);
-      console.log('Airdrop successful! Signature:', signature);
+      console.log("Airdrop successful! Signature:", signature);
     } catch (error) {
-      console.error('Airdrop failed:', error);
+      console.error("Airdrop failed:", error);
     }
   }
 }
