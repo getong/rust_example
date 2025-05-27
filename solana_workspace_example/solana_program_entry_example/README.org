@@ -3,8 +3,18 @@
 #+begin_src shell
 cargo-build-sbf
 
-solana program deploy ../target/deploy/solana_program_entry_example.so
+solana program deploy --keypair ~/solana-wallets/bob.json ../target/deploy/solana_program_entry_example.so
 
 # or
-solana program deploy ../target/sbpf-solana-solana/release/solana_program_entry_example.so
+solana program deploy --keypair ~/solana-wallets/bob.json ../target/sbpf-solana-solana/release/solana_program_entry_example.so
+#+end_src
+
+* check programs owned by user
+
+#+begin_src shell
+# List all programs owned by the current keypair
+solana program show --programs --keypair ~/solana-wallets/bob.json
+
+# Or get account info to see program count
+solana account ~/solana-wallets/bob.json
 #+end_src

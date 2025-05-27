@@ -1,0 +1,51 @@
+* Solana Program TypeScript Client
+:PROPERTIES:
+:CUSTOM_ID: solana-program-typescript-client
+:END:
+This TypeScript project provides a client to interact with the deployed
+Solana program.
+
+** Setup
+:PROPERTIES:
+:CUSTOM_ID: setup
+:END:
+1. Install dependencies:
+
+#+begin_src sh
+npm install
+#+end_src
+
+2. [@2] Update the PROGRAM_ID in =src/index.ts= with your deployed
+   program ID
+
+3. Make sure your wallet file exists at =~/solana-wallets/bob.json=
+
+** Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+*** Development
+:PROPERTIES:
+:CUSTOM_ID: development
+:END:
+#+begin_src sh
+npm run dev
+#+end_src
+
+*** Production
+:PROPERTIES:
+:CUSTOM_ID: production
+:END:
+#+begin_src sh
+npm run build
+npm start
+#+end_src
+
+** Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+- Update =CLUSTER= in =src/index.ts= to match your deployment
+  environment
+- Update =PROGRAM_ID= with your actual deployed program ID
+- Ensure wallet path is correct in =WALLET_PATH=
