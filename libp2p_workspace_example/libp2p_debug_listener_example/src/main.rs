@@ -3,7 +3,7 @@ mod network;
 use std::{error::Error, io::Write, path::PathBuf};
 
 use clap::Parser;
-use futures::{StreamExt, prelude::*};
+use futures::prelude::*;
 use libp2p::{core::Multiaddr, multiaddr::Protocol};
 use tokio::task::spawn;
 use tracing_subscriber::EnvFilter;
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       network_client.start_providing(name.clone()).await;
 
       loop {
-        match network_events.next().await {
+        match network_events.recv().await {
           // Reply with the content of the file on incoming requests.
           Some(network::Event::InboundRequest { request, channel }) => {
             if request == name {
@@ -62,7 +62,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .await;
             }
           }
-          e => todo!("{:?}", e),
+          // Handle mDNS peer discovery
+          Some(network::Event::MdnsDiscovered { peer_id, addresses }) => {
+            println!("Discovered peer via mDNS: {peer_id}");
+            for addr in addresses {
+              if let Err(e) = network_client.dial(peer_id, addr.clone()).await {
+                println!("Failed to dial discovered peer {peer_id} at {addr}: {e}");
+              }
+            }
+          }
+          Some(network::Event::MdnsExpired { peer_id }) => {
+            println!("mDNS peer expired: {peer_id}");
+          }
+          None => break,
         }
       }
     }

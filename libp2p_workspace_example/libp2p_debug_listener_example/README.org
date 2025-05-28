@@ -4,7 +4,8 @@
 
 This is a peer-to-peer file sharing application built with libp2p that demonstrates:
 - File sharing over a distributed network
-- Kademlia DHT for peer discovery
+- Kademlia DHT for peer discovery and content routing
+- mDNS for automatic local network peer discovery
 - Request-response protocol for file transfer
 - Listener debugging and automatic restart functionality
 - Periodic listener status reporting
@@ -13,6 +14,7 @@ This is a peer-to-peer file sharing application built with libp2p that demonstra
 
 - **File Providing**: Share files on the network by advertising them on the DHT
 - **File Retrieval**: Find and download files from other peers
+- **mDNS Discovery**: Automatic discovery of peers on the local network
 - **Listener Debugging**: Automatic logging of listener events and periodic status reports
 - **Auto-restart**: Automatic re-listening when listeners close or encounter errors
 - **Configurable Peer ID**: Option to use deterministic peer IDs for testing
@@ -98,13 +100,225 @@ Set logging level with:
 RUST_LOG=debug ./target/release/libp2p_debug_listener_example ...
 #+END_SRC
 
+* Design Documentation
+
+** Architecture Overview
+
+The application follows a layered architecture with clear separation between the application logic and network layer:
+
+#+BEGIN_SRC
+┌─────────────────────────────────────────┐
+│            Application Layer            │
+│  (CLI, File I/O, Business Logic)       │
+├─────────────────────────────────────────┤
+│             Network Client              │
+│    (Async API for Network Operations)   │
+├─────────────────────────────────────────┤
+│            Network EventLoop            │
+│   (Event Handling, State Management)    │
+├─────────────────────────────────────────┤
+│          libp2p Swarm & Behaviors       │
+│  (Kademlia, Request-Response, mDNS)     │
+├─────────────────────────────────────────┤
+│             Transport Layer             │
+│      (TCP, Noise, Yamux, DNS)          │
+└─────────────────────────────────────────┘
+#+END_SRC
+
+** Network Behaviors
+
+*** Composed Behavior Structure
+
+The application combines three libp2p behaviors:
+
+#+BEGIN_SRC rust
+#[derive(NetworkBehaviour)]
+struct ComposedBehaviour {
+  request_response: request_response::cbor::Behaviour<FileRequest, FileResponse>,
+  kademlia: kad::Behaviour<kad::store::MemoryStore>,
+  mdns: MdnsBehaviour,
+}
+#+END_SRC
+
+*** Kademlia DHT
+- **Purpose**: Distributed hash table for content discovery and peer routing
+- **Key Functions**:
+  - Content advertising (~start_providing~)
+  - Provider lookup (~get_providers~)
+  - Peer routing and discovery
+- **Storage**: In-memory store for provider records
+- **Mode**: Server mode for participating in DHT routing
+
+*** Request-Response Protocol
+- **Purpose**: Direct file transfer between peers
+- **Protocol**: ~/file-exchange/1~ with CBOR encoding
+- **Message Types**:
+  - ~FileRequest(String)~: Request file by name
+  - ~FileResponse { data: Vec<u8> }~: File content response
+- **Features**: Automatic request ID tracking and timeout handling
+
+*** mDNS (Multicast DNS)
+- **Purpose**: Automatic peer discovery on local networks
+- **Functionality**:
+  - Broadcasts peer presence on local network
+  - Discovers other libp2p nodes automatically
+  - Integrates discovered peers into Kademlia routing table
+- **Events**:
+  - ~MdnsDiscovered~: New peer found on local network
+  - ~MdnsExpired~: Peer no longer reachable via mDNS
+
+** Event Flow Architecture
+
+*** Command-Event Pattern
+
+The network layer uses a command-event pattern for communication:
+
+#+BEGIN_SRC
+Application → Commands → EventLoop → libp2p Swarm
+     ↑                                      ↓
+   Events ← EventSender ← EventLoop ← Swarm Events
+#+END_SRC
+
+*** Event Processing Flow
+
+1. **Application Commands**:
+   - Sent via ~mpsc::UnboundedSender<Command>~
+   - Processed in ~EventLoop::handle_command()~
+   - Converted to libp2p swarm operations
+
+2. **Network Events**:
+   - Received from libp2p swarm
+   - Processed in ~EventLoop::handle_event()~
+   - Relevant events forwarded to application via ~mpsc::UnboundedSender<Event>~
+
+3. **State Management**:
+   - Pending operations tracked with request IDs
+   - Async responses delivered via ~tokio::oneshot~ channels
+
+** mDNS Integration Design
+
+*** Automatic Peer Discovery
+
+The mDNS integration provides zero-configuration peer discovery:
+
+#+BEGIN_SRC
+1. Node startup → mDNS broadcasts peer info
+2. Other nodes receive broadcast → MdnsDiscovered event
+3. EventLoop processes event → adds peer to Kademlia
+4. Automatic dial attempt → establishes connection
+5. Peers can now exchange files directly
+#+END_SRC
+
+*** Integration Points
+
+1. **Swarm Behavior**: mDNS behavior integrated into ~ComposedBehaviour~
+2. **Event Handling**: ~MdnsDiscovered~ and ~MdnsExpired~ events processed
+3. **Kademlia Integration**: Discovered peers automatically added to routing table
+4. **Application Events**: mDNS events forwarded to application layer
+
+*** Local Network Workflow
+
+#+BEGIN_SRC
+Node A starts          Node B starts
+    ↓                       ↓
+mDNS broadcast ←→ mDNS broadcast
+    ↓                       ↓
+Discovers B             Discovers A
+    ↓                       ↓
+Adds B to Kademlia      Adds A to Kademlia
+    ↓                       ↓
+Automatic dial          Automatic dial
+    ↓                       ↓
+Connection established
+    ↓
+Ready for file sharing
+#+END_SRC
+
+** Error Handling Strategy
+
+*** Network Layer Errors
+- Connection failures → Retry logic with exponential backoff
+- Request timeouts → Automatic cleanup of pending requests
+- Listener failures → Automatic restart attempts
+
+*** Application Layer Errors
+- File not found → Graceful error propagation
+- Provider lookup failures → Empty result sets returned
+- Parsing errors → Detailed error messages
+
+*** mDNS Error Handling
+- Discovery failures → Logged but don't interrupt operation
+- Peer expiration → Automatic cleanup from routing tables
+- Network interface changes → Automatic re-discovery
+
+** Performance Considerations
+
+*** Concurrency Model
+- Single event loop for all network operations
+- Non-blocking async operations throughout
+- Parallel file requests to multiple providers
+
+*** Memory Management
+- Streaming file transfers (future enhancement)
+- Bounded channel sizes for backpressure
+- Automatic cleanup of expired requests
+
+*** Network Optimization
+- Connection reuse for multiple requests
+- Kademlia routing optimization
+- mDNS broadcast rate limiting
+
+** Security Considerations
+
+*** Transport Security
+- Noise protocol for encrypted connections
+- Peer identity verification via cryptographic keys
+- Protection against man-in-the-middle attacks
+
+*** Content Security
+- No built-in content verification (files transferred as-is)
+- Peer authentication via libp2p identity system
+- Local network isolation via mDNS scope
+
+*** Privacy Considerations
+- DHT participation exposes network topology
+- mDNS broadcasts reveal local presence
+- File names are visible in DHT queries
+
+** Extensibility Points
+
+*** Adding New Behaviors
+- Implement ~NetworkBehaviour~ trait
+- Add to ~ComposedBehaviour~ struct
+- Handle events in ~EventLoop::handle_event()~
+
+*** Protocol Extensions
+- Custom request-response protocols
+- Additional DHT record types
+- Enhanced mDNS service discovery
+
+*** Application Features
+- File encryption/decryption
+- Content verification (checksums, signatures)
+- Metadata sharing and indexing
+- Streaming file transfers
+
 * Network Architecture
 
 The application uses:
-- **TCP Transport**: With Noise encryption and Yamux multiplexing
-- **Kademlia DHT**: For content discovery and peer routing
-- **Request-Response Protocol**: For file transfer using CBOR encoding
-- **Custom Behaviour**: Combining Kademlia and request-response protocols
+- **TCP Transport**: With Noise encryption and Yamux multiplexing for secure, multiplexed connections
+- **Kademlia DHT**: For content discovery, peer routing, and distributed hash table operations
+- **mDNS**: For automatic peer discovery on local networks without manual configuration
+- **Request-Response Protocol**: For file transfer using CBOR encoding with automatic retry logic
+- **Composed Behavior**: Seamlessly integrating Kademlia, request-response, and mDNS protocols
+
+** mDNS Local Discovery
+
+The mDNS integration enables:
+- **Zero-configuration**: Peers automatically discover each other on the same network
+- **Instant connectivity**: No need to manually specify peer addresses for local testing
+- **Seamless integration**: Discovered peers are automatically added to the DHT routing table
+- **Local network optimization**: Prefers local connections when available
 
 * Testing
 
