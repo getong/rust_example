@@ -72,4 +72,5 @@ members = [
   "libp2p_tuono_c1_example",
   "libp2p_tuono_c2_example",
   "libp2p_multiaddr_example",
+  "libp2p_debug_listener_example",
 ]
