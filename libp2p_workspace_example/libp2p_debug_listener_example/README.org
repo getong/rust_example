@@ -1,0 +1,163 @@
+#+TITLE: libp2p Debug Listener Example
+
+* Overview
+
+This is a peer-to-peer file sharing application built with libp2p that demonstrates:
+- File sharing over a distributed network
+- Kademlia DHT for peer discovery
+- Request-response protocol for file transfer
+- Listener debugging and automatic restart functionality
+- Periodic listener status reporting
+
+* Features
+
+- **File Providing**: Share files on the network by advertising them on the DHT
+- **File Retrieval**: Find and download files from other peers
+- **Listener Debugging**: Automatic logging of listener events and periodic status reports
+- **Auto-restart**: Automatic re-listening when listeners close or encounter errors
+- **Configurable Peer ID**: Option to use deterministic peer IDs for testing
+
+* Building
+
+#+BEGIN_SRC bash
+cargo build --release
+#+END_SRC
+
+* Usage
+
+** Providing a File
+
+To share a file on the network:
+
+#+BEGIN_SRC bash
+# Start a provider node
+./target/release/libp2p_debug_listener_example provide --path /path/to/your/file.txt --name "my-file"
+
+# With custom listen address
+./target/release/libp2p_debug_listener_example --listen-address /ip4/0.0.0.0/tcp/8080 provide --path /path/to/file.txt --name "my-file"
+
+# With deterministic peer ID (useful for testing)
+./target/release/libp2p_debug_listener_example --secret-key-seed 1 provide --path /path/to/file.txt --name "my-file"
+#+END_SRC
+
+** Getting a File
+
+To download a file from the network:
+
+#+BEGIN_SRC bash
+# Download a file (output goes to stdout)
+./target/release/libp2p_debug_listener_example get --name "my-file" > downloaded_file.txt
+
+# Connect to a specific peer first
+./target/release/libp2p_debug_listener_example --peer /ip4/127.0.0.1/tcp/8080/p2p/12D3KooW... get --name "my-file" > downloaded_file.txt
+#+END_SRC
+
+** Command Line Options
+
+- ~--secret-key-seed <SEED>~: Use a fixed seed for deterministic peer ID generation
+- ~--peer <MULTIADDR>~: Connect to a specific peer on startup
+- ~--listen-address <MULTIADDR>~: Specify the listening address (default: /ip4/0.0.0.0/tcp/0)
+
+* Example Workflow
+
+1. **Start Provider Node**:
+   #+BEGIN_SRC bash
+   echo "Hello, World!" > test.txt
+   ./target/release/libp2p_debug_listener_example --secret-key-seed 1 provide --path test.txt --name "hello"
+   #+END_SRC
+
+2. **Start Consumer Node** (in another terminal):
+   #+BEGIN_SRC bash
+   # Note the peer ID from the provider's output
+   ./target/release/libp2p_debug_listener_example --secret-key-seed 2 --peer /ip4/127.0.0.1/tcp/<PORT>/p2p/<PEER_ID> get --name "hello"
+   #+END_SRC
+
+* Debug Features
+
+** Listener Monitoring
+
+The application automatically:
+- Logs when new listeners start
+- Reports listener closures and errors
+- Attempts to restart failed listeners
+- Prints active listeners every 60 seconds
+
+** Log Output Examples
+
+#+BEGIN_SRC
+Local node is listening on "/ip4/127.0.0.1/tcp/54321/p2p/12D3KooW..."
+Listeners: ["/ip4/0.0.0.0/tcp/54321"]
+Listener closed: Ok(AddressInUse), addresses: ["/ip4/0.0.0.0/tcp/8080"], listener_id is ListenerId(1)
+Attempting to re-listen on: "/ip4/0.0.0.0/tcp/8080"
+#+END_SRC
+
+** Environment Variables
+
+Set logging level with:
+#+BEGIN_SRC bash
+RUST_LOG=debug ./target/release/libp2p_debug_listener_example ...
+#+END_SRC
+
+* Network Architecture
+
+The application uses:
+- **TCP Transport**: With Noise encryption and Yamux multiplexing
+- **Kademlia DHT**: For content discovery and peer routing
+- **Request-Response Protocol**: For file transfer using CBOR encoding
+- **Custom Behaviour**: Combining Kademlia and request-response protocols
+
+* Testing
+
+** Single Machine Testing
+
+1. Start provider:
+   #+BEGIN_SRC bash
+   ./target/release/libp2p_debug_listener_example --secret-key-seed 1 provide --path README.org --name "readme"
+   #+END_SRC
+
+2. Note the listening address from output, then start consumer:
+   #+BEGIN_SRC bash
+   ./target/release/libp2p_debug_listener_example --secret-key-seed 2 --peer /ip4/127.0.0.1/tcp/<PORT>/p2p/<PEER_ID> get --name "readme"
+   #+END_SRC
+
+** Multi-Machine Testing
+
+Replace ~127.0.0.1~ with actual IP addresses of the machines.
+
+* Troubleshooting
+
+** Common Issues
+
+- **Port in use**: The automatic listener restart will attempt to rebind
+- **Peer not found**: Ensure the peer multiaddr includes the correct peer ID
+- **File not found**: Check that the provider is advertising the correct file name
+- **Network connectivity**: Verify firewall settings allow the specified ports
+
+** Debug Commands
+
+Check active listeners:
+#+BEGIN_SRC bash
+# The application prints listeners every 60 seconds automatically
+# Look for "Listeners: [...]" in the output
+#+END_SRC
+
+** use with cargo run
+
+#+begin_src shell
+cargo run -- \
+  --secret-key-seed 1 \
+  --listen-address /ip4/0.0.0.0/tcp/9992 \
+  provide \
+  --name abc \
+  --path ~/share_file
+#+end_src
+
+* Code Structure
+
+- ~src/main.rs~: CLI interface and application logic
+- ~src/network.rs~: libp2p network layer with listener debugging
+  - ~Client~: Network API for application layer
+  - ~EventLoop~: Core network event handling with listener monitoring
+  - ~Behaviour~: Combined Kademlia + Request-Response protocol
+
+The listener debugging features are integrated into the ~EventLoop::handle_event~ method, providing automatic monitoring and restart capabilities.

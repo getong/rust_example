@@ -314,9 +314,14 @@ impl EventLoop {
         );
       }
       SwarmEvent::ListenerClosed {
-        reason, addresses, ..
+        reason,
+        addresses,
+        listener_id,
       } => {
-        eprintln!("Listener closed: {:?}, addresses: {:?}", reason, addresses);
+        eprintln!(
+          "Listener closed: {:?}, addresses: {:?}, listener_id is {:?}",
+          reason, addresses, listener_id
+        );
         // Attempt to re-listen on the closed addresses
         for addr in addresses {
           eprintln!("Attempting to re-listen on: {:?}", addr);
@@ -325,9 +330,7 @@ impl EventLoop {
           }
         }
       }
-      SwarmEvent::ListenerError {
-        error, listener_id, ..
-      } => {
+      SwarmEvent::ListenerError { error, listener_id } => {
         eprintln!(
           "Listener error: {:?}, listener_id: {:?}",
           error, listener_id
