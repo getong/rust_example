@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use bigdecimal::{num_traits::Pow, BigDecimal};
+use bigdecimal::{num_traits::Pow, BigDecimal, RoundingMode};
 
 fn main() {
   let input1 = "0.8";
@@ -51,4 +51,25 @@ fn main() {
   let b = BigDecimal::from(1_000_000_000_000_000_000u64);
   let c = a / b;
   println!("c is {:?}", c);
+
+  // Round function examples
+  let decimal_to_round = BigDecimal::from_str("3.14159265").unwrap();
+
+  // Round to 2 decimal places
+  let rounded_2 = decimal_to_round.round(2);
+  println!("Rounded to 2 decimal places: {}", rounded_2);
+
+  // Round to 4 decimal places
+  let rounded_4 = decimal_to_round.round(4);
+  println!("Rounded to 4 decimal places: {}", rounded_4);
+
+  // Round with different rounding modes
+  let test_value = BigDecimal::from_str("2.5").unwrap();
+  let rounded_half_up = test_value.with_scale_round(0, RoundingMode::HalfUp);
+  let rounded_half_even = test_value.with_scale_round(0, RoundingMode::HalfEven);
+  let rounded_half = test_value.round(0);
+
+  println!("2.5 rounded half up: {}", rounded_half_up);
+  println!("2.5 rounded half even: {}", rounded_half_even);
+  println!("2.5 rounded : {}", rounded_half);
 }
