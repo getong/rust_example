@@ -1,0 +1,8 @@
+[package]
+name = "pyo3_stream_chat_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { version = "0.25", features = ["auto-initialize"] }
+tokio = { version = "1.45", features = ["full"] }
