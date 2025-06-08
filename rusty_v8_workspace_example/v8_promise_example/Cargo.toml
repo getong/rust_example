@@ -1,0 +1,8 @@
+[package]
+name = "v8_promise_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.31"
+v8 = "137.2.0"
