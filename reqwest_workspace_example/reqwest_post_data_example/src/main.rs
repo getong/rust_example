@@ -13,17 +13,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
   // First request
   let json1 = json!({
       "deployment": ["QmbReTnhCweQHmbXxgffkDqkkedo7ojjsUWTKopP1auuTp", "QmTfhYrb3wusYS715KvHfaL56R8M1SrM8vwhuLyYVehfKB"],
-      "start_date": "2024-09-01",
+      "start_date": "2025-05-01",
   });
 
   let res = client
     .post(&url1)
     .json(&json1)
     .send()
-    .await?
+    .await
+    .map_err(|e| format!("Failed to send first request: {}", e))?
     .json::<Value>()
-    .await?;
-
+    .await
+    .map_err(|e| format!("Failed to parse first response as JSON: {}", e))?;
   println!("1: {:#?}", res);
 
   // Second request
@@ -32,7 +33,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
       "start_date": "2024-09-01",
   });
 
-  let res = client.post(&url1).json(&json2).send().await?.text().await?;
+  let res = client
+    .post(&url1)
+    .json(&json2)
+    .send()
+    .await
+    .map_err(|e| format!("Failed to send second request: {}", e))?
+    .text()
+    .await
+    .map_err(|e| format!("Failed to get second response text: {}", e))?;
 
   println!("2: {:#?}", res);
 
@@ -43,7 +52,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
       "start_date": "2024-09-01",
   });
 
-  let res = client.post(&url1).json(&json3).send().await?.text().await?;
+  let res = client
+    .post(&url1)
+    .json(&json3)
+    .send()
+    .await
+    .map_err(|e| format!("Failed to send third request: {}", e))?
+    .text()
+    .await
+    .map_err(|e| format!("Failed to get third response text: {}", e))?;
 
   println!("3: {:#?}", res);
 
@@ -54,7 +71,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
   });
 
   let url2 = format!("{}/deployment-price-count", BASE_URL);
-  let res = client.post(&url2).json(&json4).send().await?.text().await?;
+  let res = client
+    .post(&url2)
+    .json(&json4)
+    .send()
+    .await
+    .map_err(|e| format!("Failed to send fourth request: {}", e))?
+    .text()
+    .await
+    .map_err(|e| format!("Failed to get fourth response text: {}", e))?;
 
   println!("4 {:#?}", res);
 
@@ -64,7 +89,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
   );
 
   // Fifth request
-  let res = client.get(&url3).send().await?.text().await?;
+  let res = client
+    .get(&url3)
+    .send()
+    .await
+    .map_err(|e| format!("Failed to send fifth request: {}", e))?
+    .text()
+    .await
+    .map_err(|e| format!("Failed to get fifth response text: {}", e))?;
 
   println!("5 {:#?}", res);
 
@@ -81,9 +113,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .post(&url4)
     .json(&json4)
     .send()
-    .await?
+    .await
+    .map_err(|e| format!("Failed to send sixth request: {}", e))?
     .json::<Value>()
-    .await?;
+    .await
+    .map_err(|e| format!("Failed to parse sixth response as JSON: {}", e))?;
 
   println!("6 {:#?}", res);
 
@@ -97,9 +131,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .post(&url4)
     .json(&json4)
     .send()
-    .await?
+    .await
+    .map_err(|e| format!("Failed to send seventh request: {}", e))?
     .json::<Value>()
-    .await?;
+    .await
+    .map_err(|e| format!("Failed to parse seventh response as JSON: {}", e))?;
 
   println!("7 {:#?}", res);
 
@@ -109,7 +145,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     BASE_URL
   );
   // Eighth request
-  let res = client.get(&url5).send().await?.text().await?;
+  let res = client
+    .get(&url5)
+    .send()
+    .await
+    .map_err(|e| format!("Failed to send eighth request: {}", e))?
+    .text()
+    .await
+    .map_err(|e| format!("Failed to get eighth response text: {}", e))?;
 
   println!("8 {:#?}", res);
 
