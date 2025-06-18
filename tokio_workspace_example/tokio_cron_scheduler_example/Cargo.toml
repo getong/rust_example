@@ -6,15 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.93"
-chrono = "0.4.38"
+anyhow = "1.0.98"
+chrono = "0.4.41"
 chrono-tz = "0.10"
-log = "0.4.22"
-tokio = { version = "1.41.1", features = ["full"] }
-tokio-cron-scheduler = { version = "0.13.0", features = ["signal"] }
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-uuid = "1.11.0"
+log = "0.4.27"
+tokio = { version = "1.45.1", features = ["full"] }
+tokio-cron-scheduler = { version = "0.14.0", features = ["signal"] }
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+uuid = "1.17.0"
 
 [features]
 signal = ["tokio/signal"]

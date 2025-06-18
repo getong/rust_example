@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.93"
+anyhow = "1.0.98"
 async-channel = "2.3.1"
 futures = "0.3.31"
-rand = "0.8.5"
-tokio = { version = "1.41.1", features = ["full"] }
+rand = "0.9.1"
+tokio = { version = "1.45.1", features = ["full"] }

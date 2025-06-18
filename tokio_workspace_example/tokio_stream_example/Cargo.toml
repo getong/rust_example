@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.41.1", features = ["rt", "sync", "macros", "rt-multi-thread"] }
-tokio-stream = { version = "0.1.16", features = ["sync"] }
+tokio = { version = "1.45.1", features = ["rt", "sync", "macros", "rt-multi-thread"] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
