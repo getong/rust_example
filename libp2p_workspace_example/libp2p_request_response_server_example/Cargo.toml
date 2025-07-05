@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 futures = "0.3.31"
 hex = "0.4.3"
-libp2p = { version = "0.55", features = ["full"] }
+libp2p = { version = "0.56", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
 tokio = { version = "1.44.1", features = ["full"] }

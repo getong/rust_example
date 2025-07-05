@@ -8,7 +8,7 @@ ansi_term = "0.12.1"
 clap = { version = "4.5.35", features = ["derive"] }
 env_logger = "0.11.8"
 futures = "0.3.31"
-libp2p = { version = "0.55", features = ["full"] }
+libp2p = { version = "0.56", features = ["full"] }
 log = "0.4.27"
 structopt = "0.3.26"
 thiserror = "2.0.12"

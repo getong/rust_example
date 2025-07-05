@@ -16,7 +16,7 @@ anyhow = "1.0.97"
 byteorder = "1.5.0"
 futures = "0.3.31"
 hex = "0.4.3"
-libp2p = { version = "0.55.0", features = ["full"] }
+libp2p = { version = "0.56.0", features = ["full"] }
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
 rand = "0.8"
 reqwest = { version = "0.12.15", features = ["json"] }

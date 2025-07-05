@@ -9,7 +9,7 @@ dotenv = "0.15.0"
 either = "1.15.0"
 env_logger = "0.11.8"
 ethers = "2.0.14"
-libp2p = { version = "0.55", features = [
+libp2p = { version = "0.56", features = [
   "tcp",
   "tls",
   "kad",
