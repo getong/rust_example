@@ -1,0 +1,205 @@
+* Compressed NFT (cNFT) Example
+:PROPERTIES:
+:CUSTOM_ID: compressed-nft-cnft-example
+:END:
+This is a complete example of minting compressed NFTs using Solana's
+Bubblegum protocol and State Compression.
+
+** Prerequisites
+:PROPERTIES:
+:CUSTOM_ID: prerequisites
+:END:
+1. *Solana CLI installed* and configured
+2. *Rust and Cargo* installed
+3. *Devnet SOL* in your wallet
+4. *A Merkle tree* created for compression
+5. *A collection NFT* (regular NFT that serves as the collection)
+
+** Setup Instructions
+:PROPERTIES:
+:CUSTOM_ID: setup-instructions
+:END:
+*** 1. Install Solana CLI
+:PROPERTIES:
+:CUSTOM_ID: install-solana-cli
+:END:
+#+begin_src sh
+# Install Solana CLI
+sh -c "$(curl -sSfL https://release.solana.com/v1.18.4/install)"
+
+# Configure for devnet
+solana config set --url https://api.devnet.solana.com
+
+# Generate a keypair (if you don't have one)
+solana-keygen new
+
+# Get some devnet SOL
+solana airdrop 2
+#+end_src
+
+*** 2. Create a Merkle Tree
+:PROPERTIES:
+:CUSTOM_ID: create-a-merkle-tree
+:END:
+You'll need to create a Merkle tree for storing compressed NFTs. You can
+use the Sugar CLI or JavaScript/TypeScript:
+
+#+begin_src sh
+# Install Sugar CLI
+bash <(curl -sSf https://sugar.metaplex.com/install.sh)
+
+# Create a merkle tree (adjust max_depth and max_buffer_size as needed)
+sugar create-tree --max-depth 20 --max-buffer-size 64
+#+end_src
+
+Or using JavaScript:
+
+#+begin_src javascript
+import { createTree } from "@solana/spl-account-compression";
+// Implementation depends on your setup
+#+end_src
+
+*** 3. Create a Collection NFT
+:PROPERTIES:
+:CUSTOM_ID: create-a-collection-nft
+:END:
+You need a regular NFT to serve as the collection. You can create one
+using:
+
+#+begin_src sh
+# Using Sugar CLI
+sugar create-collection
+
+# Or using Metaplex CLI
+metaplex create nft \
+  --url "https://arweave.net/your-collection-metadata.json" \
+  --name "My Collection" \
+  --symbol "COLL"
+#+end_src
+
+*** 4. Update the Code
+:PROPERTIES:
+:CUSTOM_ID: update-the-code
+:END:
+Replace the placeholder addresses in =src/main.rs=:
+
+#+begin_src rust
+// Replace these with your actual addresses
+let merkle_tree = Pubkey::from_str("YOUR_MERKLE_TREE_ADDRESS")?;
+let collection_mint = Pubkey::from_str("YOUR_COLLECTION_MINT_ADDRESS")?;
+#+end_src
+
+*** 5. Upload Metadata
+:PROPERTIES:
+:CUSTOM_ID: upload-metadata
+:END:
+Upload your NFT metadata to Arweave or IPFS and update the URI:
+
+#+begin_src rust
+let uri = "https://arweave.net/your_metadata.json".to_string();
+#+end_src
+
+Example metadata JSON:
+
+#+begin_src json
+{
+  "name": "My Compressed NFT",
+  "symbol": "CNFT",
+  "description": "A compressed NFT using Solana's state compression",
+  "image": "https://arweave.net/your-image-hash",
+  "attributes": [
+    {
+      "trait_type": "Type",
+      "value": "Compressed"
+    }
+  ],
+  "properties": {
+    "category": "image",
+    "files": [
+      {
+        "uri": "https://arweave.net/your-image-hash",
+        "type": "image/png"
+      }
+    ]
+  }
+}
+#+end_src
+
+** Running the Example
+:PROPERTIES:
+:CUSTOM_ID: running-the-example
+:END:
+#+begin_src sh
+# Build the project
+cargo build
+
+# Run the example
+cargo run
+#+end_src
+
+** What This Code Does
+:PROPERTIES:
+:CUSTOM_ID: what-this-code-does
+:END:
+1. *Connects to Solana devnet*
+2. *Loads your wallet keypair*
+3. *Derives required PDAs* (Program Derived Addresses):
+   - Tree authority for the Merkle tree
+   - Collection metadata address
+   - Collection edition address
+4. *Creates a mint instruction* with:
+   - NFT metadata (name, symbol, URI)
+   - Creator information
+   - Royalty settings (5% seller fee)
+   - Collection verification
+5. *Sends the transaction* to mint the compressed NFT
+
+** Key Concepts
+:PROPERTIES:
+:CUSTOM_ID: key-concepts
+:END:
+- *Compressed NFTs*: Use Merkle trees to store NFT data off-chain while
+  maintaining on-chain verification
+- *Bubblegum Protocol*: Metaplex's protocol for compressed NFTs
+- *State Compression*: Solana's technology for storing large amounts of
+  data efficiently
+- *Collection*: A parent NFT that groups related compressed NFTs
+
+** Cost Benefits
+:PROPERTIES:
+:CUSTOM_ID: cost-benefits
+:END:
+- Regular NFT: ~0.012 SOL per mint
+- Compressed NFT: ~0.0001 SOL per mint (100x cheaper!)
+
+** Troubleshooting
+:PROPERTIES:
+:CUSTOM_ID: troubleshooting
+:END:
+1. *"Account not found" errors*: Make sure your Merkle tree and
+   collection NFT exist
+2. *"Insufficient funds"*: Ensure you have enough SOL for transaction
+   fees
+3. *"Invalid collection authority"*: Verify you're the update authority
+   of the collection NFT
+4. *"Tree full"*: Your Merkle tree is at capacity, create a new one
+
+** Next Steps
+:PROPERTIES:
+:CUSTOM_ID: next-steps
+:END:
+- Implement compressed NFT transfers
+- Add batch minting functionality
+- Create a web interface
+- Implement compressed NFT burning
+- Add compressed NFT verification
+
+** Resources
+:PROPERTIES:
+:CUSTOM_ID: resources
+:END:
+- [[https://docs.solana.com/learn/state-compression][Solana State
+  Compression Guide]]
+- [[https://docs.metaplex.com/programs/compression/][Metaplex Bubblegum
+  Documentation]]
+- [[https://developers.metaplex.com/bubblegum][Compressed NFT Guide]]
