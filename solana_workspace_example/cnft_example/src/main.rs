@@ -44,9 +44,9 @@ fn derive_edition_pda(mint: &Pubkey) -> (Pubkey, u8) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  // Connect to devnet
+  // Connect to localhost devnet
   let rpc = RpcClient::new_with_commitment(
-    "https://api.devnet.solana.com".to_string(),
+    "http://127.0.0.1:8899".to_string(),
     CommitmentConfig::confirmed(),
   );
 
