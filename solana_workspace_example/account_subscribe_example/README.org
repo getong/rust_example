@@ -1,0 +1,122 @@
+* Solana Account Subscribe Example
+:PROPERTIES:
+:CUSTOM_ID: solana-account-subscribe-example
+:END:
+This example demonstrates how to subscribe to account changes using
+Solana's WebSocket API. It shows real-time monitoring of account updates
+on a local Solana test validator.
+
+** Features
+:PROPERTIES:
+:CUSTOM_ID: features
+:END:
+- 🔗 WebSocket subscription to account changes
+- 💰 Automatic airdrop and transaction creation
+- 📬 Real-time account update notifications
+- 🏠 Works with localhost devnet (local test validator)
+
+** Prerequisites
+:PROPERTIES:
+:CUSTOM_ID: prerequisites
+:END:
+1. *Install Solana CLI Tools*
+
+   #+begin_src sh
+   sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
+   #+end_src
+
+2. *Start Local Test Validator*
+
+   #+begin_src sh
+   solana-test-validator
+   #+end_src
+
+   Keep this running in a separate terminal.
+
+** How to Run
+:PROPERTIES:
+:CUSTOM_ID: how-to-run
+:END:
+1. *Clone and navigate to the project*
+
+   #+begin_src sh
+   cd /Users/a/personal_info/rust_example/solana_workspace_example/account_subscribe_example
+   #+end_src
+
+2. *Build the project*
+
+   #+begin_src sh
+   cargo build
+   #+end_src
+
+3. *Run the example*
+
+   #+begin_src sh
+   cargo run
+   #+end_src
+
+** What the Example Does
+:PROPERTIES:
+:CUSTOM_ID: what-the-example-does
+:END:
+1. *Creates a test account* to monitor
+2. *Subscribes to account changes* using WebSocket
+3. *Requests an airdrop* to fund transactions
+4. *Sends SOL transfers* to trigger account updates
+5. *Displays real-time notifications* when the account changes
+
+** Expected Output
+:PROPERTIES:
+:CUSTOM_ID: expected-output
+:END:
+#+begin_example
+🚀 Starting Solana Account Subscribe Example
+📧 Created test account: 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgHRJ
+✅ Connected to local validator
+🔗 Subscribing to account changes...
+👂 Listening for account changes...
+💰 Requesting airdrop for funding account...
+✅ Airdrop confirmed!
+💸 Sending SOL to monitored account to trigger subscription...
+✅ Transfer completed! Signature: 4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM
+📬 Received account update for 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgHRJ: ...
+💸 Sending another transaction to trigger more updates...
+✅ Second transfer completed! Signature: 3LAGOd8XGXBKQYjAr2dJHmDhZdZoNkEWNLKvHGiKwKt
+📬 Received account update for 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgHRJ: ...
+🏁 Example completed! Check the account updates above.
+#+end_example
+
+** Key Components
+:PROPERTIES:
+:CUSTOM_ID: key-components
+:END:
+- *PubsubClient*: Handles WebSocket connections for real-time updates
+- *RpcClient*: Manages HTTP RPC calls for transactions
+- *Account Subscription*: Monitors specific account changes
+- *Local Validator*: Provides fast, reliable testing environment
+
+** Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+The example uses these default endpoints: - *WebSocket*:
+=ws://127.0.0.1:8900/= - *RPC*: =http://127.0.0.1:8899=
+
+These correspond to the default ports used by =solana-test-validator=.
+
+** Troubleshooting
+:PROPERTIES:
+:CUSTOM_ID: troubleshooting
+:END:
+If you see connection errors: 1. Make sure =solana-test-validator= is
+running 2. Check that ports 8899 and 8900 are available 3. Verify Solana
+CLI tools are installed correctly
+
+** Learn More
+:PROPERTIES:
+:CUSTOM_ID: learn-more
+:END:
+- [[https://solanacookbook.com/references/local-development.html][Solana
+  Cookbook - Local Development]]
+- [[https://docs.rs/solana-client/][Solana Client Documentation]]
+- [[https://docs.solana.com/api/websocket][Solana WebSocket API]]
