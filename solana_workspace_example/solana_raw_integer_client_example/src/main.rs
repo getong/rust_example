@@ -12,7 +12,7 @@ use solana_sdk::{
 use solana_system_interface::instruction as system_instruction;
 
 // Constants
-const KEYPAIR_FILE_PATH: &str = "~/.config/solana/id.json";
+const KEYPAIR_FILE_PATH: &str = "~/solana-wallets/bob.json";
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct IntegerAccount {
@@ -81,17 +81,19 @@ fn main() -> anyhow::Result<()> {
 
   // Payer: load from keypair file or use Keypair::new() for demo (must be funded!)
   let payer = load_keypair_from_file(KEYPAIR_FILE_PATH)?;
+  println!("Payer pubkey: {}", payer.pubkey());
 
   // The account storing your integer
   let integer_account = Keypair::new(); // Or load if already created
+  println!("Integer account pubkey: {}", integer_account.pubkey());
 
   // Program id (deployed address)
-  let program_id = Pubkey::from_str("YourProgram1111111111111111111111111111111111")?;
+    let program_id = Pubkey::from_str("CkNdo4Z3KEPKe5i9uRhiBDC6JAzL874jxSG31cwy1FYd")?;
 
   // 2. Create the data account (if needed)
   let (recent_blockhash, _) =
     client.get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())?;
-  let space = 8 + 8; // borsh header + i64
+  let space = 8; // Just i64, no additional header needed
   let rent = client.get_minimum_balance_for_rent_exemption(space)?;
 
   // Only needed if this is the first time!
@@ -110,17 +112,27 @@ fn main() -> anyhow::Result<()> {
     vec![AccountMeta::new(integer_account.pubkey(), false)],
   );
 
-  // 4. Send as a transaction (creating and initializing in one tx)
-  let tx = Transaction::new_signed_with_payer(
-    &[create_account_ix, ix],
+  // 4. First, create the account
+  let create_tx = Transaction::new_signed_with_payer(
+    &[create_account_ix],
     Some(&payer.pubkey()),
     &[&payer, &integer_account],
     recent_blockhash,
   );
-  let sig = client.send_and_confirm_transaction(&tx)?;
-  println!("Tx sig: {}", sig);
+  let create_sig = client.send_and_confirm_transaction(&create_tx)?;
+  println!("Account creation tx sig: {}", create_sig);
 
-  // 5. Later: send add/minus/divide instructions
+  // 5. Then initialize it with our custom instruction
+  let init_tx = Transaction::new_signed_with_payer(
+    &[ix],
+    Some(&payer.pubkey()),
+    &[&payer],
+    recent_blockhash,
+  );
+  let init_sig = client.send_and_confirm_transaction(&init_tx)?;
+  println!("Initialize tx sig: {}", init_sig);
+
+  // 6. Later: send add/minus/divide instructions
   let add_ix = Instruction::new_with_bytes(
     program_id,
     &IntegerInstruction::Add { value: 5 }.pack(),
@@ -132,7 +144,7 @@ fn main() -> anyhow::Result<()> {
   let sig2 = client.send_and_confirm_transaction(&tx2)?;
   println!("Add tx sig: {}", sig2);
 
-  // 6. Fetch and print the current value
+  // 7. Fetch and print the current value
   let acct = client.get_account(&integer_account.pubkey())?;
   let int_data = IntegerAccount::try_from_slice(&acct.data)?;
   println!("Current value: {}", int_data.value);

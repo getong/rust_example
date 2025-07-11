@@ -1,0 +1,19 @@
+* build command
+
+#+begin_src shell
+mkdir -p ~/solana-wallets
+solana-keygen new --outfile ~/solana-wallets/bob.json
+solana config set --url http://127.0.0.1:8899
+solana airdrop 10 ~/solana-wallets/bob.json
+
+cargo-build-sbf
+
+$ solana program deploy --keypair ~/solana-wallets/bob.json ../target/deploy/solana_raw_integer_example.so
+Program Id: CkNdo4Z3KEPKe5i9uRhiBDC6JAzL874jxSG31cwy1FYd
+
+Signature: 3eeimgzaYR7UcrcAU6Dr8mqkbqp7PVxbn9fdZpJ7jYzJRFp1Y12Xmitw8Fq56CV5sg7njsvmegzbGhiwYLbN9Z7X
+
+# or
+solana program deploy --keypair ~/solana-wallets/bob.json ../target/sbpf-solana-solana/release/solana_raw_integer_example.so
+
+#+end_src
