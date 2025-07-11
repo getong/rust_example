@@ -17,4 +17,5 @@ members = [
   "solana_rpc_get_latest_block_hash_example",
   "cnft_example",
   "account_subscribe_example",
+  "solana_pda_example",
 ]
