@@ -18,4 +18,5 @@ members = [
   "cnft_example",
   "account_subscribe_example",
   "solana_pda_example",
+  "all_program_id_example",
 ]
