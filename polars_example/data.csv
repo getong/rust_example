@@ -1,5 +1,5 @@
-name,age
-Alice,42
-Jack,35
-Mark,34
-Kira,39
+name,age,score
+Alice,42,85
+Jack,35,78
+Mark,34,92
+Kira,39,88
