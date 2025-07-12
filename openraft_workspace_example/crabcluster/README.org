@@ -1,0 +1,545 @@
+* 🦀 CrabCluster
+:PROPERTIES:
+:CUSTOM_ID: crabcluster
+:END:
+A high-performance distributed key-value store built with Rust and
+OpenRaft consensus algorithm.
+
+** Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+CrabCluster is a production-ready distributed system that provides: -
+*Strong Consistency*: Raft consensus ensures data integrity across all
+nodes - *High Availability*: Fault-tolerant cluster with automatic
+leader election - *Simple REST API*: Easy-to-use HTTP endpoints for data
+operations - *Horizontal Scaling*: Support for multi-node clusters (2-5+
+nodes) - *Container Ready*: Optional Podman integration for
+containerized workloads
+
+** 🚀 Quick Start
+:PROPERTIES:
+:CUSTOM_ID: quick-start
+:END:
+*** Prerequisites
+:PROPERTIES:
+:CUSTOM_ID: prerequisites
+:END:
+- *Rust 1.70+*:
+  =curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh=
+- *Optional*: Podman for container management features
+
+*** Build and Run
+:PROPERTIES:
+:CUSTOM_ID: build-and-run
+:END:
+#+begin_src sh
+# Clone and build
+git clone <repository-url>
+cd crabcluster
+cargo build --release
+
+# Start a single node for testing
+cargo run -- --bind-addr 127.0.0.1:8080
+#+end_src
+
+*** Test the API
+:PROPERTIES:
+:CUSTOM_ID: test-the-api
+:END:
+#+begin_src sh
+# Write some data
+curl -X POST http://127.0.0.1:8080/write \
+  -H "Content-Type: application/json" \
+  -d '{"Set": {"key": "hello", "value": "world"}}'
+
+# Read it back
+curl -X POST http://127.0.0.1:8080/read \
+  -H "Content-Type: application/json" \
+  -d '"hello"'
+#+end_src
+
+** 🏗️ Cluster Deployment
+:PROPERTIES:
+:CUSTOM_ID: cluster-deployment
+:END:
+*** Option 1: Automated Setup (Recommended)
+:PROPERTIES:
+:CUSTOM_ID: option-1-automated-setup-recommended
+:END:
+**** 2-Node Development Cluster
+:PROPERTIES:
+:CUSTOM_ID: node-development-cluster
+:END:
+Perfect for development and testing:
+
+#+begin_src sh
+chmod +x join_cluster.sh
+./join_cluster.sh
+#+end_src
+
+**** 5-Node Production Cluster
+:PROPERTIES:
+:CUSTOM_ID: node-production-cluster
+:END:
+For production-like testing with fault tolerance:
+
+#+begin_src sh
+chmod +x setup_5node_cluster.sh cluster_manager.sh
+./setup_5node_cluster.sh
+#+end_src
+
+*** Option 2: Cluster Management Commands
+:PROPERTIES:
+:CUSTOM_ID: option-2-cluster-management-commands
+:END:
+Use the cluster manager for flexible operations:
+
+#+begin_src sh
+# Start a custom-sized cluster
+./cluster_manager.sh start-cluster 3        # 3-node cluster on ports 8080-8082
+./cluster_manager.sh start-cluster 5 9000   # 5-node cluster on ports 9000-9004
+
+# Monitor and control
+./cluster_manager.sh status                 # Check cluster health
+./cluster_manager.sh add-node 8085         # Add node to existing cluster
+./cluster_manager.sh stop-all              # Stop all nodes
+#+end_src
+
+*** Option 3: Manual Setup (Advanced)
+:PROPERTIES:
+:CUSTOM_ID: option-3-manual-setup-advanced
+:END:
+For custom configurations and learning purposes:
+
+**** Step 1: Start First Node (Leader)
+:PROPERTIES:
+:CUSTOM_ID: step-1-start-first-node-leader
+:END:
+#+begin_src sh
+cargo run -- --bind-addr 127.0.0.1:8080
+#+end_src
+
+**** Step 2: Initialize the Cluster
+:PROPERTIES:
+:CUSTOM_ID: step-2-initialize-the-cluster
+:END:
+#+begin_src sh
+curl -X GET http://127.0.0.1:8080/init
+#+end_src
+
+**** Step 3: Add Additional Nodes
+:PROPERTIES:
+:CUSTOM_ID: step-3-add-additional-nodes
+:END:
+#+begin_src sh
+# Terminal 2: Start second node
+cargo run -- --bind-addr 127.0.0.1:8081
+
+# Terminal 3: Start third node (optional)
+cargo run -- --bind-addr 127.0.0.1:8082
+#+end_src
+
+**** Step 4: Register Nodes in Cluster
+:PROPERTIES:
+:CUSTOM_ID: step-4-register-nodes-in-cluster
+:END:
+#+begin_src sh
+# Get node IDs
+FIRST_ID=$(curl -s http://127.0.0.1:8080/get-id | jq -r '.')
+SECOND_ID=$(curl -s http://127.0.0.1:8081/get-id | jq -r '.')
+
+# Add second node as learner
+curl -X POST http://127.0.0.1:8080/add-learner \
+  -H "Content-Type: application/json" \
+  -d "[\"$SECOND_ID\", \"127.0.0.1:8081\"]"
+
+# Promote to voting member
+curl -X POST http://127.0.0.1:8080/change-membership \
+  -H "Content-Type: application/json" \
+  -d "[\"$FIRST_ID\", \"$SECOND_ID\"]"
+#+end_src
+
+** 📖 API Reference
+:PROPERTIES:
+:CUSTOM_ID: api-reference
+:END:
+*** 🔧 Cluster Management
+:PROPERTIES:
+:CUSTOM_ID: cluster-management
+:END:
+| Endpoint             | Method | Description                          | Request Body                   | Response                |
+|----------------------+--------+--------------------------------------+--------------------------------+-------------------------|
+| =/init=              | GET    | Initialize cluster (first node only) | None                           | ={"Ok": "Initialized"}= |
+| =/get-id=            | GET    | Get node UUID                        | None                           | ="uuid-string"=         |
+| =/add-learner=       | POST   | Add node as learner                  | =[<node_uuid>, <socket_addr>]= | ={"Ok": "Added"}=       |
+| =/change-membership= | POST   | Set voting membership                | =[<uuid1>, <uuid2>, ...]=      | ={"Ok": "Changed"}=     |
+| =/metrics=           | GET    | Get cluster status and metrics       | None                           | Cluster metrics object  |
+
+*** 📊 Data Operations
+:PROPERTIES:
+:CUSTOM_ID: data-operations
+:END:
+| Endpoint | Method | Description          | Request Body                                | Response                                      |
+|----------+--------+----------------------+---------------------------------------------+-----------------------------------------------|
+| =/write= | POST   | Write key-value data | ={"Set": {"key": "name", "value": "data"}}= | ={"Ok": {...}}=                               |
+| =/read=  | POST   | Read value by key    | ="key_name"=                                | ={"Ok": "value"}= or ={"Err": "KeyNotFound"}= |
+
+*** ⚙️ Internal Endpoints
+:PROPERTIES:
+:CUSTOM_ID: internal-endpoints
+:END:
+/Used internally by Raft protocol - not for direct use:/ -
+=POST /raft-append= - Log replication between nodes -
+=POST /raft-vote= - Leader election voting - =POST /raft-snapshot= -
+Snapshot transfer for catch-up
+
+** 💡 Usage Examples
+:PROPERTIES:
+:CUSTOM_ID: usage-examples
+:END:
+*** Basic Data Operations
+:PROPERTIES:
+:CUSTOM_ID: basic-data-operations
+:END:
+#+begin_src sh
+# Write data to the cluster
+curl -X POST http://127.0.0.1:8080/write \
+  -H "Content-Type: application/json" \
+  -d '{"Set": {"key": "user:123", "value": "john_doe"}}'
+
+# Read data back
+curl -X POST http://127.0.0.1:8080/read \
+  -H "Content-Type: application/json" \
+  -d '"user:123"'
+# Response: {"Ok": "john_doe"}
+
+# Try reading non-existent key
+curl -X POST http://127.0.0.1:8080/read \
+  -H "Content-Type: application/json" \
+  -d '"nonexistent"'
+# Response: {"Err": "KeyNotFound"}
+#+end_src
+
+*** Cluster Health Monitoring
+:PROPERTIES:
+:CUSTOM_ID: cluster-health-monitoring
+:END:
+#+begin_src sh
+# Check overall cluster status
+curl -s http://127.0.0.1:8080/metrics | jq '{
+  leader: .Ok.current_leader,
+  state: .Ok.state,
+  term: .Ok.current_term,
+  members: .Ok.membership_config.membership.configs[-1]
+}'
+
+# Verify data replication across nodes
+curl -X POST http://127.0.0.1:8080/write \
+  -H "Content-Type: application/json" \
+  -d '{"Set": {"key": "replication_test", "value": "replicated_data"}}'
+
+# Read from different node to confirm replication
+curl -X POST http://127.0.0.1:8081/read \
+  -H "Content-Type: application/json" \
+  -d '"replication_test"'
+#+end_src
+
+*** Advanced Operations
+:PROPERTIES:
+:CUSTOM_ID: advanced-operations
+:END:
+#+begin_src sh
+# Batch operations (write multiple keys)
+for i in {1..10}; do
+  curl -X POST http://127.0.0.1:8080/write \
+    -H "Content-Type: application/json" \
+    -d "{\"Set\": {\"key\": \"batch_$i\", \"value\": \"data_$i\"}}"
+done
+
+# Performance testing
+time for i in {1..100}; do
+  curl -s -X POST http://127.0.0.1:8080/write \
+    -H "Content-Type: application/json" \
+    -d "{\"Set\": {\"key\": \"perf_$i\", \"value\": \"test_data\"}}" > /dev/null
+done
+#+end_src
+
+** 🏛️ Architecture
+:PROPERTIES:
+:CUSTOM_ID: architecture
+:END:
+*** Core Components
+:PROPERTIES:
+:CUSTOM_ID: core-components
+:END:
+- *🗳️ Raft Consensus*: OpenRaft implementation ensures strong consistency
+- *🌐 HTTP API Server*: Axum-based REST API with JSON serialization
+- *💾 Key-Value Store*: In-memory storage with persistent Raft log
+- *🔗 Network Layer*: HTTP-based inter-node communication
+- *📦 Container Integration*: Optional Podman support for workload
+  orchestration
+
+*** System Design
+:PROPERTIES:
+:CUSTOM_ID: system-design
+:END:
+#+begin_example
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Node 1        │    │   Node 2        │    │   Node 3        │
+│   (Leader)      │    │   (Follower)    │    │   (Follower)    │
+├─────────────────┤    ├─────────────────┤    ├─────────────────┤
+│ HTTP API        │    │ HTTP API        │    │ HTTP API        │
+│ Raft Engine     │◄──►│ Raft Engine     │◄──►│ Raft Engine     │
+│ KV Store        │    │ KV Store        │    │ KV Store        │
+│ Network Client  │    │ Network Client  │    │ Network Client  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+#+end_example
+
+*** Performance Characteristics
+:PROPERTIES:
+:CUSTOM_ID: performance-characteristics
+:END:
+- *Consistency*: Strong (CP in CAP theorem)
+- *Write Latency*: ~1-5ms (local network)
+- *Read Latency*: ~0.1-1ms (any node)
+- *Throughput*: 1000+ ops/sec (depends on network and hardware)
+- *Fault Tolerance*: Survives (N-1)/2 node failures
+
+** 🛠️ Development
+:PROPERTIES:
+:CUSTOM_ID: development
+:END:
+*** Project Structure
+:PROPERTIES:
+:CUSTOM_ID: project-structure
+:END:
+#+begin_example
+src/
+├── main.rs              # Application entry point and CLI
+├── args.rs              # Command-line argument parsing
+├── node.rs              # Node initialization and HTTP server setup
+├── raft_network.rs      # Raft network communication implementation
+├── store.rs             # Key-value storage and Raft state machine
+└── network/
+    ├── mod.rs           # Network module exports
+    ├── management.rs    # Cluster management endpoints (/init, /metrics)
+    ├── raft.rs          # Raft protocol endpoints (/raft-*)
+    └── user_api.rs      # User-facing API (/read, /write)
+#+end_example
+
+*** Development Workflow
+:PROPERTIES:
+:CUSTOM_ID: development-workflow
+:END:
+#+begin_src sh
+# Run tests
+cargo test
+
+# Debug logging (verbose)
+RUST_LOG=debug cargo run -- --bind-addr 127.0.0.1:8080
+
+# Performance profiling
+cargo build --release
+time ./target/release/crabcluster --bind-addr 127.0.0.1:8080
+
+# Code formatting and linting
+cargo fmt
+cargo clippy
+#+end_src
+
+*** Configuration Tuning
+:PROPERTIES:
+:CUSTOM_ID: configuration-tuning
+:END:
+The cluster is optimized for multi-node deployments with these
+settings: - *Heartbeat Interval*: 100ms (faster failure detection) -
+*Election Timeout*: 200-400ms (quick leader recovery) - *Max Payload
+Entries*: 500 (higher throughput) - *Replication Lag Threshold*: 2000ms
+(tolerance for slower nodes)
+
+** 🐛 Troubleshooting
+:PROPERTIES:
+:CUSTOM_ID: troubleshooting
+:END:
+*** Common Issues and Solutions
+:PROPERTIES:
+:CUSTOM_ID: common-issues-and-solutions
+:END:
+**** ❌ "Cluster Already Initialized"
+:PROPERTIES:
+:CUSTOM_ID: cluster-already-initialized
+:END:
+#+begin_src json
+{"Err":{"APIError":{"NotAllowed":{...}}}}
+#+end_src
+
+*Solution*: Cluster is already running. Check status and skip
+initialization:
+
+#+begin_src sh
+curl -s http://127.0.0.1:8080/metrics | jq '.Ok.current_leader'
+#+end_src
+
+**** ❌ "Address Already in Use"
+:PROPERTIES:
+:CUSTOM_ID: address-already-in-use
+:END:
+#+begin_example
+Error: Address already in use (os error 48)
+#+end_example
+
+*Solutions*:
+
+#+begin_src sh
+# Option 1: Use different port
+cargo run -- --bind-addr 127.0.0.1:8081
+
+# Option 2: Stop existing processes
+pkill -f crabcluster
+#+end_src
+
+**** ❌ "Connection Refused" or Node Won't Join
+:PROPERTIES:
+:CUSTOM_ID: connection-refused-or-node-wont-join
+:END:
+*Possible causes and fixes*:
+
+#+begin_src sh
+# Check if leader node is initialized
+curl http://127.0.0.1:8080/metrics
+
+# Verify node IDs are correct
+curl -s http://127.0.0.1:8080/get-id | jq -r '.'
+curl -s http://127.0.0.1:8081/get-id | jq -r '.'
+
+# Check network connectivity
+telnet 127.0.0.1 8080
+#+end_src
+
+**** ❌ Podman DNS Warning (Harmless)
+:PROPERTIES:
+:CUSTOM_ID: podman-dns-warning-harmless
+:END:
+#+begin_example
+Could not connect to Podman: dns error: failed to lookup address information
+#+end_example
+
+*Solution*: This is expected if Podman isn't installed. Install Podman
+or ignore - basic functionality works without it.
+
+*** Debug Mode
+:PROPERTIES:
+:CUSTOM_ID: debug-mode
+:END:
+Enable verbose logging for troubleshooting:
+
+#+begin_src sh
+RUST_LOG=debug cargo run -- --bind-addr 127.0.0.1:8080
+#+end_src
+
+*** Cluster Management Scripts
+:PROPERTIES:
+:CUSTOM_ID: cluster-management-scripts
+:END:
+Use the provided scripts for automated troubleshooting:
+
+#+begin_src sh
+# Check what's running
+./cluster_manager.sh status
+
+# Clean slate restart
+./cluster_manager.sh stop-all
+./cluster_manager.sh start-cluster 3
+#+end_src
+
+** 📋 Container Runtime Setup (Optional)
+:PROPERTIES:
+:CUSTOM_ID: container-runtime-setup-optional
+:END:
+CrabCluster includes optional Podman integration for container
+orchestration features.
+
+*** Linux Setup
+:PROPERTIES:
+:CUSTOM_ID: linux-setup
+:END:
+#+begin_src sh
+# Install Podman
+sudo apt install podman  # Ubuntu/Debian
+sudo dnf install podman  # Fedora/RHEL
+
+# Enable rootless containers
+systemctl --user enable --now podman.socket
+#+end_src
+
+*** macOS Setup
+:PROPERTIES:
+:CUSTOM_ID: macos-setup
+:END:
+#+begin_src sh
+# Install via Homebrew
+brew install podman
+
+# Initialize and start
+podman machine init
+podman machine start
+#+end_src
+
+*** Verification
+:PROPERTIES:
+:CUSTOM_ID: verification
+:END:
+#+begin_src sh
+# Test Podman connection
+podman version
+
+# CrabCluster will automatically detect and use Podman when available
+cargo run -- --bind-addr 127.0.0.1:8080
+# Should not show DNS error warnings if properly configured
+#+end_src
+
+--------------
+
+** 📄 License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+[Add your license information here]
+
+** 🤝 Contributing
+:PROPERTIES:
+:CUSTOM_ID: contributing
+:END:
+Contributions welcome! Please feel free to submit a Pull Request. For
+major changes, please open an issue first.
+
+*** Development Setup
+:PROPERTIES:
+:CUSTOM_ID: development-setup
+:END:
+1. Fork the repository
+2. Create a feature branch: =git checkout -b feature-name=
+3. Make your changes and add tests
+4. Run tests: =cargo test=
+5. Submit a pull request
+
+--------------
+
+** 🌟 Features Roadmap
+:PROPERTIES:
+:CUSTOM_ID: features-roadmap
+:END:
+- [ ] *Persistence*: Add disk-based storage backend
+- [ ] *TLS Support*: Encrypted inter-node communication
+- [ ] *Metrics Export*: Prometheus/Grafana integration
+- [ ] *Dynamic Membership*: Hot-add/remove nodes without restart
+- [ ] *Backup/Restore*: Cluster state snapshots
+- [ ] *Multi-Datacenter*: Cross-region replication support
+
+--------------
+
+copy from https://github.com/svenstaro/crabcluster modified with github
+copilot
+
+/Built with ❤️ in Rust/ 🦀
