@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{typ::*, TypeConfig};
 
-pub type LogStore = memstore::LogStore<TypeConfig>;
+pub type LogStore = mem_log::LogStore<TypeConfig>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {

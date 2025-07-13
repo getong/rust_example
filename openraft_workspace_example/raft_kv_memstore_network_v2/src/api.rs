@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::BasicNode;
+use openraft::{BasicNode, ReadPolicy};
 
 use crate::{app::App, decode, encode, typ::*, NodeId};
 
@@ -14,10 +14,12 @@ pub async fn write(app: &mut App, req: String) -> String {
 pub async fn read(app: &mut App, req: String) -> String {
   let key: String = decode(&req);
 
-  let ret = app.raft.ensure_linearizable().await;
+  let ret = app.raft.get_read_linearizer(ReadPolicy::ReadIndex).await;
 
   let res = match ret {
-    Ok(_) => {
+    Ok(linearizer) => {
+      linearizer.await_ready(&app.raft).await.unwrap();
+
       let state_machine = app.state_machine.state_machine.lock().unwrap();
       let value = state_machine.data.get(&key).cloned();
 
