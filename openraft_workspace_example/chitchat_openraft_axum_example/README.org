@@ -118,6 +118,25 @@ curl "http://127.0.0.1:10001/mark_for_deletion?key=hello"
 :PROPERTIES:
 :CUSTOM_ID: usage
 :END:
+*** Quick Start with run-servers.sh Script
+:PROPERTIES:
+:CUSTOM_ID: quick-start-with-run-servers-script
+:END:
+The easiest way to start a multi-node cluster is using the provided script:
+
+#+begin_src sh
+./run-servers.sh
+#+end_src
+
+This script will:
+- Kill any existing instances
+- Start 5 nodes on ports 10001-10005
+- Use node 10001 as the seed node for cluster formation
+- Provide helpful test commands
+- Wait for you to press Enter before stopping all nodes
+
+*Note:* Make sure the script is executable with =chmod +x run-servers.sh=
+
 *** Starting a Single Node
 :PROPERTIES:
 :CUSTOM_ID: starting-a-single-node
@@ -126,9 +145,9 @@ curl "http://127.0.0.1:10001/mark_for_deletion?key=hello"
 cargo run -- --listen_addr 127.0.0.1:10001
 #+end_src
 
-*** Starting Multiple Nodes
+*** Starting Multiple Nodes Manually
 :PROPERTIES:
-:CUSTOM_ID: starting-multiple-nodes
+:CUSTOM_ID: starting-multiple-nodes-manually
 :END:
 Start the first node:
 
@@ -167,7 +186,31 @@ OPTIONS:
 :PROPERTIES:
 :CUSTOM_ID: testing-the-api
 :END:
-*** Check Cluster State
+*** Quick Testing with Multiple Nodes
+:PROPERTIES:
+:CUSTOM_ID: quick-testing-with-multiple-nodes
+:END:
+After starting the cluster with =./run-servers.sh=:
+
+#+begin_src sh
+# Check cluster state from node 1
+curl http://127.0.0.1:10001/ | jq
+
+# Set a key-value pair on node 1
+curl "http://127.0.0.1:10001/set_kv?key=test&value=hello"
+
+# Verify the data propagated to node 2 via gossip
+curl http://127.0.0.1:10002/ | jq '.cluster_state'
+
+# Check all live nodes from node 3
+curl http://127.0.0.1:10003/ | jq '.live_nodes'
+#+end_src
+
+*** Individual API Tests
+:PROPERTIES:
+:CUSTOM_ID: individual-api-tests
+:END:
+**** Check Cluster State
 :PROPERTIES:
 :CUSTOM_ID: check-cluster-state
 :END:
@@ -175,7 +218,7 @@ OPTIONS:
 curl http://127.0.0.1:10001/ | jq
 #+end_src
 
-*** Set a Key-Value Pair
+**** Set a Key-Value Pair
 :PROPERTIES:
 :CUSTOM_ID: set-a-key-value-pair
 :END:
@@ -183,7 +226,7 @@ curl http://127.0.0.1:10001/ | jq
 curl "http://127.0.0.1:10001/set_kv?key=test&value=data"
 #+end_src
 
-*** Verify the Key Was Set
+**** Verify the Key Was Set
 :PROPERTIES:
 :CUSTOM_ID: verify-the-key-was-set
 :END:
@@ -191,13 +234,93 @@ curl "http://127.0.0.1:10001/set_kv?key=test&value=data"
 curl http://127.0.0.1:10001/ | jq '.cluster_state'
 #+end_src
 
-*** Mark Key for Deletion
+**** Mark Key for Deletion
 :PROPERTIES:
 :CUSTOM_ID: mark-key-for-deletion
 :END:
 #+begin_src sh
 curl "http://127.0.0.1:10001/mark_for_deletion?key=test"
 #+end_src
+
+*** Testing Cluster Behavior
+:PROPERTIES:
+:CUSTOM_ID: testing-cluster-behavior
+:END:
+**** Test Gossip Propagation
+:PROPERTIES:
+:CUSTOM_ID: test-gossip-propagation
+:END:
+#+begin_src sh
+# Set data on node 1
+curl "http://127.0.0.1:10001/set_kv?key=node1_data&value=from_node_1"
+
+# Wait a moment for gossip propagation (usually very fast)
+sleep 1
+
+# Check if data appears on other nodes
+curl http://127.0.0.1:10002/ | jq '.cluster_state.node1_data'
+curl http://127.0.0.1:10003/ | jq '.cluster_state.node1_data'
+#+end_src
+
+**** Test Node Discovery
+:PROPERTIES:
+:CUSTOM_ID: test-node-discovery
+:END:
+#+begin_src sh
+# Check how many nodes are discovered in the cluster
+curl http://127.0.0.1:10001/ | jq '.live_nodes | length'
+
+# List all node IDs in the cluster
+curl http://127.0.0.1:10001/ | jq '.live_nodes[].node_id'
+#+end_src
+
+** Project Structure
+:PROPERTIES:
+:CUSTOM_ID: project-structure
+:END:
+#+begin_example
+chitchat_openraft_axum_example/
+├── Cargo.toml                 # Project dependencies and metadata
+├── README.md                  # Markdown documentation
+├── README.org                 # Org-mode documentation (this file)
+├── run-servers.sh             # Script to start multi-node cluster
+└── src/
+    ├── lib.rs                 # Shared data structures and types
+    └── main.rs                # Main application with API endpoints
+#+end_example
+
+** Files Description
+:PROPERTIES:
+:CUSTOM_ID: files-description
+:END:
+*** =src/main.rs=
+:PROPERTIES:
+:CUSTOM_ID: src-main-rs
+:END:
+Contains the main application logic:
+- Axum web server setup and routing
+- API endpoint handlers (get_state, set_kv, mark_for_deletion)
+- Chitchat configuration and initialization
+- Command-line argument parsing with StructOpt
+
+*** =src/lib.rs=
+:PROPERTIES:
+:CUSTOM_ID: src-lib-rs
+:END:
+Defines shared data structures:
+- =ApiResponse=: Response format for cluster state endpoint
+- =SetKeyValueResponse=: Response format for key-value operations
+- Serde serialization/deserialization traits
+
+*** =run-servers.sh=
+:PROPERTIES:
+:CUSTOM_ID: run-servers-sh
+:END:
+Bash script for development and testing:
+- Automatically starts 5-node cluster
+- Handles process cleanup
+- Provides helpful testing commands
+- Interactive stop mechanism
 
 ** Architecture
 :PROPERTIES:
@@ -228,6 +351,50 @@ curl "http://127.0.0.1:10001/mark_for_deletion?key=test"
 - Configurable gossip intervals
 - Adjustable failure detection timeouts
 - Support for custom node IDs and addressing
+
+** Troubleshooting
+:PROPERTIES:
+:CUSTOM_ID: troubleshooting
+:END:
+*** Port Already in Use
+:PROPERTIES:
+:CUSTOM_ID: port-already-in-use
+:END:
+If you get "Address already in use" error:
+
+#+begin_src sh
+# Kill existing processes
+killall chitchat_openraft_axum_example
+
+# Or use different ports
+cargo run -- --listen_addr 127.0.0.1:11001
+#+end_src
+
+*** Node Not Joining Cluster
+:PROPERTIES:
+:CUSTOM_ID: node-not-joining-cluster
+:END:
+- Ensure seed node is running before starting other nodes
+- Check that UDP ports are not blocked by firewall
+- Verify seed addresses are correct (include port number)
+
+*** API Returns "Invalid request"
+:PROPERTIES:
+:CUSTOM_ID: api-returns-invalid-request
+:END:
+- Make sure you're using the correct port (10001-10005 with run-servers.sh)
+- Check that the HTTP method is GET for all endpoints
+- Verify query parameters are properly URL-encoded
+
+*** Logs and Debugging
+:PROPERTIES:
+:CUSTOM_ID: logs-and-debugging
+:END:
+Enable detailed logging by setting environment variables:
+
+#+begin_src sh
+RUST_LOG=debug cargo run -- --listen_addr 127.0.0.1:10001
+#+end_src
 
 ** Future Enhancements
 :PROPERTIES:
