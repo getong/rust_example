@@ -8,12 +8,11 @@ use openraft::Config;
 
 use crate::{
   app::App,
-  network::{api, management, raft, Network},
+  network::{api, management, raft},
   store::{Request, Response},
 };
 
 pub mod app;
-pub mod client;
 pub mod network;
 pub mod store;
 #[cfg(test)]
@@ -32,6 +31,7 @@ pub type LogStore = store::LogStore;
 pub type StateMachineStore = store::StateMachineStore;
 pub type Raft = openraft::Raft<TypeConfig>;
 
+#[path = "../../utils/declare_types.rs"]
 pub mod typ;
 
 pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std::io::Result<()> {
@@ -52,7 +52,7 @@ pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std:
 
   // Create the network layer that will connect and communicate the raft instances and
   // will be used in conjunction with the store created above.
-  let network = Network {};
+  let network = network_v1_http::NetworkFactory {};
 
   // Create a local raft instance.
   let raft = openraft::Raft::new(

@@ -5,7 +5,10 @@ use actix_web::{
   web::{Data, Json},
   Responder,
 };
-use openraft::{error::Infallible, BasicNode, RaftMetrics};
+use openraft::{
+  error::{decompose::DecomposeResult, Infallible},
+  BasicNode, RaftMetrics,
+};
 
 use crate::{app::App, NodeId, TypeConfig};
 
@@ -25,7 +28,12 @@ pub async fn add_learner(
   let node = BasicNode {
     addr: req.0 .1.clone(),
   };
-  let res = app.raft.add_learner(node_id, node, true).await;
+  let res = app
+    .raft
+    .add_learner(node_id, node, true)
+    .await
+    .decompose()
+    .unwrap();
   Ok(Json(res))
 }
 
@@ -35,7 +43,12 @@ pub async fn change_membership(
   app: Data<App>,
   req: Json<BTreeSet<NodeId>>,
 ) -> actix_web::Result<impl Responder> {
-  let res = app.raft.change_membership(req.0, false).await;
+  let res = app
+    .raft
+    .change_membership(req.0, false)
+    .await
+    .decompose()
+    .unwrap();
   Ok(Json(res))
 }
 
@@ -59,7 +72,7 @@ pub async fn init(
       nodes.insert(id, BasicNode { addr });
     }
   };
-  let res = app.raft.initialize(nodes).await;
+  let res = app.raft.initialize(nodes).await.decompose().unwrap();
   Ok(Json(res))
 }
 

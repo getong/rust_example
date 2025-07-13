@@ -9,7 +9,7 @@ use crate::{app::App, TypeConfig};
 
 // --- Raft communication
 
-#[post("/raft-vote")]
+#[post("/vote")]
 pub async fn vote(
   app: Data<App>,
   req: Json<VoteRequest<TypeConfig>>,
@@ -18,7 +18,7 @@ pub async fn vote(
   Ok(Json(res))
 }
 
-#[post("/raft-append")]
+#[post("/append")]
 pub async fn append(
   app: Data<App>,
   req: Json<AppendEntriesRequest<TypeConfig>>,
@@ -27,7 +27,7 @@ pub async fn append(
   Ok(Json(res))
 }
 
-#[post("/raft-snapshot")]
+#[post("/snapshot")]
 pub async fn snapshot(
   app: Data<App>,
   req: Json<InstallSnapshotRequest<TypeConfig>>,

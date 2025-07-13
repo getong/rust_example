@@ -7,14 +7,15 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4.10.2"
-clap = { version = "4.5.36", features = ["derive", "env"] }
+clap = { version = "4.5.41", features = ["derive", "env"] }
 env_logger = "0.11.8"
-memstore = {git = "https://github.com/databendlabs/openraft" }
+mem-log = { path = "../mem-log" }
+network-v1-http = { path = "../network-v1-http" }
 openraft = {git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"]}
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-tokio = { version = "1.44.2", default-features = false, features = ["sync"] }
+tokio = { version = "1.46.1", default-features = false, features = ["sync"] }
 tracing = "0.1.41"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
