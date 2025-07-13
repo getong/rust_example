@@ -7,7 +7,7 @@ use openraft::{RaftSnapshotBuilder, entry::RaftEntry, storage::RaftStateMachine}
 
 use crate::{TypeConfig, protobuf as pb, protobuf::Response, typ::*};
 
-pub type LogStore = memstore::LogStore<TypeConfig>;
+pub type LogStore = mem_log::LogStore<TypeConfig>;
 
 #[derive(Debug)]
 pub struct StoredSnapshot {
