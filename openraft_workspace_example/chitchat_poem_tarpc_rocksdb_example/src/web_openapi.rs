@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::error::CheckIsLeaderError;
+use openraft::{error::decompose::DecomposeResult, ReadPolicy};
 use poem_openapi::{payload::Json, ApiResponse, Object, OpenApi};
 
-use crate::{common::Api, Node, NodeId, Request, TypeConfig};
+use crate::{common::Api, Node, NodeId, Request};
 
 #[derive(ApiResponse)]
 pub enum SearchResponse {
@@ -95,30 +95,35 @@ impl Api {
       key: name.0.key,
       value: name.0.value,
     };
-    let result = self.raft.client_write(req).await;
+    let result = self.raft.client_write(req).await.decompose();
     match result {
       Ok(_) => WriteResponse::Ok(Json("ok".to_string())),
-      _ => WriteResponse::Ok(Json("failed".to_string())),
+      Err(_) => WriteResponse::Ok(Json("failed".to_string())),
     }
   }
 
   #[oai(path = "/consistent_read", method = "post")]
   pub async fn consistent_read(&self, name: Json<String>) -> ConsistentReadResponse {
-    let ret = self.raft.ensure_linearizable().await;
+    let ret = self
+      .raft
+      .get_read_linearizer(ReadPolicy::ReadIndex)
+      .await
+      .decompose()
+      .unwrap();
 
     match ret {
-      Ok(_) => {
-        let state_machine = self.key_values.read().await;
-
-        let value = state_machine.get(&name.0).cloned().unwrap_or_default();
-
-        let res: Result<String, CheckIsLeaderError<TypeConfig>> = Ok(value);
-        match res {
-          Ok(result) => ConsistentReadResponse::Ok(Json(result)),
+      Ok(linearizer) => {
+        // Wait for the linearizer to be ready
+        match linearizer.await_ready(&self.raft).await {
+          Ok(_) => {
+            let state_machine = self.key_values.read().await;
+            let value = state_machine.get(&name.0).cloned().unwrap_or_default();
+            ConsistentReadResponse::Ok(Json(value))
+          }
           Err(_) => ConsistentReadResponse::Fail,
         }
       }
-      _e => ConsistentReadResponse::Fail,
+      Err(_e) => ConsistentReadResponse::Fail,
     }
   }
 
