@@ -57,3 +57,18 @@ pub async fn metrics(State(app_state): State<RaftApp>) -> impl IntoResponse {
 pub async fn get_id(State(app_state): State<RaftApp>) -> impl IntoResponse {
   (StatusCode::CREATED, Json(app_state.id))
 }
+
+#[tracing::instrument(level = "debug", skip(app_state))]
+pub async fn get_config(State(app_state): State<RaftApp>) -> impl IntoResponse {
+  let config_info = serde_json::json!({
+    "cluster_name": app_state.get_config().cluster_name,
+    "heartbeat_interval": app_state.get_config().heartbeat_interval,
+    "election_timeout_min": app_state.get_config().election_timeout_min,
+    "election_timeout_max": app_state.get_config().election_timeout_max,
+    "max_payload_entries": app_state.get_config().max_payload_entries,
+    "replication_lag_threshold": app_state.get_config().replication_lag_threshold,
+    "purge_batch_size": app_state.get_config().purge_batch_size,
+  });
+
+  (StatusCode::OK, Json(config_info))
+}

@@ -38,6 +38,13 @@ pub struct RaftApp {
   pub config: Arc<Config>,
 }
 
+impl RaftApp {
+  /// Get the cluster configuration
+  pub fn get_config(&self) -> &Config {
+    &self.config
+  }
+}
+
 pub async fn start_node(node_id: NodeId, bind_addr: SocketAddr) -> Result<()> {
   // Create a configuration for the raft instance optimized for multi-node clusters
   let config = Arc::new(
@@ -89,6 +96,7 @@ pub async fn start_node(node_id: NodeId, bind_addr: SocketAddr) -> Result<()> {
     .route("/raft-vote", post(vote))
     .route("/get-id", get(get_id))
     .route("/metrics", get(metrics))
+    .route("/config", get(crate::network::management::get_config))
     .route("/add-learner", post(add_learner))
     .route("/change-membership", post(change_membership))
     .route("/read", post(kv_read))
