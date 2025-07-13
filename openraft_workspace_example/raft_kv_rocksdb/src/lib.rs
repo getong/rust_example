@@ -1,56 +1,39 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::{fmt::Display, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
+use actix_web::{middleware, middleware::Logger, web::Data, HttpServer};
 use openraft::Config;
-use tokio::{net::TcpListener, task};
 
 use crate::{
   app::App,
-  network::{api, management, Network},
+  network::{api, management, raft},
   store::{new_storage, Request, Response},
 };
 
 pub mod app;
-pub mod client;
 pub mod network;
 pub mod store;
 
 pub type NodeId = u64;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, Default)]
-pub struct Node {
-  pub rpc_addr: String,
-  pub api_addr: String,
-}
-
-impl Display for Node {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "Node {{ rpc_addr: {}, api_addr: {} }}",
-      self.rpc_addr, self.api_addr
-    )
-  }
-}
-
 openraft::declare_raft_types!(
     pub TypeConfig:
         D = Request,
         R = Response,
-        Node = Node,
 );
 
-pub mod typ;
+pub type LogStore = openraft_rocksstore::log_store::RocksLogStore<TypeConfig>;
+pub type StateMachineStore = store::StateMachineStore;
+pub type Raft = openraft::Raft<TypeConfig>;
 
-type Server = tide::Server<Arc<App>>;
+pub mod typ;
 
 pub async fn start_example_raft_node<P>(
   node_id: NodeId,
   dir: P,
-  http_addr: String,
-  rpc_addr: String,
+  addr: String,
 ) -> std::io::Result<()>
 where
   P: AsRef<Path>,
@@ -68,9 +51,8 @@ where
 
   let kvs = state_machine_store.data.kvs.clone();
 
-  // Create the network layer that will connect and communicate the raft instances and
-  // will be used in conjunction with the store created above.
-  let network = Network {};
+  // Create the network layer using network-v1 crate
+  let network = network_v1_http::NetworkFactory {};
 
   // Create a local raft instance.
   let raft = openraft::Raft::new(
@@ -83,33 +65,39 @@ where
   .await
   .unwrap();
 
-  let app = Arc::new(App {
+  // Create an application that will store all the instances created above, this will
+  // later be used on the actix-web services.
+  let app_data = Data::new(App {
     id: node_id,
-    api_addr: http_addr.clone(),
-    rpc_addr: rpc_addr.clone(),
+    addr: addr.clone(),
     raft,
     key_values: kvs,
     config,
   });
 
-  let echo_service = Arc::new(network::raft::Raft::new(app.clone()));
-
-  let server = toy_rpc::Server::builder().register(echo_service).build();
-
-  let listener = TcpListener::bind(rpc_addr).await.unwrap();
-  let handle = task::spawn(async move {
-    server.accept_websocket(listener).await.unwrap();
+  // Start the actix-web server.
+  let server = HttpServer::new(move || {
+    actix_web::App::new()
+      .wrap(Logger::default())
+      .wrap(Logger::new("%a %{User-Agent}i"))
+      .wrap(middleware::Compress::default())
+      .app_data(app_data.clone())
+      // raft internal RPC
+      .service(raft::append)
+      .service(raft::snapshot)
+      .service(raft::vote)
+      // admin API
+      .service(management::init)
+      .service(management::add_learner)
+      .service(management::change_membership)
+      .service(management::metrics)
+      // application API
+      .service(api::write)
+      .service(api::read)
+      .service(api::linearizable_read)
   });
 
-  // Create an application that will store all the instances created above, this will
-  // be later used on the actix-web services.
-  let mut app: Server = tide::Server::with_state(app);
+  let x = server.bind(addr)?;
 
-  management::rest(&mut app);
-  api::rest(&mut app);
-
-  app.listen(http_addr.clone()).await?;
-  tracing::info!("App Server listening on: {}", http_addr);
-  _ = handle.await;
-  Ok(())
+  x.run().await
 }

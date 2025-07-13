@@ -1,67 +1,52 @@
-use std::sync::Arc;
+use actix_web::{post, web, web::Data, Responder};
+use openraft::{
+  error::{decompose::DecomposeResult, CheckIsLeaderError, Infallible},
+  ReadPolicy,
+};
+use web::Json;
 
-use openraft::error::Infallible;
-use tide::{Body, Request, Response, StatusCode};
+use crate::{app::App, store::Request, TypeConfig};
 
-use crate::{app::App, typ::*, Server};
-
-pub fn rest(app: &mut Server) {
-  let mut api = app.at("/api");
-  api.at("/write").post(write);
-  api.at("/read").post(read);
-  api.at("/linearizable_read").post(linearizable_read);
-}
-/// Application API
-///
-/// This is where you place your application, you can use the example below to create your
-/// API. The current implementation:
-///
-///  - `POST - /write` saves a value in a key and sync the nodes.
-///  - `POST - /read` attempt to find a value from a given key.
-async fn write(mut req: Request<Arc<App>>) -> tide::Result {
-  let body = req.body_json().await?;
-  let res = req.state().raft.client_write(body).await;
-  Ok(
-    Response::builder(StatusCode::Ok)
-      .body(Body::from_json(&res)?)
-      .build(),
-  )
+#[post("/write")]
+pub async fn write(app: Data<App>, req: Json<Request>) -> actix_web::Result<impl Responder> {
+  let response = app.raft.client_write(req.0).await.decompose().unwrap();
+  Ok(Json(response))
 }
 
-async fn read(mut req: Request<Arc<App>>) -> tide::Result {
-  let key: String = req.body_json().await?;
-  let kvs = req.state().key_values.read().await;
+#[post("/read")]
+pub async fn read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl Responder> {
+  let key = req.0;
+  let kvs = app.key_values.read().await;
   let value = kvs.get(&key);
 
   let res: Result<String, Infallible> = Ok(value.cloned().unwrap_or_default());
-  Ok(
-    Response::builder(StatusCode::Ok)
-      .body(Body::from_json(&res)?)
-      .build(),
-  )
+  Ok(Json(res))
 }
 
-async fn linearizable_read(mut req: Request<Arc<App>>) -> tide::Result {
-  let ret = req.state().raft.ensure_linearizable().await;
+#[post("/linearizable_read")]
+pub async fn linearizable_read(
+  app: Data<App>,
+  req: Json<String>,
+) -> actix_web::Result<impl Responder> {
+  let ret = app
+    .raft
+    .get_read_linearizer(ReadPolicy::ReadIndex)
+    .await
+    .decompose()
+    .unwrap();
 
   match ret {
-    Ok(_) => {
-      let key: String = req.body_json().await?;
-      let kvs = req.state().key_values.read().await;
+    Ok(linearizer) => {
+      linearizer.await_ready(&app.raft).await.unwrap();
 
+      let key = req.0;
+      let kvs = app.key_values.read().await;
       let value = kvs.get(&key);
 
-      let res: Result<String, CheckIsLeaderError> = Ok(value.cloned().unwrap_or_default());
-      Ok(
-        Response::builder(StatusCode::Ok)
-          .body(Body::from_json(&res)?)
-          .build(),
-      )
+      let res: Result<String, CheckIsLeaderError<TypeConfig>> =
+        Ok(value.cloned().unwrap_or_default());
+      Ok(Json(res))
     }
-    e => Ok(
-      Response::builder(StatusCode::Ok)
-        .body(Body::from_json(&e)?)
-        .build(),
-    ),
+    Err(e) => Ok(Json(Err(e))),
   }
 }
