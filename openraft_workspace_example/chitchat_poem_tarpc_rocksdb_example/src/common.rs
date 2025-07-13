@@ -24,15 +24,30 @@ pub struct Opt {
   #[clap(long)]
   pub id: u64,
 
-  #[clap(long)]
-  pub http_addr: String,
+  /// API server address (HTTP)
+  #[clap(long, default_value = "127.0.0.1:8080")]
+  pub api_addr: String,
 
+  /// RPC address for raft communication
   #[clap(long)]
   pub rpc_addr: String,
+
+  /// Legacy HTTP address (deprecated, use api_addr)
+  #[clap(long)]
+  pub http_addr: Option<String>,
+
+  /// Chitchat gossip address for service discovery
+  #[clap(long, default_value = "127.0.0.1:9000")]
+  pub gossip_addr: String,
+
+  /// Seed gossip addresses for joining existing cluster
+  #[clap(long)]
+  pub seed_gossip_addrs: Vec<String>,
 
   /// Defines the socket addr on which we should listen to.
   #[arg(long = "listen_addr", default_value = "127.0.0.1:10000")]
   pub listen_addr: SocketAddr,
+
   /// Defines the socket address (host:port) other servers should use to
   /// reach this server.
   ///

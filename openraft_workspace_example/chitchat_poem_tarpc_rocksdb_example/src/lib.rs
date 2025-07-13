@@ -19,11 +19,13 @@ use crate::{
 };
 
 pub mod api_rpc;
+pub mod chitchat_cluster;
 pub mod chitchat_web_cmd;
 pub mod client;
 pub mod common;
 pub mod network;
 pub mod store;
+pub mod stract_integration;
 pub mod typ;
 pub mod web_openapi;
 use std::net::{IpAddr, Ipv4Addr};
@@ -73,7 +75,6 @@ pub async fn start_example_raft_node<P>(node_id: NodeId, dir: P, options: Opt) -
 where
   P: AsRef<Path>,
 {
-  let http_addr = options.clone().http_addr;
   let rpc_addr = options.clone().rpc_addr;
   // Create a configuration for the raft instance.
   let config = Config {
@@ -107,7 +108,7 @@ where
     Ok(chitchat) => {
       let api = Api {
         id: node_id,
-        api_addr: http_addr.clone(),
+        api_addr: options.api_addr.clone(),
         rpc_addr: rpc_addr.clone(),
         raft: raft.clone(),
         key_values: kvs,

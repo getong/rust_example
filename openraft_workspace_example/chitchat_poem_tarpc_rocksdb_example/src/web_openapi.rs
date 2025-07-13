@@ -169,9 +169,84 @@ impl Api {
   }
 
   #[oai(path = "/metrics", method = "post")]
+
+  /// Get cluster status and membership info
+  pub async fn cluster(&self) -> MetricsResponse {
+    let metrics = self.raft.metrics().borrow().clone();
+    let learners: Vec<_> = metrics
+      .membership_config
+      .membership()
+      .learner_ids()
+      .collect();
+    let cluster_info = format!(
+      "Node ID: {}\nLeader: {:?}\nMembers: {:?}\nLearners: {:?}\nState: {:?}",
+      self.id,
+      metrics.current_leader,
+      metrics.membership_config.membership().get_joint_config(),
+      learners,
+      metrics.state
+    );
+    MetricsResponse::Ok(Json(cluster_info))
+  }
+
+  /// Read a value by key (GET method for easy testing)
+  #[oai(path = "/read/:key", method = "get")]
+  pub async fn read_key(&self, key: poem_openapi::param::Path<String>) -> SearchResponse {
+    let state_machine = self.key_values.read().await;
+    let value = state_machine.get(&key.0).cloned().unwrap_or_default();
+    SearchResponse::Ok(Json(value))
+  }
+
+  /// Consistent read a value by key (GET method for easy testing)
+  #[oai(path = "/consistent_read/:key", method = "get")]
+  pub async fn consistent_read_key(
+    &self,
+    key: poem_openapi::param::Path<String>,
+  ) -> ConsistentReadResponse {
+    let ret = self
+      .raft
+      .get_read_linearizer(ReadPolicy::ReadIndex)
+      .await
+      .decompose()
+      .unwrap();
+
+    match ret {
+      Ok(linearizer) => {
+        // Wait for the linearizer to be ready
+        match linearizer.await_ready(&self.raft).await {
+          Ok(_) => {
+            let state_machine = self.key_values.read().await;
+            let value = state_machine.get(&key.0).cloned().unwrap_or_default();
+            ConsistentReadResponse::Ok(Json(value))
+          }
+          Err(_) => ConsistentReadResponse::Fail,
+        }
+      }
+      Err(_e) => ConsistentReadResponse::Fail,
+    }
+  }
+
+  #[oai(path = "/metrics", method = "post")]
   pub async fn metrics(&self) -> MetricsResponse {
     let res = self.raft.metrics().borrow().clone();
-    // println!("res:{:?}", res);
     MetricsResponse::Ok(Json(res.to_string()))
   }
+}
+
+/// Create the API service for the distributed node
+pub async fn create_api_service(api: Api) -> impl poem::Endpoint {
+  use poem::{middleware::Cors, EndpointExt, Route};
+  use poem_openapi::OpenApiService;
+
+  let api_service = OpenApiService::new(api, "Chitchat Poem Tarpc RocksDB Example", "1.0")
+    .server("http://localhost:3000/api");
+
+  let ui = api_service.swagger_ui();
+  let spec = api_service.spec_endpoint();
+
+  Route::new()
+    .nest("/api", api_service)
+    .nest("/", ui)
+    .nest("/spec", spec)
+    .with(Cors::new())
 }

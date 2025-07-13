@@ -1,4 +1,6 @@
-use chitchat_poem_tarpc_rocksdb_example::{common::Opt, start_example_raft_node};
+use chitchat_poem_tarpc_rocksdb_example::{
+  common::Opt, stract_integration::start_distributed_raft_node,
+};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -16,5 +18,6 @@ async fn main() -> anyhow::Result<()> {
   // Parse the parameters passed by arguments.
   let options = Opt::parse();
 
-  start_example_raft_node(options.id, format!("{}.db", options.rpc_addr), options).await
+  // Use Stract-inspired distributed raft node startup
+  start_distributed_raft_node(options.id, format!("{}.db", options.rpc_addr), options).await
 }
