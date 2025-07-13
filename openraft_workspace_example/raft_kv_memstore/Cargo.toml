@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.10.2"
+actix-web = "4.11.0"
 clap = { version = "4.5.41", features = ["derive", "env"] }
 env_logger = "0.11.8"
 mem-log = { path = "../mem-log" }

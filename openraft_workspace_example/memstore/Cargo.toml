@@ -19,7 +19,7 @@ openraft = { git = "https://github.com/databendlabs/openraft", features = [
   "serde_json",
 ] }
 
-tokio = { version = "1.44", default-features = false, features = ["sync"] }
+tokio = { version = "1.46", default-features = false, features = ["sync"] }
 
 [features]
 
