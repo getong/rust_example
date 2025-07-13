@@ -1,0 +1,41 @@
+[package]
+name = "chitchat_openraft_axum_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aide = { version = "0.14.2", features = [
+  "redoc",
+  "swagger",
+  "scalar",
+  "axum-json",
+  "macros",
+] }
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
+cool-id-generator = "1"
+openraft = { git = "https://github.com/databendlabs/openraft", features = [
+  "serde",
+  "type-alias",
+] }
+schemars = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+structopt = "0.3"
+tokio = { version = "1.46.1", features = [
+  "net",
+  "sync",
+  "rt-multi-thread",
+  "macros",
+  "time",
+] }
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
+  "json",
+] }

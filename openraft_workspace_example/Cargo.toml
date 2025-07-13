@@ -12,4 +12,5 @@ members = [
   "rocksstore",
   "memstore",
   "chitchat_poem_tarpc_rocksdb_example",
+  "chitchat_openraft_axum_example",
 ]

@@ -1,0 +1,260 @@
+* Chitchat OpenRaft Axum Example
+:PROPERTIES:
+:CUSTOM_ID: chitchat-openraft-axum-example
+:END:
+A distributed key-value store example using
+[[https://github.com/quickwit-oss/chitchat][Chitchat]] for gossip
+protocol communication, built with Axum web framework.
+
+** Overview
+:PROPERTIES:
+:CUSTOM_ID: overview
+:END:
+This project demonstrates how to build a distributed system using: -
+*Chitchat*: A gossip protocol implementation for distributed node
+communication - *Axum*: Modern async web framework for Rust -
+*OpenRaft*: Distributed consensus protocol (configured but not fully
+integrated in this example)
+
+** Migration from Poem to Axum
+:PROPERTIES:
+:CUSTOM_ID: migration-from-poem-to-axum
+:END:
+This project was originally built with the Poem web framework and has
+been migrated to Axum. Key changes include:
+
+*** Dependencies
+:PROPERTIES:
+:CUSTOM_ID: dependencies
+:END:
+- Replaced =poem= and =poem-openapi= with =axum=
+- Added =aide= for future OpenAPI documentation support
+- Added =schemars= for JSON schema generation
+
+*** Code Changes
+:PROPERTIES:
+:CUSTOM_ID: code-changes
+:END:
+- Converted from Poem's =#[OpenApi]= impl blocks to individual Axum
+  handler functions
+- Changed from =poem_openapi::param::Query= to =axum::extract::Query=
+- Replaced =poem_openapi::payload::Json= with =axum::response::Json=
+- Migrated from Poem's route structure to Axum's =Router::new()= pattern
+
+** API Endpoints
+:PROPERTIES:
+:CUSTOM_ID: api-endpoints
+:END:
+*** GET /
+:PROPERTIES:
+:CUSTOM_ID: get
+:END:
+Returns the current cluster state including: - Cluster ID - Complete
+cluster state snapshot - List of live nodes - List of dead nodes
+
+*Example Response:*
+
+#+begin_src json
+{
+  "cluster_id": "testing",
+  "cluster_state": { ... },
+  "live_nodes": [
+    {
+      "node_id": "server:127.0.0.1:10001-abc123",
+      "generation": 1673612345,
+      "gossip_advertise_addr": "127.0.0.1:10001"
+    }
+  ],
+  "dead_nodes": []
+}
+#+end_src
+
+*** GET /set_kv?key=&value=
+:PROPERTIES:
+:CUSTOM_ID: get-set_kvkeyvalue
+:END:
+Sets a key-value pair on the current node.
+
+*Parameters:* - =key=: The key to set - =value=: The value to associate
+with the key
+
+*Example:*
+
+#+begin_src sh
+curl "http://127.0.0.1:10001/set_kv?key=hello&value=world"
+#+end_src
+
+*Response:*
+
+#+begin_src json
+{
+  "status": true
+}
+#+end_src
+
+*** GET /mark_for_deletion?key=
+:PROPERTIES:
+:CUSTOM_ID: get-mark_for_deletionkey
+:END:
+Marks a key for deletion on the current node.
+
+*Parameters:* - =key=: The key to mark for deletion
+
+*Example:*
+
+#+begin_src sh
+curl "http://127.0.0.1:10001/mark_for_deletion?key=hello"
+#+end_src
+
+*Response:*
+
+#+begin_src json
+{
+  "status": true
+}
+#+end_src
+
+** Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+*** Starting a Single Node
+:PROPERTIES:
+:CUSTOM_ID: starting-a-single-node
+:END:
+#+begin_src sh
+cargo run -- --listen_addr 127.0.0.1:10001
+#+end_src
+
+*** Starting Multiple Nodes
+:PROPERTIES:
+:CUSTOM_ID: starting-multiple-nodes
+:END:
+Start the first node:
+
+#+begin_src sh
+cargo run -- --listen_addr 127.0.0.1:10001
+#+end_src
+
+Start additional nodes with seed configuration:
+
+#+begin_src sh
+cargo run -- --listen_addr 127.0.0.1:10002 --seed 127.0.0.1:10001
+cargo run -- --listen_addr 127.0.0.1:10003 --seed 127.0.0.1:10001
+#+end_src
+
+*** Command Line Options
+:PROPERTIES:
+:CUSTOM_ID: command-line-options
+:END:
+#+begin_example
+USAGE:
+    chitchat_openraft_axum_example [OPTIONS]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+        --listen_addr <listen_addr>        Socket address to listen on [default: 127.0.0.1:10000]
+        --public_addr <public_addr>        Public address other nodes should use to reach this node
+        --node_id <node_id>               Unique node identifier (auto-generated if not provided)
+        --seed <seed>...                  Seed node addresses for cluster discovery
+        --interval_ms <interval>          Gossip interval in milliseconds [default: 500]
+#+end_example
+
+** Testing the API
+:PROPERTIES:
+:CUSTOM_ID: testing-the-api
+:END:
+*** Check Cluster State
+:PROPERTIES:
+:CUSTOM_ID: check-cluster-state
+:END:
+#+begin_src sh
+curl http://127.0.0.1:10001/ | jq
+#+end_src
+
+*** Set a Key-Value Pair
+:PROPERTIES:
+:CUSTOM_ID: set-a-key-value-pair
+:END:
+#+begin_src sh
+curl "http://127.0.0.1:10001/set_kv?key=test&value=data"
+#+end_src
+
+*** Verify the Key Was Set
+:PROPERTIES:
+:CUSTOM_ID: verify-the-key-was-set
+:END:
+#+begin_src sh
+curl http://127.0.0.1:10001/ | jq '.cluster_state'
+#+end_src
+
+*** Mark Key for Deletion
+:PROPERTIES:
+:CUSTOM_ID: mark-key-for-deletion
+:END:
+#+begin_src sh
+curl "http://127.0.0.1:10001/mark_for_deletion?key=test"
+#+end_src
+
+** Architecture
+:PROPERTIES:
+:CUSTOM_ID: architecture
+:END:
+*** Chitchat Integration
+:PROPERTIES:
+:CUSTOM_ID: chitchat-integration
+:END:
+- Each node runs a Chitchat instance for gossip communication
+- Nodes automatically discover each other using seed nodes
+- Key-value operations are local to each node and propagated via gossip
+- Failed nodes are detected and marked as dead
+
+*** State Management
+:PROPERTIES:
+:CUSTOM_ID: state-management
+:END:
+- Application state is managed through =AppState= containing a shared
+  Chitchat instance
+- Mutex-protected access ensures thread safety
+- Tokio async runtime handles concurrent requests
+
+*** Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+- Configurable gossip intervals
+- Adjustable failure detection timeouts
+- Support for custom node IDs and addressing
+
+** Future Enhancements
+:PROPERTIES:
+:CUSTOM_ID: future-enhancements
+:END:
+1. *OpenAPI Documentation*: Full integration with aide for automatic API
+   documentation
+2. *OpenRaft Integration*: Complete distributed consensus implementation
+3. *Persistence*: Add data persistence layer
+4. *Metrics*: Add prometheus metrics for monitoring
+5. *Authentication*: Add API authentication and authorization
+6. *WebSocket Support*: Real-time cluster state updates
+
+** Dependencies
+:PROPERTIES:
+:CUSTOM_ID: dependencies-1
+:END:
+- =axum=: Web framework
+- =chitchat=: Gossip protocol implementation
+- =openraft=: Distributed consensus (configured for future use)
+- =tokio=: Async runtime
+- =serde=: Serialization framework
+- =structopt=: Command-line argument parsing
+- =tracing-subscriber=: Structured logging
+
+** License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+This is an example project for educational purposes.

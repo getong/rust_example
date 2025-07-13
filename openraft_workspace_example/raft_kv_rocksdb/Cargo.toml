@@ -5,9 +5,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.0.0-rc.2"
+actix-web = "4.11.0"
 byteorder = "1.5.0"
-clap = { version = "4.5.36", features = ["derive", "env"] }
+clap = { version = "4.5.41", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
 network-v1-http = { path = "../network-v1-http" }
 openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
@@ -15,14 +15,14 @@ openraft-rocksstore = { path = "../rocksstore" }
 reqwest = { version = "0.12", features = ["json"] }
 rocksdb = "0.23.0"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.57"
-tokio = { version = "1.35.1", features = ["full"] }
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.0", features = ["env-filter"] }
+serde_json = "1.0.140"
+tokio = { version = "1.46.1", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 [dev-dependencies]
 maplit = "1.0.2"
-tempfile = { version = "3.4.0" }
+tempfile = { version = "3.20.0" }
 
 [features]
 
