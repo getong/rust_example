@@ -1,2 +1,5 @@
-/// Use the simple memory log store from the mem-log crate
-pub type LogStore = mem_log::LogStore<super::raft_types::TypeConfig>;
+use super::raft_types::TypeConfig;
+
+/// Type alias for log store using mem-log crate
+/// This follows the current OpenRAFT API patterns
+pub type LogStore = mem_log::LogStore<TypeConfig>;

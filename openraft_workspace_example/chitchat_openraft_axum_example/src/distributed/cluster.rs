@@ -1,15 +1,18 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use chitchat::{
   Chitchat, ChitchatConfig, ChitchatHandle, ChitchatId, ClusterStateSnapshot,
   FailureDetectorConfig, spawn_chitchat, transport::UdpTransport,
 };
 use itertools::Itertools;
+use openraft::{BasicNode, Raft, error::InitializeError};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::distributed::{
   member::{Member, Service},
-  raft_node::RaftNode,
+  network::ChitchatRaftNetwork,
+  raft_types::{NodeId, TypeConfig},
+  store::StateMachineStore,
 };
 
 const CLUSTER_ID: &str = "chitchat-example-cluster";
@@ -39,7 +42,8 @@ pub struct Cluster {
   // dropping the handle leaves the cluster
   _chitchat_handle: ChitchatHandle,
   // OpenRAFT integration
-  raft_node: Arc<RwLock<Option<RaftNode>>>,
+  raft: Arc<RwLock<Option<Raft<TypeConfig>>>>,
+  raft_store: Arc<RwLock<Option<Arc<StateMachineStore>>>>,
 }
 
 impl Cluster {
@@ -140,7 +144,8 @@ impl Cluster {
       self_node,
       chitchat,
       _chitchat_handle: chitchat_handle,
-      raft_node: Arc::new(RwLock::new(None)),
+      raft: Arc::new(RwLock::new(None)),
+      raft_store: Arc::new(RwLock::new(None)),
     })
   }
 
@@ -185,27 +190,71 @@ impl Cluster {
   }
 
   /// Initialize OpenRAFT integration for this cluster
-  pub async fn enable_raft(&self, node_id: String) -> Result<()> {
-    if self.raft_node.read().await.is_some() {
+  pub async fn enable_raft(&self, node_id_str: String) -> Result<()> {
+    if self.raft.read().await.is_some() {
       return Ok(()); // Already initialized
     }
 
-    let raft_node = RaftNode::new(node_id).await?;
+    // Convert string node_id to u64 (simple hash for demo)
+    let node_id: NodeId = node_id_str.len() as u64;
 
-    let mut raft_guard = self.raft_node.write().await;
-    *raft_guard = Some(raft_node);
+    // Create OpenRAFT configuration
+    let raft_config = openraft::Config::default();
+    let raft_config = Arc::new(raft_config.validate()?);
 
-    tracing::info!("OpenRAFT integration enabled for cluster");
+    // Create log store, state machine store, and network
+    let log_store = crate::distributed::log_store::LogStore::default();
+    let state_machine_store = Arc::new(StateMachineStore::default());
+    let network = ChitchatRaftNetwork::new();
+
+    // Initialize the Raft instance
+    let raft = Raft::new(
+      node_id,
+      raft_config,
+      network,
+      log_store,
+      state_machine_store.clone(),
+    )
+    .await?;
+
+    // Initialize as single-node cluster (can be extended later for multi-node)
+    let members: BTreeMap<NodeId, BasicNode> =
+      BTreeMap::from([(node_id, BasicNode::new(format!("127.0.0.1:8080")))]);
+
+    if let Err(e) = raft.initialize(members.clone()).await {
+      match e {
+        openraft::error::RaftError::APIError(e) => match e {
+          InitializeError::NotAllowed(_) => {
+            // Already initialized, that's fine
+          }
+          InitializeError::NotInMembers(_) => return Err(e.into()),
+        },
+        openraft::error::RaftError::Fatal(_) => return Err(e.into()),
+      }
+    }
+
+    // Store the initialized components
+    let mut raft_guard = self.raft.write().await;
+    *raft_guard = Some(raft);
+
+    let mut store_guard = self.raft_store.write().await;
+    *store_guard = Some(state_machine_store);
+
+    tracing::info!(
+      "OpenRAFT integration enabled for cluster with node_id: {}",
+      node_id
+    );
     Ok(())
   }
 
-  /// Get reference to the RaftNode if enabled
-  pub async fn raft_node(&self) -> Option<std::sync::Arc<tokio::sync::RwLock<Option<RaftNode>>>> {
-    if self.raft_node.read().await.is_some() {
-      Some(Arc::clone(&self.raft_node))
-    } else {
-      None
-    }
+  /// Get reference to the Raft instance if enabled
+  pub async fn raft(&self) -> Option<Raft<TypeConfig>> {
+    self.raft.read().await.clone()
+  }
+
+  /// Get reference to the state machine store if enabled
+  pub async fn raft_store(&self) -> Option<Arc<StateMachineStore>> {
+    self.raft_store.read().await.clone()
   }
 
   /// Execute a distributed operation using OpenRAFT
@@ -213,13 +262,14 @@ impl Cluster {
     &self,
     request: crate::distributed::raft_types::Request,
   ) -> Result<crate::distributed::raft_types::Response> {
-    if let Some(raft_node) = self.raft_node.read().await.as_ref() {
-      raft_node
-        .client_write(request)
-        .await
-        .map_err(|e| anyhow::anyhow!("Raft request failed: {:?}", e))
+    if let Some(raft) = self.raft().await {
+      // Submit the request to OpenRAFT
+      match raft.client_write(request).await {
+        Ok(response) => Ok(response.data),
+        Err(e) => Err(anyhow::anyhow!("Raft request failed: {:?}", e)),
+      }
     } else {
-      Err(anyhow::anyhow!("OpenRAFT not enabled for this cluster"))
+      Err(anyhow::anyhow!("OpenRAFT not enabled"))
     }
   }
 
