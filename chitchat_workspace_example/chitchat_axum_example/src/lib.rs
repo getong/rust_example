@@ -1,7 +1,12 @@
 use chitchat::{ChitchatId, ClusterStateSnapshot};
 use serde::{Deserialize, Serialize};
 
+pub mod api;
+pub mod cli;
+pub mod demo;
 pub mod distributed;
+pub mod router;
+pub mod utils;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse {
