@@ -101,6 +101,9 @@ async fn main() -> anyhow::Result<()> {
     cluster: Arc::new(cluster),
   };
 
+  // Now use the full router with OpenRAFT endpoints
+  tracing::error!("=== USING FULL ROUTER WITH OPENRAFT ===");
+
   let mut api = OpenApi {
     info: Info {
       title: "Chitchat Cluster API".to_string(),
@@ -112,10 +115,17 @@ async fn main() -> anyhow::Result<()> {
   };
 
   let app = create_router()
+    .layer(axum::middleware::from_fn(log_requests))
     .finish_api(&mut api)
     .layer(Extension(api))
     .layer(CorsLayer::permissive())
     .with_state(app_state);
+
+  // Keep simple router commented for future debugging
+  // let simple_app = create_simple_router()
+  //   .layer(axum::middleware::from_fn(log_requests))
+  //   .layer(CorsLayer::permissive())
+  //   .with_state(app_state);
 
   println!("🌐 API server listening on {}", listen_addr);
   println!("📡 Gossip protocol running on {}", gossip_addr);
@@ -125,8 +135,19 @@ async fn main() -> anyhow::Result<()> {
   println!("   http://{}/docs/redoc (Redoc)", listen_addr);
   println!("   http://{}/docs (Documentation Index)", listen_addr);
   println!("📄 Logs are being written to: ./logs/chitchat_cluster.log");
-
-  tracing::info!("Starting axum server on {}", listen_addr);
+  println!();
+  println!("🔧 OpenRAFT Store Endpoints:");
+  println!("   http://{}/raft/store/html (HTML View)", listen_addr);
+  println!("   http://{}/raft/store (JSON API)", listen_addr);
+  println!("   http://{}/raft/tables (List Tables)", listen_addr);
+  println!("   http://{}/raft/set (Set Key-Value - POST)", listen_addr);
+  println!(
+    "   http://{}/raft/get/{{table}}/{{key}} (Get Value)",
+    listen_addr
+  );
+  println!();
+  println!("🧪 Test endpoints:");
+  println!("   http://{}/test (Simple test)", listen_addr);
 
   // Add graceful shutdown handling
   let result = axum::serve(listener, app)
@@ -168,4 +189,29 @@ async fn shutdown_signal() {
       tracing::info!("Received terminate signal, shutting down gracefully");
     },
   }
+}
+
+async fn log_requests(
+  req: axum::extract::Request,
+  next: axum::middleware::Next,
+) -> axum::response::Response {
+  let method = req.method().clone();
+  let uri = req.uri().clone();
+  let path = uri.path();
+  let headers = req.headers().clone();
+
+  tracing::error!("=== INCOMING REQUEST ===");
+  tracing::error!("Method: {}", method);
+  tracing::error!("Path: {}", path);
+  tracing::error!("Full URI: {}", uri);
+  tracing::error!("Headers: {:?}", headers);
+
+  let response = next.run(req).await;
+  let status = response.status();
+
+  tracing::error!("=== RESPONSE ===");
+  tracing::error!("Status: {}", status);
+  tracing::error!("Response for {} {} -> {}", method, path, status);
+
+  response
 }

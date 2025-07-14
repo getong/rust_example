@@ -16,6 +16,8 @@ pub struct DocsQuery {
 }
 
 pub fn docs_routes() -> ApiRouter<AppState> {
+  tracing::debug!("Creating documentation routes");
+
   ApiRouter::new()
     .route("/docs", get(docs_index))
     .route("/docs/scalar", Scalar::new("/docs/api.json").axum_route())
@@ -25,10 +27,13 @@ pub fn docs_routes() -> ApiRouter<AppState> {
 }
 
 async fn serve_docs(Extension(api): Extension<OpenApi>) -> impl IntoApiResponse {
+  tracing::debug!("Serving OpenAPI documentation JSON");
   Json(api)
 }
 
 async fn docs_index(Query(query): Query<DocsQuery>) -> Html<String> {
+  tracing::debug!("Serving documentation index page");
+
   let docs_url = query.url.as_deref().unwrap_or("/docs/api.json");
 
   Html(format!(

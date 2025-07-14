@@ -2,6 +2,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use aide::openapi::{Info, OpenApi};
 use axum::Extension;
+use base64::Engine;
 use tokio::{net::TcpListener, time::sleep};
 use tower_http::cors::CorsLayer;
 
@@ -67,9 +68,22 @@ pub async fn run_demo() -> anyhow::Result<()> {
   println!("   http://127.0.0.1:10001/docs/scalar (Scalar UI)");
   println!("   http://127.0.0.1:10001/docs/redoc (Redoc)");
   println!();
+  println!("🔧 OpenRAFT Store Endpoints:");
+  println!("   http://127.0.0.1:10001/raft/store/html (HTML Store View)");
+  println!("   http://127.0.0.1:10001/raft/store (JSON Store API)");
+  println!("   http://127.0.0.1:10001/raft/tables (List Tables)");
+  println!();
   println!("💡 Try updating services with:");
   println!(
-    "   http://127.0.0.1:10001/update_service?service_type=searcher&host=127.0.0.1:9999&shard=99"
+    "   curl -X POST http://127.0.0.1:10001/update_service -H 'Content-Type: application/json' -d \
+     '{{\"service_type\":\"searcher\",\"host\":\"127.0.0.1:9999\",\"shard\":99}}'"
+  );
+  println!();
+  println!("💡 Try setting a key-value pair:");
+  println!(
+    "   curl -X POST http://127.0.0.1:10001/raft/set -H 'Content-Type: application/json' -d \
+     '{{\"table\":\"test\",\"key\":\"hello\",\"value\":\"{}\"}}'",
+    base64::prelude::BASE64_STANDARD.encode("world")
   );
 
   // Wait for all nodes
