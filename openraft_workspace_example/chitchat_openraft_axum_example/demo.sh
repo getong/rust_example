@@ -4,8 +4,12 @@
 echo "🚀 Chitchat Cluster Demo with 5 Services"
 echo "=========================================="
 
+# Change to the project directory to ensure logs are created in the right place
+cd "$(dirname "$0")"
+echo "📁 Running from directory: $(pwd)"
+
 # Check if the binary exists
-if [ ! -f "../target/chitchat_openraft_axum_example" ] && [ ! -f "../target/debug/chitchat_openraft_axum_example" ]; then
+if [ ! -f "../target/release/chitchat_openraft_axum_example" ] && [ ! -f "../target/debug/chitchat_openraft_axum_example" ]; then
     echo "📦 Building the project first..."
     cargo build --release
 fi
@@ -17,14 +21,11 @@ if [ ! -f "$BINARY" ]; then
 fi
 
 echo "✅ Using binary: $BINARY"
-echo ""
-echo "Starting 5 nodes with different services:"
-echo "  🔍 Node 1: Searcher (Shard 1) - API: :10001, Gossip: :11001"
-echo "  🌐 Node 2: API Gateway - API: :10002, Gossip: :11002"
-echo "  ⚙️  Node 3: Data Processor (Shard 2) - API: :10003, Gossip: :11003"
-echo "  💾 Node 4: Storage (Shard 3) - API: :10004, Gossip: :11004"
-echo "  📊 Node 5: Analytics (Shard 4) - API: :10005, Gossip: :11005"
-echo ""
+echo "📂 Logs will be created in: $(pwd)/logs"
+
+# Create logs directory manually as well
+mkdir -p logs
+echo "📁 Logs directory created/verified"
 
 # Function to cleanup background processes
 cleanup() {
@@ -92,6 +93,8 @@ sleep 3
 
 echo ""
 echo "✅ All nodes started!"
+echo ""
+echo "📁 Check logs in: $(pwd)/logs/chitchat_cluster.log.*"
 echo ""
 echo "🌍 API Endpoints:"
 echo "  Node 1 (Searcher):      http://127.0.0.1:10001/members"

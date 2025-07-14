@@ -36,4 +36,8 @@ pub struct Opt {
   /// Run demo with 5 predefined nodes
   #[arg(long = "demo")]
   pub demo: bool,
+
+  /// Automatically find available ports if the specified port is in use
+  #[arg(long = "auto_port")]
+  pub auto_port: bool,
 }

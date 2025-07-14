@@ -32,3 +32,20 @@ pub fn create_service(service_type: &str, host: SocketAddr, shard: Option<u64>) 
     _ => Service::ApiGateway { host }, // default fallback
   }
 }
+
+/// Find the next available port starting from the given port
+pub async fn find_available_port(start_port: u16) -> Option<u16> {
+  for port in start_port ..= start_port + 100 {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    if tokio::net::TcpListener::bind(&addr).await.is_ok() {
+      return Some(port);
+    }
+  }
+  None
+}
+
+/// Check if a port is available
+pub async fn is_port_available(port: u16) -> bool {
+  let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+  tokio::net::TcpListener::bind(&addr).await.is_ok()
+}

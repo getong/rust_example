@@ -6,7 +6,7 @@ use chitchat_openraft_axum_example::{
   api::AppState,
   cli::Opt,
   demo::run_demo,
-  distributed::{Cluster, Member},
+  distributed::{Cluster, Member, cluster::init_file_logging},
   router::create_router,
   utils::{create_service, generate_server_id},
 };
@@ -16,7 +16,21 @@ use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-  tracing_subscriber::fmt::init();
+  // Print current directory for debugging
+  println!(
+    "Starting application in directory: {:?}",
+    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+  );
+
+  // Initialize file logging first
+  match init_file_logging() {
+    Ok(_) => println!("✅ File logging initialized successfully"),
+    Err(e) => {
+      eprintln!("⚠️  Warning: Failed to initialize file logging: {}", e);
+      eprintln!("   Falling back to console-only logging");
+      tracing_subscriber::fmt::init();
+    }
+  }
 
   let opt = Opt::parse();
 
@@ -39,6 +53,39 @@ async fn main() -> anyhow::Result<()> {
     "🔗 Starting node: {} on {} (gossip: {})",
     service, listen_addr, gossip_addr
   );
+
+  tracing::info!("Attempting to bind to address: {}", listen_addr);
+
+  // Try to bind to the address first to give a better error message
+  let listener = match TcpListener::bind(&listen_addr).await {
+    Ok(listener) => {
+      tracing::info!("Successfully bound to address: {}", listen_addr);
+      listener
+    }
+    Err(e) => {
+      tracing::error!("Failed to bind to address {}: {}", listen_addr, e);
+      eprintln!("❌ Error: Cannot bind to address {}", listen_addr);
+      eprintln!("   Reason: {}", e);
+
+      if e.kind() == std::io::ErrorKind::AddrInUse {
+        eprintln!("💡 Suggestion: The address is already in use. Try:");
+        eprintln!("   - Using a different port: --listen_addr 127.0.0.1:10001");
+        eprintln!("   - Stopping other processes using this port");
+        eprintln!("   - Waiting a moment and trying again");
+
+        // Find next available port
+        for port in (listen_addr.port() + 1) ..= (listen_addr.port() + 10) {
+          let test_addr = SocketAddr::new(listen_addr.ip(), port);
+          if TcpListener::bind(&test_addr).await.is_ok() {
+            eprintln!("   - Available port found: {}", test_addr);
+            break;
+          }
+        }
+      }
+
+      return Err(e.into());
+    }
+  };
 
   let cluster = Cluster::join(member, gossip_addr, seeds).await?;
 
@@ -77,9 +124,48 @@ async fn main() -> anyhow::Result<()> {
   println!("   http://{}/docs/swagger (Swagger UI)", listen_addr);
   println!("   http://{}/docs/redoc (Redoc)", listen_addr);
   println!("   http://{}/docs (Documentation Index)", listen_addr);
+  println!("📄 Logs are being written to: ./logs/chitchat_cluster.log");
 
-  let listener = TcpListener::bind(&listen_addr).await?;
-  axum::serve(listener, app).await?;
+  tracing::info!("Starting axum server on {}", listen_addr);
 
+  // Add graceful shutdown handling
+  let result = axum::serve(listener, app)
+    .with_graceful_shutdown(shutdown_signal())
+    .await;
+
+  if let Err(e) = result {
+    tracing::error!("Server error: {}", e);
+    return Err(e.into());
+  }
+
+  tracing::info!("Server shut down gracefully");
   Ok(())
+}
+
+async fn shutdown_signal() {
+  let ctrl_c = async {
+    tokio::signal::ctrl_c()
+      .await
+      .expect("failed to install Ctrl+C handler");
+  };
+
+  #[cfg(unix)]
+  let terminate = async {
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+      .expect("failed to install signal handler")
+      .recv()
+      .await;
+  };
+
+  #[cfg(not(unix))]
+  let terminate = std::future::pending::<()>();
+
+  tokio::select! {
+    _ = ctrl_c => {
+      tracing::info!("Received Ctrl+C, shutting down gracefully");
+    },
+    _ = terminate => {
+      tracing::info!("Received terminate signal, shutting down gracefully");
+    },
+  }
 }
