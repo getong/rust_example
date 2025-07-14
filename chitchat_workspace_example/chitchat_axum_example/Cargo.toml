@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aide = { version = "0.14.2", features = [
+aide = { version = "0.15", features = [
   "redoc",
   "swagger",
   "scalar",
@@ -14,11 +14,12 @@ aide = { version = "0.14.2", features = [
 anyhow = "1"
 axum = { version = "0.8", features = ["macros"] }
 chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
+clap = { version = "4.0", features = ["derive"] }
 cool-id-generator = "1"
-schemars = "0.8"
+itertools = "0.14"
+schemars = "1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-structopt = "0.3"
 tokio = { version = "1.46.1", features = [
   "net",
   "sync",
@@ -27,6 +28,7 @@ tokio = { version = "1.46.1", features = [
   "time",
 ] }
 tracing-subscriber = "0.3"
+uuid = { version = "1.0", features = ["v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"
