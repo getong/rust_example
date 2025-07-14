@@ -62,6 +62,11 @@ pub async fn run_demo() -> anyhow::Result<()> {
   println!("   http://127.0.0.1:10004/members (Node 4 - Storage)");
   println!("   http://127.0.0.1:10005/members (Node 5 - Analytics)");
   println!();
+  println!("📚 API documentation available at:");
+  println!("   http://127.0.0.1:10001/docs/swagger (Swagger UI)");
+  println!("   http://127.0.0.1:10001/docs/scalar (Scalar UI)");
+  println!("   http://127.0.0.1:10001/docs/redoc (Redoc)");
+  println!();
   println!("💡 Try updating services with:");
   println!(
     "   http://127.0.0.1:10001/update_service?service_type=searcher&host=127.0.0.1:9999&shard=99"

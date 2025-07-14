@@ -63,10 +63,11 @@ async fn main() -> anyhow::Result<()> {
 
   println!("🌐 API server listening on {}", listen_addr);
   println!("📡 Gossip protocol running on {}", gossip_addr);
-  println!(
-    "📚 API documentation available at http://{}/docs",
-    listen_addr
-  );
+  println!("📚 API documentation available at:");
+  println!("   http://{}/docs/scalar (Scalar UI)", listen_addr);
+  println!("   http://{}/docs/swagger (Swagger UI)", listen_addr);
+  println!("   http://{}/docs/redoc (Redoc)", listen_addr);
+  println!("   http://{}/docs (Documentation Index)", listen_addr);
 
   let listener = TcpListener::bind(&listen_addr).await?;
   axum::serve(listener, app).await?;

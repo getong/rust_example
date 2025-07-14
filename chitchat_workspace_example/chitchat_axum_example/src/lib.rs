@@ -6,6 +6,7 @@ pub mod api;
 pub mod cli;
 pub mod demo;
 pub mod distributed;
+pub mod docs;
 pub mod router;
 pub mod utils;
 
