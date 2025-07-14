@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
     .unwrap_or_else(|| generate_server_id(gossip_addr));
 
   let service = create_service(&opt.service_type, listen_addr, opt.shard);
-  let member = Member::with_id(node_id, service.clone());
+  let member = Member::with_id(node_id.clone(), service.clone());
 
   let seeds: Vec<SocketAddr> = opt.seeds.iter().filter_map(|s| s.parse().ok()).collect();
 
@@ -41,6 +41,15 @@ async fn main() -> anyhow::Result<()> {
   );
 
   let cluster = Cluster::join(member, gossip_addr, seeds).await?;
+
+  // Enable OpenRAFT integration
+  let raft_node_id = format!("raft-{}", node_id);
+  if let Err(e) = cluster.enable_raft(raft_node_id).await {
+    tracing::warn!("Failed to enable OpenRAFT: {:?}", e);
+  } else {
+    tracing::info!("OpenRAFT integration enabled");
+  }
+
   let app_state = AppState {
     cluster: Arc::new(cluster),
   };

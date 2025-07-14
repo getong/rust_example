@@ -1,12 +1,17 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use aide::axum::routing::{get_with, post_with};
-use axum::extract::{Json, State};
+use axum::extract::{Json, Path, State};
+use base64::prelude::*;
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-  ApiResponse, ClusterMembersResponse, ServiceUpdateResponse, distributed::Cluster,
+  ApiResponse, ClusterMembersResponse, ServiceUpdateResponse,
+  distributed::{
+    Cluster,
+    raft_types::{Key, Request, Response, Table, Value},
+  },
   utils::create_service,
 };
 
@@ -23,6 +28,35 @@ pub struct ServiceUpdateParams {
   pub host: String,
   /// Optional shard ID for sharded services
   pub shard: Option<u64>,
+}
+
+/// Parameters for OpenRAFT key-value operations
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RaftSetRequest {
+  /// The table name
+  pub table: String,
+  /// The key to set
+  pub key: String,
+  /// The value to set (base64 encoded)
+  pub value: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RaftGetRequest {
+  /// The table name
+  pub table: String,
+  /// The key to get
+  pub key: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct RaftResponse {
+  /// Success status
+  pub success: bool,
+  /// Response message
+  pub message: String,
+  /// Optional data payload
+  pub data: Option<serde_json::Value>,
 }
 
 /// Get the current chitchat cluster state
@@ -75,6 +109,125 @@ pub async fn update_service(
   }
 }
 
+/// Set a key-value pair using OpenRAFT
+pub async fn raft_set(
+  State(state): State<AppState>,
+  Json(params): Json<RaftSetRequest>,
+) -> Json<RaftResponse> {
+  let value_bytes = match base64::prelude::BASE64_STANDARD.decode(&params.value) {
+    Ok(bytes) => bytes,
+    Err(_) => {
+      return Json(RaftResponse {
+        success: false,
+        message: "Invalid base64 value".to_string(),
+        data: None,
+      });
+    }
+  };
+
+  let request = Request::Set {
+    table: Table(params.table),
+    key: Key(params.key),
+    value: Value(value_bytes),
+  };
+
+  match state.cluster.raft_request(request).await {
+    Ok(Response::Set(Ok(()))) => Json(RaftResponse {
+      success: true,
+      message: "Key set successfully".to_string(),
+      data: None,
+    }),
+    Ok(Response::Set(Err(e))) => Json(RaftResponse {
+      success: false,
+      message: format!("Failed to set key: {}", e),
+      data: None,
+    }),
+    Ok(_) => Json(RaftResponse {
+      success: false,
+      message: "Unexpected response type".to_string(),
+      data: None,
+    }),
+    Err(e) => Json(RaftResponse {
+      success: false,
+      message: format!("Raft request failed: {}", e),
+      data: None,
+    }),
+  }
+}
+
+/// Get a value by key using OpenRAFT
+pub async fn raft_get(
+  State(state): State<AppState>,
+  Path((table, key)): Path<(String, String)>,
+) -> Json<RaftResponse> {
+  let request = Request::Get {
+    table: Table(table),
+    key: Key(key),
+  };
+
+  match state.cluster.raft_request(request).await {
+    Ok(Response::Get(Ok(Some(value)))) => {
+      let encoded_value = base64::prelude::BASE64_STANDARD.encode(&value.0);
+      Json(RaftResponse {
+        success: true,
+        message: "Key found".to_string(),
+        data: Some(serde_json::json!({ "value": encoded_value })),
+      })
+    }
+    Ok(Response::Get(Ok(None))) => Json(RaftResponse {
+      success: false,
+      message: "Key not found".to_string(),
+      data: None,
+    }),
+    Ok(Response::Get(Err(e))) => Json(RaftResponse {
+      success: false,
+      message: format!("Failed to get key: {}", e),
+      data: None,
+    }),
+    Ok(_) => Json(RaftResponse {
+      success: false,
+      message: "Unexpected response type".to_string(),
+      data: None,
+    }),
+    Err(e) => Json(RaftResponse {
+      success: false,
+      message: format!("Raft request failed: {}", e),
+      data: None,
+    }),
+  }
+}
+
+/// List all tables using OpenRAFT
+pub async fn raft_list_tables(State(state): State<AppState>) -> Json<RaftResponse> {
+  let request = Request::AllTables;
+
+  match state.cluster.raft_request(request).await {
+    Ok(Response::AllTables(Ok(tables))) => {
+      let table_names: Vec<String> = tables.into_iter().map(|t| t.0).collect();
+      Json(RaftResponse {
+        success: true,
+        message: "Tables listed successfully".to_string(),
+        data: Some(serde_json::json!({ "tables": table_names })),
+      })
+    }
+    Ok(Response::AllTables(Err(e))) => Json(RaftResponse {
+      success: false,
+      message: format!("Failed to list tables: {}", e),
+      data: None,
+    }),
+    Ok(_) => Json(RaftResponse {
+      success: false,
+      message: "Unexpected response type".to_string(),
+      data: None,
+    }),
+    Err(e) => Json(RaftResponse {
+      success: false,
+      message: format!("Raft request failed: {}", e),
+      data: None,
+    }),
+  }
+}
+
 pub fn get_state_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
   get_with(get_state, |op| {
     op.summary("Get cluster state")
@@ -98,5 +251,29 @@ pub fn update_service_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<A
     op.summary("Update service")
       .description("Updates the service configuration for the current node")
       .response::<200, ServiceUpdateResponse>()
+  })
+}
+
+pub fn raft_set_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
+  post_with(raft_set, |op| {
+    op.summary("Set key-value using OpenRAFT")
+      .description("Sets a key-value pair in the distributed store using OpenRAFT consensus")
+      .response::<200, Json<RaftResponse>>()
+  })
+}
+
+pub fn raft_get_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
+  get_with(raft_get, |op| {
+    op.summary("Get value by key using OpenRAFT")
+      .description("Retrieves a value by key from the distributed store")
+      .response::<200, Json<RaftResponse>>()
+  })
+}
+
+pub fn raft_list_tables_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
+  get_with(raft_list_tables, |op| {
+    op.summary("List all tables using OpenRAFT")
+      .description("Lists all tables in the distributed store")
+      .response::<200, Json<RaftResponse>>()
   })
 }

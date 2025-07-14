@@ -5,9 +5,12 @@ use chitchat::{
   FailureDetectorConfig, spawn_chitchat, transport::UdpTransport,
 };
 use itertools::Itertools;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
-use crate::distributed::member::{Member, Service};
+use crate::distributed::{
+  member::{Member, Service},
+  raft_node::RaftNode,
+};
 
 const CLUSTER_ID: &str = "chitchat-example-cluster";
 const GOSSIP_INTERVAL: Duration = Duration::from_secs(1);
@@ -35,6 +38,8 @@ pub struct Cluster {
   chitchat: Arc<Mutex<Chitchat>>,
   // dropping the handle leaves the cluster
   _chitchat_handle: ChitchatHandle,
+  // OpenRAFT integration
+  raft_node: Arc<RwLock<Option<RaftNode>>>,
 }
 
 impl Cluster {
@@ -135,6 +140,7 @@ impl Cluster {
       self_node,
       chitchat,
       _chitchat_handle: chitchat_handle,
+      raft_node: Arc::new(RwLock::new(None)),
     })
   }
 
@@ -165,6 +171,7 @@ impl Cluster {
     self.self_node.as_ref()
   }
 
+  /// Update service information using chitchat and sync with OpenRAFT
   pub async fn set_service(&self, service: Service) -> Result<()> {
     self
       .chitchat
@@ -173,7 +180,47 @@ impl Cluster {
       .self_node_state()
       .set(SERVICE_KEY, &serde_json::to_string(&service)?);
 
+    tracing::debug!("Updated service information in chitchat: {}", service);
     Ok(())
+  }
+
+  /// Initialize OpenRAFT integration for this cluster
+  pub async fn enable_raft(&self, node_id: String) -> Result<()> {
+    if self.raft_node.read().await.is_some() {
+      return Ok(()); // Already initialized
+    }
+
+    let raft_node = RaftNode::new(node_id).await?;
+
+    let mut raft_guard = self.raft_node.write().await;
+    *raft_guard = Some(raft_node);
+
+    tracing::info!("OpenRAFT integration enabled for cluster");
+    Ok(())
+  }
+
+  /// Get reference to the RaftNode if enabled
+  pub async fn raft_node(&self) -> Option<std::sync::Arc<tokio::sync::RwLock<Option<RaftNode>>>> {
+    if self.raft_node.read().await.is_some() {
+      Some(Arc::clone(&self.raft_node))
+    } else {
+      None
+    }
+  }
+
+  /// Execute a distributed operation using OpenRAFT
+  pub async fn raft_request(
+    &self,
+    request: crate::distributed::raft_types::Request,
+  ) -> Result<crate::distributed::raft_types::Response> {
+    if let Some(raft_node) = self.raft_node.read().await.as_ref() {
+      raft_node
+        .client_write(request)
+        .await
+        .map_err(|e| anyhow::anyhow!("Raft request failed: {:?}", e))
+    } else {
+      Err(anyhow::anyhow!("OpenRAFT not enabled for this cluster"))
+    }
   }
 
   pub async fn cluster_state(&self) -> ClusterStateSnapshot {

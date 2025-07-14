@@ -13,6 +13,8 @@ aide = { version = "0.15", features = [
 ] }
 anyhow = "1"
 axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22.1"
+bincode = "2"
 chitchat = { git = "https://github.com/quickwit-oss/chitchat", rev = "c6f7809cd782173e8dbddf79e25d9cb40c9c14a4" }
 clap = { version = "4.0", features = ["derive"] }
 cool-id-generator = "1"
@@ -33,6 +35,7 @@ tokio = { version = "1.46.1", features = [
   "time",
 ] }
 tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 uuid = { version = "1.0", features = ["serde", "v4"] }
 
