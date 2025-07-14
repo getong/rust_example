@@ -3,7 +3,8 @@
 resolver = "2"
 
 members = [
-        "chitchat_example",
-        "once_cell_chitchat_example",
-        "chitchat_poem_tarpc_rocksdb_example",
+  # "chitchat_poem_tarpc_rocksdb_example",
+  "chitchat_example",
+  "once_cell_chitchat_example",
+  "chitchat_axum_example",
 ]
