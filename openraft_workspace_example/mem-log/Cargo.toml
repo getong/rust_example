@@ -15,7 +15,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/databendlabs/openraft"
 
 [dependencies]
-openraft = {git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"]}
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "54ffb00dbb8ed7518d0363c4846813761ff80e92", features = [
+  "serde",
+  "type-alias",
+] }
 
 tokio = { version = "1.46", default-features = false, features = ["sync"] }
 
