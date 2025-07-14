@@ -14,7 +14,7 @@ pub fn create_router() -> ApiRouter<AppState> {
     .api_route("/members", get_members_docs().into())
     .api_route("/update_service", update_service_docs().into())
     .api_route("/raft/set", raft_set_docs().into())
-    .api_route("/raft/get/:table/:key", raft_get_docs().into())
+    .api_route("/raft/get/{table}/{key}", raft_get_docs().into())
     .api_route("/raft/tables", raft_list_tables_docs().into())
     .merge(docs_routes())
 }
