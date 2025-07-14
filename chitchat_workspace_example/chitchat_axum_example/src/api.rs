@@ -1,14 +1,13 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum::{
-  extract::{Query, State},
-  response::Json,
-};
+use aide::axum::routing::{get_with, post_with};
+use axum::extract::{Json, State};
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::{
-  ApiResponse, ClusterMembersResponse, ServiceUpdateResponse,
-  distributed::{Cluster, Service, ShardId},
+  ApiResponse, ClusterMembersResponse, ServiceUpdateResponse, distributed::Cluster,
+  utils::create_service,
 };
 
 #[derive(Clone)]
@@ -16,10 +15,13 @@ pub struct AppState {
   pub cluster: Arc<Cluster>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ServiceUpdateParams {
+  /// The type of service to update
   pub service_type: String,
+  /// The host address for the service
   pub host: String,
+  /// Optional shard ID for sharded services
   pub shard: Option<u64>,
 }
 
@@ -31,9 +33,9 @@ pub async fn get_state(State(state): State<AppState>) -> Json<ApiResponse> {
 
   let response = ApiResponse {
     cluster_id: "chitchat-example-cluster".to_string(),
-    cluster_state,
-    live_nodes,
-    dead_nodes,
+    cluster_state: serde_json::to_value(cluster_state).unwrap_or_default(),
+    live_nodes: live_nodes.into_iter().map(|id| id.node_id).collect(),
+    dead_nodes: dead_nodes.into_iter().map(|id| id.node_id).collect(),
   };
   Json(response)
 }
@@ -47,7 +49,7 @@ pub async fn get_members(State(state): State<AppState>) -> Json<ClusterMembersRe
 /// Update the service of the current node
 pub async fn update_service(
   State(state): State<AppState>,
-  Query(params): Query<ServiceUpdateParams>,
+  Json(params): Json<ServiceUpdateParams>,
 ) -> Json<ServiceUpdateResponse> {
   let host: SocketAddr = match params.host.parse() {
     Ok(addr) => addr,
@@ -59,44 +61,7 @@ pub async fn update_service(
     }
   };
 
-  let service = match params.service_type.as_str() {
-    "searcher" => {
-      let shard = params.shard.unwrap_or(0);
-      Service::Searcher {
-        host,
-        shard: ShardId::new(shard),
-      }
-    }
-    "api_gateway" => Service::ApiGateway { host },
-    "data_processor" => {
-      let shard = params.shard.unwrap_or(0);
-      Service::DataProcessor {
-        host,
-        shard: ShardId::new(shard),
-      }
-    }
-    "storage" => {
-      let shard = params.shard.unwrap_or(0);
-      Service::Storage {
-        host,
-        shard: ShardId::new(shard),
-      }
-    }
-    "load_balancer" => Service::LoadBalancer { host },
-    "analytics" => {
-      let shard = params.shard.unwrap_or(0);
-      Service::Analytics {
-        host,
-        shard: ShardId::new(shard),
-      }
-    }
-    _ => {
-      return Json(ServiceUpdateResponse {
-        status: false,
-        message: "Unknown service type".to_string(),
-      });
-    }
-  };
+  let service = create_service(&params.service_type, host, params.shard);
 
   match state.cluster.set_service(service).await {
     Ok(_) => Json(ServiceUpdateResponse {
@@ -108,4 +73,30 @@ pub async fn update_service(
       message: format!("Failed to update service: {}", e),
     }),
   }
+}
+
+pub fn get_state_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
+  get_with(get_state, |op| {
+    op.summary("Get cluster state")
+      .description(
+        "Returns the current state of the chitchat cluster including live and dead nodes",
+      )
+      .response::<200, ApiResponse>()
+  })
+}
+
+pub fn get_members_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
+  get_with(get_members, |op| {
+    op.summary("Get cluster members")
+      .description("Returns all members in the cluster with their service information")
+      .response::<200, ClusterMembersResponse>()
+  })
+}
+
+pub fn update_service_docs() -> impl Into<aide::axum::routing::ApiMethodRouter<AppState>> {
+  post_with(update_service, |op| {
+    op.summary("Update service")
+      .description("Updates the service configuration for the current node")
+      .response::<200, ServiceUpdateResponse>()
+  })
 }

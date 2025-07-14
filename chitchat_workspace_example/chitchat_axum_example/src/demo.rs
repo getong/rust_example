@@ -1,6 +1,9 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use aide::openapi::{Info, OpenApi};
+use axum::Extension;
 use tokio::{net::TcpListener, time::sleep};
+use tower_http::cors::CorsLayer;
 
 use crate::{
   api::AppState,
@@ -93,7 +96,21 @@ async fn run_node(
     cluster: Arc::new(cluster),
   };
 
-  let app = create_router().with_state(app_state);
+  let mut api = OpenApi {
+    info: Info {
+      title: "Chitchat Cluster API".to_string(),
+      version: "1.0.0".to_string(),
+      description: Some("API for managing chitchat cluster nodes and services".to_string()),
+      ..Default::default()
+    },
+    ..Default::default()
+  };
+
+  let app = create_router()
+    .finish_api(&mut api)
+    .layer(Extension(api))
+    .layer(CorsLayer::permissive())
+    .with_state(app_state);
 
   let listener = TcpListener::bind(&listen_addr).await?;
   axum::serve(listener, app).await?;

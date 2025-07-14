@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
+use aide::openapi::{Info, OpenApi};
+use axum::Extension;
 use chitchat_axum_example::{
   api::AppState,
   cli::Opt,
@@ -10,6 +12,7 @@ use chitchat_axum_example::{
 };
 use clap::Parser;
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -42,10 +45,28 @@ async fn main() -> anyhow::Result<()> {
     cluster: Arc::new(cluster),
   };
 
-  let app = create_router().with_state(app_state);
+  let mut api = OpenApi {
+    info: Info {
+      title: "Chitchat Cluster API".to_string(),
+      version: "1.0.0".to_string(),
+      description: Some("API for managing chitchat cluster nodes and services".to_string()),
+      ..Default::default()
+    },
+    ..Default::default()
+  };
+
+  let app = create_router()
+    .finish_api(&mut api)
+    .layer(Extension(api))
+    .layer(CorsLayer::permissive())
+    .with_state(app_state);
 
   println!("🌐 API server listening on {}", listen_addr);
   println!("📡 Gossip protocol running on {}", gossip_addr);
+  println!(
+    "📚 API documentation available at http://{}/docs",
+    listen_addr
+  );
 
   let listener = TcpListener::bind(&listen_addr).await?;
   axum::serve(listener, app).await?;

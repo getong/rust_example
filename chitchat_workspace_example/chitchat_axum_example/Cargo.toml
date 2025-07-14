@@ -17,8 +17,8 @@ chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
 clap = { version = "4.0", features = ["derive"] }
 cool-id-generator = "1"
 itertools = "0.14"
-schemars = "1.0"
-serde = { version = "1", features = ["derive"] }
+schemars = { version = "0.9", features = ["uuid1"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 tokio = { version = "1.46.1", features = [
   "net",
@@ -27,8 +27,10 @@ tokio = { version = "1.46.1", features = [
   "macros",
   "time",
 ] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 tracing-subscriber = "0.3"
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.0", features = ["serde", "v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"

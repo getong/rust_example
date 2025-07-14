@@ -1,7 +1,19 @@
 use std::net::SocketAddr;
 
+use schemars::JsonSchema;
+
 #[derive(
-  serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug, PartialOrd, Ord,
+  serde::Serialize,
+  serde::Deserialize,
+  PartialEq,
+  Eq,
+  Hash,
+  Clone,
+  Copy,
+  Debug,
+  PartialOrd,
+  Ord,
+  JsonSchema,
 )]
 pub struct ShardId(u64);
 
@@ -33,7 +45,7 @@ impl From<ShardId> for u64 {
   }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Hash, Clone, Debug, JsonSchema)]
 pub enum Service {
   Searcher { host: SocketAddr, shard: ShardId },
   ApiGateway { host: SocketAddr },
@@ -80,7 +92,7 @@ impl Service {
   }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
 pub struct Member {
   pub id: String,
   pub service: Service,
