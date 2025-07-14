@@ -1,0 +1,168 @@
+#+TITLE: Chitchat Axum Example
+
+* Overview
+
+This project demonstrates a distributed system implementation using the [[https://github.com/quickwit-oss/chitchat][Chitchat]] gossip protocol library integrated with [[https://github.com/tokio-rs/axum][Axum]] web framework. It showcases how to build a cluster of nodes that can discover each other, share service information, and provide HTTP APIs for cluster management.
+
+* Architecture
+
+** Core Components
+
+The project is structured into several key modules:
+
+*** 1. Main Application (~src/main.rs~)
+- Entry point with CLI argument parsing using ~clap~
+- HTTP server setup with Axum routes
+- Demo mode for running multiple nodes locally
+- Node lifecycle management
+
+*** 2. Distributed Module (~src/distributed/~)
+
+**** Cluster (~cluster.rs~)
+- Wrapper around Chitchat for cluster management
+- Handles node joining, leaving, and state synchronization
+- Provides methods for querying cluster state and members
+- Manages gossip protocol configuration
+
+**** Member (~member.rs~)
+- Defines service types and their properties
+- Implements serialization for network communication
+- Supports different service categories with optional sharding
+
+*** 3. Service Types
+
+The system supports multiple service types:
+
+| Service Type   | Sharded | Description                    |
+|----------------|---------|--------------------------------|
+| Searcher       | Yes     | Search query processing        |
+| ApiGateway     | No      | API request routing            |
+| DataProcessor  | Yes     | Data processing and analytics  |
+| Storage        | Yes     | Data storage and retrieval     |
+| LoadBalancer   | No      | Load balancing and routing     |
+| Analytics      | Yes     | Analytics and reporting        |
+
+** HTTP API Endpoints
+
+| Endpoint           | Method | Description                          |
+|--------------------|--------|--------------------------------------|
+| ~/~                | GET    | Get cluster state and node status    |
+| ~/members~         | GET    | List all cluster members             |
+| ~/update_service~  | GET    | Update current node's service config |
+
+** Node Communication
+
+- **Gossip Protocol**: Uses UDP for peer-to-peer communication
+- **Service Discovery**: Automatic detection of new nodes
+- **Failure Detection**: Monitors node health and handles failures
+- **State Synchronization**: Ensures consistent cluster state
+
+* Technology Stack
+
+** Core Dependencies
+
+- **[[https://github.com/quickwit-oss/chitchat][Chitchat]]**: Gossip protocol implementation for distributed systems
+- **[[https://github.com/tokio-rs/axum][Axum]]**: Modern async web framework
+- **[[https://github.com/tokio-rs/tokio][Tokio]]**: Async runtime for Rust
+- **[[https://github.com/clap-rs/clap][Clap]]**: Command line argument parsing
+- **[[https://github.com/serde-rs/serde][Serde]]**: Serialization framework
+
+** Additional Libraries
+
+- ~anyhow~: Error handling
+- ~uuid~: Unique identifier generation
+- ~itertools~: Iterator utilities
+- ~cool-id-generator~: Human-readable ID generation
+- ~tracing-subscriber~: Logging infrastructure
+
+* References and Inspiration
+
+This project is inspired by and references several key sources:
+
+** 1. Chitchat Library
+- **Source**: [[https://github.com/quickwit-oss/chitchat][quickwit-oss/chitchat]]
+- **Purpose**: Provides the core gossip protocol implementation
+- **Usage**: Node discovery, failure detection, and state synchronization
+
+** 2. Distributed Systems Patterns
+- **Gossip Protocol**: Based on academic research and production implementations
+- **Service Mesh**: Microservices communication patterns
+- **Failure Detection**: Phi Accrual Failure Detector algorithm
+
+* Usage Examples
+
+** Running a Single Node
+
+#+begin_src bash
+cargo run -- --listen_addr 127.0.0.1:8080 --gossip_addr 127.0.0.1:9080 --service api_gateway
+#+end_src
+
+** Running Multiple Nodes
+
+#+begin_src bash
+# Start first node (seed node)
+cargo run -- --listen_addr 127.0.0.1:8080 --gossip_addr 127.0.0.1:9080 --service searcher --shard 1
+
+# Start second node
+cargo run -- --listen_addr 127.0.0.1:8081 --gossip_addr 127.0.0.1:9081 --service storage --shard 2 --seed 127.0.0.1:9080
+#+end_src
+
+** Demo Mode
+
+#+begin_src bash
+cargo run -- --demo
+#+end_src
+
+This starts 5 nodes with different services automatically configured.
+
+* Configuration
+
+** Command Line Options
+
+| Option           | Description                      | Default           |
+|------------------|----------------------------------|-------------------|
+| ~--listen_addr~  | HTTP server listening address   | 127.0.0.1:10000   |
+| ~--gossip_addr~  | Gossip protocol address         | Same as listen    |
+| ~--node_id~      | Unique node identifier          | Auto-generated    |
+| ~--seed~         | Seed nodes for joining cluster  | None              |
+| ~--service~      | Service type to run             | api_gateway       |
+| ~--shard~        | Shard ID for sharded services   | 0                 |
+| ~--demo~         | Run demo with 5 nodes           | false             |
+
+** Environment Variables
+
+Currently, all configuration is done via command line arguments. Future versions may support environment variable configuration.
+
+* Development
+
+** Building
+
+#+begin_src bash
+cargo build
+#+end_src
+
+** Testing
+
+#+begin_src bash
+cargo test
+#+end_src
+
+** Running with Debug Logging
+
+#+begin_src bash
+RUST_LOG=debug cargo run -- --demo
+#+end_src
+
+* Future Enhancements
+
+- [ ] Persistent state storage
+- [ ] Security and authentication
+- [ ] Metrics and monitoring
+- [ ] Configuration file support
+- [ ] Docker containerization
+- [ ] Kubernetes deployment manifests
+- [ ] Performance benchmarks
+
+* License
+
+This project serves as an educational example and follows the same licensing approach as the referenced libraries.
