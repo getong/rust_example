@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aide = { version = "0.14.2", features = [
+aide = { version = "0.15", features = [
   "redoc",
   "swagger",
   "scalar",
@@ -13,16 +13,18 @@ aide = { version = "0.14.2", features = [
 ] }
 anyhow = "1"
 axum = { version = "0.8", features = ["macros"] }
-chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
+chitchat = { git = "https://github.com/quickwit-oss/chitchat", rev = "c6f7809cd782173e8dbddf79e25d9cb40c9c14a4" }
+clap = { version = "4.0", features = ["derive"] }
 cool-id-generator = "1"
-openraft = { git = "https://github.com/databendlabs/openraft", features = [
+itertools = "0.14"
+mem-log = { path = "../mem-log", features = [] }
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "54ffb00dbb8ed7518d0363c4846813761ff80e92", features = [
   "serde",
   "type-alias",
 ] }
-schemars = "0.8"
-serde = { version = "1", features = ["derive"] }
+schemars = { version = "0.9", features = ["uuid1"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-structopt = "0.3"
 tokio = { version = "1.46.1", features = [
   "net",
   "sync",
@@ -30,12 +32,10 @@ tokio = { version = "1.46.1", features = [
   "macros",
   "time",
 ] }
-tracing-subscriber = "0.3"
+tower-http = { version = "0.6", features = ["cors"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+uuid = { version = "1.0", features = ["serde", "v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
-reqwest = { version = "0.12", default-features = false, features = [
-  "blocking",
-  "json",
-] }
