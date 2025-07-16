@@ -9,7 +9,7 @@ use solana_sdk::{
   commitment_config::CommitmentConfig,
   message::Message,
   pubkey::Pubkey,
-  signature::{Signer, read_keypair_file},
+  signature::{read_keypair_file, Signer},
   transaction::Transaction,
 };
 

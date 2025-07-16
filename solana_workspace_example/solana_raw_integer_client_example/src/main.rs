@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
   println!("Integer account pubkey: {}", integer_account.pubkey());
 
   // Program id (deployed address)
-    let program_id = Pubkey::from_str("CkNdo4Z3KEPKe5i9uRhiBDC6JAzL874jxSG31cwy1FYd")?;
+  let program_id = Pubkey::from_str("CkNdo4Z3KEPKe5i9uRhiBDC6JAzL874jxSG31cwy1FYd")?;
 
   // 2. Create the data account (if needed)
   let (recent_blockhash, _) =
@@ -123,12 +123,8 @@ fn main() -> anyhow::Result<()> {
   println!("Account creation tx sig: {}", create_sig);
 
   // 5. Then initialize it with our custom instruction
-  let init_tx = Transaction::new_signed_with_payer(
-    &[ix],
-    Some(&payer.pubkey()),
-    &[&payer],
-    recent_blockhash,
-  );
+  let init_tx =
+    Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[&payer], recent_blockhash);
   let init_sig = client.send_and_confirm_transaction(&init_tx)?;
   println!("Initialize tx sig: {}", init_sig);
 
