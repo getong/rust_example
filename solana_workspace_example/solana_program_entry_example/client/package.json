@@ -9,12 +9,13 @@
     "dev": "ts-node src/index.ts"
   },
   "dependencies": {
+    "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
-    "@solana/spl-token": "^0.4.13"
+    "borsh": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",
-    "typescript": "^5.8.3",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
