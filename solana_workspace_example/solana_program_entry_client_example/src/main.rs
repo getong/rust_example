@@ -15,6 +15,23 @@ mod misc;
 
 use crate::misc::{derive_pda_address, CourseInstruction, CourseState};
 
+// Constants for configuration
+const SOLANA_RPC_URL: &str = "http://localhost:8899";
+const WALLET_DIRECTORY: &str = "solana-wallets";
+const WALLET_FILE_NAME: &str = "alice.json";
+const SOLANA_PROGRAM_ID: &str = "8JgSyo7yEeGNrThPWTkDB1AxwVYKKXDGjxaxDMSz2mzr";
+
+// Constants for test course data
+const COURSE_1_NAME: &str = "Rust Programming";
+const COURSE_1_DEGREE: &str = "Bachelor";
+const COURSE_1_INSTITUTION: &str = "University of Solana";
+const COURSE_1_START_DATE: &str = "2025-01-01";
+
+const COURSE_2_NAME: &str = "Advanced Solana Development sernior";
+const COURSE_2_DEGREE: &str = "Master";
+const COURSE_2_INSTITUTION: &str = "Best Blockchain University";
+const COURSE_2_START_DATE: &str = "2025-02-01";
+
 pub struct SolanaClient {
   client: RpcClient,
   payer: Keypair,
@@ -118,7 +135,7 @@ fn main() {
 
   // Load keypair from file system
   let home_dir = std::env::var("HOME").expect("HOME environment variable not set");
-  let keypair_path = format!("{}/solana-wallets/alice.json", home_dir);
+  let keypair_path = format!("{}/{}/{}", home_dir, WALLET_DIRECTORY, WALLET_FILE_NAME);
 
   let payer = match load_keypair_from_file(&keypair_path) {
     Ok(keypair) => {
@@ -132,20 +149,15 @@ fn main() {
     }
   };
 
-  let program_id = Pubkey::from_str("8JgSyo7yEeGNrThPWTkDB1AxwVYKKXDGjxaxDMSz2mzr").unwrap();
-  let solana_client = SolanaClient::new("http://localhost:8899", payer, program_id);
-
-  let course_name = "Rust Programming".to_string();
-  let course_degree = "Bachelor".to_string();
-  let course_institution = "University of Solana".to_string();
-  let course_start_date = "2025-01-01".to_string();
+  let program_id = Pubkey::from_str(SOLANA_PROGRAM_ID).unwrap();
+  let solana_client = SolanaClient::new(SOLANA_RPC_URL, payer, program_id);
 
   // Create CourseState for checking and retrieving data
   let course_state = CourseState {
-    name: course_name.clone(),
-    degree: course_degree.clone(),
-    institution: course_institution.clone(),
-    start_date: course_start_date.clone(),
+    name: COURSE_1_NAME.to_string(),
+    degree: COURSE_1_DEGREE.to_string(),
+    institution: COURSE_1_INSTITUTION.to_string(),
+    start_date: COURSE_1_START_DATE.to_string(),
   };
 
   // Check if course already exists
@@ -170,10 +182,10 @@ fn main() {
         println!("Course doesn't exist. Adding new course...");
 
         let result = solana_client.add_course(
-          course_name.clone(),
-          course_degree.clone(),
-          course_institution.clone(),
-          course_start_date.clone(),
+          COURSE_1_NAME.to_string(),
+          COURSE_1_DEGREE.to_string(),
+          COURSE_1_INSTITUTION.to_string(),
+          COURSE_1_START_DATE.to_string(),
         );
 
         match result {
@@ -202,16 +214,11 @@ fn main() {
 
   // Try adding a different course to demonstrate the system works
   println!("\n--- Trying to add a different course ---");
-  let course_name2 = "Advanced Solana Development sernior".to_string();
-  let course_degree2 = "Master".to_string();
-  let course_institution2 = "Best Blockchain University".to_string();
-  let course_start_date2 = "2025-02-01".to_string();
-
   let course_state2 = CourseState {
-    name: course_name2.clone(),
-    degree: course_degree2.clone(),
-    institution: course_institution2.clone(),
-    start_date: course_start_date2.clone(),
+    name: COURSE_2_NAME.to_string(),
+    degree: COURSE_2_DEGREE.to_string(),
+    institution: COURSE_2_INSTITUTION.to_string(),
+    start_date: COURSE_2_START_DATE.to_string(),
   };
 
   match solana_client.course_exists(&course_state2) {
@@ -234,10 +241,10 @@ fn main() {
         println!("Second course doesn't exist. Adding new course...");
 
         let result2 = solana_client.add_course(
-          course_name2.clone(),
-          course_degree2.clone(),
-          course_institution2.clone(),
-          course_start_date2.clone(),
+          COURSE_2_NAME.to_string(),
+          COURSE_2_DEGREE.to_string(),
+          COURSE_2_INSTITUTION.to_string(),
+          COURSE_2_START_DATE.to_string(),
         );
 
         match result2 {
