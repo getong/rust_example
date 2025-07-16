@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fs, path::Path, str::FromStr};
 
 use borsh::BorshSerialize;
 use solana_client::{client_error::ClientError, rpc_client::RpcClient};
@@ -13,7 +13,7 @@ use solana_sdk_ids::system_program;
 
 mod misc;
 
-use crate::misc::{CourseInstruction, CourseState, derive_pda_address};
+use crate::misc::{derive_pda_address, CourseInstruction, CourseState};
 
 pub struct SolanaClient {
   client: RpcClient,
@@ -85,11 +85,34 @@ impl SolanaClient {
   }
 }
 
+fn load_keypair_from_file<P: AsRef<Path>>(path: P) -> Result<Keypair, Box<dyn std::error::Error>> {
+  let file_content = fs::read_to_string(path)?;
+  let bytes: Vec<u8> = serde_json::from_str(&file_content)?;
+  Ok(Keypair::try_from(&bytes[..])?)
+}
+
 fn main() {
-  let payer = Keypair::new();
-  // TODO
-  let program_id = Pubkey::from_str("abdwwwww").unwrap();
-  let solana_client = SolanaClient::new("https://api.devnet.solana.com", payer, program_id);
+  // Load environment variables from .env file if it exists
+  dotenvy::dotenv().ok();
+
+  // Load keypair from file system
+  let home_dir = std::env::var("HOME").expect("HOME environment variable not set");
+  let keypair_path = format!("{}/solana-wallets/alice.json", home_dir);
+
+  let payer = match load_keypair_from_file(&keypair_path) {
+    Ok(keypair) => {
+      println!("Successfully loaded keypair from: {}", keypair_path);
+      keypair
+    }
+    Err(e) => {
+      eprintln!("Failed to load keypair from {}: {}", keypair_path, e);
+      eprintln!("Falling back to generating a new keypair...");
+      Keypair::new()
+    }
+  };
+
+  let program_id = Pubkey::from_str("8JgSyo7yEeGNrThPWTkDB1AxwVYKKXDGjxaxDMSz2mzr").unwrap();
+  let solana_client = SolanaClient::new("http://localhost:8899", payer, program_id);
 
   let result = solana_client.add_course(
     "Rust Programming".to_string(),

@@ -1,9 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::{
-  msg,
-  pubkey::Pubkey,
-  sysvar::{Sysvar, rent::Rent},
-};
+use solana_program::{msg, pubkey::Pubkey};
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Default)]
 pub struct CourseState {
