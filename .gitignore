@@ -36,3 +36,4 @@ buffer_example_workspace/sample.json
 **/bun.lockb
 **/bun.lock
 **/.gitmodules
+**/package-lock.json
