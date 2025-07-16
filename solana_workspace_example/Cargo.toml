@@ -22,4 +22,5 @@ members = [
   "all_program_id_example",
   "solana_raw_integer_example",
   "solana_raw_integer_client_example",
+  "anchor_client_async_example",
 ]
