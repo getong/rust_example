@@ -46,15 +46,15 @@ fn process_instruction(
   };
   msg!("This is an instruction to add a course...");
 
-  //
   let (pda, bump) = derive_pda_address(&payload, program_id);
   let (size, rent) = calculate_acc_size_and_rent(&payload);
-  //
+
   if *pda_account.key != pda {
     return Err(ProgramError::InvalidArgument);
   }
+
   msg!("pda account and key identical");
-  //
+
   invoke_signed(
     &system_instruction::create_account(
       initializer.key,
@@ -74,7 +74,7 @@ fn process_instruction(
       &[bump],
     ]],
   )?;
-  //
+
   msg!("unpacking state account");
   let mut account_data = my_try_from_slice_unchecked::<CourseState>(&pda_account.data.borrow())?;
   account_data.name = payload.name;

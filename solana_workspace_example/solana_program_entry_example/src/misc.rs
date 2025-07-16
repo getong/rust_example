@@ -30,7 +30,7 @@ impl CourseInstruction {
       .split_first()
       .ok_or(ProgramError::InvalidInstructionData)?;
     let payload = CourseState::try_from_slice(rest)?;
-    //
+
     Ok(match variant {
       0 => Self::AddCourse {
         name: payload.name,
@@ -48,18 +48,17 @@ pub fn derive_pda_address(payload: &CourseState, program_id: &Pubkey) -> (Pubkey
     &[payload.name.as_bytes(), payload.start_date.as_bytes()],
     program_id,
   );
-  //
+
   msg!("pda is {} and bump seed is {}", pda, bump_seed);
   (pda, bump_seed)
 }
 
 pub fn calculate_acc_size_and_rent(payload: &CourseState) -> (usize, u64) {
-  //
   let account_size: usize = (4 + payload.name.len())
     + (4 + payload.degree.len())
     + (4 + payload.institution.len())
     + (4 + payload.start_date.len());
-  //
+
   match Rent::get() {
     Ok(rent) => {
       let rent_lamports = rent.minimum_balance(account_size);
