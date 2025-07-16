@@ -13,3 +13,5 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 no-entrypoint = []
+custom-heap = []
+custom-panic = []
