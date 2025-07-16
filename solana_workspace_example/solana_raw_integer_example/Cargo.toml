@@ -14,11 +14,3 @@ solana-program = "2.3.0"
 [features]
 custom-heap = []
 custom-panic = []
-
-
-[profile.release]
-overflow-checks = true
-lto = "fat"
-codegen-units = 1
-opt-level = "z"
-panic = "abort"
