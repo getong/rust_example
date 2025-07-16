@@ -7,8 +7,8 @@ use solana_program::{
   program::invoke_signed,
   program_error::ProgramError,
   pubkey::Pubkey,
-  system_instruction,
 };
+use solana_system_interface::instruction as system_instruction;
 
 pub mod misc;
 

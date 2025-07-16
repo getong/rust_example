@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 borsh = { version = "1.5.5", features = ["derive"] }
 solana-program = "2.2.1"
+solana-system-interface = "1.0.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
