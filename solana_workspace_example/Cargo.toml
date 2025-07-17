@@ -25,4 +25,5 @@ members = [
   "anchor_client_async_example",
   "solana_instruction_example",
   "solana_explain_transaction_example",
+  "solana_compute_budget_instruction_example",
 ]
