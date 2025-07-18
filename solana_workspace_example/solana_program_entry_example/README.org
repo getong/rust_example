@@ -18,3 +18,11 @@ solana program show --programs --keypair ~/solana-wallets/bob.json
 # Or get account info to see program count
 solana account ~/solana-wallets/bob.json
 #+end_src
+
+** close program owned by user
+
+#+begin_src shell
+solana program close CkNdo4Z3KEPKe5i9uRhiBDC6JAzL874jxSG31cwy1FYd \
+  --keypair ~/solana-wallets/bob.json \
+  --bypass-warning
+#+end_src
