@@ -473,6 +473,31 @@ fn handle_read_operation(client: &SolanaClient) -> Result<(), Box<dyn std::error
   }
 }
 
+fn handle_read_operation_for_course(
+  client: &SolanaClient,
+  name: &str,
+  start_date: &str,
+  course_description: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  println!(
+    "\n=== READ Operation for {} Course (using program instruction) ===",
+    course_description
+  );
+  match client.read_course(name.to_string(), start_date.to_string()) {
+    Ok(_) => {
+      println!(
+        "Read operation for {} course completed successfully! Check program logs for details.",
+        course_description
+      );
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!("Error reading {} course: {:?}", course_description, e);
+      Err(e)
+    }
+  }
+}
+
 fn handle_delete_operation(
   client: &SolanaClient,
   course_state2: &CourseState,
@@ -587,6 +612,22 @@ fn main() {
   // Read operation
   if let Err(e) = handle_read_operation(&solana_client) {
     eprintln!("Read operation failed: {:?}", e);
+  }
+
+  // Read the second course before deleting it
+  println!("\n=== Reading Second Course Before DELETE ===");
+  if let Err(e) = handle_course_retrieval(&solana_client, &course_state2, "Second") {
+    eprintln!("Error reading second course before delete: {:?}", e);
+  }
+
+  // Also test the program's read instruction on the second course
+  if let Err(e) =
+    handle_read_operation_for_course(&solana_client, COURSE_2_NAME, COURSE_2_START_DATE, "Second")
+  {
+    eprintln!(
+      "Error reading second course with program instruction: {:?}",
+      e
+    );
   }
 
   // Delete operation
