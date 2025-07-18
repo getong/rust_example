@@ -270,11 +270,241 @@ fn load_keypair_from_file<P: AsRef<Path>>(path: P) -> Result<Keypair, Box<dyn st
   Ok(Keypair::try_from(&bytes[..])?)
 }
 
-fn main() {
-  // Load environment variables from .env file if it exists
+fn handle_course_retrieval(
+  client: &SolanaClient,
+  course_state: &CourseState,
+  course_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  match client.get_course_data(course_state) {
+    Ok(stored_course) => {
+      println!("\n=== Retrieved {} Course Data ===", course_name);
+      println!("Name: {}", stored_course.name);
+      println!("Degree: {}", stored_course.degree);
+      println!("Institution: {}", stored_course.institution);
+      println!("Start Date: {}", stored_course.start_date);
+      println!("===============================");
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!("Error retrieving {} course data: {:?}", course_name, e);
+      Err(e)
+    }
+  }
+}
+
+fn handle_course_addition(
+  client: &SolanaClient,
+  name: &str,
+  degree: &str,
+  institution: &str,
+  start_date: &str,
+  course_state: &CourseState,
+  course_description: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  println!(
+    "{} course doesn't exist. Adding new course...",
+    course_description
+  );
+
+  let result = client.add_course(
+    name.to_string(),
+    degree.to_string(),
+    institution.to_string(),
+    start_date.to_string(),
+  );
+
+  match result {
+    Ok(_) => {
+      println!("{} course added successfully!", course_description);
+      println!("Reading data from chain after ADD operation...");
+      handle_course_retrieval(client, course_state, course_description)?;
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!("Error adding {} course: {:?}", course_description, e);
+      Err(e)
+    }
+  }
+}
+
+fn handle_existing_course(
+  client: &SolanaClient,
+  course_state: &CourseState,
+  course_description: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  println!(
+    "{} course already exists! Retrieving existing data...",
+    course_description
+  );
+
+  match client.get_course_data(course_state) {
+    Ok(stored_course) => {
+      println!("\n=== Retrieved {} Course Data ===", course_description);
+      println!("Name: {}", stored_course.name);
+      println!("Degree: {}", stored_course.degree);
+      println!("Institution: {}", stored_course.institution);
+      println!("Start Date: {}", stored_course.start_date);
+      println!("===============================");
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!(
+        "Error retrieving {} course data: {:?}",
+        course_description, e
+      );
+      println!("Debugging raw account data for existing course...");
+      if let Err(debug_err) = client.debug_account_data(course_state) {
+        eprintln!("Error debugging account data: {:?}", debug_err);
+      }
+      Err(e)
+    }
+  }
+}
+
+fn process_course_existence(
+  client: &SolanaClient,
+  course_state: &CourseState,
+  name: &str,
+  degree: &str,
+  institution: &str,
+  start_date: &str,
+  course_description: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  match client.course_exists(course_state) {
+    Ok(exists) => {
+      if exists {
+        handle_existing_course(client, course_state, course_description)?;
+      } else {
+        handle_course_addition(
+          client,
+          name,
+          degree,
+          institution,
+          start_date,
+          course_state,
+          course_description,
+        )?;
+      }
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!(
+        "Error checking if {} course exists: {:?}",
+        course_description, e
+      );
+      Err(e)
+    }
+  }
+}
+
+fn handle_update_operation(
+  client: &SolanaClient,
+  course_state: &CourseState,
+) -> Result<(), Box<dyn std::error::Error>> {
+  println!("\n=== UPDATE Operation ===");
+  match client.update_course(
+    COURSE_1_NAME.to_string(),
+    "Master".to_string(),      // 6 chars vs original 8 chars ("Bachelor")
+    "Solana Univ".to_string(), // 12 chars vs original 20 chars
+    COURSE_1_START_DATE.to_string(),
+  ) {
+    Ok(_) => {
+      println!("Course updated successfully!");
+      println!("Reading data from chain after UPDATE operation...");
+
+      // Create a CourseState with the updated values for proper PDA derivation
+      let updated_course_state = CourseState {
+        name: COURSE_1_NAME.to_string(),
+        degree: "Master".to_string(),
+        institution: "Solana Univ".to_string(),
+        start_date: COURSE_1_START_DATE.to_string(),
+      };
+
+      match client.get_course_data(&updated_course_state) {
+        Ok(updated_course) => {
+          println!("\n=== Updated Course Data ===");
+          println!("Name: {}", updated_course.name);
+          println!("Degree: {}", updated_course.degree);
+          println!("Institution: {}", updated_course.institution);
+          println!("Start Date: {}", updated_course.start_date);
+          println!("===============================");
+        }
+        Err(e) => {
+          eprintln!("Error retrieving updated course data: {:?}", e);
+          println!("Debugging raw account data after UPDATE...");
+          if let Err(debug_err) = client.debug_account_data(course_state) {
+            eprintln!("Error debugging account data: {:?}", debug_err);
+          }
+
+          println!("Trying with original course state for PDA derivation...");
+          match client.get_course_data(course_state) {
+            Ok(course) => {
+              println!("\n=== Course Data (via original PDA) ===");
+              println!("Name: {}", course.name);
+              println!("Degree: {}", course.degree);
+              println!("Institution: {}", course.institution);
+              println!("Start Date: {}", course.start_date);
+              println!("======================================");
+            }
+            Err(e2) => eprintln!("Error with original PDA too: {:?}", e2),
+          }
+        }
+      }
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!("Error updating course: {:?}", e);
+      Err(e)
+    }
+  }
+}
+
+fn handle_read_operation(client: &SolanaClient) -> Result<(), Box<dyn std::error::Error>> {
+  println!("\n=== READ Operation (using program instruction) ===");
+  match client.read_course(COURSE_1_NAME.to_string(), COURSE_1_START_DATE.to_string()) {
+    Ok(_) => {
+      println!("Read operation completed successfully! Check program logs for details.");
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!("Error reading course: {:?}", e);
+      Err(e)
+    }
+  }
+}
+
+fn handle_delete_operation(
+  client: &SolanaClient,
+  course_state2: &CourseState,
+) -> Result<(), Box<dyn std::error::Error>> {
+  println!("\n=== DELETE Operation ===");
+  match client.delete_course(COURSE_2_NAME.to_string(), COURSE_2_START_DATE.to_string()) {
+    Ok(_) => {
+      println!("Second course deleted successfully!");
+
+      // Try to read the deleted course to confirm deletion
+      match client.course_exists(course_state2) {
+        Ok(exists) => {
+          if exists {
+            println!("WARNING: Course still exists after deletion attempt!");
+          } else {
+            println!("Confirmed: Course has been successfully deleted.");
+          }
+        }
+        Err(e) => eprintln!("Error checking if deleted course exists: {:?}", e),
+      }
+      Ok(())
+    }
+    Err(e) => {
+      eprintln!("Error deleting course: {:?}", e);
+      Err(e)
+    }
+  }
+}
+
+fn setup_client() -> Result<SolanaClient, Box<dyn std::error::Error>> {
   dotenvy::dotenv().ok();
 
-  // Load keypair from file system
   let home_dir = std::env::var("HOME").expect("HOME environment variable not set");
   let keypair_path = format!("{}/{}/{}", home_dir, WALLET_DIRECTORY, WALLET_FILE_NAME);
 
@@ -291,9 +521,20 @@ fn main() {
   };
 
   let program_id = Pubkey::from_str(SOLANA_PROGRAM_ID).unwrap();
-  let solana_client = SolanaClient::new(SOLANA_RPC_URL, payer, program_id);
+  Ok(SolanaClient::new(SOLANA_RPC_URL, payer, program_id))
+}
 
-  // Create CourseState for checking and retrieving data
+fn main() {
+  // Setup client
+  let solana_client = match setup_client() {
+    Ok(client) => client,
+    Err(e) => {
+      eprintln!("Failed to setup client: {:?}", e);
+      return;
+    }
+  };
+
+  // Create CourseState for the first course
   let course_state = CourseState {
     name: COURSE_1_NAME.to_string(),
     degree: COURSE_1_DEGREE.to_string(),
@@ -301,67 +542,20 @@ fn main() {
     start_date: COURSE_1_START_DATE.to_string(),
   };
 
-  // Check if course already exists
-  match solana_client.course_exists(&course_state) {
-    Ok(exists) => {
-      if exists {
-        println!("Course already exists! Retrieving existing data...");
-
-        // Retrieve and display the stored course data
-        match solana_client.get_course_data(&course_state) {
-          Ok(stored_course) => {
-            println!("\n=== Retrieved Course Data ===");
-            println!("Name: {}", stored_course.name);
-            println!("Degree: {}", stored_course.degree);
-            println!("Institution: {}", stored_course.institution);
-            println!("Start Date: {}", stored_course.start_date);
-            println!("============================");
-          }
-          Err(e) => {
-            eprintln!("Error retrieving course data: {:?}", e);
-            // Debug the raw account data to understand the issue
-            println!("Debugging raw account data for existing course...");
-            if let Err(debug_err) = solana_client.debug_account_data(&course_state) {
-              eprintln!("Error debugging account data: {:?}", debug_err);
-            }
-          }
-        }
-      } else {
-        println!("Course doesn't exist. Adding new course...");
-
-        let result = solana_client.add_course(
-          COURSE_1_NAME.to_string(),
-          COURSE_1_DEGREE.to_string(),
-          COURSE_1_INSTITUTION.to_string(),
-          COURSE_1_START_DATE.to_string(),
-        );
-
-        match result {
-          Ok(_) => {
-            println!("Course added successfully!");
-
-            // Read data from chain immediately after adding
-            println!("Reading data from chain after ADD operation...");
-            match solana_client.get_course_data(&course_state) {
-              Ok(stored_course) => {
-                println!("\n=== Retrieved Course Data ===");
-                println!("Name: {}", stored_course.name);
-                println!("Degree: {}", stored_course.degree);
-                println!("Institution: {}", stored_course.institution);
-                println!("Start Date: {}", stored_course.start_date);
-                println!("============================");
-              }
-              Err(e) => eprintln!("Error retrieving course data: {:?}", e),
-            }
-          }
-          Err(e) => eprintln!("Error adding course: {:?}", e),
-        }
-      }
-    }
-    Err(e) => eprintln!("Error checking if course exists: {:?}", e),
+  // Process first course
+  if let Err(e) = process_course_existence(
+    &solana_client,
+    &course_state,
+    COURSE_1_NAME,
+    COURSE_1_DEGREE,
+    COURSE_1_INSTITUTION,
+    COURSE_1_START_DATE,
+    "First",
+  ) {
+    eprintln!("Error processing first course: {:?}", e);
   }
 
-  // Try adding a different course to demonstrate the system works
+  // Process second course
   println!("\n--- Trying to add a different course ---");
   let course_state2 = CourseState {
     name: COURSE_2_NAME.to_string(),
@@ -370,143 +564,34 @@ fn main() {
     start_date: COURSE_2_START_DATE.to_string(),
   };
 
-  match solana_client.course_exists(&course_state2) {
-    Ok(exists) => {
-      if exists {
-        println!("Second course already exists! Retrieving existing data...");
-
-        match solana_client.get_course_data(&course_state2) {
-          Ok(stored_course) => {
-            println!("\n=== Retrieved Second Course Data ===");
-            println!("Name: {}", stored_course.name);
-            println!("Degree: {}", stored_course.degree);
-            println!("Institution: {}", stored_course.institution);
-            println!("Start Date: {}", stored_course.start_date);
-            println!("=====================================");
-          }
-          Err(e) => eprintln!("Error retrieving second course data: {:?}", e),
-        }
-      } else {
-        println!("Second course doesn't exist. Adding new course...");
-
-        let result2 = solana_client.add_course(
-          COURSE_2_NAME.to_string(),
-          COURSE_2_DEGREE.to_string(),
-          COURSE_2_INSTITUTION.to_string(),
-          COURSE_2_START_DATE.to_string(),
-        );
-
-        match result2 {
-          Ok(_) => {
-            println!("Second course added successfully!");
-
-            // Read data from chain immediately after adding second course
-            println!("Reading second course data from chain after ADD operation...");
-            match solana_client.get_course_data(&course_state2) {
-              Ok(stored_course) => {
-                println!("\n=== Retrieved Second Course Data ===");
-                println!("Name: {}", stored_course.name);
-                println!("Degree: {}", stored_course.degree);
-                println!("Institution: {}", stored_course.institution);
-                println!("Start Date: {}", stored_course.start_date);
-                println!("=====================================");
-              }
-              Err(e) => eprintln!("Error retrieving second course data: {:?}", e),
-            }
-          }
-          Err(e) => eprintln!("Error adding second course: {:?}", e),
-        }
-      }
-    }
-    Err(e) => eprintln!("Error checking if second course exists: {:?}", e),
+  if let Err(e) = process_course_existence(
+    &solana_client,
+    &course_state2,
+    COURSE_2_NAME,
+    COURSE_2_DEGREE,
+    COURSE_2_INSTITUTION,
+    COURSE_2_START_DATE,
+    "Second",
+  ) {
+    eprintln!("Error processing second course: {:?}", e);
   }
 
   // Demonstrate CRUD operations
   println!("\n--- Demonstrating CRUD Operations ---");
 
-  // Update the first course
-  println!("\n=== UPDATE Operation ===");
-  match solana_client.update_course(
-    COURSE_1_NAME.to_string(),
-    "Master".to_string(),      // 6 chars vs original 8 chars ("Bachelor")
-    "Solana Univ".to_string(), // 12 chars vs original 20 chars
-    COURSE_1_START_DATE.to_string(),
-  ) {
-    Ok(_) => {
-      println!("Course updated successfully!");
-
-      // Read data from chain immediately after UPDATE operation
-      println!("Reading data from chain after UPDATE operation...");
-      // Create a CourseState with the updated values for proper PDA derivation
-      let updated_course_state = CourseState {
-        name: COURSE_1_NAME.to_string(),
-        degree: "Master".to_string(),
-        institution: "Solana Univ".to_string(),
-        start_date: COURSE_1_START_DATE.to_string(),
-      };
-
-      match solana_client.get_course_data(&updated_course_state) {
-        Ok(updated_course) => {
-          println!("\n=== Updated Course Data ===");
-          println!("Name: {}", updated_course.name);
-          println!("Degree: {}", updated_course.degree);
-          println!("Institution: {}", updated_course.institution);
-          println!("Start Date: {}", updated_course.start_date);
-          println!("===============================");
-        }
-        Err(e) => {
-          eprintln!("Error retrieving updated course data: {:?}", e);
-          // Debug the raw account data
-          println!("Debugging raw account data after UPDATE...");
-          if let Err(debug_err) = solana_client.debug_account_data(&course_state) {
-            eprintln!("Error debugging account data: {:?}", debug_err);
-          }
-
-          // Try with original course state
-          println!("Trying with original course state for PDA derivation...");
-          match solana_client.get_course_data(&course_state) {
-            Ok(course) => {
-              println!("\n=== Course Data (via original PDA) ===");
-              println!("Name: {}", course.name);
-              println!("Degree: {}", course.degree);
-              println!("Institution: {}", course.institution);
-              println!("Start Date: {}", course.start_date);
-              println!("======================================");
-            }
-            Err(e2) => eprintln!("Error with original PDA too: {:?}", e2),
-          }
-        }
-      }
-    }
-    Err(e) => eprintln!("Error updating course: {:?}", e),
+  // Update operation
+  if let Err(e) = handle_update_operation(&solana_client, &course_state) {
+    eprintln!("Update operation failed: {:?}", e);
   }
 
-  // Read operation using the program's read instruction
-  println!("\n=== READ Operation (using program instruction) ===");
-  match solana_client.read_course(COURSE_1_NAME.to_string(), COURSE_1_START_DATE.to_string()) {
-    Ok(_) => println!("Read operation completed successfully! Check program logs for details."),
-    Err(e) => eprintln!("Error reading course: {:?}", e),
+  // Read operation
+  if let Err(e) = handle_read_operation(&solana_client) {
+    eprintln!("Read operation failed: {:?}", e);
   }
 
-  // Delete the second course
-  println!("\n=== DELETE Operation ===");
-  match solana_client.delete_course(COURSE_2_NAME.to_string(), COURSE_2_START_DATE.to_string()) {
-    Ok(_) => {
-      println!("Second course deleted successfully!");
-
-      // Try to read the deleted course to confirm deletion
-      match solana_client.course_exists(&course_state2) {
-        Ok(exists) => {
-          if exists {
-            println!("WARNING: Course still exists after deletion attempt!");
-          } else {
-            println!("Confirmed: Course has been successfully deleted.");
-          }
-        }
-        Err(e) => eprintln!("Error checking if deleted course exists: {:?}", e),
-      }
-    }
-    Err(e) => eprintln!("Error deleting course: {:?}", e),
+  // Delete operation
+  if let Err(e) = handle_delete_operation(&solana_client, &course_state2) {
+    eprintln!("Delete operation failed: {:?}", e);
   }
 
   println!("\n--- CRUD Operations Demo Complete ---");
