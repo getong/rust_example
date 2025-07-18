@@ -4,7 +4,7 @@ use solana_program::{
   entrypoint,
   entrypoint::ProgramResult,
   msg,
-  program::invoke_signed,
+  program::{invoke, invoke_signed},
   program_error::ProgramError,
   pubkey::Pubkey,
 };
@@ -134,8 +134,9 @@ fn update_course(
   msg!("Updating course: {}", name);
 
   let account_info_iter = &mut accounts.iter();
-  let _initializer = next_account_info(account_info_iter)?;
+  let initializer = next_account_info(account_info_iter)?;
   let pda_account = next_account_info(account_info_iter)?;
+  let system_program = next_account_info(account_info_iter)?;
 
   let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, program_id);
 
@@ -149,15 +150,37 @@ fn update_course(
     return Err(ProgramError::UninitializedAccount);
   }
 
+  let updated_payload = CourseState {
+    name: name.clone(),
+    degree: degree.clone(),
+    institution: institution.clone(),
+    start_date: start_date.clone(),
+  };
+
+  let (new_size, new_rent) = calculate_acc_size_and_rent(&updated_payload);
+
+  // Reallocate account if size changed
+  if pda_account.data_len() != new_size {
+    let rent_due = new_rent.saturating_sub(pda_account.lamports());
+    if rent_due > 0 {
+      invoke(
+        &system_instruction::transfer(initializer.key, pda_account.key, rent_due),
+        &[
+          initializer.clone(),
+          pda_account.clone(),
+          system_program.clone(),
+        ],
+      )?;
+    }
+    pda_account.resize(new_size)?;
+  }
+
   msg!("unpacking existing state account");
-  let mut account_data = my_try_from_slice_unchecked::<CourseState>(&pda_account.data.borrow())?;
+  let mut account_data = pda_account.try_borrow_mut_data()?;
 
   // Update the fields
-  account_data.degree = degree;
-  account_data.institution = institution;
+  updated_payload.serialize(&mut &mut account_data[..])?;
 
-  msg!("serializing updated account {:?}", account_data);
-  account_data.serialize(&mut &mut pda_account.data.borrow_mut()[..])?;
   msg!("Course updated successfully");
 
   Ok(())
