@@ -19,7 +19,7 @@ use crate::misc::{derive_pda_address, derive_pda_from_name_and_date, CourseState
 const SOLANA_RPC_URL: &str = "http://localhost:8899";
 const WALLET_DIRECTORY: &str = "solana-wallets";
 const WALLET_FILE_NAME: &str = "alice.json";
-const SOLANA_PROGRAM_ID: &str = "87ton4sdvxfzJ6Mid71KwuwDWsAWnyCHEajCSo4DyWfR";
+const SOLANA_PROGRAM_ID: &str = "3H298oTErSEpNwKgrbmcT7hzaSaRuApuebuc8BwJMTce";
 
 // Constants for test course data
 const COURSE_1_NAME: &str = "Rust Programming";
@@ -58,6 +58,24 @@ impl SolanaClient {
       Ok(_account) => Ok(true),
       Err(_) => Ok(false),
     }
+  }
+
+  pub fn debug_account_data(
+    &self,
+    course_state: &CourseState,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let (pda, _bump) = derive_pda_address(course_state, &self.program_id)?;
+
+    // Get the raw account data
+    let account_data = self.client.get_account_data(&pda)?;
+
+    println!("Raw account data length: {}", account_data.len());
+    println!(
+      "Raw account data (first 50 bytes): {:?}",
+      &account_data[.. account_data.len().min(50)]
+    );
+
+    Ok(())
   }
 
   pub fn get_course_data(
@@ -144,8 +162,9 @@ impl SolanaClient {
 
     let payer_meta = AccountMeta::new(self.payer.pubkey(), true);
     let pda_meta = AccountMeta::new(pda, false);
+    let system_program_meta = AccountMeta::new_readonly(system_program::id(), false);
 
-    let accounts = vec![payer_meta, pda_meta];
+    let accounts = vec![payer_meta, pda_meta, system_program_meta];
 
     let instruction = Instruction {
       program_id: self.program_id.clone(),
@@ -298,7 +317,14 @@ fn main() {
             println!("Start Date: {}", stored_course.start_date);
             println!("============================");
           }
-          Err(e) => eprintln!("Error retrieving course data: {:?}", e),
+          Err(e) => {
+            eprintln!("Error retrieving course data: {:?}", e);
+            // Debug the raw account data to understand the issue
+            println!("Debugging raw account data for existing course...");
+            if let Err(debug_err) = solana_client.debug_account_data(&course_state) {
+              eprintln!("Error debugging account data: {:?}", debug_err);
+            }
+          }
         }
       } else {
         println!("Course doesn't exist. Adding new course...");
@@ -314,7 +340,8 @@ fn main() {
           Ok(_) => {
             println!("Course added successfully!");
 
-            // Retrieve and display the stored course data
+            // Read data from chain immediately after adding
+            println!("Reading data from chain after ADD operation...");
             match solana_client.get_course_data(&course_state) {
               Ok(stored_course) => {
                 println!("\n=== Retrieved Course Data ===");
@@ -373,6 +400,8 @@ fn main() {
           Ok(_) => {
             println!("Second course added successfully!");
 
+            // Read data from chain immediately after adding second course
+            println!("Reading second course data from chain after ADD operation...");
             match solana_client.get_course_data(&course_state2) {
               Ok(stored_course) => {
                 println!("\n=== Retrieved Second Course Data ===");
@@ -406,8 +435,17 @@ fn main() {
     Ok(_) => {
       println!("Course updated successfully!");
 
-      // Read the updated course data
-      match solana_client.get_course_data(&course_state) {
+      // Read data from chain immediately after UPDATE operation
+      println!("Reading data from chain after UPDATE operation...");
+      // Create a CourseState with the updated values for proper PDA derivation
+      let updated_course_state = CourseState {
+        name: COURSE_1_NAME.to_string(),
+        degree: "Master".to_string(),
+        institution: "Solana Univ".to_string(),
+        start_date: COURSE_1_START_DATE.to_string(),
+      };
+
+      match solana_client.get_course_data(&updated_course_state) {
         Ok(updated_course) => {
           println!("\n=== Updated Course Data ===");
           println!("Name: {}", updated_course.name);
@@ -416,7 +454,28 @@ fn main() {
           println!("Start Date: {}", updated_course.start_date);
           println!("===============================");
         }
-        Err(e) => eprintln!("Error retrieving updated course data: {:?}", e),
+        Err(e) => {
+          eprintln!("Error retrieving updated course data: {:?}", e);
+          // Debug the raw account data
+          println!("Debugging raw account data after UPDATE...");
+          if let Err(debug_err) = solana_client.debug_account_data(&course_state) {
+            eprintln!("Error debugging account data: {:?}", debug_err);
+          }
+
+          // Try with original course state
+          println!("Trying with original course state for PDA derivation...");
+          match solana_client.get_course_data(&course_state) {
+            Ok(course) => {
+              println!("\n=== Course Data (via original PDA) ===");
+              println!("Name: {}", course.name);
+              println!("Degree: {}", course.degree);
+              println!("Institution: {}", course.institution);
+              println!("Start Date: {}", course.start_date);
+              println!("======================================");
+            }
+            Err(e2) => eprintln!("Error with original PDA too: {:?}", e2),
+          }
+        }
       }
     }
     Err(e) => eprintln!("Error updating course: {:?}", e),
