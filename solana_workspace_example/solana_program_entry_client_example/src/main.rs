@@ -13,13 +13,13 @@ use solana_sdk_ids::system_program;
 
 mod misc;
 
-use crate::misc::{derive_pda_address, CourseInstruction, CourseState};
+use crate::misc::{derive_pda_address, derive_pda_from_name_and_date, CourseState};
 
 // Constants for configuration
 const SOLANA_RPC_URL: &str = "http://localhost:8899";
 const WALLET_DIRECTORY: &str = "solana-wallets";
 const WALLET_FILE_NAME: &str = "alice.json";
-const SOLANA_PROGRAM_ID: &str = "8JgSyo7yEeGNrThPWTkDB1AxwVYKKXDGjxaxDMSz2mzr";
+const SOLANA_PROGRAM_ID: &str = "87ton4sdvxfzJ6Mid71KwuwDWsAWnyCHEajCSo4DyWfR";
 
 // Constants for test course data
 const COURSE_1_NAME: &str = "Rust Programming";
@@ -27,7 +27,7 @@ const COURSE_1_DEGREE: &str = "Bachelor";
 const COURSE_1_INSTITUTION: &str = "University of Solana";
 const COURSE_1_START_DATE: &str = "2025-01-01";
 
-const COURSE_2_NAME: &str = "Advanced Solana Development sernior";
+const COURSE_2_NAME: &str = "Advanced Solana Dev";
 const COURSE_2_DEGREE: &str = "Master";
 const COURSE_2_INSTITUTION: &str = "Best Blockchain University";
 const COURSE_2_START_DATE: &str = "2025-02-01";
@@ -91,15 +91,13 @@ impl SolanaClient {
 
     let (pda, _bump) = derive_pda_address(&payload, &self.program_id)?;
 
-    let course_instruction = CourseInstruction::AddCourse {
-      name,
-      degree,
-      institution,
-      start_date,
-    };
-
+    // Create instruction data manually for AddCourse
     let mut instruction_data = Vec::new();
-    course_instruction.serialize(&mut instruction_data).unwrap();
+    instruction_data.push(0u8); // AddCourse variant is 0
+
+    // Serialize the CourseState payload
+    payload.serialize(&mut instruction_data)?;
+
     let payer_meta = AccountMeta::new(self.payer.pubkey(), true);
     let pda_meta = AccountMeta::new(pda, false);
     let system_program_meta = AccountMeta::new_readonly(system_program::id(), false);
@@ -119,6 +117,130 @@ impl SolanaClient {
 
     let result = self.client.send_and_confirm_transaction(&transaction)?;
     println!("Transaction confirmed with signature: {}", result);
+    Ok(())
+  }
+
+  pub fn update_course(
+    &self,
+    name: String,
+    degree: String,
+    institution: String,
+    start_date: String,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, &self.program_id)?;
+
+    // Create instruction data manually for UpdateCourse
+    let mut instruction_data = Vec::new();
+    instruction_data.push(1u8); // UpdateCourse variant is 1
+
+    // Serialize the CourseState payload
+    let payload = CourseState {
+      name,
+      degree,
+      institution,
+      start_date,
+    };
+    payload.serialize(&mut instruction_data)?;
+
+    let payer_meta = AccountMeta::new(self.payer.pubkey(), true);
+    let pda_meta = AccountMeta::new(pda, false);
+
+    let accounts = vec![payer_meta, pda_meta];
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!("Update transaction confirmed with signature: {}", result);
+    Ok(())
+  }
+  pub fn read_course(
+    &self,
+    name: String,
+    start_date: String,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, &self.program_id)?;
+
+    // Create instruction data manually for ReadCourse
+    let mut instruction_data = Vec::new();
+    instruction_data.push(2u8); // ReadCourse variant is 2
+
+    // Serialize name length and name
+    let name_bytes = name.as_bytes();
+    instruction_data.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(name_bytes);
+
+    // Serialize start_date length and start_date
+    let start_date_bytes = start_date.as_bytes();
+    instruction_data.extend_from_slice(&(start_date_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(start_date_bytes);
+
+    let pda_meta = AccountMeta::new_readonly(pda, false);
+    let accounts = vec![pda_meta];
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!("Read transaction confirmed with signature: {}", result);
+    Ok(())
+  }
+
+  pub fn delete_course(
+    &self,
+    name: String,
+    start_date: String,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, &self.program_id)?;
+
+    // Create instruction data manually for DeleteCourse
+    let mut instruction_data = Vec::new();
+    instruction_data.push(3u8); // DeleteCourse variant is 3
+
+    // Serialize name length and name
+    let name_bytes = name.as_bytes();
+    instruction_data.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(name_bytes);
+
+    // Serialize start_date length and start_date
+    let start_date_bytes = start_date.as_bytes();
+    instruction_data.extend_from_slice(&(start_date_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(start_date_bytes);
+
+    let payer_meta = AccountMeta::new(self.payer.pubkey(), true);
+    let pda_meta = AccountMeta::new(pda, false);
+
+    let accounts = vec![payer_meta, pda_meta];
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!("Delete transaction confirmed with signature: {}", result);
     Ok(())
   }
 }
@@ -269,4 +391,64 @@ fn main() {
     }
     Err(e) => eprintln!("Error checking if second course exists: {:?}", e),
   }
+
+  // Demonstrate CRUD operations
+  println!("\n--- Demonstrating CRUD Operations ---");
+
+  // Update the first course
+  println!("\n=== UPDATE Operation ===");
+  match solana_client.update_course(
+    COURSE_1_NAME.to_string(),
+    "Master".to_string(),      // 6 chars vs original 8 chars ("Bachelor")
+    "Solana Univ".to_string(), // 12 chars vs original 20 chars
+    COURSE_1_START_DATE.to_string(),
+  ) {
+    Ok(_) => {
+      println!("Course updated successfully!");
+
+      // Read the updated course data
+      match solana_client.get_course_data(&course_state) {
+        Ok(updated_course) => {
+          println!("\n=== Updated Course Data ===");
+          println!("Name: {}", updated_course.name);
+          println!("Degree: {}", updated_course.degree);
+          println!("Institution: {}", updated_course.institution);
+          println!("Start Date: {}", updated_course.start_date);
+          println!("===============================");
+        }
+        Err(e) => eprintln!("Error retrieving updated course data: {:?}", e),
+      }
+    }
+    Err(e) => eprintln!("Error updating course: {:?}", e),
+  }
+
+  // Read operation using the program's read instruction
+  println!("\n=== READ Operation (using program instruction) ===");
+  match solana_client.read_course(COURSE_1_NAME.to_string(), COURSE_1_START_DATE.to_string()) {
+    Ok(_) => println!("Read operation completed successfully! Check program logs for details."),
+    Err(e) => eprintln!("Error reading course: {:?}", e),
+  }
+
+  // Delete the second course
+  println!("\n=== DELETE Operation ===");
+  match solana_client.delete_course(COURSE_2_NAME.to_string(), COURSE_2_START_DATE.to_string()) {
+    Ok(_) => {
+      println!("Second course deleted successfully!");
+
+      // Try to read the deleted course to confirm deletion
+      match solana_client.course_exists(&course_state2) {
+        Ok(exists) => {
+          if exists {
+            println!("WARNING: Course still exists after deletion attempt!");
+          } else {
+            println!("Confirmed: Course has been successfully deleted.");
+          }
+        }
+        Err(e) => eprintln!("Error checking if deleted course exists: {:?}", e),
+      }
+    }
+    Err(e) => eprintln!("Error deleting course: {:?}", e),
+  }
+
+  println!("\n--- CRUD Operations Demo Complete ---");
 }
