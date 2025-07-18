@@ -1,0 +1,187 @@
+* Solana Course Management Program - CRUD Operations
+:PROPERTIES:
+:CUSTOM_ID: solana-course-management-program---crud-operations
+:END:
+This Solana program demonstrates a complete CRUD (Create, Read, Update,
+Delete) implementation for managing course records on the Solana
+blockchain.
+
+** Features
+:PROPERTIES:
+:CUSTOM_ID: features
+:END:
+The program supports four main operations:
+
+*** 1. Create Course (AddCourse)
+:PROPERTIES:
+:CUSTOM_ID: create-course-addcourse
+:END:
+- Creates a new course record on the blockchain
+- Stores course name, degree, institution, and start date
+- Uses Program Derived Address (PDA) for deterministic account creation
+- Checks if course already exists to prevent duplicates
+
+*** 2. Read Course (ReadCourse)
+:PROPERTIES:
+:CUSTOM_ID: read-course-readcourse
+:END:
+- Retrieves and displays course information
+- Logs all course details to the program logs
+- Requires only the course name and start date for lookup
+
+*** 3. Update Course (UpdateCourse)
+:PROPERTIES:
+:CUSTOM_ID: update-course-updatecourse
+:END:
+- Updates existing course information
+- Can modify degree and institution fields
+- Validates that the course exists before updating
+- Name and start date are immutable (used for PDA generation)
+
+*** 4. Delete Course (DeleteCourse)
+:PROPERTIES:
+:CUSTOM_ID: delete-course-deletecourse
+:END:
+- Removes course record from the blockchain
+- Transfers lamports back to the initializer
+- Clears the account data
+- Validates course existence before deletion
+
+** Program Structure
+:PROPERTIES:
+:CUSTOM_ID: program-structure
+:END:
+*** Rust Program (=src/lib.rs=)
+:PROPERTIES:
+:CUSTOM_ID: rust-program-srclib.rs
+:END:
+- =process_instruction()= - Main entry point that routes to specific
+  CRUD operations
+- =add_course()= - Handles course creation
+- =update_course()= - Handles course updates
+- =read_course()= - Handles course reading
+- =delete_course()= - Handles course deletion
+
+*** Supporting Code (=src/misc.rs=)
+:PROPERTIES:
+:CUSTOM_ID: supporting-code-srcmisc.rs
+:END:
+- =CourseState= - Data structure for course information
+- =CourseInstruction= - Enum defining all instruction types
+- Helper functions for PDA derivation and serialization
+
+*** Client Code (=client/src/index.ts=)
+:PROPERTIES:
+:CUSTOM_ID: client-code-clientsrcindex.ts
+:END:
+- TypeScript client demonstrating all CRUD operations
+- Includes proper instruction serialization for each operation type
+- Error handling and account validation
+
+** Instruction Variants
+:PROPERTIES:
+:CUSTOM_ID: instruction-variants
+:END:
+The program uses the following instruction variants: - =0= - AddCourse -
+=1= - UpdateCourse\\
+- =2= - ReadCourse - =3= - DeleteCourse
+
+** Data Structure
+:PROPERTIES:
+:CUSTOM_ID: data-structure
+:END:
+#+begin_src rust
+pub struct CourseState {
+    pub name: String,        // Course name (immutable)
+    pub degree: String,      // Degree type (updatable)
+    pub institution: String, // Institution name (updatable)
+    pub start_date: String,  // Start date (immutable)
+}
+#+end_src
+
+** PDA Generation
+:PROPERTIES:
+:CUSTOM_ID: pda-generation
+:END:
+The Program Derived Address (PDA) is generated using: - Course name (as
+bytes) - Start date (as bytes) - Program ID
+
+This ensures each unique course (by name and start date) has a
+deterministic address.
+
+** Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+*** Building the Program
+:PROPERTIES:
+:CUSTOM_ID: building-the-program
+:END:
+#+begin_src sh
+cargo-build-bpf
+#+end_src
+
+*** Running the Client
+:PROPERTIES:
+:CUSTOM_ID: running-the-client
+:END:
+#+begin_src sh
+cd client
+bun install
+bun run src/index.ts
+#+end_src
+
+*** Prerequisites
+:PROPERTIES:
+:CUSTOM_ID: prerequisites
+:END:
+- Solana CLI tools installed
+- Local validator running (=solana-test-validator=)
+- Wallet with sufficient SOL for transactions
+
+** Error Handling
+:PROPERTIES:
+:CUSTOM_ID: error-handling
+:END:
+The program includes comprehensive error handling: -
+=AccountAlreadyInitialized= - Course already exists (Create) -
+=UninitializedAccount= - Course doesn't exist (Read/Update/Delete) -
+=InvalidArgument= - PDA mismatch - =InvalidInstructionData= - Malformed
+instruction data
+
+** Transaction Accounts
+:PROPERTIES:
+:CUSTOM_ID: transaction-accounts
+:END:
+*** For AddCourse:
+:PROPERTIES:
+:CUSTOM_ID: for-addcourse
+:END:
+1. Initializer (signer, writable) - Pays for account creation
+2. PDA Account (writable) - Course data storage
+3. System Program - For account creation
+
+*** For UpdateCourse/DeleteCourse:
+:PROPERTIES:
+:CUSTOM_ID: for-updatecoursedeletecourse
+:END:
+1. Initializer (signer, writable) - Transaction authority
+2. PDA Account (writable) - Course data storage
+
+*** For ReadCourse:
+:PROPERTIES:
+:CUSTOM_ID: for-readcourse
+:END:
+1. PDA Account (readable) - Course data storage
+
+** Example Output
+:PROPERTIES:
+:CUSTOM_ID: example-output
+:END:
+When running the client, you'll see a complete CRUD demonstration: 1.
+Course creation with transaction signature 2. Course reading with logged
+details 3. Course update with new information 4. Re-reading to verify
+updates 5. Course deletion and cleanup
+
+This provides a complete example of state management on Solana with
+proper account lifecycle management.

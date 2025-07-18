@@ -13,8 +13,8 @@ use solana_system_interface::instruction as system_instruction;
 pub mod misc;
 
 use misc::{
-  calculate_acc_size_and_rent, derive_pda_address, my_try_from_slice_unchecked, CourseInstruction,
-  CourseState,
+  calculate_acc_size_and_rent, derive_pda_address, derive_pda_from_name_and_date,
+  my_try_from_slice_unchecked, CourseInstruction, CourseState,
 };
 
 entrypoint!(process_instruction);
@@ -26,25 +26,54 @@ fn process_instruction(
 ) -> ProgramResult {
   msg!("start execution...");
 
+  let instruction = CourseInstruction::unpack(instruction_data)?;
+
+  match instruction {
+    CourseInstruction::AddCourse {
+      name,
+      degree,
+      institution,
+      start_date,
+    } => add_course(program_id, accounts, name, degree, institution, start_date),
+
+    CourseInstruction::UpdateCourse {
+      name,
+      degree,
+      institution,
+      start_date,
+    } => update_course(program_id, accounts, name, degree, institution, start_date),
+
+    CourseInstruction::ReadCourse { name, start_date } => {
+      read_course(program_id, accounts, name, start_date)
+    }
+
+    CourseInstruction::DeleteCourse { name, start_date } => {
+      delete_course(program_id, accounts, name, start_date)
+    }
+  }
+}
+
+fn add_course(
+  program_id: &Pubkey,
+  accounts: &[AccountInfo],
+  name: String,
+  degree: String,
+  institution: String,
+  start_date: String,
+) -> ProgramResult {
+  msg!("Adding course: {}", name);
+
   let account_info_iter = &mut accounts.iter();
   let initializer = next_account_info(account_info_iter)?;
   let pda_account = next_account_info(account_info_iter)?;
   let system_program = next_account_info(account_info_iter)?;
 
-  let instruction = CourseInstruction::unpack(instruction_data)?;
-  let CourseInstruction::AddCourse {
-    name,
-    degree,
-    institution,
-    start_date,
-  } = instruction;
   let payload = CourseState {
-    name,
-    degree,
-    institution,
-    start_date,
+    name: name.clone(),
+    degree: degree.clone(),
+    institution: institution.clone(),
+    start_date: start_date.clone(),
   };
-  msg!("This is an instruction to add a course...");
 
   let (pda, bump) = derive_pda_address(&payload, program_id);
   let (size, rent) = calculate_acc_size_and_rent(&payload);
@@ -54,6 +83,12 @@ fn process_instruction(
   }
 
   msg!("pda account and key identical");
+
+  // Check if account already exists
+  if pda_account.data_len() > 0 {
+    msg!("Course already exists!");
+    return Err(ProgramError::AccountAlreadyInitialized);
+  }
 
   invoke_signed(
     &system_instruction::create_account(
@@ -83,7 +118,122 @@ fn process_instruction(
   account_data.start_date = payload.start_date;
   msg!("serializing account {:?}", account_data);
   account_data.serialize(&mut &mut pda_account.data.borrow_mut()[..])?;
-  msg!("state account serialized");
-  //
+  msg!("Course added successfully");
+
+  Ok(())
+}
+
+fn update_course(
+  program_id: &Pubkey,
+  accounts: &[AccountInfo],
+  name: String,
+  degree: String,
+  institution: String,
+  start_date: String,
+) -> ProgramResult {
+  msg!("Updating course: {}", name);
+
+  let account_info_iter = &mut accounts.iter();
+  let _initializer = next_account_info(account_info_iter)?;
+  let pda_account = next_account_info(account_info_iter)?;
+
+  let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, program_id);
+
+  if *pda_account.key != pda {
+    return Err(ProgramError::InvalidArgument);
+  }
+
+  // Check if account exists
+  if pda_account.data_len() == 0 {
+    msg!("Course does not exist!");
+    return Err(ProgramError::UninitializedAccount);
+  }
+
+  msg!("unpacking existing state account");
+  let mut account_data = my_try_from_slice_unchecked::<CourseState>(&pda_account.data.borrow())?;
+
+  // Update the fields
+  account_data.degree = degree;
+  account_data.institution = institution;
+
+  msg!("serializing updated account {:?}", account_data);
+  account_data.serialize(&mut &mut pda_account.data.borrow_mut()[..])?;
+  msg!("Course updated successfully");
+
+  Ok(())
+}
+
+fn read_course(
+  program_id: &Pubkey,
+  accounts: &[AccountInfo],
+  name: String,
+  start_date: String,
+) -> ProgramResult {
+  msg!("Reading course: {}", name);
+
+  let account_info_iter = &mut accounts.iter();
+  let pda_account = next_account_info(account_info_iter)?;
+
+  let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, program_id);
+
+  if *pda_account.key != pda {
+    return Err(ProgramError::InvalidArgument);
+  }
+
+  // Check if account exists
+  if pda_account.data_len() == 0 {
+    msg!("Course does not exist!");
+    return Err(ProgramError::UninitializedAccount);
+  }
+
+  msg!("unpacking state account");
+  let account_data = my_try_from_slice_unchecked::<CourseState>(&pda_account.data.borrow())?;
+
+  msg!("Course details:");
+  msg!("Name: {}", account_data.name);
+  msg!("Degree: {}", account_data.degree);
+  msg!("Institution: {}", account_data.institution);
+  msg!("Start Date: {}", account_data.start_date);
+
+  Ok(())
+}
+
+fn delete_course(
+  program_id: &Pubkey,
+  accounts: &[AccountInfo],
+  name: String,
+  start_date: String,
+) -> ProgramResult {
+  msg!("Deleting course: {}", name);
+
+  let account_info_iter = &mut accounts.iter();
+  let initializer = next_account_info(account_info_iter)?;
+  let pda_account = next_account_info(account_info_iter)?;
+
+  let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, program_id);
+
+  if *pda_account.key != pda {
+    return Err(ProgramError::InvalidArgument);
+  }
+
+  // Check if account exists
+  if pda_account.data_len() == 0 {
+    msg!("Course does not exist!");
+    return Err(ProgramError::UninitializedAccount);
+  }
+
+  // Transfer lamports back to initializer
+  let dest_starting_lamports = initializer.lamports();
+  **initializer.lamports.borrow_mut() = dest_starting_lamports
+    .checked_add(pda_account.lamports())
+    .ok_or(ProgramError::ArithmeticOverflow)?;
+  **pda_account.lamports.borrow_mut() = 0;
+
+  // Clear the account data
+  let mut data = pda_account.data.borrow_mut();
+  data.fill(0);
+
+  msg!("Course deleted successfully");
+
   Ok(())
 }
