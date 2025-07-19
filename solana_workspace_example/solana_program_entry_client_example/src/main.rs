@@ -19,7 +19,7 @@ use crate::misc::{derive_pda_address, derive_pda_from_name_and_date, CourseState
 const SOLANA_RPC_URL: &str = "http://localhost:8899";
 const WALLET_DIRECTORY: &str = "solana-wallets";
 const WALLET_FILE_NAME: &str = "alice.json";
-const SOLANA_PROGRAM_ID: &str = "3H298oTErSEpNwKgrbmcT7hzaSaRuApuebuc8BwJMTce";
+const SOLANA_PROGRAM_ID: &str = "9dnVC6zutaS7vAVjyrRF5BFWGQoWzMXVfxKVDEo6ZkyH";
 
 // Constants for test course data
 const COURSE_1_NAME: &str = "Rust Programming";
@@ -105,6 +105,8 @@ impl SolanaClient {
       degree: degree.clone(),
       institution: institution.clone(),
       start_date: start_date.clone(),
+      grade: String::new(),
+      is_archived: false,
     };
 
     let (pda, _bump) = derive_pda_address(&payload, &self.program_id)?;
@@ -157,6 +159,8 @@ impl SolanaClient {
       degree,
       institution,
       start_date,
+      grade: String::new(),
+      is_archived: false,
     };
     payload.serialize(&mut instruction_data)?;
 
@@ -262,6 +266,187 @@ impl SolanaClient {
     println!("Delete transaction confirmed with signature: {}", result);
     Ok(())
   }
+
+  // New methods
+  pub fn list_all_courses(&self) -> Result<(), Box<dyn std::error::Error>> {
+    // Create instruction data for ListAllCourses
+    let instruction_data = vec![4u8]; // ListAllCourses variant is 4
+
+    let accounts = vec![]; // No accounts needed for this demonstration
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!(
+      "List all courses transaction confirmed with signature: {}",
+      result
+    );
+    Ok(())
+  }
+
+  pub fn get_course_count(&self) -> Result<(), Box<dyn std::error::Error>> {
+    // Create instruction data for GetCourseCount
+    let instruction_data = vec![5u8]; // GetCourseCount variant is 5
+
+    let accounts = vec![]; // No accounts needed for this demonstration
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!(
+      "Get course count transaction confirmed with signature: {}",
+      result
+    );
+    Ok(())
+  }
+
+  pub fn search_courses_by_institution(
+    &self,
+    institution: String,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    // Create instruction data for SearchCoursesByInstitution
+    let mut instruction_data = Vec::new();
+    instruction_data.push(6u8); // SearchCoursesByInstitution variant is 6
+
+    // Serialize institution length and institution
+    let institution_bytes = institution.as_bytes();
+    instruction_data.extend_from_slice(&(institution_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(institution_bytes);
+
+    let accounts = vec![]; // No accounts needed for this demonstration
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!(
+      "Search courses by institution transaction confirmed with signature: {}",
+      result
+    );
+    Ok(())
+  }
+
+  pub fn update_course_grade(
+    &self,
+    name: String,
+    start_date: String,
+    grade: String,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, &self.program_id)?;
+
+    // Create instruction data for UpdateCourseGrade
+    let mut instruction_data = Vec::new();
+    instruction_data.push(7u8); // UpdateCourseGrade variant is 7
+
+    // Serialize name length and name
+    let name_bytes = name.as_bytes();
+    instruction_data.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(name_bytes);
+
+    // Serialize start_date length and start_date
+    let start_date_bytes = start_date.as_bytes();
+    instruction_data.extend_from_slice(&(start_date_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(start_date_bytes);
+
+    // Serialize grade length and grade
+    let grade_bytes = grade.as_bytes();
+    instruction_data.extend_from_slice(&(grade_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(grade_bytes);
+
+    let payer_meta = AccountMeta::new(self.payer.pubkey(), true);
+    let pda_meta = AccountMeta::new(pda, false);
+
+    let accounts = vec![payer_meta, pda_meta];
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!(
+      "Update course grade transaction confirmed with signature: {}",
+      result
+    );
+    Ok(())
+  }
+
+  pub fn archive_course(
+    &self,
+    name: String,
+    start_date: String,
+  ) -> Result<(), Box<dyn std::error::Error>> {
+    let (pda, _bump) = derive_pda_from_name_and_date(&name, &start_date, &self.program_id)?;
+
+    // Create instruction data for ArchiveCourse
+    let mut instruction_data = Vec::new();
+    instruction_data.push(8u8); // ArchiveCourse variant is 8
+
+    // Serialize name length and name
+    let name_bytes = name.as_bytes();
+    instruction_data.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(name_bytes);
+
+    // Serialize start_date length and start_date
+    let start_date_bytes = start_date.as_bytes();
+    instruction_data.extend_from_slice(&(start_date_bytes.len() as u32).to_le_bytes());
+    instruction_data.extend_from_slice(start_date_bytes);
+
+    let payer_meta = AccountMeta::new(self.payer.pubkey(), true);
+    let pda_meta = AccountMeta::new(pda, false);
+
+    let accounts = vec![payer_meta, pda_meta];
+
+    let instruction = Instruction {
+      program_id: self.program_id.clone(),
+      accounts,
+      data: instruction_data,
+    };
+
+    let mut transaction = Transaction::new_with_payer(&[instruction], Some(&self.payer.pubkey()));
+
+    let recent_blockhash = self.client.get_latest_blockhash()?;
+    transaction.sign(&[&self.payer], recent_blockhash);
+
+    let result = self.client.send_and_confirm_transaction(&transaction)?;
+    println!(
+      "Archive course transaction confirmed with signature: {}",
+      result
+    );
+    Ok(())
+  }
 }
 
 fn load_keypair_from_file<P: AsRef<Path>>(path: P) -> Result<Keypair, Box<dyn std::error::Error>> {
@@ -282,6 +467,8 @@ fn handle_course_retrieval(
       println!("Degree: {}", stored_course.degree);
       println!("Institution: {}", stored_course.institution);
       println!("Start Date: {}", stored_course.start_date);
+      println!("Grade: {}", stored_course.grade);
+      println!("Is Archived: {}", stored_course.is_archived);
       println!("===============================");
       Ok(())
     }
@@ -344,6 +531,8 @@ fn handle_existing_course(
       println!("Degree: {}", stored_course.degree);
       println!("Institution: {}", stored_course.institution);
       println!("Start Date: {}", stored_course.start_date);
+      println!("Grade: {}", stored_course.grade);
+      println!("Is Archived: {}", stored_course.is_archived);
       println!("===============================");
       Ok(())
     }
@@ -418,6 +607,8 @@ fn handle_update_operation(
         degree: "Master".to_string(),
         institution: "Solana Univ".to_string(),
         start_date: COURSE_1_START_DATE.to_string(),
+        grade: String::new(),
+        is_archived: false,
       };
 
       match client.get_course_data(&updated_course_state) {
@@ -427,6 +618,8 @@ fn handle_update_operation(
           println!("Degree: {}", updated_course.degree);
           println!("Institution: {}", updated_course.institution);
           println!("Start Date: {}", updated_course.start_date);
+          println!("Grade: {}", updated_course.grade);
+          println!("Is Archived: {}", updated_course.is_archived);
           println!("===============================");
         }
         Err(e) => {
@@ -444,6 +637,8 @@ fn handle_update_operation(
               println!("Degree: {}", course.degree);
               println!("Institution: {}", course.institution);
               println!("Start Date: {}", course.start_date);
+              println!("Grade: {}", course.grade);
+              println!("Is Archived: {}", course.is_archived);
               println!("======================================");
             }
             Err(e2) => eprintln!("Error with original PDA too: {:?}", e2),
@@ -565,6 +760,8 @@ fn main() {
     degree: COURSE_1_DEGREE.to_string(),
     institution: COURSE_1_INSTITUTION.to_string(),
     start_date: COURSE_1_START_DATE.to_string(),
+    grade: String::new(),
+    is_archived: false,
   };
 
   // Process first course
@@ -587,6 +784,8 @@ fn main() {
     degree: COURSE_2_DEGREE.to_string(),
     institution: COURSE_2_INSTITUTION.to_string(),
     start_date: COURSE_2_START_DATE.to_string(),
+    grade: String::new(),
+    is_archived: false,
   };
 
   if let Err(e) = process_course_existence(
@@ -636,4 +835,57 @@ fn main() {
   }
 
   println!("\n--- CRUD Operations Demo Complete ---");
+
+  // Demonstrate new methods
+  println!("\n--- Demonstrating New Methods ---");
+
+  // List all courses
+  println!("\n=== LIST ALL COURSES ===");
+  if let Err(e) = solana_client.list_all_courses() {
+    eprintln!("List all courses failed: {:?}", e);
+  }
+
+  // Get course count
+  println!("\n=== GET COURSE COUNT ===");
+  if let Err(e) = solana_client.get_course_count() {
+    eprintln!("Get course count failed: {:?}", e);
+  }
+
+  // Search courses by institution
+  println!("\n=== SEARCH COURSES BY INSTITUTION ===");
+  if let Err(e) = solana_client.search_courses_by_institution("University of Solana".to_string()) {
+    eprintln!("Search courses by institution failed: {:?}", e);
+  }
+
+  // Update course grade
+  println!("\n=== UPDATE COURSE GRADE ===");
+  if let Err(e) = solana_client.update_course_grade(
+    COURSE_1_NAME.to_string(),
+    COURSE_1_START_DATE.to_string(),
+    "A+".to_string(),
+  ) {
+    eprintln!("Update course grade failed: {:?}", e);
+  } else {
+    println!("Course grade updated successfully! Reading updated data...");
+    // Read the course to show the updated grade
+    if let Err(e) = handle_course_retrieval(&solana_client, &course_state, "First") {
+      eprintln!("Error reading course after grade update: {:?}", e);
+    }
+  }
+
+  // Archive course
+  println!("\n=== ARCHIVE COURSE ===");
+  if let Err(e) =
+    solana_client.archive_course(COURSE_1_NAME.to_string(), COURSE_1_START_DATE.to_string())
+  {
+    eprintln!("Archive course failed: {:?}", e);
+  } else {
+    println!("Course archived successfully! Reading archived data...");
+    // Read the course to show it's archived
+    if let Err(e) = handle_course_retrieval(&solana_client, &course_state, "First") {
+      eprintln!("Error reading course after archiving: {:?}", e);
+    }
+  }
+
+  println!("\n--- New Methods Demo Complete ---");
 }

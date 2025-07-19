@@ -12,6 +12,8 @@ pub struct CourseState {
   pub degree: String,
   pub institution: String,
   pub start_date: String,
+  pub grade: String,     // New field
+  pub is_archived: bool, // New field
 }
 
 pub enum CourseInstruction {
@@ -32,6 +34,21 @@ pub enum CourseInstruction {
     start_date: String,
   },
   DeleteCourse {
+    name: String,
+    start_date: String,
+  },
+  // New methods
+  ListAllCourses,
+  GetCourseCount,
+  SearchCoursesByInstitution {
+    institution: String,
+  },
+  UpdateCourseGrade {
+    name: String,
+    start_date: String,
+    grade: String,
+  },
+  ArchiveCourse {
     name: String,
     start_date: String,
   },
@@ -98,6 +115,68 @@ impl CourseInstruction {
 
         Self::DeleteCourse { name, start_date }
       }
+      4 => Self::ListAllCourses,
+      5 => Self::GetCourseCount,
+      6 => {
+        // SearchCoursesByInstitution - only need institution name
+        let institution_len = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]) as usize;
+        let institution = String::from_utf8(rest[4 .. 4 + institution_len].to_vec())
+          .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        Self::SearchCoursesByInstitution { institution }
+      }
+      7 => {
+        // UpdateCourseGrade - need name, start_date, and grade
+        let name_len = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]) as usize;
+        let name = String::from_utf8(rest[4 .. 4 + name_len].to_vec())
+          .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        let start_date_len = u32::from_le_bytes([
+          rest[4 + name_len],
+          rest[5 + name_len],
+          rest[6 + name_len],
+          rest[7 + name_len],
+        ]) as usize;
+        let start_date =
+          String::from_utf8(rest[8 + name_len .. 8 + name_len + start_date_len].to_vec())
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        let grade_len = u32::from_le_bytes([
+          rest[8 + name_len + start_date_len],
+          rest[9 + name_len + start_date_len],
+          rest[10 + name_len + start_date_len],
+          rest[11 + name_len + start_date_len],
+        ]) as usize;
+        let grade = String::from_utf8(
+          rest[12 + name_len + start_date_len .. 12 + name_len + start_date_len + grade_len]
+            .to_vec(),
+        )
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        Self::UpdateCourseGrade {
+          name,
+          start_date,
+          grade,
+        }
+      }
+      8 => {
+        // ArchiveCourse - need name and start_date
+        let name_len = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]) as usize;
+        let name = String::from_utf8(rest[4 .. 4 + name_len].to_vec())
+          .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        let start_date_len = u32::from_le_bytes([
+          rest[4 + name_len],
+          rest[5 + name_len],
+          rest[6 + name_len],
+          rest[7 + name_len],
+        ]) as usize;
+        let start_date =
+          String::from_utf8(rest[8 + name_len .. 8 + name_len + start_date_len].to_vec())
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        Self::ArchiveCourse { name, start_date }
+      }
       _ => return Err(ProgramError::InvalidInstructionData),
     })
   }
@@ -117,7 +196,9 @@ pub fn calculate_acc_size_and_rent(payload: &CourseState) -> (usize, u64) {
   let account_size: usize = (4 + payload.name.len())
     + (4 + payload.degree.len())
     + (4 + payload.institution.len())
-    + (4 + payload.start_date.len());
+    + (4 + payload.start_date.len())
+    + (4 + payload.grade.len())
+    + 1; // 1 byte for bool is_archived
 
   match Rent::get() {
     Ok(rent) => {

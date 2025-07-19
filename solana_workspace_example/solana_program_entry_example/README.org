@@ -3,10 +3,14 @@
 #+begin_src shell
 cargo-build-sbf
 
-solana program deploy --keypair ~/solana-wallets/bob.json ../target/deploy/solana_program_entry_example.so
+solana program deploy \
+  --keypair ~/solana-wallets/bob.json \
+  ../target/deploy/solana_program_entry_example.so
 
 # or
-solana program deploy --keypair ~/solana-wallets/bob.json ../target/sbpf-solana-solana/release/solana_program_entry_example.so
+solana program deploy \
+  --keypair ~/solana-wallets/bob.json \
+  ../target/sbpf-solana-solana/release/solana_program_entry_example.so
 #+end_src
 
 * check programs owned by user
@@ -22,7 +26,7 @@ solana account ~/solana-wallets/bob.json
 ** close program owned by user
 
 #+begin_src shell
-solana program close CkNdo4Z3KEPKe5i9uRhiBDC6JAzL874jxSG31cwy1FYd \
+solana program close J6DkP1e1rtXXfmooLkhkjx2JmhuvQUh3EGcsAhgbKr6M \
   --keypair ~/solana-wallets/bob.json \
   --bypass-warning
 #+end_src

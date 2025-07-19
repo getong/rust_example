@@ -28,6 +28,8 @@ pub struct CourseState {
   pub degree: String,
   pub institution: String,
   pub start_date: String,
+  pub grade: String,
+  pub is_archived: bool,
 }
 
 // #[derive(BorshSerialize, BorshDeserialize, Debug)]
