@@ -16,10 +16,8 @@ mod misc;
 use crate::misc::{derive_pda_address, derive_pda_from_name_and_date, CourseState};
 
 // Constants for configuration
-const SOLANA_RPC_URL: &str = "http://localhost:8899";
 const WALLET_DIRECTORY: &str = "solana-wallets";
 const WALLET_FILE_NAME: &str = "alice.json";
-const SOLANA_PROGRAM_ID: &str = "9dnVC6zutaS7vAVjyrRF5BFWGQoWzMXVfxKVDEo6ZkyH";
 
 // Constants for test course data
 const COURSE_1_NAME: &str = "Rust Programming";
@@ -723,10 +721,27 @@ fn handle_delete_operation(
 }
 
 fn setup_client() -> Result<SolanaClient, Box<dyn std::error::Error>> {
+  // Load environment variables from .env file
   dotenvy::dotenv().ok();
 
+  // Get configuration from environment variables
+  let solana_rpc_url = std::env::var("SOLANA_RPC_URL")
+    .unwrap_or_else(|_| "http://localhost:8899".to_string());
+  
+  let solana_program_id = std::env::var("SOLANA_PROGRAM_ID")
+    .map_err(|_| "SOLANA_PROGRAM_ID environment variable not set. Please set it in .env file.")?;
+  
+  let wallet_directory = std::env::var("WALLET_DIRECTORY")
+    .unwrap_or_else(|_| WALLET_DIRECTORY.to_string());
+  
+  let wallet_file_name = std::env::var("WALLET_FILE_NAME")
+    .unwrap_or_else(|_| WALLET_FILE_NAME.to_string());
+
+  println!("Using RPC URL: {}", solana_rpc_url);
+  println!("Using Program ID: {}", solana_program_id);
+
   let home_dir = std::env::var("HOME").expect("HOME environment variable not set");
-  let keypair_path = format!("{}/{}/{}", home_dir, WALLET_DIRECTORY, WALLET_FILE_NAME);
+  let keypair_path = format!("{}/{}/{}", home_dir, wallet_directory, wallet_file_name);
 
   let payer = match load_keypair_from_file(&keypair_path) {
     Ok(keypair) => {
@@ -740,8 +755,8 @@ fn setup_client() -> Result<SolanaClient, Box<dyn std::error::Error>> {
     }
   };
 
-  let program_id = Pubkey::from_str(SOLANA_PROGRAM_ID).unwrap();
-  Ok(SolanaClient::new(SOLANA_RPC_URL, payer, program_id))
+  let program_id = Pubkey::from_str(&solana_program_id)?;
+  Ok(SolanaClient::new(&solana_rpc_url, payer, program_id))
 }
 
 fn main() {
