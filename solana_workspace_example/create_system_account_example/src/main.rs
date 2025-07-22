@@ -22,7 +22,7 @@ fn main() {
     .request_airdrop(&fee_payer.pubkey(), LAMPORTS_PER_SOL)
     .unwrap();
   loop {
-    if let ok(confirmed) = rpc_client.confirm_transaction(&request_airdrop_tx_signature) {
+    if let Ok(confirmed) = rpc_client.confirm_transaction(&request_airdrop_tx_signature) {
       if confirmed {
         break;
       }
