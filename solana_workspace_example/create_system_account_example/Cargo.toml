@@ -1,0 +1,9 @@
+[package]
+name = "create_system_account_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-client = "2.3.5"
+solana-sdk = "2.3.1"
+solana-system-interface = "1.0.0"

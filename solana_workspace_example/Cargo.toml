@@ -26,4 +26,5 @@ members = [
   "solana_instruction_example",
   "solana_explain_transaction_example",
   "solana_compute_budget_instruction_example",
+  "create_system_account_example",
 ]
