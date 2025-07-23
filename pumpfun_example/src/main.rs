@@ -122,3 +122,11 @@ async fn main() {
   // Keep subscription active as long as needed
   // The subscription will automatically unsubscribe when dropped
 }
+
+// copy from https://docs.rs/pumpfun/latest/pumpfun/
+// git clone https://github.com/nhuxhr/pumpfun-rs
+// cd pumpfun-rs/scripts
+// ./pumpfun-test-validator.sh
+
+// in another window
+// cargo run
