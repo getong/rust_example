@@ -17,4 +17,5 @@ members = [
   "alloy_with_required_confirmations_timeout_example",
   "alloy_string_to_u256_example",
   "alloy_abi_rpc_example",
+  "alloy_compound_example",
 ]
