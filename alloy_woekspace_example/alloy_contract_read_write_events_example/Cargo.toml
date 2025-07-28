@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy = { version = "1.0.1", features = ["full", "providers"] }
+alloy = { version = "1.0.23", features = ["full", "providers"] }
 dotenv = "0.15.0"
 eyre = "0.6.12"
 futures-util = "0.3.31"
-tokio = { version = "1.45.0", features = ["full"] }
+tokio = { version = "1.47.0", features = ["full"] }
 url = "2.5.4"
