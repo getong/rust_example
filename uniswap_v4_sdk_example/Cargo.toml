@@ -1,0 +1,13 @@
+[package]
+name = "uniswap_v4_sdk_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy = { version = "1.0", features = ["full", "node-bindings", "rpc-client", "signer-local"] }
+dotenv = "0.15"
+eyre = "0.6"
+tokio = { version = "1", features = ["full"] }
+uniswap-sdk-core = "5"
+uniswap-v3-sdk = "5"
+uniswap-v4-sdk = { version = "0.9.0", features = ["extensions", "std"] }
