@@ -1,0 +1,22 @@
+[package]
+name = "sui_event_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sui-sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
+tokio = { version = "1.47", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "sui_event_example"
+path = "src/main.rs"
+
+[[bin]]
+name = "advanced_example"
+path = "src/advanced_example.rs"

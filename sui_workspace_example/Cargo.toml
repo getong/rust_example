@@ -3,5 +3,6 @@
 resolver = "2"
 
 members = [
-  "address_convert"
+  "address_convert",
+  "sui_event_example",
 ]

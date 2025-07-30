@@ -1,0 +1,125 @@
+* Sui Event Listener Example
+:PROPERTIES:
+:CUSTOM_ID: sui-event-listener-example
+:END:
+This Rust example demonstrates how to listen to Sui blockchain events on
+testnet, track object ID changes, and understand how objects evolve over
+time.
+
+** Features
+:PROPERTIES:
+:CUSTOM_ID: features
+:END:
+- Real-time event streaming from Sui testnet
+- Object version tracking and change detection
+- Event filtering by package ID
+- Detailed logging of object mutations
+- Advanced DeFi protocol monitoring example
+
+** How It Works
+:PROPERTIES:
+:CUSTOM_ID: how-it-works
+:END:
+*** Object ID Changes in Sui
+:PROPERTIES:
+:CUSTOM_ID: object-id-changes-in-sui
+:END:
+In Sui, objects have immutable IDs but mutable versions: - *Object ID*:
+Permanent unique identifier (never changes) - *Version*: Increments with
+each modification - *Content*: The actual data that can change
+
+When an object is modified: 1. Version number increases 2. Content is
+updated 3. Previous version becomes historical data 4. Event is emitted
+containing mutation details
+
+*** Event Monitoring
+:PROPERTIES:
+:CUSTOM_ID: event-monitoring
+:END:
+The listener: 1. Connects to Sui testnet fullnode 2. Subscribes to
+events from specified package 3. Tracks object versions in memory 4.
+Detects changes by comparing versions 5. Logs detailed change
+information
+
+** Usage
+:PROPERTIES:
+:CUSTOM_ID: usage
+:END:
+*** Basic Example
+:PROPERTIES:
+:CUSTOM_ID: basic-example
+:END:
+#+begin_src sh
+cargo run
+#+end_src
+
+This runs the basic example monitoring package =0x2= and object =0x5=.
+
+*** Advanced Example
+:PROPERTIES:
+:CUSTOM_ID: advanced-example
+:END:
+#+begin_src sh
+cargo run --bin advanced_example
+#+end_src
+
+This runs the advanced DeFi monitoring example with: - Multiple object
+tracking - Event pattern analysis - Statistics reporting - Change
+history
+
+** Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+Edit the package and object IDs in =main.rs=:
+
+#+begin_src rust
+let example_package_id = "0x2";  // Sui framework package
+let example_object_id = "0x5";   // Clock object
+#+end_src
+
+For DeFi protocols, use specific package addresses:
+
+#+begin_src rust
+let defi_package = "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb"; // Cetus
+#+end_src
+
+** Event Types
+:PROPERTIES:
+:CUSTOM_ID: event-types
+:END:
+Common Sui events: - =MoveEvent=: Smart contract events -
+=TransferObject=: Ownership changes\\
+- =MutateObject=: Object modifications - =DeleteObject=: Object
+removal - =NewObject=: Object creation
+
+** Dependencies
+:PROPERTIES:
+:CUSTOM_ID: dependencies
+:END:
+- =sui-sdk=: Official Sui Rust SDK
+- =tokio=: Async runtime
+- =tracing=: Structured logging
+- =futures=: Stream processing
+
+** Example Output
+:PROPERTIES:
+:CUSTOM_ID: example-output
+:END:
+#+begin_example
+[INFO] Starting event listener for package: 0x2
+[INFO] Tracking object ID: 0x5
+[INFO] First time seeing object 0x5. Version: 12345
+[INFO] Received event: SuiEvent { ... }
+[INFO] Object 0x5 changed! Version: 12345 -> 12346
+[INFO] New object content: Move { ... }
+#+end_example
+
+** Notes
+:PROPERTIES:
+:CUSTOM_ID: notes
+:END:
+- Testnet data may be reset periodically
+- Some system objects update frequently (e.g., Clock)
+- Event subscription requires stable connection
+- Version numbers only increase, never decrease
