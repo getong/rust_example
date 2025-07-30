@@ -64,7 +64,8 @@ struct AdvancedEventListener {
 impl AdvancedEventListener {
   async fn new() -> Result<Self> {
     let client = SuiClientBuilder::default()
-      .build("https://fullnode.testnet.sui.io:443")
+      .ws_url("wss://rpc.mainnet.sui.io:443")
+      .build("https://fullnode.mainnet.sui.io:443")
       .await?;
 
     Ok(Self {
