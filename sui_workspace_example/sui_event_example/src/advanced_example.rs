@@ -35,6 +35,7 @@ async fn main() -> Result<()> {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ObjectChange {
   object_id: ObjectID,
   old_version: u64,
@@ -45,6 +46,7 @@ struct ObjectChange {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ChangeType {
   Created,
   Modified,
