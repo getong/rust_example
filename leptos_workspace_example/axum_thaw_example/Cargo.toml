@@ -8,23 +8,23 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 axum = { version = "0.8", optional = true }
-chrono = "0.4.40"
+chrono = "0.4.41"
 console_error_panic_hook = "0.1"
 http = "1"
-icondata = { version = "0.5.0", features = ["ant-design-icons", "box-icons"] }
-leptos = { version = "0.8.0-beta", features = ["nightly"] }
+icondata = { version = "0.6.0", features = ["ant-design-icons", "box-icons"] }
+leptos = { version = "0.8.6", features = ["nightly"] }
 # leptos-chartistry = "0.2.1"
-leptos-use = { version = "0.16.0-beta", default-features = false, features = [
+leptos-use = { version = "0.16.2", default-features = false, features = [
   "use_calendar",
   "use_active_element",
   "docs",
 ] }
-leptos_axum = { version = "0.8.0-beta", optional = true }
+leptos_axum = { version = "0.8.5", optional = true }
 # leptos_icons = "0.5.0"
-leptos_meta = { version = "0.8.0-beta" }
-leptos_router = { version = "0.8.0-beta", features = ["nightly"] }
+leptos_meta = { version = "0.8.5" }
+leptos_router = { version = "0.8.5", features = ["nightly"] }
 # lucide-leptos = "1.1.0"
-thaw = { version = "0.5.0-alpha", features = ["nightly"] }
+thaw = { version = "0.5.0-beta", features = ["nightly"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tower = { version = "0.5", optional = true }
