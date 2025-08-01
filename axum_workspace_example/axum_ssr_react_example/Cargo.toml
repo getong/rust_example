@@ -1,0 +1,9 @@
+[package]
+name = "axum_ssr_react_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.4"
+ssr_rs = "0.8.3"
+tokio = { version = "1.47.1", features = ["full"] }
