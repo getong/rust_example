@@ -6,10 +6,10 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.4"
-axum-tracing-opentelemetry = "0.28.0"
-init-tracing-opentelemetry = { version = "0.28", features = ["otlp", "tracing_subscriber_ext"] }
-opentelemetry = { version = "0.29.1", features = ["default"] }
-serde_json = "1.0.140"
-tokio = { version = "1.44.2", features = ["full"] }
+axum-tracing-opentelemetry = "0.29.0"
+init-tracing-opentelemetry = { version = "0.30", features = ["otlp", "tracing_subscriber_ext"] }
+opentelemetry = { version = "0.30.0", features = ["default"] }
+serde_json = "1.0.142"
+tokio = { version = "1.47.1", features = ["full"] }
 tracing = "0.1.41"
-tracing-opentelemetry-instrumentation-sdk = "0.28.0"
+tracing-opentelemetry-instrumentation-sdk = "0.29.1"

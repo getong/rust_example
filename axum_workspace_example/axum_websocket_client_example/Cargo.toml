@@ -9,9 +9,9 @@ axum = { version = "0.8.4", features = ["ws"] }
 axum-extra = { version = "0.10.1", features = ["typed-header"] }
 futures = "0.3.31"
 futures-util = { version = "0.3.31", features = ["sink", "std"] }
-headers = "0.4.0"
-tokio = { version = "1.44.2", features = ["full"] }
-tokio-tungstenite = "0.26.2"
-tower-http = { version = "0.6.2", features = ["fs", "trace"] }
+headers = "0.4.1"
+tokio = { version = "1.47.1", features = ["full"] }
+tokio-tungstenite = "0.27.0"
+tower-http = { version = "0.6.6", features = ["fs", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

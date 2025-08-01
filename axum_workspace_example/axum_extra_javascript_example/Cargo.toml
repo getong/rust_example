@@ -7,6 +7,6 @@ edition = "2021"
 axum = "0.8.4"
 axum-extra = "0.10.1"
 serde = { version = "1.0.219", features = ["derive"] }
-tokio = { version = "1.44.2", features = ["full"] }
+tokio = { version = "1.47.1", features = ["full"] }
 tower = "0.5.2"
-tower-http = { version = "0.6.2", features = ["fs", "trace"] }
+tower-http = { version = "0.6.6", features = ["fs", "trace"] }

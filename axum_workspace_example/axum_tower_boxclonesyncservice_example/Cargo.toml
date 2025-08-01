@@ -7,5 +7,5 @@ edition = "2024"
 async-trait = "0.1.88"
 axum = "0.8.4"
 axum-extra = "0.10.1"
-tokio = { version = "1.44.2", features = ["full"] }
+tokio = { version = "1.47.1", features = ["full"] }
 tower = { version = "0.5.2", features = ["util"] }
