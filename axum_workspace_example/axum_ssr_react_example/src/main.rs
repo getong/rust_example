@@ -148,7 +148,8 @@ async fn main() {
     .route("/business", get(business_demo))
     .route("/dashboard", get(dashboard_demo))
     .route("/v8", get(v8_demo_safe))
-    .route("/v8/typescript", get(v8_typescript_demo));
+    .route("/v8/typescript", get(v8_typescript_demo))
+    .route("/v8/jsonplaceholder", get(v8_jsonplaceholder_demo));
 
   // run our app with hyper, listening globally on port 3000
   let listener = match tokio::net::TcpListener::bind("0.0.0.0:8080").await {
@@ -1024,7 +1025,8 @@ fn render_page(function_name: &str, data: Option<String>, title: &str) -> Html<S
                 <a href="/business" style="margin: 0 8px;">Business</a> |
                 <a href="/dashboard" style="margin: 0 8px;">Dashboard</a> |
                 <a href="/v8" style="margin: 0 8px;">V8 Demo</a> |
-                <a href="/v8/typescript" style="margin-left: 8px;">V8 TypeScript</a>
+                <a href="/v8/typescript" style="margin: 0 8px;">V8 TypeScript</a> |
+                <a href="/v8/jsonplaceholder" style="margin-left: 8px;">JSONPlaceholder</a>
             </nav>
             "#;
 
@@ -1642,7 +1644,10 @@ fn render_custom_html(content: &str, title: &str) -> Html<String> {
         <a href="/profile" style="margin: 0 8px;">Profile</a> |
         <a href="/system" style="margin: 0 8px;">System</a> |
         <a href="/business" style="margin: 0 8px;">Business</a> |
-        <a href="/dashboard" style="margin: 0 8px;">Dashboard</a>
+        <a href="/dashboard" style="margin: 0 8px;">Dashboard</a> |
+        <a href="/v8" style="margin: 0 8px;">V8 Demo</a> |
+        <a href="/v8/typescript" style="margin: 0 8px;">V8 TypeScript</a> |
+        <a href="/v8/jsonplaceholder" style="margin-left: 8px;">JSONPlaceholder</a>
     </nav>
     "#;
 
@@ -1682,7 +1687,10 @@ fn render_custom_html_with_css(content: &str, title: &str, css: &str) -> Html<St
         <a href="/profile" style="margin: 0 8px;">Profile</a> |
         <a href="/system" style="margin: 0 8px;">System</a> |
         <a href="/business" style="margin: 0 8px;">Business</a> |
-        <a href="/dashboard" style="margin: 0 8px;">Dashboard</a>
+        <a href="/dashboard" style="margin: 0 8px;">Dashboard</a> |
+        <a href="/v8" style="margin: 0 8px;">V8 Demo</a> |
+        <a href="/v8/typescript" style="margin: 0 8px;">V8 TypeScript</a> |
+        <a href="/v8/jsonplaceholder" style="margin-left: 8px;">JSONPlaceholder</a>
     </nav>
     "#;
 
@@ -1920,4 +1928,250 @@ function processHttpRequest(request: HttpRequest): ProcessingResult {{
   );
 
   render_custom_html(&v8_html, "V8 TypeScript Processing Demo")
+}
+
+// V8 JSONPlaceholder Demo route - demonstrates simulated API data processing
+async fn v8_jsonplaceholder_demo() -> Html<String> {
+  let start = Instant::now();
+
+  // Get V8 code status using once_cell
+  let v8_status = v8_processor::get_v8_code_status();
+
+  // Process JSONPlaceholder requests using the global V8 processor
+  let jsonplaceholder_results = v8_processor::process_jsonplaceholder_samples();
+
+  let elapsed = start.elapsed();
+
+  let v8_html = format!(
+    r#"
+    <div class="v8-jsonplaceholder-demo">
+      <h2>🌐 V8 JSONPlaceholder API Demo</h2>
+
+      <div class="demo-info">
+        <p>This demonstrates V8 processing of JSONPlaceholder-style API data using TypeScript logic.</p>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><strong>API Source:</strong> <a href="https://jsonplaceholder.typicode.com/" target="_blank">JSONPlaceholder</a> (simulated)</p>
+        <p><strong>TypeScript File:</strong> client/src/jsonplaceholder-demo.ts</p>
+      </div>
+
+      <div class="v8-status">
+        <h3>🔄 V8 Status</h3>
+        <pre>{}</pre>
+      </div>
+
+      <div class="api-examples">
+        <h3>📊 JSONPlaceholder API Examples</h3>
+        <p>The following examples demonstrate various JSONPlaceholder API endpoints processed by V8:</p>
+        
+        <div class="api-grid">
+          <div class="api-card">
+            <h4>📝 Posts</h4>
+            <p>Blog posts with titles and content</p>
+            <code>GET /posts</code>, <code>GET /posts/1</code>
+          </div>
+          
+          <div class="api-card">
+            <h4>👥 Users</h4>
+            <p>User profiles with contact information</p>
+            <code>GET /users</code>, <code>GET /users/2</code>
+          </div>
+          
+          <div class="api-card">
+            <h4>✅ Todos</h4>
+            <p>Task management with completion status</p>
+            <code>GET /todos</code>
+          </div>
+          
+          <div class="api-card">
+            <h4>🔗 User Posts</h4>
+            <p>Aggregated user data with their posts</p>
+            <code>GET /users/1/posts</code>
+          </div>
+          
+          <div class="api-card">
+            <h4>📈 Analytics</h4>
+            <p>Statistical analysis of all data</p>
+            <code>GET /analytics</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="jsonplaceholder-processing">
+        <h3>API Processing Results (V8 + TypeScript)</h3>
+        <p>Each result shows the TypeScript function processing JSONPlaceholder-style data:</p>
+        <div class="results">
+          {}
+        </div>
+      </div>
+
+      <div class="typescript-source">
+        <h3>TypeScript Implementation</h3>
+        <details>
+          <summary>jsonplaceholder-demo.ts - API Processing Functions</summary>
+          <pre><code>// Main function to simulate JSONPlaceholder API calls
+function fetchJsonPlaceholderData(endpoint: string, id?: number): any {{
+  // Simulates: /posts, /users, /comments, /albums, /photos, /todos
+  // Returns structured API responses with metadata
+}}
+
+// Helper function to get user's posts
+function getUserPosts(userId: number): any {{
+  // Aggregates user data with their posts
+  // Calculates statistics like post count and average lengths
+}}
+
+// Analytics function for JSONPlaceholder data
+function analyzeJsonPlaceholderData(): any {{
+  // Performs comprehensive analysis of all data types
+  // Returns statistics, distributions, and insights
+}}</code></pre>
+        </details>
+      </div>
+
+      <div class="workflow">
+        <h3>Processing Workflow</h3>
+        <ol>
+          <li>📝 TypeScript defines JSONPlaceholder API interfaces and sample data</li>
+          <li>🔧 TypeScript compiled to JavaScript with full type checking</li>
+          <li>🔄 once_cell loads the compiled JSONPlaceholder processing code</li>
+          <li>🌐 V8 processor simulates various API endpoints (/posts, /users, /todos)</li>
+          <li>📊 TypeScript logic processes requests with metadata and caching info</li>
+          <li>📈 Advanced features: user aggregation, analytics, error handling</li>
+          <li>🎨 Rust renders all results as formatted HTML with JSON previews</li>
+        </ol>
+      </div>
+
+      <div class="api-features">
+        <h3>🚀 Advanced Features</h3>
+        <ul>
+          <li>✅ <strong>Full CRUD Simulation:</strong> GET requests for posts, users, comments, albums, photos, todos</li>
+          <li>✅ <strong>Error Handling:</strong> 404 responses for non-existent resources</li>
+          <li>✅ <strong>Metadata Support:</strong> Response times, caching indicators, API source attribution</li>
+          <li>✅ <strong>Data Relationships:</strong> User posts aggregation, cross-referencing</li>
+          <li>✅ <strong>Analytics Engine:</strong> Comprehensive statistics and data analysis</li>
+          <li>✅ <strong>TypeScript Types:</strong> Full interface definitions for all data structures</li>
+          <li>✅ <strong>Response Consistency:</strong> Matches real JSONPlaceholder API structure</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <style>
+      .v8-jsonplaceholder-demo {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+      .demo-info, .v8-status, .api-examples, .jsonplaceholder-processing, .typescript-source, .workflow, .api-features {{
+        background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px;
+      }}
+      
+      .api-grid {{
+        display: grid; 
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+        gap: 15px; 
+        margin: 15px 0;
+      }}
+      
+      .api-card {{
+        border: 1px solid #e0e0e0; 
+        border-radius: 8px; 
+        padding: 15px; 
+        background: #f8f9fa;
+        text-align: center;
+      }}
+      
+      .api-card h4 {{
+        color: #007acc; 
+        margin: 0 0 10px 0;
+      }}
+      
+      .api-card code {{
+        background: #e9ecef; 
+        padding: 2px 6px; 
+        border-radius: 3px; 
+        font-size: 0.85em;
+        display: block;
+        margin: 5px 0;
+      }}
+      
+      .results {{
+        background: #f8f9fa; 
+        border-radius: 5px; 
+        padding: 10px; 
+        margin: 10px 0;
+        max-height: 500px; 
+        overflow-y: auto;
+      }}
+      
+      .results .json-result {{
+        background: #e9ecef; 
+        padding: 12px; 
+        margin: 12px 0; 
+        border-radius: 5px;
+        font-family: monospace; 
+        font-size: 0.85em; 
+        overflow-x: auto;
+        white-space: pre-wrap; 
+        word-break: break-all;
+        border-left: 4px solid #007acc;
+      }}
+      
+      details {{ margin: 10px 0; }}
+      summary {{ 
+        cursor: pointer; 
+        font-weight: bold; 
+        padding: 8px; 
+        background: #f0f0f0; 
+        border-radius: 5px; 
+        border: 1px solid #ddd;
+      }}
+      summary:hover {{ background: #e8e8e8; }}
+      
+      pre {{ 
+        background: #f8f9fa; 
+        padding: 15px; 
+        border-radius: 5px; 
+        overflow-x: auto; 
+        white-space: pre-wrap; 
+        border: 1px solid #e9ecef;
+      }}
+      
+      code {{ font-family: 'Consolas', 'Monaco', 'Courier New', monospace; }}
+      
+      ol {{ padding-left: 20px; }}
+      ol li {{ margin: 8px 0; padding: 2px 0; }}
+      
+      ul {{ padding-left: 20px; }}
+      ul li {{ margin: 5px 0; }}
+      
+      .demo-info a {{ color: #007acc; text-decoration: none; }}
+      .demo-info a:hover {{ text-decoration: underline; }}
+    </style>
+    "#,
+    elapsed,
+    v8_status,
+    jsonplaceholder_results
+      .iter()
+      .enumerate()
+      .map(|(i, result)| {
+        let titles = vec![
+          "All Posts",
+          "Single Post (ID: 1)",
+          "Single User (ID: 2)",
+          "All Todos",
+          "User Posts (User ID: 1)",
+          "Data Analytics Overview"
+        ];
+        let title = titles.get(i).unwrap_or(&"API Result");
+        
+        format!(
+          "<div class='json-result'><strong>{}:</strong><br/><pre>{}</pre></div>",
+          title,
+          serde_json::from_str::<serde_json::Value>(result)
+            .map(|v| serde_json::to_string_pretty(&v).unwrap_or_else(|_| result.clone()))
+            .unwrap_or_else(|_| result.clone())
+        )
+      })
+      .collect::<Vec<_>>()
+      .join("")
+  );
+
+  render_custom_html(&v8_html, "V8 JSONPlaceholder API Demo")
 }

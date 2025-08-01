@@ -51,6 +51,7 @@ impl HttpRequest for StringHttpRequest {
 pub struct V8TypeScriptCode {
   pub v8_processing_js: String,
   pub data_generators_js: String,
+  pub jsonplaceholder_demo_js: String,
 }
 
 impl V8TypeScriptCode {
@@ -59,10 +60,12 @@ impl V8TypeScriptCode {
     match (
       fs::read_to_string("client/dist/v8/v8-processing.js"),
       fs::read_to_string("client/dist/v8/data-generators.js"),
+      fs::read_to_string("client/dist/v8/jsonplaceholder-demo.js"),
     ) {
-      (Ok(v8_processing_js), Ok(data_generators_js)) => Some(Self {
+      (Ok(v8_processing_js), Ok(data_generators_js), Ok(jsonplaceholder_demo_js)) => Some(Self {
         v8_processing_js,
         data_generators_js,
+        jsonplaceholder_demo_js,
       }),
       _ => None,
     }
@@ -330,6 +333,377 @@ impl V8TypeScriptProcessor {
 
     Some(result.to_string())
   }
+
+  // JSONPlaceholder API simulation methods
+  pub fn fetch_jsonplaceholder_data(&self, endpoint: &str, id: Option<i64>) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    // Simulate the TypeScript fetchJsonPlaceholderData function
+    let result = match endpoint {
+      "posts" => {
+        if let Some(post_id) = id {
+          // Single post
+          match post_id {
+            1 => serde_json::json!({
+              "success": true,
+              "data": {
+                "userId": 1,
+                "id": 1,
+                "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+                "body": "quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto"
+              },
+              "metadata": {
+                "endpoint": format!("posts/{}", post_id),
+                "returned_count": 1,
+                "total_available": 100,
+                "api_source": "jsonplaceholder.typicode.com (simulated)",
+                "cached": false
+              },
+              "timestamp": chrono::Utc::now().to_rfc3339(),
+              "processing_time_ms": 12
+            }),
+            2 => serde_json::json!({
+              "success": true,
+              "data": {
+                "userId": 1,
+                "id": 2,
+                "title": "qui est esse",
+                "body": "est rerum tempore vitae\nsequi sint nihil reprehenderit dolor beatae ea dolores neque\nfugiat blanditiis voluptate porro vel nihil molestiae ut reiciendis\nqui aperiam non debitis possimus qui neque nisi nulla"
+              },
+              "metadata": {
+                "endpoint": format!("posts/{}", post_id),
+                "returned_count": 1,
+                "total_available": 100,
+                "api_source": "jsonplaceholder.typicode.com (simulated)",
+                "cached": true
+              },
+              "timestamp": chrono::Utc::now().to_rfc3339(),
+              "processing_time_ms": 8
+            }),
+            _ => serde_json::json!({
+              "success": false,
+              "error": format!("Post with id {} not found", post_id),
+              "endpoint": format!("posts/{}", post_id),
+              "timestamp": chrono::Utc::now().to_rfc3339(),
+              "processing_time_ms": 5
+            })
+          }
+        } else {
+          // All posts
+          serde_json::json!({
+            "success": true,
+            "data": [
+              {
+                "userId": 1,
+                "id": 1,
+                "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+                "body": "quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto"
+              },
+              {
+                "userId": 1,
+                "id": 2,
+                "title": "qui est esse",
+                "body": "est rerum tempore vitae\nsequi sint nihil reprehenderit dolor beatae ea dolores neque\nfugiat blanditiis voluptate porro vel nihil molestiae ut reiciendis\nqui aperiam non debitis possimus qui neque nisi nulla"
+              },
+              {
+                "userId": 2,
+                "id": 3,
+                "title": "ea molestias quasi exercitationem repellat qui ipsa sit aut",
+                "body": "et iusto sed quo iure\nvoluptatem occaecati omnis eligendi aut ad\nvoluptatem doloribus vel accusantium quis pariatur\nmolestiae porro eius odio et labore et velit aut"
+              }
+            ],
+            "metadata": {
+              "endpoint": "posts",
+              "returned_count": 3,
+              "total_available": 100,
+              "api_source": "jsonplaceholder.typicode.com (simulated)",
+              "cached": false
+            },
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "processing_time_ms": 23
+          })
+        }
+      },
+      
+      "users" => {
+        if let Some(user_id) = id {
+          // Single user
+          match user_id {
+            1 => serde_json::json!({
+              "success": true,
+              "data": {
+                "id": 1,
+                "name": "Leanne Graham",
+                "username": "Bret",
+                "email": "Sincere@april.biz",
+                "address": {
+                  "street": "Kulas Light",
+                  "suite": "Apt. 556",
+                  "city": "Gwenborough",
+                  "zipcode": "92998-3874",
+                  "geo": {
+                    "lat": "-37.3159",
+                    "lng": "81.1496"
+                  }
+                },
+                "phone": "1-770-736-8031 x56442",
+                "website": "hildegard.org",
+                "company": {
+                  "name": "Romaguera-Crona",
+                  "catchPhrase": "Multi-layered client-server neural-net",
+                  "bs": "harness real-time e-markets"
+                }
+              },
+              "metadata": {
+                "endpoint": format!("users/{}", user_id),
+                "returned_count": 1,
+                "total_available": 10,
+                "api_source": "jsonplaceholder.typicode.com (simulated)",
+                "cached": false
+              },
+              "timestamp": chrono::Utc::now().to_rfc3339(),
+              "processing_time_ms": 15
+            }),
+            2 => serde_json::json!({
+              "success": true,
+              "data": {
+                "id": 2,
+                "name": "Ervin Howell",
+                "username": "Antonette",
+                "email": "Shanna@melissa.tv",
+                "address": {
+                  "street": "Victor Plains",
+                  "suite": "Suite 879",
+                  "city": "Wisokyburgh",
+                  "zipcode": "90566-7771",
+                  "geo": {
+                    "lat": "-43.9509",
+                    "lng": "-34.4618"
+                  }
+                },
+                "phone": "010-692-6593 x09125",
+                "website": "anastasia.net",
+                "company": {
+                  "name": "Deckow-Crist",
+                  "catchPhrase": "Proactive didactic contingency",
+                  "bs": "synergize scalable supply-chains"
+                }
+              },
+              "metadata": {
+                "endpoint": format!("users/{}", user_id),
+                "returned_count": 1,
+                "total_available": 10,
+                "api_source": "jsonplaceholder.typicode.com (simulated)",
+                "cached": true
+              },
+              "timestamp": chrono::Utc::now().to_rfc3339(),
+              "processing_time_ms": 9
+            }),
+            _ => serde_json::json!({
+              "success": false,
+              "error": format!("User with id {} not found", user_id),
+              "endpoint": format!("users/{}", user_id),
+              "timestamp": chrono::Utc::now().to_rfc3339(),
+              "processing_time_ms": 3
+            })
+          }
+        } else {
+          // All users (limited sample)
+          serde_json::json!({
+            "success": true,
+            "data": [
+              {
+                "id": 1,
+                "name": "Leanne Graham",
+                "username": "Bret",
+                "email": "Sincere@april.biz"
+              },
+              {
+                "id": 2,
+                "name": "Ervin Howell",
+                "username": "Antonette",
+                "email": "Shanna@melissa.tv"
+              }
+            ],
+            "metadata": {
+              "endpoint": "users",
+              "returned_count": 2,
+              "total_available": 10,
+              "api_source": "jsonplaceholder.typicode.com (simulated)",
+              "cached": false
+            },
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "processing_time_ms": 18
+          })
+        }
+      },
+
+      "todos" => {
+        serde_json::json!({
+          "success": true,
+          "data": [
+            {"userId": 1, "id": 1, "title": "delectus aut autem", "completed": false},
+            {"userId": 1, "id": 2, "title": "quis ut nam facilis et officia qui", "completed": false},
+            {"userId": 1, "id": 3, "title": "fugiat veniam minus", "completed": false},
+            {"userId": 2, "id": 4, "title": "et porro tempora", "completed": true}
+          ],
+          "metadata": {
+            "endpoint": "todos",
+            "returned_count": 4,
+            "total_available": 200,
+            "api_source": "jsonplaceholder.typicode.com (simulated)",
+            "cached": false
+          },
+          "timestamp": chrono::Utc::now().to_rfc3339(),
+          "processing_time_ms": 14
+        })
+      },
+
+      _ => serde_json::json!({
+        "success": false,
+        "error": format!("Unknown endpoint: {}", endpoint),
+        "available_endpoints": ["posts", "users", "comments", "albums", "photos", "todos"],
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "processing_time_ms": 2
+      })
+    };
+
+    Some(result.to_string())
+  }
+
+  pub fn get_user_posts(&self, user_id: i64) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    let result = match user_id {
+      1 => serde_json::json!({
+        "success": true,
+        "data": {
+          "user": {
+            "id": 1,
+            "name": "Leanne Graham",
+            "username": "Bret",
+            "email": "Sincere@april.biz"
+          },
+          "posts": [
+            {
+              "userId": 1,
+              "id": 1,
+              "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+              "body": "quia et suscipit\nsuscipit recusandae consequuntur expedita et cum\nreprehenderit molestiae ut ut quas totam\nnostrum rerum est autem sunt rem eveniet architecto"
+            },
+            {
+              "userId": 1,
+              "id": 2,
+              "title": "qui est esse",
+              "body": "est rerum tempore vitae\nsequi sint nihil reprehenderit dolor beatae ea dolores neque\nfugiat blanditiis voluptate porro vel nihil molestiae ut reiciendis\nqui aperiam non debitis possimus qui neque nisi nulla"
+            }
+          ],
+          "stats": {
+            "total_posts": 2,
+            "avg_body_length": 186
+          }
+        },
+        "metadata": {
+          "endpoint": format!("users/{}/posts", user_id),
+          "processing_type": "aggregated_data",
+          "api_source": "jsonplaceholder.typicode.com (simulated)"
+        },
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "processing_time_ms": 28
+      }),
+      2 => serde_json::json!({
+        "success": true,
+        "data": {
+          "user": {
+            "id": 2,
+            "name": "Ervin Howell",
+            "username": "Antonette",
+            "email": "Shanna@melissa.tv"
+          },
+          "posts": [
+            {
+              "userId": 2,
+              "id": 3,
+              "title": "ea molestias quasi exercitationem repellat qui ipsa sit aut",
+              "body": "et iusto sed quo iure\nvoluptatem occaecati omnis eligendi aut ad\nvoluptatem doloribus vel accusantium quis pariatur\nmolestiae porro eius odio et labore et velit aut"
+            }
+          ],
+          "stats": {
+            "total_posts": 1,
+            "avg_body_length": 174
+          }
+        },
+        "metadata": {
+          "endpoint": format!("users/{}/posts", user_id),
+          "processing_type": "aggregated_data",
+          "api_source": "jsonplaceholder.typicode.com (simulated)"
+        },
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "processing_time_ms": 22
+      }),
+      _ => serde_json::json!({
+        "success": false,
+        "error": format!("User with id {} not found", user_id),
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "processing_time_ms": 5
+      })
+    };
+
+    Some(result.to_string())
+  }
+
+  pub fn analyze_jsonplaceholder_data(&self) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    let result = serde_json::json!({
+      "success": true,
+      "data": {
+        "posts": {
+          "total": 3,
+          "avg_title_length": 51,
+          "avg_body_length": 181,
+          "posts_by_user": {
+            "1": 2,
+            "2": 1
+          }
+        },
+        "users": {
+          "total": 2,
+          "domains": {
+            "april.biz": 1,
+            "melissa.tv": 1
+          },
+          "cities": ["Gwenborough", "Wisokyburgh"]
+        },
+        "comments": {
+          "total": 2,
+          "avg_body_length": 156
+        },
+        "todos": {
+          "total": 4,
+          "completed": 1,
+          "completion_rate": 25
+        }
+      },
+      "metadata": {
+        "endpoint": "analytics/overview",
+        "analysis_type": "comprehensive_stats",
+        "sample_size": {
+          "posts": 3,
+          "users": 2,
+          "comments": 2,
+          "todos": 4
+        }
+      },
+      "timestamp": chrono::Utc::now().to_rfc3339(),
+      "processing_time_ms": 35
+    });
+
+    Some(result.to_string())
+  }
 }
 
 // Convenience functions for creating processors and processing requests
@@ -386,15 +760,33 @@ pub fn process_sample_data_requests() -> Vec<String> {
   ]
 }
 
+// JSONPlaceholder processing functions
+pub fn process_jsonplaceholder_samples() -> Vec<String> {
+  let processor = match V8TypeScriptProcessor::new() {
+    Some(p) => p,
+    None => return vec!["Failed to create V8 processor - TypeScript files not found".to_string()],
+  };
+
+  vec![
+    processor.fetch_jsonplaceholder_data("posts", None).unwrap_or_default(),
+    processor.fetch_jsonplaceholder_data("posts", Some(1)).unwrap_or_default(),
+    processor.fetch_jsonplaceholder_data("users", Some(2)).unwrap_or_default(),
+    processor.fetch_jsonplaceholder_data("todos", None).unwrap_or_default(),
+    processor.get_user_posts(1).unwrap_or_default(),
+    processor.analyze_jsonplaceholder_data().unwrap_or_default(),
+  ]
+}
+
 // Get information about the V8 code loading status
 pub fn get_v8_code_status() -> String {
   match V8_CODE.lock() {
     Ok(guard) => match guard.as_ref() {
       Some(code) => format!(
         "✅ V8 TypeScript code loaded successfully\n📁 v8-processing.js: {} characters\n📁 \
-         data-generators.js: {} characters\n🔄 Using once_cell for global storage",
+         data-generators.js: {} characters\n📁 jsonplaceholder-demo.js: {} characters\n🔄 Using once_cell for global storage",
         code.v8_processing_js.len(),
-        code.data_generators_js.len()
+        code.data_generators_js.len(),
+        code.jsonplaceholder_demo_js.len()
       ),
       None => {
         "❌ V8 TypeScript code failed to load - check if client/dist/v8/ files exist".to_string()

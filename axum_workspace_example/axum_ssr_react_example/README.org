@@ -16,6 +16,8 @@ TypeScript code execution.
 - *TypeScript Processing*: HTTP request analysis and data generation
 - *Global State Management*: Using =once_cell= for thread-safe global
   storage
+- *JSONPlaceholder API Demo*: Complete API simulation with realistic
+  data
 
 ** Architecture
 :PROPERTIES:
@@ -27,11 +29,13 @@ src/
 ├── v8_processor.rs      # V8 TypeScript processor with once_cell
 client/
 ├── src/
-│   ├── v8-processing.ts     # HTTP request analysis logic
-│   └── data-generators.ts   # Data generation functions
+│   ├── v8-processing.ts         # HTTP request analysis logic
+│   ├── data-generators.ts       # Data generation functions
+│   └── jsonplaceholder-demo.ts  # JSONPlaceholder API simulation
 └── dist/v8/
-    ├── v8-processing.js     # Compiled JavaScript
-    └── data-generators.js   # Compiled JavaScript
+    ├── v8-processing.js         # Compiled JavaScript
+    ├── data-generators.js       # Compiled JavaScript
+    └── jsonplaceholder-demo.js  # Compiled JavaScript
 #+end_example
 
 ** V8 TypeScript Integration
@@ -49,6 +53,8 @@ client/
 3. *HTTP Request Analysis*: Processes incoming requests with risk
    scoring
 4. *Data Generation*: Creates user profiles, analytics, and sample data
+5. *JSONPlaceholder API*: Complete API simulation with posts, users,
+   todos, etc.
 
 *** TypeScript Functions
 :PROPERTIES:
@@ -71,19 +77,33 @@ client/
 - Creates analytics dashboards
 - Provides sample data for testing
 
+**** JSONPlaceholder API (=jsonplaceholder-demo.ts=)
+:PROPERTIES:
+:CUSTOM_ID: jsonplaceholder-api-jsonplaceholder-demo.ts
+:END:
+- Simulates complete RESTful API endpoints
+- Supports posts, users, comments, albums, photos, todos
+- Provides error handling and metadata
+- Includes analytics and data aggregation
+
 ** API Endpoints
 :PROPERTIES:
 :CUSTOM_ID: api-endpoints
 :END:
 - =/= - Home page with navigation
-- =/v8-typescript-demo= - V8 TypeScript processing demonstration
-- =/react-ssr= - React server-side rendering example
+- =/v8/typescript= - V8 TypeScript processing demonstration
+- =/v8/jsonplaceholder= - V8 JSONPlaceholder API simulation demo
+- =/calc= - Calculator demo
+- =/fetch= - Fetch API demonstration
+- =/data= - Data processing demo
+- =/weather= - Weather dashboard
+- =/profile= - User profile demo
 
 ** Dependencies
 :PROPERTIES:
 :CUSTOM_ID: dependencies
 :END:
-#+begin_EXAMPLE
+#+begin_src toml
 [dependencies]
 axum = "0.8.4"
 chrono = { version = "0.4", features = ["serde"] }
@@ -92,7 +112,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ssr_rs = "0.8.3"
 tokio = { version = "1.47.1", features = ["full"] }
-#+end_EXAMPLE
+#+end_src
 
 ** Running the Application
 :PROPERTIES:
@@ -108,7 +128,9 @@ tokio = { version = "1.47.1", features = ["full"] }
 
    #+begin_src sh
    cd client
-   npx tsc
+   npx tsc src/jsonplaceholder-demo.ts --outDir dist/v8 --target ES2020 --skipLibCheck
+   npx tsc src/v8-processing.ts --outDir dist/v8 --target ES2020 --skipLibCheck
+   npx tsc src/data-generators.ts --outDir dist/v8 --target ES2020 --skipLibCheck
    #+end_src
 
 3. *Run the server*:
@@ -120,13 +142,38 @@ tokio = { version = "1.47.1", features = ["full"] }
 4. *Visit the application*:
 
    - Home: http://localhost:8080/
-   - V8 Demo: http://localhost:8080/v8-typescript-demo
-   - React SSR: http://localhost:8080/react-ssr
+   - V8 TypeScript Demo: http://localhost:8080/v8/typescript
+   - JSONPlaceholder Demo: http://localhost:8080/v8/jsonplaceholder
 
 ** V8 Processing Examples
 :PROPERTIES:
 :CUSTOM_ID: v8-processing-examples
 :END:
+*** JSONPlaceholder API Response
+:PROPERTIES:
+:CUSTOM_ID: jsonplaceholder-api-response
+:END:
+#+begin_src json
+{
+  "success": true,
+  "data": {
+    "userId": 1,
+    "id": 1,
+    "title": "sunt aut facere repellat provident occaecati excepturi optio reprehenderit",
+    "body": "quia et suscipit\nsuscipit recusandae consequuntur..."
+  },
+  "metadata": {
+    "endpoint": "posts/1",
+    "returned_count": 1,
+    "total_available": 100,
+    "api_source": "jsonplaceholder.typicode.com (simulated)",
+    "cached": false
+  },
+  "timestamp": "2025-08-01T12:00:00Z",
+  "processing_time_ms": 12
+}
+#+end_src
+
 *** HTTP Request Analysis
 :PROPERTIES:
 :CUSTOM_ID: http-request-analysis
@@ -160,33 +207,6 @@ tokio = { version = "1.47.1", features = ["full"] }
 }
 #+end_src
 
-*** Data Generation
-:PROPERTIES:
-:CUSTOM_ID: data-generation
-:END:
-#+begin_src json
-{
-  "success": true,
-  "data": {
-    "id": 42,
-    "username": "alicesmith42",
-    "email": "alicesmith42@example.com",
-    "profile": {
-      "first_name": "Alice",
-      "last_name": "Smith",
-      "bio": "Hi, I'm Alice! Welcome to my profile."
-    },
-    "settings": {
-      "theme": "dark",
-      "notifications": true,
-      "language": "en"
-    }
-  },
-  "timestamp": "2025-08-01T12:00:00Z",
-  "processing_time_ms": 45
-}
-#+end_src
-
 ** Technical Implementation
 :PROPERTIES:
 :CUSTOM_ID: technical-implementation
@@ -199,7 +219,7 @@ The application uses =once_cell::sync::Lazy= to store compiled
 TypeScript code globally:
 
 #+begin_src rust
-static V8_CODE: Lazy<Mutex<Option<V8TypeScriptCode>>> =
+static V8_CODE: Lazy<Mutex<Option<V8TypeScriptCode>>> = 
   Lazy::new(|| Mutex::new(V8TypeScriptCode::new()));
 #+end_src
 
@@ -218,6 +238,17 @@ approach: - Avoids conflicts with the existing V8 runtime - Maintains
 the same logic as the TypeScript code - Provides consistent results
 across requests
 
+*** JSONPlaceholder Features
+:PROPERTIES:
+:CUSTOM_ID: jsonplaceholder-features
+:END:
+- *Complete API Coverage*: Posts, users, comments, albums, photos, todos
+- *Error Handling*: Proper 404 responses for missing resources
+- *Metadata Support*: Processing times, caching info, API attribution
+- *Data Relationships*: User-post aggregation and cross-referencing
+- *Analytics Engine*: Statistical analysis of all data types
+- *TypeScript Types*: Full interface definitions for type safety
+
 ** Development Notes
 :PROPERTIES:
 :CUSTOM_ID: development-notes
@@ -228,6 +259,7 @@ across requests
 - Global storage ensures efficient access to compiled code
 - Error handling provides graceful fallbacks when TypeScript files are
   missing
+- JSONPlaceholder demo provides a realistic API simulation experience
 
 ** License
 :PROPERTIES:
