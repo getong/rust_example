@@ -1,0 +1,236 @@
+* Axum SSR React Example with V8 TypeScript Integration
+:PROPERTIES:
+:CUSTOM_ID: axum-ssr-react-example-with-v8-typescript-integration
+:END:
+A full-stack web application example combining Rust (Axum) backend with
+React frontend, featuring V8 JavaScript engine integration for
+TypeScript code execution.
+
+** Features
+:PROPERTIES:
+:CUSTOM_ID: features
+:END:
+- *Axum Web Framework*: Modern async web framework for Rust
+- *Server-Side Rendering*: Using =ssr_rs= for React SSR
+- *V8 Integration*: Execute TypeScript code using V8 JavaScript engine
+- *TypeScript Processing*: HTTP request analysis and data generation
+- *Global State Management*: Using =once_cell= for thread-safe global
+  storage
+
+** Architecture
+:PROPERTIES:
+:CUSTOM_ID: architecture
+:END:
+#+begin_example
+src/
+├── main.rs              # Axum server setup and routes
+├── v8_processor.rs      # V8 TypeScript processor with once_cell
+client/
+├── src/
+│   ├── v8-processing.ts     # HTTP request analysis logic
+│   └── data-generators.ts   # Data generation functions
+└── dist/v8/
+    ├── v8-processing.js     # Compiled JavaScript
+    └── data-generators.js   # Compiled JavaScript
+#+end_example
+
+** V8 TypeScript Integration
+:PROPERTIES:
+:CUSTOM_ID: v8-typescript-integration
+:END:
+*** Key Components
+:PROPERTIES:
+:CUSTOM_ID: key-components
+:END:
+1. *V8TypeScriptProcessor*: Main processor that executes TypeScript
+   logic
+2. *Global Storage*: Uses =once_cell::sync::Lazy= for thread-safe code
+   storage
+3. *HTTP Request Analysis*: Processes incoming requests with risk
+   scoring
+4. *Data Generation*: Creates user profiles, analytics, and sample data
+
+*** TypeScript Functions
+:PROPERTIES:
+:CUSTOM_ID: typescript-functions
+:END:
+**** HTTP Request Processing (=v8-processing.ts=)
+:PROPERTIES:
+:CUSTOM_ID: http-request-processing-v8-processing.ts
+:END:
+- Analyzes request paths, user agents, and hosts
+- Calculates risk scores based on patterns
+- Provides caching recommendations
+- Handles redirects and blocking
+
+**** Data Generation (=data-generators.ts=)
+:PROPERTIES:
+:CUSTOM_ID: data-generation-data-generators.ts
+:END:
+- Generates user profiles with realistic data
+- Creates analytics dashboards
+- Provides sample data for testing
+
+** API Endpoints
+:PROPERTIES:
+:CUSTOM_ID: api-endpoints
+:END:
+- =/= - Home page with navigation
+- =/v8-typescript-demo= - V8 TypeScript processing demonstration
+- =/react-ssr= - React server-side rendering example
+
+** Dependencies
+:PROPERTIES:
+:CUSTOM_ID: dependencies
+:END:
+#+begin_EXAMPLE
+[dependencies]
+axum = "0.8.4"
+chrono = { version = "0.4", features = ["serde"] }
+once_cell = "1.20.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+ssr_rs = "0.8.3"
+tokio = { version = "1.47.1", features = ["full"] }
+#+end_EXAMPLE
+
+** Running the Application
+:PROPERTIES:
+:CUSTOM_ID: running-the-application
+:END:
+1. *Build the project*:
+
+   #+begin_src sh
+   cargo build
+   #+end_src
+
+2. *Compile TypeScript* (if needed):
+
+   #+begin_src sh
+   cd client
+   npx tsc
+   #+end_src
+
+3. *Run the server*:
+
+   #+begin_src sh
+   cargo run
+   #+end_src
+
+4. *Visit the application*:
+
+   - Home: http://localhost:8080/
+   - V8 Demo: http://localhost:8080/v8-typescript-demo
+   - React SSR: http://localhost:8080/react-ssr
+
+** V8 Processing Examples
+:PROPERTIES:
+:CUSTOM_ID: v8-processing-examples
+:END:
+*** HTTP Request Analysis
+:PROPERTIES:
+:CUSTOM_ID: http-request-analysis
+:END:
+#+begin_src json
+{
+  "status": "processed",
+  "timestamp": "2025-08-01T12:00:00Z",
+  "request": {
+    "path": "/api/users",
+    "host": "api.example.com",
+    "user_agent": "curl/7.64.1"
+  },
+  "analysis": {
+    "path_info": {
+      "is_api": true,
+      "is_static_asset": false,
+      "segments": ["api", "users"]
+    },
+    "user_agent_info": {
+      "browser": "bot",
+      "is_bot": true
+    },
+    "risk_score": 30
+  },
+  "response": {
+    "message": "Successfully processed /api/users",
+    "should_cache": false,
+    "redirect_url": null
+  }
+}
+#+end_src
+
+*** Data Generation
+:PROPERTIES:
+:CUSTOM_ID: data-generation
+:END:
+#+begin_src json
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "username": "alicesmith42",
+    "email": "alicesmith42@example.com",
+    "profile": {
+      "first_name": "Alice",
+      "last_name": "Smith",
+      "bio": "Hi, I'm Alice! Welcome to my profile."
+    },
+    "settings": {
+      "theme": "dark",
+      "notifications": true,
+      "language": "en"
+    }
+  },
+  "timestamp": "2025-08-01T12:00:00Z",
+  "processing_time_ms": 45
+}
+#+end_src
+
+** Technical Implementation
+:PROPERTIES:
+:CUSTOM_ID: technical-implementation
+:END:
+*** Once Cell Global Storage
+:PROPERTIES:
+:CUSTOM_ID: once-cell-global-storage
+:END:
+The application uses =once_cell::sync::Lazy= to store compiled
+TypeScript code globally:
+
+#+begin_src rust
+static V8_CODE: Lazy<Mutex<Option<V8TypeScriptCode>>> =
+  Lazy::new(|| Mutex::new(V8TypeScriptCode::new()));
+#+end_src
+
+This provides: - *Thread Safety*: Multiple requests can access the same
+code safely - *Lazy Initialization*: Code is loaded only when first
+accessed - *Efficient Access*: No recompilation needed for subsequent
+requests
+
+*** V8 Integration Strategy
+:PROPERTIES:
+:CUSTOM_ID: v8-integration-strategy
+:END:
+Since =ssr_rs= manages the V8 runtime, the processor simulates
+TypeScript logic in Rust rather than creating new V8 isolates. This
+approach: - Avoids conflicts with the existing V8 runtime - Maintains
+the same logic as the TypeScript code - Provides consistent results
+across requests
+
+** Development Notes
+:PROPERTIES:
+:CUSTOM_ID: development-notes
+:END:
+- TypeScript files are compiled to JavaScript in =client/dist/v8/=
+- The processor simulates TypeScript logic for compatibility with
+  =ssr_rs=
+- Global storage ensures efficient access to compiled code
+- Error handling provides graceful fallbacks when TypeScript files are
+  missing
+
+** License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+This project is for educational and demonstration purposes.

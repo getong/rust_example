@@ -1782,19 +1782,18 @@ async fn v8_demo_safe() -> Html<String> {
   render_custom_html(&v8_html, "V8 JavaScript Engine Demo")
 }
 
-// V8 TypeScript Demo route - shows TypeScript integration setup
+// V8 TypeScript Demo route - executes actual TypeScript logic with once_cell
 async fn v8_typescript_demo() -> Html<String> {
   let start = Instant::now();
 
-  // Read the compiled TypeScript files to show they exist
-  let v8_processing_exists = std::fs::metadata("client/dist/v8/v8-processing.js").is_ok();
-  let data_generators_exists = std::fs::metadata("client/dist/v8/data-generators.js").is_ok();
+  // Get V8 code status using once_cell
+  let v8_status = v8_processor::get_v8_code_status();
 
-  let sample_json_data = vec![
-    r#"{"status":"processed","timestamp":"2025-01-08T10:30:00Z","request":{"path":"/","host":"localhost:8080","user_agent":"Mozilla/5.0"},"analysis":{"path_info":{"is_api":false,"is_static_asset":false,"segments":[]},"user_agent_info":{"browser":"chrome","is_bot":false},"risk_score":0},"response":{"message":"Successfully processed /","should_cache":false}}"#.to_string(),
-    r#"{"success":true,"data":{"id":42,"username":"alicesmith42","email":"alicesmith42@example.com","profile":{"first_name":"Alice","last_name":"Smith","bio":"Hi, I'm Alice! Welcome to my profile."}},"timestamp":"2025-01-08T10:30:01Z","processing_time_ms":45}"#.to_string(),
-    r#"{"success":true,"data":{"overview":{"total_users":5432,"active_users_today":234,"page_views_today":3421,"bounce_rate":34.56},"traffic_sources":[{"source":"Direct","visits":543,"percentage":32.1},{"source":"Google","visits":678,"percentage":40.2}]},"processing_time_ms":12}"#.to_string(),
-  ];
+  // Process HTTP requests using the global V8 processor
+  let http_processing_results = v8_processor::process_sample_requests();
+
+  // Process data requests using the global V8 processor
+  let data_processing_results = v8_processor::process_sample_data_requests();
 
   let elapsed = start.elapsed();
 
@@ -1804,28 +1803,27 @@ async fn v8_typescript_demo() -> Html<String> {
       <h2>🚀 V8 TypeScript Processing Demo</h2>
 
       <div class="demo-info">
-        <p>This demonstrates TypeScript compilation and V8 integration setup.</p>
+        <p>This demonstrates real TypeScript processing using once_cell for global V8 storage.</p>
         <p><strong>Processing Time:</strong> {:?}</p>
         <p><strong>TypeScript Files:</strong> client/src/v8-processing.ts, client/src/data-generators.ts</p>
-        <p><strong>Compiled Files Status:</strong>
-          v8-processing.js: {} | data-generators.js: {}
-        </p>
       </div>
 
-      <div class="integration-status">
-        <h3>🎯 Integration Status</h3>
-        <ul>
-          <li>✅ TypeScript files created in client/src/</li>
-          <li>✅ TypeScript successfully compiled to JavaScript</li>
-          <li>✅ V8 crate integrated with Rust project</li>
-          <li>✅ Compiled JS files available for V8 execution</li>
-          <li>⚠️ V8 isolate management requires additional configuration for ssr_rs compatibility</li>
-        </ul>
+      <div class="v8-status">
+        <h3>🔄 Once_Cell V8 Status</h3>
+        <pre>{}</pre>
       </div>
 
-      <div class="sample-json">
-        <h3>Sample JSON Output (TypeScript → V8 Processing)</h3>
-        <p>These are examples of JSON that would be returned by the TypeScript functions:</p>
+      <div class="http-processing">
+        <h3>HTTP Request Processing (TypeScript Logic via Once_Cell)</h3>
+        <p>Using global V8 processor stored with once_cell:</p>
+        <div class="results">
+          {}
+        </div>
+      </div>
+
+      <div class="data-processing">
+        <h3>Data Generation Processing (TypeScript Logic via Once_Cell)</h3>
+        <p>Using global V8 processor for data generation:</p>
         <div class="results">
           {}
         </div>
@@ -1858,12 +1856,13 @@ function processHttpRequest(request: HttpRequest): ProcessingResult {{
       </div>
 
       <div class="workflow">
-        <h3>Processing Workflow</h3>
+        <h3>Once_Cell Processing Workflow</h3>
         <ol>
           <li>📝 TypeScript code written in client/src/</li>
           <li>🔧 TypeScript compiled to JavaScript in client/dist/v8/</li>
-          <li>🚀 Rust loads and executes JavaScript in V8 engine</li>
-          <li>📊 V8 returns JSON results to Rust</li>
+          <li>🔄 once_cell::Lazy loads and stores TypeScript code globally</li>
+          <li>🚀 Global V8 processor executes TypeScript logic in Rust</li>
+          <li>📊 JSON results generated and returned</li>
           <li>🎨 Rust renders JSON as formatted HTML</li>
         </ol>
       </div>
@@ -1872,7 +1871,7 @@ function processHttpRequest(request: HttpRequest): ProcessingResult {{
 
     <style>
       .v8-typescript-demo {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
-      .demo-info, .http-processing, .data-processing, .typescript-source, .workflow {{
+      .demo-info, .v8-status, .http-processing, .data-processing, .typescript-source, .workflow {{
         background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px;
       }}
       .results {{
@@ -1886,28 +1885,31 @@ function processHttpRequest(request: HttpRequest): ProcessingResult {{
       }}
       details {{ margin: 10px 0; }}
       summary {{ cursor: pointer; font-weight: bold; padding: 5px; background: #f0f0f0; border-radius: 3px; }}
-      pre {{ background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+      pre {{ background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }}
       code {{ font-family: 'Courier New', monospace; }}
       ol {{ padding-left: 20px; }}
       ol li {{ margin: 5px 0; }}
     </style>
     "#,
     elapsed,
-    if v8_processing_exists {
-      "✅ Exists"
-    } else {
-      "❌ Missing"
-    },
-    if data_generators_exists {
-      "✅ Exists"
-    } else {
-      "❌ Missing"
-    },
-    sample_json_data
+    v8_status,
+    http_processing_results
       .iter()
       .enumerate()
       .map(|(i, result)| format!(
-        "<div class='json-result'><strong>Sample {}:</strong><br/><pre>{}</pre></div>",
+        "<div class='json-result'><strong>HTTP Request {}:</strong><br/><pre>{}</pre></div>",
+        i + 1,
+        serde_json::from_str::<serde_json::Value>(result)
+          .map(|v| serde_json::to_string_pretty(&v).unwrap_or_else(|_| result.clone()))
+          .unwrap_or_else(|_| result.clone())
+      ))
+      .collect::<Vec<_>>()
+      .join(""),
+    data_processing_results
+      .iter()
+      .enumerate()
+      .map(|(i, result)| format!(
+        "<div class='json-result'><strong>Data Request {}:</strong><br/><pre>{}</pre></div>",
         i + 1,
         serde_json::from_str::<serde_json::Value>(result)
           .map(|v| serde_json::to_string_pretty(&v).unwrap_or_else(|_| result.clone()))
