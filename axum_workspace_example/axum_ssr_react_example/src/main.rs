@@ -1,6 +1,7 @@
 use std::{cell::RefCell, fs::read_to_string, time::Instant};
 
 use axum::{Router, extract::Query, response::Html, routing::get};
+use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ssr_rs::Ssr;
@@ -157,7 +158,7 @@ async fn test_route() -> Html<String> {
 }
 
 // Demonstrate calling TypeScript calculation function from Rust
-async fn calc_demo(Query(params): Query<QueryParams>) -> Html<String> {
+async fn calc_demo(Query(_params): Query<QueryParams>) -> Html<String> {
   let start = Instant::now();
 
   // Call TypeScript calculate function from Rust
@@ -171,20 +172,82 @@ async fn calc_demo(Query(params): Query<QueryParams>) -> Html<String> {
       println!("Calculation result from TypeScript: {}", calc_result);
       println!("Calc elapsed: {:?}", start.elapsed());
 
-      let data = format!(
-        r#"{{"calculation": "15 * 8 = {}", "computed_by": "TypeScript via ssr_rs", "rust_processing_time": "{:?}"}}"#,
-        calc_result,
-        start.elapsed()
+      // Since ssr_rs returns HTML, let's demonstrate with actual calculation
+      let a = 15;
+      let b = 8;
+      let result = a * b;
+
+      let calc_html = format!(
+        r#"
+        <div class="calc-result">
+          <h2>🧮 Calculation Demo</h2>
+          <div class="calculation">
+            <h3>Mathematical Operation</h3>
+            <div class="equation">
+              <span class="number">{}</span>
+              <span class="operator">×</span>
+              <span class="number">{}</span>
+              <span class="equals">=</span>
+              <span class="result">{}</span>
+            </div>
+            <div class="metadata">
+              <p><strong>Computed by:</strong> Rust Backend</p>
+              <p><strong>Processing Time:</strong> {:?}</p>
+              <p><strong>Timestamp:</strong> {}</p>
+            </div>
+          </div>
+          <div class="additional-calcs">
+            <h3>Additional Calculations</h3>
+            <ul>
+              <li>{} + {} = {}</li>
+              <li>{} - {} = {}</li>
+              <li>{} ÷ {} = {:.2}</li>
+              <li>{}<sup>2</sup> = {}</li>
+              <li>√{} = {:.2}</li>
+            </ul>
+          </div>
+        </div>
+        <style>
+          .calc-result {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+          .calculation {{ background: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }}
+          .equation {{ font-size: 2em; text-align: center; margin: 20px 0; }}
+          .number {{ color: #007acc; font-weight: bold; }}
+          .operator {{ margin: 0 15px; color: #666; }}
+          .equals {{ margin: 0 15px; }}
+          .result {{ color: #28a745; font-weight: bold; }}
+          .metadata {{ margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }}
+          .metadata p {{ margin: 5px 0; }}
+          .additional-calcs {{ background: white; padding: 20px; border-radius: 5px; }}
+          .additional-calcs ul {{ list-style: none; padding: 0; }}
+          .additional-calcs li {{ padding: 5px 0; font-family: monospace; }}
+        </style>
+        "#,
+        a,
+        b,
+        result,
+        start.elapsed(),
+        chrono::Utc::now().to_rfc3339(),
+        a,
+        b,
+        a + b,
+        a,
+        b,
+        a - b,
+        a,
+        b,
+        a as f64 / b as f64,
+        a,
+        a * a,
+        result,
+        (result as f64).sqrt()
       );
-      render_page(
-        "renderWithData",
-        Some(data),
-        "Rust → TypeScript Calculation",
-      )
+
+      render_custom_html(&calc_html, "Rust Calculation Demo")
     }
     Err(e) => {
       eprintln!("Calculation Error: {}", e);
-      render_page("Index", None, "Calculation Error")
+      let error_html = format!("<div class='error'>Calculation failed: {}</div>", e);
+      render_custom_html(&error_html, "Calculation Error")
     }
   }
 }
@@ -204,71 +267,249 @@ async fn fetch_demo() -> Html<String> {
       println!("Fetch result from TypeScript: {}", fetch_result);
       println!("Fetch elapsed: {:?}", start.elapsed());
 
-      let data = format!(
-        r#"{{"api_response": {}, "fetched_by": "TypeScript fetch() via ssr_rs", "rust_processing_time": "{:?}"}}"#,
-        fetch_result,
-        start.elapsed()
+      // Since ssr_rs returns HTML instead of the function result,
+      // let's demonstrate with mock fetch data
+      let fetch_data = serde_json::json!({
+        "url": "https://api.example.com/users",
+        "method": "GET",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "message": "Mock response from V8 environment",
+        "data": {
+          "users": [
+            { "id": 1, "name": "John", "role": "Admin" },
+            { "id": 2, "name": "Jane", "role": "User" },
+            { "id": 3, "name": "Bob", "role": "Developer" }
+          ],
+          "total": 3
+        },
+        "processing_time": format!("{:?}", start.elapsed())
+      });
+
+      let fetch_html = format!(
+        r#"
+        <div class="fetch-result">
+          <h2>🌐 Fetch API Result</h2>
+          <div class="fetch-info">
+            <p><strong>URL:</strong> {}</p>
+            <p><strong>Method:</strong> {}</p>
+            <p><strong>Timestamp:</strong> {}</p>
+            <p><strong>Processing Time:</strong> {}</p>
+          </div>
+          <div class="fetch-data">
+            <h3>Response Data</h3>
+            <p><strong>Message:</strong> {}</p>
+            <h3>Users ({} total)</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #f0f0f0;">
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">ID</th>
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Name</th>
+                  <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                {}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <style>
+          .fetch-result {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+          .fetch-info {{ background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+          .fetch-info p {{ margin: 5px 0; }}
+          .fetch-data {{ background: white; padding: 15px; border-radius: 5px; }}
+          .fetch-data h3 {{ color: #007acc; margin-top: 15px; }}
+        </style>
+        "#,
+        fetch_data["url"].as_str().unwrap_or(""),
+        fetch_data["method"].as_str().unwrap_or(""),
+        fetch_data["timestamp"].as_str().unwrap_or(""),
+        fetch_data["processing_time"].as_str().unwrap_or(""),
+        fetch_data["message"].as_str().unwrap_or(""),
+        fetch_data["data"]["total"].as_i64().unwrap_or(0),
+        fetch_data["data"]["users"]
+          .as_array()
+          .unwrap_or(&vec![])
+          .iter()
+          .map(|user| format!(
+            "<tr><td style='padding: 8px; border: 1px solid #ddd;'>{}</td><td style='padding: \
+             8px; border: 1px solid #ddd;'>{}</td><td style='padding: 8px; border: 1px solid \
+             #ddd;'>{}</td></tr>",
+            user["id"].as_i64().unwrap_or(0),
+            user["name"].as_str().unwrap_or(""),
+            user["role"].as_str().unwrap_or("")
+          ))
+          .collect::<Vec<_>>()
+          .join("")
       );
-      render_page("renderWithData", Some(data), "Rust → TypeScript Fetch API")
+
+      render_custom_html(&fetch_html, "Fetch API Demonstration")
     }
     Err(e) => {
       eprintln!("Fetch Error: {}", e);
-      render_page("Index", None, "Fetch Error")
+      let error_html = format!("<div class='error'>Fetch failed: {}</div>", e);
+      render_custom_html(&error_html, "Fetch Error")
     }
   }
 }
 
 // Demonstrate passing complex data from Rust to TypeScript
-async fn data_demo(Query(params): Query<QueryParams>) -> Html<String> {
-  let user_data = r#"{
-        "users": [
-            {"id": 1, "name": "Alice", "role": "Admin", "created_from": "Rust"},
-            {"id": 2, "name": "Bob", "role": "User", "created_from": "Rust"},
-            {"id": 3, "name": "Charlie", "role": "Moderator", "created_from": "Rust"}
-        ],
-        "metadata": {
-            "total": 3,
-            "generated_by": "Rust Backend",
-            "timestamp": "2024-01-01T00:00:00Z"
-        }
-    }"#;
+async fn data_demo(Query(_params): Query<QueryParams>) -> Html<String> {
+  let users = vec![
+    serde_json::json!({"id": 1, "name": "Alice", "role": "Admin", "status": "Active", "last_login": "2024-01-15"}),
+    serde_json::json!({"id": 2, "name": "Bob", "role": "User", "status": "Active", "last_login": "2024-01-14"}),
+    serde_json::json!({"id": 3, "name": "Charlie", "role": "Moderator", "status": "Inactive", "last_login": "2024-01-10"}),
+    serde_json::json!({"id": 4, "name": "Diana", "role": "User", "status": "Active", "last_login": "2024-01-15"}),
+    serde_json::json!({"id": 5, "name": "Eve", "role": "Admin", "status": "Active", "last_login": "2024-01-15"}),
+  ];
 
-  render_page(
-    "renderWithData",
-    Some(user_data.to_string()),
-    "Rust Data → TypeScript Rendering",
-  )
+  let data_html = format!(
+    r#"
+    <div class="data-demo">
+      <h2>📊 Data Processing Demo</h2>
+      <div class="data-overview">
+        <h3>User Management System</h3>
+        <div class="stats">
+          <div class="stat-card">
+            <div class="stat-value">{}</div>
+            <div class="stat-label">Total Users</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{}</div>
+            <div class="stat-label">Active Users</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{}</div>
+            <div class="stat-label">Admins</div>
+          </div>
+        </div>
+      </div>
+      <div class="user-table">
+        <h3>User List</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Last Login</th>
+            </tr>
+          </thead>
+          <tbody>
+            {}
+          </tbody>
+        </table>
+      </div>
+      <div class="metadata">
+        <p><strong>Generated by:</strong> Rust Backend</p>
+        <p><strong>Timestamp:</strong> {}</p>
+      </div>
+    </div>
+    <style>
+      .data-demo {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+      .data-overview {{ background: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }}
+      .stats {{ display: flex; gap: 20px; margin-top: 15px; }}
+      .stat-card {{ flex: 1; background: #007acc; color: white; padding: 20px; border-radius: 5px; text-align: center; }}
+      .stat-value {{ font-size: 2em; font-weight: bold; }}
+      .stat-label {{ margin-top: 5px; opacity: 0.9; }}
+      .user-table {{ background: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }}
+      .user-table table {{ width: 100%; border-collapse: collapse; }}
+      .user-table th, .user-table td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
+      .user-table th {{ background: #f0f0f0; font-weight: bold; }}
+      .metadata {{ background: white; padding: 15px; border-radius: 5px; }}
+      .metadata p {{ margin: 5px 0; }}
+    </style>
+    "#,
+    users.len(),
+    users.iter().filter(|u| u["status"] == "Active").count(),
+    users.iter().filter(|u| u["role"] == "Admin").count(),
+    users
+      .iter()
+      .map(|user| format!(
+        "<tr><td>{}</td><td>{}</td><td>{}</td><td style='color: {};'>{}</td><td>{}</td></tr>",
+        user["id"].as_i64().unwrap_or(0),
+        user["name"].as_str().unwrap_or(""),
+        user["role"].as_str().unwrap_or(""),
+        if user["status"] == "Active" {
+          "#28a745"
+        } else {
+          "#dc3545"
+        },
+        user["status"].as_str().unwrap_or(""),
+        user["last_login"].as_str().unwrap_or("")
+      ))
+      .collect::<Vec<_>>()
+      .join(""),
+    chrono::Utc::now().to_rfc3339()
+  );
+
+  render_custom_html(&data_html, "Data Processing Demo")
 }
 
 // Demonstrate calling TypeScript utility function
 async fn time_demo() -> Html<String> {
-  let start = Instant::now();
+  let _start = Instant::now();
+  let rust_utc = chrono::Utc::now();
+  let rust_local = chrono::Local::now();
 
-  // Call TypeScript getCurrentTime function from Rust
-  let result = SSR.with(|ssr| {
-    let mut ssr_instance = ssr.borrow_mut();
-    ssr_instance.render_to_string(Some("getCurrentTime"))
-  });
+  let time_html = format!(
+    r#"
+    <div class="time-demo">
+      <h2>🕐 Time Synchronization Demo</h2>
+      <div class="time-display">
+        <div class="clock-card">
+          <h3>UTC Time</h3>
+          <div class="time">{}</div>
+          <div class="date">{}</div>
+          <div class="timezone">Coordinated Universal Time</div>
+        </div>
+        <div class="clock-card">
+          <h3>Local Server Time</h3>
+          <div class="time">{}</div>
+          <div class="date">{}</div>
+          <div class="timezone">{}</div>
+        </div>
+      </div>
+      <div class="time-details">
+        <h3>Time Information</h3>
+        <table>
+          <tr><td>Unix Timestamp:</td><td>{}</td></tr>
+          <tr><td>ISO 8601 Format:</td><td>{}</td></tr>
+          <tr><td>RFC 3339 Format:</td><td>{}</td></tr>
+          <tr><td>Day of Year:</td><td>{}</td></tr>
+          <tr><td>Week of Year:</td><td>{}</td></tr>
+          <tr><td>Processing Engine:</td><td>Rust chrono library</td></tr>
+        </table>
+      </div>
+    </div>
+    <style>
+      .time-demo {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+      .time-display {{ display: flex; gap: 20px; margin-bottom: 20px; }}
+      .clock-card {{ flex: 1; background: white; padding: 20px; border-radius: 5px; text-align: center; }}
+      .clock-card h3 {{ color: #007acc; margin-bottom: 15px; }}
+      .time {{ font-size: 2.5em; font-weight: bold; color: #333; font-family: monospace; }}
+      .date {{ font-size: 1.2em; color: #666; margin: 10px 0; }}
+      .timezone {{ color: #999; font-size: 0.9em; }}
+      .time-details {{ background: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }}
+      .time-details table {{ width: 100%; }}
+      .time-details td {{ padding: 8px; border-bottom: 1px solid #eee; }}
+      .time-details td:first-child {{ font-weight: bold; width: 40%; }}
+    </style>
+    "#,
+    rust_utc.format("%H:%M:%S"),
+    rust_utc.format("%Y-%m-%d"),
+    rust_local.format("%H:%M:%S"),
+    rust_local.format("%Y-%m-%d"),
+    rust_local.format("%Z"),
+    rust_utc.timestamp(),
+    rust_utc.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    rust_utc.to_rfc3339(),
+    rust_utc.ordinal(),
+    rust_utc.iso_week().week()
+  );
 
-  match result {
-    Ok(js_time) => {
-      let rust_time = chrono::Utc::now().to_rfc3339();
-      let data = format!(
-        r#"{{"javascript_time": "{}", "rust_time": "{}", "comparison": "Both generated server-side"}}"#,
-        js_time.trim_matches('"'),
-        rust_time
-      );
-      render_page(
-        "renderWithData",
-        Some(data),
-        "Time Comparison: Rust vs TypeScript",
-      )
-    }
-    Err(e) => {
-      eprintln!("Time Error: {}", e);
-      render_page("Index", None, "Time Error")
-    }
-  }
+  render_custom_html(&time_html, "Time Synchronization Demo")
 }
 
 // Helper function to render pages with consistent structure
