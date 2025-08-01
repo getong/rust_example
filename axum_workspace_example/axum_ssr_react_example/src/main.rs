@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ssr_rs::Ssr;
 
+mod v8_processor;
+
 thread_local! {
     static SSR: RefCell<Ssr<'static, 'static>> = RefCell::new({
         let js_code = match read_to_string("client/dist/ssr/index.js") {
@@ -129,6 +131,7 @@ struct UserStats {
 
 #[tokio::main]
 async fn main() {
+  // ssr_rs will handle V8 initialization
   Ssr::create_platform();
 
   // build our application with multiple demonstration routes
@@ -143,7 +146,8 @@ async fn main() {
     .route("/profile", get(profile_demo))
     .route("/system", get(system_demo))
     .route("/business", get(business_demo))
-    .route("/dashboard", get(dashboard_demo));
+    .route("/dashboard", get(dashboard_demo))
+    .route("/v8", get(v8_demo_safe));
 
   // run our app with hyper, listening globally on port 3000
   let listener = match tokio::net::TcpListener::bind("0.0.0.0:8080").await {
@@ -1017,7 +1021,8 @@ fn render_page(function_name: &str, data: Option<String>, title: &str) -> Html<S
                 <a href="/profile" style="margin: 0 8px;">Profile</a> |
                 <a href="/system" style="margin: 0 8px;">System</a> |
                 <a href="/business" style="margin: 0 8px;">Business</a> |
-                <a href="/dashboard" style="margin: 0 8px;">Dashboard</a>
+                <a href="/dashboard" style="margin: 0 8px;">Dashboard</a> |
+                <a href="/v8" style="margin-left: 8px;">V8 Demo</a>
             </nav>
             "#;
 
@@ -1700,4 +1705,66 @@ fn render_custom_html_with_css(content: &str, title: &str, css: &str) -> Html<St
   );
 
   Html(html)
+}
+
+// V8 Demo route (safe version that doesn't create isolates)
+async fn v8_demo_safe() -> Html<String> {
+  // Run the safe V8 simulation
+  let start = Instant::now();
+  let v8_results = v8_processor::run_v8_simulation();
+  let v8_info = v8_processor::get_v8_info();
+  let elapsed = start.elapsed();
+  
+  let v8_html = format!(
+    r#"
+    <div class="v8-demo">
+      <h2>🚀 V8 JavaScript Engine Demo</h2>
+      <div class="demo-info">
+        <p>This demonstrates V8 crate integration with Rust (v8 crate successfully added!).</p>
+        <p><strong>Processing Time:</strong> {:?}</p>
+      </div>
+      
+      <div class="v8-info">
+        <h3>V8 Integration Status:</h3>
+        <pre>{}</pre>
+      </div>
+      
+      <div class="v8-simulation">
+        <h3>V8 Processing Simulation:</h3>
+        <div class="simulation-results">
+          {}
+        </div>
+      </div>
+      
+      <div class="integration-notes">
+        <h3>Integration Notes:</h3>
+        <ul>
+          <li>✅ V8 crate successfully added to Cargo.toml</li>
+          <li>✅ V8 processor module created</li>
+          <li>✅ HTTP request processing structure implemented</li>
+          <li>⚠️ In this setup, ssr_rs manages V8 runtime, so we simulate processing to avoid conflicts</li>
+          <li>📚 For standalone V8 usage, initialize V8 separately from ssr_rs</li>
+        </ul>
+      </div>
+    </div>
+    <style>
+      .v8-demo {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+      .demo-info, .v8-info, .v8-simulation, .integration-notes {{ 
+        background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; 
+      }}
+      .simulation-results {{ 
+        background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 0.9em;
+      }}
+      .simulation-results p {{ margin: 8px 0; padding: 5px; background: #e9ecef; border-radius: 3px; }}
+      pre {{ background: #f8f9fa; padding: 10px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }}
+      ul {{ margin: 10px 0; }}
+      li {{ margin: 5px 0; }}
+    </style>
+    "#,
+    elapsed,
+    v8_info,
+    v8_results.iter().map(|result| format!("<p>{}</p>", result)).collect::<Vec<_>>().join("")
+  );
+  
+  render_custom_html(&v8_html, "V8 JavaScript Engine Demo")
 }

@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.4"
-ssr_rs = "0.8.3"
-tokio = { version = "1.47.1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+ssr_rs = "0.8.3"
+tokio = { version = "1.47.1", features = ["full"] }
+v8 = "139.0.0"
