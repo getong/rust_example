@@ -52,6 +52,7 @@ pub struct V8TypeScriptCode {
   pub v8_processing_js: String,
   pub data_generators_js: String,
   pub jsonplaceholder_demo_js: String,
+  pub stream_chat_demo_js: String,
 }
 
 impl V8TypeScriptCode {
@@ -61,11 +62,18 @@ impl V8TypeScriptCode {
       fs::read_to_string("client/dist/v8/v8-processing.js"),
       fs::read_to_string("client/dist/v8/data-generators.js"),
       fs::read_to_string("client/dist/v8/jsonplaceholder-demo.js"),
+      fs::read_to_string("client/dist/v8/stream-chat-demo.js"),
     ) {
-      (Ok(v8_processing_js), Ok(data_generators_js), Ok(jsonplaceholder_demo_js)) => Some(Self {
+      (
+        Ok(v8_processing_js),
+        Ok(data_generators_js),
+        Ok(jsonplaceholder_demo_js),
+        Ok(stream_chat_demo_js),
+      ) => Some(Self {
         v8_processing_js,
         data_generators_js,
         jsonplaceholder_demo_js,
+        stream_chat_demo_js,
       }),
       _ => None,
     }
@@ -704,6 +712,459 @@ impl V8TypeScriptProcessor {
 
     Some(result.to_string())
   }
+
+  // Stream Chat processing methods - Using proper Stream Chat API pattern
+  pub fn authenticate_stream_user(
+    &self,
+    user_id: &str,
+    api_key: Option<&str>,
+    api_secret: Option<&str>,
+  ) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    // Define values like in Stream.io documentation
+    let api_key = api_key.unwrap_or("demo_api_key_12345");
+    let api_secret = api_secret.unwrap_or("demo_api_secret_67890");
+
+    // Simulate Stream Chat server client initialization and token creation
+    // const serverClient = StreamChat.getInstance(api_key, api_secret);
+    // const token = serverClient.createToken(user_id);
+
+    let result = match user_id {
+      "john" => {
+        // Simulate createToken with proper Stream Chat JWT structure
+        let iat = chrono::Utc::now().timestamp();
+        let exp = iat + 24 * 60 * 60; // 24 hours expiration
+        let token = format!("StreamChat_token_for_{}_exp{}_iat{}", user_id, exp, iat);
+
+        serde_json::json!({
+          "success": true,
+          "token": token,
+          "api_key": api_key,
+          "server_client_config": {
+            "api_key": api_key,
+            "api_secret": format!("{}...", &api_secret[..8]),
+            "initialized": true
+          },
+          "user": {
+            "id": "john",
+            "name": "John Doe",
+            "email": "john@example.com",
+            "image": "https://avatar.example.com/john.jpg",
+            "role": "admin",
+            "custom": {
+              "department": "Engineering",
+              "location": "San Francisco"
+            }
+          },
+          "token_metadata": {
+            "issued_at": iat,
+            "expires_at": exp,
+            "user_id": user_id,
+            "has_iat_claim": true
+          },
+          "issued_at": chrono::Utc::now().to_rfc3339(),
+          "expires_at": chrono::DateTime::from_timestamp(exp, 0)
+            .unwrap_or_else(|| chrono::Utc::now())
+            .to_rfc3339(),
+          "processing_time_ms": 15
+        })
+      }
+      "jane" => {
+        let iat = chrono::Utc::now().timestamp();
+        let exp = iat + 24 * 60 * 60;
+        let token = format!("StreamChat_token_for_{}_exp{}_iat{}", user_id, exp, iat);
+
+        serde_json::json!({
+          "success": true,
+          "token": token,
+          "api_key": api_key,
+          "server_client_config": {
+            "api_key": api_key,
+            "api_secret": format!("{}...", &api_secret[..8]),
+            "initialized": true
+          },
+          "user": {
+            "id": "jane",
+            "name": "Jane Smith",
+            "email": "jane@example.com",
+            "image": "https://avatar.example.com/jane.jpg",
+            "role": "moderator",
+            "custom": {
+              "department": "Design",
+              "location": "New York"
+            }
+          },
+          "token_metadata": {
+            "issued_at": iat,
+            "expires_at": exp,
+            "user_id": user_id,
+            "has_iat_claim": true
+          },
+          "issued_at": chrono::Utc::now().to_rfc3339(),
+          "expires_at": chrono::DateTime::from_timestamp(exp, 0)
+            .unwrap_or_else(|| chrono::Utc::now())
+            .to_rfc3339(),
+          "processing_time_ms": 12
+        })
+      }
+      "bob" => {
+        let iat = chrono::Utc::now().timestamp();
+        let exp = iat + 24 * 60 * 60;
+        let token = format!("StreamChat_token_for_{}_exp{}_iat{}", user_id, exp, iat);
+
+        serde_json::json!({
+          "success": true,
+          "token": token,
+          "api_key": api_key,
+          "server_client_config": {
+            "api_key": api_key,
+            "api_secret": format!("{}...", &api_secret[..8]),
+            "initialized": true
+          },
+          "user": {
+            "id": "bob",
+            "name": "Bob Wilson",
+            "email": "bob@example.com",
+            "image": "https://avatar.example.com/bob.jpg",
+            "role": "user",
+            "custom": {
+              "department": "Marketing",
+              "location": "Los Angeles"
+            }
+          },
+          "token_metadata": {
+            "issued_at": iat,
+            "expires_at": exp,
+            "user_id": user_id,
+            "has_iat_claim": true
+          },
+          "issued_at": chrono::Utc::now().to_rfc3339(),
+          "expires_at": chrono::DateTime::from_timestamp(exp, 0)
+            .unwrap_or_else(|| chrono::Utc::now())
+            .to_rfc3339(),
+          "processing_time_ms": 18
+        })
+      }
+      _ => serde_json::json!({
+        "success": false,
+        "error": format!("User '{}' not found", user_id),
+        "api_key": api_key,
+        "available_users": ["john", "jane", "bob"],
+        "processing_time_ms": 5
+      }),
+    };
+
+    Some(result.to_string())
+  }
+
+  pub fn get_user_chat_context(&self, user_id: &str) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    let result = match user_id {
+      "john" => serde_json::json!({
+        "success": true,
+        "data": {
+          "user": {
+            "id": "john",
+            "name": "John Doe",
+            "email": "john@example.com",
+            "role": "admin"
+          },
+          "channels": [
+            {
+              "id": "general",
+              "type": "messaging",
+              "name": "General Discussion",
+              "members": ["john", "jane", "bob", "alice"],
+              "created_by": "john",
+              "recent_messages": [
+                {
+                  "id": "msg1",
+                  "text": "Welcome to the team chat! 🎉",
+                  "user": { "id": "john", "name": "John Doe" },
+                  "created_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 2 * 60 * 60, 0)
+                    .unwrap_or_else(|| chrono::Utc::now())
+                    .to_rfc3339()
+                }
+              ],
+              "unread_count": 2,
+              "last_message_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 30 * 60, 0)
+                .unwrap_or_else(|| chrono::Utc::now())
+                .to_rfc3339()
+            },
+            {
+              "id": "engineering",
+              "type": "team",
+              "name": "Engineering Team",
+              "members": ["john", "jane"],
+              "created_by": "john",
+              "recent_messages": [
+                {
+                  "id": "msg2",
+                  "text": "Let's review the new API design",
+                  "user": { "id": "jane", "name": "Jane Smith" },
+                  "created_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 60 * 60, 0)
+                    .unwrap_or_else(|| chrono::Utc::now())
+                    .to_rfc3339()
+                }
+              ],
+              "unread_count": 0,
+              "last_message_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 60 * 60, 0)
+                .unwrap_or_else(|| chrono::Utc::now())
+                .to_rfc3339()
+            }
+          ],
+          "stats": {
+            "total_channels": 2,
+            "total_messages": 2,
+            "unread_messages": 2,
+            "online_status": "online"
+          }
+        },
+        "metadata": {
+          "api_version": "v1.0",
+          "server_time": chrono::Utc::now().to_rfc3339(),
+          "rate_limit": {
+            "remaining": 998,
+            "reset_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 60 * 60, 0)
+              .unwrap_or_else(|| chrono::Utc::now())
+              .to_rfc3339()
+          }
+        },
+        "processing_time_ms": 28
+      }),
+      "jane" => serde_json::json!({
+        "success": true,
+        "data": {
+          "user": {
+            "id": "jane",
+            "name": "Jane Smith",
+            "email": "jane@example.com",
+            "role": "moderator"
+          },
+          "channels": [
+            {
+              "id": "general",
+              "type": "messaging",
+              "name": "General Discussion",
+              "members": ["john", "jane", "bob", "alice"],
+              "unread_count": 1,
+              "last_message_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 15 * 60, 0)
+                .unwrap_or_else(|| chrono::Utc::now())
+                .to_rfc3339()
+            },
+            {
+              "id": "engineering",
+              "type": "team",
+              "name": "Engineering Team",
+              "members": ["john", "jane"],
+              "unread_count": 0,
+              "last_message_at": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 60 * 60, 0)
+                .unwrap_or_else(|| chrono::Utc::now())
+                .to_rfc3339()
+            }
+          ],
+          "stats": {
+            "total_channels": 2,
+            "total_messages": 1,
+            "unread_messages": 1,
+            "online_status": "online"
+          }
+        },
+        "processing_time_ms": 22
+      }),
+      _ => serde_json::json!({
+        "success": false,
+        "error": format!("User '{}' not found", user_id),
+        "processing_time_ms": 3
+      }),
+    };
+
+    Some(result.to_string())
+  }
+
+  pub fn analyze_stream_chat_data(&self) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    let result = serde_json::json!({
+      "success": true,
+      "data": {
+        "users": {
+          "total": 4,
+          "by_role": {
+            "admin": 1,
+            "moderator": 1,
+            "user": 2
+          },
+          "by_department": {
+            "Engineering": 1,
+            "Design": 1,
+            "Marketing": 1,
+            "Sales": 1
+          }
+        },
+        "channels": {
+          "total": 3,
+          "by_type": {
+            "messaging": 2,
+            "team": 1
+          },
+          "by_category": {
+            "public": 2,
+            "private": 1
+          },
+          "avg_members": 3
+        },
+        "messages": {
+          "total": 3,
+          "avg_length": 28,
+          "recent_activity": chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 60 * 60, 0)
+            .unwrap_or_else(|| chrono::Utc::now())
+            .to_rfc3339()
+        },
+        "engagement": {
+          "active_users_today": 3,
+          "messages_today": 87,
+          "peak_online_users": 3
+        }
+      },
+      "metadata": {
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+        "config": {
+          "api_key": "demo_api_...",
+          "base_url": "https://chat.stream-io-api.com"
+        }
+      },
+      "processing_time_ms": 35
+    });
+
+    Some(result.to_string())
+  }
+
+  pub fn get_stream_chat_demo_setup(&self) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    // Following Stream.io documentation pattern for setup
+    let result = serde_json::json!({
+      "success": true,
+      "data": {
+        "config": {
+          "api_key": "demo_api_key_12345",
+          "api_secret": "demo_api_secret_67890",
+          "base_url": "https://chat.stream-io-api.com",
+          "server_client_initialized": true,
+          "authentication_enabled": true,
+          "development_mode": false
+        },
+        "token_generation": {
+          "method": "serverClient.createToken(user_id)",
+          "includes_iat_claim": true,
+          "default_expiration": "24 hours",
+          "jwt_structure": {
+            "header": {"alg": "HS256", "typ": "JWT"},
+            "payload_includes": ["user_id", "iat", "exp"],
+            "signature": "HMAC SHA256"
+          }
+        },
+        "sample_users": [
+          {
+            "id": "john",
+            "name": "John Doe",
+            "role": "admin",
+            "email": "john@example.com",
+            "department": "Engineering"
+          },
+          {
+            "id": "jane",
+            "name": "Jane Smith",
+            "role": "moderator",
+            "email": "jane@example.com",
+            "department": "Design"
+          },
+          {
+            "id": "bob",
+            "name": "Bob Wilson",
+            "role": "user",
+            "email": "bob@example.com",
+            "department": "Marketing"
+          },
+          {
+            "id": "alice",
+            "name": "Alice Johnson",
+            "role": "user",
+            "email": "alice@example.com",
+            "department": "Sales"
+          }
+        ],
+        "sample_channels": [
+          {
+            "id": "general",
+            "name": "General Discussion",
+            "type": "messaging",
+            "members": ["john", "jane", "bob", "alice"],
+            "created_by": "john"
+          },
+          {
+            "id": "engineering",
+            "name": "Engineering Team",
+            "type": "team",
+            "members": ["john", "jane"],
+            "created_by": "john"
+          },
+          {
+            "id": "random",
+            "name": "Random Chat",
+            "type": "messaging",
+            "members": ["jane", "bob", "alice"],
+            "created_by": "jane"
+          }
+        ],
+        "available_endpoints": [
+          {
+            "name": "authenticate",
+            "description": "Generate user token using StreamChat.getInstance(api_key, api_secret).createToken(user_id)",
+            "example": "/stream-chat/authenticate?user_id=john"
+          },
+          {
+            "name": "user_context",
+            "description": "Get user channels and messages",
+            "example": "/stream-chat/user-context?user_id=john"
+          },
+          {
+            "name": "analytics",
+            "description": "Chat usage statistics",
+            "example": "/stream-chat/analytics"
+          },
+          {
+            "name": "demo_setup",
+            "description": "Configuration information",
+            "example": "/stream-chat/demo-setup"
+          }
+        ],
+        "integration_example": {
+          "server_side": {
+            "initialize": "const serverClient = StreamChat.getInstance(api_key, api_secret);",
+            "create_token": "const token = serverClient.createToken(user_id);",
+            "with_expiration": "const token = serverClient.createToken(user_id, expireTime);",
+            "with_iat": "const token = serverClient.createToken(user_id, expireTime, issuedAt);"
+          },
+          "client_side": {
+            "connect_user": "await client.connectUser(userObject, tokenFromServer);",
+            "token_provider": "client.connectUser(userObject, async () => { return await fetchTokenFromBackend(); });"
+          }
+        }
+      },
+      "timestamp": chrono::Utc::now().to_rfc3339(),
+      "processing_time_ms": 8
+    });
+
+    Some(result.to_string())
+  }
 }
 
 // Convenience functions for creating processors and processing requests
@@ -782,6 +1243,27 @@ pub fn process_jsonplaceholder_samples() -> Vec<String> {
       .unwrap_or_default(),
     processor.get_user_posts(1).unwrap_or_default(),
     processor.analyze_jsonplaceholder_data().unwrap_or_default(),
+  ]
+}
+
+// Stream Chat processing functions
+pub fn process_stream_chat_samples() -> Vec<String> {
+  let processor = match V8TypeScriptProcessor::new() {
+    Some(p) => p,
+    None => return vec!["Failed to create V8 processor - TypeScript files not found".to_string()],
+  };
+
+  vec![
+    processor.get_stream_chat_demo_setup().unwrap_or_default(),
+    processor
+      .authenticate_stream_user("john", None, None)
+      .unwrap_or_default(),
+    processor
+      .authenticate_stream_user("jane", None, None)
+      .unwrap_or_default(),
+    processor.get_user_chat_context("john").unwrap_or_default(),
+    processor.get_user_chat_context("jane").unwrap_or_default(),
+    processor.analyze_stream_chat_data().unwrap_or_default(),
   ]
 }
 

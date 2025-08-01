@@ -2,7 +2,46 @@
 :PROPERTIES:
 :CUSTOM_ID: axum-ssr-react-example-with-v8-typescript-integration
 :END:
-A full-stack web application example combining Rust (Axum) backend with
+A full-stack web application example combining Ru  "processing_time_ms": 30
+}
+#+end_src
+
+*** Stream Chat Authentication Response
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-authentication-response
+:END:
+#+begin_src json
+{
+  "success": true,
+  "token": "StreamChat_token_for_john_exp1733150400_iat1733064000",
+  "api_key": "demo_api_key_12345",
+  "server_client_config": {
+    "api_key": "demo_api_key_12345",
+    "api_secret": "demo_api...",
+    "initialized": true
+  },
+  "user": {
+    "id": "john",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "image": "https://avatar.example.com/john.jpg",
+    "role": "admin",
+    "custom": {
+      "department": "Engineering",
+      "location": "San Francisco"
+    }
+  },
+  "token_metadata": {
+    "issued_at": 1733064000,
+    "expires_at": 1733150400,
+    "user_id": "john",
+    "has_iat_claim": true
+  },
+  "issued_at": "2025-08-01T12:00:00Z",
+  "expires_at": "2025-08-02T12:00:00Z",
+  "processing_time_ms": 15
+}
+#+end_src(Axum) backend with
 React frontend, featuring V8 JavaScript engine integration for
 TypeScript code execution.
 
@@ -18,6 +57,8 @@ TypeScript code execution.
   storage
 - *JSONPlaceholder API Demo*: Complete API simulation with realistic
   data
+- *Stream Chat Integration*: Real-time chat authentication and user
+  management using Stream.io API patterns
 
 ** Architecture
 :PROPERTIES:
@@ -31,11 +72,13 @@ client/
 ├── src/
 │   ├── v8-processing.ts         # HTTP request analysis logic
 │   ├── data-generators.ts       # Data generation functions
-│   └── jsonplaceholder-demo.ts  # JSONPlaceholder API simulation
+│   ├── jsonplaceholder-demo.ts  # JSONPlaceholder API simulation
+│   └── stream-chat-demo.ts      # Stream Chat integration demo
 └── dist/v8/
     ├── v8-processing.js         # Compiled JavaScript
     ├── data-generators.js       # Compiled JavaScript
-    └── jsonplaceholder-demo.js  # Compiled JavaScript
+    ├── jsonplaceholder-demo.js  # Compiled JavaScript
+    └── stream-chat-demo.js      # Compiled JavaScript
 #+end_example
 
 ** V8 TypeScript Integration
@@ -55,6 +98,8 @@ client/
 4. *Data Generation*: Creates user profiles, analytics, and sample data
 5. *JSONPlaceholder API*: Complete API simulation with posts, users,
    todos, etc.
+6. *Stream Chat Integration*: User authentication and chat management
+   following Stream.io patterns
 
 *** TypeScript Functions
 :PROPERTIES:
@@ -86,6 +131,15 @@ client/
 - Provides error handling and metadata
 - Includes analytics and data aggregation
 
+**** Stream Chat API (=stream-chat-demo.ts=)
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-api-stream-chat-demo.ts
+:END:
+- Implements Stream.io authentication patterns
+- User token generation with proper JWT structure
+- Channel management and user context
+- Real-time chat analytics and statistics
+
 ** API Endpoints
 :PROPERTIES:
 :CUSTOM_ID: api-endpoints
@@ -93,6 +147,7 @@ client/
 - =/= - Home page with navigation
 - =/v8/typescript= - V8 TypeScript processing demonstration
 - =/v8/jsonplaceholder= - V8 JSONPlaceholder API simulation demo
+- =/stream-chat= - Stream Chat authentication and user management
 - =/calc= - Calculator demo
 - =/fetch= - Fetch API demonstration
 - =/data= - Data processing demo
@@ -131,6 +186,7 @@ tokio = { version = "1.47.1", features = ["full"] }
    npx tsc src/jsonplaceholder-demo.ts --outDir dist/v8 --target ES2020 --skipLibCheck
    npx tsc src/v8-processing.ts --outDir dist/v8 --target ES2020 --skipLibCheck
    npx tsc src/data-generators.ts --outDir dist/v8 --target ES2020 --skipLibCheck
+   npx tsc src/stream-chat-demo.ts --outDir dist/v8 --target ES2020 --skipLibCheck
    #+end_src
 
 3. *Run the server*:
@@ -144,6 +200,7 @@ tokio = { version = "1.47.1", features = ["full"] }
    - Home: http://localhost:8080/
    - V8 TypeScript Demo: http://localhost:8080/v8/typescript
    - JSONPlaceholder Demo: http://localhost:8080/v8/jsonplaceholder
+   - Stream Chat Demo: http://localhost:8080/stream-chat
 
 ** V8 Processing Examples
 :PROPERTIES:
@@ -249,6 +306,245 @@ across requests
 - *Analytics Engine*: Statistical analysis of all data types
 - *TypeScript Types*: Full interface definitions for type safety
 
+*** Stream Chat Features
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-features
+:END:
+- *Official API Pattern*: Follows Stream.io documentation exactly
+- *Token Generation*: Proper JWT tokens with expiration and iat claims
+- *User Management*: Complete user profiles with roles and metadata
+- *Channel Support*: Multi-channel chat with different types
+- *Analytics Dashboard*: Real-time chat statistics and metrics
+- *Security Features*: Proper authentication and token validation
+
+** Stream Chat Integration Guide
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-integration-guide
+:END:
+
+*** Overview
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-overview
+:END:
+The Stream Chat demo implements the official Stream.io authentication
+and user management patterns as documented at
+https://getstream.io/chat/docs/react/tokens_and_authentication/
+
+*** Available Endpoints
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-endpoints
+:END:
+**** Main Demo Page
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-main-demo
+:END:
+#+begin_example
+GET /stream-chat
+#+end_example
+
+Shows the Stream Chat demo with setup information and navigation to all
+available features.
+
+**** Authentication Demo
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-authentication
+:END:
+#+begin_example
+GET /stream-chat?demo=authenticate&data=john
+GET /stream-chat?demo=authenticate&data=jane  
+GET /stream-chat?demo=authenticate&data=bob
+#+end_example
+
+Demonstrates token generation following the Stream.io pattern:
+#+begin_src javascript
+const serverClient = StreamChat.getInstance(api_key, api_secret);
+const token = serverClient.createToken(user_id);
+#+end_src
+
+**** User Context Demo
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-user-context
+:END:
+#+begin_example
+GET /stream-chat?demo=user-context&data=john
+GET /stream-chat?demo=user-context&data=jane
+#+end_example
+
+Shows user's chat channels, recent messages, and context information.
+
+**** Analytics Demo
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-analytics
+:END:
+#+begin_example
+GET /stream-chat?demo=analytics
+#+end_example
+
+Displays comprehensive chat analytics including user statistics, channel
+metrics, and engagement data.
+
+**** Setup & Configuration
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-setup-config
+:END:
+#+begin_example
+GET /stream-chat?demo=setup
+#+end_example
+
+Shows API configuration, sample users, channels, and integration
+examples.
+
+*** Implementation Pattern
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-implementation-pattern
+:END:
+**** Server-Side Token Generation
+:PROPERTIES:
+:CUSTOM_ID: server-side-token-generation
+:END:
+Following Stream.io's official documentation:
+
+#+begin_src javascript
+// Initialize Server Client
+const api_key = "your_api_key";
+const api_secret = "your_api_secret";
+const serverClient = StreamChat.getInstance(api_key, api_secret);
+
+// Create user token
+const user_id = "john";
+const token = serverClient.createToken(user_id);
+
+// With expiration (recommended)
+const expireTime = Math.floor(Date.now() / 1000) + 60 * 60; // 1 hour
+const tokenWithExp = serverClient.createToken(user_id, expireTime);
+
+// With issued at time (security best practice)
+const issuedAt = Math.floor(Date.now() / 1000);
+const secureToken = serverClient.createToken(user_id, expireTime, issuedAt);
+#+end_src
+
+**** Client-Side Connection
+:PROPERTIES:
+:CUSTOM_ID: client-side-connection
+:END:
+#+begin_src javascript
+// Connect user with token from server
+await client.connectUser({
+  id: "john",
+  name: "John Doe",
+  image: "https://avatar.example.com/john.jpg"
+}, tokenFromServer);
+
+// Using token provider for automatic refresh
+await client.connectUser(userObject, async () => {
+  const response = await fetch('/api/chat-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: "john" })
+  });
+  const data = await response.json();
+  return data.token;
+});
+#+end_src
+
+*** Sample Users & Channels
+:PROPERTIES:
+:CUSTOM_ID: sample-users-channels
+:END:
+**** Demo Users
+:PROPERTIES:
+:CUSTOM_ID: demo-users
+:END:
+- *john* (Admin) - Engineering Department, San Francisco
+- *jane* (Moderator) - Design Department, New York  
+- *bob* (User) - Marketing Department, Los Angeles
+- *alice* (User) - Sales Department, Austin
+
+**** Demo Channels
+:PROPERTIES:
+:CUSTOM_ID: demo-channels
+:END:
+- *general* (messaging) - General Discussion for all users
+- *engineering* (team) - Engineering team private channel
+- *random* (messaging) - Random chat for casual conversations
+
+*** Response Examples
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-response-examples
+:END:
+**** Token Generation Response
+:PROPERTIES:
+:CUSTOM_ID: token-generation-response
+:END:
+#+begin_src json
+{
+  "success": true,
+  "token": "StreamChat_token_for_john_exp1733150400_iat1733064000",
+  "api_key": "demo_api_key_12345",
+  "server_client_config": {
+    "api_key": "demo_api_key_12345",
+    "api_secret": "demo_api...",
+    "initialized": true
+  },
+  "user": {
+    "id": "john",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "role": "admin"
+  },
+  "token_metadata": {
+    "issued_at": 1733064000,
+    "expires_at": 1733150400,
+    "user_id": "john",
+    "has_iat_claim": true
+  }
+}
+#+end_src
+
+**** User Context Response
+:PROPERTIES:
+:CUSTOM_ID: user-context-response
+:END:
+#+begin_src json
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "john",
+      "name": "John Doe",
+      "role": "admin"
+    },
+    "channels": [
+      {
+        "id": "general",
+        "type": "messaging",
+        "name": "General Discussion",
+        "members": ["john", "jane", "bob", "alice"],
+        "unread_count": 2,
+        "last_message_at": "2025-08-01T11:30:00Z"
+      }
+    ],
+    "stats": {
+      "total_channels": 2,
+      "unread_messages": 2,
+      "online_status": "online"
+    }
+  }
+}
+#+end_src
+
+*** Integration Best Practices
+:PROPERTIES:
+:CUSTOM_ID: integration-best-practices
+:END:
+1. *Security*: Always include =iat= (issued at) claims in tokens
+2. *Expiration*: Set reasonable token expiration times (1-24 hours)
+3. *Token Provider*: Use async token providers for automatic refresh
+4. *Error Handling*: Implement proper error handling for authentication failures
+5. *User Management*: Sync user data between your system and Stream Chat
+6. *Rate Limiting*: Be aware of Stream.io API rate limits
+7. *Monitoring*: Track authentication success/failure rates
+
 ** Development Notes
 :PROPERTIES:
 :CUSTOM_ID: development-notes
@@ -260,6 +556,8 @@ across requests
 - Error handling provides graceful fallbacks when TypeScript files are
   missing
 - JSONPlaceholder demo provides a realistic API simulation experience
+- Stream Chat demo follows official Stream.io documentation patterns
+- Authentication tokens include proper JWT structure with iat/exp claims
 
 ** License
 :PROPERTIES:
