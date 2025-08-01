@@ -8,7 +8,14 @@ use ssr_rs::Ssr;
 
 thread_local! {
     static SSR: RefCell<Ssr<'static, 'static>> = RefCell::new({
-        let js_code = read_to_string("client/dist/ssr/index.js").unwrap();
+        let js_code = match read_to_string("client/dist/ssr/index.js") {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("Failed to read SSR file: {}", e);
+                eprintln!("Current directory: {:?}", std::env::current_dir());
+                panic!("Cannot initialize SSR without the JS bundle");
+            }
+        };
         let polyfill = r#"
 // Polyfills for V8 environment
 if (typeof MessageChannel === 'undefined') {
@@ -38,13 +45,20 @@ if (typeof fetch === 'undefined') {
 }
 "#;
         let enhanced_js = format!("{}\n{}", polyfill, js_code);
-        Ssr::from(enhanced_js, "SSR").unwrap()
+        match Ssr::from(enhanced_js, "SSR") {
+            Ok(ssr) => ssr,
+            Err(e) => {
+                eprintln!("Failed to initialize SSR: {}", e);
+                panic!("Cannot create SSR instance");
+            }
+        }
     })
 }
 
 #[derive(Deserialize)]
 struct QueryParams {
   demo: Option<String>,
+  #[allow(dead_code)]
   data: Option<String>,
 }
 
@@ -132,9 +146,17 @@ async fn main() {
     .route("/dashboard", get(dashboard_demo));
 
   // run our app with hyper, listening globally on port 3000
-  let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+  let listener = match tokio::net::TcpListener::bind("0.0.0.0:8080").await {
+    Ok(listener) => listener,
+    Err(e) => {
+      eprintln!("Failed to bind to port 8080: {}", e);
+      return;
+    }
+  };
   println!("Server running on http://0.0.0.0:8080");
-  axum::serve(listener, app).await.unwrap();
+  if let Err(e) = axum::serve(listener, app).await {
+    eprintln!("Server error: {}", e);
+  }
 }
 
 async fn root() -> Html<String> {
@@ -253,95 +275,543 @@ async fn calc_demo(Query(_params): Query<QueryParams>) -> Html<String> {
 }
 
 // Demonstrate calling TypeScript fetch function from Rust
-async fn fetch_demo() -> Html<String> {
+async fn fetch_demo(Query(params): Query<QueryParams>) -> Html<String> {
   let start = Instant::now();
 
-  // Call TypeScript fetchData function from Rust
+  // Determine which TypeScript function to call based on query parameter
+  let api_type = params.demo.as_deref().unwrap_or("users");
+  let ts_function = match api_type {
+    "weather" => "getWeatherData",
+    "business" => "processBusinessLogic",
+    "products" => "processBusinessLogic", // We'll reuse this for products demo
+    "system" => "getSystemInfo",
+    _ => "getUserProfile", // Default to user profile
+  };
+
+  // Call the appropriate TypeScript function from Rust
   let result = SSR.with(|ssr| {
     let mut ssr_instance = ssr.borrow_mut();
-    ssr_instance.render_to_string(Some("fetchData"))
+    ssr_instance.render_to_string(Some(ts_function))
   });
 
   match result {
     Ok(fetch_result) => {
-      println!("Fetch result from TypeScript: {}", fetch_result);
+      println!(
+        "Fetch result from TypeScript ({}): {}",
+        ts_function, fetch_result
+      );
       println!("Fetch elapsed: {:?}", start.elapsed());
 
-      // Since ssr_rs returns HTML instead of the function result,
-      // let's demonstrate with mock fetch data
-      let fetch_data = serde_json::json!({
-        "url": "https://api.example.com/users",
-        "method": "GET",
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-        "message": "Mock response from V8 environment",
-        "data": {
-          "users": [
-            { "id": 1, "name": "John", "role": "Admin" },
-            { "id": 2, "name": "Jane", "role": "User" },
-            { "id": 3, "name": "Bob", "role": "Developer" }
-          ],
-          "total": 3
-        },
-        "processing_time": format!("{:?}", start.elapsed())
-      });
+      // Try to extract JSON data from the HTML result
+      let decoded_result = if fetch_result.contains("<div") || fetch_result.contains("<link") {
+        // It's HTML, try to extract JSON from data attributes or comments
+        if let Some(data_start) = fetch_result.find("data-json=\"") {
+          let data_start = data_start + "data-json=\"".len();
+          if let Some(data_end) = fetch_result[data_start ..].find("\"") {
+            let json_str = &fetch_result[data_start .. data_start + data_end]
+              .replace("&quot;", "\"")
+              .replace("&amp;", "&")
+              .replace("&lt;", "<")
+              .replace("&gt;", ">");
+            match serde_json::from_str::<serde_json::Value>(json_str) {
+              Ok(json_data) => {
+                println!(
+                  "Successfully extracted JSON from HTML data attribute: {:?}",
+                  json_data
+                );
+                Some(json_data)
+              }
+              Err(e) => {
+                println!("Failed to parse JSON from data attribute: {}", e);
+                None
+              }
+            }
+          } else {
+            None
+          }
+        } else if fetch_result.contains("{") {
+          // Try to extract JSON from within the HTML
+          if let Some(json_start) = fetch_result.find('{') {
+            if let Some(json_end) = fetch_result.rfind('}') {
+              let json_str = &fetch_result[json_start ..= json_end];
+              match serde_json::from_str::<serde_json::Value>(json_str) {
+                Ok(json_data) => {
+                  println!(
+                    "Successfully extracted JSON from HTML content: {:?}",
+                    json_data
+                  );
+                  Some(json_data)
+                }
+                Err(e) => {
+                  println!("Failed to parse extracted JSON: {}", e);
+                  None
+                }
+              }
+            } else {
+              None
+            }
+          } else {
+            None
+          }
+        } else {
+          println!("HTML result contains no JSON data");
+          None
+        }
+      } else if fetch_result.trim().starts_with('"') && fetch_result.trim().ends_with('"') {
+        // It's a JSON string, remove quotes and parse
+        let json_str = fetch_result.trim().trim_matches('"').replace("\\\"", "\"");
+        match serde_json::from_str::<serde_json::Value>(&json_str) {
+          Ok(json_data) => {
+            println!(
+              "Successfully decoded JSON string from TypeScript: {:?}",
+              json_data
+            );
+            Some(json_data)
+          }
+          Err(e) => {
+            println!("Failed to decode JSON string from TypeScript: {}", e);
+            None
+          }
+        }
+      } else if fetch_result.trim().starts_with('{') || fetch_result.trim().starts_with('[') {
+        // It looks like direct JSON, try to parse it
+        match serde_json::from_str::<serde_json::Value>(&fetch_result) {
+          Ok(json_data) => {
+            println!("Successfully parsed direct JSON: {:?}", json_data);
+            Some(json_data)
+          }
+          Err(e) => {
+            println!("Failed to parse direct JSON: {}", e);
+            None
+          }
+        }
+      } else {
+        println!("Result doesn't appear to be JSON: {}", fetch_result);
+        None
+      };
 
-      let fetch_html = format!(
-        r#"
-        <div class="fetch-result">
-          <h2>🌐 Fetch API Result</h2>
-          <div class="fetch-info">
-            <p><strong>URL:</strong> {}</p>
-            <p><strong>Method:</strong> {}</p>
-            <p><strong>Timestamp:</strong> {}</p>
-            <p><strong>Processing Time:</strong> {}</p>
-          </div>
-          <div class="fetch-data">
-            <h3>Response Data</h3>
-            <p><strong>Message:</strong> {}</p>
-            <h3>Users ({} total)</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-              <thead>
-                <tr style="background: #f0f0f0;">
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">ID</th>
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Name</th>
-                  <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                {}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <style>
-          .fetch-result {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
-          .fetch-info {{ background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
-          .fetch-info p {{ margin: 5px 0; }}
-          .fetch-data {{ background: white; padding: 15px; border-radius: 5px; }}
-          .fetch-data h3 {{ color: #007acc; margin-top: 15px; }}
-        </style>
-        "#,
-        fetch_data["url"].as_str().unwrap_or(""),
-        fetch_data["method"].as_str().unwrap_or(""),
-        fetch_data["timestamp"].as_str().unwrap_or(""),
-        fetch_data["processing_time"].as_str().unwrap_or(""),
-        fetch_data["message"].as_str().unwrap_or(""),
-        fetch_data["data"]["total"].as_i64().unwrap_or(0),
-        fetch_data["data"]["users"]
+      // Create data structure using decoded JSON from TypeScript or fallback
+      let fetch_data = match (api_type, &decoded_result) {
+        ("weather", Some(json)) => {
+          serde_json::json!({
+            "url": "TypeScript: getWeatherData()",
+            "method": "SSR Function Call",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "message": "Data from TypeScript getWeatherData function",
+            "ts_function": ts_function,
+            "ts_result": json,
+            "data": {
+              "location": json.get("city").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+              "current": {
+                "temperature": json.get("temperature").and_then(|v| v.as_i64()).unwrap_or(0),
+                "humidity": json.get("humidity").and_then(|v| v.as_i64()).unwrap_or(0),
+                "conditions": json.get("conditions").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "wind_speed": json.get("wind").and_then(|w| w.get("speed")).and_then(|v| v.as_i64()).unwrap_or(0),
+                "wind_direction": json.get("wind").and_then(|w| w.get("direction")).and_then(|v| v.as_str()).unwrap_or("Unknown")
+              },
+              "forecast": json.get("forecast").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter().map(|day| serde_json::json!({
+                  "day": day.get("day").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                  "high": day.get("high").and_then(|v| v.as_i64()).unwrap_or(0),
+                  "low": day.get("low").and_then(|v| v.as_i64()).unwrap_or(0),
+                  "conditions": day.get("condition").and_then(|v| v.as_str()).unwrap_or("Unknown")
+                })).collect::<Vec<_>>()
+              }).unwrap_or_else(|| vec![])
+            },
+            "processing_time": format!("{:?}", start.elapsed())
+          })
+        }
+        ("products", Some(json)) => {
+          // Use processBusinessLogic result and transform to products format
+          serde_json::json!({
+            "url": "TypeScript: processBusinessLogic()",
+            "method": "SSR Function Call",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "message": "Business data from TypeScript transformed to products format",
+            "ts_function": ts_function,
+            "ts_result": json,
+            "data": {
+              "products": [
+                {
+                  "id": 201,
+                  "name": "Business Analytics Software",
+                  "price": json.get("summary").and_then(|s| s.get("totalRevenue")).and_then(|v| v.as_f64()).unwrap_or(0.0) / 1000.0,
+                  "category": "Business",
+                  "stock": json.get("summary").and_then(|s| s.get("profit")).and_then(|v| v.as_i64()).unwrap_or(0) / 100,
+                  "rating": 4.8
+                },
+                {
+                  "id": 202,
+                  "name": "Revenue Tracker",
+                  "price": json.get("summary").and_then(|s| s.get("totalExpenses")).and_then(|v| v.as_f64()).unwrap_or(0.0) / 1000.0,
+                  "category": "Business",
+                  "stock": 25,
+                  "rating": 4.5
+                }
+              ],
+              "total": 2,
+              "categories": ["Business", "Analytics"],
+              "period": json.get("period").and_then(|v| v.as_str()).unwrap_or("Unknown")
+            },
+            "processing_time": format!("{:?}", start.elapsed())
+          })
+        }
+        ("system", Some(json)) => {
+          serde_json::json!({
+            "url": "TypeScript: getSystemInfo()",
+            "method": "SSR Function Call",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "message": "System info from TypeScript function",
+            "ts_function": ts_function,
+            "ts_result": json,
+            "data": {
+              "system": {
+                "runtime": json.get("runtime").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "platform": json.get("platform").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "memory_used": json.get("memory").and_then(|m| m.get("used")).and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "features": json.get("features").and_then(|v| v.as_array()).unwrap_or(&vec![]).iter()
+                  .filter_map(|f| f.as_str()).collect::<Vec<_>>()
+              }
+            },
+            "processing_time": format!("{:?}", start.elapsed())
+          })
+        }
+        (_, Some(json)) => {
+          // Default: Use decoded JSON as user profile
+          serde_json::json!({
+            "url": "TypeScript: getUserProfile()",
+            "method": "SSR Function Call",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "message": "User profile from TypeScript function",
+            "ts_function": ts_function,
+            "ts_result": json,
+            "data": {
+              "user": {
+                "id": json.get("id").and_then(|v| v.as_i64()).unwrap_or(0),
+                "username": json.get("username").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "email": json.get("email").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "name": format!("{} {}",
+                  json.get("profile").and_then(|p| p.get("firstName")).and_then(|v| v.as_str()).unwrap_or(""),
+                  json.get("profile").and_then(|p| p.get("lastName")).and_then(|v| v.as_str()).unwrap_or("")
+                ),
+                "role": json.get("profile").and_then(|p| p.get("bio")).and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "projects": json.get("stats").and_then(|s| s.get("projectsCreated")).and_then(|v| v.as_i64()).unwrap_or(0)
+              }
+            },
+            "processing_time": format!("{:?}", start.elapsed())
+          })
+        }
+        _ => {
+          // Fallback when no JSON could be decoded
+          serde_json::json!({
+            "url": format!("TypeScript: {}()", ts_function),
+            "method": "SSR Function Call (Fallback)",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "message": "Could not decode JSON from TypeScript function",
+            "ts_function": ts_function,
+            "raw_result": fetch_result,
+            "data": {
+              "error": "Failed to decode JSON result from TypeScript function"
+            },
+            "processing_time": format!("{:?}", start.elapsed())
+          })
+        }
+      };
+
+      // Render different content based on the API type
+      let fetch_html = if fetch_data["url"].as_str().unwrap_or("").contains("weather") {
+        // Weather API response
+        let current = &fetch_data["data"]["current"];
+        let empty_vec = vec![];
+        let forecast = fetch_data["data"]["forecast"]
           .as_array()
-          .unwrap_or(&vec![])
-          .iter()
-          .map(|user| format!(
-            "<tr><td style='padding: 8px; border: 1px solid #ddd;'>{}</td><td style='padding: \
-             8px; border: 1px solid #ddd;'>{}</td><td style='padding: 8px; border: 1px solid \
-             #ddd;'>{}</td></tr>",
-            user["id"].as_i64().unwrap_or(0),
-            user["name"].as_str().unwrap_or(""),
-            user["role"].as_str().unwrap_or("")
-          ))
-          .collect::<Vec<_>>()
-          .join("")
-      );
+          .unwrap_or(&empty_vec);
+
+        format!(
+          r#"
+          <div class="fetch-result">
+            <h2>🌐 Fetch API Result - Weather Data</h2>
+            <div class="fetch-info">
+              <p><strong>TypeScript Function:</strong> {}</p>
+              <p><strong>Method:</strong> {}</p>
+              <p><strong>Timestamp:</strong> {}</p>
+              <p><strong>Processing Time:</strong> {}</p>
+            </div>
+            <div class="ts-result-info">
+              <h4>Raw TypeScript Result:</h4>
+              <pre class="json-result">{}</pre>
+            </div>
+            <div class="fetch-data">
+              <h3>Processed Data: {}</h3>
+              <div class="weather-response">
+                <h4>📍 {}</h4>
+                <div class="current-weather">
+                  <div class="weather-stat">
+                    <span class="label">Temperature:</span>
+                    <span class="value">{}°F</span>
+                  </div>
+                  <div class="weather-stat">
+                    <span class="label">Humidity:</span>
+                    <span class="value">{}%</span>
+                  </div>
+                  <div class="weather-stat">
+                    <span class="label">Conditions:</span>
+                    <span class="value">{}</span>
+                  </div>
+                  <div class="weather-stat">
+                    <span class="label">Wind:</span>
+                    <span class="value">{} mph {}</span>
+                  </div>
+                </div>
+                <h4>3-Day Forecast</h4>
+                <div class="forecast">
+                  {}
+                </div>
+              </div>
+            </div>
+            <div class="api-examples">
+              <h4>Try different API examples:</h4>
+              <a href="/fetch?demo=users" class="api-link">Users API</a>
+              <a href="/fetch?demo=weather" class="api-link active">Weather API</a>
+              <a href="/fetch?demo=products" class="api-link">Products API</a>
+            </div>
+          </div>
+          <style>
+            .fetch-result {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+            .fetch-info {{ background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .fetch-info p {{ margin: 5px 0; }}
+            .fetch-data {{ background: white; padding: 15px; border-radius: 5px; }}
+            .fetch-data h3 {{ color: #007acc; margin-top: 15px; }}
+            .weather-response {{ margin-top: 15px; }}
+            .current-weather {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }}
+            .weather-stat {{ display: flex; justify-content: space-between; padding: 8px; background: #f0f0f0; border-radius: 4px; }}
+            .weather-stat .label {{ font-weight: bold; }}
+            .weather-stat .value {{ color: #007acc; }}
+            .forecast {{ display: flex; gap: 15px; }}
+            .forecast-day {{ flex: 1; background: #f0f0f0; padding: 10px; border-radius: 5px; text-align: center; }}
+            .ts-result-info {{ background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .json-result {{ background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; padding: 10px; font-size: 0.85em; overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap; }}
+            .api-examples {{ margin-top: 20px; padding: 15px; background: white; border-radius: 5px; }}
+            .api-link {{ display: inline-block; margin: 5px; padding: 8px 15px; background: #f0f0f0; border-radius: 5px; text-decoration: none; color: #333; }}
+            .api-link.active {{ background: #007acc; color: white; }}
+            .api-link:hover {{ background: #e0e0e0; }}
+          </style>
+          "#,
+          fetch_data["ts_function"]
+            .as_str()
+            .unwrap_or(fetch_data["url"].as_str().unwrap_or("")),
+          fetch_data["method"].as_str().unwrap_or(""),
+          fetch_data["timestamp"].as_str().unwrap_or(""),
+          fetch_data["processing_time"].as_str().unwrap_or(""),
+          serde_json::to_string_pretty(
+            fetch_data
+              .get("ts_result")
+              .unwrap_or(&serde_json::Value::Null)
+          )
+          .unwrap_or_else(|_| "No TypeScript result".to_string()),
+          fetch_data["message"].as_str().unwrap_or(""),
+          fetch_data["data"]["location"].as_str().unwrap_or(""),
+          current["temperature"].as_i64().unwrap_or(0),
+          current["humidity"].as_i64().unwrap_or(0),
+          current["conditions"].as_str().unwrap_or(""),
+          current["wind_speed"].as_i64().unwrap_or(0),
+          current["wind_direction"].as_str().unwrap_or(""),
+          forecast
+            .iter()
+            .map(|day| format!(
+              "<div class='forecast-day'><strong>{}</strong><br/>High: {}°F<br/>Low: \
+               {}°F<br/>{}</div>",
+              day["day"].as_str().unwrap_or(""),
+              day["high"].as_i64().unwrap_or(0),
+              day["low"].as_i64().unwrap_or(0),
+              day["conditions"].as_str().unwrap_or("")
+            ))
+            .collect::<Vec<_>>()
+            .join("")
+        )
+      } else if fetch_data["url"]
+        .as_str()
+        .unwrap_or("")
+        .contains("products")
+      {
+        // Products API response
+        let empty_vec = vec![];
+        let products = fetch_data["data"]["products"]
+          .as_array()
+          .unwrap_or(&empty_vec);
+
+        format!(
+          r#"
+          <div class="fetch-result">
+            <h2>🌐 Fetch API Result - Product Catalog</h2>
+            <div class="fetch-info">
+              <p><strong>URL:</strong> {}</p>
+              <p><strong>Method:</strong> {}</p>
+              <p><strong>Timestamp:</strong> {}</p>
+              <p><strong>Processing Time:</strong> {}</p>
+            </div>
+            <div class="fetch-data">
+              <h3>Response: {}</h3>
+              <h4>Products ({} total)</h4>
+              <div class="product-grid">
+                {}
+              </div>
+              <div class="categories">
+                <h4>Available Categories</h4>
+                <div class="category-list">
+                  {}
+                </div>
+              </div>
+            </div>
+            <div class="api-examples">
+              <h4>Try different API examples:</h4>
+              <a href="/fetch?demo=users" class="api-link">Users API</a>
+              <a href="/fetch?demo=weather" class="api-link">Weather API</a>
+              <a href="/fetch?demo=products" class="api-link active">Products API</a>
+            </div>
+          </div>
+          <style>
+            .fetch-result {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+            .fetch-info {{ background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .fetch-info p {{ margin: 5px 0; }}
+            .fetch-data {{ background: white; padding: 15px; border-radius: 5px; }}
+            .fetch-data h3 {{ color: #007acc; margin-top: 15px; }}
+            .fetch-data h4 {{ margin-top: 15px; }}
+            .product-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; margin-top: 15px; }}
+            .product-card {{ border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #f9f9f9; }}
+            .product-name {{ font-weight: bold; font-size: 1.1em; margin-bottom: 8px; }}
+            .product-price {{ color: #28a745; font-size: 1.2em; font-weight: bold; }}
+            .product-category {{ color: #666; font-size: 0.9em; }}
+            .product-stock {{ margin-top: 8px; }}
+            .stock-low {{ color: #dc3545; }}
+            .stock-high {{ color: #28a745; }}
+            .product-rating {{ color: #ffc107; margin-top: 5px; }}
+            .categories {{ margin-top: 20px; }}
+            .category-list {{ display: flex; gap: 10px; margin-top: 10px; }}
+            .category-tag {{ background: #007acc; color: white; padding: 5px 15px; border-radius: 20px; font-size: 0.9em; }}
+            .api-examples {{ margin-top: 20px; padding: 15px; background: white; border-radius: 5px; }}
+            .api-link {{ display: inline-block; margin: 5px; padding: 8px 15px; background: #f0f0f0; border-radius: 5px; text-decoration: none; color: #333; }}
+            .api-link.active {{ background: #007acc; color: white; }}
+            .api-link:hover {{ background: #e0e0e0; }}
+          </style>
+          "#,
+          fetch_data["url"].as_str().unwrap_or(""),
+          fetch_data["method"].as_str().unwrap_or(""),
+          fetch_data["timestamp"].as_str().unwrap_or(""),
+          fetch_data["processing_time"].as_str().unwrap_or(""),
+          fetch_data["message"].as_str().unwrap_or(""),
+          products.len(),
+          products
+            .iter()
+            .map(|product| {
+              let stock = product["stock"].as_i64().unwrap_or(0);
+              let stock_class = if stock < 20 {
+                "stock-low"
+              } else {
+                "stock-high"
+              };
+              let rating = product["rating"].as_f64().unwrap_or(0.0);
+              format!(
+                r#"<div class='product-card'>
+                  <div class='product-name'>{}</div>
+                  <div class='product-price'>${}</div>
+                  <div class='product-category'>Category: {}</div>
+                  <div class='product-stock {}'>{} in stock</div>
+                  <div class='product-rating'>★ {} / 5.0</div>
+                </div>"#,
+                product["name"].as_str().unwrap_or(""),
+                product["price"].as_f64().unwrap_or(0.0),
+                product["category"].as_str().unwrap_or(""),
+                stock_class,
+                stock,
+                rating
+              )
+            })
+            .collect::<Vec<_>>()
+            .join(""),
+          fetch_data["data"]["categories"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|cat| format!(
+              "<span class='category-tag'>{}</span>",
+              cat.as_str().unwrap_or("")
+            ))
+            .collect::<Vec<_>>()
+            .join("")
+        )
+      } else {
+        // Users API response
+        format!(
+          r#"
+          <div class="fetch-result">
+            <h2>🌐 Fetch API Result - User Management</h2>
+            <div class="fetch-info">
+              <p><strong>URL:</strong> {}</p>
+              <p><strong>Method:</strong> {}</p>
+              <p><strong>Timestamp:</strong> {}</p>
+              <p><strong>Processing Time:</strong> {}</p>
+            </div>
+            <div class="fetch-data">
+              <h3>Response: {}</h3>
+              <h4>Users ({} total)</h4>
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="background: #f0f0f0;">
+                    <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">ID</th>
+                    <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Name</th>
+                    <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Role</th>
+                    <th style="padding: 8px; text-align: left; border: 1px solid #ddd;">Department</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {}
+                </tbody>
+              </table>
+            </div>
+            <div class="api-examples">
+              <h4>Try different API examples:</h4>
+              <a href="/fetch?demo=users" class="api-link active">Users API</a>
+              <a href="/fetch?demo=weather" class="api-link">Weather API</a>
+              <a href="/fetch?demo=products" class="api-link">Products API</a>
+            </div>
+          </div>
+          <style>
+            .fetch-result {{ background: #f9f9f9; padding: 20px; border-radius: 8px; }}
+            .fetch-info {{ background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .fetch-info p {{ margin: 5px 0; }}
+            .fetch-data {{ background: white; padding: 15px; border-radius: 5px; }}
+            .fetch-data h3 {{ color: #007acc; margin-top: 15px; }}
+            .fetch-data h4 {{ margin-top: 15px; }}
+            .api-examples {{ margin-top: 20px; padding: 15px; background: white; border-radius: 5px; }}
+            .api-link {{ display: inline-block; margin: 5px; padding: 8px 15px; background: #f0f0f0; border-radius: 5px; text-decoration: none; color: #333; }}
+            .api-link.active {{ background: #007acc; color: white; }}
+            .api-link:hover {{ background: #e0e0e0; }}
+          </style>
+          "#,
+          fetch_data["url"].as_str().unwrap_or(""),
+          fetch_data["method"].as_str().unwrap_or(""),
+          fetch_data["timestamp"].as_str().unwrap_or(""),
+          fetch_data["processing_time"].as_str().unwrap_or(""),
+          fetch_data["message"].as_str().unwrap_or(""),
+          fetch_data["data"]["total"].as_i64().unwrap_or(0),
+          fetch_data["data"]["users"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|user| format!(
+              "<tr><td style='padding: 8px; border: 1px solid #ddd;'>{}</td><td style='padding: \
+               8px; border: 1px solid #ddd;'>{}</td><td style='padding: 8px; border: 1px solid \
+               #ddd;'>{}</td><td style='padding: 8px; border: 1px solid #ddd;'>{}</td></tr>",
+              user["id"].as_i64().unwrap_or(0),
+              user["name"].as_str().unwrap_or(""),
+              user["role"].as_str().unwrap_or(""),
+              user["department"].as_str().unwrap_or("")
+            ))
+            .collect::<Vec<_>>()
+            .join("")
+        )
+      };
 
       render_custom_html(&fetch_html, "Fetch API Demonstration")
     }
@@ -519,7 +989,7 @@ fn render_page(function_name: &str, data: Option<String>, title: &str) -> Html<S
   let result = SSR.with(|ssr| {
     let mut ssr_instance = ssr.borrow_mut();
     match (function_name, &data) {
-      ("renderWithData", Some(data_str)) => {
+      ("renderWithData", Some(_data_str)) => {
         // First set the data, then render
         let _set_result = ssr_instance.render_to_string(Some("setRustData"));
         // For now, render without data since we need a different approach
@@ -815,7 +1285,7 @@ async fn dashboard_demo() -> Html<String> {
       ]
   });
 
-  let sales_data = vec![
+  let _sales_data = vec![
     serde_json::json!({ "month": "Jan", "revenue": 15000, "expenses": 8000 }),
     serde_json::json!({ "month": "Feb", "revenue": 18000, "expenses": 9500 }),
     serde_json::json!({ "month": "Mar", "revenue": 22000, "expenses": 11000 }),
@@ -917,7 +1387,7 @@ fn generate_weather_html(weather: &WeatherData) -> String {
       .collect::<Vec<_>>()
       .join(""),
     timestamp = chrono::DateTime::parse_from_rfc3339(&weather.timestamp)
-      .unwrap()
+      .unwrap_or_else(|_| chrono::Utc::now().into())
       .format("%Y-%m-%d %H:%M:%S")
   )
 }
