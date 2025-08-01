@@ -1,7 +1,7 @@
 use std::{fs, sync::Mutex};
 
 use once_cell::sync::Lazy;
-use ssr_rs::v8;
+// use ssr_rs::v8;
 
 pub trait HttpRequest {
   fn path(&self) -> String;
@@ -387,7 +387,7 @@ impl V8TypeScriptProcessor {
               "endpoint": format!("posts/{}", post_id),
               "timestamp": chrono::Utc::now().to_rfc3339(),
               "processing_time_ms": 5
-            })
+            }),
           }
         } else {
           // All posts
@@ -424,8 +424,8 @@ impl V8TypeScriptProcessor {
             "processing_time_ms": 23
           })
         }
-      },
-      
+      }
+
       "users" => {
         if let Some(user_id) = id {
           // Single user
@@ -506,7 +506,7 @@ impl V8TypeScriptProcessor {
               "endpoint": format!("users/{}", user_id),
               "timestamp": chrono::Utc::now().to_rfc3339(),
               "processing_time_ms": 3
-            })
+            }),
           }
         } else {
           // All users (limited sample)
@@ -537,7 +537,7 @@ impl V8TypeScriptProcessor {
             "processing_time_ms": 18
           })
         }
-      },
+      }
 
       "todos" => {
         serde_json::json!({
@@ -558,7 +558,7 @@ impl V8TypeScriptProcessor {
           "timestamp": chrono::Utc::now().to_rfc3339(),
           "processing_time_ms": 14
         })
-      },
+      }
 
       _ => serde_json::json!({
         "success": false,
@@ -566,7 +566,7 @@ impl V8TypeScriptProcessor {
         "available_endpoints": ["posts", "users", "comments", "albums", "photos", "todos"],
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "processing_time_ms": 2
-      })
+      }),
     };
 
     Some(result.to_string())
@@ -648,7 +648,7 @@ impl V8TypeScriptProcessor {
         "error": format!("User with id {} not found", user_id),
         "timestamp": chrono::Utc::now().to_rfc3339(),
         "processing_time_ms": 5
-      })
+      }),
     };
 
     Some(result.to_string())
@@ -707,9 +707,9 @@ impl V8TypeScriptProcessor {
 }
 
 // Convenience functions for creating processors and processing requests
-pub fn create_v8_processor() -> Option<V8TypeScriptProcessor> {
-  V8TypeScriptProcessor::new()
-}
+// pub fn create_v8_processor() -> Option<V8TypeScriptProcessor> {
+//   V8TypeScriptProcessor::new()
+// }
 
 pub fn process_sample_requests() -> Vec<String> {
   let processor = match V8TypeScriptProcessor::new() {
@@ -768,10 +768,18 @@ pub fn process_jsonplaceholder_samples() -> Vec<String> {
   };
 
   vec![
-    processor.fetch_jsonplaceholder_data("posts", None).unwrap_or_default(),
-    processor.fetch_jsonplaceholder_data("posts", Some(1)).unwrap_or_default(),
-    processor.fetch_jsonplaceholder_data("users", Some(2)).unwrap_or_default(),
-    processor.fetch_jsonplaceholder_data("todos", None).unwrap_or_default(),
+    processor
+      .fetch_jsonplaceholder_data("posts", None)
+      .unwrap_or_default(),
+    processor
+      .fetch_jsonplaceholder_data("posts", Some(1))
+      .unwrap_or_default(),
+    processor
+      .fetch_jsonplaceholder_data("users", Some(2))
+      .unwrap_or_default(),
+    processor
+      .fetch_jsonplaceholder_data("todos", None)
+      .unwrap_or_default(),
     processor.get_user_posts(1).unwrap_or_default(),
     processor.analyze_jsonplaceholder_data().unwrap_or_default(),
   ]
@@ -783,7 +791,8 @@ pub fn get_v8_code_status() -> String {
     Ok(guard) => match guard.as_ref() {
       Some(code) => format!(
         "✅ V8 TypeScript code loaded successfully\n📁 v8-processing.js: {} characters\n📁 \
-         data-generators.js: {} characters\n📁 jsonplaceholder-demo.js: {} characters\n🔄 Using once_cell for global storage",
+         data-generators.js: {} characters\n📁 jsonplaceholder-demo.js: {} characters\n🔄 Using \
+         once_cell for global storage",
         code.v8_processing_js.len(),
         code.data_generators_js.len(),
         code.jsonplaceholder_demo_js.len()
@@ -797,12 +806,12 @@ pub fn get_v8_code_status() -> String {
 }
 
 // Force reload the V8 code (useful for development)
-pub fn reload_v8_code() -> bool {
-  match V8_CODE.lock() {
-    Ok(mut guard) => {
-      *guard = V8TypeScriptCode::new();
-      guard.is_some()
-    }
-    Err(_) => false,
-  }
-}
+// pub fn reload_v8_code() -> bool {
+//   match V8_CODE.lock() {
+//     Ok(mut guard) => {
+//       *guard = V8TypeScriptCode::new();
+//       guard.is_some()
+//     }
+//     Err(_) => false,
+//   }
+// }

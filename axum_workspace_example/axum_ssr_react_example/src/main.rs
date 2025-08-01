@@ -1962,32 +1962,32 @@ async fn v8_jsonplaceholder_demo() -> Html<String> {
       <div class="api-examples">
         <h3>📊 JSONPlaceholder API Examples</h3>
         <p>The following examples demonstrate various JSONPlaceholder API endpoints processed by V8:</p>
-        
+
         <div class="api-grid">
           <div class="api-card">
             <h4>📝 Posts</h4>
             <p>Blog posts with titles and content</p>
             <code>GET /posts</code>, <code>GET /posts/1</code>
           </div>
-          
+
           <div class="api-card">
             <h4>👥 Users</h4>
             <p>User profiles with contact information</p>
             <code>GET /users</code>, <code>GET /users/2</code>
           </div>
-          
+
           <div class="api-card">
             <h4>✅ Todos</h4>
             <p>Task management with completion status</p>
             <code>GET /todos</code>
           </div>
-          
+
           <div class="api-card">
             <h4>🔗 User Posts</h4>
             <p>Aggregated user data with their posts</p>
             <code>GET /users/1/posts</code>
           </div>
-          
+
           <div class="api-card">
             <h4>📈 Analytics</h4>
             <p>Statistical analysis of all data</p>
@@ -2061,86 +2061,86 @@ function analyzeJsonPlaceholderData(): any {{
       .demo-info, .v8-status, .api-examples, .jsonplaceholder-processing, .typescript-source, .workflow, .api-features {{
         background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px;
       }}
-      
+
       .api-grid {{
-        display: grid; 
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-        gap: 15px; 
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
         margin: 15px 0;
       }}
-      
+
       .api-card {{
-        border: 1px solid #e0e0e0; 
-        border-radius: 8px; 
-        padding: 15px; 
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
         background: #f8f9fa;
         text-align: center;
       }}
-      
+
       .api-card h4 {{
-        color: #007acc; 
+        color: #007acc;
         margin: 0 0 10px 0;
       }}
-      
+
       .api-card code {{
-        background: #e9ecef; 
-        padding: 2px 6px; 
-        border-radius: 3px; 
+        background: #e9ecef;
+        padding: 2px 6px;
+        border-radius: 3px;
         font-size: 0.85em;
         display: block;
         margin: 5px 0;
       }}
-      
+
       .results {{
-        background: #f8f9fa; 
-        border-radius: 5px; 
-        padding: 10px; 
+        background: #f8f9fa;
+        border-radius: 5px;
+        padding: 10px;
         margin: 10px 0;
-        max-height: 500px; 
+        max-height: 500px;
         overflow-y: auto;
       }}
-      
+
       .results .json-result {{
-        background: #e9ecef; 
-        padding: 12px; 
-        margin: 12px 0; 
+        background: #e9ecef;
+        padding: 12px;
+        margin: 12px 0;
         border-radius: 5px;
-        font-family: monospace; 
-        font-size: 0.85em; 
+        font-family: monospace;
+        font-size: 0.85em;
         overflow-x: auto;
-        white-space: pre-wrap; 
+        white-space: pre-wrap;
         word-break: break-all;
         border-left: 4px solid #007acc;
       }}
-      
+
       details {{ margin: 10px 0; }}
-      summary {{ 
-        cursor: pointer; 
-        font-weight: bold; 
-        padding: 8px; 
-        background: #f0f0f0; 
-        border-radius: 5px; 
+      summary {{
+        cursor: pointer;
+        font-weight: bold;
+        padding: 8px;
+        background: #f0f0f0;
+        border-radius: 5px;
         border: 1px solid #ddd;
       }}
       summary:hover {{ background: #e8e8e8; }}
-      
-      pre {{ 
-        background: #f8f9fa; 
-        padding: 15px; 
-        border-radius: 5px; 
-        overflow-x: auto; 
-        white-space: pre-wrap; 
+
+      pre {{
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        overflow-x: auto;
+        white-space: pre-wrap;
         border: 1px solid #e9ecef;
       }}
-      
+
       code {{ font-family: 'Consolas', 'Monaco', 'Courier New', monospace; }}
-      
+
       ol {{ padding-left: 20px; }}
       ol li {{ margin: 8px 0; padding: 2px 0; }}
-      
+
       ul {{ padding-left: 20px; }}
       ul li {{ margin: 5px 0; }}
-      
+
       .demo-info a {{ color: #007acc; text-decoration: none; }}
       .demo-info a:hover {{ text-decoration: underline; }}
     </style>
@@ -2157,10 +2157,10 @@ function analyzeJsonPlaceholderData(): any {{
           "Single User (ID: 2)",
           "All Todos",
           "User Posts (User ID: 1)",
-          "Data Analytics Overview"
+          "Data Analytics Overview",
         ];
         let title = titles.get(i).unwrap_or(&"API Result");
-        
+
         format!(
           "<div class='json-result'><strong>{}:</strong><br/><pre>{}</pre></div>",
           title,
