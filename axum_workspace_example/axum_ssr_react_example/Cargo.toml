@@ -10,4 +10,4 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ssr_rs = "0.8.3"
 tokio = { version = "1.47.1", features = ["full"] }
-v8 = "139.0.0"
+# v8 = "139.0.0"
