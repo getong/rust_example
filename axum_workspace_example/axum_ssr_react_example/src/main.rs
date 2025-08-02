@@ -7,7 +7,9 @@ use serde_json::Value;
 use ssr_rs::Ssr;
 
 mod config;
+mod simple_v8_executor;
 mod v8_processor;
+mod v8_stream_executor;
 
 thread_local! {
     static SSR: RefCell<Ssr<'static, 'static>> = RefCell::new({
@@ -134,6 +136,9 @@ struct UserStats {
 async fn main() {
   // ssr_rs will handle V8 initialization
   Ssr::create_platform();
+
+  // V8 runtime is initialized on-demand by v8_stream_executor
+  println!("✅ Server starting with Stream Chat support");
 
   // build our application with multiple demonstration routes
   let app = Router::new()
@@ -2194,7 +2199,7 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
   let v8_status = v8_processor::get_v8_code_status();
 
   // Create a V8 TypeScript processor
-  let processor = match v8_processor::V8TypeScriptProcessor::new() {
+  let mut processor = match v8_processor::V8TypeScriptProcessor::new() {
     Some(p) => p,
     None => {
       let error_html = format!(
@@ -2218,7 +2223,10 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
   let (demo_title, demo_results) = match demo_type {
     "authenticate" => {
       let user_id = params.data.as_deref().unwrap_or("john");
-      let auth_result = processor.authenticate_stream_user(user_id, None, None);
+      let auth_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+        "authenticate",
+        Some(user_id),
+      ));
       (
         format!("Stream Chat Authentication - User: {}", user_id),
         vec![auth_result.unwrap_or_else(|| "Failed to authenticate user".to_string())],
@@ -2226,14 +2234,20 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
     }
     "user-context" => {
       let user_id = params.data.as_deref().unwrap_or("john");
-      let context_result = processor.get_user_chat_context(user_id);
+      let context_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+        "user-context",
+        Some(user_id),
+      ));
       (
         format!("Stream Chat User Context - User: {}", user_id),
         vec![context_result.unwrap_or_else(|| "Failed to get user context".to_string())],
       )
     }
     "analytics" => {
-      let analytics_result = processor.analyze_stream_chat_data();
+      let analytics_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+        "analytics",
+        None,
+      ));
       (
         "Stream Chat Analytics".to_string(),
         vec![analytics_result.unwrap_or_else(|| "Failed to get analytics".to_string())],
@@ -2241,7 +2255,9 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
     }
     _ => {
       // Default to setup demo
-      let setup_result = processor.get_stream_chat_demo_setup();
+      let setup_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+        "setup", None,
+      ));
       (
         "Stream Chat Demo Setup & Configuration".to_string(),
         vec![setup_result.unwrap_or_else(|| "Failed to get setup info".to_string())],
@@ -2471,7 +2487,10 @@ async fn stream_chat_authenticate(Query(params): Query<QueryParams>) -> Html<Str
   };
 
   let user_id = params.data.as_deref().unwrap_or("john");
-  let auth_result = processor.authenticate_stream_user(user_id, None, None);
+  let auth_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+    "authenticate",
+    Some(user_id),
+  ));
 
   match auth_result {
     Some(result) => {
@@ -2518,7 +2537,10 @@ async fn stream_chat_user_context(Query(params): Query<QueryParams>) -> Html<Str
   };
 
   let user_id = params.data.as_deref().unwrap_or("john");
-  let context_result = processor.get_user_chat_context(user_id);
+  let context_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+    "user-context",
+    Some(user_id),
+  ));
 
   match context_result {
     Some(result) => {
@@ -2555,7 +2577,7 @@ async fn stream_chat_user_context(Query(params): Query<QueryParams>) -> Html<Str
 async fn stream_chat_analytics() -> Html<String> {
   let start = Instant::now();
 
-  let processor = match v8_processor::V8TypeScriptProcessor::new() {
+  let mut processor = match v8_processor::V8TypeScriptProcessor::new() {
     Some(p) => p,
     None => {
       let error_result = r#"{"error": "V8 TypeScript processor not available"}"#;
@@ -2564,7 +2586,10 @@ async fn stream_chat_analytics() -> Html<String> {
     }
   };
 
-  let analytics_result = processor.analyze_stream_chat_data();
+  let analytics_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+    "analytics",
+    None,
+  ));
 
   match analytics_result {
     Some(result) => {
@@ -2594,7 +2619,7 @@ async fn stream_chat_analytics() -> Html<String> {
 async fn stream_chat_setup() -> Html<String> {
   let start = Instant::now();
 
-  let processor = match v8_processor::V8TypeScriptProcessor::new() {
+  let mut processor = match v8_processor::V8TypeScriptProcessor::new() {
     Some(p) => p,
     None => {
       let error_result = r#"{"error": "V8 TypeScript processor not available"}"#;
@@ -2603,7 +2628,9 @@ async fn stream_chat_setup() -> Html<String> {
     }
   };
 
-  let setup_result = processor.get_stream_chat_demo_setup();
+  let setup_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+    "setup", None,
+  ));
 
   match setup_result {
     Some(result) => {
@@ -2632,40 +2659,34 @@ async fn stream_chat_setup() -> Html<String> {
 // Stream Chat Token Generation Demo - shows the complete authentication flow
 async fn stream_chat_token_demo(Query(params): Query<QueryParams>) -> Html<String> {
   use crate::config::STREAM_CONFIG;
-  
+
   let start = Instant::now();
   let user_id = params.data.as_deref().unwrap_or("john");
-  
-  // Create a V8 TypeScript processor
-  let processor = match v8_processor::V8TypeScriptProcessor::new() {
-    Some(p) => p,
-    None => {
-      return render_custom_html(
-        "<div class='error'>V8 TypeScript processor not available</div>",
-        "Stream Chat Token Demo - Error"
-      );
-    }
-  };
-  
-  // Get authentication result
-  let auth_result = processor.authenticate_stream_user(user_id, None, None);
-  
+
+  // Get authentication result using simple V8 executor
+  let auth_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
+    "authenticate",
+    Some(user_id),
+  ));
+
   let (token, token_details) = match auth_result {
-    Some(result) => {
-      match serde_json::from_str::<serde_json::Value>(&result) {
-        Ok(json) => {
-          let token = json.get("token")
-            .and_then(|t| t.as_str())
-            .unwrap_or("N/A")
-            .to_string();
-          (token, serde_json::to_string_pretty(&json).unwrap_or(result))
-        }
-        Err(_) => ("Error".to_string(), result)
+    Some(result) => match serde_json::from_str::<serde_json::Value>(&result) {
+      Ok(json) => {
+        let token = json
+          .get("token")
+          .and_then(|t| t.as_str())
+          .unwrap_or("N/A")
+          .to_string();
+        (token, serde_json::to_string_pretty(&json).unwrap_or(result))
       }
-    }
-    None => ("Failed to generate".to_string(), "No response from processor".to_string())
+      Err(_) => ("Error".to_string(), result),
+    },
+    None => (
+      "Failed to generate".to_string(),
+      "No response from processor".to_string(),
+    ),
   };
-  
+
   let demo_html = format!(
     r#"
     <div class="token-demo">
@@ -2842,16 +2863,28 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
     </style>
     "#,
     STREAM_CONFIG.api_key,
-    if STREAM_CONFIG.api_secret.len() > 8 { &STREAM_CONFIG.api_secret[..8] } else { &STREAM_CONFIG.api_secret },
+    if STREAM_CONFIG.api_secret.len() > 8 {
+      &STREAM_CONFIG.api_secret[.. 8]
+    } else {
+      &STREAM_CONFIG.api_secret
+    },
     user_id,
     user_id,
-    if token.len() > 50 { format!("{}...", &token[..50]) } else { token.clone() },
+    if token.len() > 50 {
+      format!("{}...", &token[.. 50])
+    } else {
+      token.clone()
+    },
     token_details,
     STREAM_CONFIG.api_key,
-    if STREAM_CONFIG.api_secret.len() > 8 { &STREAM_CONFIG.api_secret[..8] } else { &STREAM_CONFIG.api_secret },
+    if STREAM_CONFIG.api_secret.len() > 8 {
+      &STREAM_CONFIG.api_secret[.. 8]
+    } else {
+      &STREAM_CONFIG.api_secret
+    },
     user_id,
     start.elapsed()
   );
-  
+
   Html(demo_html)
 }

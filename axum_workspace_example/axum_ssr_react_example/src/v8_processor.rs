@@ -2,8 +2,8 @@ use std::{fs, sync::Mutex};
 
 use once_cell::sync::Lazy;
 
-use crate::config::STREAM_CONFIG;
 // use ssr_rs::v8;
+use crate::config::STREAM_CONFIG;
 
 pub trait HttpRequest {
   fn path(&self) -> String;
@@ -86,8 +86,7 @@ impl V8TypeScriptCode {
 static V8_CODE: Lazy<Mutex<Option<V8TypeScriptCode>>> =
   Lazy::new(|| Mutex::new(V8TypeScriptCode::new()));
 
-// Since we're using ssr_rs which manages V8, we'll create a simpler processor
-// that works with the existing V8 runtime
+// V8 TypeScript processor that works with ssr_rs V8 runtime
 pub struct V8TypeScriptProcessor;
 
 impl V8TypeScriptProcessor {
@@ -107,13 +106,10 @@ impl V8TypeScriptProcessor {
 
   // Execute Stream Chat TypeScript code with real credentials
   pub fn execute_stream_chat_with_credentials(
-    &self,
+    &mut self,
     request_type: &str,
     params: Option<serde_json::Value>,
   ) -> Option<String> {
-    let code_guard = V8_CODE.lock().ok()?;
-    let _code = code_guard.as_ref()?;
-
     // Create params with real Stream Chat credentials
     let mut enhanced_params = params.unwrap_or(serde_json::json!({}));
     if let Some(obj) = enhanced_params.as_object_mut() {
@@ -127,33 +123,17 @@ impl V8TypeScriptProcessor {
       );
     }
 
-    // In a real implementation, this would execute the TypeScript code through V8
-    // For now, we'll simulate the response based on the request type
-    let result = match request_type {
-      "authenticate" => {
-        if let Some(user_id) = enhanced_params.get("user_id").and_then(|v| v.as_str()) {
-          self.authenticate_stream_user(
-            user_id,
-            Some(&STREAM_CONFIG.api_key),
-            Some(&STREAM_CONFIG.api_secret),
-          )
-        } else {
-          None
-        }
+    // Use v8_stream_executor to execute the TypeScript code
+    match crate::v8_stream_executor::StreamChatExecutor::execute_function(
+      request_type,
+      enhanced_params,
+    ) {
+      Ok(result) => Some(result),
+      Err(e) => {
+        eprintln!("Failed to execute Stream Chat function: {}", e);
+        None
       }
-      "user-context" => {
-        if let Some(user_id) = enhanced_params.get("user_id").and_then(|v| v.as_str()) {
-          self.get_user_chat_context(user_id)
-        } else {
-          None
-        }
-      }
-      "analytics" => self.analyze_stream_chat_data(),
-      "setup" => self.get_stream_chat_demo_setup(),
-      _ => None,
-    };
-
-    result
+    }
   }
 
   // Simulate processing using the loaded TypeScript code
@@ -768,151 +748,57 @@ impl V8TypeScriptProcessor {
 
   // Stream Chat processing methods - Using proper Stream Chat API pattern
   pub fn authenticate_stream_user(
-    &self,
+    &mut self,
     user_id: &str,
     api_key: Option<&str>,
     api_secret: Option<&str>,
   ) -> Option<String> {
-    let code_guard = V8_CODE.lock().ok()?;
-    let _code = code_guard.as_ref()?;
-
     // Use real Stream Chat credentials from environment variables
     let api_key = api_key.unwrap_or(&STREAM_CONFIG.api_key);
     let api_secret = api_secret.unwrap_or(&STREAM_CONFIG.api_secret);
 
-    // Simulate Stream Chat server client initialization and token creation
-    // const serverClient = StreamChat.getInstance(api_key, api_secret);
-    // const token = serverClient.createToken(user_id);
+    // Call TypeScript authenticateUser function
+    let params = serde_json::json!({
+      "user_id": user_id,
+      "api_key": api_key,
+      "api_secret": api_secret
+    });
 
-    let result = match user_id {
-      "john" => {
-        // Simulate createToken with proper Stream Chat JWT structure
-        let iat = chrono::Utc::now().timestamp();
-        let exp = iat + 24 * 60 * 60; // 24 hours expiration
-        let token = format!("StreamChat_token_for_{}_exp{}_iat{}", user_id, exp, iat);
-
-        serde_json::json!({
-          "success": true,
-          "token": token,
-          "api_key": api_key,
-          "server_client_config": {
-            "api_key": api_key,
-            "api_secret": format!("{}...", &api_secret[..8]),
-            "initialized": true
-          },
-          "user": {
-            "id": "john",
-            "name": "John Doe",
-            "email": "john@example.com",
-            "image": "https://avatar.example.com/john.jpg",
-            "role": "admin",
-            "custom": {
-              "department": "Engineering",
-              "location": "San Francisco"
-            }
-          },
-          "token_metadata": {
-            "issued_at": iat,
-            "expires_at": exp,
-            "user_id": user_id,
-            "has_iat_claim": true
-          },
-          "issued_at": chrono::Utc::now().to_rfc3339(),
-          "expires_at": chrono::DateTime::from_timestamp(exp, 0)
-            .unwrap_or_else(|| chrono::Utc::now())
-            .to_rfc3339(),
-          "processing_time_ms": 15
-        })
-      }
-      "jane" => {
-        let iat = chrono::Utc::now().timestamp();
-        let exp = iat + 24 * 60 * 60;
-        let token = format!("StreamChat_token_for_{}_exp{}_iat{}", user_id, exp, iat);
-
-        serde_json::json!({
-          "success": true,
-          "token": token,
-          "api_key": api_key,
-          "server_client_config": {
-            "api_key": api_key,
-            "api_secret": format!("{}...", &api_secret[..8]),
-            "initialized": true
-          },
-          "user": {
-            "id": "jane",
-            "name": "Jane Smith",
-            "email": "jane@example.com",
-            "image": "https://avatar.example.com/jane.jpg",
-            "role": "moderator",
-            "custom": {
-              "department": "Design",
-              "location": "New York"
-            }
-          },
-          "token_metadata": {
-            "issued_at": iat,
-            "expires_at": exp,
-            "user_id": user_id,
-            "has_iat_claim": true
-          },
-          "issued_at": chrono::Utc::now().to_rfc3339(),
-          "expires_at": chrono::DateTime::from_timestamp(exp, 0)
-            .unwrap_or_else(|| chrono::Utc::now())
-            .to_rfc3339(),
-          "processing_time_ms": 12
-        })
-      }
-      "bob" => {
-        let iat = chrono::Utc::now().timestamp();
-        let exp = iat + 24 * 60 * 60;
-        let token = format!("StreamChat_token_for_{}_exp{}_iat{}", user_id, exp, iat);
-
-        serde_json::json!({
-          "success": true,
-          "token": token,
-          "api_key": api_key,
-          "server_client_config": {
-            "api_key": api_key,
-            "api_secret": format!("{}...", &api_secret[..8]),
-            "initialized": true
-          },
-          "user": {
-            "id": "bob",
-            "name": "Bob Wilson",
-            "email": "bob@example.com",
-            "image": "https://avatar.example.com/bob.jpg",
-            "role": "user",
-            "custom": {
-              "department": "Marketing",
-              "location": "Los Angeles"
-            }
-          },
-          "token_metadata": {
-            "issued_at": iat,
-            "expires_at": exp,
-            "user_id": user_id,
-            "has_iat_claim": true
-          },
-          "issued_at": chrono::Utc::now().to_rfc3339(),
-          "expires_at": chrono::DateTime::from_timestamp(exp, 0)
-            .unwrap_or_else(|| chrono::Utc::now())
-            .to_rfc3339(),
-          "processing_time_ms": 18
-        })
-      }
-      _ => serde_json::json!({
-        "success": false,
-        "error": format!("User '{}' not found", user_id),
-        "api_key": api_key,
-        "available_users": ["john", "jane", "bob"],
-        "processing_time_ms": 5
-      }),
-    };
-
-    Some(result.to_string())
+    self.execute_stream_chat_with_credentials("authenticate", Some(params))
   }
 
-  pub fn get_user_chat_context(&self, user_id: &str) -> Option<String> {
+  pub fn get_user_chat_context(&mut self, user_id: &str) -> Option<String> {
+    let params = serde_json::json!({
+      "user_id": user_id,
+      "api_key": &STREAM_CONFIG.api_key,
+      "api_secret": &STREAM_CONFIG.api_secret
+    });
+
+    self.execute_stream_chat_with_credentials("user-context", Some(params))
+  }
+
+  pub fn analyze_stream_chat_data(&mut self) -> Option<String> {
+    let params = serde_json::json!({
+      "api_key": &STREAM_CONFIG.api_key,
+      "api_secret": &STREAM_CONFIG.api_secret
+    });
+
+    self.execute_stream_chat_with_credentials("analytics", Some(params))
+  }
+
+  pub fn get_stream_chat_demo_setup(&mut self) -> Option<String> {
+    let params = serde_json::json!({
+      "api_key": &STREAM_CONFIG.api_key,
+      "api_secret": &STREAM_CONFIG.api_secret
+    });
+
+    self.execute_stream_chat_with_credentials("setup", Some(params))
+  }
+}
+
+// Old simulation implementations (kept for reference)
+impl V8TypeScriptProcessor {
+  pub fn get_user_chat_context_old(&self, user_id: &str) -> Option<String> {
     let code_guard = V8_CODE.lock().ok()?;
     let _code = code_guard.as_ref()?;
 
@@ -1039,7 +925,7 @@ impl V8TypeScriptProcessor {
     Some(result.to_string())
   }
 
-  pub fn analyze_stream_chat_data(&self) -> Option<String> {
+  pub fn analyze_stream_chat_data_old(&self) -> Option<String> {
     let code_guard = V8_CODE.lock().ok()?;
     let _code = code_guard.as_ref()?;
 
@@ -1098,7 +984,7 @@ impl V8TypeScriptProcessor {
     Some(result.to_string())
   }
 
-  pub fn get_stream_chat_demo_setup(&self) -> Option<String> {
+  pub fn get_stream_chat_demo_setup_old(&self) -> Option<String> {
     let code_guard = V8_CODE.lock().ok()?;
     let _code = code_guard.as_ref()?;
 
@@ -1301,7 +1187,7 @@ pub fn process_jsonplaceholder_samples() -> Vec<String> {
 
 // Stream Chat processing functions
 pub fn process_stream_chat_samples() -> Vec<String> {
-  let processor = match V8TypeScriptProcessor::new() {
+  let mut processor = match V8TypeScriptProcessor::new() {
     Some(p) => p,
     None => return vec!["Failed to create V8 processor - TypeScript files not found".to_string()],
   };
