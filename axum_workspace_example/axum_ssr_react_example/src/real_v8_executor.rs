@@ -15,7 +15,7 @@ impl RealV8Executor {
 
   // Load the Stream Chat JavaScript bundle from file or use inline version
   fn load_stream_chat_bundle() -> Result<String, String> {
-    let bundle_path = "client/dist/stream-chat-server.js";
+    let bundle_path = "client/dist/v8/stream-chat-demo.js";
 
     // Try to load from file first
     if let Ok(content) = fs::read_to_string(bundle_path) {
@@ -51,10 +51,10 @@ impl RealV8Executor {
     println!("🔧 Using fallback Stream Chat implementation");
     Ok(r#"
     console.log("[DEBUG] Loading fallback Stream Chat implementation");
-    
+
     function processStreamChatRequestSync(action, params) {
       console.log("[DEBUG] processStreamChatRequestSync called:", action, params);
-      
+
       const result = {
         success: true,
         user: {
@@ -75,30 +75,30 @@ impl RealV8Executor {
           timestamp: new Date().toISOString()
         }
       };
-      
+
       console.log("[DEBUG] processStreamChatRequestSync result:", result);
       return result;
     }
-    
+
     function renderStreamChatHTML(action, data) {
       console.log("[DEBUG] renderStreamChatHTML called:", action, data);
-      
+
       const html = '<div class="stream-chat-result"><h2>✅ ' + action + ' Success (Fallback)</h2>' +
                    '<p><strong>User:</strong> ' + (data.user ? data.user.id : 'Unknown') + '</p>' +
                    '<p><strong>Token:</strong> ' + (data.token ? data.token.substring(0, 20) + '...' : 'None') + '</p>' +
                    '<p><strong>Implementation:</strong> ' + (data.implementation || 'Unknown') + '</p>' +
                    '<p><strong>Processing Time:</strong> ' + (data.processing_time_ms || 0) + 'ms</p></div>';
-      
+
       console.log("[DEBUG] Generated HTML length:", html.length);
       return html;
     }
-    
+
     const css = '<style>.stream-chat-result { background: #e8f5e8; border: 1px solid #4caf50; border-radius: 8px; padding: 20px; margin: 20px; font-family: Arial, sans-serif; } .stream-chat-result h2 { color: #2e7d32; margin-top: 0; }</style>';
-    
+
     globalThis.processStreamChatRequestSync = processStreamChatRequestSync;
     globalThis.renderStreamChatHTML = renderStreamChatHTML;
     globalThis.css = css;
-    
+
     console.log("[DEBUG] Fallback Stream Chat functions registered on globalThis");
     "#.to_string())
   }
@@ -124,9 +124,9 @@ impl RealV8Executor {
             (async function() {{
                 try {{
                     const htmlResult = await processStreamChatAndRenderHTML(
-                        '{}', 
-                        '{}', 
-                        '{}', 
+                        '{}',
+                        '{}',
+                        '{}',
                         '{}'
                     );
                     return css + htmlResult;
@@ -142,13 +142,13 @@ impl RealV8Executor {
                             </div>
                         </div>
                         <style>
-                            .stream-chat-error {{ 
-                                background: #fee; 
-                                border: 1px solid #f88; 
-                                border-radius: 8px; 
-                                padding: 20px; 
-                                margin: 20px; 
-                                font-family: Arial, sans-serif; 
+                            .stream-chat-error {{
+                                background: #fee;
+                                border: 1px solid #f88;
+                                border-radius: 8px;
+                                padding: 20px;
+                                margin: 20px;
+                                font-family: Arial, sans-serif;
                             }}
                             .error-message {{ color: #c00; font-weight: bold; }}
                             .metadata {{ background: #f9f9f9; padding: 10px; border-radius: 4px; margin-top: 15px; }}
@@ -206,13 +206,13 @@ impl RealV8Executor {
       "🚀 Starting V8 execution for action: {}, user: {:?}",
       action, user_id
     );
-
+    println!("file: {}, line :{}", file!(), line!());
     // Create a new isolate for each request to avoid thread safety issues
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let scope = &mut v8::HandleScope::new(isolate);
     let context = v8::Context::new(scope, v8::ContextOptions::default());
     let scope = &mut v8::ContextScope::new(scope, context);
-
+    println!("file: {}, line :{}", file!(), line!());
     // Load the actual Stream Chat bundle
     let stream_chat_bundle = Self::load_stream_chat_bundle()?;
 
@@ -220,10 +220,10 @@ impl RealV8Executor {
     let js_code = format!(
       r#"
             console.log("[V8] Loading Stream Chat bundle...");
-            
+
             // Load the Bun-bundled Stream Chat SDK
             {}
-            
+
             console.log("[V8] Bundle loaded, checking globals...");
             console.log("[V8] processStreamChatRequestSync available:", typeof processStreamChatRequestSync);
             console.log("[V8] renderStreamChatHTML available:", typeof renderStreamChatHTML);
@@ -232,12 +232,12 @@ impl RealV8Executor {
             // Synchronous execution wrapper
             try {{
                 console.log("[V8] Starting execution for action: {}", "with user: {}");
-                
+
                 // Wait a bit for the bundle to initialize
                 if (typeof processStreamChatRequestSync === 'undefined') {{
                     throw new Error('Stream Chat bundle not properly loaded - processStreamChatRequestSync not found');
                 }}
-                
+
                 // Execute Stream Chat processing synchronously
                 console.log("[V8] Calling processStreamChatRequestSync...");
                 const data = processStreamChatRequestSync('{}', {{
@@ -245,21 +245,21 @@ impl RealV8Executor {
                     apiKey: '{}',
                     apiSecret: '{}'
                 }});
-                
+
                 console.log("[V8] Processing completed, success:", data.success);
-                
+
                 // Render the HTML
                 console.log("[V8] Rendering HTML...");
                 const htmlResult = renderStreamChatHTML('{}', data);
-                
+
                 console.log("[V8] HTML rendered, length:", htmlResult.length);
-                
+
                 // Return CSS + HTML
                 const finalResult = (css || '') + htmlResult;
                 console.log("[V8] Final result prepared, total length:", finalResult.length);
-                
+
                 finalResult;
-                
+
             }} catch (error) {{
                 console.log("[V8] Error occurred:", error.message);
                 const errorHtml = `<div class="stream-chat-error">
@@ -269,24 +269,24 @@ impl RealV8Executor {
                         <p><strong>Action:</strong> {}</p>
                         <p><strong>User:</strong> {}</p>
                         <p><strong>Error Type:</strong> ${{error.name || 'Unknown'}}</p>
-                        <p><strong>Bundle Path:</strong> client/dist/stream-chat-server.js</p>
+                        <p><strong>Bundle Path:</strong> client/dist/v8/stream-chat-demo.js</p>
                         <p><strong>Executed via:</strong> Real V8 Engine with Debug Info</p>
                         <p><strong>Timestamp:</strong> ${{new Date().toISOString()}}</p>
                     </div>
                 </div>
                 <style>
-                    .stream-chat-error {{ 
-                        background: #fee; 
-                        border: 1px solid #f88; 
-                        border-radius: 8px; 
-                        padding: 20px; 
-                        margin: 20px; 
-                        font-family: Arial, sans-serif; 
+                    .stream-chat-error {{
+                        background: #fee;
+                        border: 1px solid #f88;
+                        border-radius: 8px;
+                        padding: 20px;
+                        margin: 20px;
+                        font-family: Arial, sans-serif;
                     }}
                     .error-message {{ color: #c00; font-weight: bold; }}
                     .metadata {{ background: #f9f9f9; padding: 10px; border-radius: 4px; margin-top: 15px; }}
                 </style>`;
-                
+
                 console.log("[V8] Error HTML prepared");
                 errorHtml;
             }}
@@ -317,6 +317,7 @@ impl RealV8Executor {
     let result_str = result.to_string(scope).ok_or("Failed to convert result")?;
     let rust_string = result_str.to_rust_string_lossy(scope);
 
+    println!("rust_string: {:?}", rust_string);
     println!(
       "✅ V8 execution completed. Result length: {} chars",
       rust_string.len()

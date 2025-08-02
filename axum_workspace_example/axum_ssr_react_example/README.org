@@ -158,49 +158,583 @@ client/
 :PROPERTIES:
 :CUSTOM_ID: dependencies
 :END:
+*** Rust Dependencies (Cargo.toml)
+:PROPERTIES:
+:CUSTOM_ID: rust-dependencies
+:END:
 #+begin_src toml
 [dependencies]
 axum = "0.8.4"
 chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
 once_cell = "1.20.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ssr_rs = "0.8.3"
 tokio = { version = "1.47.1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs"] }
+#+end_src
+
+*** JavaScript Dependencies (client/package.json)
+:PROPERTIES:
+:CUSTOM_ID: javascript-dependencies
+:END:
+#+begin_src json
+{
+  "dependencies": {
+    "fast-text-encoding": "^1.0.6",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "stream-chat": "^9.14.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "typescript": "^5.9.2",
+    "vite": "^5.4.8"
+  }
+}
+#+end_src
+
+** Environment Setup
+:PROPERTIES:
+:CUSTOM_ID: environment-setup
+:END:
+*** 1. Create Environment File
+:PROPERTIES:
+:CUSTOM_ID: environment-file
+:END:
+Create a =.env= file in the project root with your Stream Chat credentials:
+
+#+begin_src bash
+# Stream Chat API Configuration
+STREAM_API_KEY=your_stream_api_key_here
+STREAM_API_SECRET=your_stream_api_secret_here
+
+# Optional: Server configuration
+PORT=8080
+RUST_LOG=info
+#+end_src
+
+*** 2. Install Prerequisites
+:PROPERTIES:
+:CUSTOM_ID: install-prerequisites
+:END:
+**** Install Rust
+:PROPERTIES:
+:CUSTOM_ID: install-rust
+:END:
+#+begin_src bash
+# Install Rust via rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Verify installation
+rustc --version
+cargo --version
+#+end_src
+
+**** Install Bun (for TypeScript compilation)
+:PROPERTIES:
+:CUSTOM_ID: install-bun
+:END:
+#+begin_src bash
+# Install Bun
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc  # or restart terminal
+
+# Verify installation
+bun --version
+#+end_src
+
+** Build Instructions
+:PROPERTIES:
+:CUSTOM_ID: build-instructions
+:END:
+*** TypeScript Compilation Scripts
+:PROPERTIES:
+:CUSTOM_ID: typescript-compilation-scripts
+:END:
+The project includes these build scripts in =client/package.json=:
+
+#+begin_src json
+{
+  "scripts": {
+    "build:v8": "bun build src/v8-processing.ts src/data-generators.ts src/jsonplaceholder-demo.ts --outdir dist/v8 --target browser --format esm",
+    "build:v8-stream-chat": "bun build src/stream-chat-v8-demo.ts --outdir dist/v8 --target browser --format iife --outfile stream-chat-demo.js",
+    "build:ssr": "vite build --config vite.ssr.config.ts",
+    "build": "tsc -b && vite build"
+  }
+}
+#+end_src
+
+**** Key Build Scripts Explained
+:PROPERTIES:
+:CUSTOM_ID: build-scripts-explained
+:END:
+- =build:v8= - Compiles general V8 utilities (ESM format)
+- =build:v8-stream-chat= - Compiles Stream Chat implementation for V8 (IIFE format)
+- =build:ssr= - Builds server-side rendering bundle
+- =build= - Standard TypeScript/React build
+
+*** Complete Build Process
+:PROPERTIES:
+:CUSTOM_ID: complete-build-process
+:END:
+**** 1. Quick Build (Development)
+:PROPERTIES:
+:CUSTOM_ID: quick-build-development
+:END:
+#+begin_src bash
+# Navigate to project root
+cd axum_ssr_react_example
+
+# Install JavaScript dependencies
+cd client && bun install && cd ..
+
+# Compile TypeScript for V8
+cd client
+bun run build:v8
+bun run build:v8-stream-chat
+cd ..
+
+# Build and run Rust application
+cargo run
+#+end_src
+
+**** 2. Production Build
+:PROPERTIES:
+:CUSTOM_ID: production-build
+:END:
+#+begin_src bash
+# Navigate to project root
+cd axum_ssr_react_example
+
+# Install JavaScript dependencies
+cd client && bun install && cd ..
+
+# Compile all TypeScript files
+cd client
+bun run build           # React/SSR build
+bun run build:v8        # V8 utilities
+bun run build:v8-stream-chat  # Stream Chat V8
+cd ..
+
+# Build Rust application with optimizations
+cargo build --release
+
+# Run production binary
+./target/release/axum_ssr_react_example
+#+end_src
+
+**** 3. Automated Build Script
+:PROPERTIES:
+:CUSTOM_ID: automated-build-script
+:END:
+Create a =build.sh= script for complete automation:
+
+#+begin_src bash
+#!/bin/bash
+# build.sh - Complete build automation
+
+set -e  # Exit on error
+
+echo "🔨 Building Axum SSR React Example with Stream Chat..."
+
+# Check if .env file exists
+if [[ ! -f .env ]]; then
+    echo "⚠️  Warning: .env file not found. Creating template..."
+    cat > .env << 'EOF'
+STREAM_API_KEY=your_stream_api_key_here
+STREAM_API_SECRET=your_stream_api_secret_here
+PORT=8080
+RUST_LOG=info
+EOF
+    echo "📝 Please edit .env with your actual Stream Chat credentials"
+fi
+
+# Install JavaScript dependencies
+echo "📦 Installing JavaScript dependencies..."
+cd client
+bun install
+
+# Compile TypeScript files
+echo "🔄 Compiling TypeScript files..."
+echo "  - Building V8 utilities..."
+bun run build:v8
+
+echo "  - Building Stream Chat V8 implementation..."
+bun run build:v8-stream-chat
+
+echo "  - Building SSR bundle..."
+bun run build:ssr
+
+echo "  - Building React application..."
+bun run build
+
+# Return to project root
+cd ..
+
+# Build Rust application
+echo "🦀 Building Rust application..."
+if [[ "$1" == "--release" ]]; then
+    echo "  - Building with release optimizations..."
+    cargo build --release
+    BINARY_PATH="target/release/axum_ssr_react_example"
+else
+    echo "  - Building in development mode..."
+    cargo build
+    BINARY_PATH="target/debug/axum_ssr_react_example"
+fi
+
+echo "✅ Build complete!"
+echo "📍 Binary location: $BINARY_PATH"
+echo "🚀 Run with: ./$BINARY_PATH"
+echo ""
+echo "📖 Available endpoints:"
+echo "  - Home: http://localhost:8080/"
+echo "  - Stream Chat: http://localhost:8080/stream-chat"
+echo "  - V8 TypeScript: http://localhost:8080/v8/typescript"
+echo "  - JSONPlaceholder: http://localhost:8080/v8/jsonplaceholder"
+#+end_src
+
+Make the script executable and run:
+
+#+begin_src bash
+chmod +x build.sh
+
+# Development build
+./build.sh
+
+# Production build
+./build.sh --release
+#+end_src
+
+*** Manual TypeScript Compilation
+:PROPERTIES:
+:CUSTOM_ID: manual-typescript-compilation
+:END:
+If you need to compile TypeScript manually without package.json scripts:
+
+#+begin_src bash
+cd client
+
+# Install dependencies
+bun install
+
+# Compile individual files
+bun build src/v8-processing.ts --outdir dist/v8 --target browser --format esm
+bun build src/data-generators.ts --outdir dist/v8 --target browser --format esm  
+bun build src/jsonplaceholder-demo.ts --outdir dist/v8 --target browser --format esm
+
+# Compile Stream Chat with specific settings for V8
+bun build src/stream-chat-v8-demo.ts \
+  --outdir dist/v8 \
+  --target browser \
+  --format iife \
+  --outfile stream-chat-demo.js
+
+# Verify compiled files
+ls -la dist/v8/
+#+end_src
+
+*** Rust Build Options
+:PROPERTIES:
+:CUSTOM_ID: rust-build-options
+:END:
+**** Development Build
+:PROPERTIES:
+:CUSTOM_ID: rust-development-build
+:END:
+#+begin_src bash
+# Fast compilation, includes debug symbols
+cargo build
+
+# Run directly
+cargo run
+
+# With environment variables
+RUST_LOG=debug cargo run
+
+# With custom port
+PORT=3000 cargo run
+#+end_src
+
+**** Release Build
+:PROPERTIES:
+:CUSTOM_ID: rust-release-build
+:END:
+#+begin_src bash
+# Optimized compilation (slower build, faster runtime)
+cargo build --release
+
+# Run release binary
+./target/release/axum_ssr_react_example
+
+# Check binary size
+ls -lh target/release/axum_ssr_react_example
+#+end_src
+
+**** Build with Specific Features
+:PROPERTIES:
+:CUSTOM_ID: rust-build-features
+:END:
+#+begin_src bash
+# Check available features in Cargo.toml
+cargo build --features "feature_name"
+
+# Build without default features
+cargo build --no-default-features
+
+# Clean build
+cargo clean && cargo build --release
 #+end_src
 
 ** Running the Application
 :PROPERTIES:
 :CUSTOM_ID: running-the-application
 :END:
-1. *Build the project*:
+*** Quick Start
+:PROPERTIES:
+:CUSTOM_ID: quick-start
+:END:
+After following the build instructions above:
 
-   #+begin_src sh
-   cargo build
-   #+end_src
+#+begin_src bash
+# Development mode (after building)
+cargo run
 
-2. *Compile TypeScript* (if needed):
+# Production mode (after release build)
+./target/release/axum_ssr_react_example
 
-   #+begin_src sh
-   cd client
-   npx tsc src/jsonplaceholder-demo.ts --outDir dist/v8 --target ES2020 --skipLibCheck
-   npx tsc src/v8-processing.ts --outDir dist/v8 --target ES2020 --skipLibCheck
-   npx tsc src/data-generators.ts --outDir dist/v8 --target ES2020 --skipLibCheck
-   npx tsc src/stream-chat-demo.ts --outDir dist/v8 --target ES2020 --skipLibCheck
-   #+end_src
+# With custom configuration
+PORT=3000 RUST_LOG=debug cargo run
+#+end_src
 
-3. *Run the server*:
+*** Application Endpoints
+:PROPERTIES:
+:CUSTOM_ID: application-endpoints
+:END:
+Once running, visit these URLs:
 
-   #+begin_src sh
-   cargo run
-   #+end_src
+**** Core Demos
+:PROPERTIES:
+:CUSTOM_ID: core-demos
+:END:
+- *Home*: http://localhost:8080/
+- *V8 TypeScript Demo*: http://localhost:8080/v8/typescript
+- *JSONPlaceholder API*: http://localhost:8080/v8/jsonplaceholder
+- *Stream Chat Integration*: http://localhost:8080/stream-chat
 
-4. *Visit the application*:
+**** Stream Chat Specific Endpoints
+:PROPERTIES:
+:CUSTOM_ID: stream-chat-endpoints
+:END:
+- *Setup & Config*: http://localhost:8080/stream-chat?demo=setup
+- *User Authentication*: http://localhost:8080/stream-chat?demo=authenticate&data=john
+- *User Context*: http://localhost:8080/stream-chat?demo=user-context&data=john
+- *Analytics*: http://localhost:8080/stream-chat?demo=analytics
 
-   - Home: http://localhost:8080/
-   - V8 TypeScript Demo: http://localhost:8080/v8/typescript
-   - JSONPlaceholder Demo: http://localhost:8080/v8/jsonplaceholder
-   - Stream Chat Demo: http://localhost:8080/stream-chat
+**** Additional Features
+:PROPERTIES:
+:CUSTOM_ID: additional-features
+:END:
+- *Calculator*: http://localhost:8080/calc
+- *Data Processing*: http://localhost:8080/data
+- *Weather Dashboard*: http://localhost:8080/weather
+- *User Profile*: http://localhost:8080/profile
+
+** Build Troubleshooting
+:PROPERTIES:
+:CUSTOM_ID: build-troubleshooting
+:END:
+*** Common TypeScript Build Issues
+:PROPERTIES:
+:CUSTOM_ID: typescript-build-issues
+:END:
+**** Missing V8 Functions Error
+:PROPERTIES:
+:CUSTOM_ID: missing-v8-functions
+:END:
+#+begin_example
+⚠️ Bundle missing required functions, using fallback
+❌ processStreamChatRequestSync: ❌
+❌ renderStreamChatHTML: ❌
+#+end_example
+
+*Solution:*
+#+begin_src bash
+cd client
+# Ensure you're compiling the correct file
+bun run build:v8-stream-chat
+# Verify output contains required functions
+grep -E "processStreamChatRequestSync|renderStreamChatHTML" dist/v8/stream-chat-demo.js
+#+end_src
+
+**** TypeScript Compilation Errors
+:PROPERTIES:
+:CUSTOM_ID: typescript-compilation-errors
+:END:
+#+begin_example
+error: Cannot find module 'stream-chat'
+#+end_example
+
+*Solution:*
+#+begin_src bash
+cd client
+# Reinstall dependencies
+rm -rf node_modules bun.lockb
+bun install
+# Try building again
+bun run build:v8-stream-chat
+#+end_src
+
+*** Common Rust Build Issues
+:PROPERTIES:
+:CUSTOM_ID: rust-build-issues
+:END:
+**** Environment Variables Not Loaded
+:PROPERTIES:
+:CUSTOM_ID: env-vars-not-loaded
+:END:
+#+begin_example
+Error: Environment variable STREAM_API_KEY not found
+#+end_example
+
+*Solution:*
+#+begin_src bash
+# Ensure .env file exists in project root
+ls -la .env
+
+# Check file contents
+cat .env
+
+# Restart server after changes
+cargo run
+#+end_src
+
+**** V8 Bundle Not Found
+:PROPERTIES:
+:CUSTOM_ID: v8-bundle-not-found
+:END:
+#+begin_example
+⚠️ Could not load bundle from: client/dist/v8/stream-chat-demo.js
+#+end_example
+
+*Solution:*
+#+begin_src bash
+# Check if file exists
+ls -la client/dist/v8/stream-chat-demo.js
+
+# If missing, build it
+cd client
+bun run build:v8-stream-chat
+cd ..
+
+# Restart Rust server
+cargo run
+#+end_src
+
+**** Permission Issues
+:PROPERTIES:
+:CUSTOM_ID: permission-issues
+:END:
+#+begin_example
+Permission denied (os error 13)
+#+end_example
+
+*Solution:*
+#+begin_src bash
+# Fix file permissions
+chmod +r client/dist/v8/stream-chat-demo.js
+
+# Or rebuild with correct permissions
+cd client
+bun run build:v8-stream-chat
+cd ..
+#+end_src
+
+*** Development Workflow Issues
+:PROPERTIES:
+:CUSTOM_ID: development-workflow-issues
+:END:
+**** Changes Not Reflected
+:PROPERTIES:
+:CUSTOM_ID: changes-not-reflected
+:END:
+When TypeScript changes don't appear:
+
+#+begin_src bash
+# 1. Recompile TypeScript
+cd client
+bun run build:v8-stream-chat
+
+# 2. Restart Rust server (Ctrl+C then)
+cd ..
+cargo run
+
+# 3. Clear browser cache if needed
+# Use Ctrl+Shift+R (hard refresh)
+#+end_src
+
+**** Port Already in Use
+:PROPERTIES:
+:CUSTOM_ID: port-already-in-use
+:END:
+#+begin_example
+Error: Address already in use (os error 48)
+#+end_example
+
+*Solution:*
+#+begin_src bash
+# Use different port
+PORT=3001 cargo run
+
+# Or kill existing process
+lsof -ti:8080 | xargs kill -9
+cargo run
+#+end_src
+
+*** Build Script Debugging
+:PROPERTIES:
+:CUSTOM_ID: build-script-debugging
+:END:
+**** Verbose Build Output
+:PROPERTIES:
+:CUSTOM_ID: verbose-build-output
+:END:
+#+begin_src bash
+# Rust verbose build
+cargo build --verbose
+
+# TypeScript with detailed output
+cd client
+bun build src/stream-chat-v8-demo.ts \
+  --outdir dist/v8 \
+  --target browser \
+  --format iife \
+  --outfile stream-chat-demo.js \
+  --verbose
+#+end_src
+
+**** Clean Rebuild
+:PROPERTIES:
+:CUSTOM_ID: clean-rebuild
+:END:
+#+begin_src bash
+# Clean Rust build
+cargo clean
+
+# Clean TypeScript build
+cd client
+rm -rf dist/v8/*
+
+# Rebuild everything
+bun run build:v8-stream-chat
+cd ..
+cargo build
+#+end_src
 
 ** V8 Processing Examples
 :PROPERTIES:

@@ -63,7 +63,7 @@ const SAMPLE_USERS: ChatUser[] = [
   },
   {
     id: "jane",
-    name: "Jane Smith", 
+    name: "Jane Smith",
     email: "jane@example.com",
     image: "https://avatar.example.com/jane.jpg",
     role: "moderator",
@@ -126,7 +126,7 @@ const SAMPLE_MESSAGES: ChatMessage[] = [
     type: "regular"
   },
   {
-    id: "msg2", 
+    id: "msg2",
     text: "Thanks John! Excited to be here!",
     user: SAMPLE_USERS[1],
     created_at: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
@@ -167,10 +167,10 @@ class MockStreamChatClient {
       iat: issued_at,
       exp: expires_at
     }));
-    
+
     // Simulate signature (in real implementation, would use HMAC-SHA256)
     const signature = btoa(`${this.api_secret}_${user_id}_${issued_at}`);
-    
+
     return `${header}.${payload}.${signature}`;
   }
 
@@ -181,7 +181,7 @@ class MockStreamChatClient {
 
   // List channels for user
   getUserChannels(user_id: string): ChannelData[] {
-    return SAMPLE_CHANNELS.filter(channel => 
+    return SAMPLE_CHANNELS.filter(channel =>
       channel.members?.includes(user_id)
     );
   }
@@ -196,7 +196,7 @@ class MockStreamChatClient {
 // Main authentication function
 function authenticateUser(request: TokenRequest, config: StreamChatConfig): TokenResponse {
   const startTime = Date.now();
-  
+
   try {
     // Validate user exists
     const user = SAMPLE_USERS.find(u => u.id === request.user_id);
@@ -210,12 +210,14 @@ function authenticateUser(request: TokenRequest, config: StreamChatConfig): Toke
 
     // Initialize mock Stream Chat client
     const serverClient = new MockStreamChatClient(config.api_key, config.api_secret);
-    
+
     // Create user token
     const token = serverClient.createToken(
-      request.user_id, 
+      request.user_id,
       request.expire_at
     );
+
+    console.log("token is ", token);
 
     // Calculate expiration
     const issued_at = request.issued_at || Math.floor(Date.now() / 1000);
@@ -242,7 +244,7 @@ function authenticateUser(request: TokenRequest, config: StreamChatConfig): Toke
 // Get user's chat context (channels, recent messages, etc.)
 function getUserChatContext(user_id: string, config: StreamChatConfig): any {
   const startTime = Date.now();
-  
+
   try {
     const user = SAMPLE_USERS.find(u => u.id === user_id);
     if (!user) {
@@ -254,10 +256,10 @@ function getUserChatContext(user_id: string, config: StreamChatConfig): any {
     }
 
     const serverClient = new MockStreamChatClient(config.api_key, config.api_secret);
-    
+
     // Get user's channels
     const channels = serverClient.getUserChannels(user_id);
-    
+
     // Get recent messages from each channel
     const channelsWithMessages = channels.map(channel => ({
       ...channel,
@@ -398,7 +400,7 @@ function processStreamChatRequest(requestType: string, params?: any): any {
           sample_channels: SAMPLE_CHANNELS.map(c => ({ id: c.id, name: c.name, type: c.type })),
           available_endpoints: [
             'authenticate - Generate user token',
-            'user_context - Get user channels and messages', 
+            'user_context - Get user channels and messages',
             'analytics - Chat usage statistics',
             'demo_setup - Configuration information'
           ]

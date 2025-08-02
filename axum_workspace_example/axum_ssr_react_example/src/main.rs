@@ -2227,7 +2227,9 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
 
   let (demo_title, demo_results) = match demo_type {
     "authenticate" => {
+      println!("file: {}, line :{}", file!(), line!());
       let user_id = params.data.as_deref().unwrap_or("john");
+      println!("file: {}, line :{}", file!(), line!());
       let auth_result = real_v8_executor::RealV8Executor::execute_stream_chat_js_sync(
         "authenticate",
         Some(user_id),
