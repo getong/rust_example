@@ -15,7 +15,7 @@ async fn main() {
     .route("/", get(serve_index))
     .route("/static/wasm_project.js", get(serve_js))
     .route("/static/wasm_project_bg.wasm", get(serve_wasm));
-    // .nest_service("/static", ServeDir::new("./static"));
+  // .nest_service("/static", ServeDir::new("./static"));
 
   let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
     .await
