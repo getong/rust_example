@@ -7,6 +7,7 @@ use serde_json::Value;
 use ssr_rs::Ssr;
 
 mod config;
+mod real_v8_executor;
 mod simple_v8_executor;
 mod v8_processor;
 mod v8_stream_executor;
@@ -134,11 +135,15 @@ struct UserStats {
 
 #[tokio::main]
 async fn main() {
-  // ssr_rs will handle V8 initialization
+  // ssr_rs will handle V8 platform initialization
   Ssr::create_platform();
 
-  // V8 runtime is initialized on-demand by v8_stream_executor
-  println!("✅ Server starting with Stream Chat support");
+  // Initialize V8 for real Stream Chat execution
+  if let Err(e) = real_v8_executor::RealV8Executor::initialize() {
+    eprintln!("❌ Failed to initialize V8 executor: {}", e);
+    std::process::exit(1);
+  }
+  println!("✅ Server starting with Stream Chat V8 support");
 
   // build our application with multiple demonstration routes
   let app = Router::new()
@@ -2432,7 +2437,7 @@ await client.connectUser(userObject, async () => {{
         margin: 10px 0;
       }}
 
-      code {{ 
+      code {{
         font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
         background: #f1f3f4;
         padding: 2px 4px;
@@ -2476,49 +2481,45 @@ await client.connectUser(userObject, async () => {{
 async fn stream_chat_authenticate(Query(params): Query<QueryParams>) -> Html<String> {
   let start = Instant::now();
 
-  // Create a V8 TypeScript processor
-  let processor = match v8_processor::V8TypeScriptProcessor::new() {
-    Some(p) => p,
-    None => {
-      let error_result = r#"{"error": "V8 TypeScript processor not available"}"#;
-      println!("Stream Chat Authenticate Result: {}", error_result);
-      return Html(format!("<pre>{}</pre>", error_result));
-    }
-  };
-
   let user_id = params.data.as_deref().unwrap_or("john");
-  let auth_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
-    "authenticate",
-    Some(user_id),
-  ));
+  let auth_result =
+    real_v8_executor::RealV8Executor::execute_stream_chat_js("authenticate", Some(user_id));
 
   match auth_result {
-    Some(result) => {
+    Ok(html_result) => {
       println!(
-        "Stream Chat Authenticate Result for {}: {}",
-        user_id, result
+        "Stream Chat Authenticate Success for {}: HTML rendered via V8",
+        user_id
       );
-      let formatted_result = match serde_json::from_str::<serde_json::Value>(&result) {
-        Ok(json) => serde_json::to_string_pretty(&json).unwrap_or(result.clone()),
-        Err(_) => result.clone(),
-      };
       Html(format!(
-        r#"<h2>Stream Chat Authentication - User: {}</h2>
-        <p>Processing Time: {:?}</p>
-        <pre style="background: #f5f5f5; padding: 15px; border-radius: 5px;">{}</pre>
-        <p><a href="/stream-chat">← Back to Stream Chat Demo</a></p>"#,
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>Stream Chat V8 Authentication - User: {}</h2>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><strong>Execution Method:</strong> V8 JavaScript Engine with HTML Rendering</p>
+        <div style="margin: 20px 0;">
+          {}
+        </div>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
         user_id,
         start.elapsed(),
-        formatted_result
+        html_result
       ))
     }
-    None => {
-      let error_result = r#"{"error": "Failed to authenticate user"}"#;
-      println!(
-        "Stream Chat Authenticate Error for {}: {}",
-        user_id, error_result
-      );
-      Html(format!("<pre>{}</pre>", error_result))
+    Err(error) => {
+      println!("Stream Chat Authenticate Error for {}: {}", user_id, error);
+      Html(format!(
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>❌ Stream Chat V8 Error</h2>
+        <p><strong>User:</strong> {}</p>
+        <p><strong>Error:</strong> {}</p>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
+        user_id,
+        error,
+        start.elapsed()
+      ))
     }
   }
 }
@@ -2527,48 +2528,45 @@ async fn stream_chat_authenticate(Query(params): Query<QueryParams>) -> Html<Str
 async fn stream_chat_user_context(Query(params): Query<QueryParams>) -> Html<String> {
   let start = Instant::now();
 
-  let processor = match v8_processor::V8TypeScriptProcessor::new() {
-    Some(p) => p,
-    None => {
-      let error_result = r#"{"error": "V8 TypeScript processor not available"}"#;
-      println!("Stream Chat User Context Result: {}", error_result);
-      return Html(format!("<pre>{}</pre>", error_result));
-    }
-  };
-
   let user_id = params.data.as_deref().unwrap_or("john");
-  let context_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
-    "user-context",
-    Some(user_id),
-  ));
+  let context_result =
+    real_v8_executor::RealV8Executor::execute_stream_chat_js("user-context", Some(user_id));
 
   match context_result {
-    Some(result) => {
+    Ok(html_result) => {
       println!(
-        "Stream Chat User Context Result for {}: {}",
-        user_id, result
+        "Stream Chat User Context Success for {}: HTML rendered via V8",
+        user_id
       );
-      let formatted_result = match serde_json::from_str::<serde_json::Value>(&result) {
-        Ok(json) => serde_json::to_string_pretty(&json).unwrap_or(result.clone()),
-        Err(_) => result.clone(),
-      };
       Html(format!(
-        r#"<h2>Stream Chat User Context - User: {}</h2>
-        <p>Processing Time: {:?}</p>
-        <pre style="background: #f5f5f5; padding: 15px; border-radius: 5px;">{}</pre>
-        <p><a href="/stream-chat">← Back to Stream Chat Demo</a></p>"#,
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>Stream Chat V8 User Context - User: {}</h2>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><strong>Execution Method:</strong> V8 JavaScript Engine with HTML Rendering</p>
+        <div style="margin: 20px 0;">
+          {}
+        </div>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
         user_id,
         start.elapsed(),
-        formatted_result
+        html_result
       ))
     }
-    None => {
-      let error_result = r#"{"error": "Failed to get user context"}"#;
-      println!(
-        "Stream Chat User Context Error for {}: {}",
-        user_id, error_result
-      );
-      Html(format!("<pre>{}</pre>", error_result))
+    Err(error) => {
+      println!("Stream Chat User Context Error for {}: {}", user_id, error);
+      Html(format!(
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>❌ Stream Chat V8 Error</h2>
+        <p><strong>User:</strong> {}</p>
+        <p><strong>Error:</strong> {}</p>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
+        user_id,
+        error,
+        start.elapsed()
+      ))
     }
   }
 }
@@ -2577,40 +2575,38 @@ async fn stream_chat_user_context(Query(params): Query<QueryParams>) -> Html<Str
 async fn stream_chat_analytics() -> Html<String> {
   let start = Instant::now();
 
-  let mut processor = match v8_processor::V8TypeScriptProcessor::new() {
-    Some(p) => p,
-    None => {
-      let error_result = r#"{"error": "V8 TypeScript processor not available"}"#;
-      println!("Stream Chat Analytics Result: {}", error_result);
-      return Html(format!("<pre>{}</pre>", error_result));
-    }
-  };
-
-  let analytics_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
-    "analytics",
-    None,
-  ));
+  let analytics_result =
+    real_v8_executor::RealV8Executor::execute_stream_chat_js("analytics", None);
 
   match analytics_result {
-    Some(result) => {
-      println!("Stream Chat Analytics Result: {}", result);
-      let formatted_result = match serde_json::from_str::<serde_json::Value>(&result) {
-        Ok(json) => serde_json::to_string_pretty(&json).unwrap_or(result.clone()),
-        Err(_) => result.clone(),
-      };
+    Ok(html_result) => {
+      println!("Stream Chat Analytics Success: HTML rendered via V8");
       Html(format!(
-        r#"<h2>Stream Chat Analytics</h2>
-        <p>Processing Time: {:?}</p>
-        <pre style="background: #f5f5f5; padding: 15px; border-radius: 5px;">{}</pre>
-        <p><a href="/stream-chat">← Back to Stream Chat Demo</a></p>"#,
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>Stream Chat V8 Analytics</h2>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><strong>Execution Method:</strong> V8 JavaScript Engine with HTML Rendering</p>
+        <div style="margin: 20px 0;">
+          {}
+        </div>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
         start.elapsed(),
-        formatted_result
+        html_result
       ))
     }
-    None => {
-      let error_result = r#"{"error": "Failed to get analytics"}"#;
-      println!("Stream Chat Analytics Error: {}", error_result);
-      Html(format!("<pre>{}</pre>", error_result))
+    Err(error) => {
+      println!("Stream Chat Analytics Error: {}", error);
+      Html(format!(
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>❌ Stream Chat V8 Error</h2>
+        <p><strong>Error:</strong> {}</p>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
+        error,
+        start.elapsed()
+      ))
     }
   }
 }
@@ -2619,39 +2615,37 @@ async fn stream_chat_analytics() -> Html<String> {
 async fn stream_chat_setup() -> Html<String> {
   let start = Instant::now();
 
-  let mut processor = match v8_processor::V8TypeScriptProcessor::new() {
-    Some(p) => p,
-    None => {
-      let error_result = r#"{"error": "V8 TypeScript processor not available"}"#;
-      println!("Stream Chat Setup Result: {}", error_result);
-      return Html(format!("<pre>{}</pre>", error_result));
-    }
-  };
-
-  let setup_result = Some(simple_v8_executor::SimpleV8Executor::execute_stream_chat(
-    "setup", None,
-  ));
+  let setup_result = real_v8_executor::RealV8Executor::execute_stream_chat_js("setup", None);
 
   match setup_result {
-    Some(result) => {
-      println!("Stream Chat Setup Result: {}", result);
-      let formatted_result = match serde_json::from_str::<serde_json::Value>(&result) {
-        Ok(json) => serde_json::to_string_pretty(&json).unwrap_or(result.clone()),
-        Err(_) => result.clone(),
-      };
+    Ok(html_result) => {
+      println!("Stream Chat Setup Success: HTML rendered via V8");
       Html(format!(
-        r#"<h2>Stream Chat Setup & Configuration</h2>
-        <p>Processing Time: {:?}</p>
-        <pre style="background: #f5f5f5; padding: 15px; border-radius: 5px;">{}</pre>
-        <p><a href="/stream-chat">← Back to Stream Chat Demo</a></p>"#,
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>Stream Chat V8 Setup & Configuration</h2>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><strong>Execution Method:</strong> V8 JavaScript Engine with HTML Rendering</p>
+        <div style="margin: 20px 0;">
+          {}
+        </div>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
         start.elapsed(),
-        formatted_result
+        html_result
       ))
     }
-    None => {
-      let error_result = r#"{"error": "Failed to get setup info"}"#;
-      println!("Stream Chat Setup Error: {}", error_result);
-      Html(format!("<pre>{}</pre>", error_result))
+    Err(error) => {
+      println!("Stream Chat Setup Error: {}", error);
+      Html(format!(
+        r#"<div style="font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <h2>❌ Stream Chat V8 Error</h2>
+        <p><strong>Error:</strong> {}</p>
+        <p><strong>Processing Time:</strong> {:?}</p>
+        <p><a href="/stream-chat" style="color: #007acc; text-decoration: none;">← Back to Stream Chat Demo</a></p>
+        </div>"#,
+        error,
+        start.elapsed()
+      ))
     }
   }
 }
@@ -2691,7 +2685,7 @@ async fn stream_chat_token_demo(Query(params): Query<QueryParams>) -> Html<Strin
     r#"
     <div class="token-demo">
       <h1>🔐 Stream Chat Token Generation Demo</h1>
-      
+
       <div class="code-section">
         <h2>The Code Pattern (from Stream.io docs)</h2>
         <pre class="code-block"><code>// Define values
@@ -2705,7 +2699,7 @@ const serverClient = StreamChat.getInstance(api_key, api_secret);
 // Create User Token
 const token = serverClient.createToken(user_id);</code></pre>
       </div>
-      
+
       <div class="implementation-section">
         <h2>Our Rust Implementation</h2>
         <pre class="code-block"><code>// Load credentials from environment
@@ -2716,17 +2710,17 @@ let api_secret = env::var("STREAM_API_SECRET").unwrap_or("demo_secret");
 let processor = V8TypeScriptProcessor::new();
 let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
       </div>
-      
+
       <div class="result-section">
         <h2>Generated Token Result</h2>
         <div class="token-display">
           <strong>Token:</strong> <code class="token">{}</code>
         </div>
-        
+
         <h3>Full Response:</h3>
         <pre class="result-json">{}</pre>
       </div>
-      
+
       <div class="config-info">
         <h2>Current Configuration</h2>
         <ul>
@@ -2736,7 +2730,7 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
           <li><strong>Processing Time:</strong> {:?}</li>
         </ul>
       </div>
-      
+
       <div class="try-section">
         <h2>Try Different Users</h2>
         <div class="user-links">
@@ -2746,12 +2740,12 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
           <a href="/stream-chat/token?data=bob" class="user-link">Generate for Bob</a>
         </div>
       </div>
-      
+
       <div class="navigation">
         <a href="/stream-chat" class="nav-link">← Back to Stream Chat Demo</a>
       </div>
     </div>
-    
+
     <style>
       .token-demo {{
         max-width: 1000px;
@@ -2759,19 +2753,19 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
         padding: 20px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }}
-      
+
       h1 {{
         color: #005fff;
         margin-bottom: 30px;
       }}
-      
+
       .code-section, .implementation-section, .result-section, .config-info, .try-section {{
         background: #f5f5f5;
         padding: 20px;
         border-radius: 8px;
         margin-bottom: 20px;
       }}
-      
+
       .code-block {{
         background: #282c34;
         color: #abb2bf;
@@ -2779,13 +2773,13 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
         border-radius: 5px;
         overflow-x: auto;
       }}
-      
+
       .code-block code {{
         font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
         font-size: 14px;
         line-height: 1.5;
       }}
-      
+
       .token-display {{
         background: white;
         padding: 15px;
@@ -2793,7 +2787,7 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
         margin-bottom: 15px;
         border: 1px solid #ddd;
       }}
-      
+
       .token {{
         background: #e3f2fd;
         padding: 2px 6px;
@@ -2801,7 +2795,7 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
         font-family: monospace;
         word-break: break-all;
       }}
-      
+
       .result-json {{
         background: white;
         padding: 15px;
@@ -2809,27 +2803,27 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
         border: 1px solid #ddd;
         overflow-x: auto;
       }}
-      
+
       .config-info ul {{
         list-style: none;
         padding: 0;
       }}
-      
+
       .config-info li {{
         padding: 8px 0;
         border-bottom: 1px solid #eee;
       }}
-      
+
       .config-info li:last-child {{
         border-bottom: none;
       }}
-      
+
       .user-links {{
         display: flex;
         gap: 10px;
         flex-wrap: wrap;
       }}
-      
+
       .user-link {{
         background: #005fff;
         color: white;
@@ -2838,22 +2832,22 @@ let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
         border-radius: 5px;
         transition: background 0.3s;
       }}
-      
+
       .user-link:hover {{
         background: #0047d0;
       }}
-      
+
       .nav-link {{
         display: inline-block;
         margin-top: 20px;
         color: #005fff;
         text-decoration: none;
       }}
-      
+
       .nav-link:hover {{
         text-decoration: underline;
       }}
-      
+
       .error {{
         background: #fee;
         color: #c00;
