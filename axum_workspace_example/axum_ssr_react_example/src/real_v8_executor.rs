@@ -216,41 +216,382 @@ impl RealV8Executor {
     // Load the actual Stream Chat bundle
     let stream_chat_bundle = Self::load_stream_chat_bundle()?;
 
+    // Add custom console implementation to capture console.log output
+    let console_setup = r#"
+    // Custom console implementation that captures output for Rust
+    globalThis.console = {
+      log: function(...args) {
+        // Convert all arguments to strings and join them
+        const message = args.map(arg => {
+          if (typeof arg === 'object') {
+            try {
+              return JSON.stringify(arg);
+            } catch (e) {
+              return String(arg);
+            }
+          }
+          return String(arg);
+        }).join(' ');
+        
+        // Store in a global variable that Rust can access
+        if (!globalThis._consoleOutput) {
+          globalThis._consoleOutput = [];
+        }
+        globalThis._consoleOutput.push('[JS] ' + message);
+      }
+    };
+    "#;
+
+    // Add browser polyfills before loading Stream Chat SDK
+    let browser_polyfills = r#"
+    // Browser polyfills for V8 environment
+    if (typeof window === 'undefined') {
+      globalThis.window = globalThis;
+      globalThis.self = globalThis;
+      // Mock DOM element class
+      class MockElement {
+        constructor(tagName) {
+          this.tagName = tagName;
+          this.attributes = {};
+          this.style = {};
+          this.classList = {
+            add: () => {},
+            remove: () => {},
+            contains: () => false
+          };
+          this.children = [];
+          this.innerHTML = '';
+          this.textContent = '';
+          this.href = '';
+        }
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+          if (name === 'href') {
+            this.href = value;
+            // Parse URL for Stream Chat SDK
+            try {
+              const url = new URL(value);
+              this.protocol = url.protocol;
+              this.host = url.host;
+              this.hostname = url.hostname;
+              this.port = url.port;
+              this.pathname = url.pathname;
+              this.search = url.search;
+              this.hash = url.hash;
+            } catch (e) {
+              // If URL parsing fails, use defaults
+              this.protocol = 'http:';
+              this.host = 'localhost';
+              this.hostname = 'localhost';
+              this.port = '';
+              this.pathname = '/';
+              this.search = '';
+              this.hash = '';
+            }
+          }
+        }
+        getAttribute(name) {
+          return this.attributes[name];
+        }
+        addEventListener() {}
+        removeEventListener() {}
+        appendChild() {}
+        removeChild() {}
+        querySelector() { return null; }
+        querySelectorAll() { return []; }
+      }
+      
+      globalThis.document = {
+        createElement: (tagName) => new MockElement(tagName),
+        documentElement: new MockElement('html'),
+        head: new MockElement('head'),
+        body: new MockElement('body'),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => null,
+        getElementsByTagName: () => [],
+        getElementsByClassName: () => []
+      };
+      globalThis.navigator = {
+        userAgent: 'V8-StreamChat/1.0',
+        language: 'en-US'
+      };
+      globalThis.location = {
+        href: 'http://localhost:8080',
+        origin: 'http://localhost:8080',
+        protocol: 'http:',
+        host: 'localhost:8080',
+        hostname: 'localhost',
+        port: '8080',
+        pathname: '/',
+        search: '',
+        hash: ''
+      };
+      globalThis.localStorage = {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+        clear: () => {},
+        length: 0,
+        key: () => null
+      };
+      globalThis.sessionStorage = {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+        clear: () => {},
+        length: 0,
+        key: () => null
+      };
+      
+      // Add XMLHttpRequest polyfill
+      globalThis.XMLHttpRequest = class {
+        open() {}
+        send() {}
+        setRequestHeader() {}
+        addEventListener() {}
+        removeEventListener() {}
+      };
+      
+      // Add WebSocket polyfill
+      globalThis.WebSocket = class {
+        constructor(url) {
+          console.log("[V8 WebSocket Mock] Connection to:", url);
+        }
+        send() {}
+        close() {}
+        addEventListener() {}
+        removeEventListener() {}
+      };
+      
+      // Add crypto polyfill
+      globalThis.crypto = {
+        getRandomValues: (arr) => {
+          for (let i = 0; i < arr.length; i++) {
+            arr[i] = Math.floor(Math.random() * 256);
+          }
+          return arr;
+        },
+        subtle: {
+          digest: async () => new ArrayBuffer(32)
+        }
+      };
+      
+      // Add URL polyfill
+      if (typeof URL === 'undefined') {
+        globalThis.URL = class {
+          constructor(url, base) {
+            this.href = url;
+            // Simple URL parsing
+            const match = url.match(/^(https?:)\/\/([^\/]+)(\/[^?#]*)(\?[^#]*)?(#.*)?$/);
+            if (match) {
+              this.protocol = match[1];
+              this.host = match[2];
+              this.pathname = match[3] || '/';
+              this.search = match[4] || '';
+              this.hash = match[5] || '';
+              this.hostname = this.host.split(':')[0];
+              this.port = this.host.split(':')[1] || '';
+            } else {
+              this.protocol = 'http:';
+              this.host = 'localhost';
+              this.hostname = 'localhost';
+              this.port = '';
+              this.pathname = '/';
+              this.search = '';
+              this.hash = '';
+            }
+            this.origin = this.protocol + '//' + this.host;
+          }
+          toString() { return this.href; }
+        };
+      }
+      
+      // Add encode/decode URI component if missing
+      if (typeof encodeURIComponent === 'undefined') {
+        globalThis.encodeURIComponent = (str) => {
+          return str.replace(/[!'()*]/g, (c) => {
+            return '%' + c.charCodeAt(0).toString(16);
+          });
+        };
+      }
+      
+      if (typeof decodeURIComponent === 'undefined') {
+        globalThis.decodeURIComponent = (str) => {
+          return str.replace(/%([0-9A-F]{2})/g, (match, p1) => {
+            return String.fromCharCode(parseInt(p1, 16));
+          });
+        };
+      }
+      
+      // Add URLSearchParams polyfill
+      if (typeof URLSearchParams === 'undefined') {
+        globalThis.URLSearchParams = class {
+          constructor(init) {
+            this.params = {};
+            if (typeof init === 'string') {
+              // Remove leading '?'
+              init = init.replace(/^\?/, '');
+              // Parse query string
+              init.split('&').forEach(pair => {
+                const [key, value] = pair.split('=');
+                if (key) {
+                  this.params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+                }
+              });
+            } else if (init && typeof init === 'object') {
+              // Handle object initialization
+              Object.entries(init).forEach(([key, value]) => {
+                this.params[key] = String(value);
+              });
+            }
+          }
+          get(key) {
+            return this.params[key] || null;
+          }
+          set(key, value) {
+            this.params[key] = String(value);
+          }
+          has(key) {
+            return key in this.params;
+          }
+          delete(key) {
+            delete this.params[key];
+          }
+          append(key, value) {
+            // For simplicity, just set (not handling multiple values)
+            this.params[key] = String(value);
+          }
+          toString() {
+            return Object.entries(this.params)
+              .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(value))
+              .join('&');
+          }
+          forEach(callback) {
+            Object.entries(this.params).forEach(([key, value]) => {
+              callback(value, key, this);
+            });
+          }
+          entries() {
+            return Object.entries(this.params)[Symbol.iterator]();
+          }
+          keys() {
+            return Object.keys(this.params)[Symbol.iterator]();
+          }
+          values() {
+            return Object.values(this.params)[Symbol.iterator]();
+          }
+        };
+      }
+      
+      // Add FormData polyfill
+      globalThis.FormData = class {
+        constructor() {
+          this.data = {};
+        }
+        append(key, value) {
+          this.data[key] = value;
+        }
+        get(key) {
+          return this.data[key];
+        }
+      };
+      
+      // Add Headers polyfill
+      globalThis.Headers = class {
+        constructor(init) {
+          this.headers = {};
+          if (init) {
+            Object.entries(init).forEach(([key, value]) => {
+              this.headers[key.toLowerCase()] = value;
+            });
+          }
+        }
+        set(key, value) {
+          this.headers[key.toLowerCase()] = value;
+        }
+        get(key) {
+          return this.headers[key.toLowerCase()];
+        }
+        has(key) {
+          return key.toLowerCase() in this.headers;
+        }
+        delete(key) {
+          delete this.headers[key.toLowerCase()];
+        }
+      };
+      
+      // Add Request/Response polyfills
+      globalThis.Request = class {
+        constructor(url, init) {
+          this.url = url;
+          this.method = (init && init.method) || 'GET';
+          this.headers = new Headers(init && init.headers);
+          this.body = init && init.body;
+        }
+      };
+      
+      globalThis.Response = class {
+        constructor(body, init) {
+          this.body = body;
+          this.status = (init && init.status) || 200;
+          this.statusText = (init && init.statusText) || 'OK';
+          this.headers = new Headers(init && init.headers);
+          this.ok = this.status >= 200 && this.status < 300;
+        }
+        async json() {
+          return JSON.parse(this.body);
+        }
+        async text() {
+          return String(this.body);
+        }
+      };
+      
+      console.log("[V8] Browser polyfills initialized");
+    }
+    "#;
+
     // Execute the bundled Stream Chat code
     let js_code = format!(
       r#"
-            console.log("[V8] Loading Stream Chat bundle...");
+      {}
+      
+      {}
+      
+      console.log("[V8] Loading Stream Chat bundle...");
 
-            // Load the Bun-bundled Stream Chat SDK
-            {}
+      // Load the Bun-bundled Stream Chat SDK
+      {}
 
-            console.log("[V8] Bundle loaded, checking globals...");
-            console.log("[V8] processStreamChatRequestSync available:", typeof processStreamChatRequestSync);
-            console.log("[V8] renderStreamChatHTML available:", typeof renderStreamChatHTML);
-            console.log("[V8] css available:", typeof css);
+      console.log("[V8] Bundle loaded, checking globals...");
+      console.log("[V8] processStreamChatRequestSync available:", typeof processStreamChatRequestSync);
+      console.log("[V8] renderStreamChatHTML available:", typeof renderStreamChatHTML);
+      console.log("[V8] css available:", typeof css);
 
-            // Synchronous execution wrapper
-            try {{
-                console.log("[V8] Starting execution for action: {}", "with user: {}");
+      // Synchronous execution wrapper
+      try {{
+          console.log("[V8] Starting execution for action: {} with user: {}");
 
-                // Wait a bit for the bundle to initialize
-                if (typeof processStreamChatRequestSync === 'undefined') {{
-                    throw new Error('Stream Chat bundle not properly loaded - processStreamChatRequestSync not found');
-                }}
+          // Wait a bit for the bundle to initialize
+          if (typeof processStreamChatRequestSync === 'undefined') {{
+              throw new Error('Stream Chat bundle not properly loaded - processStreamChatRequestSync not found');
+          }}
 
-                // Execute Stream Chat processing synchronously
-                console.log("[V8] Calling processStreamChatRequestSync...");
-                const data = processStreamChatRequestSync('{}', {{
-                    userId: '{}',
-                    apiKey: '{}',
-                    apiSecret: '{}'
-                }});
+          // Execute Stream Chat processing synchronously
+          console.log("[V8] Calling processStreamChatRequestSync...");
+          const data = processStreamChatRequestSync('{}', {{
+              userId: '{}',
+              apiKey: '{}',
+              apiSecret: '{}'
+          }});
 
-                console.log("[V8] Processing completed, success:", data.success);
+          console.log("[V8] Processing completed, success:", data.success);
 
-                // Render the HTML
-                console.log("[V8] Rendering HTML...");
-                const htmlResult = renderStreamChatHTML('{}', data);
+          // Render the HTML
+          console.log("[V8] Rendering HTML...");
+          const htmlResult = renderStreamChatHTML('{}', data);
 
                 console.log("[V8] HTML rendered, length:", htmlResult.length);
 
@@ -291,6 +632,8 @@ impl RealV8Executor {
                 errorHtml;
             }}
             "#,
+      console_setup,
+      browser_polyfills,
       stream_chat_bundle,
       action,
       user_id.unwrap_or("anonymous"),
@@ -316,6 +659,27 @@ impl RealV8Executor {
     // Convert result to string
     let result_str = result.to_string(scope).ok_or("Failed to convert result")?;
     let rust_string = result_str.to_rust_string_lossy(scope);
+
+    // Extract and print console output from JavaScript
+    let console_output_js = v8::String::new(scope, "globalThis._consoleOutput || []").unwrap();
+    let console_script = v8::Script::compile(scope, console_output_js, None).unwrap();
+    if let Some(console_result) = console_script.run(scope) {
+      if let Ok(console_array) = v8::Local::<v8::Array>::try_from(console_result) {
+        let length = console_array.length();
+        println!("🔍 JavaScript Console Output ({} messages):", length);
+        for i in 0..length {
+          if let Some(element) = console_array.get_index(scope, i) {
+            if let Some(element_str) = element.to_string(scope) {
+              let message = element_str.to_rust_string_lossy(scope);
+              println!("  {}", message);
+            }
+          }
+        }
+        if length == 0 {
+          println!("  (No console output captured)");
+        }
+      }
+    }
 
     println!("rust_string: {:?}", rust_string);
     println!(
