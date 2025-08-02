@@ -1,6 +1,8 @@
 use std::{fs, sync::Mutex};
 
 use once_cell::sync::Lazy;
+
+use crate::config::STREAM_CONFIG;
 // use ssr_rs::v8;
 
 pub trait HttpRequest {
@@ -101,6 +103,57 @@ impl V8TypeScriptProcessor {
       }
       Err(_) => None,
     }
+  }
+
+  // Execute Stream Chat TypeScript code with real credentials
+  pub fn execute_stream_chat_with_credentials(
+    &self,
+    request_type: &str,
+    params: Option<serde_json::Value>,
+  ) -> Option<String> {
+    let code_guard = V8_CODE.lock().ok()?;
+    let _code = code_guard.as_ref()?;
+
+    // Create params with real Stream Chat credentials
+    let mut enhanced_params = params.unwrap_or(serde_json::json!({}));
+    if let Some(obj) = enhanced_params.as_object_mut() {
+      obj.insert(
+        "api_key".to_string(),
+        serde_json::json!(&STREAM_CONFIG.api_key),
+      );
+      obj.insert(
+        "api_secret".to_string(),
+        serde_json::json!(&STREAM_CONFIG.api_secret),
+      );
+    }
+
+    // In a real implementation, this would execute the TypeScript code through V8
+    // For now, we'll simulate the response based on the request type
+    let result = match request_type {
+      "authenticate" => {
+        if let Some(user_id) = enhanced_params.get("user_id").and_then(|v| v.as_str()) {
+          self.authenticate_stream_user(
+            user_id,
+            Some(&STREAM_CONFIG.api_key),
+            Some(&STREAM_CONFIG.api_secret),
+          )
+        } else {
+          None
+        }
+      }
+      "user-context" => {
+        if let Some(user_id) = enhanced_params.get("user_id").and_then(|v| v.as_str()) {
+          self.get_user_chat_context(user_id)
+        } else {
+          None
+        }
+      }
+      "analytics" => self.analyze_stream_chat_data(),
+      "setup" => self.get_stream_chat_demo_setup(),
+      _ => None,
+    };
+
+    result
   }
 
   // Simulate processing using the loaded TypeScript code
@@ -723,9 +776,9 @@ impl V8TypeScriptProcessor {
     let code_guard = V8_CODE.lock().ok()?;
     let _code = code_guard.as_ref()?;
 
-    // Define values like in Stream.io documentation
-    let api_key = api_key.unwrap_or("demo_api_key_12345");
-    let api_secret = api_secret.unwrap_or("demo_api_secret_67890");
+    // Use real Stream Chat credentials from environment variables
+    let api_key = api_key.unwrap_or(&STREAM_CONFIG.api_key);
+    let api_secret = api_secret.unwrap_or(&STREAM_CONFIG.api_secret);
 
     // Simulate Stream Chat server client initialization and token creation
     // const serverClient = StreamChat.getInstance(api_key, api_secret);
@@ -1054,8 +1107,8 @@ impl V8TypeScriptProcessor {
       "success": true,
       "data": {
         "config": {
-          "api_key": "demo_api_key_12345",
-          "api_secret": "demo_api_secret_67890",
+          "api_key": &STREAM_CONFIG.api_key,
+          "api_secret": &STREAM_CONFIG.api_secret,
           "base_url": "https://chat.stream-io-api.com",
           "server_client_initialized": true,
           "authentication_enabled": true,

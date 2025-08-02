@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ssr_rs::Ssr;
 
+mod config;
 mod v8_processor;
 
 thread_local! {
