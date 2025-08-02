@@ -155,7 +155,8 @@ async fn main() {
     .route("/stream-chat/authenticate", get(stream_chat_authenticate))
     .route("/stream-chat/user-context", get(stream_chat_user_context))
     .route("/stream-chat/analytics", get(stream_chat_analytics))
-    .route("/stream-chat/setup", get(stream_chat_setup));
+    .route("/stream-chat/setup", get(stream_chat_setup))
+    .route("/stream-chat/token", get(stream_chat_token_demo));
 
   // run our app with hyper, listening globally on port 3000
   let listener = match tokio::net::TcpListener::bind("0.0.0.0:8080").await {
@@ -2626,4 +2627,231 @@ async fn stream_chat_setup() -> Html<String> {
       Html(format!("<pre>{}</pre>", error_result))
     }
   }
+}
+
+// Stream Chat Token Generation Demo - shows the complete authentication flow
+async fn stream_chat_token_demo(Query(params): Query<QueryParams>) -> Html<String> {
+  use crate::config::STREAM_CONFIG;
+  
+  let start = Instant::now();
+  let user_id = params.data.as_deref().unwrap_or("john");
+  
+  // Create a V8 TypeScript processor
+  let processor = match v8_processor::V8TypeScriptProcessor::new() {
+    Some(p) => p,
+    None => {
+      return render_custom_html(
+        "<div class='error'>V8 TypeScript processor not available</div>",
+        "Stream Chat Token Demo - Error"
+      );
+    }
+  };
+  
+  // Get authentication result
+  let auth_result = processor.authenticate_stream_user(user_id, None, None);
+  
+  let (token, token_details) = match auth_result {
+    Some(result) => {
+      match serde_json::from_str::<serde_json::Value>(&result) {
+        Ok(json) => {
+          let token = json.get("token")
+            .and_then(|t| t.as_str())
+            .unwrap_or("N/A")
+            .to_string();
+          (token, serde_json::to_string_pretty(&json).unwrap_or(result))
+        }
+        Err(_) => ("Error".to_string(), result)
+      }
+    }
+    None => ("Failed to generate".to_string(), "No response from processor".to_string())
+  };
+  
+  let demo_html = format!(
+    r#"
+    <div class="token-demo">
+      <h1>🔐 Stream Chat Token Generation Demo</h1>
+      
+      <div class="code-section">
+        <h2>The Code Pattern (from Stream.io docs)</h2>
+        <pre class="code-block"><code>// Define values
+const api_key = "{}";
+const api_secret = "{}";
+const user_id = "{}";
+
+// Initialize a Server Client
+const serverClient = StreamChat.getInstance(api_key, api_secret);
+
+// Create User Token
+const token = serverClient.createToken(user_id);</code></pre>
+      </div>
+      
+      <div class="implementation-section">
+        <h2>Our Rust Implementation</h2>
+        <pre class="code-block"><code>// Load credentials from environment
+let api_key = env::var("STREAM_API_KEY").unwrap_or("demo_key");
+let api_secret = env::var("STREAM_API_SECRET").unwrap_or("demo_secret");
+
+// Process through V8 TypeScript
+let processor = V8TypeScriptProcessor::new();
+let token = processor.authenticate_stream_user("{}", None, None);</code></pre>
+      </div>
+      
+      <div class="result-section">
+        <h2>Generated Token Result</h2>
+        <div class="token-display">
+          <strong>Token:</strong> <code class="token">{}</code>
+        </div>
+        
+        <h3>Full Response:</h3>
+        <pre class="result-json">{}</pre>
+      </div>
+      
+      <div class="config-info">
+        <h2>Current Configuration</h2>
+        <ul>
+          <li><strong>API Key:</strong> <code>{}</code></li>
+          <li><strong>API Secret:</strong> <code>{}***</code> (hidden for security)</li>
+          <li><strong>User ID:</strong> <code>{}</code></li>
+          <li><strong>Processing Time:</strong> {:?}</li>
+        </ul>
+      </div>
+      
+      <div class="try-section">
+        <h2>Try Different Users</h2>
+        <div class="user-links">
+          <a href="/stream-chat/token?data=john" class="user-link">Generate for John</a>
+          <a href="/stream-chat/token?data=jane" class="user-link">Generate for Jane</a>
+          <a href="/stream-chat/token?data=alice" class="user-link">Generate for Alice</a>
+          <a href="/stream-chat/token?data=bob" class="user-link">Generate for Bob</a>
+        </div>
+      </div>
+      
+      <div class="navigation">
+        <a href="/stream-chat" class="nav-link">← Back to Stream Chat Demo</a>
+      </div>
+    </div>
+    
+    <style>
+      .token-demo {{
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }}
+      
+      h1 {{
+        color: #005fff;
+        margin-bottom: 30px;
+      }}
+      
+      .code-section, .implementation-section, .result-section, .config-info, .try-section {{
+        background: #f5f5f5;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }}
+      
+      .code-block {{
+        background: #282c34;
+        color: #abb2bf;
+        padding: 15px;
+        border-radius: 5px;
+        overflow-x: auto;
+      }}
+      
+      .code-block code {{
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.5;
+      }}
+      
+      .token-display {{
+        background: white;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+      }}
+      
+      .token {{
+        background: #e3f2fd;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: monospace;
+        word-break: break-all;
+      }}
+      
+      .result-json {{
+        background: white;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #ddd;
+        overflow-x: auto;
+      }}
+      
+      .config-info ul {{
+        list-style: none;
+        padding: 0;
+      }}
+      
+      .config-info li {{
+        padding: 8px 0;
+        border-bottom: 1px solid #eee;
+      }}
+      
+      .config-info li:last-child {{
+        border-bottom: none;
+      }}
+      
+      .user-links {{
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
+      
+      .user-link {{
+        background: #005fff;
+        color: white;
+        padding: 10px 20px;
+        text-decoration: none;
+        border-radius: 5px;
+        transition: background 0.3s;
+      }}
+      
+      .user-link:hover {{
+        background: #0047d0;
+      }}
+      
+      .nav-link {{
+        display: inline-block;
+        margin-top: 20px;
+        color: #005fff;
+        text-decoration: none;
+      }}
+      
+      .nav-link:hover {{
+        text-decoration: underline;
+      }}
+      
+      .error {{
+        background: #fee;
+        color: #c00;
+        padding: 20px;
+        border-radius: 5px;
+      }}
+    </style>
+    "#,
+    STREAM_CONFIG.api_key,
+    if STREAM_CONFIG.api_secret.len() > 8 { &STREAM_CONFIG.api_secret[..8] } else { &STREAM_CONFIG.api_secret },
+    user_id,
+    user_id,
+    if token.len() > 50 { format!("{}...", &token[..50]) } else { token.clone() },
+    token_details,
+    STREAM_CONFIG.api_key,
+    if STREAM_CONFIG.api_secret.len() > 8 { &STREAM_CONFIG.api_secret[..8] } else { &STREAM_CONFIG.api_secret },
+    user_id,
+    start.elapsed()
+  );
+  
+  Html(demo_html)
 }
