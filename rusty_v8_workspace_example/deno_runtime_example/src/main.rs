@@ -2,7 +2,6 @@ use std::{path::Path, rc::Rc, sync::Arc};
 
 use deno_core::{FsModuleLoader, ModuleSpecifier, error::AnyError, op2};
 use deno_fs::RealFs;
-use deno_permissions::UnstableSubdomainWildcards;
 use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::{
   deno_permissions::PermissionsContainer,
@@ -30,7 +29,6 @@ async fn main() -> Result<(), AnyError> {
   let fs = Arc::new(RealFs);
   let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(
     sys_traits::impls::RealSys,
-    UnstableSubdomainWildcards::Enabled,
   ));
   let mut worker = MainWorker::bootstrap_from_options(
     &main_module,
