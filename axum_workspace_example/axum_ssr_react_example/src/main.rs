@@ -2228,9 +2228,11 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
   let (demo_title, demo_results) = match demo_type {
     "authenticate" => {
       let user_id = params.data.as_deref().unwrap_or("john");
-      let auth_result =
-        real_v8_executor::RealV8Executor::execute_stream_chat_js("authenticate", Some(user_id))
-          .ok();
+      let auth_result = real_v8_executor::RealV8Executor::execute_stream_chat_js_sync(
+        "authenticate",
+        Some(user_id),
+      )
+      .ok();
       (
         format!("Stream Chat Authentication - User: {}", user_id),
         vec![auth_result.unwrap_or_else(|| "Failed to authenticate user".to_string())],
@@ -2238,9 +2240,11 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
     }
     "user-context" => {
       let user_id = params.data.as_deref().unwrap_or("john");
-      let context_result =
-        real_v8_executor::RealV8Executor::execute_stream_chat_js("user-context", Some(user_id))
-          .ok();
+      let context_result = real_v8_executor::RealV8Executor::execute_stream_chat_js_sync(
+        "user-context",
+        Some(user_id),
+      )
+      .ok();
       (
         format!("Stream Chat User Context - User: {}", user_id),
         vec![context_result.unwrap_or_else(|| "Failed to get user context".to_string())],
@@ -2248,7 +2252,7 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
     }
     "analytics" => {
       let analytics_result =
-        real_v8_executor::RealV8Executor::execute_stream_chat_js("analytics", None).ok();
+        real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("analytics", None).ok();
       (
         "Stream Chat Analytics".to_string(),
         vec![analytics_result.unwrap_or_else(|| "Failed to get analytics".to_string())],
@@ -2257,7 +2261,7 @@ async fn stream_chat_demo(Query(params): Query<QueryParams>) -> Html<String> {
     _ => {
       // Default to setup demo
       let setup_result =
-        real_v8_executor::RealV8Executor::execute_stream_chat_js("setup", None).ok();
+        real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("setup", None).ok();
       (
         "Stream Chat Demo Setup & Configuration".to_string(),
         vec![setup_result.unwrap_or_else(|| "Failed to get setup info".to_string())],
@@ -2478,7 +2482,7 @@ async fn stream_chat_authenticate(Query(params): Query<QueryParams>) -> Html<Str
 
   let user_id = params.data.as_deref().unwrap_or("john");
   let auth_result =
-    real_v8_executor::RealV8Executor::execute_stream_chat_js("authenticate", Some(user_id));
+    real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("authenticate", Some(user_id));
 
   match auth_result {
     Ok(html_result) => {
@@ -2525,7 +2529,7 @@ async fn stream_chat_user_context(Query(params): Query<QueryParams>) -> Html<Str
 
   let user_id = params.data.as_deref().unwrap_or("john");
   let context_result =
-    real_v8_executor::RealV8Executor::execute_stream_chat_js("user-context", Some(user_id));
+    real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("user-context", Some(user_id));
 
   match context_result {
     Ok(html_result) => {
@@ -2571,7 +2575,7 @@ async fn stream_chat_analytics() -> Html<String> {
   let start = Instant::now();
 
   let analytics_result =
-    real_v8_executor::RealV8Executor::execute_stream_chat_js("analytics", None);
+    real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("analytics", None);
 
   match analytics_result {
     Ok(html_result) => {
@@ -2610,7 +2614,7 @@ async fn stream_chat_analytics() -> Html<String> {
 async fn stream_chat_setup() -> Html<String> {
   let start = Instant::now();
 
-  let setup_result = real_v8_executor::RealV8Executor::execute_stream_chat_js("setup", None);
+  let setup_result = real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("setup", None);
 
   match setup_result {
     Ok(html_result) => {
@@ -2654,7 +2658,8 @@ async fn stream_chat_token_demo(Query(params): Query<QueryParams>) -> Html<Strin
 
   // Get authentication result using real V8 executor
   let auth_result =
-    real_v8_executor::RealV8Executor::execute_stream_chat_js("authenticate", Some(user_id)).ok();
+    real_v8_executor::RealV8Executor::execute_stream_chat_js_sync("authenticate", Some(user_id))
+      .ok();
 
   let (token, token_details) = match auth_result {
     Some(result) => match serde_json::from_str::<serde_json::Value>(&result) {

@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:ssr": "vite build --config vite.ssr.config.ts",
+    "build:stream-chat": "bun build src/real-stream-chat.ts --outdir dist --target node --format esm --external stream-chat",
+    "build:stream-chat-bundle": "bun build src/stream-chat-v8-compatible.ts --outdir dist --target browser --format iife --outfile stream-chat-entry.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
