@@ -1,0 +1,12 @@
+* rust deno scripting
+
+copy from https://github.com/niklaskorz/rust-deno-scripting
+
+update deno_runtime to 0.220
+
+
+
+#+begin_src shell
+cargo build
+cargo run -- example.ts
+#+end_src

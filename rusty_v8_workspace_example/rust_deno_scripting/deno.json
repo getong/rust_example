@@ -1,0 +1,6 @@
+{
+    "imports": {
+        "@builtin/": "./builtins",
+        "builtin:state": "./builtins/state.ts"
+    }
+}

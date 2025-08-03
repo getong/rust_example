@@ -15,4 +15,5 @@ members = [
   "v8_promise_example",
   "deno_runtime_call_typescript_example",
   "deno_runtime_test",
+  "rust_deno_scripting",
 ]
