@@ -1,6 +1,8 @@
-use std::{rc::Rc, sync::Arc};
+mod module_loader;
 
-use deno_core::{FsModuleLoader, ModuleSpecifier, error::AnyError, op2};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+
+use deno_core::{ModuleSpecifier, error::AnyError, op2};
 use deno_fs::RealFs;
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
@@ -9,6 +11,7 @@ use deno_runtime::{
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
+use module_loader::TypescriptModuleLoader;
 use sys_traits::impls::RealSys;
 
 // Create a minimal op to ensure the extension is properly initialized
@@ -34,17 +37,21 @@ deno_core::extension!(
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
   // Use simple.js instead of the TypeScript file with HTTP imports
-  let js_path = std::env::current_dir()?.join("tests/simple.js");
-  // let js_path = std::env::current_dir()?.join("tests/http_import.ts");
+  // let js_path = std::env::current_dir()?.join("tests/simple.js");
+  let js_path = std::env::current_dir()?.join("tests/http_import.ts");
   let main_module = ModuleSpecifier::from_file_path(&js_path).unwrap();
 
   let fs = Arc::new(RealFs);
   let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(RealSys));
 
+  let source_map_store = Rc::new(RefCell::new(HashMap::new()));
+
   // Set up worker service options
   let services =
     WorkerServiceOptions::<ByonmInNpmPackageChecker, ByonmNpmResolver<RealSys>, RealSys> {
-      module_loader: Rc::new(FsModuleLoader),
+      module_loader: Rc::new(TypescriptModuleLoader {
+        source_maps: source_map_store,
+      }),
       permissions: PermissionsContainer::allow_all(permission_desc_parser),
       blob_store: Default::default(),
       broadcast_channel: Default::default(),
