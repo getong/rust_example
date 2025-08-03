@@ -2,12 +2,14 @@ use std::{path::Path, rc::Rc, sync::Arc};
 
 use deno_core::{FsModuleLoader, ModuleSpecifier, error::AnyError, op2};
 use deno_fs::RealFs;
-use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
+use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
   deno_permissions::PermissionsContainer,
+  ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
+use sys_traits::impls::RealSys;
 
 #[op2(fast)]
 fn op_hello(#[string] text: &str) {
@@ -21,29 +23,36 @@ deno_core::extension!(
     esm = [dir "src", "bootstrap.js"]
 );
 
+deno_core::extension!(
+    snapshot_options_extension,
+    options = {
+        snapshot_options: SnapshotOptions,
+    },
+    state = |state, options| {
+        state.put::<SnapshotOptions>(options.snapshot_options);
+    },
+);
+
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
   let js_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.js");
   let main_module = ModuleSpecifier::from_file_path(js_path).unwrap();
   eprintln!("Running {main_module}...");
   let fs = Arc::new(RealFs);
-  let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(
-    sys_traits::impls::RealSys,
-  ));
+  let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(RealSys));
+
+  let snapshot_options = SnapshotOptions::default();
+
   let mut worker = MainWorker::bootstrap_from_options(
     &main_module,
-    WorkerServiceOptions::<
-      DenoInNpmPackageChecker,
-      NpmResolver<sys_traits::impls::RealSys>,
-      sys_traits::impls::RealSys,
-    > {
-      deno_rt_native_addon_loader: None,
+    WorkerServiceOptions::<ByonmInNpmPackageChecker, ByonmNpmResolver<RealSys>, RealSys> {
+      deno_rt_native_addon_loader: Default::default(),
       module_loader: Rc::new(FsModuleLoader),
       permissions: PermissionsContainer::allow_all(permission_desc_parser),
       blob_store: Default::default(),
       broadcast_channel: Default::default(),
       feature_checker: Default::default(),
-      node_services: Default::default(),
+      node_services: None,
       npm_process_state_provider: Default::default(),
       root_cert_store_provider: Default::default(),
       fetch_dns_resolver: Default::default(),
@@ -53,7 +62,10 @@ async fn main() -> Result<(), AnyError> {
       fs,
     },
     WorkerOptions {
-      extensions: vec![hello_runtime::init()],
+      extensions: vec![
+        snapshot_options_extension::init(snapshot_options),
+        hello_runtime::init(),
+      ],
       ..Default::default()
     },
   );
