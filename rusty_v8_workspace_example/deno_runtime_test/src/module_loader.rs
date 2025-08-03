@@ -2,8 +2,8 @@ use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc};
 
 use deno_ast::{MediaType, ModuleSpecifier, ParseParams, SourceMapOption};
 use deno_core::{
-  error::ModuleLoaderError, resolve_import, ModuleLoadResponse, ModuleLoader, ModuleSource,
-  ModuleSourceCode, ModuleType, RequestedModuleType, ResolutionKind,
+  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
+  RequestedModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
 };
 
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
@@ -62,7 +62,7 @@ impl ModuleLoader for TypescriptModuleLoader {
             return Err(deno_error::JsErrorBox::generic(format!(
               "Unknown extension {:?}",
               path.extension()
-            )))
+            )));
           }
         };
 
@@ -76,12 +76,41 @@ impl ModuleLoader for TypescriptModuleLoader {
       } else if module_specifier.scheme() == "https" {
         let url = module_specifier.to_string();
 
-        let response_text = ureq::get(&url)
+        // Try to use system proxy settings if available
+        let mut builder = ureq::Agent::config_builder();
+
+        // Check for proxy environment variables
+        if let Ok(https_proxy) = std::env::var("https_proxy") {
+          eprintln!("Using https_proxy: {}", https_proxy);
+          if let Ok(proxy_url) = ureq::Proxy::new(&https_proxy) {
+            builder = builder.proxy(Some(proxy_url));
+          }
+        } else if let Ok(http_proxy) = std::env::var("http_proxy") {
+          eprintln!("Using http_proxy: {}", http_proxy);
+          if let Ok(proxy_url) = ureq::Proxy::new(&http_proxy) {
+            builder = builder.proxy(Some(proxy_url));
+          }
+        }
+
+        let agent = ureq::Agent::new_with_config(builder.build());
+
+        let response = agent
+          .get(&url)
+          .header("User-Agent", "Deno")
           .call()
-          .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?
-          .into_body()
-          .read_to_string()
-          .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?;
+          .map_err(|e| {
+            eprintln!("Failed to fetch module from {}: {}", url, e);
+            deno_error::JsErrorBox::generic(format!(
+              "Failed to fetch module from {}: {}. Check your internet connection and firewall \
+               settings.",
+              url, e
+            ))
+          })?;
+
+        let response_text = response.into_body().read_to_string().map_err(|e| {
+          eprintln!("Failed to read response body from {}: {:?}", url, e);
+          deno_error::JsErrorBox::generic(format!("Failed to read response body: {}", e))
+        })?;
 
         (
           response_text,
