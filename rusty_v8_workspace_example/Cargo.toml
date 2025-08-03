@@ -13,4 +13,5 @@ members = [
   "build_rs_deno_core_support_typescript_example",
   "deno_runtime_example",
   "v8_promise_example",
+  "deno_runtime_call_typescript_example",
 ]
