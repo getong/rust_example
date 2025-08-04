@@ -6,9 +6,13 @@ use axum::{
   http::{HeaderMap, StatusCode},
   routing::get,
 };
+use deno_error::JsErrorBox;
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
-  deno_core::{self, FastString, FsModuleLoader, ModuleSpecifier},
+  deno_core::{
+    self, FastString, FsModuleLoader, ModuleLoader, ModuleSource, ModuleSourceCode,
+    ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
+  },
   deno_fs::RealFs,
   deno_permissions::PermissionsContainer,
   ops::bootstrap::SnapshotOptions,
@@ -17,6 +21,77 @@ use deno_runtime::{
 };
 use sys_traits::impls::RealSys;
 use tokio::sync::mpsc;
+
+// Custom module loader that handles npm imports
+struct CustomModuleLoader {
+  fs_loader: FsModuleLoader,
+}
+
+impl CustomModuleLoader {
+  fn new() -> Self {
+    Self {
+      fs_loader: FsModuleLoader,
+    }
+  }
+}
+
+impl ModuleLoader for CustomModuleLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    _kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, JsErrorBox> {
+    // Handle npm imports by mocking them
+    if specifier.starts_with("npm:") {
+      // For npm:stream-chat, we'll mock it with a local implementation
+      if specifier == "npm:stream-chat" {
+        // Create a mock module specifier with proper JavaScript
+        let js_code = "export const StreamChat = { getInstance: function(apiKey, apiSecret) { \
+                       return { createToken: function(userId) { return 'mock_token_' + userId + \
+                       '_' + Date.now(); } }; } };";
+        let data_url = format!("data:text/javascript,{}", urlencoding::encode(js_code));
+        return Ok(
+          ModuleSpecifier::parse(&data_url)
+            .map_err(|e| JsErrorBox::generic(format!("Parse error: {}", e)))?,
+        );
+      }
+    }
+
+    // For other modules, use the default file system loader
+    self.fs_loader.resolve(specifier, referrer, _kind)
+  }
+
+  fn load(
+    &self,
+    module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleSpecifier>,
+    _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
+  ) -> deno_core::ModuleLoadResponse {
+    // Handle data URLs (our mocked npm modules)
+    if module_specifier.scheme() == "data" {
+      let content = module_specifier.as_str().split(',').nth(1).unwrap_or("");
+      // Decode URL-encoded content
+      let decoded_content = urlencoding::decode(content).unwrap_or_else(|_| content.into());
+      let source = ModuleSource::new(
+        ModuleType::JavaScript,
+        ModuleSourceCode::String(FastString::from(decoded_content.to_string())),
+        module_specifier,
+        None,
+      );
+      return deno_core::ModuleLoadResponse::Sync(Ok(source));
+    }
+
+    // For other modules, use the default file system loader
+    self.fs_loader.load(
+      module_specifier,
+      _maybe_referrer,
+      _is_dyn_import,
+      _requested_module_type,
+    )
+  }
+}
 
 // Extension to provide SnapshotOptions
 deno_core::extension!(
@@ -134,7 +209,7 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     &main_module,
     WorkerServiceOptions::<ByonmInNpmPackageChecker, ByonmNpmResolver<RealSys>, RealSys> {
       deno_rt_native_addon_loader: Default::default(),
-      module_loader: Rc::new(FsModuleLoader),
+      module_loader: Rc::new(CustomModuleLoader::new()),
       permissions: PermissionsContainer::allow_all(permission_desc_parser),
       blob_store: Default::default(),
       broadcast_channel: Default::default(),
@@ -154,14 +229,12 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     },
   );
 
-  // Read and execute the TypeScript file as a script
-  let ts_content = std::fs::read_to_string(&ts_file_path)
-    .map_err(|e| format!("Failed to read TypeScript file: {}", e))?;
-
   // Set up environment variables for the Deno runtime
-  let stream_api_key = std::env::var("STREAM_API_KEY").unwrap_or_else(|_| "mock_stream_api_key".to_string());
-  let stream_api_secret = std::env::var("STREAM_API_SECRET").unwrap_or_else(|_| "mock_stream_api_secret".to_string());
-  
+  let stream_api_key =
+    std::env::var("STREAM_API_KEY").unwrap_or_else(|_| "mock_stream_api_key".to_string());
+  let stream_api_secret =
+    std::env::var("STREAM_API_SECRET").unwrap_or_else(|_| "mock_stream_api_secret".to_string());
+
   let env_setup = format!(
     r#"
     globalThis.STREAM_API_KEY = "{}";
@@ -169,16 +242,22 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     "#,
     stream_api_key, stream_api_secret
   );
-  
+
   // Set up environment variables first
   worker
     .execute_script("<env-setup>", FastString::from(env_setup))
     .map_err(|e| format!("Environment setup error: {}", e))?;
 
-  // Execute the TypeScript content directly
+  // Load and evaluate the TypeScript module
+  let module_id = worker
+    .preload_main_module(&main_module)
+    .await
+    .map_err(|e| format!("Stream token module preload error: {}", e))?;
+
   let _result = worker
-    .execute_script("<stream-token-module>", FastString::from(ts_content))
-    .map_err(|e| format!("Stream token script execution error: {}", e))?;
+    .evaluate_module(module_id)
+    .await
+    .map_err(|e| format!("Stream token module evaluation error: {}", e))?;
 
   worker
     .run_event_loop(false)

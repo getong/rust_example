@@ -1,5 +1,5 @@
 // Stream token generation based on https://github.com/getong/TelegramClone/blob/main/supabase/functions/stream-token/index.ts
-// Modified to work in embedded Deno runtime without external imports
+import { StreamChat } from "npm:stream-chat";
 
 console.log("Hello from Functions!");
 
@@ -20,33 +20,6 @@ const mockSupabaseClient = {
         },
       };
     },
-  },
-};
-
-// Mock StreamChat that mimics the real Stream Chat SDK API
-const StreamChat = {
-  getInstance(apiKey, apiSecret) {
-    console.log("StreamChat.getInstance called with:", { apiKey, apiSecret: apiSecret ? "[REDACTED]" : "undefined" });
-    return {
-      createToken(userId) {
-        console.log("Creating token for userId:", userId);
-        // Mock token generation using similar logic to Stream Chat
-        // In real implementation, this would use Stream Chat's actual token generation
-        const header = { alg: "HS256", typ: "JWT" };
-        const payload = {
-          user_id: userId,
-          iat: Math.floor(Date.now() / 1000),
-          exp: Math.floor(Date.now() / 1000) + 3600 // 1 hour from now
-        };
-
-        // Simple mock JWT-like token (not cryptographically secure)
-        const encodedHeader = btoa(JSON.stringify(header));
-        const encodedPayload = btoa(JSON.stringify(payload));
-        const mockSignature = btoa(`${apiKey}:${userId}:${apiSecret}`).substring(0, 32);
-
-        return `${encodedHeader}.${encodedPayload}.${mockSignature}`;
-      },
-    };
   },
 };
 
