@@ -1,10 +1,10 @@
 use std::{rc::Rc, sync::Arc};
 
 use axum::{Router, http::StatusCode, routing::get};
-use deno_core::{FastString, FsModuleLoader, ModuleSpecifier};
-use deno_fs::RealFs;
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
+  deno_core::{self, FastString, FsModuleLoader, ModuleSpecifier},
+  deno_fs::RealFs,
   deno_permissions::PermissionsContainer,
   ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
