@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+dotenvy = "0.15.7"
+uuid = { version = "1.17.0", features = ["serde", "v4", "v5", "v6", "v7", "v8"] }
+rustyscript = { git = "https://github.com/rscarson/rustyscript", rev = "1f18c83bc4a32c31f6c34cd07f18d4b0c5ab6cf5" }
+tokio = { version = "1.44.1", features = ["full"] }
