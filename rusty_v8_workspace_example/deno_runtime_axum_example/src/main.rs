@@ -86,8 +86,8 @@ async fn execute_script(script: String) -> Result<String, String> {
     },
   );
 
-  // Execute the provided script
-  worker
+  // Execute the provided script and capture the result
+  let result = worker
     .execute_script("<script>", FastString::from(script))
     .map_err(|e| format!("Execution error: {}", e))?;
 
@@ -96,7 +96,12 @@ async fn execute_script(script: String) -> Result<String, String> {
     .await
     .map_err(|e| format!("Event loop error: {}", e))?;
 
-  Ok("Script executed successfully".to_string())
+  // Convert the V8 value to a string representation
+  let scope = &mut worker.js_runtime.handle_scope();
+  let local_result = deno_core::v8::Local::new(scope, result);
+  let result_str = local_result.to_rust_string_lossy(scope);
+
+  Ok(result_str)
 }
 
 #[axum::debug_handler]
@@ -105,8 +110,26 @@ pub async fn handler(
 ) -> Result<String, (StatusCode, String)> {
   let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
+  // Generate random math expression
+  let a = {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    rng.random_range(1..=100)
+  };
+  let b = {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    rng.random_range(1..=100)
+  };
+  let ops = ["+", "-", "*"];
+  let op = {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    ops[rng.random_range(0..ops.len())]
+  };
+  
   let command = DenoCommand::ExecuteScript {
-    script: "console.log('Hello from Deno!'); 'Result from Deno'".to_string(),
+    script: format!("{} {} {}", a, op, b),
     response_tx,
   };
 
