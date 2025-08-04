@@ -1,0 +1,16 @@
+{
+  "name": "deno-runtime-axum-example",
+  "version": "1.0.0",
+  "description": "Example of using Deno runtime with Axum and npm packages",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "stream-chat": "^9.14.0"
+  },
+  "devDependencies": {},
+  "keywords": ["deno", "axum", "rust", "npm"],
+  "author": "",
+  "license": "MIT"
+}

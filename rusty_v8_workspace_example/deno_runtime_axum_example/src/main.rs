@@ -1,97 +1,27 @@
 use std::{rc::Rc, sync::Arc};
 
+mod module_loader;
+
 use axum::{
   Router,
   // extract::Request,
   http::{HeaderMap, StatusCode},
   routing::get,
 };
-use deno_error::JsErrorBox;
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
-  deno_core::{
-    self, FastString, FsModuleLoader, ModuleLoader, ModuleSource, ModuleSourceCode,
-    ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
-  },
+  deno_core::{self, FastString, FsModuleLoader, ModuleSpecifier},
   deno_fs::RealFs,
   deno_permissions::PermissionsContainer,
   ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
+use module_loader::NpmAwareModuleLoader;
 use sys_traits::impls::RealSys;
 use tokio::sync::mpsc;
 
-// Custom module loader that handles npm imports
-struct CustomModuleLoader {
-  fs_loader: FsModuleLoader,
-}
-
-impl CustomModuleLoader {
-  fn new() -> Self {
-    Self {
-      fs_loader: FsModuleLoader,
-    }
-  }
-}
-
-impl ModuleLoader for CustomModuleLoader {
-  fn resolve(
-    &self,
-    specifier: &str,
-    referrer: &str,
-    _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, JsErrorBox> {
-    // Handle npm imports by mocking them
-    if specifier.starts_with("npm:") {
-      // For npm:stream-chat, we'll mock it with a local implementation
-      if specifier == "npm:stream-chat" {
-        // Create a mock module specifier with proper JavaScript
-        let js_code = "export const StreamChat = { getInstance: function(apiKey, apiSecret) { \
-                       return { createToken: function(userId) { return 'mock_token_' + userId + \
-                       '_' + Date.now(); } }; } };";
-        let data_url = format!("data:text/javascript,{}", urlencoding::encode(js_code));
-        return Ok(
-          ModuleSpecifier::parse(&data_url)
-            .map_err(|e| JsErrorBox::generic(format!("Parse error: {}", e)))?,
-        );
-      }
-    }
-
-    // For other modules, use the default file system loader
-    self.fs_loader.resolve(specifier, referrer, _kind)
-  }
-
-  fn load(
-    &self,
-    module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
-  ) -> deno_core::ModuleLoadResponse {
-    // Handle data URLs (our mocked npm modules)
-    if module_specifier.scheme() == "data" {
-      let content = module_specifier.as_str().split(',').nth(1).unwrap_or("");
-      // Decode URL-encoded content
-      let decoded_content = urlencoding::decode(content).unwrap_or_else(|_| content.into());
-      let source = ModuleSource::new(
-        ModuleType::JavaScript,
-        ModuleSourceCode::String(FastString::from(decoded_content.to_string())),
-        module_specifier,
-        None,
-      );
-      return deno_core::ModuleLoadResponse::Sync(Ok(source));
-    }
-
-    // For other modules, use the default file system loader
-    self.fs_loader.load(
-      module_specifier,
-      _maybe_referrer,
-      _is_dyn_import,
-      _requested_module_type,
-    )
-  }
-}
+// Simple approach - focus on BYONM (node_modules) resolution
 
 // Extension to provide SnapshotOptions
 deno_core::extension!(
@@ -209,7 +139,7 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     &main_module,
     WorkerServiceOptions::<ByonmInNpmPackageChecker, ByonmNpmResolver<RealSys>, RealSys> {
       deno_rt_native_addon_loader: Default::default(),
-      module_loader: Rc::new(CustomModuleLoader::new()),
+      module_loader: Rc::new(NpmAwareModuleLoader::new()),
       permissions: PermissionsContainer::allow_all(permission_desc_parser),
       blob_store: Default::default(),
       broadcast_channel: Default::default(),
@@ -239,6 +169,27 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     r#"
     globalThis.STREAM_API_KEY = "{}";
     globalThis.STREAM_API_SECRET = "{}";
+    
+    // Polyfill for Node.js https.Agent to fix stream-chat compatibility
+    if (!globalThis.https) {{
+      globalThis.https = {{}};
+    }}
+    if (!globalThis.https.Agent) {{
+      // Simple Agent polyfill that stream-chat needs
+      globalThis.https.Agent = class Agent {{
+        constructor(options = {{}}) {{
+          this.options = options;
+        }}
+      }};
+    }}
+    
+    // Also set up http.Agent if needed
+    if (!globalThis.http) {{
+      globalThis.http = {{}};
+    }}
+    if (!globalThis.http.Agent) {{
+      globalThis.http.Agent = globalThis.https.Agent;
+    }}
     "#,
     stream_api_key, stream_api_secret
   );
