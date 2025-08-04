@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 # rustyscript = "0.11"
-rustyscript = { git = "https://github.com/rscarson/rustyscript", rev = "58c198e543e48e5cf296a70229037c82a2816290" }
+rustyscript = { git = "https://github.com/rscarson/rustyscript", rev = "1f18c83bc4a32c31f6c34cd07f18d4b0c5ab6cf5" }
 tokio = { version = "1.44.1", features = ["full"] }
