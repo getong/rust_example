@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
   "rustyscript_example",
+  "rustyscript_typescript_example",
 ]

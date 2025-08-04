@@ -1,0 +1,21 @@
+{
+  "name": "metrics_client",
+  "module": "src/main.ts",
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/main.ts --outdir ./dist --target node",
+    "build:bundle": "bun build ./src/main.ts --outdir ./dist --target node --minify",
+    "build:token": "bun build ./src/create-token.ts --outdir ./dist --target node",
+    "dev": "bun run src/main.ts",
+    "typecheck": "bun tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "stream-chat": "^9.14.0"
+  }
+}
