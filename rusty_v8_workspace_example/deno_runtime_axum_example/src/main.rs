@@ -158,6 +158,23 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
   let ts_content = std::fs::read_to_string(&ts_file_path)
     .map_err(|e| format!("Failed to read TypeScript file: {}", e))?;
 
+  // Set up environment variables for the Deno runtime
+  let stream_api_key = std::env::var("STREAM_API_KEY").unwrap_or_else(|_| "mock_stream_api_key".to_string());
+  let stream_api_secret = std::env::var("STREAM_API_SECRET").unwrap_or_else(|_| "mock_stream_api_secret".to_string());
+  
+  let env_setup = format!(
+    r#"
+    globalThis.STREAM_API_KEY = "{}";
+    globalThis.STREAM_API_SECRET = "{}";
+    "#,
+    stream_api_key, stream_api_secret
+  );
+  
+  // Set up environment variables first
+  worker
+    .execute_script("<env-setup>", FastString::from(env_setup))
+    .map_err(|e| format!("Environment setup error: {}", e))?;
+
   // Execute the TypeScript content directly
   let _result = worker
     .execute_script("<stream-token-module>", FastString::from(ts_content))
@@ -284,6 +301,9 @@ pub async fn stream_token_handler(
 
 #[tokio::main]
 async fn main() {
+  // Load environment variables from .env file
+  dotenvy::dotenv().ok();
+
   // Create channel for communication
   let (tx, rx) = mpsc::channel(100);
 

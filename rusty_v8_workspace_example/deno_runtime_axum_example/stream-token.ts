@@ -1,7 +1,7 @@
 // Stream token generation based on https://github.com/getong/TelegramClone/blob/main/supabase/functions/stream-token/index.ts
-// Modified to work in embedded Deno runtime without imports and Deno.serve
+// Modified to work in embedded Deno runtime without external imports
 
-console.log("Hello from Stream Token Functions!");
+console.log("Hello from Functions!");
 
 // Mock Supabase client since we can't import the real one
 const mockSupabaseClient = {
@@ -23,18 +23,28 @@ const mockSupabaseClient = {
   },
 };
 
-// Mock StreamChat since we can't import the real one
-const mockStreamChat = {
+// Mock StreamChat that mimics the real Stream Chat SDK API
+const StreamChat = {
   getInstance(apiKey, apiSecret) {
+    console.log("StreamChat.getInstance called with:", { apiKey, apiSecret: apiSecret ? "[REDACTED]" : "undefined" });
     return {
       createToken(userId) {
-        // Mock token generation - in real implementation would use Stream Chat SDK
-        const tokenPayload = {
+        console.log("Creating token for userId:", userId);
+        // Mock token generation using similar logic to Stream Chat
+        // In real implementation, this would use Stream Chat's actual token generation
+        const header = { alg: "HS256", typ: "JWT" };
+        const payload = {
           user_id: userId,
-          api_key: apiKey,
-          expires_at: Date.now() + 3600000, // 1 hour
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + 3600 // 1 hour from now
         };
-        return btoa(JSON.stringify(tokenPayload));
+
+        // Simple mock JWT-like token (not cryptographically secure)
+        const encodedHeader = btoa(JSON.stringify(header));
+        const encodedPayload = btoa(JSON.stringify(payload));
+        const mockSignature = btoa(`${apiKey}:${userId}:${apiSecret}`).substring(0, 32);
+
+        return `${encodedHeader}.${encodedPayload}.${mockSignature}`;
       },
     };
   },
@@ -60,9 +70,9 @@ async function generateStreamToken(authHeader) {
 
   console.log("User validated:", user.id);
 
-  const serverClient = mockStreamChat.getInstance(
-    "mock_stream_api_key", // Would be Deno.env.get("STREAM_API_KEY") in real implementation
-    "mock_stream_api_secret", // Would be Deno.env.get("STREAM_API_SECRET") in real implementation
+  const serverClient = StreamChat.getInstance(
+    globalThis.STREAM_API_KEY || "mock_stream_api_key",
+    globalThis.STREAM_API_SECRET || "mock_stream_api_secret"
   );
 
   const token = serverClient.createToken(user.id);
