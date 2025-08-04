@@ -121,7 +121,10 @@ async fn execute_script(script: String) -> Result<String, String> {
 }
 
 async fn execute_stream_token(auth_header: String) -> Result<String, String> {
-  let main_module = ModuleSpecifier::parse("file:///stream-token.ts").unwrap();
+  let current_dir = std::env::current_dir().unwrap();
+  let ts_file_path = current_dir.join("stream-token.ts");
+  let file_url = format!("file://{}", ts_file_path.to_string_lossy());
+  let main_module = ModuleSpecifier::parse(&file_url).unwrap();
 
   let fs = Arc::new(RealFs);
   let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(RealSys));
@@ -151,51 +154,48 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     },
   );
 
-  // JavaScript code for stream token generation (removed TypeScript types)
-  let js_code = format!(
-    r#"
-// Simplified stream token generation (mock implementation)
-const authHeader = "{}";
+  // Read and execute the TypeScript file as a script
+  let ts_content = std::fs::read_to_string(&ts_file_path)
+    .map_err(|e| format!("Failed to read TypeScript file: {}", e))?;
 
-// Mock implementation - in real scenario would use Supabase and Stream Chat
-function generateStreamToken(authHeader) {{
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {{
-    throw new Error('Invalid authorization header');
-  }}
-
-  const token = authHeader.replace('Bearer ', '');
-  const userId = 'user_' + Math.random().toString(36).substr(2, 9);
-
-  // Mock token generation
-  const streamToken = btoa(JSON.stringify({{
-    user_id: userId,
-    token: token,
-    expires_at: Date.now() + 3600000 // 1 hour
-  }}));
-
-  return JSON.stringify({{
-    token: streamToken,
-    user_id: userId
-  }});
-}}
-
-generateStreamToken(authHeader);
-"#,
-    auth_header
-  );
-
-  let result = worker
-    .execute_script("<stream-token>", FastString::from(js_code))
-    .map_err(|e| format!("Stream token execution error: {}", e))?;
+  // Execute the TypeScript content directly
+  let _result = worker
+    .execute_script("<stream-token-module>", FastString::from(ts_content))
+    .map_err(|e| format!("Stream token script execution error: {}", e))?;
 
   worker
     .run_event_loop(false)
     .await
     .map_err(|e| format!("Stream token event loop error: {}", e))?;
 
+  // Call the async function
+  let call_script = format!("generateStreamTokenSync('{}')", auth_header);
+  let _result = worker
+    .execute_script("<stream-token-call>", FastString::from(call_script))
+    .map_err(|e| format!("Stream token function call error: {}", e))?;
+
+  // Run event loop to complete the async operation
+  worker
+    .run_event_loop(false)
+    .await
+    .map_err(|e| format!("Stream token final event loop error: {}", e))?;
+
+  // Get the result from the global variable
+  let get_result_script = "globalThis.streamTokenError ? `ERROR: ${globalThis.streamTokenError}` \
+                           : globalThis.streamTokenResult"
+    .to_string();
+  let result = worker
+    .execute_script("<get-result>", FastString::from(get_result_script))
+    .map_err(|e| format!("Get result error: {}", e))?;
+
   let scope = &mut worker.js_runtime.handle_scope();
   let local_result = deno_core::v8::Local::new(scope, result);
   let result_str = local_result.to_rust_string_lossy(scope);
+
+  // Check for errors
+  if result_str.starts_with("ERROR: ") {
+    return Err(result_str);
+  }
 
   Ok(result_str)
 }

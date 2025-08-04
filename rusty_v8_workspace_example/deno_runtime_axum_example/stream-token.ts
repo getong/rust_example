@@ -1,54 +1,94 @@
-// Follow this setup guide to integrate the Deno language server with your editor:
-// https://deno.land/manual/getting_started/setup_your_environment
-// This enables autocomplete, go to definition, etc.
+// Stream token generation based on https://github.com/getong/TelegramClone/blob/main/supabase/functions/stream-token/index.ts
+// Modified to work in embedded Deno runtime without imports and Deno.serve
 
-// Setup type definitions for built-in Supabase Runtime APIs
-/// <reference types="https://esm.sh/@supabase/functions-js/src/edge-runtime.d.ts" />
-import { StreamChat } from "npm:stream-chat";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+console.log("Hello from Stream Token Functions!");
 
-console.log("Hello from Functions!");
+// Mock Supabase client since we can't import the real one
+const mockSupabaseClient = {
+  auth: {
+    async getUser(token) {
+      // Mock user validation - in real implementation would validate token
+      if (!token || token === "invalid") {
+        return { data: { user: null } };
+      }
+      return {
+        data: {
+          user: {
+            id: "user_" + Math.random().toString(36).substr(2, 9),
+            email: "test@example.com",
+          },
+        },
+      };
+    },
+  },
+};
 
-Deno.serve(async (req) => {
-  const authHeader = req.headers.get("Authorization")!;
-  const supabaseClient = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
-    Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-    { global: { headers: { Authorization: authHeader } } },
-  );
+// Mock StreamChat since we can't import the real one
+const mockStreamChat = {
+  getInstance(apiKey, apiSecret) {
+    return {
+      createToken(userId) {
+        // Mock token generation - in real implementation would use Stream Chat SDK
+        const tokenPayload = {
+          user_id: userId,
+          api_key: apiKey,
+          expires_at: Date.now() + 3600000, // 1 hour
+        };
+        return btoa(JSON.stringify(tokenPayload));
+      },
+    };
+  },
+};
 
-  // Get the session or user object
+// Main function adapted from the original Deno.serve handler
+async function generateStreamToken(authHeader) {
+  console.log("Processing auth header:", authHeader);
+
+  if (!authHeader) {
+    throw new Error("Authorization header is required");
+  }
+
+  const supabaseClient = mockSupabaseClient;
+
   const authToken = authHeader.replace("Bearer ", "");
   const { data } = await supabaseClient.auth.getUser(authToken);
   const user = data.user;
+
   if (!user) {
-    return new Response(
-      JSON.stringify({ error: "User not found" }),
-      { headers: { "Content-Type": "application/json" } },
-    );
+    throw new Error("User not found");
   }
 
-  const serverClient = StreamChat.getInstance(
-    Deno.env.get("STREAM_API_KEY"),
-    Deno.env.get("STREAM_API_SECRET"),
+  console.log("User validated:", user.id);
+
+  const serverClient = mockStreamChat.getInstance(
+    "mock_stream_api_key", // Would be Deno.env.get("STREAM_API_KEY") in real implementation
+    "mock_stream_api_secret", // Would be Deno.env.get("STREAM_API_SECRET") in real implementation
   );
 
   const token = serverClient.createToken(user.id);
 
-  return new Response(
-    JSON.stringify({ token }),
-    { headers: { "Content-Type": "application/json" } },
-  );
-});
+  const result = { token };
+  console.log("Generated token result:", JSON.stringify(result));
 
-/* To invoke locally:
+  return JSON.stringify(result);
+}
 
-  1. Run `supabase start` (see: https://supabase.com/docs/reference/cli/supabase-start)
-  2. Make an HTTP request:
+// Make it globally available
+globalThis.generateStreamToken = generateStreamToken;
 
-  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/stream-token' \
-  --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0' \
-  --header 'Content-Type: application/json' \
-  --data '{"name":"Functions"}'
+// Create a synchronous wrapper that stores the result
+globalThis.streamTokenResult = null;
+globalThis.streamTokenError = null;
 
- */
+globalThis.generateStreamTokenSync = async function (authHeader) {
+  try {
+    globalThis.streamTokenResult = null;
+    globalThis.streamTokenError = null;
+    const result = await generateStreamToken(authHeader);
+    globalThis.streamTokenResult = result;
+    return result;
+  } catch (error) {
+    globalThis.streamTokenError = error.message;
+    throw error;
+  }
+};
