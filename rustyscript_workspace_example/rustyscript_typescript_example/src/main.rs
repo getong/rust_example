@@ -12,8 +12,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Generate a UUID for user_id
   let user_id = Uuid::new_v4().to_string();
 
-  // Create runtime
-  let mut runtime = Runtime::new(Default::default())?;
+  // Create runtime with Node.js experimental support
+  let mut runtime = Runtime::new(rustyscript::RuntimeOptions::default())?;
 
   // Load the TypeScript module
   let module = Module::load("metrics_client/dist/create-token.js")?;
