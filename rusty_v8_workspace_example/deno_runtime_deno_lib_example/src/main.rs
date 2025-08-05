@@ -9,6 +9,9 @@ use deno_runtime::{
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
 
+mod module_loader;
+use module_loader::CustomModuleLoader;
+
 pub fn prepare_worker(main_module: &Url) -> MainWorker {
   let fs = Arc::new(RealFs);
   let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(
@@ -16,13 +19,15 @@ pub fn prepare_worker(main_module: &Url) -> MainWorker {
   ));
   let permissions = PermissionsContainer::allow_all(permission_desc_parser);
 
+  let custom_loader = CustomModuleLoader::new(fs.clone());
+
   let worker_service_options = WorkerServiceOptions::<
     DenoInNpmPackageChecker,
     NpmResolver<sys_traits::impls::RealSys>,
     sys_traits::impls::RealSys,
   > {
     deno_rt_native_addon_loader: Default::default(),
-    module_loader: Rc::new(FsModuleLoader),
+    module_loader: Rc::new(custom_loader),
     permissions: permissions,
     blob_store: Default::default(),
     broadcast_channel: Default::default(),
