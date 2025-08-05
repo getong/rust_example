@@ -26,33 +26,12 @@ fn create_origin<'s>(
 }
 
 fn module_callback<'s>(
-  context: v8::Local<'s, v8::Context>,
-  name: v8::Local<'s, v8::String>,
+  _context: v8::Local<'s, v8::Context>,
+  _name: v8::Local<'s, v8::String>,
   _arr: v8::Local<'s, v8::FixedArray>,
-  _module: v8::Local<'s, v8::Module>,
+  module: v8::Local<'s, v8::Module>,
 ) -> Option<v8::Local<'s, v8::Module>> {
-  let scope = &mut unsafe { v8::CallbackScope::new(context) };
-  let name_str = name.to_rust_string_lossy(scope);
-
-  // Handle node: imports by providing empty modules
-  if name_str.starts_with("node:") {
-    let source = match name_str.as_str() {
-      "node:module" => "export function createRequire() { return () => {} }",
-      _ => "export default {}",
-    };
-
-    let source = v8::String::new(scope, source).unwrap();
-    let origin = create_origin(scope, &name_str, true);
-    let mut source = v8::script_compiler::Source::new(source, Some(&origin));
-
-    if let Some(module) = v8::script_compiler::compile_module(scope, &mut source) {
-      let _ = module.instantiate_module(scope, module_callback);
-      let _ = module.evaluate(scope);
-      return Some(module);
-    }
-  }
-
-  None
+  Some(module)
 }
 
 static INITIALIZED: Mutex<bool> = Mutex::new(false);
