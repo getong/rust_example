@@ -1,4 +1,4 @@
-// Stream token generation based on https://github.com/getong/TelegramClone/blob/main/supabase/functions/stream-token/index.ts
+// Stream token generation based on https://github.com/notJust-dev/TelegramClone/blob/main/supabase/functions/stream-token/index.ts
 import { StreamChat } from "npm:stream-chat";
 
 console.log("Hello from Functions!");
