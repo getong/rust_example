@@ -2,10 +2,10 @@ mod module_loader;
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
-use deno_core::{ModuleSpecifier, error::AnyError, op2};
-use deno_fs::RealFs;
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
+  deno_core::{ModuleSpecifier, error::AnyError, op2},
+  deno_fs::RealFs,
   deno_permissions::PermissionsContainer,
   ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
@@ -21,10 +21,10 @@ fn op_hello(#[string] name: &str) {
 }
 
 // Create an extension with the op
-deno_core::extension!(example_ext, ops = [op_hello]);
+deno_runtime::deno_core::extension!(example_ext, ops = [op_hello]);
 
 // Extension to provide SnapshotOptions
-deno_core::extension!(
+deno_runtime::deno_core::extension!(
     snapshot_options_extension,
     options = {
         snapshot_options: SnapshotOptions,
