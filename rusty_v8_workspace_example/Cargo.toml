@@ -16,6 +16,7 @@ members = [
   "deno_runtime_call_typescript_example",
   "deno_runtime_test",
   "rust_deno_scripting",
-  "deno_runtime_axum_example",
+  # "deno_runtime_axum_example",
   "v8_js_example",
+  "deno_runtime_deno_lib_example",
 ]

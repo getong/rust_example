@@ -1,0 +1,11 @@
+[package]
+name = "deno_runtime_deno_lib_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_lib = "=0.30.0"
+deno_resolver = "0.43.0"
+deno_runtime = { version = "0.220.0", features = ["transpile"] }
+sys_traits = "0.1.17"
+tokio = { version = "1.47.1", features = ["full"] }
