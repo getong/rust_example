@@ -1,7 +1,7 @@
 use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc};
 
 use deno_ast::{MediaType, ModuleSpecifier, ParseParams, SourceMapOption};
-use deno_core::{
+use deno_runtime::deno_core::{
   ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
   RequestedModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
 };

@@ -8,7 +8,7 @@ use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, sync::Arc};
 use colored::*;
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
-  deno_core::{ModuleSpecifier, error::AnyError, op2},
+  deno_core::{self, ModuleSpecifier, error::AnyError, op2},
   deno_fs::RealFs,
   deno_permissions::{
     PermissionPrompter, Permissions, PermissionsContainer, PromptResponse, set_prompter,
