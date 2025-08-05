@@ -13,13 +13,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let user_id = Uuid::new_v4().to_string();
 
   // Create runtime with Node.js experimental support
-  let mut runtime = Runtime::new(rustyscript::RuntimeOptions::default())?;
+  let runtime_options = rustyscript::RuntimeOptions {
+      extensions: vec![],
+      ..Default::default()
+  };
+  let mut runtime = Runtime::new(runtime_options)?;
 
   // Load the TypeScript module
   let module = Module::load("metrics_client/dist/create-token.js")?;
   let handle = runtime.load_module(&module)?;
 
-  // Call the createUserToken function
+  // Call the createUserToken function (which returns a Promise)
   let token: String = runtime.call_function(
       Some(&handle),
     "createUserToken",
