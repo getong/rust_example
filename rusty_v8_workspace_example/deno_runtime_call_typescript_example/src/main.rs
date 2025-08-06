@@ -89,3 +89,6 @@ async fn main() -> Result<(), AnyError> {
 
   Ok(())
 }
+
+// copy from https://cheatcod3.hashnode.dev/embedding-typescript-in-your-rust-project
+// modify with claude code
