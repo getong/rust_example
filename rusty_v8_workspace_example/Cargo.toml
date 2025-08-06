@@ -19,4 +19,5 @@ members = [
   # "deno_runtime_axum_example",
   "v8_js_example",
   "deno_runtime_deno_lib_example",
+  "deno_core_download_example",
 ]
