@@ -1,0 +1,3 @@
+* deno_core module loader example
+
+copy from https://github.com/andreubotella/deno-simple-module-loader
