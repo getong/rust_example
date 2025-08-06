@@ -1,0 +1,11 @@
+[package]
+name = "deno_core_module_loader_example2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_ast = { version = "0.49.0", features = ["transpiling"] }
+deno_core = "0.355.0"
+deno_error = "0.7.0"
+reqwest = "0.12.22"
+tokio = { version = "1.47.1", features = ["fs"] }

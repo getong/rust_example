@@ -22,4 +22,5 @@ members = [
   "deno_core_download_example",
   "deno_core_parse_npm_example",
   "deno_core_module_loader_example",
+  "deno_core_module_loader_example2",
 ]
