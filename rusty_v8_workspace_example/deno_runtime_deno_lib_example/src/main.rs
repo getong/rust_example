@@ -12,6 +12,11 @@ use deno_runtime::{
 use sys_traits::impls::RealSys;
 
 mod module_loader;
+mod npm_cache;
+mod npm_downloader;
+mod npm_registry;
+mod npm_specifier;
+
 use module_loader::CustomModuleLoader;
 
 // Extension to provide SnapshotOptions
@@ -30,6 +35,17 @@ async fn main() -> Result<(), AnyError> {
   println!("🚀 Executing TypeScript with npm imports using MainWorker");
   println!("=======================================================");
 
+  // Parse command line arguments
+  let args: Vec<String> = std::env::args().collect();
+  if args.len() != 4 {
+    eprintln!("Usage: {} <api_key> <api_secret> <user_id>", args[0]);
+    std::process::exit(1);
+  }
+
+  let api_key = &args[1];
+  let api_secret = &args[2];
+  let user_id = &args[3];
+
   let current_dir = std::env::current_dir()?;
   let ts_path = current_dir.join("src/example.ts");
   let main_module = ModuleSpecifier::from_file_path(&ts_path).unwrap();
@@ -38,6 +54,23 @@ async fn main() -> Result<(), AnyError> {
 
   // Create MainWorker with our custom module loader
   let mut worker = create_main_worker(&main_module).await?;
+
+  // Load Node.js compatibility layer first
+  let node_compat_path = current_dir.join("src/node_compat.js");
+  let node_compat_code = std::fs::read_to_string(&node_compat_path)?;
+  worker.execute_script("node_compat", node_compat_code.into())?;
+
+  // Inject the arguments as global variables
+  let setup_script = format!(
+    r#"
+    globalThis.api_key = "{}";
+    globalThis.api_secret = "{}";
+    globalThis.user_id = "{}";
+    "#,
+    api_key, api_secret, user_id
+  );
+
+  worker.execute_script("setup_globals", setup_script.into())?;
 
   println!("🔄 Executing module...");
   println!("📋 Output from TypeScript execution:");
