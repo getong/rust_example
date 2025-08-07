@@ -55,7 +55,6 @@ async fn main() -> Result<(), AnyError> {
   // Create MainWorker with our custom module loader
   let mut worker = create_main_worker(&main_module).await?;
 
-  // Pre-initialize critical globals with real Node.js implementations using Deno APIs
   // Load Node.js compatibility layer second
   let node_compat_path = current_dir.join("src/node_compat.js");
   let node_compat_code = std::fs::read_to_string(&node_compat_path)?;

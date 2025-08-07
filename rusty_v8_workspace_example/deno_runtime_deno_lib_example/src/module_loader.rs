@@ -517,27 +517,6 @@ fn is_commonjs_module(code: &str) -> bool {
 
 /// Wrap CommonJS module to make it ES module compatible
 fn wrap_commonjs_module(code: String) -> String {
-  // Check if this is specifically the jsonwebtoken module (not just any module that uses it)
-  if code.contains("module.exports = ")
-    && code.contains("sign:")
-    && code.contains("verify:")
-    && code.contains("decode:")
-    && code.len() < 1000
-  {
-    return r#"
-// Mock jsonwebtoken module
-const jsonwebtoken = globalThis.__jsonwebtoken;
-const module = { exports: jsonwebtoken };
-const exports = module.exports;
-
-export default jsonwebtoken;
-export const sign = jsonwebtoken.sign;
-export const verify = jsonwebtoken.verify;
-export const decode = jsonwebtoken.decode;
-"#
-    .to_string();
-  }
-
   format!(
     r#"
 // CommonJS to ES Module wrapper
