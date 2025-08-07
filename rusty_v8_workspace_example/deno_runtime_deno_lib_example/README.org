@@ -1,0 +1,120 @@
+* Deno Runtime with npm Support Example
+:PROPERTIES:
+:CUSTOM_ID: deno-runtime-with-npm-support-example
+:END:
+This example demonstrates how to use =deno_runtime= with a custom module
+loader and explains the complexities of implementing npm package
+support.
+
+** Current Implementation
+:PROPERTIES:
+:CUSTOM_ID: current-implementation
+:END:
+The example includes: - A custom =ModuleLoader= implementation that can
+handle TypeScript transpilation - Basic file:// URL resolution and
+loading - Error handling for npm: specifiers that explains what would be
+needed for full support
+
+** Running the Example
+:PROPERTIES:
+:CUSTOM_ID: running-the-example
+:END:
+#+begin_src sh
+cargo build
+cargo run
+#+end_src
+
+** npm Support Challenge
+:PROPERTIES:
+:CUSTOM_ID: npm-support-challenge
+:END:
+When running this example with an npm import like
+=import { Hono } from "npm:hono"=, you'll get an error explaining that
+npm support requires the full deno_lib infrastructure.
+
+*** Why npm Support is Complex
+:PROPERTIES:
+:CUSTOM_ID: why-npm-support-is-complex
+:END:
+Loading npm packages in Deno requires:
+
+1. *Package Resolution*: Parsing npm specifiers, resolving versions,
+   handling peer dependencies
+2. *Registry API*: Fetching package metadata from npm registry
+3. *Package Caching*: Downloading and caching packages locally
+4. *Node.js Module Resolution*: Implementing Node's complex module
+   resolution algorithm
+5. *CommonJS Support*: Handling both ES modules and CommonJS formats
+6. *Package.json Handling*: Resolving "main", "exports", and other
+   fields
+7. *Dependency Graph*: Building and analyzing the full dependency tree
+
+*** Implementation Options
+:PROPERTIES:
+:CUSTOM_ID: implementation-options
+:END:
+To properly implement npm support, you have several options:
+
+1. *Use Deno CLI directly*: The simplest approach for most use cases
+
+   #+begin_src sh
+   deno run --allow-read your-script.ts
+   #+end_src
+
+2. *Use deno_lib's CliFactory*: This provides the full Deno CLI
+   infrastructure
+
+   #+begin_src rust
+   // This would require significant setup including:
+   // - CLI arguments parsing
+   // - Cache directory management
+   // - Module graph building
+   // - npm resolver initialization
+   #+end_src
+
+3. *Implement minimal npm support*: For specific packages, you could:
+
+   - Pre-download npm packages
+   - Create a local mapping of npm: URLs to file:// URLs
+   - Handle only the subset of npm features you need
+
+** Example Error Output
+:PROPERTIES:
+:CUSTOM_ID: example-error-output
+:END:
+When running with npm imports:
+
+#+begin_example
+Error executing main module: npm: specifier 'hono' requires full npm resolution infrastructure.
+
+To implement npm support, you need:
+1. NpmRegistryApi to fetch package metadata
+2. NpmCache to store downloaded packages
+3. NpmResolver to handle version resolution
+4. NodeResolver for Node.js module resolution algorithm
+5. Integration with deno_graph for dependency analysis
+
+The Deno CLI uses these components from deno_lib to provide npm support.
+For a working example, use the Deno CLI directly or see the deno_lib source.
+#+end_example
+
+** Alternative Approaches
+:PROPERTIES:
+:CUSTOM_ID: alternative-approaches
+:END:
+If you need to use npm packages with deno_runtime:
+
+1. *Use Deno's built-in bundler* to pre-bundle your code with npm
+   dependencies
+2. *Use a CDN* like esm.sh or unpkg to load npm packages as ES modules
+3. *Vendor dependencies* by downloading them locally and using file://
+   imports
+4. *Use the Deno CLI* as a subprocess for complex npm operations
+
+** Resources
+:PROPERTIES:
+:CUSTOM_ID: resources
+:END:
+- [[https://docs.deno.com/][Deno Runtime Documentation]]
+- [[https://crates.io/crates/deno_runtime][deno_runtime crate]]
+- [[https://github.com/denoland/deno][deno_lib source code]]

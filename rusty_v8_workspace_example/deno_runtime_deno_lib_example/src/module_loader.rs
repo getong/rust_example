@@ -1,9 +1,9 @@
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, fs, path::PathBuf, rc::Rc, sync::Arc};
 
 use deno_runtime::{
   deno_core::{
     ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-    RequestedModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
+    RequestedModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import, url::Url,
   },
   deno_fs::FileSystem,
 };
@@ -16,41 +16,193 @@ type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 pub struct CustomModuleLoader {
   fs: Arc<dyn FileSystem>,
   source_maps: SourceMapStore,
+  npm_cache_dir: PathBuf,
 }
 
 impl CustomModuleLoader {
   pub fn new(fs: Arc<dyn FileSystem>) -> Self {
+    let npm_cache_dir = std::env::temp_dir().join("deno_npm_cache");
+    fs::create_dir_all(&npm_cache_dir).ok();
+
     Self {
       fs,
       source_maps: Rc::new(RefCell::new(HashMap::new())),
+      npm_cache_dir,
     }
+  }
+
+  async fn resolve_and_ensure_npm_module(
+    &self,
+    specifier: &str,
+    _referrer: &ModuleSpecifier,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    let package_name = specifier.strip_prefix("npm:").unwrap_or(specifier);
+    let (name, version, sub_path) = parse_npm_specifier(package_name);
+
+    // Simple file-based npm resolution
+    let package_dir = self.npm_cache_dir.join(&name).join(&version);
+    let package_json_path = package_dir.join("package.json");
+
+    // Check if package is already cached
+    if !package_json_path.exists() {
+      return Err(ModuleLoaderError::generic(format!(
+        "npm package '{}@{}' not found in cache. In a full implementation, this would fetch from \
+         registry and extract tarball to: {}",
+        name,
+        version,
+        package_dir.display()
+      )));
+    }
+
+    // Resolve the main entry point or subpath
+    let file_path = if let Some(sub_path) = sub_path {
+      package_dir.join(sub_path)
+    } else {
+      // Read package.json to get main entry point
+      let package_json = fs::read_to_string(&package_json_path)
+        .map_err(|e| ModuleLoaderError::generic(format!("Failed to read package.json: {}", e)))?;
+
+      // Simple JSON parsing for main field (in a real implementation, use serde_json)
+      let main_field = if let Some(start) = package_json.find("\"main\"") {
+        let after_colon = &package_json[start + 6 ..];
+        if let Some(colon_pos) = after_colon.find(':') {
+          let value_start = &after_colon[colon_pos + 1 ..];
+          if let Some(quote_start) = value_start.find('"') {
+            let after_quote = &value_start[quote_start + 1 ..];
+            if let Some(quote_end) = after_quote.find('"') {
+              Some(after_quote[.. quote_end].to_string())
+            } else {
+              None
+            }
+          } else {
+            None
+          }
+        } else {
+          None
+        }
+      } else {
+        None
+      };
+
+      package_dir.join(main_field.unwrap_or_else(|| "index.js".to_string()))
+    };
+
+    // Convert to file URL
+    let file_url = Url::from_file_path(&file_path)
+      .map_err(|_| ModuleLoaderError::generic("Failed to convert path to URL"))?;
+
+    Ok(ModuleSpecifier::from(file_url))
+  }
+
+  fn resolve_npm_module_sync(
+    &self,
+    specifier: &str,
+    _referrer: &ModuleSpecifier,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    let package_name = specifier.strip_prefix("npm:").unwrap_or(specifier);
+    let (name, version, sub_path) = parse_npm_specifier(package_name);
+
+    let package_dir = self.npm_cache_dir.join(&name).join(&version);
+    let package_json_path = package_dir.join("package.json");
+
+    if !package_json_path.exists() {
+      return Err(ModuleLoaderError::generic(format!(
+        "npm package '{}@{}' not found in cache at: {}",
+        name,
+        version,
+        package_dir.display()
+      )));
+    }
+
+    let file_path = if let Some(sub_path) = sub_path {
+      package_dir.join(sub_path)
+    } else {
+      let package_json = fs::read_to_string(&package_json_path)
+        .map_err(|e| ModuleLoaderError::generic(format!("Failed to read package.json: {}", e)))?;
+
+      let main_field = if let Some(start) = package_json.find("\"main\"") {
+        let after_colon = &package_json[start + 6 ..];
+        if let Some(colon_pos) = after_colon.find(':') {
+          let value_start = &after_colon[colon_pos + 1 ..];
+          if let Some(quote_start) = value_start.find('"') {
+            let after_quote = &value_start[quote_start + 1 ..];
+            if let Some(quote_end) = after_quote.find('"') {
+              Some(after_quote[.. quote_end].to_string())
+            } else {
+              None
+            }
+          } else {
+            None
+          }
+        } else {
+          None
+        }
+      } else {
+        None
+      };
+
+      package_dir.join(main_field.unwrap_or_else(|| "index.js".to_string()))
+    };
+
+    let file_url = Url::from_file_path(&file_path)
+      .map_err(|_| ModuleLoaderError::generic("Failed to convert path to URL"))?;
+
+    Ok(ModuleSpecifier::from(file_url))
   }
 }
 
-// Helper function to demonstrate npm specifier parsing
-fn parse_npm_specifier(spec: &str) -> (String, String, Option<String>) {
-  // Examples:
-  // "hono" -> ("hono", "latest", None)
-  // "hono@3.0.0" -> ("hono", "3.0.0", None)
-  // "hono@3.0.0/dist/index.js" -> ("hono", "3.0.0", Some("dist/index.js"))
+pub fn parse_npm_specifier(spec: &str) -> (String, String, Option<String>) {
+  // Handle scoped packages like @types/node or @types/node@1.0.0
+  if spec.starts_with('@') {
+    if let Some(slash_pos) = spec[1 ..].find('/') {
+      let scope_and_name_end = slash_pos + 1;
+      let after_name = &spec[scope_and_name_end + 1 ..];
 
-  if let Some(at_pos) = spec.find('@') {
-    let name = spec[.. at_pos].to_string();
-    let rest = &spec[at_pos + 1 ..];
+      if let Some(at_pos) = after_name.find('@') {
+        // @scope/name@version or @scope/name@version/subpath
+        let name = spec[.. scope_and_name_end + 1 + at_pos].to_string();
+        let rest = &after_name[at_pos + 1 ..];
 
-    if let Some(slash_pos) = rest.find('/') {
-      let version = rest[.. slash_pos].to_string();
-      let sub_path = rest[slash_pos + 1 ..].to_string();
-      (name, version, Some(sub_path))
+        if let Some(slash_pos) = rest.find('/') {
+          let version = rest[.. slash_pos].to_string();
+          let sub_path = rest[slash_pos + 1 ..].to_string();
+          (name, version, Some(sub_path))
+        } else {
+          (name, rest.to_string(), None)
+        }
+      } else if let Some(slash_pos) = after_name.find('/') {
+        // @scope/name/subpath
+        let name = spec[.. scope_and_name_end + 1 + slash_pos].to_string();
+        let sub_path = after_name[slash_pos + 1 ..].to_string();
+        (name, "latest".to_string(), Some(sub_path))
+      } else {
+        // @scope/name
+        (spec.to_string(), "latest".to_string(), None)
+      }
     } else {
-      (name, rest.to_string(), None)
+      // Invalid scoped package
+      (spec.to_string(), "latest".to_string(), None)
     }
-  } else if let Some(slash_pos) = spec.find('/') {
-    let name = spec[.. slash_pos].to_string();
-    let sub_path = spec[slash_pos + 1 ..].to_string();
-    (name, "latest".to_string(), Some(sub_path))
   } else {
-    (spec.to_string(), "latest".to_string(), None)
+    // Regular packages
+    if let Some(at_pos) = spec.find('@') {
+      let name = spec[.. at_pos].to_string();
+      let rest = &spec[at_pos + 1 ..];
+
+      if let Some(slash_pos) = rest.find('/') {
+        let version = rest[.. slash_pos].to_string();
+        let sub_path = rest[slash_pos + 1 ..].to_string();
+        (name, version, Some(sub_path))
+      } else {
+        (name, rest.to_string(), None)
+      }
+    } else if let Some(slash_pos) = spec.find('/') {
+      let name = spec[.. slash_pos].to_string();
+      let sub_path = spec[slash_pos + 1 ..].to_string();
+      (name, "latest".to_string(), Some(sub_path))
+    } else {
+      (spec.to_string(), "latest".to_string(), None)
+    }
   }
 }
 
@@ -62,24 +214,10 @@ impl ModuleLoader for CustomModuleLoader {
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     if specifier.starts_with("npm:") {
-      // For demonstration, we'll show the structure of what's needed:
-      let npm_spec = specifier.strip_prefix("npm:").unwrap();
-      let (package_name, version, sub_path) = parse_npm_specifier(npm_spec);
+      let referrer_spec = ModuleSpecifier::parse(referrer)
+        .map_err(|e| ModuleLoaderError::generic(format!("Invalid referrer URL: {}", e)))?;
 
-      let error_msg = format!(
-        "npm: specifier '{}' parsed as:\n- Package: {}\n- Version: {}\n- Subpath: {}\n\nBased on \
-         Deno's worker.rs, npm support requires:\n1. NpmRegistryApi - fetches package metadata \
-         from registry.npmjs.org\n2. NpmCache - downloads and caches package tarballs\n3. \
-         CliNpmInstaller - manages package installation with caching strategies\n4. \
-         CliNpmResolver - resolves npm specifiers to file paths\n5. Integration with module graph \
-         for dependency analysis\n\nSee npm_example.rs for the architecture overview.",
-        npm_spec,
-        package_name,
-        version,
-        sub_path.as_deref().unwrap_or("(none)")
-      );
-
-      return Err(ModuleLoaderError::generic(error_msg));
+      self.resolve_npm_module_sync(specifier, &referrer_spec)
     } else {
       resolve_import(specifier, referrer).map_err(|e| {
         ModuleLoaderError::generic(format!(
@@ -117,8 +255,8 @@ impl ModuleLoader for CustomModuleLoader {
 
 fn load_module(
   module_specifier: ModuleSpecifier,
-  source_maps: SourceMapStore,
-  fs: Arc<dyn FileSystem>,
+  _source_maps: SourceMapStore,
+  _fs: Arc<dyn FileSystem>,
 ) -> Result<ModuleSource, ModuleLoaderError> {
   let path = module_specifier
     .to_file_path()
