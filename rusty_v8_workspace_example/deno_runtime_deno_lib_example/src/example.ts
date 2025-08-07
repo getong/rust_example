@@ -7,13 +7,6 @@ declare const api_key: string;
 declare const api_secret: string;
 declare const user_id: string;
 
-console.log("🎉 NPM package download working!");
-console.log("📦 Lodash imported successfully!");
-
-// Try different ways to access lodash functions
-console.log("🔧 Lodash object:", typeof _);
-console.log("🔧 Lodash keys:", _ ? Object.keys(_).slice(0, 10) : "undefined");
-
 // Test lodash functionality
 if (_ && typeof _ === "function" && _.chunk) {
   console.log("📊 Example lodash usage:", _.chunk([1, 2, 3, 4, 5, 6], 2));
@@ -34,14 +27,33 @@ console.log("✅ Successfully imported and used npm package!");
 // Let's try the original stream-chat import to show it downloads but has runtime issues
 try {
   // This will download the package but fail at runtime due to Node.js compatibility
-  const { StreamChat } = await import("npm:stream-chat");
+  const streamChatModule = await import("npm:stream-chat");
+
+  const { StreamChat } = streamChatModule;
   console.log("📦 StreamChat class:", typeof StreamChat);
 
-  // Try to create an instance to show the error
-  const serverClient = StreamChat.getInstance(api_key, api_secret);
-  const token = serverClient.createToken(user_id);
-  console.log("🎯 Generated token:", token);
-  console.log("✅ StreamChat worked perfectly!");
+  if (StreamChat) {
+    try {
+      const serverClient = StreamChat.getInstance(api_key, api_secret);
+
+      const token = await serverClient.createToken(user_id);
+      console.log(
+        "🎯 Generated token using serverClient.createToken():",
+        token,
+      );
+    } catch (createError) {
+      console.log(
+        "⚠️  Error creating StreamChat instance:",
+        createError.message,
+      );
+      console.log(
+        "📊 Error stack:",
+        createError.stack?.split("\n").slice(0, 3).join("\n"),
+      );
+    }
+  } else {
+    console.log("❌ StreamChat class not found in module exports");
+  }
 } catch (error) {
   console.log(
     "⚠️  StreamChat runtime error (expected - needs Node.js compatibility):",

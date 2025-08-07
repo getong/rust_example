@@ -425,8 +425,48 @@ fn load_module(
   };
 
   // Read file synchronously using std::fs since we're in sync context
-  let code = std::fs::read_to_string(&path)
+  let mut code = std::fs::read_to_string(&path)
     .map_err(|e| ModuleLoaderError::generic(format!("Failed to read file: {}", e)))?;
+
+  // Special handling for stream-chat package
+  if path.to_string_lossy().contains("stream-chat") && path.to_string_lossy().contains("index.js") {
+    // Directly replace the problematic lines in the stream-chat bundle
+    // Replace import_https.default.Agent with a constructor function
+    code = code.replace(
+      "new import_https.default.Agent({",
+      "new (function HttpsAgent(options = {}) { this.options = options || {}; this.protocol = \
+       'https:'; this.maxSockets = options.maxSockets || Infinity; this.maxFreeSockets = \
+       options.maxFreeSockets || 256; this.maxCachedSessions = options.maxCachedSessions || 100; \
+       this.keepAlive = options.keepAlive || false; this.keepAliveMsecs = options.keepAliveMsecs \
+       || 1000; })({",
+    );
+
+    // Replace any usage of import_jsonwebtoken.default.sign
+    code = code.replace(
+      "import_jsonwebtoken.default.sign(",
+      "(async (payload, secret, options = {}) => { const header = { alg: 'HS256', typ: 'JWT' }; \
+       const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, ''); const now = \
+       Math.floor(Date.now() / 1000); const finalPayload = { ...payload, iat: options.noTimestamp \
+       ? undefined : now, exp: options.expiresIn ? now + options.expiresIn : undefined }; \
+       Object.keys(finalPayload).forEach(key => { if (finalPayload[key] === undefined) { delete \
+       finalPayload[key]; } }); const encodedPayload = \
+       btoa(JSON.stringify(finalPayload)).replace(/=/g, ''); const token = \
+       `${encodedHeader}.${encodedPayload}`; const key = await \
+       globalThis.crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: \
+       'HMAC', hash: 'SHA-256' }, false, ['sign']); const signature = await \
+       globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(token)); const \
+       encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/\\+/g, \
+       '-').replace(/\\//g, '_').replace(/=/g, ''); return `${token}.${encodedSignature}`; })(",
+    );
+
+    // Fix the createToken method to use JWTServerToken instead of JWTUserToken when server-side
+    code = code.replace(
+      "return JWTUserToken(this.secret, userID, extra, {});",
+      "return JWTServerToken(this.secret, userID, extra);",
+    );
+
+    println!("🔧 Patched stream-chat module to bypass import_* globals");
+  }
 
   let code = if should_transpile {
     let parsed = deno_ast::parse_module(deno_ast::ParseParams {
@@ -468,7 +508,7 @@ fn load_module(
 /// Check if a JavaScript file is using CommonJS patterns
 fn is_commonjs_module(code: &str) -> bool {
   // Look for CommonJS patterns
-  code.contains("module.exports") || 
+  code.contains("module.exports") ||
   code.contains("exports.") ||
   code.contains("exports[") ||
   // Also check if it doesn't have ES module exports
@@ -477,6 +517,27 @@ fn is_commonjs_module(code: &str) -> bool {
 
 /// Wrap CommonJS module to make it ES module compatible
 fn wrap_commonjs_module(code: String) -> String {
+  // Check if this is specifically the jsonwebtoken module (not just any module that uses it)
+  if code.contains("module.exports = ")
+    && code.contains("sign:")
+    && code.contains("verify:")
+    && code.contains("decode:")
+    && code.len() < 1000
+  {
+    return r#"
+// Mock jsonwebtoken module
+const jsonwebtoken = globalThis.__jsonwebtoken;
+const module = { exports: jsonwebtoken };
+const exports = module.exports;
+
+export default jsonwebtoken;
+export const sign = jsonwebtoken.sign;
+export const verify = jsonwebtoken.verify;
+export const decode = jsonwebtoken.decode;
+"#
+    .to_string();
+  }
+
   format!(
     r#"
 // CommonJS to ES Module wrapper

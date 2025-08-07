@@ -31,11 +31,26 @@ Object.defineProperty(globalThis, "process", {
   configurable: true,
 });
 
-// Mock Buffer (simplified)
+// Mock Buffer (enhanced)
 const mockBuffer = {
-  from: (data) => new Uint8Array(data),
+  from: (data, encoding) => {
+    if (typeof data === 'string') {
+      return new TextEncoder().encode(data);
+    }
+    return new Uint8Array(data);
+  },
   alloc: (size) => new Uint8Array(size),
   isBuffer: (obj) => obj instanceof Uint8Array,
+  concat: (buffers) => {
+    const totalLength = buffers.reduce((sum, buf) => sum + buf.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const buf of buffers) {
+      result.set(buf, offset);
+      offset += buf.length;
+    }
+    return result;
+  }
 };
 
 Object.defineProperty(globalThis, "Buffer", {
@@ -91,5 +106,161 @@ Object.defineProperty(globalThis, "exports", {
   writable: true,
   configurable: true,
 });
+
+// Node.js built-in modules (using real implementations from pre-init)
+globalThis.__nodeModules = {
+
+  // URL module
+  url: {
+    URL: globalThis.URL,
+    URLSearchParams: globalThis.URLSearchParams
+  },
+
+  // Path module
+  path: {
+    join: (...parts) => parts.join('/').replace(/\/+/g, '/'),
+    resolve: (...parts) => '/' + parts.join('/').replace(/\/+/g, '/'),
+    dirname: (path) => path.split('/').slice(0, -1).join('/') || '/',
+    basename: (path) => path.split('/').pop() || '',
+    extname: (path) => {
+      const name = path.split('/').pop() || '';
+      const dotIndex = name.lastIndexOf('.');
+      return dotIndex > 0 ? name.substring(dotIndex) : '';
+    }
+  },
+
+  // Events module
+  events: {
+    EventEmitter: class MockEventEmitter {
+      constructor() {
+        this.listeners = {};
+      }
+      on(event, listener) {
+        if (!this.listeners[event]) this.listeners[event] = [];
+        this.listeners[event].push(listener);
+        return this;
+      }
+      emit(event, ...args) {
+        if (this.listeners[event]) {
+          this.listeners[event].forEach(listener => listener(...args));
+        }
+        return this.listeners[event]?.length > 0;
+      }
+      removeListener(event, listener) {
+        if (this.listeners[event]) {
+          const index = this.listeners[event].indexOf(listener);
+          if (index > -1) this.listeners[event].splice(index, 1);
+        }
+        return this;
+      }
+    }
+  }
+};
+
+// Note: import_* globals are set up in the pre-init script with real implementations
+
+// Enhanced require function that provides Node.js built-ins
+Object.defineProperty(globalThis, "require", {
+  value: (id) => {
+    // Check if it's a Node.js built-in module
+    if (globalThis.__nodeModules[id]) {
+      return globalThis.__nodeModules[id];
+    }
+
+    throw new Error(`require('${id}') is not supported in this environment`);
+  },
+  enumerable: false,
+  writable: true,
+  configurable: true,
+});
+
+
+// Set up the import_* globals here again as a backup
+if (!globalThis.import_https || typeof globalThis.import_https?.default?.Agent !== 'function') {
+  // Constructor function for HTTPS Agent
+  function HttpsAgent(options = {}) {
+    this.options = options || {};
+    this.protocol = 'https:';
+    this.maxSockets = options.maxSockets || Infinity;
+    this.maxFreeSockets = options.maxFreeSockets || 256;
+    this.maxCachedSessions = options.maxCachedSessions || 100;
+    this.keepAlive = options.keepAlive || false;
+    this.keepAliveMsecs = options.keepAliveMsecs || 1000;
+  }
+
+  function HttpAgent(options = {}) {
+    this.options = options || {};
+    this.protocol = 'http:';
+    this.maxSockets = options.maxSockets || Infinity;
+    this.maxFreeSockets = options.maxFreeSockets || 256;
+    this.keepAlive = options.keepAlive || false;
+    this.keepAliveMsecs = options.keepAliveMsecs || 1000;
+  }
+
+  // Real JWT implementation using Web Crypto API
+  const jwtImpl = {
+    sign: async (payload, secret, options = {}) => {
+      const header = { alg: 'HS256', typ: 'JWT' };
+      const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '');
+
+      const now = Math.floor(Date.now() / 1000);
+      const finalPayload = {
+        ...payload,
+        iat: options.noTimestamp ? undefined : now,
+        exp: options.expiresIn ? now + options.expiresIn : undefined
+      };
+
+      // Remove undefined values
+      Object.keys(finalPayload).forEach(key => {
+        if (finalPayload[key] === undefined) {
+          delete finalPayload[key];
+        }
+      });
+
+      const encodedPayload = btoa(JSON.stringify(finalPayload)).replace(/=/g, '');
+      const token = `${encodedHeader}.${encodedPayload}`;
+
+      // Create signature using Web Crypto API
+      const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(secret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+
+      const signature = await crypto.subtle.sign(
+        'HMAC',
+        key,
+        new TextEncoder().encode(token)
+      );
+
+      const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+
+      return `${token}.${encodedSignature}`;
+    }
+  };
+
+  globalThis.import_https = {
+    default: {
+      Agent: HttpsAgent
+    }
+  };
+
+  globalThis.import_http = {
+    default: {
+      Agent: HttpAgent
+    }
+  };
+
+  globalThis.import_jsonwebtoken = {
+    default: jwtImpl
+  };
+
+  console.log("🔧 Set up import_* globals as backup in node_compat.js");
+}
 
 console.log("🔧 Node.js compatibility layer initialized");
