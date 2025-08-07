@@ -430,7 +430,6 @@ fn load_module(
 
   // Special handling for stream-chat package
   if path.to_string_lossy().contains("stream-chat") && path.to_string_lossy().contains("index.js") {
-    // Directly replace the problematic lines in the stream-chat bundle
     // Replace import_https.default.Agent with a constructor function
     code = code.replace(
       "new import_https.default.Agent({",
@@ -465,7 +464,7 @@ fn load_module(
       "return JWTServerToken(this.secret, userID, extra);",
     );
 
-    println!("🔧 Patched stream-chat module to bypass import_* globals");
+    println!("🔧 Patched stream-chat module for HTTPS Agent and JWT compatibility");
   }
 
   let code = if should_transpile {
