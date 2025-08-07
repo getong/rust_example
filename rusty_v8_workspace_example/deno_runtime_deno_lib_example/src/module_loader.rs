@@ -449,7 +449,12 @@ fn load_module(
 
     transpiled.into_source().text
   } else {
-    code
+    // Check if this is a CommonJS module that needs wrapping
+    if is_commonjs_module(&code) {
+      wrap_commonjs_module(code)
+    } else {
+      code
+    }
   };
 
   Ok(ModuleSource::new(
@@ -458,4 +463,28 @@ fn load_module(
     &module_specifier,
     None,
   ))
+}
+
+/// Check if a JavaScript file is using CommonJS patterns
+fn is_commonjs_module(code: &str) -> bool {
+  // Look for CommonJS patterns
+  code.contains("module.exports") || 
+  code.contains("exports.") ||
+  code.contains("exports[") ||
+  // Also check if it doesn't have ES module exports
+  (!code.contains("export ") && !code.contains("export{") && !code.contains("export*"))
+}
+
+/// Wrap CommonJS module to make it ES module compatible
+fn wrap_commonjs_module(code: String) -> String {
+  format!(
+    r#"
+// CommonJS to ES Module wrapper
+const {{ module, exports }} = globalThis.__createCommonJSContext();
+{}
+export default module.exports;
+export {{ module as __module, exports as __exports }};
+"#,
+    code
+  )
 }

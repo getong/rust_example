@@ -15,13 +15,13 @@ const mockProcess = {
   platform: "linux",
   versions: {
     node: "18.0.0",
-    v8: "10.0.0"
+    v8: "10.0.0",
   },
   nextTick: (fn) => Promise.resolve().then(fn),
   cwd: () => "/",
   on: () => {},
   exit: () => {},
-  argv: []
+  argv: [],
 };
 
 Object.defineProperty(globalThis, "process", {
@@ -35,7 +35,7 @@ Object.defineProperty(globalThis, "process", {
 const mockBuffer = {
   from: (data) => new Uint8Array(data),
   alloc: (size) => new Uint8Array(size),
-  isBuffer: (obj) => obj instanceof Uint8Array
+  isBuffer: (obj) => obj instanceof Uint8Array,
 };
 
 Object.defineProperty(globalThis, "Buffer", {
@@ -70,7 +70,14 @@ Object.defineProperty(globalThis, "require", {
   configurable: true,
 });
 
-// Module exports mock
+// Module exports mock - create a new module context for each import
+globalThis.__createCommonJSContext = function () {
+  const moduleObj = { exports: {} };
+  const exportsObj = moduleObj.exports;
+  return { module: moduleObj, exports: exportsObj };
+};
+
+// Global module/exports as fallback
 Object.defineProperty(globalThis, "module", {
   value: { exports: {} },
   enumerable: false,
