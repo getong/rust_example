@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_core = "0.354.0"
+deno_core = "0.355.0"
 deno_fs = "0.122.0"
 deno_permissions = "0.71.0"
 deno_resolver = "0.43.0"
