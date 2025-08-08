@@ -174,45 +174,45 @@ Object.defineProperty(globalThis, "require", {
 });
 
 // Set up the import_* globals here again as a backup
-if (
-  !globalThis.import_https ||
-  typeof globalThis.import_https?.default?.Agent !== "function"
-) {
-  // Constructor function for HTTPS Agent
-  function HttpsAgent(options = {}) {
-    this.options = options || {};
-    this.protocol = "https:";
-    this.maxSockets = options.maxSockets || Infinity;
-    this.maxFreeSockets = options.maxFreeSockets || 256;
-    this.maxCachedSessions = options.maxCachedSessions || 100;
-    this.keepAlive = options.keepAlive || false;
-    this.keepAliveMsecs = options.keepAliveMsecs || 1000;
-  }
+// if (
+//   !globalThis.import_https ||
+//   typeof globalThis.import_https?.default?.Agent !== "function"
+// ) {
+//   // Constructor function for HTTPS Agent
+//   function HttpsAgent(options = {}) {
+//     this.options = options || {};
+//     this.protocol = "https:";
+//     this.maxSockets = options.maxSockets || Infinity;
+//     this.maxFreeSockets = options.maxFreeSockets || 256;
+//     this.maxCachedSessions = options.maxCachedSessions || 100;
+//     this.keepAlive = options.keepAlive || false;
+//     this.keepAliveMsecs = options.keepAliveMsecs || 1000;
+//   }
 
-  function HttpAgent(options = {}) {
-    this.options = options || {};
-    this.protocol = "http:";
-    this.maxSockets = options.maxSockets || Infinity;
-    this.maxFreeSockets = options.maxFreeSockets || 256;
-    this.keepAlive = options.keepAlive || false;
-    this.keepAliveMsecs = options.keepAliveMsecs || 1000;
-  }
-
-
-  globalThis.import_https = {
-    default: {
-      Agent: HttpsAgent,
-    },
-  };
-
-  globalThis.import_http = {
-    default: {
-      Agent: HttpAgent,
-    },
-  };
+//   function HttpAgent(options = {}) {
+//     this.options = options || {};
+//     this.protocol = "http:";
+//     this.maxSockets = options.maxSockets || Infinity;
+//     this.maxFreeSockets = options.maxFreeSockets || 256;
+//     this.keepAlive = options.keepAlive || false;
+//     this.keepAliveMsecs = options.keepAliveMsecs || 1000;
+//   }
 
 
-  console.log("🔧 Set up import_* globals as backup in node_compat.js");
-}
+//   globalThis.import_https = {
+//     default: {
+//       Agent: HttpsAgent,
+//     },
+//   };
+
+//   globalThis.import_http = {
+//     default: {
+//       Agent: HttpAgent,
+//     },
+//   };
+
+
+//   console.log("🔧 Set up import_* globals as backup in node_compat.js");
+// }
 
 console.log("🔧 Node.js compatibility layer initialized");

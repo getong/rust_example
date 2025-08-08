@@ -13,6 +13,7 @@ use sys_traits::impls::RealSys;
 
 mod module_loader;
 mod npm_cache;
+mod npm_dependency_analyzer;
 mod npm_downloader;
 mod npm_registry;
 mod npm_specifier;
@@ -37,6 +38,17 @@ async fn main() -> Result<(), AnyError> {
 
   // Parse command line arguments
   let args: Vec<String> = std::env::args().collect();
+
+  // Check for analyze command
+  if args.len() == 3 && args[1] == "analyze" {
+    let package_name = &args[2];
+    if let Err(e) = npm_dependency_analyzer::analyze_npm_package(package_name).await {
+      eprintln!("❌ Failed to analyze package: {}", e);
+      std::process::exit(1);
+    }
+    return Ok(());
+  }
+
   if args.len() != 4 {
     eprintln!("Usage: {} <api_key> <api_secret> <user_id>", args[0]);
     std::process::exit(1);
@@ -47,6 +59,9 @@ async fn main() -> Result<(), AnyError> {
   let user_id = &args[3];
 
   let current_dir = std::env::current_dir()?;
+
+  // Use dependency_example.ts to demonstrate recursive dependency downloading
+  // let ts_path = current_dir.join("src/dependency_example.ts");
   let ts_path = current_dir.join("src/example.ts");
   let main_module = ModuleSpecifier::from_file_path(&ts_path).unwrap();
 

@@ -35,7 +35,7 @@ impl CustomModuleLoader {
     }
   }
 
-  async fn resolve_and_ensure_npm_module(
+  pub async fn resolve_and_ensure_npm_module(
     &self,
     specifier: &str,
     _referrer: &ModuleSpecifier,
@@ -172,10 +172,13 @@ impl ModuleLoader for CustomModuleLoader {
       let downloader = self.npm_downloader.clone();
 
       return ModuleLoadResponse::Async(Box::pin(async move {
-        println!("📥 Downloading npm package: {}", npm_specifier);
-        // Download and resolve the npm package
+        println!(
+          "📥 Downloading npm package with dependencies: {}",
+          npm_specifier
+        );
+        // Download and resolve the npm package with all its dependencies
         let cached_package = downloader
-          .download_package(&npm_specifier)
+          .download_package_with_dependencies(&npm_specifier)
           .await
           .map_err(|e| {
             ModuleLoaderError::generic(format!(
@@ -224,9 +227,12 @@ impl ModuleLoader for CustomModuleLoader {
           let module_spec_clone = module_specifier.clone();
 
           return ModuleLoadResponse::Async(Box::pin(async move {
-            // First, download all npm dependencies
+            // First, download all npm dependencies with their dependencies
             for npm_import in npm_imports {
-              if let Err(e) = downloader.download_package(&npm_import).await {
+              if let Err(e) = downloader
+                .download_package_with_dependencies(&npm_import)
+                .await
+              {
                 return Err(ModuleLoaderError::generic(format!(
                   "Failed to download npm package {}: {}",
                   npm_import, e
@@ -425,47 +431,11 @@ fn load_module(
   };
 
   // Read file synchronously using std::fs since we're in sync context
-  let mut code = std::fs::read_to_string(&path)
+  let code = std::fs::read_to_string(&path)
     .map_err(|e| ModuleLoaderError::generic(format!("Failed to read file: {}", e)))?;
 
-  // Special handling for stream-chat package
-  if path.to_string_lossy().contains("stream-chat") && path.to_string_lossy().contains("index.js") {
-    // Replace import_https.default.Agent with a constructor function
-    code = code.replace(
-      "new import_https.default.Agent({",
-      "new (function HttpsAgent(options = {}) { this.options = options || {}; this.protocol = \
-       'https:'; this.maxSockets = options.maxSockets || Infinity; this.maxFreeSockets = \
-       options.maxFreeSockets || 256; this.maxCachedSessions = options.maxCachedSessions || 100; \
-       this.keepAlive = options.keepAlive || false; this.keepAliveMsecs = options.keepAliveMsecs \
-       || 1000; })({",
-    );
-
-    // Replace any usage of import_jsonwebtoken.default.sign
-    code = code.replace(
-      "import_jsonwebtoken.default.sign(",
-      "(async (payload, secret, options = {}) => { const header = { alg: 'HS256', typ: 'JWT' }; \
-       const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, ''); const now = \
-       Math.floor(Date.now() / 1000); const finalPayload = { ...payload, iat: options.noTimestamp \
-       ? undefined : now, exp: options.expiresIn ? now + options.expiresIn : undefined }; \
-       Object.keys(finalPayload).forEach(key => { if (finalPayload[key] === undefined) { delete \
-       finalPayload[key]; } }); const encodedPayload = \
-       btoa(JSON.stringify(finalPayload)).replace(/=/g, ''); const token = \
-       `${encodedHeader}.${encodedPayload}`; const key = await \
-       globalThis.crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: \
-       'HMAC', hash: 'SHA-256' }, false, ['sign']); const signature = await \
-       globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(token)); const \
-       encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/\\+/g, \
-       '-').replace(/\\//g, '_').replace(/=/g, ''); return `${token}.${encodedSignature}`; })(",
-    );
-
-    // Fix the createToken method to use JWTServerToken instead of JWTUserToken when server-side
-    code = code.replace(
-      "return JWTUserToken(this.secret, userID, extra, {});",
-      "return JWTServerToken(this.secret, userID, extra);",
-    );
-
-    println!("🔧 Patched stream-chat module for HTTPS Agent and JWT compatibility");
-  }
+  // Apply Node.js compatibility fixes
+  // code = apply_nodejs_compatibility_fixes(code, &path);
 
   let code = if should_transpile {
     let parsed = deno_ast::parse_module(deno_ast::ParseParams {
@@ -513,6 +483,96 @@ fn is_commonjs_module(code: &str) -> bool {
   // Also check if it doesn't have ES module exports
   (!code.contains("export ") && !code.contains("export{") && !code.contains("export*"))
 }
+
+/// Apply Node.js compatibility fixes to module code
+// fn apply_nodejs_compatibility_fixes(mut code: String, path: &std::path::Path) -> String {
+//   let path_str = path.to_string_lossy();
+
+//   // Special handling for packages that use Node.js built-ins
+//   if path_str.contains("stream-chat") {
+//     // Fix HTTPS Agent constructor issue - ensure it uses globalThis
+//     if code.contains("import_https.default.Agent") {
+//       code = code.replace(
+//         "new import_https.default.Agent(",
+//         "new globalThis.import_https.default.Agent(",
+//       );
+//     }
+
+//     // Fix HTTP Agent constructor issue
+//     if code.contains("import_http.default.Agent") {
+//       code = code.replace(
+//         "new import_http.default.Agent(",
+//         "new globalThis.import_http.default.Agent(",
+//       );
+//     }
+
+//     // Replace any usage of import_jsonwebtoken.default.sign
+//     if code.contains("import_jsonwebtoken.default.sign") {
+//       code = code.replace(
+//         "import_jsonwebtoken.default.sign(",
+//         "(async (payload, secret, options = {}) => { const header = { alg: 'HS256', typ: 'JWT' };
+// \          const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, ''); const now = \
+//          Math.floor(Date.now() / 1000); const finalPayload = { ...payload, iat: \
+//          options.noTimestamp ? undefined : now, exp: options.expiresIn ? now + options.expiresIn
+// \          : undefined }; Object.keys(finalPayload).forEach(key => { if (finalPayload[key] === \
+//          undefined) { delete finalPayload[key]; } }); const encodedPayload = \
+//          btoa(JSON.stringify(finalPayload)).replace(/=/g, ''); const token = \
+//          `${encodedHeader}.${encodedPayload}`; const key = await \
+//          globalThis.crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: \
+//          'HMAC', hash: 'SHA-256' }, false, ['sign']); const signature = await \
+//          globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(token)); const \
+//          encodedSignature = btoa(String.fromCharCode(...new \
+//          Uint8Array(signature))).replace(/\\\\+/g, '-').replace(/\\\\//g, '_').replace(/=/g, '');
+// \          return `${token}.${encodedSignature}`; })(",
+//       );
+//     }
+
+//     // Fix the createToken method to use JWTServerToken instead of JWTUserToken when server-side
+//     if code.contains("return JWTUserToken(this.secret, userID, extra, {});") {
+//       code = code.replace(
+//         "return JWTUserToken(this.secret, userID, extra, {});",
+//         "return JWTServerToken(this.secret, userID, extra);",
+//       );
+//     }
+
+//     println!("🔧 Applied stream-chat specific Node.js compatibility fixes");
+//   }
+
+//   // Handle minified global variable issues (common in bundled packages)
+//   if path_str.contains("stream-chat") && code.contains("g is not defined") {
+//     // This is a minified file that likely uses 'g' for global
+//     code = format!("const g = globalThis; {}", code);
+//     println!("🔧 Added global variable 'g' definition for minified code");
+//   } else if code.contains("typeof g") || code.contains("g.") || code.contains("g[") {
+//     // Pre-emptively add global variable definitions for minified code
+//     if !code.contains("const g = ") && !code.contains("var g = ") && !code.contains("let g = ") {
+//       code = format!("const g = globalThis; {}", code);
+//       println!("🔧 Added global variable 'g' definition for potential minified code");
+//     }
+//   }
+
+//   // General Node.js compatibility fixes for any package
+//   if code.contains("import_https") || code.contains("import_http") ||
+// code.contains("import_crypto")   {
+//     // Ensure import_* references use globalThis (avoid local variable conflicts)
+//     if !code.contains("globalThis.import_https") && code.contains("import_https.default") {
+//       code = code.replace("import_https.default", "globalThis.import_https.default");
+//     }
+//     if !code.contains("globalThis.import_http") && code.contains("import_http.default") {
+//       code = code.replace("import_http.default", "globalThis.import_http.default");
+//     }
+//     if !code.contains("globalThis.import_crypto") && code.contains("import_crypto.default") {
+//       code = code.replace("import_crypto.default", "globalThis.import_crypto.default");
+//     }
+
+//     println!(
+//       "🔧 Applied general Node.js compatibility fixes to {}",
+//       path_str
+//     );
+//   }
+
+//   code
+// }
 
 /// Wrap CommonJS module to make it ES module compatible
 fn wrap_commonjs_module(code: String) -> String {

@@ -110,6 +110,143 @@ impl NpmDownloader {
     Ok(cached)
   }
 
+  /// Download package with all its dependencies recursively
+  pub async fn download_package_with_dependencies(&self, specifier: &str) -> Result<CachedPackage> {
+    use std::collections::HashSet;
+
+    tracing::info!("🌐 Starting recursive download for: {}", specifier);
+    let mut downloaded_packages = HashSet::new();
+
+    self
+      .download_package_recursive_with_depth(specifier, &mut downloaded_packages, 0, 3)
+      .await
+  }
+
+  fn download_package_recursive_with_depth<'a>(
+    &'a self,
+    specifier: &'a str,
+    downloaded: &'a mut std::collections::HashSet<String>,
+    current_depth: u32,
+    max_depth: u32,
+  ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CachedPackage>> + 'a>> {
+    Box::pin(async move {
+      // Check depth limit
+      if current_depth >= max_depth {
+        println!("🔢 Reached max depth ({}) for: {}", max_depth, specifier);
+        // Still download the main package but don't recurse
+        return self.download_package(specifier).await;
+      }
+
+      // Avoid circular dependencies
+      if downloaded.contains(specifier) {
+        tracing::info!("⚠️  Skipping already processed: {}", specifier);
+        let npm_spec = NpmSpecifier::parse(specifier)?;
+        let metadata = self.registry.get_package_metadata(&npm_spec.name).await?;
+        let resolved_version = self.resolve_version(&npm_spec, &metadata)?;
+        return self
+          .cache
+          .get_package(&npm_spec.name, &resolved_version)?
+          .ok_or_else(|| anyhow!("Package should be cached: {}", specifier));
+      }
+
+      // Download the main package first
+      let cached_package = self.download_package(specifier).await?;
+      downloaded.insert(specifier.to_string());
+
+      // Parse package.json to get dependencies
+      let package_json_path = cached_package.path.join("package").join("package.json");
+      println!(
+        "📋 [Depth {}] Looking for package.json at: {}",
+        current_depth,
+        package_json_path.display()
+      );
+      if let Ok(package_json_content) = std::fs::read_to_string(&package_json_path) {
+        println!(
+          "✅ [Depth {}] Successfully read package.json for {}",
+          current_depth, cached_package.name
+        );
+        if let Ok(package_json) = serde_json::from_str::<serde_json::Value>(&package_json_content) {
+          let dependencies = self.extract_all_dependencies(&package_json);
+
+          println!(
+            "📦 [Depth {}] Found {} dependencies for {}: {:?}",
+            current_depth,
+            dependencies.len(),
+            cached_package.name,
+            dependencies.keys().collect::<Vec<_>>()
+          );
+
+          // Download each dependency recursively
+          for (dep_name, version_spec) in dependencies {
+            let dep_specifier = if version_spec.starts_with("npm:") {
+              version_spec
+            } else {
+              format!("npm:{}@{}", dep_name, version_spec)
+            };
+
+            println!(
+              "🔄 [Depth {}] Downloading dependency: {}",
+              current_depth + 1,
+              dep_specifier
+            );
+            if let Err(e) = self
+              .download_package_recursive_with_depth(
+                &dep_specifier,
+                downloaded,
+                current_depth + 1,
+                max_depth,
+              )
+              .await
+            {
+              println!("⚠️  Failed to download dependency {}: {}", dep_specifier, e);
+              // Continue with other dependencies even if one fails
+            } else {
+              println!("✅ Successfully downloaded dependency: {}", dep_specifier);
+            }
+          }
+        }
+      }
+
+      Ok(cached_package)
+    })
+  }
+
+  /// Extract runtime dependencies from package.json (only dependencies, not dev/peer)
+  fn extract_all_dependencies(
+    &self,
+    package_json: &serde_json::Value,
+  ) -> std::collections::HashMap<String, String> {
+    use std::collections::HashMap;
+
+    let mut all_deps = HashMap::new();
+
+    // Extract only regular dependencies (not dev dependencies to avoid downloading too many
+    // packages)
+    if let Some(deps) = package_json.get("dependencies").and_then(|d| d.as_object()) {
+      for (name, version) in deps {
+        if let Some(version_str) = version.as_str() {
+          all_deps.insert(name.clone(), version_str.to_string());
+        }
+      }
+    }
+
+    // Only extract TypeScript type definitions from dev dependencies (for TypeScript support)
+    if let Some(dev_deps) = package_json
+      .get("devDependencies")
+      .and_then(|d| d.as_object())
+    {
+      for (name, version) in dev_deps {
+        if name.starts_with("@types/") {
+          if let Some(version_str) = version.as_str() {
+            all_deps.insert(name.clone(), version_str.to_string());
+          }
+        }
+      }
+    }
+
+    all_deps
+  }
+
   /// Resolve version constraint to specific version
   fn resolve_version(&self, spec: &NpmSpecifier, metadata: &PackageMetadata) -> Result<String> {
     match &spec.version {
