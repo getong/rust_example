@@ -2,16 +2,23 @@ use std::{env, rc::Rc, sync::Arc};
 
 use anyhow::{Context, Result};
 use deno_core::{ModuleId, PollEventLoopOptions, error::AnyError, v8};
-use deno_resolver::npm::{DenoInNpmPackageChecker, managed::ManagedNpmResolver};
+use deno_error::JsErrorBox;
+use deno_resolver::npm::{
+  ByonmInNpmPackageChecker, ByonmNpmResolver, ByonmNpmResolverCreateOptions,
+};
 use deno_runtime::{
   BootstrapOptions,
   deno_fs::RealFs,
+  deno_node,
   deno_permissions::{Permissions, PermissionsContainer, PermissionsOptions},
   ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
-use sys_traits::impls::RealSys;
+use node_resolver::{
+  DenoIsBuiltInNodeModuleChecker, NodeResolverOptions, PackageJsonResolver,
+  errors::ClosestPkgJsonError,
+};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -25,7 +32,9 @@ pub async fn run_js(
   host_state: Arc<RwLock<HostState>>,
 ) -> Result<(), AnyError> {
   let module_loader = Rc::new(TypescriptModuleLoader);
-  let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(RealSys));
+  let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(
+    sys_traits::impls::RealSys,
+  ));
   let fs = Arc::new(RealFs);
   let permissions = Permissions::from_options(
     permission_desc_parser.as_ref(),
@@ -39,8 +48,16 @@ pub async fn run_js(
       // our scripts to call.
       allow_net: Some(vec![
         "httpbin.org:443".to_string(),
+        "httpbin.org:80".to_string(),
         "api.ipify.org:443".to_string(),
+        "127.0.0.1".to_string(),
+        "localhost".to_string(),
+        "0.0.0.0".to_string(),
       ]),
+      // Allow file system read access for Node.js modules
+      allow_read: Some(vec![".".to_string()]),
+      // Allow DNS resolution (might be needed for Node.js networking)
+      allow_sys: Some(vec!["hostname".to_string(), "osRelease".to_string()]),
       // If set to true, scripts trying to access functions not enabled
       // by our setup will result in a command-line prompt.
       // If set to false, they are treated as if they were denied.
@@ -49,23 +66,90 @@ pub async fn run_js(
     },
   )?;
 
-  let services =
-    WorkerServiceOptions::<DenoInNpmPackageChecker, ManagedNpmResolver<RealSys>, RealSys> {
-      module_loader,
-      permissions: PermissionsContainer::new(permission_desc_parser, permissions),
-      blob_store: Default::default(),
-      broadcast_channel: Default::default(),
-      feature_checker: Default::default(),
-      node_services: None,
-      npm_process_state_provider: Default::default(),
-      root_cert_store_provider: Default::default(),
-      shared_array_buffer_store: Default::default(),
-      compiled_wasm_module_store: Default::default(),
-      v8_code_cache: Default::default(),
-      fs,
-      deno_rt_native_addon_loader: Default::default(),
-      fetch_dns_resolver: Default::default(),
-    };
+  // Create node services for Node.js compatibility
+  let in_npm_pkg_checker = ByonmInNpmPackageChecker;
+
+  // Create package json resolver first
+  let pkg_json_resolver = Arc::new(PackageJsonResolver::<sys_traits::impls::RealSys>::new(
+    sys_traits::impls::RealSys,
+    None,
+  ));
+
+  // Create npm resolver
+  let npm_resolver_options = ByonmNpmResolverCreateOptions {
+    sys: node_resolver::cache::NodeResolutionSys::<sys_traits::impls::RealSys>::new(
+      sys_traits::impls::RealSys,
+      None,
+    ),
+    pkg_json_resolver: pkg_json_resolver.clone(),
+    root_node_modules_dir: None,
+  };
+  let npm_resolver = ByonmNpmResolver::new(npm_resolver_options);
+
+  let node_resolver = Arc::new(deno_node::NodeResolver::new(
+    in_npm_pkg_checker,
+    DenoIsBuiltInNodeModuleChecker,
+    npm_resolver,
+    pkg_json_resolver.clone(),
+    node_resolver::cache::NodeResolutionSys::<sys_traits::impls::RealSys>::new(
+      sys_traits::impls::RealSys,
+      None,
+    ),
+    NodeResolverOptions::default(),
+  ));
+
+  // Create a simple node require loader
+  struct SimpleNodeRequireLoader;
+  impl deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
+    fn ensure_read_permission<'a>(
+      &self,
+      _permissions: &mut dyn deno_node::NodePermissions,
+      path: std::borrow::Cow<'a, std::path::Path>,
+    ) -> Result<std::borrow::Cow<'a, std::path::Path>, JsErrorBox> {
+      Ok(path)
+    }
+
+    fn load_text_file_lossy(
+      &self,
+      path: &std::path::Path,
+    ) -> Result<deno_core::FastString, JsErrorBox> {
+      let content =
+        std::fs::read_to_string(path).map_err(|e| JsErrorBox::new("Error", e.to_string()))?;
+      Ok(deno_core::FastString::from(content))
+    }
+
+    fn is_maybe_cjs(&self, _url: &deno_core::url::Url) -> Result<bool, ClosestPkgJsonError> {
+      Ok(false)
+    }
+  }
+
+  let node_services = deno_node::NodeExtInitServices {
+    node_resolver: node_resolver.clone(),
+    node_require_loader: Rc::new(SimpleNodeRequireLoader),
+    pkg_json_resolver: pkg_json_resolver.clone(),
+    sys: sys_traits::impls::RealSys,
+  };
+
+  let services = WorkerServiceOptions::<
+    ByonmInNpmPackageChecker,
+    ByonmNpmResolver<sys_traits::impls::RealSys>,
+    sys_traits::impls::RealSys,
+  > {
+    module_loader,
+    permissions: PermissionsContainer::new(permission_desc_parser, permissions),
+    blob_store: Default::default(),
+    broadcast_channel: Default::default(),
+    feature_checker: Default::default(),
+    node_services: Some(node_services),
+    npm_process_state_provider: Default::default(),
+    root_cert_store_provider: Default::default(),
+    shared_array_buffer_store: Default::default(),
+    compiled_wasm_module_store: Default::default(),
+    v8_code_cache: Default::default(),
+    fs: fs.clone(),
+    deno_rt_native_addon_loader: Default::default(),
+    fetch_dns_resolver: Default::default(),
+  };
   let main_module = deno_core::resolve_path(file_path, &env::current_dir()?)?;
 
   // Build the bootstrap options that are expected by the runtime
