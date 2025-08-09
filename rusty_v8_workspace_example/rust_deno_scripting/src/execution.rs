@@ -31,7 +31,7 @@ pub async fn run_js(
   fn_name: &str,
   host_state: Arc<RwLock<HostState>>,
 ) -> Result<(), AnyError> {
-  let module_loader = Rc::new(TypescriptModuleLoader);
+  let module_loader = Rc::new(TypescriptModuleLoader::new());
   let permission_desc_parser = Arc::new(RuntimePermissionDescriptorParser::new(
     sys_traits::impls::RealSys,
   ));
@@ -123,9 +123,11 @@ pub async fn run_js(
     }
   }
 
+  let node_require_loader = Rc::new(SimpleNodeRequireLoader);
+  
   let node_services = deno_node::NodeExtInitServices {
     node_resolver: node_resolver.clone(),
-    node_require_loader: Rc::new(SimpleNodeRequireLoader),
+    node_require_loader: node_require_loader.clone(),
     pkg_json_resolver: pkg_json_resolver.clone(),
     sys: sys_traits::impls::RealSys,
   };
@@ -140,7 +142,12 @@ pub async fn run_js(
     blob_store: Default::default(),
     broadcast_channel: Default::default(),
     feature_checker: Default::default(),
-    node_services: Some(node_services),
+    node_services: Some(deno_node::NodeExtInitServices {
+      node_resolver: node_resolver.clone(),
+      node_require_loader: node_require_loader.clone(),
+      pkg_json_resolver: pkg_json_resolver.clone(),
+      sys: sys_traits::impls::RealSys,
+    }),
     npm_process_state_provider: Default::default(),
     root_cert_store_provider: Default::default(),
     shared_array_buffer_store: Default::default(),
@@ -166,7 +173,10 @@ pub async fn run_js(
 
   let options = WorkerOptions {
     bootstrap: bootstrap_options,
-    extensions: vec![snapshot_extension, my_extension::init()],
+    extensions: vec![
+      snapshot_extension, 
+      my_extension::init(),
+    ],
     startup_snapshot: None,
     ..Default::default()
   };
@@ -178,6 +188,10 @@ pub async fn run_js(
   // Values inside the OpState are identified by their type signature and must be
   // retrieved with the same.
   worker.js_runtime.op_state().borrow_mut().put(host_state);
+
+  // Load Node.js compatibility layer before executing the main module
+  let node_compat_code = include_str!("../builtins/node_compat.js");
+  worker.execute_script("node_compat", deno_core::FastString::from(node_compat_code))?;
 
   // We could call `worker.execute_main_module` here, but then we would not be able to access
   // functions exported by the user script.

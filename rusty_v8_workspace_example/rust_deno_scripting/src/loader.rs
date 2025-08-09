@@ -1,32 +1,39 @@
-use std::env;
+use std::{cell::RefCell, collections::HashMap, env, rc::Rc, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use deno_ast::{MediaType, ParseParams};
 use deno_core::{
   ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-  RequestedModuleType, ResolutionKind, resolve_import, resolve_path,
+  RequestedModuleType, ResolutionKind, resolve_import, resolve_path, url::Url,
 };
 use deno_error::JsErrorBox;
 
-// By implementing a custom module loader, we can change where imported modules are loaded from
-// or transpile them from other languages (such as TypeScript) to JavaScript,
-// We can also alter the behavior depending on whether the import is a dynamic import or an
-// import statement, or depending on where the import was triggered from.
-// To ensure the Deno language server understands what code these imports map to,
-// we also provide a "deno.json" at the root of this repository.
-// When exposing an API for your script developers to target, you could also provide a
-// "deno.json" that redirects your provided modules to type definition files on the web
-// without exposing the internal implementations.
-pub struct TypescriptModuleLoader;
+use crate::{
+  npm_downloader::{NpmConfig, NpmDownloader},
+  npm_specifier::parse_npm_specifier,
+};
 
-// When implementing our own module loader, we can introduce special handling
-// for protocol schemes as well as the whole module specifier.
-// For demonstration purposes, this module loader implements a custom protocol scheme
-// called "builtin:" that returns certain modules directly bundled into our program's
-// binary (using `include_str!`), as well as a prefix matcher on the module identifier
-// of normal protocol-less imports (resulting in the default scheme "file:") that rewrites
-// the module prefix to a specific directory on our disk.
 const INTERNAL_MODULE_PREFIX: &str = "@builtin/";
+
+type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
+
+pub struct TypescriptModuleLoader {
+  source_maps: SourceMapStore,
+  npm_downloader: Arc<NpmDownloader>,
+}
+
+impl TypescriptModuleLoader {
+  pub fn new() -> Self {
+    let npm_config = NpmConfig::default();
+    let npm_downloader =
+      Arc::new(NpmDownloader::new(npm_config).expect("Failed to create npm downloader"));
+
+    Self {
+      source_maps: Rc::new(RefCell::new(HashMap::new())),
+      npm_downloader,
+    }
+  }
+}
 
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
@@ -37,9 +44,6 @@ impl ModuleLoader for TypescriptModuleLoader {
   ) -> std::result::Result<ModuleSpecifier, JsErrorBox> {
     if specifier.starts_with(INTERNAL_MODULE_PREFIX) {
       let mut path_str = specifier.replace(INTERNAL_MODULE_PREFIX, "./builtins/");
-      // For module specifiers starting with our "builtin" prefix, we automatically add the ".ts"
-      // extension.
-      // By default, Deno requires specifying the full file name including file extensions.
       path_str.push_str(".ts");
       return resolve_path(
         &path_str,
@@ -47,7 +51,62 @@ impl ModuleLoader for TypescriptModuleLoader {
       )
       .map_err(|e| JsErrorBox::generic(e.to_string()));
     }
-    resolve_import(specifier, referrer).map_err(|e| JsErrorBox::generic(e.to_string()))
+
+    if specifier.starts_with("npm:") {
+      // For npm: specifiers, try to resolve synchronously first (if already cached)
+      let package_name = specifier.strip_prefix("npm:").unwrap_or(specifier);
+      let (name, version, sub_path) = parse_npm_specifier(package_name);
+
+      // Check if package is already cached
+      let versions_to_check = if version == "latest" {
+        if let Ok(packages) = self.npm_downloader.cache.list_packages() {
+          let mut found_versions: Vec<String> = packages
+            .iter()
+            .filter(|p| p.name == name)
+            .map(|p| p.version.clone())
+            .collect();
+          found_versions.sort();
+          found_versions.reverse();
+          found_versions
+        } else {
+          vec!["latest".to_string()]
+        }
+      } else {
+        vec![version.clone()]
+      };
+
+      for check_version in versions_to_check {
+        if let Ok(Some(cached_package)) =
+          self.npm_downloader.cache.get_package(&name, &check_version)
+        {
+          // Package is cached, resolve to actual file path
+          let file_path = if let Some(sub_path) = sub_path.clone() {
+            cached_package.path.join("package").join(sub_path)
+          } else if let Some(main_path) = self
+            .npm_downloader
+            .cache
+            .get_main_entry_path(&cached_package)
+          {
+            main_path
+          } else {
+            cached_package.path.join("package").join("index.js")
+          };
+
+          let file_url = Url::from_file_path(&file_path)
+            .map_err(|_| JsErrorBox::generic("Failed to convert cached package path to URL"))?;
+
+          return Ok(ModuleSpecifier::from(file_url));
+        }
+      }
+
+      // Package not cached, return a placeholder URL that we'll resolve in load()
+      let npm_url = format!("npm-resolve:{}", specifier);
+      let result = ModuleSpecifier::parse(&npm_url)
+        .map_err(|e| JsErrorBox::generic(format!("Failed to create npm placeholder URL: {}", e)))?;
+      Ok(result)
+    } else {
+      resolve_import(specifier, referrer).map_err(|e| JsErrorBox::generic(e.to_string()))
+    }
   }
 
   fn load(
@@ -57,13 +116,100 @@ impl ModuleLoader for TypescriptModuleLoader {
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    // We only make use of synchronous sources for our modules in this demo,
-    // but you may also return an async response to, for example, fetch files
-    // from the network.
+    let module_specifier = module_specifier.clone();
+    let source_maps = self.source_maps.clone();
+
+    // Check if this is an npm-resolve: specifier that needs async resolution
+    if module_specifier.scheme() == "npm-resolve" {
+      let npm_specifier = module_specifier
+        .as_str()
+        .strip_prefix("npm-resolve:")
+        .unwrap_or("")
+        .to_string();
+      let downloader = self.npm_downloader.clone();
+
+      return ModuleLoadResponse::Async(Box::pin(async move {
+        println!(
+          "📥 Downloading npm package with dependencies: {}",
+          npm_specifier
+        );
+
+        // Download and resolve the npm package with all its dependencies
+        let cached_package = downloader
+          .download_package_with_dependencies(&npm_specifier)
+          .await
+          .map_err(|e| {
+            JsErrorBox::generic(format!(
+              "Failed to download npm package {}: {}",
+              npm_specifier, e
+            ))
+          })?;
+
+        println!(
+          "✅ Successfully downloaded and cached: {} v{}",
+          cached_package.name, cached_package.version
+        );
+
+        let package_name = npm_specifier.strip_prefix("npm:").unwrap_or(&npm_specifier);
+        let (_, _, sub_path) = parse_npm_specifier(package_name);
+
+        // Resolve the main entry point or subpath
+        let file_path = if let Some(sub_path) = sub_path {
+          cached_package.path.join("package").join(sub_path)
+        } else {
+          // Use the main entry point from cached package or default to index.js
+          if let Some(main_path) = downloader.cache.get_main_entry_path(&cached_package) {
+            main_path
+          } else {
+            cached_package.path.join("package").join("index.js")
+          }
+        };
+
+        // Now load the actual file
+        let actual_specifier = Url::from_file_path(&file_path)
+          .map_err(|_| JsErrorBox::generic("Failed to convert path to URL"))?;
+        let actual_module_specifier = ModuleSpecifier::from(actual_specifier);
+
+        load_module(actual_module_specifier, source_maps)
+      }));
+    }
+
+    // Check if this is a regular file that might contain npm: imports
+    if let Ok(path) = module_specifier.to_file_path() {
+      if let Ok(content) = std::fs::read_to_string(&path) {
+        let npm_imports = extract_npm_imports(&content);
+
+        if !npm_imports.is_empty() {
+          // We found npm imports, handle them asynchronously
+          let downloader = self.npm_downloader.clone();
+          let module_spec_clone = module_specifier.clone();
+
+          return ModuleLoadResponse::Async(Box::pin(async move {
+            // First, download all npm dependencies with their dependencies
+            for npm_import in npm_imports {
+              if let Err(e) = downloader
+                .download_package_with_dependencies(&npm_import)
+                .await
+              {
+                return Err(JsErrorBox::generic(format!(
+                  "Failed to download npm package {}: {}",
+                  npm_import, e
+                )));
+              }
+            }
+
+            // Now load the module with resolved npm imports
+            load_module_with_npm_resolution(module_spec_clone, source_maps, &downloader).await
+          }));
+        }
+      }
+    }
+
+    // Regular module loading (sync)
     ModuleLoadResponse::Sync(
       self
         .load_sync(
-          module_specifier,
+          &module_specifier,
           maybe_referrer,
           is_dyn_import,
           requested_module_type,
@@ -87,8 +233,6 @@ impl TypescriptModuleLoader {
       ModuleCode::from_file(&module_specifier, requested_module_type)?
     };
 
-    // TypeScript files must first be transpiled to JavaScript before they can be executed.
-    // For this purpose, Deno wraps https://swc.rs and exposes it as part of the `deno_ast` module.
     let code = ModuleSourceCode::String(
       if module_code.should_transpile {
         let parsed_source = deno_ast::parse_module(ParseParams {
@@ -117,6 +261,233 @@ impl TypescriptModuleLoader {
   }
 }
 
+fn extract_npm_imports(content: &str) -> Vec<String> {
+  let mut imports = Vec::new();
+
+  // Simple regex-like parsing for npm: imports
+  for line in content.lines() {
+    if let Some(import_start) = line.find("from \"npm:") {
+      let after_npm = &line[import_start + 10 ..];
+      if let Some(quote_end) = after_npm.find('"') {
+        let npm_spec = format!("npm:{}", &after_npm[.. quote_end]);
+        imports.push(npm_spec);
+      }
+    } else if let Some(import_start) = line.find("from 'npm:") {
+      let after_npm = &line[import_start + 10 ..];
+      if let Some(quote_end) = after_npm.find('\'') {
+        let npm_spec = format!("npm:{}", &after_npm[.. quote_end]);
+        imports.push(npm_spec);
+      }
+    }
+  }
+
+  imports
+}
+
+async fn load_module_with_npm_resolution(
+  module_specifier: ModuleSpecifier,
+  _source_maps: SourceMapStore,
+  downloader: &Arc<NpmDownloader>,
+) -> Result<ModuleSource, JsErrorBox> {
+  let path = module_specifier
+    .to_file_path()
+    .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported"))?;
+
+  let media_type = deno_graph::MediaType::from_specifier(&module_specifier);
+  let (module_type, should_transpile) = match media_type {
+    deno_graph::MediaType::JavaScript | deno_graph::MediaType::Mjs | deno_graph::MediaType::Cjs => {
+      (ModuleType::JavaScript, false)
+    }
+    deno_graph::MediaType::Jsx => (ModuleType::JavaScript, true),
+    deno_graph::MediaType::TypeScript
+    | deno_graph::MediaType::Mts
+    | deno_graph::MediaType::Cts
+    | deno_graph::MediaType::Dts
+    | deno_graph::MediaType::Dmts
+    | deno_graph::MediaType::Dcts
+    | deno_graph::MediaType::Tsx => (ModuleType::JavaScript, true),
+    deno_graph::MediaType::Json => (ModuleType::Json, false),
+    _ => {
+      return Err(JsErrorBox::generic(format!(
+        "Unknown extension {:?}",
+        path.extension()
+      )));
+    }
+  };
+
+  // Read file
+  let mut code = std::fs::read_to_string(&path)
+    .map_err(|e| JsErrorBox::generic(format!("Failed to read file: {}", e)))?;
+
+  // Transform npm: imports to file:// URLs
+  code = transform_npm_imports(code, downloader).await?;
+
+  let code = if should_transpile {
+    let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+      specifier: module_specifier.clone(),
+      text: code.into(),
+      media_type,
+      capture_tokens: false,
+      scope_analysis: false,
+      maybe_syntax: None,
+    })
+    .map_err(|e| JsErrorBox::generic(format!("Failed to parse module: {}", e)))?;
+
+    let transpiled = parsed
+      .transpile(
+        &deno_ast::TranspileOptions::default(),
+        &deno_ast::TranspileModuleOptions::default(),
+        &deno_ast::EmitOptions::default(),
+      )
+      .map_err(|e| JsErrorBox::generic(format!("Failed to transpile: {}", e)))?;
+
+    transpiled.into_source().text
+  } else {
+    code
+  };
+
+  Ok(ModuleSource::new(
+    module_type,
+    ModuleSourceCode::String(code.into()),
+    &module_specifier,
+    None,
+  ))
+}
+
+async fn transform_npm_imports(
+  mut code: String,
+  downloader: &Arc<NpmDownloader>,
+) -> Result<String, JsErrorBox> {
+  let npm_imports = extract_npm_imports(&code);
+
+  for npm_import in npm_imports {
+    // Get the cached package (should already be downloaded)
+    let package_name = npm_import.strip_prefix("npm:").unwrap_or(&npm_import);
+    let (name, version, sub_path) = parse_npm_specifier(package_name);
+
+    // Resolve version if needed
+    let resolved_version = if version == "latest" {
+      // Would need to resolve latest version, for now use "latest"
+      "latest".to_string()
+    } else {
+      version
+    };
+
+    if let Ok(Some(cached_package)) = downloader.cache.get_package(&name, &resolved_version) {
+      let file_path = if let Some(sub_path) = sub_path {
+        cached_package.path.join("package").join(sub_path)
+      } else if let Some(main_path) = downloader.cache.get_main_entry_path(&cached_package) {
+        main_path
+      } else {
+        cached_package.path.join("package").join("index.js")
+      };
+
+      if let Ok(file_url) = Url::from_file_path(&file_path) {
+        let file_url_str = file_url.to_string();
+
+        // Replace npm: import with file:// URL
+        code = code.replace(
+          &format!("\"{}\"", npm_import),
+          &format!("\"{}\"", file_url_str),
+        );
+        code = code.replace(&format!("'{}'", npm_import), &format!("'{}'", file_url_str));
+      }
+    }
+  }
+
+  Ok(code)
+}
+
+fn load_module(
+  module_specifier: ModuleSpecifier,
+  _source_maps: SourceMapStore,
+) -> Result<ModuleSource, JsErrorBox> {
+  let path = module_specifier
+    .to_file_path()
+    .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported"))?;
+
+  let media_type = deno_graph::MediaType::from_specifier(&module_specifier);
+  let (module_type, should_transpile) = match media_type {
+    deno_graph::MediaType::JavaScript | deno_graph::MediaType::Mjs | deno_graph::MediaType::Cjs => {
+      (ModuleType::JavaScript, false)
+    }
+    deno_graph::MediaType::Jsx => (ModuleType::JavaScript, true),
+    deno_graph::MediaType::TypeScript
+    | deno_graph::MediaType::Mts
+    | deno_graph::MediaType::Cts
+    | deno_graph::MediaType::Dts
+    | deno_graph::MediaType::Dmts
+    | deno_graph::MediaType::Dcts
+    | deno_graph::MediaType::Tsx => (ModuleType::JavaScript, true),
+    deno_graph::MediaType::Json => (ModuleType::Json, false),
+    _ => {
+      return Err(JsErrorBox::generic(format!(
+        "Unknown extension {:?}",
+        path.extension()
+      )));
+    }
+  };
+
+  // Read file synchronously using std::fs since we're in sync context
+  let code = std::fs::read_to_string(&path)
+    .map_err(|e| JsErrorBox::generic(format!("Failed to read file: {}", e)))?;
+
+  let code = if should_transpile {
+    let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+      specifier: module_specifier.clone(),
+      text: code.into(),
+      media_type,
+      capture_tokens: false,
+      scope_analysis: false,
+      maybe_syntax: None,
+    })
+    .map_err(|e| JsErrorBox::generic(format!("Failed to parse module: {}", e)))?;
+
+    let transpiled = parsed
+      .transpile(
+        &deno_ast::TranspileOptions::default(),
+        &deno_ast::TranspileModuleOptions::default(),
+        &deno_ast::EmitOptions::default(),
+      )
+      .map_err(|e| JsErrorBox::generic(format!("Failed to transpile: {}", e)))?;
+
+    transpiled.into_source().text
+  } else {
+    // Check if this is a CommonJS module that needs wrapping
+    if is_commonjs_module(&code) {
+      wrap_commonjs_module(code)
+    } else {
+      code
+    }
+  };
+
+  Ok(ModuleSource::new(
+    module_type,
+    ModuleSourceCode::String(code.into()),
+    &module_specifier,
+    None,
+  ))
+}
+
+fn is_commonjs_module(code: &str) -> bool {
+  code.contains("module.exports")
+    || code.contains("exports.")
+    || code.contains("exports[")
+    || (!code.contains("export ") && !code.contains("export{") && !code.contains("export*"))
+}
+
+fn wrap_commonjs_module(code: String) -> String {
+  format!(
+    r#"
+const {{ module, exports }} = globalThis.__createCommonJSContext();
+{}
+export default module.exports;
+export {{ module as __module, exports as __exports }};
+"#,
+    code
+  )
+}
+
 struct ModuleCode {
   media_type: MediaType,
   module_type: ModuleType,
@@ -126,10 +497,6 @@ struct ModuleCode {
 
 impl ModuleCode {
   fn from_builtin(module_specifier: &ModuleSpecifier) -> Result<Self> {
-    // As stated above, we map the "builtin:" protocol to a premade set of
-    // internal modules bundled into our binary.
-    // The "state.ts" module simply exposes a more convenient API for our
-    // internal ops.
     let code = match module_specifier.path() {
       "state" => include_str!("../builtins/state.ts"),
       _ => bail!("no builtin module {module_specifier}"),
@@ -147,9 +514,6 @@ impl ModuleCode {
     module_specifier: &ModuleSpecifier,
     requested_module_type: RequestedModuleType,
   ) -> Result<Self> {
-    // We only implement a synchronous module loader here that reads files from disk,
-    // but we could also implement asynchronous loaders that fetch files from the network
-    // using http or any other custom protocol identifier we desire.
     let path = module_specifier
       .to_file_path()
       .map_err(|_| anyhow!("Only file: URLs are supported."))?;

@@ -1,6 +1,10 @@
 mod execution;
 mod extension;
 mod loader;
+mod npm_cache;
+mod npm_downloader;
+mod npm_registry;
+mod npm_specifier;
 
 use std::{env, sync::Arc};
 
