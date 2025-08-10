@@ -39,6 +39,11 @@ impl NpmPackageFolderResolver for NoopNpmPackageFolderResolver {
 }
 
 fn main() {
+  let rt = tokio::runtime::Runtime::new().unwrap();
+  rt.block_on(async_main());
+}
+
+async fn async_main() {
   // Create the filesystem implementation
   let fs = Rc::new(deno_fs::RealFs);
 
@@ -97,5 +102,54 @@ fn main() {
   match result {
     Ok(_) => println!("Runtime test successful!"),
     Err(e) => println!("Runtime test failed: {}", e),
+  }
+
+  // Read and execute the main.ts file
+  println!("Reading main.ts file...");
+  match std::fs::read_to_string("main.ts") {
+    Ok(typescript_code) => {
+      println!("Executing main.ts...");
+
+      // Since we don't have TypeScript compilation set up, we'll treat it as JavaScript
+      // For a full TypeScript setup, you'd need to add deno_ast or swc for compilation
+      let result = js_runtime.execute_script("main.ts", typescript_code);
+
+      match result {
+        Ok(_) => {
+          println!("main.ts executed successfully!");
+
+          // Run the event loop to handle async operations like the HTTP server
+          println!("Starting event loop to handle async operations...");
+
+          // Create a waker and context for polling
+          use std::task::{Context, Poll};
+          // use std::future::Future;
+          // use std::pin::Pin;
+
+          let waker = futures::task::noop_waker();
+          let mut cx = Context::from_waker(&waker);
+
+          loop {
+            match js_runtime.poll_event_loop(&mut cx, Default::default()) {
+              Poll::Ready(Ok(())) => {
+                println!("Event loop completed successfully");
+                break;
+              }
+              Poll::Ready(Err(e)) => {
+                eprintln!("Event loop error: {}", e);
+                break;
+              }
+              Poll::Pending => {
+                // Would normally yield here in an async context
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+              }
+            }
+          }
+        }
+        Err(e) => eprintln!("Failed to execute main.ts: {}", e),
+      }
+    }
+    Err(e) => eprintln!("Failed to read main.ts: {}", e),
   }
 }
