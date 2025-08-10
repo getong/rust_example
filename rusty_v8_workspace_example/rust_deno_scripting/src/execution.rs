@@ -124,7 +124,7 @@ pub async fn run_js(
   }
 
   let node_require_loader = Rc::new(SimpleNodeRequireLoader);
-  
+
   let node_services = deno_node::NodeExtInitServices {
     node_resolver: node_resolver.clone(),
     node_require_loader: node_require_loader.clone(),
@@ -174,8 +174,43 @@ pub async fn run_js(
   let options = WorkerOptions {
     bootstrap: bootstrap_options,
     extensions: vec![
-      snapshot_extension, 
+      deno_telemetry::deno_telemetry::init(),
+      deno_webidl::deno_webidl::init(),
+      deno_console::deno_console::init(),
+      deno_url::deno_url::init(),
+      deno_web::deno_web::init::<PermissionsContainer>(Default::default(), Default::default()),
+      deno_webgpu::deno_webgpu::init(),
+      deno_canvas::deno_canvas::init(),
+      deno_fetch::deno_fetch::init::<PermissionsContainer>(Default::default()),
+      deno_cache::deno_cache::init(None),
+      deno_websocket::deno_websocket::init::<PermissionsContainer>("".to_owned(), None, None),
+      deno_webstorage::deno_webstorage::init(None),
+      deno_crypto::deno_crypto::init(None),
+      deno_broadcast_channel::deno_broadcast_channel::init(
+        deno_broadcast_channel::InMemoryBroadcastChannel::default(),
+      ),
+      deno_ffi::deno_ffi::init::<PermissionsContainer>(None),
+      deno_net::deno_net::init::<PermissionsContainer>(None, None),
+      deno_tls::deno_tls::init(),
+      deno_kv::deno_kv::init(
+        deno_kv::sqlite::SqliteDbHandler::<PermissionsContainer>::new(None, None),
+        deno_kv::KvConfig::builder().build(),
+      ),
+      deno_cron::deno_cron::init(deno_cron::local::LocalCronHandler::new()),
+      deno_napi::deno_napi::init::<PermissionsContainer>(None),
+      deno_http::deno_http::init(deno_http::Options::default()),
+      deno_io::deno_io::init(Default::default()),
+      deno_fs::deno_fs::init::<PermissionsContainer>(fs.clone()),
+      deno_os::deno_os::init(Default::default()),
+      deno_process::deno_process::init(Default::default()),
+      snapshot_extension,
       my_extension::init(),
+      deno_node::deno_node::init::<
+        Permissions,
+        ByonmInNpmPackageChecker,
+        ByonmNpmResolver<sys_traits::impls::RealSys>,
+        sys_traits::impls::RealSys,
+      >(None, fs.clone()),
     ],
     startup_snapshot: None,
     ..Default::default()

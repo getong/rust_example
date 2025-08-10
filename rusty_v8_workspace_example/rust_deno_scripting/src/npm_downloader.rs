@@ -73,8 +73,11 @@ impl NpmDownloader {
       println!("✅ Found in cache: {}", cached.path.display());
       return Ok(cached);
     }
-    
-    println!("📦 Package {} v{} not in cache, downloading...", npm_spec.name, resolved_version);
+
+    println!(
+      "📦 Package {} v{} not in cache, downloading...",
+      npm_spec.name, resolved_version
+    );
 
     let version_info = metadata.versions.get(&resolved_version).ok_or_else(|| {
       anyhow!(
