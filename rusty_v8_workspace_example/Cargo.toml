@@ -23,4 +23,6 @@ members = [
   "deno_core_parse_npm_example",
   "deno_core_module_loader_example",
   "deno_core_module_loader_example2",
+  "deno_node_https_example",
+  "deno_node_basic_example",
 ]

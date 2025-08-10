@@ -1,0 +1,14 @@
+[package]
+name = "deno_node_https_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_core = "0.354.0"
+deno_error = "0.7.0"
+deno_fs = "0.122.0"
+deno_node = "0.150.0"
+deno_permissions = "0.71.0"
+node_resolver = "0.50.0"
+sys_traits = { version = "0.1.17", features = ["real"] }
+tokio = { version = "1.47.1", features = ["full"] }
