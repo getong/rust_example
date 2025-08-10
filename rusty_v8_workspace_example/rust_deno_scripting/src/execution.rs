@@ -1,8 +1,10 @@
-use std::{env, rc::Rc, sync::Arc};
+use std::{env, rc::Rc, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use deno_core::{ModuleId, PollEventLoopOptions, error::AnyError, v8};
-use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver, ByonmNpmResolverCreateOptions};
+use deno_resolver::npm::{
+  ByonmInNpmPackageChecker, ByonmNpmResolver, ByonmNpmResolverCreateOptions,
+};
 use deno_runtime::{
   BootstrapOptions,
   deno_fs::RealFs,
@@ -14,6 +16,34 @@ use node_resolver::{DenoIsBuiltInNodeModuleChecker, PackageJsonResolver};
 use tokio::sync::RwLock;
 
 use crate::{extension::HostState, loader::TypescriptModuleLoader};
+
+// Create a simple node require loader
+struct SimpleNodeRequireLoader;
+impl deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
+  fn ensure_read_permission<'a>(
+    &self,
+    _permissions: &mut dyn deno_node::NodePermissions,
+    path: std::borrow::Cow<'a, std::path::Path>,
+  ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_error::JsErrorBox> {
+    Ok(path)
+  }
+
+  fn load_text_file_lossy(
+    &self,
+    path: &std::path::Path,
+  ) -> Result<deno_core::FastString, deno_error::JsErrorBox> {
+    let content = std::fs::read_to_string(path)
+      .map_err(|e| deno_error::JsErrorBox::new("Error", e.to_string()))?;
+    Ok(deno_core::FastString::from(content))
+  }
+
+  fn is_maybe_cjs(
+    &self,
+    _url: &deno_core::url::Url,
+  ) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
+    Ok(false)
+  }
+}
 
 pub async fn run_js(
   file_path: &str,
@@ -33,50 +63,22 @@ pub async fn run_js(
     None,
   ));
 
-  // Create a simple node require loader
-  struct SimpleNodeRequireLoader;
-  impl deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
-    fn ensure_read_permission<'a>(
-      &self,
-      _permissions: &mut dyn deno_node::NodePermissions,
-      path: std::borrow::Cow<'a, std::path::Path>,
-    ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_error::JsErrorBox> {
-      Ok(path)
-    }
-
-    fn load_text_file_lossy(
-      &self,
-      path: &std::path::Path,
-    ) -> Result<deno_core::FastString, deno_error::JsErrorBox> {
-      let content = std::fs::read_to_string(path)
-        .map_err(|e| deno_error::JsErrorBox::new("Error", e.to_string()))?;
-      Ok(deno_core::FastString::from(content))
-    }
-
-    fn is_maybe_cjs(&self, _url: &deno_core::url::Url) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
-      Ok(false)
-    }
-  }
-
   let node_require_loader = Rc::new(SimpleNodeRequireLoader);
-  
+
   let npm_resolver = ByonmNpmResolver::new(ByonmNpmResolverCreateOptions {
     sys: node_resolver::cache::NodeResolutionSys::new(sys_traits::impls::RealSys, None),
     pkg_json_resolver: pkg_json_resolver.clone(),
     root_node_modules_dir: None,
   });
-  
+
   let in_npm_pkg_checker = ByonmInNpmPackageChecker;
-  
+
   let node_resolver = Arc::new(deno_node::NodeResolver::new(
     in_npm_pkg_checker,
     DenoIsBuiltInNodeModuleChecker,
     npm_resolver,
     pkg_json_resolver.clone(),
-    node_resolver::cache::NodeResolutionSys::new(
-      sys_traits::impls::RealSys,
-      None,
-    ),
+    node_resolver::cache::NodeResolutionSys::new(sys_traits::impls::RealSys, None),
     Default::default(),
   ));
 
@@ -148,11 +150,34 @@ pub async fn run_js(
 
   // After the script has been loaded and evaluated, we can access its exports.
   let global = get_export_function_global(&mut worker, module_id, fn_name)?;
+
+  println!("Calling function: {}", fn_name);
   let call = worker.js_runtime.call(&global);
-  worker
+
+  // Spawn HTTP client task after starting the server
+  let client_handle = tokio::spawn(async move {
+    // Wait a bit for the server to start
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    println!("Making HTTP request to the server...");
+
+    // Create a simple HTTP client request
+    match make_http_request().await {
+      Ok(_) => println!("HTTP request completed successfully"),
+      Err(e) => eprintln!("HTTP request failed: {}", e),
+    }
+  });
+
+  // Run the event loop with the server
+  let server_result = worker
     .js_runtime
     .with_event_loop_promise(call, PollEventLoopOptions::default())
-    .await?;
+    .await;
+
+  // Wait for client to finish
+  let _ = client_handle.await;
+
+  server_result?;
 
   Ok(())
 }
@@ -179,4 +204,26 @@ fn get_export_function_global(
   let global = v8::Global::new(&mut scope, function);
 
   Ok(global)
+}
+
+async fn make_http_request() -> Result<()> {
+  // Use tokio's TcpStream to make a simple HTTP request
+  use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+  };
+
+  let mut stream = TcpStream::connect("127.0.0.1:8080").await?;
+
+  // Send HTTP request
+  let request = "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+  stream.write_all(request.as_bytes()).await?;
+
+  // Read response
+  let mut response = String::new();
+  stream.read_to_string(&mut response).await?;
+
+  println!("Received response: {}", response);
+
+  Ok(())
 }

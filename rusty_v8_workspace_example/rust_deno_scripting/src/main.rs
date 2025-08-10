@@ -21,7 +21,7 @@ fn main() -> Result<()> {
   let args: Vec<_> = env::args().collect();
   let (file_path, fn_name) = match &args[..] {
     [_, file_path, fn_name] => (file_path, fn_name.as_str()),
-    [_, file_path] => (file_path, "default"),
+    [_, file_path] => (file_path, "main"),
     [binary, ..] => bail!("usage: {binary} <file_path> [<fn_name>]"),
     _ => unreachable!(),
   };
