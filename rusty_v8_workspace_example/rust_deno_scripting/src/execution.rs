@@ -226,7 +226,10 @@ pub async fn run_js(
 
   // Load Node.js compatibility layer before executing the main module
   let node_compat_code = include_str!("../builtins/node_compat.js");
-  worker.execute_script("node_compat", deno_core::FastString::from(node_compat_code))?;
+  worker.execute_script(
+    "node_compat",
+    deno_core::FastString::from(node_compat_code.to_string()),
+  )?;
 
   // We could call `worker.execute_main_module` here, but then we would not be able to access
   // functions exported by the user script.
