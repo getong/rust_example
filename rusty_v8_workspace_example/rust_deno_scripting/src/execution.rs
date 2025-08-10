@@ -206,7 +206,7 @@ pub async fn run_js(
       snapshot_extension,
       my_extension::init(),
       deno_node::deno_node::init::<
-        Permissions,
+        PermissionsContainer,
         ByonmInNpmPackageChecker,
         ByonmNpmResolver<sys_traits::impls::RealSys>,
         sys_traits::impls::RealSys,
