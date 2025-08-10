@@ -35,6 +35,12 @@ impl TypescriptModuleLoader {
   }
 }
 
+impl Default for TypescriptModuleLoader {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl ModuleLoader for TypescriptModuleLoader {
   fn resolve(
     &self,
