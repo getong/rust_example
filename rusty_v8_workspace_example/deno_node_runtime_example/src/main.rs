@@ -1,16 +1,17 @@
 use std::{path::PathBuf, rc::Rc, sync::Arc};
 
 use anyhow::Result;
-use deno_core::{
-  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-  RequestedModuleType, ResolutionKind,
-};
-use deno_fs::RealFs;
 use deno_runtime::{
   BootstrapOptions, WorkerExecutionMode,
   deno_broadcast_channel::InMemoryBroadcastChannel,
+  deno_core::{
+    ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
+    RequestedModuleType, ResolutionKind, resolve_import,
+  },
+  deno_fs::RealFs,
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
+  deno_tls,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
@@ -54,7 +55,7 @@ impl ModuleLoader for NoopModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, deno_error::JsErrorBox> {
-    deno_core::resolve_import(specifier, referrer)
+    resolve_import(specifier, referrer)
       .map_err(|e| deno_error::JsErrorBox::new("TypeError", e.to_string()))
   }
 
