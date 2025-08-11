@@ -1,13 +1,11 @@
-use std::{path::PathBuf, rc::Rc, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 use anyhow::Result;
+use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::{
   BootstrapOptions, WorkerExecutionMode,
   deno_broadcast_channel::InMemoryBroadcastChannel,
-  deno_core::{
-    ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-    RequestedModuleType, ResolutionKind, resolve_import,
-  },
+  deno_core::{FsModuleLoader, ModuleSpecifier},
   deno_fs::RealFs,
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
@@ -15,96 +13,8 @@ use deno_runtime::{
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
-use node_resolver::{
-  InNpmPackageChecker, NpmPackageFolderResolver, UrlOrPathRef, errors::PackageFolderResolveError,
-};
 use sys_traits::impls::RealSys;
 use url::Url;
-
-#[derive(Clone)]
-struct NoopModuleLoader;
-
-#[derive(Clone)]
-struct NoopInNpmPackageChecker;
-
-#[derive(Clone)]
-struct NoopNpmPackageFolderResolver;
-
-impl InNpmPackageChecker for NoopInNpmPackageChecker {
-  fn in_npm_package(&self, _specifier: &Url) -> bool {
-    false
-  }
-}
-
-impl NpmPackageFolderResolver for NoopNpmPackageFolderResolver {
-  fn resolve_package_folder_from_package(
-    &self,
-    _name: &str,
-    _referrer: &UrlOrPathRef,
-  ) -> Result<PathBuf, PackageFolderResolveError> {
-    // For a noop resolver, we'll just return a dummy path
-    // In a real implementation, this would resolve npm packages
-    Ok(PathBuf::from("/dev/null"))
-  }
-}
-
-impl ModuleLoader for NoopModuleLoader {
-  fn resolve(
-    &self,
-    specifier: &str,
-    referrer: &str,
-    _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, deno_error::JsErrorBox> {
-    resolve_import(specifier, referrer)
-      .map_err(|e| deno_error::JsErrorBox::new("TypeError", e.to_string()))
-  }
-
-  fn load(
-    &self,
-    module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
-  ) -> ModuleLoadResponse {
-    let module_specifier = module_specifier.clone();
-
-    // Handle node: imports
-    if module_specifier.scheme() == "node" {
-      // These are built-in modules, they should be handled by deno_node extension
-      return ModuleLoadResponse::Sync(Ok(ModuleSource::new(
-        ModuleType::JavaScript,
-        // Return empty source, the actual implementation is in the extension
-        ModuleSourceCode::String("".to_string().into()).into(),
-        &module_specifier,
-        None,
-      )));
-    }
-
-    // For file:// URLs, load from disk
-    if module_specifier.scheme() == "file" {
-      let path = module_specifier.to_file_path().unwrap();
-      let code = std::fs::read_to_string(&path).unwrap();
-
-      let module_type = if path.extension().and_then(|s| s.to_str()) == Some("ts") {
-        ModuleType::JavaScript // In a real implementation, we'd transpile TypeScript
-      } else {
-        ModuleType::JavaScript
-      };
-
-      return ModuleLoadResponse::Sync(Ok(ModuleSource::new(
-        module_type,
-        ModuleSourceCode::String(code.into()).into(),
-        &module_specifier,
-        None,
-      )));
-    }
-
-    ModuleLoadResponse::Sync(Err(deno_error::JsErrorBox::new(
-      "TypeError",
-      format!("Unsupported module specifier: {}", module_specifier),
-    )))
-  }
-}
 
 fn main() -> Result<()> {
   // Install the default crypto provider for rustls (required for HTTPS)
@@ -194,14 +104,14 @@ fn main() -> Result<()> {
 
     // Create service options
     let fs = Arc::new(RealFs);
-    let services = WorkerServiceOptions {
+    let services = WorkerServiceOptions::<DenoInNpmPackageChecker, NpmResolver<RealSys>, RealSys> {
       deno_rt_native_addon_loader: None,
-      module_loader: Rc::new(NoopModuleLoader),
+      module_loader: Rc::new(FsModuleLoader),
       permissions,
       blob_store: Default::default(),
       broadcast_channel: InMemoryBroadcastChannel::default(),
       feature_checker: Default::default(),
-      node_services: None,
+      node_services: Default::default(),
       npm_process_state_provider: None,
       root_cert_store_provider: None,
       fetch_dns_resolver: Default::default(),
@@ -212,11 +122,7 @@ fn main() -> Result<()> {
     };
 
     // Create the main worker with proper generic type parameters
-    let mut worker = MainWorker::bootstrap_from_options::<
-      NoopInNpmPackageChecker,
-      NoopNpmPackageFolderResolver,
-      RealSys,
-    >(&main_module.clone(), services, options);
+    let mut worker = MainWorker::bootstrap_from_options(&main_module.clone(), services, options);
 
     println!("Deno runtime initialized successfully!");
 
