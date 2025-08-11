@@ -1,0 +1,8 @@
+[package]
+name = "deno_graph_basic_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_graph = "0.98.0"
+futures = "0.3.31"
