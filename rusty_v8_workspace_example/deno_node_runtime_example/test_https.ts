@@ -23,7 +23,7 @@ httpServer.listen(HTTP_PORT, () => {
 console.log("\nMaking HTTPS request to example.com...");
 
 const options = {
-  hostname: "example.com",
+  hostname: "www.baidu.com",
   port: 443,
   path: "/",
   method: "GET",
