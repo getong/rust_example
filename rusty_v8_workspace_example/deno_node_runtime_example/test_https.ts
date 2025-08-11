@@ -16,7 +16,10 @@ const httpServer = http.createServer((req, res) => {
 // Start the HTTP server
 const HTTP_PORT = 8080;
 httpServer.listen(HTTP_PORT, () => {
-  console.log(`HTTP server listening on port ${HTTP_PORT}`);
+  console.log(`\n🚀 HTTP SERVER STARTED 🚀`);
+  console.log(`📍 URL: http://localhost:${HTTP_PORT}`);
+  console.log(`📍 Test endpoint: http://localhost:${HTTP_PORT}/test`);
+  console.log(`=======================================`);
 });
 
 // Test 2: Make an HTTPS request
@@ -44,18 +47,12 @@ const httpsReq = https.request(options, (res) => {
   res.on("end", () => {
     console.log(`HTTPS Response Body Length: ${data.length} bytes`);
     console.log(`First 100 chars: ${data.substring(0, 100)}...`);
-
-    // Close the HTTP server after the HTTPS request completes
-    httpServer.close(() => {
-      console.log("\nHTTP server closed.");
-      console.log("All tests completed successfully!");
-    });
+    console.log("\nHTTPS request completed. Server will continue running...");
   });
 });
 
 httpsReq.on("error", (e) => {
   console.error(`HTTPS request error: ${e.message}`);
-  httpServer.close();
 });
 
 // Send the HTTPS request
@@ -79,3 +76,7 @@ setTimeout(() => {
 }, 1000);
 
 console.log("\nTests are running asynchronously...");
+console.log("\n🌐 SERVER RUNNING CONTINUOUSLY 🌐");
+console.log("📍 Visit: http://localhost:8080/test");
+console.log("🛑 Press Ctrl+C to stop the server");
+console.log("=======================================");

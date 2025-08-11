@@ -129,16 +129,16 @@ fn main() -> Result<()> {
     // First, let's preload the Node.js modules we need
     println!("Preloading node:http and node:https modules...");
 
-    let http_specifier = ModuleSpecifier::parse("node:http")?;
-    let https_specifier = ModuleSpecifier::parse("node:https")?;
+    // let http_specifier = ModuleSpecifier::parse("node:http")?;
+    // let https_specifier = ModuleSpecifier::parse("node:https")?;
 
     // Preload node:http
-    let http_id = worker.preload_main_module(&http_specifier).await?;
-    println!("Preloaded node:http module with ID: {}", http_id);
+    // let http_id = worker.preload_main_module(&http_specifier).await?;
+    // println!("Preloaded node:http module with ID: {}", http_id);
 
     // Preload node:https
-    let https_id = worker.preload_main_module(&https_specifier).await?;
-    println!("Preloaded node:https module with ID: {}", https_id);
+    // let https_id = worker.preload_main_module(&https_specifier).await?;
+    // println!("Preloaded node:https module with ID: {}", https_id);
 
     // Now create and execute our TypeScript script
     println!("\nExecuting TypeScript script: {}", script_path.display());
@@ -147,7 +147,7 @@ fn main() -> Result<()> {
     let id = worker.preload_main_module(&main_module).await?;
     worker.evaluate_module(id).await?;
 
-    // Run the event loop
+    // Run the event loop - false means don't wait for all ops to complete
     worker.run_event_loop(false).await?;
 
     println!("\nScript execution completed successfully!");
