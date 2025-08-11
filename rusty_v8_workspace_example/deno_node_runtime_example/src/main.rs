@@ -11,7 +11,7 @@ use deno_runtime::{
   deno_fs::RealFs,
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
-  deno_tls,
+  deno_tls::rustls::crypto::{CryptoProvider, ring},
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
@@ -108,10 +108,8 @@ impl ModuleLoader for NoopModuleLoader {
 
 fn main() -> Result<()> {
   // Install the default crypto provider for rustls (required for HTTPS)
-  deno_tls::rustls::crypto::CryptoProvider::install_default(
-    deno_tls::rustls::crypto::ring::default_provider(),
-  )
-  .expect("Failed to install default crypto provider");
+  CryptoProvider::install_default(ring::default_provider())
+    .expect("Failed to install default crypto provider");
 
   // Create a current thread runtime as Deno expects
   let runtime = tokio::runtime::Builder::new_current_thread()
