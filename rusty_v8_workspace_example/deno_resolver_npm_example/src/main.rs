@@ -2,10 +2,6 @@
 #![allow(clippy::print_stderr)]
 
 mod module_loader;
-mod npm_cache;
-mod npm_dependency_analyzer;
-mod npm_downloader;
-mod npm_registry;
 mod npm_specifier;
 
 use std::{path::Path, rc::Rc, sync::Arc};
@@ -91,7 +87,7 @@ impl PermissionPrompter for CustomPrompter {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), AnyError> {
-  let js_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("./test-files/simple_is-even.ts");
+  let js_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("./test-files/multiple_npm_test.ts");
   let main_module = ModuleSpecifier::from_file_path(js_path).unwrap();
 
   let fs = Arc::new(RealFs);
@@ -112,7 +108,7 @@ async fn main() -> Result<(), AnyError> {
   >(
     &main_module,
     WorkerServiceOptions {
-      module_loader: Rc::new(TypescriptModuleLoader::new(fs.clone())),
+      module_loader: Rc::new(TypescriptModuleLoader::new()),
       // File-only loader
       // module_loader: Rc::new(FsModuleLoader),
       permissions: permission_container,
