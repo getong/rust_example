@@ -1,0 +1,4 @@
+* deno runtime test
+
+copy from https://github.com/carloslfu/make-your-own-js-runtime
+update to use deno_runtime 0.220
