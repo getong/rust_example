@@ -41,10 +41,13 @@ impl TypescriptModuleLoader {
       .map_err(|e| ModuleLoaderError::generic(format!("Invalid npm specifier: {}", e)))?;
 
     let package_name = &npm_spec.name;
-    
+
     // Avoid circular dependencies
     if visited.contains(package_name) {
-      return Err(ModuleLoaderError::generic(format!("Circular dependency detected: {}", package_name)));
+      return Err(ModuleLoaderError::generic(format!(
+        "Circular dependency detected: {}",
+        package_name
+      )));
     }
     visited.insert(package_name.clone());
 
@@ -114,7 +117,7 @@ impl TypescriptModuleLoader {
         let deps = self.extract_commonjs_deps(&code);
         for dep in deps {
           println!("FOUND DEPENDENCY: {} -> {}", package_name, dep);
-          
+
           // Try to resolve this dependency as an npm package
           if let Ok(dep_specifier) = ModuleSpecifier::parse(&format!("npm:{}@latest", dep)) {
             // Recursively resolve the dependency and load it
@@ -143,42 +146,73 @@ impl TypescriptModuleLoader {
   /// Extract CommonJS dependencies from require() calls
   fn extract_commonjs_deps(&self, code: &str) -> Vec<String> {
     let mut deps = Vec::new();
-    
+
     // Simple regex-like parsing for require() calls
     for line in code.lines() {
       // Look for require('module-name') or require("module-name")
       if let Some(require_pos) = line.find("require(") {
-        let after_require = &line[require_pos + 8..]; // Skip "require("
-        
+        let after_require = &line[require_pos + 8 ..]; // Skip "require("
+
         // Find opening quote
         if let Some(quote_start) = after_require.find('"').or_else(|| after_require.find('\'')) {
           let quote_char = after_require.chars().nth(quote_start).unwrap();
-          let after_quote = &after_require[quote_start + 1..];
-          
+          let after_quote = &after_require[quote_start + 1 ..];
+
           // Find closing quote
           if let Some(quote_end) = after_quote.find(quote_char) {
-            let module_name = &after_quote[..quote_end];
-            
+            let module_name = &after_quote[.. quote_end];
+
             // Skip relative paths and built-in modules
-            if !module_name.starts_with('.') && !module_name.starts_with('/') && !is_builtin_module(module_name) {
+            if !module_name.starts_with('.')
+              && !module_name.starts_with('/')
+              && !is_builtin_module(module_name)
+            {
               deps.push(module_name.to_string());
             }
           }
         }
       }
     }
-    
+
     deps
   }
 }
 
 /// Check if a module name is a Node.js built-in module
 fn is_builtin_module(name: &str) -> bool {
-  matches!(name, 
-    "fs" | "path" | "crypto" | "http" | "https" | "url" | "util" | "os" | "stream" | 
-    "events" | "buffer" | "assert" | "child_process" | "cluster" | "dgram" | "dns" |
-    "domain" | "net" | "punycode" | "querystring" | "readline" | "repl" | "string_decoder" |
-    "tls" | "tty" | "vm" | "zlib" | "constants" | "module" | "process" | "v8"
+  matches!(
+    name,
+    "fs"
+      | "path"
+      | "crypto"
+      | "http"
+      | "https"
+      | "url"
+      | "util"
+      | "os"
+      | "stream"
+      | "events"
+      | "buffer"
+      | "assert"
+      | "child_process"
+      | "cluster"
+      | "dgram"
+      | "dns"
+      | "domain"
+      | "net"
+      | "punycode"
+      | "querystring"
+      | "readline"
+      | "repl"
+      | "string_decoder"
+      | "tls"
+      | "tty"
+      | "vm"
+      | "zlib"
+      | "constants"
+      | "module"
+      | "process"
+      | "v8"
   )
 }
 
