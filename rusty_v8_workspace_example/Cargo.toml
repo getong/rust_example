@@ -16,7 +16,7 @@ members = [
   "deno_runtime_call_typescript_example",
   "deno_runtime_test",
   "rust_deno_scripting",
-  # "deno_runtime_axum_example",
+  "deno_runtime_axum_example",
   "v8_js_example",
   "deno_runtime_deno_lib_example",
   "deno_core_download_example",
@@ -27,4 +27,5 @@ members = [
   "deno_node_basic_example",
   "deno_node_runtime_example",
   "deno_graph_basic_example",
+  "deno_resolver_deno_npm_example",
 ]
