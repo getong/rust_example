@@ -11,7 +11,7 @@ await client.batch(
     "INSERT INTO users VALUES ('second@example.com')",
     "INSERT INTO users VALUES ('third@example.com')",
   ],
-  "write"
+  "write",
 );
 
 const result = await client.execute("SELECT * FROM users");

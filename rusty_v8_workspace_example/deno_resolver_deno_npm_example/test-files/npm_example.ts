@@ -9,7 +9,7 @@ declare const ExampleExtension: {
 console.log(chalk.blue("Starting npm example..."));
 
 const now = dayjs();
-console.log(chalk.green(`Current time: ${now.format('YYYY-MM-DD HH:mm:ss')}`));
+console.log(chalk.green(`Current time: ${now.format("YYYY-MM-DD HH:mm:ss")}`));
 
 const app = express();
 
@@ -21,13 +21,15 @@ app.get("/", (_req, res) => {
 app.get("/api/time", (_req, res) => {
   res.json({
     timestamp: Date.now(),
-    formatted: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-    message: "Time from Deno with npm modules"
+    formatted: dayjs().format("YYYY-MM-DD HH:mm:ss"),
+    message: "Time from Deno with npm modules",
   });
 });
 
 const port = 3000;
 app.listen(port, () => {
-  console.log(chalk.yellow(`Express server running on http://localhost:${port}`));
+  console.log(
+    chalk.yellow(`Express server running on http://localhost:${port}`),
+  );
   console.log(chalk.cyan("Press Ctrl+C to stop the server"));
 });
