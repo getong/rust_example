@@ -1,0 +1,19 @@
+[package]
+name = "deno_lib_libmainworker_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+deno_cache_dir = "0.25.0"
+deno_core = { version = "0.355.0", features = ["include_js_files_for_snapshotting"] }
+deno_error = "0.7.0"
+deno_lib = "0.31.0"
+deno_npm = "0.37.0"
+deno_resolver = "0.44.0"
+deno_runtime = { version = "0.221.0", features = ["include_js_files_for_snapshotting"] }
+deno_snapshots = "0.28.0"
+node_resolver = "0.51.0"
+sys_traits = { version = "0.1.17", features = ["real"] }
+tokio = { version = "1.45.1", features = ["full"] }
+url = "2.5.4"
