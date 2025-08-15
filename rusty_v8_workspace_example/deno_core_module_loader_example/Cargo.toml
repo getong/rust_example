@@ -7,7 +7,7 @@ edition = "2024"
 data-url = "0.3.1"
 deno_core = "0.355.0"
 deno_error = "0.7.0"
-reqwest = "0.12.22"
+reqwest = "0.12.23"
 tokio = { version = "1.47.1", features = ["fs"] }
 
 [dev-dependencies]
