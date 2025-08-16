@@ -461,6 +461,10 @@ console.log("🎉 UnconfiguredRuntime example completed!");
   println!("Running TypeScript code...");
   println!();
 
+  _ = worker.execute_preload_modules().await?;
+  _ = worker.execute_main_module().await?;
+  _ = worker.dispatch_load_event()?;
+
   // Execute the worker
   let exit_code = worker.run().await?;
 
