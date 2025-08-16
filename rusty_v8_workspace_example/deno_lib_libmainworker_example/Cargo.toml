@@ -12,8 +12,21 @@ deno_lib = "0.31.0"
 deno_npm = "0.37.0"
 deno_resolver = "0.44.0"
 deno_runtime = { version = "0.221.0", features = ["include_js_files_for_snapshotting"] }
+deno_semver = "0.9.0"
 deno_snapshots = "0.28.0"
+http = "1.0"
+http-body = "1.0.1"
+http-body-util = "0.1.2"
 node_resolver = "0.51.0"
+serde_json = "1.0"
 sys_traits = { version = "0.1.17", features = ["real"] }
 tokio = { version = "1.45.1", features = ["full"] }
 url = "2.5.4"
+
+[[bin]]
+name = "npm_example"
+path = "src/npm_example.rs"
+
+[[bin]]
+name = "unconfigured_runtime_example"
+path = "src/unconfigured_runtime_example.rs"
