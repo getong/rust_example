@@ -3,9 +3,11 @@
 resolver = "2"
 
 members = [
-        "redis_connection_manager_example",
-        "redis_cache_for_sqlx_example",
-        "redis_ttl_example",
-        "redis_transaction_example",
-        "redis_set_example",
+  "redis_connection_manager_example",
+  "redis_cache_for_sqlx_example",
+  "redis_ttl_example",
+  "redis_transaction_example",
+  "redis_set_example",
+  "distributed_lock_example",
+  "cluster_distributed_lock_example",
 ]

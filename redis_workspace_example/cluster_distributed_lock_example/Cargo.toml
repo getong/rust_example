@@ -1,0 +1,13 @@
+[package]
+name = "cluster_distributed_lock_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+redis = { version = "0.32.5", features = ["cluster", "cluster-async", "aio", "tokio-comp", "connection-manager"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
