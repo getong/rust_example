@@ -10,4 +10,5 @@ members = [
   "redis_set_example",
   "distributed_lock_example",
   "cluster_distributed_lock_example",
+  "rslock_basic_example",
 ]
