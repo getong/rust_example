@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     email: "john.doe@example.com".to_string(),
   };
 
-  let data: Vec<u8> = bincode::serialize(&new_user).unwrap();
+  let data: Vec<u8> = bincode::serde::encode_to_vec(&new_user, bincode::config::standard()).unwrap();
 
   // Set a key with a value and an expiration time of 60 seconds
   let _: () = redis_conn.set_ex("mykey", data, 60).await?;
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   match redis_conn.get::<_, Option<Vec<u8>>>("mykey").await {
     Ok(Some(data)) => {
       // Deserialize the data back into a User struct
-      let retrieved_user: User = bincode::deserialize(&data).unwrap();
+      let (retrieved_user, _): (User, usize) = bincode::serde::decode_from_slice(&data, bincode::config::standard()).unwrap();
       println!("Retrieved user from Redis: {:?}", retrieved_user);
     }
     Ok(None) => {
