@@ -1,0 +1,9 @@
+[package]
+name = "sui_api_version_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+sui_sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
+tokio = { version = "1", features = ["full"] }
