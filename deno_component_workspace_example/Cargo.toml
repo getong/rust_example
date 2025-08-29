@@ -31,6 +31,7 @@ members = [
   "deno_lib_libmainworker_example",
   "deno_web_blobstore_example",
   "deno_os_example",
+  "byonm_npm_resolver_example",
 ]
 
 # Required for V8 compatibility - rusty-v8 needs at least -O1 to not miscompile

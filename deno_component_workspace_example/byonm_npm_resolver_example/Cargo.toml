@@ -1,0 +1,14 @@
+[package]
+name = "byonm_npm_resolver_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_package_json = "0.16.0"
+deno_path_util = "0.1.0"
+deno_resolver = "0.45.0"
+deno_semver = "0.9.0"
+node_resolver = "0.52.0"
+sys_traits = { version = "0.1.17", features = ["real"] }
+tokio = { version = "1.0", features = ["full"] }
+url = "2.5.7"
