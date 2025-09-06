@@ -89,6 +89,7 @@ impl CliInspiredModuleLoader {
   }
 
   /// Check if a module should be treated as CommonJS
+  #[allow(dead_code)]
   fn is_maybe_cjs(&self, specifier: &Url) -> Result<bool, PackageJsonLoadError> {
     Ok(specifier.path().ends_with(".cjs") || self.in_npm_pkg_checker.in_npm_package(specifier))
   }

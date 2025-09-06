@@ -6,6 +6,7 @@ use std::sync::Arc;
 use deno_core::parking_lot::RwLock;
 use deno_graph::ModuleGraph;
 
+#[allow(dead_code)]
 pub trait ModuleGraphContainer: Clone + 'static {
   /// Acquires a permit to modify the module graph without other code
   /// having the chance to modify it. In the meantime, other code may
@@ -18,6 +19,7 @@ pub trait ModuleGraphContainer: Clone + 'static {
 /// A permit for updating the module graph. When complete and
 /// everything looks fine, calling `.commit()` will store the
 /// new graph in the ModuleGraphContainer.
+#[allow(dead_code)]
 pub trait ModuleGraphUpdatePermit {
   /// Gets the module graph for mutation.
   fn graph_mut(&mut self) -> &mut ModuleGraph;
@@ -31,7 +33,9 @@ pub struct MainModuleGraphContainer {
   // Allow only one request to update the graph data at a time,
   // but allow other requests to read from it at any time even
   // while another request is updating the data.
+  #[allow(dead_code)]
   update_queue: Arc<deno_core::unsync::sync::TaskQueue>,
+  #[allow(dead_code)]
   inner: Arc<RwLock<Arc<ModuleGraph>>>,
 }
 
@@ -62,6 +66,7 @@ impl ModuleGraphContainer for MainModuleGraphContainer {
 /// A permit for updating the module graph. When complete and
 /// everything looks fine, calling `.commit()` will store the
 /// new graph in the ModuleGraphContainer.
+#[allow(dead_code)]
 pub struct MainModuleGraphUpdatePermit<'a> {
   permit: deno_core::unsync::sync::TaskQueuePermit<'a>,
   inner: Arc<RwLock<Arc<ModuleGraph>>>,
@@ -81,12 +86,14 @@ impl ModuleGraphUpdatePermit for MainModuleGraphUpdatePermit<'_> {
 
 /// Worker module graph container - a simpler version for workers
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct WorkerModuleGraphContainer {
   inner: Arc<RwLock<Arc<ModuleGraph>>>,
   update_queue: Arc<deno_core::unsync::sync::TaskQueue>,
 }
 
 impl WorkerModuleGraphContainer {
+  #[allow(dead_code)]
   pub fn new(graph_kind: deno_graph::GraphKind) -> Self {
     Self {
       inner: Arc::new(RwLock::new(Arc::new(ModuleGraph::new(graph_kind)))),
@@ -110,6 +117,7 @@ impl ModuleGraphContainer for WorkerModuleGraphContainer {
   }
 }
 
+#[allow(dead_code)]
 pub struct WorkerModuleGraphUpdatePermit<'a> {
   permit: deno_core::unsync::sync::TaskQueuePermit<'a>,
   inner: Arc<RwLock<Arc<ModuleGraph>>>,

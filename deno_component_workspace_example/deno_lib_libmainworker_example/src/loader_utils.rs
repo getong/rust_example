@@ -25,16 +25,19 @@ pub fn string_to_module_source_code(text: String) -> ModuleSourceCode {
   ModuleSourceCode::String(FastString::from(text))
 }
 
+#[allow(dead_code)]
 pub fn bytes_to_module_source_code(bytes: Vec<u8>) -> ModuleSourceCode {
   ModuleSourceCode::Bytes(bytes.into_boxed_slice().into())
 }
 
 /// Helper to determine media type from a file path
+#[allow(dead_code)]
 pub fn media_type_from_path(path: &std::path::Path) -> MediaType {
   MediaType::from_path(path)
 }
 
 /// Helper to determine if a specifier is likely a CommonJS module
+#[allow(dead_code)]
 pub fn is_likely_cjs(specifier: &deno_core::ModuleSpecifier) -> bool {
   let path = specifier.path();
   path.ends_with(".cjs") || path.contains("/node_modules/")

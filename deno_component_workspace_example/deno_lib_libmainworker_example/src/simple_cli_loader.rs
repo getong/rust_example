@@ -58,6 +58,7 @@ impl SimpleCliModuleLoader {
     }
   }
 
+  #[allow(dead_code)]
   fn is_maybe_cjs(&self, specifier: &ModuleSpecifier) -> Result<bool, PackageJsonLoadError> {
     Ok(specifier.path().ends_with(".cjs") || self.in_npm_pkg_checker.in_npm_package(specifier))
   }
@@ -99,8 +100,8 @@ impl ModuleLoader for SimpleCliModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    is_dynamic: bool,
+    _maybe_referrer: Option<&ModuleSpecifier>,
+    _is_dynamic: bool,
     requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
     self.loaded_files.borrow_mut().insert(specifier.clone());

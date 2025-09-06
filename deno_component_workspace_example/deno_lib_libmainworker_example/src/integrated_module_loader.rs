@@ -102,6 +102,7 @@ impl<TGraphContainer: ModuleGraphContainer> IntegratedModuleLoader<TGraphContain
   }
 
   /// Check if a module is a CommonJS module
+  #[allow(dead_code)]
   fn is_maybe_cjs(&self, specifier: &ModuleSpecifier) -> Result<bool, PackageJsonLoadError> {
     Ok(specifier.path().ends_with(".cjs") || self.in_npm_pkg_checker.in_npm_package(specifier))
   }

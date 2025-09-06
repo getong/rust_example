@@ -4,6 +4,7 @@ use std::sync::Arc;
 use url::Url;
 
 // Create a default npmrc configuration
+#[allow(dead_code)]
 pub fn create_default_npmrc() -> Arc<deno_npm::npm_rc::ResolvedNpmRc> {
   Arc::new(deno_npm::npm_rc::ResolvedNpmRc {
     default_config: deno_npm::npm_rc::RegistryConfigWithUrl {

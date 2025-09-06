@@ -12,7 +12,9 @@ use deno_runtime::{
 
 /// HTTP client for fetching npm packages
 pub struct NpmHttpClient {
+  #[allow(dead_code)]
   client: deno_fetch::Client,
+  #[allow(dead_code)]
   root_cert_store_provider: Arc<dyn RootCertStoreProvider>,
 }
 
@@ -36,6 +38,7 @@ impl NpmHttpClient {
   }
 
   /// Fetch npm package metadata from the registry
+  #[allow(dead_code)]
   pub async fn fetch_package_info(&self, package_name: &str) -> Result<String, AnyError> {
     // NPM registry URL for package info
     let url = format!("https://registry.npmjs.org/{}", package_name);
@@ -89,6 +92,7 @@ impl NpmHttpClient {
   }
 
   /// Fetch a specific version of an npm package tarball
+  #[allow(dead_code)]
   pub async fn fetch_package_tarball(
     &self,
     package_name: &str,
@@ -150,7 +154,9 @@ impl NpmHttpClient {
 
 /// Simple npm package resolver that fetches from registry
 pub struct NpmPackageResolver {
+  #[allow(dead_code)]
   http_client: NpmHttpClient,
+  #[allow(dead_code)]
   cache: HashMap<String, serde_json::Value>,
 }
 
@@ -163,6 +169,7 @@ impl NpmPackageResolver {
   }
 
   /// Resolve an npm package to its metadata
+  #[allow(dead_code)]
   pub async fn resolve_package(
     &mut self,
     package_name: &str,
@@ -185,6 +192,7 @@ impl NpmPackageResolver {
   }
 
   /// Get the latest version of a package
+  #[allow(dead_code)]
   pub async fn get_latest_version(&mut self, package_name: &str) -> Result<String, AnyError> {
     let package_data = self.resolve_package(package_name).await?;
 
@@ -201,6 +209,7 @@ impl NpmPackageResolver {
   }
 
   /// Get package metadata for a specific version
+  #[allow(dead_code)]
   pub async fn get_package_version(
     &mut self,
     package_name: &str,

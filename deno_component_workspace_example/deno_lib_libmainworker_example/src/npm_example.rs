@@ -37,7 +37,9 @@ use npm_loader::{NpmModuleCache, create_npm_module_source};
 
 // NPM-aware module loader that can handle npm: scheme URLs
 struct NpmModuleLoader {
+  #[allow(dead_code)]
   npm_resolver: Arc<NpmResolver<RealSys>>,
+  #[allow(dead_code)]
   node_resolver: Arc<
     NodeResolver<
       DenoInNpmPackageChecker,
@@ -47,9 +49,13 @@ struct NpmModuleLoader {
     >,
   >,
   in_npm_pkg_checker: DenoInNpmPackageChecker,
+  #[allow(dead_code)]
   npm_package_resolver: Arc<tokio::sync::Mutex<npm_fetch::NpmPackageResolver>>,
+  #[allow(dead_code)]
   module_cache: Arc<tokio::sync::Mutex<NpmModuleCache>>,
+  #[allow(dead_code)]
   main_module_source: Option<String>,
+  #[allow(dead_code)]
   runtime_handle: tokio::runtime::Handle,
 }
 

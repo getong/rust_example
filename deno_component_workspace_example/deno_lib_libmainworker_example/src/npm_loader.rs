@@ -10,6 +10,7 @@ use crate::npm_fetch::NpmPackageResolver;
 
 /// Cache for loaded npm modules
 pub struct NpmModuleCache {
+  #[allow(dead_code)]
   modules: HashMap<String, String>,
 }
 
@@ -20,16 +21,19 @@ impl NpmModuleCache {
     }
   }
 
+  #[allow(dead_code)]
   pub fn get(&self, key: &str) -> Option<String> {
     self.modules.get(key).cloned()
   }
 
+  #[allow(dead_code)]
   pub fn insert(&mut self, key: String, value: String) {
     self.modules.insert(key, value);
   }
 }
 
 /// Load npm modules using deno_fetch
+#[allow(dead_code)]
 pub async fn load_npm_module(
   module_specifier: &Url,
   npm_package_resolver: Arc<Mutex<NpmPackageResolver>>,

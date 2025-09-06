@@ -22,6 +22,7 @@ pub struct File {
   pub url: ModuleSpecifier,
   pub source: Arc<[u8]>,
   pub media_type: MediaType,
+  #[allow(dead_code)]
   pub maybe_headers: Option<Vec<(String, String)>>,
 }
 
@@ -104,12 +105,14 @@ impl SimpleFileFetcher {
 }
 
 /// Extended file fetcher with caching support
+#[allow(dead_code)]
 pub struct CachedFileFetcher {
   inner: SimpleFileFetcher,
   cache: std::sync::RwLock<std::collections::HashMap<ModuleSpecifier, File>>,
 }
 
 impl CachedFileFetcher {
+  #[allow(dead_code)]
   pub fn new(allow_remote: bool) -> Self {
     Self {
       inner: SimpleFileFetcher::new(allow_remote),
@@ -117,6 +120,7 @@ impl CachedFileFetcher {
     }
   }
 
+  #[allow(dead_code)]
   pub async fn fetch(&self, specifier: &ModuleSpecifier) -> Result<File, AnyError> {
     // Check cache first
     {
@@ -138,6 +142,7 @@ impl CachedFileFetcher {
     Ok(file)
   }
 
+  #[allow(dead_code)]
   pub fn decode(&self, file: File) -> Result<TextDecodedFile, AnyError> {
     self.inner.decode(file)
   }
