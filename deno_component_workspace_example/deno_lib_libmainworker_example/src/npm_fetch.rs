@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use deno_core::{anyhow::Context, error::AnyError};
 use deno_error::JsErrorBox;
 use deno_runtime::{
-  deno_fetch::{self, create_http_client, CreateHttpClientOptions, ReqBody},
+  deno_fetch::{self, CreateHttpClientOptions, ReqBody, create_http_client},
   deno_tls::RootCertStoreProvider,
 };
 

@@ -1,7 +1,7 @@
 // Real NPM package loader using deno_fetch
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use deno_core::{url::Url, ModuleLoadResponse, ModuleSource, ModuleSourceCode, ModuleType};
+use deno_core::{ModuleSource, ModuleSourceCode, ModuleType, url::Url};
 use deno_error::JsErrorBox;
 use deno_semver::npm::NpmPackageReqReference;
 use tokio::sync::Mutex;
@@ -62,7 +62,7 @@ pub async fn load_npm_module(
     .map_err(|e| JsErrorBox::generic(format!("Failed to resolve package: {}", e)))?;
 
   // Find the best matching version
-  let versions = package_data["versions"]
+  let _versions = package_data["versions"]
     .as_object()
     .ok_or_else(|| JsErrorBox::generic("No versions found"))?;
 

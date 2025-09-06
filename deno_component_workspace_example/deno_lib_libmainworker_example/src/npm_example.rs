@@ -1,8 +1,8 @@
 use std::{rc::Rc, sync::Arc};
 
 use deno_core::{
-  error::ModuleLoaderError, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
-  ModuleType, RequestedModuleType, ResolutionKind,
+  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
+  RequestedModuleType, ResolutionKind, error::ModuleLoaderError,
 };
 use deno_error::JsErrorBox;
 use deno_lib::{
@@ -17,13 +17,13 @@ use deno_resolver::npm::{
   NpmResolver, NpmResolverCreateOptions,
 };
 use deno_runtime::{
+  FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
   deno_fs::RealFs,
   deno_node::NodeRequireLoader,
   deno_permissions::{Permissions, PermissionsContainer},
-  deno_tls::{rustls::RootCertStore, RootCertStoreProvider},
+  deno_tls::{RootCertStoreProvider, rustls::RootCertStore},
   deno_web::BlobStore,
   permissions::RuntimePermissionDescriptorParser,
-  FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
 };
 use deno_semver::npm::NpmPackageReqReference;
 use node_resolver::{InNpmPackageChecker, NodeResolver, PackageJsonResolver};
@@ -33,7 +33,7 @@ use url::Url;
 mod npm_fetch;
 mod npm_loader;
 
-use npm_loader::{create_npm_module_source, NpmModuleCache};
+use npm_loader::{NpmModuleCache, create_npm_module_source};
 
 // NPM-aware module loader that can handle npm: scheme URLs
 struct NpmModuleLoader {
@@ -194,7 +194,7 @@ impl NodeRequireLoader for NpmModuleLoader {
   fn is_maybe_cjs(
     &self,
     specifier: &Url,
-  ) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     // Check if this is a CommonJS module
     Ok(specifier.path().ends_with(".cjs") || self.in_npm_pkg_checker.in_npm_package(specifier))
   }

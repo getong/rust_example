@@ -3,8 +3,8 @@ use std::{rc::Rc, sync::Arc};
 mod npm_helpers;
 
 use deno_core::{
-  error::ModuleLoaderError, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
-  ModuleType,
+  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
+  error::ModuleLoaderError,
 };
 use deno_error::JsErrorBox;
 use deno_lib::{
@@ -19,13 +19,13 @@ use deno_resolver::npm::{
   NpmResolver, NpmResolverCreateOptions,
 };
 use deno_runtime::{
+  FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
   deno_fs::RealFs,
   deno_node::NodeRequireLoader,
   deno_permissions::{Permissions, PermissionsContainer},
-  deno_tls::{rustls::RootCertStore, RootCertStoreProvider},
+  deno_tls::{RootCertStoreProvider, rustls::RootCertStore},
   deno_web::BlobStore,
   permissions::RuntimePermissionDescriptorParser,
-  FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
 };
 use node_resolver::{NodeResolver, PackageJsonResolver};
 use sys_traits::impls::RealSys;
@@ -100,7 +100,7 @@ impl NodeRequireLoader for SimpleModuleLoader {
   fn is_maybe_cjs(
     &self,
     _specifier: &Url,
-  ) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(false)
   }
 }

@@ -4,15 +4,15 @@
 use std::{rc::Rc, sync::Arc};
 
 use deno_core::{
-  error::ModuleLoaderError, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
-  ModuleType, RequestedModuleType, ResolutionKind,
+  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
+  RequestedModuleType, ResolutionKind, error::ModuleLoaderError,
 };
 use deno_error::JsErrorBox;
 use deno_lib::{
   npm::create_npm_process_state_provider,
   worker::{
-    CreateModuleLoaderResult, LibMainWorkerFactory, LibMainWorkerOptions, LibWorkerFactoryRoots,
-    ModuleLoaderFactory, StorageKeyResolver,
+    CreateModuleLoaderResult, LibMainWorkerFactory, LibMainWorkerOptions, ModuleLoaderFactory,
+    StorageKeyResolver,
   },
 };
 use deno_resolver::npm::{
@@ -20,13 +20,13 @@ use deno_resolver::npm::{
   NpmResolver, NpmResolverCreateOptions,
 };
 use deno_runtime::{
+  FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
   deno_fs::RealFs,
   deno_node::NodeRequireLoader,
   deno_permissions::{Permissions, PermissionsContainer},
-  deno_tls::{rustls::RootCertStore, RootCertStoreProvider},
+  deno_tls::{RootCertStoreProvider, rustls::RootCertStore},
   deno_web::BlobStore,
   permissions::RuntimePermissionDescriptorParser,
-  FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
 };
 use deno_semver::npm::NpmPackageReqReference;
 use node_resolver::{InNpmPackageChecker, NodeResolver, PackageJsonResolver};
@@ -159,7 +159,7 @@ impl NodeRequireLoader for SimpleModuleLoader {
   fn is_maybe_cjs(
     &self,
     specifier: &Url,
-  ) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(specifier.path().ends_with(".cjs") || self.in_npm_pkg_checker.in_npm_package(specifier))
   }
 }
@@ -269,12 +269,12 @@ console.log("🎉 UnconfiguredRuntime example completed!");
   ));
 
   // Create simple module loader factory
-  let module_loader_factory = Box::new(SimpleModuleLoaderFactory {
+  let _module_loader_factory = Box::new(SimpleModuleLoaderFactory {
     in_npm_pkg_checker: in_npm_pkg_checker.clone(),
   });
 
   // Create worker options
-  let worker_options = LibMainWorkerOptions {
+  let _worker_options = LibMainWorkerOptions {
     argv: vec![],
     log_level: WorkerLogLevel::Info,
     enable_op_summary_metrics: false,
