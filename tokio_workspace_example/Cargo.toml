@@ -199,5 +199,7 @@ members = [
   "tokio_async_loop_mut_variable_example",
   "tokio_task_id_example",
   "tokio_once_cell_mutex_timeout_example",
-  "once_cell_const_new_example", "tokio_struct_future_example",
+  "once_cell_const_new_example",
+  "tokio_struct_future_example",
+  "tokio_vsock_test_server_example",
 ]
