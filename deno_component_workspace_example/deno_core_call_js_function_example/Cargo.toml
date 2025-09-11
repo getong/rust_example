@@ -1,0 +1,9 @@
+[package]
+name = "deno_core_call_js_function_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+deno_core = "0.356.0"
+tokio = { version = "1.47.1", features = ["full"] }
