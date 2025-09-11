@@ -20,7 +20,7 @@ fn main() -> Result<()> {
 
   let future = async move {
     let mod_id = js_runtime.load_main_es_module(&main_module).await?;
-    let result = js_runtime.mod_evaluate(mod_id);
+    // let result = js_runtime.mod_evaluate(mod_id);
     js_runtime
       .run_event_loop(PollEventLoopOptions::default())
       .await?;
@@ -42,9 +42,11 @@ fn main() -> Result<()> {
       .to_rust_string_lossy(scope);
     println!("Function returned: {}", func_res);
 
-    result.await?;
+    // result.await?;
     Ok::<(), anyhow::Error>(())
   };
   runtime.block_on(future)?;
   Ok(())
 }
+
+// copy from https://stackoverflow.com/questions/76367009/how-to-export-javascript-module-members-to-rust-and-call-them-using-v8-or-deno-c
