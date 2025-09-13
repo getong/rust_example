@@ -34,7 +34,9 @@ members = [
   "byonm_npm_resolver_example",
   "deno_npm_example",
   "deno_cache_dir_example",
-  "deno_core_call_js_example", "deno_core_call_js_function_example",
+  "deno_core_call_js_example",
+  "deno_core_call_js_function_example",
+  "denort",
 ]
 
 # Required for V8 compatibility - rusty-v8 needs at least -O1 to not miscompile
