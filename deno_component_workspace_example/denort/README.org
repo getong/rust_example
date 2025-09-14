@@ -1,0 +1,79 @@
+* denort
+
+** compilation
+
+*** first cargo build
+
+#+begin_src shell
+cargo build
+#+end_src
+
+*** error log
+
+#+begin_example
+ Compiling temporal_rs v0.0.11
+error: unexpected end of macro invocation902/970: temporal_rs
+  --> /Users/gerald/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/temporal_rs-0.0.11/src/tzdb.rs:60:1
+   |
+60 | timezone_provider::iana_normalizer_singleton!();
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing tokens in macro arguments
+   |
+note: while trying to match meta-variable `$providername:ident`
+  --> /Users/gerald/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/timezone_provider-0.0.16/src/./data/iana_normalizer.rs.data:6:6
+   |
+ 6 |     ($providername:ident) => {
+   |      ^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `temporal_rs` (lib) due to 1 previous error
+#+end_example
+
+*** modify ../Cargo.lock
+
+change the ../Cargo.lock from:
+#+begin_example
+name = "temporal_rs"
+version = "0.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7807e330b12e288b847a3e2a2b0dcd41ca764d0f90f9e8940f02c6ddd68cd2d7"
+dependencies = [
+ "combine",
+ "core_maths",
+ "icu_calendar",
+ "icu_locale",
+ "ixdtf",
+ "jiff-tzdb",
+ "num-traits",
+ "timezone_provider 0.0.16",
+ "tinystr",
+ "tzif",
+ "writeable",
+]
+#+end_example
+
+to be
+
+#+begin_example
+name = "temporal_rs"
+version = "0.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7807e330b12e288b847a3e2a2b0dcd41ca764d0f90f9e8940f02c6ddd68cd2d7"
+dependencies = [
+ "combine",
+ "core_maths",
+ "icu_calendar",
+ "icu_locale",
+ "ixdtf",
+ "jiff-tzdb",
+ "num-traits",
+ "timezone_provider 0.0.14",
+ "tinystr",
+ "tzif",
+ "writeable",
+]
+#+end_example
+
+*** then second cargo build
+
+#+begin_src shell
+cargo build
+#+end_src
