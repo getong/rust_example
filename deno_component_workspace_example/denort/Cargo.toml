@@ -43,6 +43,7 @@ sys_traits = { version = "0.1.17", features = ["getrandom", "filetime", "libc", 
 thiserror = "2.0.16"
 tokio = { version = "1.47.1", features = ["full"] }
 url = "2.5.7"
+timezone_provider = "=0.0.14"
 
 [target.'cfg(windows)'.dependencies]
 memmap2 = "0.9.8"
