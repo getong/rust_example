@@ -1,0 +1,12 @@
+* libsui example
+
+The tests files are downloaded from https://github.com/denoland/sui/tree/main/tests
+
+#+begin_src shell
+mkdir tests
+
+wget -c https://github.com/denoland/sui/blob/main/tests/exec_mach64 -o tests/exec_mach64
+wget -c https://github.com/denoland/sui/blob/main/tests/exec_pe64 -o tests/exec_pe64
+
+cargo build
+#+end_src
