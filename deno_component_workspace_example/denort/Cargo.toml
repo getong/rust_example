@@ -51,7 +51,6 @@ deno_subprocess_windows = "0.10.0"
 
 [dev-dependencies]
 sys_traits = { version = "0.1.17", features = ["memory"] }
-test_util = { package = "test_server", git = "https://github.com/denoland/deno", tag = "v2.5.0" }
 
 [build-dependencies]
 deno_core = { version = "0.357.0", features = ["include_js_files_for_snapshotting"] }
