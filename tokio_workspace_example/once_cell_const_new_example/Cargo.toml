@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-primitive-types = "0.13.1"
+primitive-types = "0.14.0"
 tokio = { version = "1.47.1", features = ["full"] }
