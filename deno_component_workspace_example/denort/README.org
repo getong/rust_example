@@ -86,3 +86,6 @@ serde = { version = "=1.0.221", features = ["derive"] }
 #+end_example
 
 see [[https://github.com/DioxusLabs/dioxus/issues/4661][Cannot "cargo install dioxus-cli"" #4661]]
+
+
+** libsui embeded rust code here in denort
