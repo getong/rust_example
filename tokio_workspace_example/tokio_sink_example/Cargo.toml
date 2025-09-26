@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.31"
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.227", features = ["derive"] }
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-serde = { version = "0.9.0", features = ["json", "serde_json"] }
 tokio-util = { version = "0.7.16", features = ["full"] }
