@@ -19,7 +19,6 @@ bincode = "=1.3.3"
 deno_cache_dir = { version = "=0.25.0", features = ["sync"] }
 deno_config = { version = "0.67.0", features = ["sync", "workspace"] }
 deno_core = { version = "0.362.0", features = ["include_js_files_for_snapshotting"] }
-deno_doc = "=0.183.0"
 deno_error = "=0.7.0"
 deno_lib = "0.35.0"
 deno_media_type = { version = "=0.2.9", features = ["data_url", "decoding"] }
