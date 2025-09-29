@@ -1,0 +1,8 @@
+[package]
+name = "orama_js_pool_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+orama-js-pool = "0.2.1"
+tokio = { version = "1.47.1", features = ["full"] }
