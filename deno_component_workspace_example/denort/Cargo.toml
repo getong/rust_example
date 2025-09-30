@@ -39,7 +39,7 @@ rustls = { version = "=0.23.28", default-features = false, features = ["logging"
 serde = { version = "=1.0.221", features = ["derive"] }
 serde_json = "1.0.145"
 sys_traits = { version = "0.1.17", features = ["getrandom", "filetime", "libc", "real", "strip_unc", "winapi"] }
-thiserror = "2.0.16"
+thiserror = "2.0.17"
 timezone_provider = "=0.0.14"
 tokio = { version = "1.47.1", features = ["full"] }
 url = { version = "2.5", features = ["serde", "expose_internals"] }
