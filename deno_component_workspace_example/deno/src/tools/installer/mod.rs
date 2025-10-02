@@ -888,18 +888,17 @@ async fn resolve_shim_data(
     bin_name_resolver.infer_name_from_url(&module_url).await
   };
 
-  let name =
-    match name {
-      Some(name) => name,
-      None => {
-        return Err(anyhow!(
+  let name = match name {
+    Some(name) => name,
+    None => {
+      return Err(anyhow!(
           "An executable name was not provided. One could not be inferred from the URL. \
            Aborting.\n  {} {}",
           deno_runtime::colors::cyan("hint:"),
           "provide one with the `--name` flag"
         ));
-      }
-    };
+    }
+  };
 
   validate_name(name.as_str())?;
   let mut file_path = installation_dir.join(&name);

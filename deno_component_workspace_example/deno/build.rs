@@ -1,8 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::env;
-use std::io::Write;
-use std::path::Path;
+use std::{env, io::Write, path::Path};
 
 use deno_runtime::*;
 
@@ -191,8 +189,7 @@ fn main() {
   // Host snapshots won't work when cross compiling.
   let target = env::var("TARGET").unwrap();
   let host = env::var("HOST").unwrap();
-  let skip_cross_check =
-    env::var("DENO_SKIP_CROSS_BUILD_CHECK").is_ok_and(|v| v == "1");
+  let skip_cross_check = env::var("DENO_SKIP_CROSS_BUILD_CHECK").is_ok_and(|v| v == "1");
   if !skip_cross_check && target != host {
     panic!("Cross compiling with snapshot is not supported.");
   }
@@ -201,8 +198,7 @@ fn main() {
   // op_fetch_asset::trace_serializer();
 
   if !cfg!(debug_assertions) && std::env::var("CARGO_FEATURE_HMR").is_err() {
-    let out_dir =
-      std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    let out_dir = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     compress_sources(&out_dir);
   }
 

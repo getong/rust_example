@@ -1263,12 +1263,11 @@ static DENO_HELP: &str = cstr!(
 
 <p(245)>Usage:</> <g>{usage}</>
 
-<y>Commands:</>\
+<y>Commands:</><y>Execution:</>\
    
-  <y>Execution:</>
     <g>run</>          Run a JavaScript or TypeScript program, or a task
-                  \
-   <p(245)>deno run main.ts  |  deno run --allow-net=google.com main.ts  |  deno main.ts</>
+                  <p(245)>deno \
+   run main.ts  |  deno run --allow-net=google.com main.ts  |  deno main.ts</>
     <g>serve</>        \
    Run a server
                   <p(245)>deno serve main.ts</>
@@ -1290,48 +1289,43 @@ static DENO_HELP: &str = cstr!(
    or an executable script in the installation root's bin directory
     <g>outdated</>     Find and \
    update outdated dependencies
-    <g>remove</>       Remove dependencies from the configuration file\
+    <g>remove</>       Remove dependencies from the configuration file<y>Tooling:</>\
    
-
-  <y>Tooling:</>
     <g>bench</>        Run benchmarks
-                  <p(245)>deno bench bench.ts</>\
-   
-    <g>check</>        Type-check the dependencies
-    <g>clean</>        Remove the cache directory\
-   
-    <g>compile</>      Compile the script into a self contained executable
-                  <p(245)>deno \
-   compile main.ts  |  deno compile --target=x86_64-unknown-linux-gnu</>
-    <g>coverage</>     Print \
-   coverage reports
-    <g>deploy</>       Manage and publish applications with Deno Deploy
-    <g>doc</>          \
-   Generate and show documentation for a module or built-ins
-                  <p(245)>deno doc  |  \
-   deno doc --json  |  deno doc --html mod.ts</>
+                  <p(245)>deno bench bench.ts</><g>check</>        \
+   Type-check the dependencies
+    <g>clean</>        Remove the cache directory<g>compile</>      Compile \
+   the script into a self contained executable
+                  <p(245)>deno compile main.ts  |  deno \
+   compile --target=x86_64-unknown-linux-gnu</>
+    <g>coverage</>     Print coverage reports
+    <g>deploy</>       \
+   Manage and publish applications with Deno Deploy
+    <g>doc</>          Generate and show documentation \
+   for a module or built-ins
+                  <p(245)>deno doc  |  deno doc --json  |  deno doc --html \
+   mod.ts</>
     <g>fmt</>          Format source files
-                  \
-   <p(245)>deno fmt  |  deno fmt main.ts</>
-    <g>info</>         Show info about cache or info related \
-   to source file
-    <g>jupyter</>      Deno kernel for Jupyter notebooks
-    <g>lint</>         Lint \
-   source files
-    <g>init</>         Initialize a new project
+                  <p(245)>deno fmt  |  deno fmt \
+   main.ts</>
+    <g>info</>         Show info about cache or info related to source file
+    <g>jupyter</>      \
+   Deno kernel for Jupyter notebooks
+    <g>lint</>         Lint source files
+    <g>init</>         \
+   Initialize a new project
     <g>test</>         Run tests
-                  \
-   <p(245)>deno test  |  deno test test.ts</>
-    <g>publish</>      Publish the current working directory's \
-   package or workspace
+                  <p(245)>deno test  |  \
+   deno test test.ts</>
+    <g>publish</>      Publish the current working directory's package or workspace\
+   
     <g>upgrade</>      Upgrade deno executable to given version
-                  \
-   <p(245)>deno upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>
+                  <p(245)>deno upgrade  \
+   |  deno upgrade 1.45.0  |  deno upgrade canary</>
 {after-help}
 
-<y>Docs:</> https://docs.deno.com\
-   
-<y>Standard Library:</> https://jsr.io/@std
+<y>Docs:</> https://docs.deno.com<y>Standard \
+   Library:</> https://jsr.io/@std
 <y>Bugs:</> https://github.com/denoland/deno/issues
 <y>Discord:</> \
    https://discord.gg/deno
@@ -2222,15 +2216,13 @@ fn compile_subcommand() -> Command {
 
   <p(245)>deno compile --allow-read \
        --allow-net jsr:@std/http/file-server</>
-  <p(245)>deno compile --output file_server jsr:@std/http/file-server</>\
-       
+  <p(245)>deno compile --output file_server jsr:@std/http/file-server</>Any \
+       flags specified which affect runtime behavior will be applied to the resulting binary.
 
-Any flags specified which affect runtime behavior will be applied to the resulting binary.
-
-This \
-       allows distribution of a Deno application to systems that do not have Deno installed.
-Under the \
-       hood, it bundles a slimmed down version of the Deno runtime along with your
+This allows \
+       distribution of a Deno application to systems that do not have Deno installed.
+Under the hood, \
+       it bundles a slimmed down version of the Deno runtime along with your
 JavaScript or TypeScript \
        code.
 
@@ -2611,14 +2603,10 @@ fn eval_subcommand() -> Command {
     "eval",
     cstr!(
       "Evaluate JavaScript from the command line.
-  <p(245)>deno eval \"console.log('hello world')\"</>\
-       
-
-To evaluate as TypeScript:
-  <p(245)>deno eval --ext=ts \"const v: string = 'hello'; console.log(v)\"</>\
-       
-
-This command has implicit access to all permissions.
+  <p(245)>deno eval \"console.log('hello world')\"</>To \
+       evaluate as TypeScript:
+  <p(245)>deno eval --ext=ts \"const v: string = 'hello'; console.log(v)\"</>This \
+       command has implicit access to all permissions.
 
 <y>Read more:</> <c>https://docs.deno.com/go/eval</>\
        "
@@ -2664,23 +2652,16 @@ Supported file \
   <p(245)>HTML, \
        CSS, SCSS, SASS, LESS, YAML, Svelte, Vue, Astro and Angular</>
 
-Format stdin and write to stdout:\
-       
-  <p(245)>cat file.ts | deno fmt -</>
+Format stdin and write to stdout:<p(245)>cat \
+       file.ts | deno fmt -</>
 
 Check if the files are formatted:
-  <p(245)>deno fmt --check</>\
-       
-
-Ignore formatting code by preceding it with an ignore comment:
-  <p(245)>// deno-fmt-ignore</>\
-       
-
-Ignore formatting a file by adding an ignore comment at the top of the file:
-  <p(245)>// deno-fmt-ignore-file</>\
-       
-
-<y>Read more:</> <c>https://docs.deno.com/go/fmt</>"
+  <p(245)>deno fmt --check</>Ignore \
+       formatting code by preceding it with an ignore comment:
+  <p(245)>// deno-fmt-ignore</>Ignore \
+       formatting a file by adding an ignore comment at the top of the file:
+  <p(245)>// deno-fmt-ignore-file</><y>Read \
+       more:</> <c>https://docs.deno.com/go/fmt</>"
     ),
     UnstableArgsConfig::None,
   )
@@ -2933,34 +2914,27 @@ fn install_subcommand() -> Command {
     cstr!(
       "Installs dependencies either in the local project or globally to a bin directory.
 
-<g>Local installation</>\
-       
-
-Add dependencies to the local project's configuration (<p(245)>deno.json / package.json</>) \
-       and installs them
+<g>Local installation</>Add \
+       dependencies to the local project's configuration (<p(245)>deno.json / package.json</>) and \
+       installs them
 in the package cache. If no dependency is specified, installs all dependencies \
        listed in the config file.
 If the <p(245)>--entrypoint</> flag is passed, installs the dependencies \
        of the specified entrypoint(s).
 
   <p(245)>deno install</>
-  <p(245)>deno install jsr:@std/bytes</>\
-       
-  <p(245)>deno install npm:chalk</>
-  <p(245)>deno install --entrypoint entry1.ts entry2.ts</>\
-       
-
-<g>Global installation</>
-
-If the <bold>--global</> flag is set, installs a script as an executable \
-       in the installation root's bin directory.
-
-  <p(245)>deno install --global --allow-net --allow-read \
-       jsr:@std/http/file-server</>
-  <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>\
+  <p(245)>deno install jsr:@std/bytes</><p(245)>deno \
+       install npm:chalk</>
+  <p(245)>deno install --entrypoint entry1.ts entry2.ts</><g>Global installation</>\
        
 
-To change the executable name, use <c>-n</>/<c>--name</>:
+If the <bold>--global</> flag is set, installs a script as an executable in the installation \
+       root's bin directory.
+
+  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>\
+       
+  <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>To change the executable \
+       name, use <c>-n</>/<c>--name</>:
   <p(245)>deno install -g --allow-net --allow-read -n serve jsr:@std/http/file-server</>
 
 The executable name is inferred by default:
@@ -3325,16 +3299,15 @@ List available rules:
 
 To ignore specific diagnostics, you can write an ignore comment \
        on the preceding line with a rule name (or multiple):
-  <p(245)>// deno-lint-ignore no-explicit-any</>\
-       
-  <p(245)>// deno-lint-ignore require-await no-empty</>
+  <p(245)>// deno-lint-ignore no-explicit-any</><p(245)>// \
+       deno-lint-ignore require-await no-empty</>
 
-To ignore linting on an entire file, \
-       you can add an ignore comment at the top of the file:
+To ignore linting on an entire file, you can add an \
+       ignore comment at the top of the file:
   <p(245)>// deno-lint-ignore-file</>
 
-<y>Read \
-       more:</> <c>https://docs.deno.com/go/lint</>
+<y>Read more:</> \
+       <c>https://docs.deno.com/go/lint</>
 "
     ),
     UnstableArgsConfig::ResolutionOnly,
@@ -3536,10 +3509,8 @@ Grant permission to read from disk and listen \
 
 Grant permission \
          to read allow-listed files from disk:
-  <p(245)>deno run --allow-read=/etc jsr:@std/http/file-server</>\
-         
-
-Grant all permissions:
+  <p(245)>deno run --allow-read=/etc jsr:@std/http/file-server</>Grant \
+         all permissions:
   <p(245)>deno run -A jsr:@std/http/file-server</>
 
 Specifying the filename \
@@ -3694,10 +3665,8 @@ Evaluate the given modules, run all tests declared \
 Directory arguments are expanded to all contained files matching the glob \
        <c>{*_,*.,}test.{js,mjs,ts,mts,jsx,tsx}</>
 or <c>**/__tests__/**</>:
- <p(245)>deno test src/</>\
-       
-
-<y>Read more:</> <c>https://docs.deno.com/go/test</>"
+ <p(245)>deno test src/</><y>Read \
+       more:</> <c>https://docs.deno.com/go/test</>"
     ),
     UnstableArgsConfig::ResolutionAndRuntime,
   )
