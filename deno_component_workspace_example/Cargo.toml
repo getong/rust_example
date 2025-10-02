@@ -37,6 +37,7 @@ members = [
   "deno_core_call_js_example",
   "deno_core_call_js_function_example",
   "denort",
+  "deno",
 ]
 
 # Required for V8 compatibility - rusty-v8 needs at least -O1 to not miscompile
