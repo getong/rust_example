@@ -125,7 +125,7 @@ macro_rules! maybe_compressed_lib {
       $name,
       StaticAsset {
         is_lib: true,
-        source: maybe_compressed_source!(concat!("tsc/dts/", $file)),
+        source: maybe_compressed_source!(concat!("src/tsc/dts/", $file)),
       },
     )
   };
@@ -1241,11 +1241,11 @@ impl CompressedSource {
 }
 
 pub(crate) static MAIN_COMPILER_SOURCE: StaticAssetSource =
-  maybe_compressed_source!("tsc/99_main_compiler.js");
-pub(crate) static LSP_SOURCE: StaticAssetSource = maybe_compressed_source!("tsc/98_lsp.js");
-pub(crate) static TS_HOST_SOURCE: StaticAssetSource = maybe_compressed_source!("tsc/97_ts_host.js");
+  maybe_compressed_source!("src/tsc/99_main_compiler.js");
+pub(crate) static LSP_SOURCE: StaticAssetSource = maybe_compressed_source!("src/tsc/98_lsp.js");
+pub(crate) static TS_HOST_SOURCE: StaticAssetSource = maybe_compressed_source!("src/tsc/97_ts_host.js");
 pub(crate) static TYPESCRIPT_SOURCE: StaticAssetSource =
-  maybe_compressed_source!("tsc/00_typescript.js");
+  maybe_compressed_source!("src/tsc/00_typescript.js");
 
 pub(crate) fn decompress_source(contents: &[u8]) -> Arc<str> {
   let len_bytes = contents[0 .. 4].try_into().unwrap();
