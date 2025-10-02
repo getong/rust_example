@@ -25,7 +25,7 @@ deno_core = { version = "0.362.0", features = [
 ] }
 deno_doc = { version = "0.184.0", features = ["rust", "comrak"] }
 deno_error = "0.7.0"
-deno_graph = { version = "0.101.0", features = ["fast_check"] }
+deno_graph = { version = "=0.101.0", default-features = false, features = ["fast_check"] }
 deno_lib = "0.35.0"
 deno_lint = "0.80.0"
 deno_lockfile = "0.32.0"
