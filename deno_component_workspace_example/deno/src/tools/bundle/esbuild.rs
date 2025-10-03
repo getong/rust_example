@@ -5,7 +5,7 @@ use std::{path::PathBuf, sync::Arc};
 use deno_core::{anyhow, anyhow::Context, error::AnyError};
 use deno_npm::{npm_rc::ResolvedNpmRc, registry::NpmRegistryApi};
 use deno_npm_cache::TarballCache;
-use deno_resolver::workspace::WorkspaceNpmLinkPackages;
+use deno_resolver::workspace::WorkspaceNpmLinkPackagesRc;
 use deno_semver::package::PackageNv;
 
 use crate::{
@@ -36,7 +36,7 @@ pub async fn ensure_esbuild(
   deno_dir: &DenoDir,
   npmrc: &ResolvedNpmRc,
   api: &Arc<CliNpmRegistryInfoProvider>,
-  workspace_link_packages: &Arc<WorkspaceNpmLinkPackages>,
+  workspace_link_packages: &WorkspaceNpmLinkPackagesRc,
   tarball_cache: &Arc<TarballCache<CliNpmCacheHttpClient, CliSys>>,
   npm_cache: &CliNpmCache,
 ) -> Result<PathBuf, AnyError> {

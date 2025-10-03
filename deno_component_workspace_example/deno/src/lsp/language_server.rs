@@ -31,6 +31,7 @@ use deno_lib::{
   args::{CaData, get_root_cert_store},
   version::DENO_VERSION_INFO,
 };
+use deno_npm::resolution::NpmVersionResolver;
 use deno_npm_installer::graph::NpmCachingStrategy;
 use deno_path_util::url_to_file_path;
 use deno_resolver::{deno_json::CompilerOptionsKey, loader::MemoryFilesRc};
@@ -90,6 +91,7 @@ use crate::{
     config::ConfigWatchedFileType, diagnostics::generate_module_diagnostics,
     lint::LspLinterResolver, logging::init_log_file, tsc::file_text_changes_to_workspace_edit,
   },
+  npm::get_types_node_version_req,
   sys::CliSys,
   tools::{
     fmt::{format_file, format_parsed_source},
@@ -556,7 +558,14 @@ impl Inner {
       http_client_provider.clone(),
     );
     let jsr_search_api = CliJsrSearchApi::new(module_registry.file_fetcher.clone());
-    let npm_search_api = CliNpmSearchApi::new(module_registry.file_fetcher.clone());
+    let npm_search_api = CliNpmSearchApi::new(
+      module_registry.file_fetcher.clone(),
+      Arc::new(NpmVersionResolver {
+        types_node_version_req: Some(get_types_node_version_req()),
+        link_packages: Default::default(),
+        newest_dependency_date: None,
+      }),
+    );
     let config = Config::default();
     let ts_server = Arc::new(TsServer::new(performance.clone()));
     let initial_cwd = std::env::current_dir()
@@ -799,7 +808,17 @@ impl Inner {
       }
     }
     self.jsr_search_api = CliJsrSearchApi::new(self.module_registry.file_fetcher.clone());
-    self.npm_search_api = CliNpmSearchApi::new(self.module_registry.file_fetcher.clone());
+    self.npm_search_api = CliNpmSearchApi::new(
+      self.module_registry.file_fetcher.clone(),
+      Arc::new(NpmVersionResolver {
+        types_node_version_req: Some(get_types_node_version_req()),
+        // todo(dsherret): the npm_search_api should probably be specific
+        // to each workspace so that the link packages can be properly
+        // hooked up
+        link_packages: Default::default(),
+        newest_dependency_date: None,
+      }),
+    );
     self.performance.measure(mark);
   }
 

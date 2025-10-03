@@ -12,7 +12,7 @@ use deno_cache_dir::{HttpCache, npm::NpmCacheDir};
 use deno_core::{parking_lot::Mutex, url::Url};
 use deno_error::JsErrorBox;
 use deno_graph::{ModuleSpecifier, Range};
-use deno_npm::NpmSystemInfo;
+use deno_npm::{NpmSystemInfo, resolution::NpmVersionResolver};
 use deno_npm_cache::TarballCache;
 use deno_npm_installer::{
   LifecycleScriptsConfig,
@@ -36,7 +36,7 @@ use deno_resolver::{
   npmrc::create_default_npmrc,
   workspace::{
     CreateResolverOptions, FsCacheOptions, PackageJsonDepResolution, SloppyImportsOptions,
-    WorkspaceNpmLinkPackages, WorkspaceResolver,
+    WorkspaceNpmLinkPackagesRc, WorkspaceResolver,
   },
 };
 use deno_runtime::tokio_util::create_basic_runtime;
@@ -66,6 +66,7 @@ use crate::{
   npm::{
     CliByonmNpmResolverCreateOptions, CliManagedNpmResolver, CliNpmCache, CliNpmCacheHttpClient,
     CliNpmInstaller, CliNpmRegistryInfoProvider, CliNpmResolver, CliNpmResolverCreateOptions,
+    get_types_node_version_req,
   },
   resolver::{CliIsCjsResolver, CliNpmReqResolver, CliResolver, on_resolve_diagnostic},
   sys::CliSys,
@@ -850,15 +851,11 @@ impl<'a> ResolverFactory<'a> {
         npm_client.clone(),
         npmrc.clone(),
       ));
-      let link_packages: Arc<WorkspaceNpmLinkPackages> = self
+      let link_packages: WorkspaceNpmLinkPackagesRc = self
         .config_data
         .as_ref()
         .filter(|c| c.node_modules_dir.is_some()) // requires a node_modules dir
-        .map(|d| {
-          Arc::new(WorkspaceNpmLinkPackages::from_workspace(
-            &d.member_dir.workspace,
-          ))
-        })
+        .map(|d| WorkspaceNpmLinkPackagesRc::from_workspace(&d.member_dir.workspace))
         .unwrap_or_default();
       let npm_resolution_initializer = Arc::new(NpmResolutionInitializer::new(
         self.services.npm_resolution.clone(),
@@ -879,12 +876,17 @@ impl<'a> ResolverFactory<'a> {
         npmrc.clone(),
         None,
       ));
+      let npm_version_resolver = Arc::new(NpmVersionResolver {
+        types_node_version_req: Some(get_types_node_version_req()),
+        link_packages: link_packages.0.clone(),
+        newest_dependency_date: None,
+      });
       let npm_resolution_installer = Arc::new(NpmResolutionInstaller::new(
+        npm_version_resolver,
         registry_info_provider.clone(),
+        None,
         self.services.npm_resolution.clone(),
         maybe_lockfile.clone(),
-        link_packages.clone(),
-        None,
       ));
       let npm_installer = Arc::new(CliNpmInstaller::new(
         Arc::new(NullLifecycleScriptsExecutor),

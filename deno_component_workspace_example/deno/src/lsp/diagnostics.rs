@@ -1658,7 +1658,7 @@ mod tests {
               "severity": 1,
               "code": "import-prefix-missing",
               "source": "deno",
-              "message": "Relative import path \"bad.js\" not prefixed with / or ./ or ../",
+              "message": "Import \"bad.js\" not a dependency",
             },
             {
               "range": {
@@ -1668,7 +1668,7 @@ mod tests {
               "severity": 1,
               "code": "import-prefix-missing",
               "source": "deno",
-              "message": "Relative import path \"bad.js\" not prefixed with / or ./ or ../",
+              "message": "Import \"bad.js\" not a dependency",
             },
             {
               "range": {
@@ -1678,7 +1678,7 @@ mod tests {
               "severity": 1,
               "code": "import-prefix-missing",
               "source": "deno",
-              "message": "Relative import path \"bad.d.ts\" not prefixed with / or ./ or ../",
+              "message": "Import \"bad.d.ts\" not a dependency",
             },
           ],
         ],

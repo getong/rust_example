@@ -7,7 +7,7 @@ use deno_cache_dir::HttpCache;
 use deno_core::{anyhow::anyhow, error::AnyError, serde_json, url::Url};
 use deno_graph::{
   ModuleSpecifier,
-  packages::{JsrPackageInfo, JsrPackageInfoVersion, JsrPackageVersionInfo},
+  packages::{JsrPackageInfo, JsrPackageInfoVersion, JsrPackageVersionInfo, JsrVersionResolver},
 };
 use deno_resolver::workspace::WorkspaceResolver;
 use deno_semver::{
@@ -80,9 +80,15 @@ impl JsrCacheResolver {
       info_by_name.insert(
         nv.name.clone(),
         Some(Arc::new(JsrPackageInfo {
-          versions: [(nv.version.clone(), JsrPackageInfoVersion { yanked: false })]
-            .into_iter()
-            .collect(),
+          versions: [(
+            nv.version.clone(),
+            JsrPackageInfoVersion {
+              yanked: false,
+              created_at: None,
+            },
+          )]
+          .into_iter()
+          .collect(),
         })),
       );
       info_by_nv.insert(nv.clone(), Some(version_info));
@@ -286,7 +292,13 @@ pub struct CliJsrSearchApi {
 
 impl CliJsrSearchApi {
   pub fn new(file_fetcher: Arc<CliFileFetcher>) -> Self {
-    let resolver = JsrFetchResolver::new(file_fetcher.clone());
+    let resolver = JsrFetchResolver::new(
+      file_fetcher.clone(),
+      Arc::new(JsrVersionResolver {
+        // not currently supported in the lsp
+        newest_dependency_date: None,
+      }),
+    );
     Self {
       file_fetcher,
       resolver,

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use deno_core::{anyhow::anyhow, error::AnyError, serde_json, url::Url};
-use deno_npm::npm_rc::NpmRc;
+use deno_npm::{npm_rc::NpmRc, resolution::NpmVersionResolver};
 use deno_semver::{Version, package::PackageNv};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -25,10 +25,14 @@ pub struct CliNpmSearchApi {
 }
 
 impl CliNpmSearchApi {
-  pub fn new(file_fetcher: Arc<CliFileFetcher>) -> Self {
+  pub fn new(
+    file_fetcher: Arc<CliFileFetcher>,
+    npm_version_resolver: Arc<NpmVersionResolver>,
+  ) -> Self {
     let resolver = NpmFetchResolver::new(
       file_fetcher.clone(),
       Arc::new(NpmRc::default().as_resolved(npm_registry_url()).unwrap()),
+      npm_version_resolver,
     );
     Self {
       file_fetcher,
@@ -75,7 +79,12 @@ impl PackageSearchApi for CliNpmSearchApi {
       .package_info(name)
       .await
       .ok_or_else(|| anyhow!("npm package info not found: {}", name))?;
-    let mut versions = info.versions.keys().cloned().collect::<Vec<_>>();
+    let mut versions = self
+      .resolver
+      .applicable_version_infos(&info)
+      .map(|vi| &vi.version)
+      .cloned()
+      .collect::<Vec<_>>();
     versions.sort();
     versions.reverse();
     let versions = Arc::new(versions);

@@ -16,8 +16,10 @@ use deno_core::{
     stream::{FuturesOrdered, FuturesUnordered},
   },
   serde_json,
+  url::Url,
 };
-use deno_npm::registry::NpmPackageInfo;
+use deno_graph::{JsrPackageReqNotFoundError, packages::JsrPackageVersionInfo};
+use deno_npm::resolution::NpmVersionResolver;
 use deno_package_json::{PackageJsonDepsMap, PackageJsonRc};
 use deno_runtime::deno_permissions::PermissionsContainer;
 use deno_semver::{
@@ -435,6 +437,7 @@ pub struct DepManager {
   pub(crate) jsr_fetch_resolver: Arc<JsrFetchResolver>,
   pub(crate) npm_fetch_resolver: Arc<NpmFetchResolver>,
   npm_resolver: CliNpmResolver,
+  npm_version_resolver: Arc<NpmVersionResolver>,
   npm_installer: Arc<CliNpmInstaller>,
   permissions_container: PermissionsContainer,
   progress_bar: ProgressBar,
@@ -448,6 +451,7 @@ pub struct DepManagerArgs {
   pub npm_fetch_resolver: Arc<NpmFetchResolver>,
   pub npm_installer: Arc<CliNpmInstaller>,
   pub npm_resolver: CliNpmResolver,
+  pub npm_version_resolver: Arc<NpmVersionResolver>,
   pub permissions_container: PermissionsContainer,
   pub progress_bar: ProgressBar,
   pub main_module_graph_container: Arc<MainModuleGraphContainer>,
@@ -468,6 +472,7 @@ impl DepManager {
       npm_fetch_resolver,
       npm_installer,
       npm_resolver,
+      npm_version_resolver,
       progress_bar,
       permissions_container,
       main_module_graph_container,
@@ -483,6 +488,7 @@ impl DepManager {
       npm_fetch_resolver,
       npm_installer,
       npm_resolver,
+      npm_version_resolver,
       progress_bar,
       permissions_container,
       main_module_graph_container,
@@ -579,14 +585,19 @@ impl DepManager {
             info_futures.push(async {
               let nv = if let Some(nv) = resolved_nv {
                 nv
+              } else if let Some(nv) = self.jsr_fetch_resolver.req_to_nv(&dep.req).await? {
+                nv
               } else {
-                self.jsr_fetch_resolver.req_to_nv(&dep.req).await?
+                return Result::<
+                  Option<(Url, Arc<JsrPackageVersionInfo>)>,
+                  JsrPackageReqNotFoundError,
+                >::Ok(None);
               };
               if let Some(info) = self.jsr_fetch_resolver.package_version_info(&nv).await {
                 let specifier = ModuleSpecifier::parse(&format!("jsr:/{}/", &dep.req)).unwrap();
-                return Some((specifier, info));
+                return Ok(Some((specifier, info)));
               }
-              None
+              Ok(None)
             });
           }
         }
@@ -594,7 +605,7 @@ impl DepManager {
     }
 
     while let Some(info_future) = info_futures.next().await {
-      if let Some((specifier, info)) = info_future {
+      if let Some((specifier, info)) = info_future? {
         let exports = info.exports();
         for (k, _) in exports {
           if let Ok(spec) = specifier.join(k) {
@@ -678,15 +689,25 @@ impl DepManager {
           async {
             let semver_req = &dep.req;
             let _permit = npm_sema.acquire().await;
-            let mut semver_compatible = self.npm_fetch_resolver.req_to_nv(semver_req).await;
+            let mut semver_compatible = self
+              .npm_fetch_resolver
+              .req_to_nv(semver_req)
+              .await
+              .ok()
+              .flatten();
             let info = self.npm_fetch_resolver.package_info(&semver_req.name).await;
             let latest = info
               .and_then(|info| {
                 let latest_tag = info.dist_tags.get("latest")?;
 
-                // see https://github.com/denoland/deno_npm/blob/722fbecb5bdbd93241e5fc774cc1deaebd40365b/src/resolution/common.rs#L117-L125
-                let can_use_latest =
-                  npm_version_satisfies(latest_tag, &semver_req.version_req, &info);
+                let can_use_latest = self
+                  .npm_version_resolver
+                  .version_req_satisfies_and_matches_newest_dependency_date(
+                    &semver_req.version_req,
+                    latest_tag,
+                    &info,
+                  )
+                  .ok()?;
 
                 if can_use_latest {
                   semver_compatible = Some(PackageNv {
@@ -702,13 +723,16 @@ impl DepManager {
                 } else {
                   latest_version(
                     Some(latest_tag),
-                    info.versions.iter().filter_map(|(version, version_info)| {
-                      if version_info.deprecated.is_none() {
-                        Some(version)
-                      } else {
-                        None
-                      }
-                    }),
+                    self
+                      .npm_version_resolver
+                      .applicable_version_infos(&info)
+                      .filter_map(|version_info| {
+                        if version_info.deprecated.is_none() {
+                          Some(&version_info.version)
+                        } else {
+                          None
+                        }
+                      }),
                   )
                 }
               })
@@ -727,7 +751,12 @@ impl DepManager {
           async {
             let semver_req = &dep.req;
             let _permit = jsr_sema.acquire().await;
-            let semver_compatible = self.jsr_fetch_resolver.req_to_nv(semver_req).await;
+            let semver_compatible = self
+              .jsr_fetch_resolver
+              .req_to_nv(semver_req)
+              .await
+              .ok()
+              .flatten();
             let info = self.jsr_fetch_resolver.package_info(&semver_req.name).await;
             let latest = info
               .and_then(|info| {
@@ -889,17 +918,6 @@ impl DepManager {
 
     Ok(())
   }
-}
-
-fn npm_version_satisfies(
-  version: &Version,
-  version_req: &VersionReq,
-  npm_info: &NpmPackageInfo,
-) -> bool {
-  if let Some(tag) = version_req.tag() {
-    return npm_info.dist_tags.get(tag) == Some(version);
-  }
-  version_req.matches(version)
 }
 
 fn get_or_create_updater<'a>(

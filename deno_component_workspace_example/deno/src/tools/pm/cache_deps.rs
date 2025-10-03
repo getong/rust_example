@@ -9,7 +9,9 @@ use std::{
 use deno_core::{
   error::AnyError,
   futures::{StreamExt, stream::FuturesUnordered},
+  url::Url,
 };
+use deno_graph::{JsrPackageReqNotFoundError, packages::JsrPackageVersionInfo};
 use deno_npm_installer::{PackageCaching, graph::NpmCachingStrategy};
 use deno_semver::{Version, jsr::JsrPackageReqReference, npm::NpmPackageReqReference};
 
@@ -44,6 +46,7 @@ pub async fn cache_top_level_deps(
     } else {
       Arc::new(crate::jsr::JsrFetchResolver::new(
         factory.file_fetcher()?.clone(),
+        factory.jsr_version_resolver()?.clone(),
       ))
     };
     let mut graph_permit = factory
@@ -125,15 +128,20 @@ pub async fn cache_top_level_deps(
 
           let jsr_resolver = jsr_resolver.clone();
           info_futures.push(async move {
-            let nv = if let Some(req) = resolved_req {
-              Cow::Borrowed(req)
+            let nv = if let Some(nv) = resolved_req {
+              Cow::Borrowed(nv)
+            } else if let Some(nv) = jsr_resolver.req_to_nv(req_ref.req()).await? {
+              Cow::Owned(nv)
             } else {
-              Cow::Owned(jsr_resolver.req_to_nv(req_ref.req()).await?)
+              return Result::<
+                Option<(Url, Arc<JsrPackageVersionInfo>)>,
+                JsrPackageReqNotFoundError,
+              >::Ok(None);
             };
             if let Some(info) = jsr_resolver.package_version_info(&nv).await {
-              return Some((specifier.clone(), info));
+              return Ok(Some((specifier.clone(), info)));
             }
-            None
+            Ok(None)
           });
         }
         "npm" => {
@@ -171,7 +179,7 @@ pub async fn cache_top_level_deps(
     }
 
     while let Some(info_future) = info_futures.next().await {
-      if let Some((specifier, info)) = info_future {
+      if let Some((specifier, info)) = info_future? {
         let exports = info.exports();
         for (k, _) in exports {
           if let Ok(spec) = specifier.join(k) {

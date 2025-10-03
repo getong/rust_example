@@ -163,7 +163,7 @@ pub async fn execute_script(flags: Arc<Flags>, task_flags: TaskFlags) -> Result<
   let progress_bar = factory.text_only_progress_bar();
   let mut env_vars = task_runner::real_env_vars();
 
-  if flags.connected {
+  if flags.tunnel {
     env_vars.insert("DENO_CONNECTED".into(), "1".into());
   }
 
