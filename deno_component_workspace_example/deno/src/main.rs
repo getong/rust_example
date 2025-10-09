@@ -657,14 +657,19 @@ async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, 
     .map(|files| files.iter().map(PathBuf::from).collect());
   load_env_variables_from_env_files(env_file_paths.as_ref(), flags.log_level);
 
-  if deno_lib::args::has_flag_env_var("DENO_CONNECTED") {
+  if deno_lib::args::has_flag_env_var("DENO_CONNECTED")
+    && matches!(
+      flags.subcommand,
+      DenoSubcommand::Run { .. } | DenoSubcommand::Serve { .. } | DenoSubcommand::Task { .. }
+    )
+  {
     flags.tunnel = true;
   }
 
   // Tunnel sets up env vars and OTEL, so connect before everything else.
   if flags.tunnel {
     if let Err(err) = initialize_tunnel(&flags).await {
-      exit_for_error(err.context("Failed to start with --connected"));
+      exit_for_error(err.context("Failed to start with tunnel"));
     }
     // SAFETY: We're doing this before any threads are created.
     unsafe {
