@@ -1,3 +1,9 @@
 * deno
 
 copy from https://github.com/denoland/deno/tree/main/cli
+
+** deno run
+
+#+begin_src rust
+DenoSubcommand::Run(run_flags)
+#+end_src
