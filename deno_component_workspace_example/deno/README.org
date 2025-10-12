@@ -13,3 +13,99 @@ DenoSubcommand::Run(run_flags)
 #+begin_src rust
 use deno_lib::loader::loaded_module_source_to_module_source_code;
 #+end_src
+
+** compile typescript into javascript
+
+It uses _deno_resolver::emit::Emitter.maybe_emit_source_sync()_ to compile typescript file into javascript.
+
+*** CliEmitter definition
+
+#+begin_src rust
+pub type CliEmitter = deno_resolver::emit::Emitter<DenoInNpmPackageChecker, CliSys>;
+#+end_src
+
+
+*** emitter in SharedCliModuleLoaderState
+
+#+begin_src rust
+struct SharedCliModuleLoaderState {
+    emitter: Arc<CliEmitter>,
+    // ... other part
+}
+#+end_src
+
+** compile typescript into javascript
+
+#+begin_src rust
+let text = self
+    .emitter
+    .maybe_emit_source_sync(
+        &specifier,
+        media_type,
+        // this is probably not super accurate due to require esm, but probably ok.
+        // If we find this causes a lot of churn in the emit cache then we should
+        // investigate how we can make this better
+        ModuleKind::Cjs,
+        &text.into(),
+    )
+    .map_err(JsErrorBox::from_err)?;
+Ok(text.into())
+#+end_src
+
+** load typescript library
+
+It uses _deno_resolver::loader::ModuleLoader::load()_ to load esm file
+
+***  CliDenoResolverModuleLoader definition
+
+#+begin_src rust
+pub type CliDenoResolverModuleLoader = deno_resolver::loader::ModuleLoader<CliSys>;
+#+end_src
+
+*** SharedCliModuleLoaderState definition
+
+#+begin_src rust
+struct SharedCliModuleLoaderState {
+    module_loader: Arc<CliDenoResolverModuleLoader>,
+    //  ... other part
+}
+#+end_src
+
+*** load() method
+
+#+begin_src rust
+match self
+    .shared
+    .module_loader
+    .load(
+        &graph,
+        &specifier,
+        maybe_referrer,
+        &deno_resolver_requested_module_type,
+    )
+    .await?
+{
+    LoadedModuleOrAsset::Module(prepared_module) => {
+        Ok(self.loaded_module_to_module_code_string_source(prepared_module, requested_module_type))
+    }
+    LoadedModuleOrAsset::ExternalAsset {
+        specifier,
+        statically_analyzable,
+    } => {
+        Ok(
+            self
+                .load_asset(
+                    &specifier,
+                    if statically_analyzable {
+                        CheckSpecifierKind::Static
+                    } else {
+                        // force permissions
+                        CheckSpecifierKind::Dynamic
+                    },
+                    requested_module_type,
+                )
+                .await?,
+        )
+    }
+}
+#+end_src
