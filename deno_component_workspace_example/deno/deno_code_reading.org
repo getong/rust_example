@@ -282,7 +282,7 @@ async fn build_graph_with_npm_resolution_and_build_options<'a>(
 }
 #+end_src
 
-** add_package_reqs
+*** add_package_reqs
 
 #+begin_src rust
 pub async fn add_package_reqs(
@@ -296,4 +296,13 @@ pub async fn add_package_reqs(
         .await
         .dependencies_result
 }
+#+end_src
+
+*** graph_util is used in module_loader.rs
+
+#+begin_src shell
+grep -rn BuildGraphRequest src/module_loader.rs
+src/module_loader.rs:70:  graph_util::{BuildGraphRequest, BuildGraphWithNpmOptions, ModuleGraphBuilder},
+src/module_loader.rs:191:          request: BuildGraphRequest::Roots(roots.to_vec()),
+src/module_loader.rs:258:          request: BuildGraphRequest::Reload(specifiers),
 #+end_src
