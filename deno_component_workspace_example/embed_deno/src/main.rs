@@ -565,6 +565,409 @@ fn maybe_setup_permission_broker() {
   deno_runtime::deno_permissions::broker::set_broker(broker);
 }
 
+// Edge Runtime architecture implementation directly in main.rs
+use std::net::SocketAddr;
+
+use deno_core::{JsRuntime, ModuleSpecifier, RuntimeOptions};
+use tokio::{
+  sync::mpsc,
+  time::{Duration, sleep},
+};
+use tokio_util::sync::CancellationToken;
+
+// Server configuration similar to edge-runtime ServerFlags
+#[derive(Debug, Clone)]
+struct EdgeServerFlags {
+  no_module_cache: bool,
+  graceful_exit_deadline_sec: u64,
+  tcp_nodelay: bool,
+  request_wait_timeout_ms: Option<u64>,
+}
+
+impl Default for EdgeServerFlags {
+  fn default() -> Self {
+    Self {
+      no_module_cache: false,
+      graceful_exit_deadline_sec: 10,
+      tcp_nodelay: true,
+      request_wait_timeout_ms: Some(30000),
+    }
+  }
+}
+
+// Worker supervisor policy similar to edge-runtime
+#[derive(Debug, Clone, Copy)]
+enum EdgeSupervisorPolicy {
+  PerWorker,
+  PerRequest { oneshot: bool },
+}
+
+impl Default for EdgeSupervisorPolicy {
+  fn default() -> Self {
+    Self::PerWorker
+  }
+}
+
+// Worker pool policy
+#[derive(Debug, Clone)]
+struct EdgeWorkerPoolPolicy {
+  supervisor_policy: EdgeSupervisorPolicy,
+  max_parallelism: usize,
+  request_wait_timeout_ms: u64,
+}
+
+impl Default for EdgeWorkerPoolPolicy {
+  fn default() -> Self {
+    Self {
+      supervisor_policy: EdgeSupervisorPolicy::default(),
+      max_parallelism: std::thread::available_parallelism().unwrap().get(),
+      request_wait_timeout_ms: 30000,
+    }
+  }
+}
+
+// Request message similar to edge-runtime WorkerRequestMsg
+#[derive(Debug)]
+struct EdgeWorkerRequestMsg {
+  req: String, // Simplified HTTP request as string
+  res_tx: tokio::sync::oneshot::Sender<Result<String, deno_core::anyhow::Error>>,
+  conn_token: Option<CancellationToken>,
+}
+
+// Worker context initialization options
+#[derive(Debug, Clone)]
+struct EdgeWorkerContextInitOpts {
+  service_path: PathBuf,
+  no_module_cache: bool,
+  env_vars: HashMap<String, String>,
+}
+
+// Termination token for graceful shutdown
+#[derive(Clone)]
+struct EdgeTerminationToken {
+  cancel: CancellationToken,
+}
+
+impl EdgeTerminationToken {
+  fn new() -> Self {
+    Self {
+      cancel: CancellationToken::new(),
+    }
+  }
+
+  async fn cancel_and_wait(&self) {
+    self.cancel.cancel();
+    sleep(Duration::from_millis(100)).await;
+  }
+}
+
+// Worker surface similar to edge-runtime MainWorkerSurface
+struct EdgeMainWorkerSurface {
+  msg_tx: mpsc::UnboundedSender<EdgeWorkerRequestMsg>,
+  cancel: CancellationToken,
+  worker_handle: tokio::task::JoinHandle<Result<(), deno_core::anyhow::Error>>,
+}
+
+impl EdgeMainWorkerSurface {
+  async fn new(
+    init_opts: EdgeWorkerContextInitOpts,
+    flags: Arc<EdgeServerFlags>,
+    termination_token: EdgeTerminationToken,
+  ) -> Result<Self, deno_core::anyhow::Error> {
+    let (msg_tx, msg_rx) = mpsc::unbounded_channel::<EdgeWorkerRequestMsg>();
+    let cancel = termination_token.cancel.clone();
+
+    // Spawn the main worker task similar to edge-runtime Worker::start
+    let worker_handle =
+      tokio::task::spawn_local(Self::worker_task(init_opts, flags, msg_rx, cancel.clone()));
+
+    Ok(Self {
+      msg_tx,
+      cancel,
+      worker_handle,
+    })
+  }
+
+  async fn worker_task(
+    init_opts: EdgeWorkerContextInitOpts,
+    _flags: Arc<EdgeServerFlags>,
+    mut msg_rx: mpsc::UnboundedReceiver<EdgeWorkerRequestMsg>,
+    cancel_token: CancellationToken,
+  ) -> Result<(), deno_core::anyhow::Error> {
+    println!("Starting main worker for: {:?}", init_opts.service_path);
+
+    // Create JS runtime similar to edge-runtime DenoRuntime::new
+    let mut js_runtime = Self::create_js_runtime(&init_opts)?;
+
+    // Load the main module
+    if init_opts.service_path.exists() {
+      let module_specifier = ModuleSpecifier::from_file_path(&init_opts.service_path)
+        .map_err(|_| deno_core::anyhow::Error::msg("Invalid service path"))?;
+
+      let module_id = js_runtime.load_main_es_module(&module_specifier).await?;
+      js_runtime.mod_evaluate(module_id).await?;
+      js_runtime.run_event_loop(Default::default()).await?;
+    }
+
+    // Main worker loop - similar to edge-runtime's worker supervision
+    loop {
+      tokio::select! {
+          msg = msg_rx.recv() => {
+              match msg {
+                  Some(EdgeWorkerRequestMsg { req, res_tx, conn_token: _ }) => {
+                      println!("Main worker processing request: {}", req);
+
+                      // Execute request in JS runtime
+                      let result = Self::handle_request(&mut js_runtime, &req).await;
+
+                      // Send response back
+                      let _ = res_tx.send(result);
+                  }
+                  None => {
+                      println!("Main worker message channel closed");
+                      break;
+                  }
+              }
+          }
+          _ = cancel_token.cancelled() => {
+              println!("Main worker cancelled");
+              break;
+          }
+      }
+    }
+
+    println!("Main worker finished");
+    Ok(())
+  }
+
+  fn create_js_runtime(
+    _init_opts: &EdgeWorkerContextInitOpts,
+  ) -> Result<JsRuntime, deno_core::anyhow::Error> {
+    let options = RuntimeOptions {
+      module_loader: Some(std::rc::Rc::new(deno_core::FsModuleLoader)),
+      ..Default::default()
+    };
+
+    let mut js_runtime = JsRuntime::new(options);
+
+    // Bootstrap the runtime with basic APIs
+    js_runtime.execute_script(
+      "bootstrap",
+      r#"
+                globalThis.console = {
+                    log: (...args) => Deno.core.print(`[LOG] ${args.join(' ')}\n`),
+                    error: (...args) => Deno.core.print(`[ERROR] ${args.join(' ')}\n`),
+                };
+
+                // Simple request handler that can be overridden by user code
+                globalThis.handleRequest = (req) => {
+                    return `Processed: ${req}`;
+                };
+            "#,
+    )?;
+
+    Ok(js_runtime)
+  }
+
+  async fn handle_request(
+    js_runtime: &mut JsRuntime,
+    request: &str,
+  ) -> Result<String, deno_core::anyhow::Error> {
+    // Execute the request handler in JS
+    let script = format!(
+      r#"
+                try {{
+                    const result = globalThis.handleRequest({});
+                    result;
+                }} catch (e) {{
+                    `Error: ${{e.message}}`;
+                }}
+            "#,
+      serde_json::to_string(request).unwrap()
+    );
+
+    let _result = js_runtime.execute_script("handle_request", script)?;
+    js_runtime.run_event_loop(Default::default()).await?;
+
+    Ok(format!("Handled request: {}", request))
+  }
+}
+
+// Server similar to edge-runtime Server
+struct EdgeServer {
+  addr: SocketAddr,
+  main_worker_surface: EdgeMainWorkerSurface,
+  termination_tokens: EdgeTerminationTokens,
+  flags: Arc<EdgeServerFlags>,
+}
+
+// Termination tokens for different components
+#[derive(Clone)]
+struct EdgeTerminationTokens {
+  main: EdgeTerminationToken,
+  pool: EdgeTerminationToken,
+}
+
+impl EdgeTerminationTokens {
+  fn new() -> Self {
+    Self {
+      main: EdgeTerminationToken::new(),
+      pool: EdgeTerminationToken::new(),
+    }
+  }
+
+  async fn terminate(&self) {
+    self.pool.cancel_and_wait().await;
+    self.main.cancel_and_wait().await;
+  }
+}
+
+// Builder similar to edge-runtime Builder
+struct EdgeBuilder {
+  addr: SocketAddr,
+  main_service_path: PathBuf,
+  flags: EdgeServerFlags,
+  user_worker_policy: Option<EdgeWorkerPoolPolicy>,
+}
+
+impl EdgeBuilder {
+  fn new(addr: SocketAddr, main_service_path: &PathBuf) -> Self {
+    Self {
+      addr,
+      main_service_path: main_service_path.clone(),
+      flags: EdgeServerFlags::default(),
+      user_worker_policy: None,
+    }
+  }
+
+  fn user_worker_policy(&mut self, policy: EdgeWorkerPoolPolicy) -> &mut Self {
+    self.user_worker_policy = Some(policy);
+    self
+  }
+
+  fn flags_mut(&mut self) -> &mut EdgeServerFlags {
+    &mut self.flags
+  }
+
+  async fn build(self) -> Result<EdgeServer, deno_core::anyhow::Error> {
+    let flags = Arc::new(self.flags);
+    let termination_tokens = EdgeTerminationTokens::new();
+
+    // Create worker context init options
+    let init_opts = EdgeWorkerContextInitOpts {
+      service_path: self.main_service_path,
+      no_module_cache: flags.no_module_cache,
+      env_vars: HashMap::new(),
+    };
+
+    // Create main worker surface
+    let main_worker_surface =
+      EdgeMainWorkerSurface::new(init_opts, flags.clone(), termination_tokens.main.clone()).await?;
+
+    Ok(EdgeServer {
+      addr: self.addr,
+      main_worker_surface,
+      termination_tokens,
+      flags,
+    })
+  }
+}
+
+impl EdgeServer {
+  async fn terminate(&self) {
+    self.termination_tokens.terminate().await;
+  }
+
+  async fn listen(&mut self) -> Result<(), deno_core::anyhow::Error> {
+    println!("Edge runtime listening on: {}", self.addr);
+
+    // Simulate accepting connections and processing requests
+    for i in 0 .. 5 {
+      let request = format!("Request #{}", i + 1);
+      println!("Simulating incoming request: {}", request);
+
+      // Create a oneshot channel for the response
+      let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+
+      // Send request to main worker
+      let worker_msg = EdgeWorkerRequestMsg {
+        req: request.clone(),
+        res_tx,
+        conn_token: None,
+      };
+
+      if let Err(e) = self.main_worker_surface.msg_tx.send(worker_msg) {
+        println!("Failed to send request to main worker: {}", e);
+        continue;
+      }
+
+      // Wait for response
+      match res_rx.await {
+        Ok(Ok(response)) => println!("Response: {}", response),
+        Ok(Err(e)) => println!("Request failed: {}", e),
+        Err(e) => println!("Failed to receive response: {}", e),
+      }
+
+      // Small delay between requests
+      sleep(Duration::from_millis(500)).await;
+    }
+
+    println!("Server finished processing requests");
+    Ok(())
+  }
+}
+
+// Demo function using edge-runtime architecture
+fn demo_edge_runtime() -> Result<(), deno_core::anyhow::Error> {
+  println!("Starting Edge Runtime Demo with real architecture...");
+
+  // Create Tokio runtime similar to edge-runtime CLI
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .thread_name("edge-main")
+    .build()
+    .unwrap();
+
+  let local = tokio::task::LocalSet::new();
+
+  local.block_on(&runtime, async {
+    use std::net::IpAddr;
+
+    // Setup similar to edge-runtime CLI
+    let addr = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 9999);
+    let main_service_path = PathBuf::from("./simple_main.ts");
+
+    // Create server builder
+    let mut builder = EdgeBuilder::new(addr, &main_service_path);
+
+    // Configure worker pool policy
+    builder.user_worker_policy(EdgeWorkerPoolPolicy {
+      supervisor_policy: EdgeSupervisorPolicy::PerWorker,
+      max_parallelism: 2,
+      request_wait_timeout_ms: 30000,
+    });
+
+    // Configure server flags
+    builder.flags_mut().no_module_cache = false;
+    builder.flags_mut().graceful_exit_deadline_sec = 10;
+
+    // Build and start server
+    let mut server = builder.build().await?;
+
+    println!("Edge runtime server created, starting to listen...");
+
+    // Start listening (this will process some demo requests)
+    server.listen().await?;
+
+    // Graceful shutdown
+    println!("Shutting down server...");
+    server.terminate().await;
+
+    println!("Edge runtime demo finished");
+    Ok(())
+  })
+}
+
 pub fn main() {
   #[cfg(feature = "dhat-heap")]
   let profiler = dhat::Profiler::new_heap();
@@ -625,6 +1028,23 @@ pub fn main() {
 
     run_subcommand(Arc::new(flags), waited_unconfigured_runtime, roots).await
   };
+
+  // Check if we should run edge-runtime demo
+  let args_vec: Vec<String> = std::env::args().collect();
+  let should_run_demo = args_vec.len() == 1 || args_vec.iter().any(|arg| arg == "--edge-demo");
+
+  if should_run_demo {
+    match demo_edge_runtime() {
+      Ok(()) => {
+        println!("Edge runtime demo completed successfully");
+        return;
+      }
+      Err(e) => {
+        println!("Edge runtime demo failed: {}", e);
+        std::process::exit(1);
+      }
+    }
+  }
 
   let result = create_and_run_current_thread_with_maybe_metrics(future);
 
