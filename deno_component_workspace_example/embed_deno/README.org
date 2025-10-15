@@ -1,0 +1,15 @@
+* deno
+
+copy from https://github.com/denoland/deno/tree/main/cli
+
+** deno run
+
+#+begin_src rust
+DenoSubcommand::Run(run_flags)
+#+end_src
+
+** deno_lib loaded_module_source_to_module_source_code
+
+#+begin_src rust
+use deno_lib::loader::loaded_module_source_to_module_source_code;
+#+end_src
