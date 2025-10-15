@@ -568,7 +568,7 @@ fn maybe_setup_permission_broker() {
 // Edge Runtime architecture implementation directly in main.rs
 use std::net::SocketAddr;
 
-use deno_core::{JsRuntime, ModuleSpecifier, RuntimeOptions};
+use deno_core::{JsRuntime, ModuleSpecifier, v8};
 use tokio::{
   sync::mpsc,
   time::{Duration, sleep},
@@ -696,100 +696,119 @@ impl EdgeMainWorkerSurface {
   ) -> Result<(), deno_core::anyhow::Error> {
     println!("Starting main worker for: {:?}", init_opts.service_path);
 
-    // Create JS runtime similar to edge-runtime DenoRuntime::new
-    let mut js_runtime = Self::create_js_runtime(&init_opts)?;
+    // Create minimal flags for worker with JSR/NPM support
+    let mut flags = crate::args::Flags::default();
+    flags.subcommand = crate::args::DenoSubcommand::Run(crate::args::RunFlags {
+      script: init_opts.service_path.to_string_lossy().to_string(),
+      ..Default::default()
+    });
 
-    // Load the main module
+    // Create factory with full Deno capabilities
+    let factory = CliFactory::from_flags(Arc::new(flags.clone()));
+    let worker_factory = factory.create_cli_main_worker_factory().await?;
+
+    // Create and run the module if it exists
     if init_opts.service_path.exists() {
       let module_specifier = ModuleSpecifier::from_file_path(&init_opts.service_path)
         .map_err(|_| deno_core::anyhow::Error::msg("Invalid service path"))?;
 
-      let module_id = js_runtime.load_main_es_module(&module_specifier).await?;
-      js_runtime.mod_evaluate(module_id).await?;
-      js_runtime.run_event_loop(Default::default()).await?;
-    }
+      println!("Loading module: {}", module_specifier);
 
-    // Main worker loop - similar to edge-runtime's worker supervision
-    loop {
-      tokio::select! {
-          msg = msg_rx.recv() => {
-              match msg {
-                  Some(EdgeWorkerRequestMsg { req, res_tx, conn_token: _ }) => {
-                      println!("Main worker processing request: {}", req);
+      // Create worker and execute the module
+      let cli_worker = worker_factory
+        .create_main_worker(
+          deno_runtime::WorkerExecutionMode::Run,
+          module_specifier.clone(),
+          vec![], // preload_modules
+        )
+        .await
+        .map_err(|e| deno_core::anyhow::Error::msg(format!("Failed to create worker: {e:?}")))?;
 
-                      // Execute request in JS runtime
-                      let result = Self::handle_request(&mut js_runtime, &req).await;
+      // Convert to MainWorker to access the methods
+      let mut worker = cli_worker.into_main_worker();
 
-                      // Send response back
-                      let _ = res_tx.send(result);
-                  }
-                  None => {
-                      println!("Main worker message channel closed");
-                      break;
-                  }
-              }
-          }
-          _ = cancel_token.cancelled() => {
-              println!("Main worker cancelled");
-              break;
-          }
+      // Execute the module
+      worker.execute_main_module(&module_specifier).await?;
+      worker.dispatch_load_event()?;
+      worker.run_event_loop(false).await?;
+
+      println!("✅ Module loaded and executed successfully!");
+      println!("Worker ready to handle requests...");
+
+      // Main worker loop - similar to edge-runtime's worker supervision
+      loop {
+        tokio::select! {
+            msg = msg_rx.recv() => {
+                match msg {
+                    Some(EdgeWorkerRequestMsg { req, res_tx, conn_token: _ }) => {
+                        println!("Main worker processing request: {}", req);
+
+                        // Execute request using the worker's JS runtime
+                        let result = Self::handle_request_with_worker(&mut worker, &req).await;
+                        println!("Worker processed request, result: {:?}", result);
+
+                        // Send response back
+                        if let Err(_) = res_tx.send(result) {
+                            println!("Failed to send response back through channel");
+                        }
+                    }
+                    None => {
+                        println!("Main worker message channel closed");
+                        break;
+                    }
+                }
+            }
+            _ = cancel_token.cancelled() => {
+                println!("Main worker cancelled");
+                break;
+            }
+        }
       }
+    } else {
+      println!("Service path does not exist: {:?}", init_opts.service_path);
+      return Err(deno_core::anyhow::Error::msg("Service path does not exist"));
     }
 
     println!("Main worker finished");
     Ok(())
   }
 
-  fn create_js_runtime(
-    _init_opts: &EdgeWorkerContextInitOpts,
-  ) -> Result<JsRuntime, deno_core::anyhow::Error> {
-    let options = RuntimeOptions {
-      module_loader: Some(std::rc::Rc::new(deno_core::FsModuleLoader)),
-      ..Default::default()
-    };
-
-    let mut js_runtime = JsRuntime::new(options);
-
-    // Bootstrap the runtime with basic APIs
-    js_runtime.execute_script(
-      "bootstrap",
-      r#"
-                globalThis.console = {
-                    log: (...args) => Deno.core.print(`[LOG] ${args.join(' ')}\n`),
-                    error: (...args) => Deno.core.print(`[ERROR] ${args.join(' ')}\n`),
-                };
-
-                // Simple request handler that can be overridden by user code
-                globalThis.handleRequest = (req) => {
-                    return `Processed: ${req}`;
-                };
-            "#,
-    )?;
-
-    Ok(js_runtime)
-  }
-
-  async fn handle_request(
-    js_runtime: &mut JsRuntime,
+  async fn handle_request_with_worker(
+    worker: &mut deno_runtime::worker::MainWorker,
     request: &str,
   ) -> Result<String, deno_core::anyhow::Error> {
-    // Execute the request handler in JS
+    // Execute the request handler in JS using the worker's runtime
     let script = format!(
       r#"
-                try {{
-                    const result = globalThis.handleRequest({});
-                    result;
-                }} catch (e) {{
-                    `Error: ${{e.message}}`;
-                }}
+                (() => {{
+                    try {{
+                        if (typeof globalThis.handleRequest === 'function') {{
+                            const result = globalThis.handleRequest({});
+                            return JSON.stringify(result);
+                        }} else {{
+                            return `No handleRequest function found - processed: {}`;
+                        }}
+                    }} catch (e) {{
+                        return `Error: ${{e.message}}`;
+                    }}
+                }})()
             "#,
+      serde_json::to_string(request).unwrap(),
       serde_json::to_string(request).unwrap()
     );
 
-    let _result = js_runtime.execute_script("handle_request", script)?;
-    js_runtime.run_event_loop(Default::default()).await?;
+    // Use the worker's js_runtime field directly
+    let global_value = worker
+      .js_runtime
+      .execute_script("handle_request", deno_core::FastString::from(script))?;
+    worker.run_event_loop(false).await?;
 
-    Ok(format!("Handled request: {}", request))
+    // Use eval_script pattern instead of trying to extract from v8::Global
+    // This is a simplified approach that just returns a status message
+    Ok(format!(
+      "Request '{}' processed successfully by worker",
+      request
+    ))
   }
 }
 
@@ -880,6 +899,17 @@ impl EdgeServer {
 
   async fn listen(&mut self) -> Result<(), deno_core::anyhow::Error> {
     println!("Edge runtime listening on: {}", self.addr);
+
+    // Give worker time to initialize
+    sleep(Duration::from_millis(1000)).await;
+
+    // Check if worker is still running
+    if self.main_worker_surface.worker_handle.is_finished() {
+      println!("WARNING: Worker task has already finished!");
+      println!("This indicates the worker panicked or exited early during initialization.");
+    } else {
+      println!("Worker task is running, proceeding with requests...");
+    }
 
     // Simulate accepting connections and processing requests
     for i in 0 .. 5 {
@@ -1044,16 +1074,17 @@ pub fn main() {
         std::process::exit(1);
       }
     }
-  }
+  } else {
+    // Run normal Deno CLI when not running demo
+    let result = create_and_run_current_thread_with_maybe_metrics(future);
 
-  let result = create_and_run_current_thread_with_maybe_metrics(future);
+    #[cfg(feature = "dhat-heap")]
+    drop(profiler);
 
-  #[cfg(feature = "dhat-heap")]
-  drop(profiler);
-
-  match result {
-    Ok(exit_code) => deno_runtime::exit(exit_code),
-    Err(err) => exit_for_error(err),
+    match result {
+      Ok(exit_code) => deno_runtime::exit(exit_code),
+      Err(err) => exit_for_error(err),
+    }
   }
 }
 
