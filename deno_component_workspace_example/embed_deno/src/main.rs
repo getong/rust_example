@@ -696,8 +696,19 @@ impl EdgeMainWorkerSurface {
   ) -> Result<(), deno_core::anyhow::Error> {
     println!("Starting main worker for: {:?}", init_opts.service_path);
 
-    // Create minimal flags for worker with JSR/NPM support
+    // Create minimal flags for worker with JSR/NPM support and default permissions
     let mut flags = crate::args::Flags::default();
+
+    // Set default permissions - allow all for embedded runtime
+    flags.permissions.allow_all = true;
+    flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all  
+    flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_ffi = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_sys = Some(vec![]); // Empty vec means allow all
+
     flags.subcommand = crate::args::DenoSubcommand::Run(crate::args::RunFlags {
       script: init_opts.service_path.to_string_lossy().to_string(),
       ..Default::default()
@@ -1098,6 +1109,24 @@ async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, 
     }
     Err(err) => exit_for_error(AnyError::from(err)),
   };
+
+  // Set default permissions for embedded Deno runtime if no explicit permissions were provided
+  if !flags.permissions.allow_all
+    && flags.permissions.allow_read.is_none()
+    && flags.permissions.allow_write.is_none()
+    && flags.permissions.allow_net.is_none()
+    && flags.permissions.allow_env.is_none()
+    && flags.permissions.allow_run.is_none()
+  {
+    flags.permissions.allow_all = true;
+    flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all  
+    flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_ffi = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_sys = Some(vec![]); // Empty vec means allow all
+  }
   // preserve already loaded env variables
   if flags.subcommand.watch_flags().is_some() {
     WatchEnvTracker::snapshot();

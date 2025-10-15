@@ -6,6 +6,9 @@ const api_key = Deno.env.get("STREAM_API_KEY");
 const api_secret = Deno.env.get("STREAM_API_SECRET");
 const user_id = "john";
 
+console.log("the api_key is", api_key);
+console.log("the api_secret is", api_secret);
+
 // Initialize a Server Client
 const serverClient = StreamChat.getInstance(api_key, api_secret);
 // Create User Token
