@@ -568,7 +568,7 @@ fn maybe_setup_permission_broker() {
 // Edge Runtime architecture implementation directly in main.rs
 use std::net::SocketAddr;
 
-use deno_core::{JsRuntime, ModuleSpecifier, v8};
+use deno_core::ModuleSpecifier;
 use tokio::{
   sync::mpsc,
   time::{Duration, sleep},
@@ -746,32 +746,88 @@ impl EdgeMainWorkerSurface {
       println!("✅ Module loaded and executed successfully!");
       println!("Worker ready to handle requests...");
 
-      // Main worker loop - similar to edge-runtime's worker supervision
+      // Main worker loop with tokio::select! for handling async messages
+      // This loop handles:
+      // 1. Incoming request messages from the channel
+      // 2. Cancellation signals for graceful shutdown
+      // 3. Event loop processing to keep the worker alive
+      let mut request_count = 0u64;
+      let worker_start_time = std::time::Instant::now();
+
       loop {
         tokio::select! {
+            // Handle incoming request messages
             msg = msg_rx.recv() => {
                 match msg {
-                    Some(EdgeWorkerRequestMsg { req, res_tx, conn_token: _ }) => {
-                        println!("Main worker processing request: {}", req);
+                    Some(EdgeWorkerRequestMsg { req, res_tx, conn_token }) => {
+                        request_count += 1;
+                        println!("📨 Main worker processing request #{}: {}", request_count, req);
 
-                        // Execute request using the worker's JS runtime
-                        let result = Self::handle_request_with_worker(&mut worker, &req).await;
-                        println!("Worker processed request, result: {:?}", result);
+                        // Check if connection is cancelled
+                        if let Some(ref token) = conn_token {
+                            if token.is_cancelled() {
+                                println!("⚠️  Request #{} cancelled before processing", request_count);
+                                let _ = res_tx.send(Err(deno_core::anyhow::Error::msg("Request cancelled")));
+                                continue;
+                            }
+                        }
 
-                        // Send response back
-                        if let Err(_) = res_tx.send(result) {
-                            println!("Failed to send response back through channel");
+                        // Execute request using the worker's JS runtime with timeout
+                        let request_start = std::time::Instant::now();
+                        let result = tokio::time::timeout(
+                            Duration::from_secs(30),
+                            Self::handle_request_with_worker(&mut worker, &req)
+                        ).await;
+
+                        let request_duration = request_start.elapsed();
+
+                        match result {
+                            Ok(Ok(response)) => {
+                                println!("✅ Worker processed request #{} successfully in {:?}", request_count, request_duration);
+                                let _ = res_tx.send(Ok(response));
+                            }
+                            Ok(Err(e)) => {
+                                println!("❌ Worker request #{} failed: {:?}", request_count, e);
+                                let _ = res_tx.send(Err(e));
+                            }
+                            Err(_) => {
+                                println!("⏱️  Worker request #{} timed out after {:?}", request_count, request_duration);
+                                let _ = res_tx.send(Err(deno_core::anyhow::Error::msg("Request timeout")));
+                            }
                         }
                     }
                     None => {
-                        println!("Main worker message channel closed");
+                        println!("📪 Main worker message channel closed");
+                        println!("📊 Total requests processed: {}", request_count);
+                        println!("⏱️  Total runtime: {:?}", worker_start_time.elapsed());
                         break;
                     }
                 }
             }
+
+            // Handle cancellation signal for graceful shutdown
             _ = cancel_token.cancelled() => {
-                println!("Main worker cancelled");
+                println!("🛑 Main worker received cancellation signal");
+                println!("📊 Statistics:");
+                println!("   - Requests processed: {}", request_count);
+                println!("   - Uptime: {:?}", worker_start_time.elapsed());
+
+                // Dispatch unload event before shutdown
+                if let Err(e) = worker.dispatch_unload_event() {
+                    println!("⚠️  Error dispatching unload event: {:?}", e);
+                }
+
+                println!("🔄 Worker shutting down gracefully...");
                 break;
+            }
+
+            // Periodic event loop processing to handle pending promises and timers
+            _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                // Run the event loop periodically to process any pending JS promises/timers
+                if let Err(e) = worker.run_event_loop(false).await {
+                    println!("⚠️  Event loop error: {:?}", e);
+                    // Don't break on event loop errors, just log them
+                }
             }
         }
       }
@@ -809,7 +865,7 @@ impl EdgeMainWorkerSurface {
     );
 
     // Use the worker's js_runtime field directly
-    let global_value = worker
+    let _result = worker
       .js_runtime
       .execute_script("handle_request", deno_core::FastString::from(script))?;
     worker.run_event_loop(false).await?;
@@ -909,51 +965,109 @@ impl EdgeServer {
   }
 
   async fn listen(&mut self) -> Result<(), deno_core::anyhow::Error> {
-    println!("Edge runtime listening on: {}", self.addr);
+    println!("🚀 Edge runtime listening on: {}", self.addr);
 
     // Give worker time to initialize
     sleep(Duration::from_millis(1000)).await;
 
     // Check if worker is still running
     if self.main_worker_surface.worker_handle.is_finished() {
-      println!("WARNING: Worker task has already finished!");
-      println!("This indicates the worker panicked or exited early during initialization.");
+      println!("⚠️  WARNING: Worker task has already finished!");
+      println!("   This indicates the worker panicked or exited early during initialization.");
+      return Err(deno_core::anyhow::Error::msg("Worker failed to initialize"));
     } else {
-      println!("Worker task is running, proceeding with requests...");
+      println!("✅ Worker task is running and ready");
+      println!("💡 Press Ctrl+C to gracefully shutdown");
+      println!("🔄 Server running in background mode...\n");
     }
 
-    // Simulate accepting connections and processing requests
-    for i in 0 .. 5 {
-      let request = format!("Request #{}", i + 1);
-      println!("Simulating incoming request: {}", request);
+    // Create a cancellation token for this listener
+    let listener_cancel = CancellationToken::new();
+    let listener_cancel_clone = listener_cancel.clone();
 
-      // Create a oneshot channel for the response
-      let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-
-      // Send request to main worker
-      let worker_msg = EdgeWorkerRequestMsg {
-        req: request.clone(),
-        res_tx,
-        conn_token: None,
-      };
-
-      if let Err(e) = self.main_worker_surface.msg_tx.send(worker_msg) {
-        println!("Failed to send request to main worker: {}", e);
-        continue;
+    // Spawn a task to handle Ctrl+C for graceful shutdown
+    tokio::task::spawn_local(async move {
+      match tokio::signal::ctrl_c().await {
+        Ok(()) => {
+          println!("\n🛑 Received Ctrl+C, initiating graceful shutdown...");
+          listener_cancel_clone.cancel();
+        }
+        Err(err) => {
+          eprintln!("⚠️  Error listening for Ctrl+C: {}", err);
+        }
       }
+    });
 
-      // Wait for response
-      match res_rx.await {
-        Ok(Ok(response)) => println!("Response: {}", response),
-        Ok(Err(e)) => println!("Request failed: {}", e),
-        Err(e) => println!("Failed to receive response: {}", e),
+    // Main server loop - keeps running in background until cancelled
+    let mut request_num = 0u64;
+    let server_start = std::time::Instant::now();
+    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
+
+    // Skip first tick (immediate)
+    heartbeat_interval.tick().await;
+
+    loop {
+      tokio::select! {
+        // Periodic heartbeat to show the server is alive
+        _ = heartbeat_interval.tick() => {
+          println!("💓 Heartbeat - Uptime: {:?}, Requests handled: {}",
+            server_start.elapsed(), request_num);
+        }
+
+        // Handle cancellation (Ctrl+C)
+        _ = listener_cancel.cancelled() => {
+          println!("\n📊 Server Statistics:");
+          println!("   - Total requests processed: {}", request_num);
+          println!("   - Total uptime: {:?}", server_start.elapsed());
+          println!("� Initiating graceful shutdown...");
+          break;
+        }
+
+        // Check if worker crashed
+        _ = async {
+          if self.main_worker_surface.worker_handle.is_finished() {
+            Some(())
+          } else {
+            None::<()>
+          }
+        }, if self.main_worker_surface.worker_handle.is_finished() => {
+          println!("❌ Worker task has terminated unexpectedly!");
+          break;
+        }
+
+        // Optional: Send periodic health check requests (comment out for production)
+        // In production, replace this with actual network listener: listener.accept().await
+        _ = tokio::time::sleep(Duration::from_secs(120)) => {
+          request_num += 1;
+          let request = format!("Health check #{} at {:?}", request_num, server_start.elapsed());
+
+          let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+          let worker_msg = EdgeWorkerRequestMsg {
+            req: request.clone(),
+            res_tx,
+            conn_token: None,
+          };
+
+          if let Err(e) = self.main_worker_surface.msg_tx.send(worker_msg) {
+            println!("⚠️  Failed to send health check: {}", e);
+          } else {
+            // Don't block on response, spawn a task to handle it
+            tokio::task::spawn_local(async move {
+              match tokio::time::timeout(Duration::from_secs(10), res_rx).await {
+                Ok(Ok(Ok(_))) => {
+                  // Health check passed
+                }
+                Ok(Ok(Err(e))) => println!("⚠️  Health check failed: {}", e),
+                Ok(Err(_)) => println!("⚠️  Health check channel closed"),
+                Err(_) => println!("⚠️  Health check timeout"),
+              }
+            });
+          }
+        }
       }
-
-      // Small delay between requests
-      sleep(Duration::from_millis(500)).await;
     }
 
-    println!("Server finished processing requests");
+    println!("🛑 Server stopped");
     Ok(())
   }
 }
