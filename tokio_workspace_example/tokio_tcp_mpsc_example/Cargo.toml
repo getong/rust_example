@@ -10,9 +10,9 @@ anyhow = "1.0.100"
 bincode = "2.0.1"
 console = "0.16.1"
 futures = "0.3.31"
-regex = "1.11.3"
-serde = { version = "1.0.227", features = ["derive"] }
-tokio = { version = "1.47.1", features = ["rt-multi-thread", "time", "sync", "net", "macros", "io-util", "io-std"] }
+regex = "1.12.2"
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["rt-multi-thread", "time", "sync", "net", "macros", "io-util", "io-std"] }
 tokio-stream = "0.1.17"
 tokio-util = { version = "0.7.16", features = ["codec"] }
 tracing = "0.1.41"
