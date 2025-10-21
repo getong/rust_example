@@ -30,12 +30,15 @@ pub mod sys {
 }
 
 use std::{
+  cell::RefCell,
   collections::HashMap,
   env,
+  ffi::OsString,
   future::Future,
   io::{IsTerminal, Write as _},
   ops::Deref,
   path::PathBuf,
+  rc::Rc,
   sync::Arc,
 };
 
@@ -92,6 +95,37 @@ impl SubcommandOutput for Result<(), std::io::Error> {
   fn output(self) -> Result<i32, AnyError> {
     self.map(|_| 0).map_err(|e| e.into())
   }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DaemonMode {
+  Enabled,
+  Disabled,
+}
+
+impl DaemonMode {
+  fn is_enabled(self) -> bool {
+    matches!(self, Self::Enabled)
+  }
+}
+
+fn filter_daemon_args(args: Vec<OsString>) -> (Vec<OsString>, DaemonMode) {
+  let mut daemon_mode = DaemonMode::Enabled;
+  let mut filtered_args = Vec::with_capacity(args.len());
+
+  for arg in args {
+    if arg == std::ffi::OsStr::new("--daemon") {
+      daemon_mode = DaemonMode::Enabled;
+      continue;
+    }
+    if arg == std::ffi::OsStr::new("--no-daemon") {
+      daemon_mode = DaemonMode::Disabled;
+      continue;
+    }
+    filtered_args.push(arg);
+  }
+
+  (filtered_args, daemon_mode)
 }
 
 /// Ensure that the subcommand runs in a task, rather than being directly executed. Since some of
@@ -571,7 +605,7 @@ use std::net::SocketAddr;
 use deno_core::ModuleSpecifier;
 use tokio::{
   sync::mpsc,
-  time::{Duration, sleep},
+  time::{Duration, MissedTickBehavior, sleep},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -885,6 +919,7 @@ struct EdgeServer {
   main_worker_surface: EdgeMainWorkerSurface,
   termination_tokens: EdgeTerminationTokens,
   flags: Arc<EdgeServerFlags>,
+  listener_cancel: CancellationToken,
 }
 
 // Termination tokens for different components
@@ -938,6 +973,7 @@ impl EdgeBuilder {
   async fn build(self) -> Result<EdgeServer, deno_core::anyhow::Error> {
     let flags = Arc::new(self.flags);
     let termination_tokens = EdgeTerminationTokens::new();
+    let listener_cancel = CancellationToken::new();
 
     // Create worker context init options
     let init_opts = EdgeWorkerContextInitOpts {
@@ -955,13 +991,19 @@ impl EdgeBuilder {
       main_worker_surface,
       termination_tokens,
       flags,
+      listener_cancel,
     })
   }
 }
 
 impl EdgeServer {
   async fn terminate(&self) {
+    self.listener_cancel.cancel();
     self.termination_tokens.terminate().await;
+  }
+
+  fn listener_cancel_token(&self) -> CancellationToken {
+    self.listener_cancel.clone()
   }
 
   async fn listen(&mut self) -> Result<(), deno_core::anyhow::Error> {
@@ -982,7 +1024,7 @@ impl EdgeServer {
     }
 
     // Create a cancellation token for this listener
-    let listener_cancel = CancellationToken::new();
+    let listener_cancel = self.listener_cancel.clone();
     let listener_cancel_clone = listener_cancel.clone();
 
     // Spawn a task to handle Ctrl+C for graceful shutdown
@@ -1107,16 +1149,104 @@ fn demo_edge_runtime() -> Result<(), deno_core::anyhow::Error> {
     builder.flags_mut().graceful_exit_deadline_sec = 10;
 
     // Build and start server
-    let mut server = builder.build().await?;
-
+    let server = builder.build().await?;
     println!("Edge runtime server created, starting to listen...");
 
-    // Start listening (this will process some demo requests)
-    server.listen().await?;
+    let server_cell = Rc::new(RefCell::new(Some(server)));
 
-    // Graceful shutdown
-    println!("Shutting down server...");
-    server.terminate().await;
+    // Capture cancellation and termination handles before moving the server
+    let listener_cancel = {
+      let server_ref = server_cell.borrow();
+      server_ref.as_ref().unwrap().listener_cancel_token()
+    };
+    let termination_tokens = {
+      let server_ref = server_cell.borrow();
+      server_ref.as_ref().unwrap().termination_tokens.clone()
+    };
+
+    let (exit_tx, mut exit_rx) = tokio::sync::oneshot::channel::<()>();
+    let server_task_cell = Rc::clone(&server_cell);
+
+    let listen_handle = tokio::task::spawn_local(async move {
+      let mut server_instance = {
+        let mut cell = server_task_cell.borrow_mut();
+        cell.take().expect("Edge runtime server is already running")
+      };
+
+      let result = server_instance.listen().await;
+
+      {
+        let mut cell = server_task_cell.borrow_mut();
+        cell.replace(server_instance);
+      }
+
+      let _ = exit_tx.send(());
+      result
+    });
+
+    println!("Edge runtime daemon is running. Press Ctrl+C to stop.\n");
+
+    enum ShutdownReason {
+      CtrlC,
+      ServerExited,
+      ChannelClosed,
+    }
+
+    let shutdown_reason = tokio::select! {
+      res = &mut exit_rx => match res {
+        Ok(()) => ShutdownReason::ServerExited,
+        Err(_) => ShutdownReason::ChannelClosed,
+      },
+      _ = tokio::signal::ctrl_c() => ShutdownReason::CtrlC,
+    };
+
+    if matches!(shutdown_reason, ShutdownReason::CtrlC) {
+      println!("\n🛑 Received Ctrl+C, initiating graceful shutdown...");
+      listener_cancel.cancel();
+      termination_tokens.terminate().await;
+    }
+
+    let listen_result = listen_handle.await;
+
+    match (shutdown_reason, listen_result) {
+      (ShutdownReason::CtrlC, Ok(Ok(()))) => {
+        println!("Edge runtime daemon stopped gracefully.");
+      }
+      (ShutdownReason::CtrlC, Ok(Err(err))) => {
+        println!("Edge runtime daemon exited with error: {}", err);
+        return Err(err);
+      }
+      (ShutdownReason::CtrlC, Err(join_err)) => {
+        return Err(AnyError::from(join_err));
+      }
+      (ShutdownReason::ServerExited, Ok(Ok(()))) => {
+        println!("⚠️  Edge runtime daemon stopped without an external shutdown signal.");
+      }
+      (ShutdownReason::ServerExited, Ok(Err(err))) => {
+        println!("❌ Edge runtime daemon failed: {}", err);
+        return Err(err);
+      }
+      (ShutdownReason::ServerExited, Err(join_err)) => {
+        return Err(AnyError::from(join_err));
+      }
+      (ShutdownReason::ChannelClosed, Ok(Ok(()))) => {
+        println!("⚠️  Edge runtime daemon exit channel closed unexpectedly.");
+      }
+      (ShutdownReason::ChannelClosed, Ok(Err(err))) => {
+        println!(
+          "❌ Edge runtime daemon encountered an error after channel closed: {}",
+          err
+        );
+        return Err(err);
+      }
+      (ShutdownReason::ChannelClosed, Err(join_err)) => {
+        println!(
+          "❌ Edge runtime daemon join error after channel closed: {}",
+          join_err
+        );
+        return Err(AnyError::from(join_err));
+      }
+    }
 
     println!("Edge runtime demo finished");
     Ok(())
@@ -1149,8 +1279,23 @@ pub fn main() {
     .install_default()
     .unwrap();
 
-  let args: Vec<_> = env::args_os().collect();
+  let (args, mut daemon_mode) = filter_daemon_args(env::args_os().collect());
+
+  if env::var_os("EMBED_DENO_DISABLE_DAEMON").is_some() {
+    daemon_mode = DaemonMode::Disabled;
+  } else if env::var_os("EMBED_DENO_ENABLE_DAEMON").is_some() {
+    daemon_mode = DaemonMode::Enabled;
+  }
+
+  let args_vec: Vec<String> = args
+    .iter()
+    .map(|arg| arg.to_string_lossy().to_string())
+    .collect();
+  let should_run_demo = args_vec.len() == 1 || args_vec.iter().any(|arg| arg == "--edge-demo");
+
+  let future_args = args.clone();
   let future = async move {
+    let mut args = future_args;
     let roots = LibWorkerFactoryRoots::default();
 
     #[cfg(unix)]
@@ -1184,10 +1329,6 @@ pub fn main() {
     run_subcommand(Arc::new(flags), waited_unconfigured_runtime, roots).await
   };
 
-  // Check if we should run edge-runtime demo
-  let args_vec: Vec<String> = std::env::args().collect();
-  let should_run_demo = args_vec.len() == 1 || args_vec.iter().any(|arg| arg == "--edge-demo");
-
   if should_run_demo {
     match demo_edge_runtime() {
       Ok(()) => {
@@ -1207,10 +1348,65 @@ pub fn main() {
     drop(profiler);
 
     match result {
-      Ok(exit_code) => deno_runtime::exit(exit_code),
+      Ok(exit_code) => {
+        if daemon_mode.is_enabled() && exit_code == 0 {
+          println!("Deno task completed successfully. Entering daemon mode; press Ctrl+C to stop.");
+          run_daemon_mode(exit_code);
+        } else {
+          deno_runtime::exit(exit_code);
+        }
+      }
       Err(err) => exit_for_error(err),
     }
   }
+}
+
+fn run_daemon_mode(exit_code: i32) -> ! {
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .thread_name("deno-daemon")
+    .build()
+    .unwrap();
+
+  let local = tokio::task::LocalSet::new();
+
+  local.block_on(&runtime, async {
+    let cancel_token = CancellationToken::new();
+    let cancel_token_clone = cancel_token.clone();
+
+    tokio::task::spawn_local(async move {
+      if let Err(err) = tokio::signal::ctrl_c().await {
+        eprintln!("⚠️  Error listening for Ctrl+C: {}", err);
+      }
+      cancel_token_clone.cancel();
+    });
+
+    let start_time = std::time::Instant::now();
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    heartbeat.tick().await;
+
+    let mut heartbeat_count = 0u64;
+
+    loop {
+      tokio::select! {
+        _ = cancel_token.cancelled() => {
+          println!("\n🛑 Daemon shutdown requested. Total uptime: {:?}", start_time.elapsed());
+          break;
+        }
+        _ = heartbeat.tick() => {
+          heartbeat_count += 1;
+          println!(
+            "💤 Daemon heartbeat #{}, uptime {:?}",
+            heartbeat_count,
+            start_time.elapsed()
+          );
+        }
+      }
+    }
+  });
+
+  deno_runtime::exit(exit_code);
 }
 
 async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, AnyError> {
