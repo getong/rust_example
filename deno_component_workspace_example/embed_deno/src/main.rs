@@ -3,6 +3,7 @@
 mod args;
 mod cache;
 mod cdp;
+mod deno_tokio_process;
 mod factory;
 mod file_fetcher;
 mod graph_container;
@@ -772,10 +773,27 @@ impl EdgeMainWorkerSurface {
       // Convert to MainWorker to access the methods
       let mut worker = cli_worker.into_main_worker();
 
-      // Execute the module
-      worker.execute_main_module(&module_specifier).await?;
-      worker.dispatch_load_event()?;
-      worker.run_event_loop(false).await?;
+      #[cfg(unix)]
+      {
+        use crate::deno_tokio_process::DenoTokioProcess;
+
+        let (unix_stream, _peer) = tokio::net::UnixStream::pair().map_err(|err| {
+          deno_core::anyhow::Error::msg(format!(
+            "Failed to create unix stream for deno tokio process: {err:?}"
+          ))
+        })?;
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let process = DenoTokioProcess::new(&mut worker, module_specifier.clone(), None);
+        process.run(unix_stream, shutdown_tx).await?;
+        let _ = shutdown_rx.await;
+      }
+
+      #[cfg(not(unix))]
+      {
+        worker.execute_main_module(&module_specifier).await?;
+        worker.dispatch_load_event()?;
+        worker.run_event_loop(false).await?;
+      }
 
       println!("✅ Module loaded and executed successfully!");
       println!("Worker ready to handle requests...");
