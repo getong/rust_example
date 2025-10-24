@@ -44,7 +44,6 @@ use deno_runtime::{
 };
 use indexmap::{IndexMap, IndexSet};
 use lazy_regex::lazy_regex;
-use log::error;
 use lsp_types::Uri;
 use node_resolver::{NodeResolutionKind, ResolutionMode, cache::NodeResolutionThreadLocalCache};
 use once_cell::sync::Lazy;
