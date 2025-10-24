@@ -1261,74 +1261,58 @@ static ENV_VARIABLES_HELP: &str = cstr!(
 );
 
 static DENO_HELP: &str = cstr!(
-    "Deno: <g>A modern JavaScript and TypeScript runtime</>
-
-<p(245)>Usage:</> <g>{usage}</>
-
-<y>Commands:</><y>Execution:</><g>run</>          \
-     Run a JavaScript or TypeScript program, or a task
-                  <p(245)>deno run main.ts  |  \
-     deno run --allow-net=google.com main.ts  |  deno main.ts</>
-    <g>serve</>        Run a server\
-     
-                  <p(245)>deno serve main.ts</>
-    <g>task</>         Run a task defined in the \
-     configuration file
-                  <p(245)>deno task dev</>
-    <g>repl</>         Start an interactive \
-     Read-Eval-Print Loop (REPL) for Deno
-    <g>eval</>         Evaluate a script from the command \
-     line
-
-  <y>Dependency management:</>
-    <g>add</>          Add dependencies
-                  <p(245)>deno \
-     add jsr:@std/assert  |  deno add npm:express</>
-    <g>install</>      Installs dependencies either \
-     in the local project or globally to a bin directory
-    <g>uninstall</>    Uninstalls a dependency \
-     or an executable script in the installation root's bin directory
-    <g>outdated</>     Find and \
-     update outdated dependencies
-    <g>remove</>       Remove dependencies from the configuration \
-     file<y>Tooling:</><g>bench</>        Run benchmarks
-                  <p(245)>deno bench bench.ts</><g>check</>        \
-     Type-check the dependencies
-    <g>clean</>        Remove the cache directory<g>compile</>      \
-     Compile the script into a self contained executable
-                  <p(245)>deno compile main.ts  \
-     |  deno compile --target=x86_64-unknown-linux-gnu</>
-    <g>coverage</>     Print coverage reports\
-     
-    <g>deploy</>       Manage and publish applications with Deno Deploy
-    <g>doc</>          \
-     Generate and show documentation for a module or built-ins
-                  <p(245)>deno doc  |  \
-     deno doc --json  |  deno doc --html mod.ts</>
-    <g>fmt</>          Format source files
-                  \
-     <p(245)>deno fmt  |  deno fmt main.ts</>
-    <g>info</>         Show info about cache or info related \
-     to source file
-    <g>jupyter</>      Deno kernel for Jupyter notebooks
-    <g>lint</>         Lint \
-     source files
-    <g>init</>         Initialize a new project
-    <g>test</>         Run tests
-                  \
-     <p(245)>deno test  |  deno test test.ts</>
-    <g>publish</>      Publish the current working directory's \
-     package or workspace<g>upgrade</>      Upgrade deno executable to given version
-                  \
-     <p(245)>deno upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>
-{after-help}
-
-<y>Docs:</> \
-     https://docs.deno.com<y>Standard Library:</> https://jsr.io/@std
-<y>Bugs:</> https://github.com/denoland/deno/issues\
-     
-<y>Discord:</> https://discord.gg/deno
-"
+    "Deno: <g>A modern JavaScript and TypeScript runtime</>\n\
+\n\
+<p(245)>Usage:</> <g>{usage}</>\n\
+\n\
+<y>Commands:</>\n\
+<y>Execution:</>\n\
+    <g>run</>          Run a JavaScript or TypeScript program, or a task\n\
+                  <p(245)>deno run main.ts  |  deno run --allow-net=google.com main.ts  |  deno main.ts</>\n\
+    <g>serve</>        Run a server\n\
+                  <p(245)>deno serve main.ts</>\n\
+    <g>task</>         Run a task defined in the configuration file\n\
+                  <p(245)>deno task dev</>\n\
+    <g>repl</>         Start an interactive Read-Eval-Print Loop (REPL) for Deno\n\
+    <g>eval</>         Evaluate a script from the command line\n\
+\n\
+  <y>Dependency management:</>\n\
+    <g>add</>          Add dependencies\n\
+                  <p(245)>deno add jsr:@std/assert  |  deno add npm:express</>\n\
+    <g>install</>      Installs dependencies either in the local project or globally to a bin directory\n\
+    <g>uninstall</>    Uninstalls a dependency or an executable script in the installation root's bin directory\n\
+    <g>outdated</>     Find and update outdated dependencies\n\
+    <g>remove</>       Remove dependencies from the configuration file\n\
+\n\
+  <y>Tooling:</>\n\
+    <g>bench</>        Run benchmarks\n\
+                  <p(245)>deno bench bench.ts</>\n\
+    <g>check</>        Type-check the dependencies\n\
+    <g>clean</>        Remove the cache directory\n\
+    <g>compile</>      Compile the script into a self contained executable\n\
+                  <p(245)>deno compile main.ts  |  deno compile --target=x86_64-unknown-linux-gnu</>\n\
+    <g>coverage</>     Print coverage reports\n\
+    <g>deploy</>       Manage and publish applications with Deno Deploy\n\
+    <g>doc</>          Generate and show documentation for a module or built-ins\n\
+                  <p(245)>deno doc  |  deno doc --json  |  deno doc --html mod.ts</>\n\
+    <g>fmt</>          Format source files\n\
+                  <p(245)>deno fmt  |  deno fmt main.ts</>\n\
+    <g>info</>         Show info about cache or info related to source file\n\
+    <g>jupyter</>      Deno kernel for Jupyter notebooks\n\
+    <g>lint</>         Lint source files\n\
+    <g>init</>         Initialize a new project\n\
+    <g>test</>         Run tests\n\
+                  <p(245)>deno test  |  deno test test.ts</>\n\
+    <g>publish</>      Publish the current working directory's package or workspace\n\
+    <g>upgrade</>      Upgrade deno executable to given version\n\
+                  <p(245)>deno upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>\n\
+\n\
+{after-help}\n\
+\n\
+<y>Docs:</> https://docs.deno.com\n\
+<y>Standard Library:</> https://jsr.io/@std\n\
+<y>Bugs:</> https://github.com/denoland/deno/issues\n\
+<y>Discord:</> https://discord.gg/deno\n"
   );
 
 /// Main entry point for parsing deno's command line flags.
@@ -2085,16 +2069,13 @@ fn cache_subcommand() -> Command {
   command(
     "cache",
     cstr!(
-      "Cache and compile remote dependencies.
-
-Download and compile a module with all of its static dependencies \
-       and save them in the local cache, without running any code:
-  <p(245)>deno cache jsr:@std/http/file-server</>\
-       
-
-Future runs of this module will trigger no downloads or compilation unless --reload is specified\
-       
-
+      "Cache and compile remote dependencies.\n\
+\n\
+Download and compile a module with all of its static dependencies and save them in the local cache, without running any code:\n\
+  <p(245)>deno cache jsr:@std/http/file-server</>\n\
+\n\
+Future runs of this module will trigger no downloads or compilation unless --reload is specified\n\
+\n\
 <y>Read more:</> <c>https://docs.deno.com/go/cache</>"
     ),
     UnstableArgsConfig::ResolutionOnly,
@@ -2337,32 +2318,25 @@ fn coverage_subcommand() -> Command {
   command(
     "coverage",
     cstr!(
-      "Print coverage reports from coverage profiles.
-
-Collect a coverage profile with deno test:
-  <p(245)>deno \
-       test --coverage=cov_profile</>
-
-Print a report to stdout:
-  <p(245)>deno coverage cov_profile</>\
-       
-
-Include urls that start with the file schema and exclude files ending with <c>test.ts</> and \
-       <c>test.js</>,
-for an url to match it must match the include pattern and not match the exclude \
-       pattern:
-  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>\
-       
-
-Write a report using the lcov format:
-  <p(245)>deno coverage --lcov --output=cov.lcov cov_profile/</>\
-       
-
-Generate html reports from lcov:
-  <p(245)>genhtml -o html_cov cov.lcov</>
-
-<y>Read more:</> <c>https://docs.deno.com/go/coverage</>\
-       "
+      "Print coverage reports from coverage profiles.\n\
+\n\
+Collect a coverage profile with deno test:\n\
+  <p(245)>deno test --coverage=cov_profile</>\n\
+\n\
+Print a report to stdout:\n\
+  <p(245)>deno coverage cov_profile</>\n\
+\n\
+Include urls that start with the file schema and exclude files ending with <c>test.ts</> and <c>test.js</>,\n\
+for an url to match it must match the include pattern and not match the exclude pattern:\n\
+  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>\n\
+\n\
+Write a report using the lcov format:\n\
+  <p(245)>deno coverage --lcov --output=cov.lcov cov_profile/</>\n\
+\n\
+Generate html reports from lcov:\n\
+  <p(245)>genhtml -o html_cov cov.lcov</>\n\
+\n\
+<y>Read more:</> <c>https://docs.deno.com/go/coverage</>\n"
     ),
     UnstableArgsConfig::None,
   )
@@ -2912,48 +2886,39 @@ fn install_subcommand() -> Command {
   command(
     "install",
     cstr!(
-      "Installs dependencies either in the local project or globally to a bin directory.
-
-<g>Local installation</>Add \
-       dependencies to the local project's configuration (<p(245)>deno.json / package.json</>) and \
-       installs them
-in the package cache. If no dependency is specified, installs all dependencies \
-       listed in the config file.
-If the <p(245)>--entrypoint</> flag is passed, installs the dependencies \
-       of the specified entrypoint(s).
-
-  <p(245)>deno install</>
-  <p(245)>deno install jsr:@std/bytes</><p(245)>deno \
-       install npm:chalk</>
-  <p(245)>deno install --entrypoint entry1.ts entry2.ts</><g>Global installation</>\
-       
-
-If the <bold>--global</> flag is set, installs a script as an executable in the installation \
-       root's bin directory.
-
-  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>\
-       
-  <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>To change the executable \
-       name, use <c>-n</>/<c>--name</>:
-  <p(245)>deno install -g --allow-net --allow-read -n serve jsr:@std/http/file-server</>
-
-The executable name is inferred by default:
-  - Attempt to take the file stem of the URL path. The above example would
-    become <p(245)>file_server</>.
-  - If the file stem is something generic like <p(245)>main</>, <p(245)>mod</>, <p(245)>index</> \
-       or <p(245)>cli</>,
-    and the path has no parent, take the file name of the parent path. Otherwise
-    settle with the generic name.
-  - If the resulting name has an <p(245)>@...</> suffix, strip it.
-
-To change the installation root, use <c>--root</>:
-  <p(245)>deno install -g --allow-net --allow-read --root /usr/local jsr:@std/http/file-server</>
-
-The installation root is determined, in order of precedence:
-  - <p(245)>--root</> option
-  - <p(245)>DENO_INSTALL_ROOT</> environment variable
-  - <p(245)>$HOME/.deno</>
-
+      "Installs dependencies either in the local project or globally to a bin directory.\n\
+\n\
+<g>Local installation</>Add dependencies to the local project's configuration (<p(245)>deno.json / package.json</>) and installs them\n\
+in the package cache. If no dependency is specified, installs all dependencies listed in the config file.\n\
+If the <p(245)>--entrypoint</> flag is passed, installs the dependencies of the specified entrypoint(s).\n\
+\n\
+  <p(245)>deno install</>\n\
+  <p(245)>deno install jsr:@std/bytes</>\n\
+  <p(245)>deno install npm:chalk</>\n\
+  <p(245)>deno install --entrypoint entry1.ts entry2.ts</>\n\
+\n\
+<g>Global installation</>\n\
+If the <bold>--global</> flag is set, installs a script as an executable in the installation root's bin directory.\n\
+\n\
+  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>\n\
+  <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>\n\
+\n\
+To change the executable name, use <c>-n</>/<c>--name</>:\n\
+  <p(245)>deno install -g --allow-net --allow-read -n serve jsr:@std/http/file-server</>\n\
+\n\
+The executable name is inferred by default:\n\
+  - Attempt to take the file stem of the URL path. The above example would become <p(245)>file_server</>.\n\
+  - If the file stem is something generic like <p(245)>main</>, <p(245)>mod</>, <p(245)>index</> or <p(245)>cli</>, and the path has no parent, take the file name of the parent path. Otherwise settle with the generic name.\n\
+  - If the resulting name has an <p(245)>@...</> suffix, strip it.\n\
+\n\
+To change the installation root, use <c>--root</>:\n\
+  <p(245)>deno install -g --allow-net --allow-read --root /usr/local jsr:@std/http/file-server</>\n\
+\n\
+The installation root is determined, in order of precedence:\n\
+  - <p(245)>--root</> option\n\
+  - <p(245)>DENO_INSTALL_ROOT</> environment variable\n\
+  - <p(245)>$HOME/.deno</>\n\
+\n\
 These must be added to the path manually if required."
     ),
     UnstableArgsConfig::ResolutionAndRuntime,
