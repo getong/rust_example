@@ -734,6 +734,16 @@ impl EdgeMainWorkerSurface {
     // Create minimal flags for worker with JSR/NPM support and default permissions
     let mut flags = crate::args::Flags::default();
 
+    if init_opts.no_module_cache {
+      println!("🧰 Module cache is disabled for this worker run");
+    }
+    if !init_opts.env_vars.is_empty() {
+      println!(
+        "🌱 Propagating {} environment variables into the worker runtime",
+        init_opts.env_vars.len()
+      );
+    }
+
     // Set default permissions - allow all for embedded runtime
     flags.permissions.allow_all = true;
     flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
@@ -937,6 +947,7 @@ struct EdgeServer {
   main_worker_surface: EdgeMainWorkerSurface,
   termination_tokens: EdgeTerminationTokens,
   flags: Arc<EdgeServerFlags>,
+  user_worker_policy: Option<EdgeWorkerPoolPolicy>,
   listener_cancel: CancellationToken,
 }
 
@@ -989,7 +1000,13 @@ impl EdgeBuilder {
   }
 
   async fn build(self) -> Result<EdgeServer, deno_core::anyhow::Error> {
-    let flags = Arc::new(self.flags);
+    let mut flags = self.flags;
+    if let Some(policy) = &self.user_worker_policy {
+      if flags.request_wait_timeout_ms.is_none() {
+        flags.request_wait_timeout_ms = Some(policy.request_wait_timeout_ms);
+      }
+    }
+    let flags = Arc::new(flags);
     let termination_tokens = EdgeTerminationTokens::new();
     let listener_cancel = CancellationToken::new();
 
@@ -997,7 +1014,7 @@ impl EdgeBuilder {
     let init_opts = EdgeWorkerContextInitOpts {
       service_path: self.main_service_path,
       no_module_cache: flags.no_module_cache,
-      env_vars: HashMap::new(),
+      env_vars: std::env::vars().collect(),
     };
 
     // Create main worker surface
@@ -1009,6 +1026,7 @@ impl EdgeBuilder {
       main_worker_surface,
       termination_tokens,
       flags,
+      user_worker_policy: self.user_worker_policy,
       listener_cancel,
     })
   }
@@ -1017,6 +1035,7 @@ impl EdgeBuilder {
 impl EdgeServer {
   async fn terminate(&self) {
     self.listener_cancel.cancel();
+    self.main_worker_surface.cancel.cancel();
     self.termination_tokens.terminate().await;
   }
 
@@ -1026,6 +1045,39 @@ impl EdgeServer {
 
   async fn listen(&mut self) -> Result<(), deno_core::anyhow::Error> {
     println!("🚀 Edge runtime listening on: {}", self.addr);
+
+    if self.flags.tcp_nodelay {
+      println!("🛠️ TCP_NODELAY enabled for listener sockets");
+    }
+
+    if let Some(policy) = &self.user_worker_policy {
+      let supervisor = match policy.supervisor_policy {
+        EdgeSupervisorPolicy::PerWorker => "per-worker",
+        EdgeSupervisorPolicy::PerRequest { oneshot } => {
+          if oneshot {
+            "per-request (oneshot)"
+          } else {
+            "per-request"
+          }
+        }
+      };
+      println!(
+        "👥 Worker pool policy: supervisor={}, max_parallelism={}",
+        supervisor, policy.max_parallelism
+      );
+    }
+
+    let health_check_timeout = self
+      .flags
+      .request_wait_timeout_ms
+      .or_else(|| {
+        self
+          .user_worker_policy
+          .as_ref()
+          .map(|policy| policy.request_wait_timeout_ms)
+      })
+      .map(Duration::from_millis)
+      .unwrap_or_else(|| Duration::from_secs(10));
 
     // Give worker time to initialize
     sleep(Duration::from_millis(1000)).await;
@@ -1113,7 +1165,7 @@ impl EdgeServer {
           } else {
             // Don't block on response, spawn a task to handle it
             tokio::task::spawn_local(async move {
-              match tokio::time::timeout(Duration::from_secs(10), res_rx).await {
+              match tokio::time::timeout(health_check_timeout, res_rx).await {
                 Ok(Ok(Ok(_))) => {
                   // Health check passed
                 }
@@ -1157,7 +1209,7 @@ fn demo_edge_runtime() -> Result<(), deno_core::anyhow::Error> {
 
     // Configure worker pool policy
     builder.user_worker_policy(EdgeWorkerPoolPolicy {
-      supervisor_policy: EdgeSupervisorPolicy::PerWorker,
+      supervisor_policy: EdgeSupervisorPolicy::PerRequest { oneshot: false },
       max_parallelism: 2,
       request_wait_timeout_ms: 30000,
     });
@@ -1266,6 +1318,10 @@ fn demo_edge_runtime() -> Result<(), deno_core::anyhow::Error> {
       }
     }
 
+    if let Some(server) = server_cell.borrow_mut().take() {
+      server.terminate().await;
+    }
+
     println!("Edge runtime demo finished");
     Ok(())
   })
@@ -1313,7 +1369,7 @@ pub fn main() {
 
   let future_args = args.clone();
   let future = async move {
-    let mut args = future_args;
+    let args = future_args;
     let roots = LibWorkerFactoryRoots::default();
 
     #[cfg(unix)]
