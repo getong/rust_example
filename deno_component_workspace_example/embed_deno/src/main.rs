@@ -30,26 +30,10 @@ pub mod sys {
   pub type CliSys = sys_traits::impls::RealSys;
 }
 
-use std::{
-  cell::RefCell,
-  collections::HashMap,
-  env,
-  ffi::OsString,
-  future::Future,
-  io::{IsTerminal, Write as _},
-  ops::Deref,
-  path::PathBuf,
-  rc::Rc,
-  sync::Arc,
-};
+use std::{env, ffi::OsString, path::PathBuf, sync::Arc};
 
-use args::TaskFlags;
-use deno_core::{anyhow::Context, error::AnyError, futures::FutureExt, unsync::JoinHandle};
-use deno_lib::{
-  util::result::{any_and_jserrorbox_downcast_ref, js_error_downcast_ref},
-  worker::LibWorkerFactoryRoots,
-};
-use deno_resolver::npm::{ByonmResolvePkgFolderFromDenoReqError, ResolvePkgFolderFromDenoReqError};
+use deno_core::error::AnyError;
+use deno_lib::{util::result::js_error_downcast_ref, worker::LibWorkerFactoryRoots};
 use deno_runtime::{
   UnconfiguredRuntime, WorkerExecutionMode, fmt_errors::format_js_error,
   tokio_util::create_and_run_current_thread_with_maybe_metrics,
@@ -57,9 +41,6 @@ use deno_runtime::{
 use deno_telemetry::OtelConfig;
 use deno_terminal::colors;
 use factory::CliFactory;
-
-const MODULE_NOT_FOUND: &str = "Module not found";
-const UNSUPPORTED_SCHEME: &str = "Unsupported scheme";
 
 use self::util::draw_thread::DrawThread;
 use crate::{
@@ -92,474 +73,62 @@ impl SubcommandOutput for Result<(), AnyError> {
   }
 }
 
-impl SubcommandOutput for Result<(), std::io::Error> {
-  fn output(self) -> Result<i32, AnyError> {
-    self.map(|_| 0).map_err(|e| e.into())
-  }
-}
+use deno_core::{futures::FutureExt, unsync::JoinHandle};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum DaemonMode {
-  Enabled,
-  Disabled,
-}
-
-impl DaemonMode {
-  fn is_enabled(self) -> bool {
-    matches!(self, Self::Enabled)
-  }
-}
-
-fn filter_daemon_args(args: Vec<OsString>) -> (Vec<OsString>, DaemonMode) {
-  let mut daemon_mode = DaemonMode::Enabled;
-  let mut filtered_args = Vec::with_capacity(args.len());
-
-  for arg in args {
-    if arg == std::ffi::OsStr::new("--daemon") {
-      daemon_mode = DaemonMode::Enabled;
-      continue;
-    }
-    if arg == std::ffi::OsStr::new("--no-daemon") {
-      daemon_mode = DaemonMode::Disabled;
-      continue;
-    }
-    filtered_args.push(arg);
-  }
-
-  (filtered_args, daemon_mode)
-}
-
-/// Ensure that the subcommand runs in a task, rather than being directly executed. Since some of
-/// these futures are very large, this prevents the stack from getting blown out from passing them
-/// by value up the callchain (especially in debug mode when Rust doesn't have a chance to elide
-/// copies!).
+/// Ensure that the subcommand runs in a task, rather than being directly executed.
 #[inline(always)]
-fn spawn_subcommand<F: Future<Output = T> + 'static, T: SubcommandOutput>(
-  f: F,
-) -> JoinHandle<Result<i32, AnyError>> {
-  // the boxed_local() is important in order to get windows to not blow the stack in debug
+fn spawn_subcommand<F, T>(f: F) -> JoinHandle<Result<i32, AnyError>>
+where
+  F: std::future::Future<Output = T> + 'static,
+  T: SubcommandOutput,
+{
   deno_core::unsync::spawn(async move { f.map(|r| r.output()).await }.boxed_local())
 }
 
 async fn run_subcommand(
   flags: Arc<Flags>,
-  unconfigured_runtime: Option<UnconfiguredRuntime>,
+  _unconfigured_runtime: Option<deno_runtime::UnconfiguredRuntime>,
   roots: LibWorkerFactoryRoots,
 ) -> Result<i32, AnyError> {
   let handle = match flags.subcommand.clone() {
-    DenoSubcommand::Add(add_flags) => spawn_subcommand(async {
-      tools::pm::add(flags, add_flags, tools::pm::AddCommandName::Add).await
-    }),
-    DenoSubcommand::Remove(remove_flags) => {
-      spawn_subcommand(async { tools::pm::remove(flags, remove_flags).await })
-    }
-    DenoSubcommand::Bench(bench_flags) => spawn_subcommand(async {
-      if bench_flags.watch.is_some() {
-        tools::bench::run_benchmarks_with_watch(flags, bench_flags)
-          .boxed_local()
-          .await
-      } else {
-        tools::bench::run_benchmarks(flags, bench_flags).await
-      }
-    }),
-    DenoSubcommand::Bundle(bundle_flags) => spawn_subcommand(async {
-      log::warn!(
-        "⚠️  {} is experimental and subject to changes",
-        colors::cyan("deno bundle")
-      );
-      tools::bundle::bundle(flags, bundle_flags).await
-    }),
-    DenoSubcommand::Deploy => spawn_subcommand(async {
-      tools::deploy::deploy(Arc::unwrap_or_clone(flags)).await
-    }),
-    DenoSubcommand::Doc(doc_flags) => {
-      spawn_subcommand(async { tools::doc::doc(flags, doc_flags).await })
-    }
-    DenoSubcommand::Eval(eval_flags) => spawn_subcommand(async {
-      tools::run::eval_command(flags, eval_flags).await
-    }),
-    DenoSubcommand::Cache(cache_flags) => spawn_subcommand(async move {
-      tools::installer::install_from_entrypoints(flags, &cache_flags.files)
-        .await
-    }),
-    DenoSubcommand::Check(check_flags) => {
-      spawn_subcommand(
-        async move { tools::check::check(flags, check_flags).await },
-      )
-    }
-    DenoSubcommand::Clean(clean_flags) => {
-      spawn_subcommand(
-        async move { tools::clean::clean(flags, clean_flags).await },
-      )
-    }
-    DenoSubcommand::Compile(compile_flags) => spawn_subcommand(async {
-      if compile_flags.eszip {
-        tools::compile::compile_eszip(flags, compile_flags)
-          .boxed_local()
-          .await
-      } else {
-        tools::compile::compile(flags, compile_flags).await
-      }
-    }),
-    DenoSubcommand::Coverage(coverage_flags) => spawn_subcommand(async move {
-      let reporter =
-        crate::tools::coverage::reporter::create(coverage_flags.r#type.clone());
-      tools::coverage::cover_files(
-        flags,
-        coverage_flags.files.include,
-        coverage_flags.files.ignore,
-        coverage_flags.include,
-        coverage_flags.exclude,
-        coverage_flags.output,
-        &[&*reporter],
-      )
-    }),
-    DenoSubcommand::Fmt(fmt_flags) => {
-      spawn_subcommand(
-        async move { tools::fmt::format(flags, fmt_flags).await },
-      )
-    }
-    DenoSubcommand::Init(init_flags) => {
-      spawn_subcommand(async { tools::init::init_project(init_flags).await })
-    }
-    DenoSubcommand::Info(info_flags) => {
-      spawn_subcommand(async { tools::info::info(flags, info_flags).await })
-    }
-    DenoSubcommand::Install(install_flags) => spawn_subcommand(async {
-      tools::installer::install_command(flags, install_flags).await
-    }),
-    DenoSubcommand::JSONReference(json_reference) => {
-      spawn_subcommand(async move {
-        display::write_to_stdout_ignore_sigpipe(
-          &deno_core::serde_json::to_vec_pretty(&json_reference.json).unwrap(),
-        )
-      })
-    }
-    DenoSubcommand::Jupyter(jupyter_flags) => spawn_subcommand(async {
-      tools::jupyter::kernel(flags, jupyter_flags).await
-    }),
-    DenoSubcommand::Uninstall(uninstall_flags) => spawn_subcommand(async {
-      tools::installer::uninstall(flags, uninstall_flags).await
-    }),
-    DenoSubcommand::Lsp => spawn_subcommand(async move {
-      if std::io::stderr().is_terminal() {
-        log::warn!(
-          "{} command is intended to be run by text editors and IDEs and shouldn't be run manually.
-
-  Visit https://docs.deno.com/runtime/getting_started/setup_your_environment/ for instruction
-  how to setup your favorite text editor.
-
-  Press Ctrl+C to exit.
-        ", colors::cyan("deno lsp"));
-      }
-      lsp::start().await
-    }),
-    DenoSubcommand::Lint(lint_flags) => spawn_subcommand(async {
-      if lint_flags.rules {
-        tools::lint::print_rules_list(
-          lint_flags.json,
-          lint_flags.maybe_rules_tags,
-        );
-        Ok(())
-      } else {
-        tools::lint::lint(flags, lint_flags).await
-      }
-    }),
-    DenoSubcommand::Outdated(update_flags) => {
-      spawn_subcommand(
-        async move { tools::pm::outdated(flags, update_flags).await },
-      )
-    }
-    DenoSubcommand::Repl(repl_flags) => {
-      spawn_subcommand(async move { tools::repl::run(flags, repl_flags).await })
-    }
     DenoSubcommand::Run(run_flags) => spawn_subcommand(async move {
-      if run_flags.print_task_list {
-        let task_flags = TaskFlags {
-          cwd: None,
-          task: None,
-          is_run: true,
-          recursive: false,
-          filter: None,
-          eval: false,
-        };
-        let mut flags = flags.deref().clone();
-        flags.subcommand = DenoSubcommand::Task(task_flags.clone());
-        writeln!(
-          &mut std::io::stdout(),
-          "Please specify a {} or a {}.\n",
-          colors::bold("[SCRIPT_ARG]"),
-          colors::bold("task name")
-        )?;
-        std::io::stdout().flush()?;
-        tools::task::execute_script(Arc::new(flags), task_flags)
-          .await
-          .map(|_| 1)
-      } else if run_flags.is_stdin() {
-        // these futures are boxed to prevent stack overflows on Windows
-        tools::run::run_from_stdin(flags.clone(), unconfigured_runtime, roots)
-          .boxed_local()
-          .await
-      } else if flags.eszip {
-        tools::run::run_eszip(flags, run_flags, unconfigured_runtime, roots)
+      if run_flags.is_stdin() {
+        // Handle stdin input
+        crate::tools::run::run_from_stdin(flags.clone(), None, roots)
           .boxed_local()
           .await
       } else {
-        let result = tools::run::run_script(
+        // Run the script with tokio deno process
+        let result = crate::tools::run::run_script(
           WorkerExecutionMode::Run,
           flags.clone(),
           run_flags.watch,
-          unconfigured_runtime,
+          None,
           roots.clone(),
         )
         .await;
-        match result {
-          Ok(v) => Ok(v),
-          Err(script_err) => {
-            if let Some(
-              worker::CreateCustomWorkerError::ResolvePkgFolderFromDenoReq(
-                ResolvePkgFolderFromDenoReqError::Byonm(
-                  ByonmResolvePkgFolderFromDenoReqError::UnmatchedReq(_),
-                ),
-              ),
-            ) = any_and_jserrorbox_downcast_ref::<
-              worker::CreateCustomWorkerError,
-            >(&script_err)
-              && flags.node_modules_dir.is_none()
-            {
-              let mut flags = flags.deref().clone();
-              let watch = match &flags.subcommand {
-                DenoSubcommand::Run(run_flags) => run_flags.watch.clone(),
-                _ => unreachable!(),
-              };
-              flags.node_modules_dir =
-                Some(deno_config::deno_json::NodeModulesDirMode::None);
-              // use the current lockfile, but don't write it out
-              if flags.frozen_lockfile.is_none() {
-                flags.internal.lockfile_skip_write = true;
-              }
-              return tools::run::run_script(
-                WorkerExecutionMode::Run,
-                Arc::new(flags),
-                watch,
-                None,
-                roots,
-              )
-              .boxed_local()
-              .await;
-            }
-            let script_err_msg = script_err.to_string();
-            if should_fallback_on_run_error(script_err_msg.as_str()) {
-              if run_flags.bare {
-                let mut cmd = args::clap_root();
-                cmd.build();
-                let command_names = cmd
-                  .get_subcommands()
-                  .map(|command| command.get_name())
-                  .collect::<Vec<_>>();
-                let suggestions =
-                  args::did_you_mean(&run_flags.script, command_names);
-                if !suggestions.is_empty() && !run_flags.script.contains('.') {
-                  let mut error =
-                    clap::error::Error::<clap::error::DefaultFormatter>::new(
-                      clap::error::ErrorKind::InvalidSubcommand,
-                    )
-                    .with_cmd(&cmd);
-                  error.insert(
-                    clap::error::ContextKind::SuggestedSubcommand,
-                    clap::error::ContextValue::Strings(suggestions),
-                  );
-
-                  Err(error.into())
-                } else {
-                  Err(script_err)
-                }
-              } else {
-                let mut new_flags = flags.deref().clone();
-                let task_flags = TaskFlags {
-                  cwd: None,
-                  task: Some(run_flags.script.clone()),
-                  is_run: true,
-                  recursive: false,
-                  filter: None,
-                  eval: false,
-                };
-                new_flags.subcommand = DenoSubcommand::Task(task_flags.clone());
-                let result = tools::task::execute_script(
-                  Arc::new(new_flags),
-                  task_flags.clone(),
-                )
-                .await;
-                match result {
-                  Ok(v) => Ok(v),
-                  Err(_) => {
-                    // Return script error for backwards compatibility.
-                    Err(script_err)
-                  }
-                }
-              }
-            } else {
-              Err(script_err)
-            }
-          }
-        }
+        result
       }
     }),
-    DenoSubcommand::Serve(serve_flags) => spawn_subcommand(async move {
-      tools::serve::serve(flags, serve_flags, unconfigured_runtime, roots).await
-    }),
-    DenoSubcommand::Task(task_flags) => spawn_subcommand(async {
-      tools::task::execute_script(flags, task_flags).await
-    }),
-    DenoSubcommand::Test(test_flags) => {
-      spawn_subcommand(async {
-        if let Some(ref coverage_dir) = test_flags.coverage_dir {
-          if !test_flags.coverage_raw_data_only || test_flags.clean {
-            // Keeps coverage_dir contents only when --coverage-raw-data-only is set and --clean is not set
-            let _ = std::fs::remove_dir_all(coverage_dir);
-          }
-          std::fs::create_dir_all(coverage_dir)
-            .with_context(|| format!("Failed creating: {coverage_dir}"))?;
-          // this is set in order to ensure spawned processes use the same
-          // coverage directory
-
-          #[allow(clippy::undocumented_unsafe_blocks)]
-          unsafe {
-            env::set_var(
-              "DENO_COVERAGE_DIR",
-              PathBuf::from(coverage_dir).canonicalize()?,
-            )
-          };
-        }
-
-        if test_flags.watch.is_some() {
-          tools::test::run_tests_with_watch(flags, test_flags).await
-        } else {
-          tools::test::run_tests(flags, test_flags).await
-        }
-      })
+    _ => {
+      // Only support Run command, exit with error for others
+      return Err(AnyError::msg(
+        "Only 'run' command is supported in this build",
+      ));
     }
-    DenoSubcommand::Completions(completions_flags) => {
-      spawn_subcommand(async move {
-        display::write_to_stdout_ignore_sigpipe(&completions_flags.buf)
-      })
-    }
-    DenoSubcommand::Types => spawn_subcommand(async move {
-      let types = tsc::get_types_declaration_file_text();
-      display::write_to_stdout_ignore_sigpipe(types.as_bytes())
-    }),
-    #[cfg(feature = "upgrade")]
-    DenoSubcommand::Upgrade(upgrade_flags) => spawn_subcommand(async {
-      tools::upgrade::upgrade(flags, upgrade_flags).await
-    }),
-    #[cfg(not(feature = "upgrade"))]
-    DenoSubcommand::Upgrade(_) => exit_with_message(
-      "This deno was built without the \"upgrade\" feature. Please upgrade using the installation method originally used to install Deno.",
-      1,
-    ),
-    DenoSubcommand::Vendor => exit_with_message(
-      "⚠️  `deno vendor` was removed in Deno 2.\n\nSee the Deno 1.x to 2.x Migration Guide for migration instructions: https://docs.deno.com/runtime/manual/advanced/migrate_deprecations",
-      1,
-    ),
-    DenoSubcommand::Publish(publish_flags) => spawn_subcommand(async {
-      tools::publish::publish(flags, publish_flags).await
-    }),
-    DenoSubcommand::Help(help_flags) => spawn_subcommand(async move {
-      use std::io::Write;
-
-      let mut stream = anstream::AutoStream::new(
-        std::io::stdout(),
-        if colors::use_color() {
-          anstream::ColorChoice::Auto
-        } else {
-          anstream::ColorChoice::Never
-        },
-      );
-
-      match stream.write_all(help_flags.help.ansi().to_string().as_bytes()) {
-        Ok(()) => Ok(()),
-        Err(e) => match e.kind() {
-          std::io::ErrorKind::BrokenPipe => Ok(()),
-          _ => Err(e),
-        },
-      }
-    }),
   };
 
   handle.await?
 }
 
-/// Determines whether a error encountered during `deno run`
-/// should trigger fallback behavior, such as attempting to run a Deno task
-/// with the same name.
-///
-/// Checks if the error message indicates a "module not found",
-/// "unsupported scheme", or certain OS-level import failures (such as
-/// "Is a directory" or "Access is denied"); if so, Deno will attempt to
-/// interpret the original argument as a script name or task instead of a
-/// file path.
-///
-/// See: https://github.com/denoland/deno/issues/28878
-fn should_fallback_on_run_error(script_err: &str) -> bool {
-  if script_err.starts_with(MODULE_NOT_FOUND) || script_err.starts_with(UNSUPPORTED_SCHEME) {
-    return true;
-  }
-  let re = lazy_regex::regex!(r"Import 'file:///.+?' failed\.\n\s+0: .+ \(os error \d+\)");
-  re.is_match(script_err)
-}
-
 #[allow(clippy::print_stderr)]
 fn setup_panic_hook() {
-  // This function does two things inside of the panic hook:
-  // - Tokio does not exit the process when a task panics, so we define a custom panic hook to
-  //   implement this behaviour.
-  // - We print a message to stderr to indicate that this is a bug in Deno, and should be reported
-  //   to us.
   let orig_hook = std::panic::take_hook();
   std::panic::set_hook(Box::new(move |panic_info| {
-    eprintln!("\n============================================================");
-    eprintln!("Deno has panicked. This is a bug in Deno. Please report this");
-    eprintln!("at https://github.com/denoland/deno/issues/new.");
-    eprintln!("If you can reliably reproduce this panic, include the");
-    eprintln!("reproduction steps and re-run with the RUST_BACKTRACE=1 env");
-    eprintln!("var set and include the backtrace in your report.");
-    eprintln!();
-    eprintln!("Platform: {} {}", env::consts::OS, env::consts::ARCH);
-    eprintln!("Version: {}", deno_lib::version::DENO_VERSION_INFO.deno);
-    eprintln!("Args: {:?}", env::args().collect::<Vec<_>>());
-    eprintln!();
-
-    // Panic traces are not supported for custom/development builds.
-    #[cfg(feature = "panic-trace")]
-    {
-      let info = &deno_lib::version::DENO_VERSION_INFO;
-      let version = if info.release_channel == deno_lib::shared::ReleaseChannel::Canary {
-        format!("{}+{}", deno_lib::version::DENO_VERSION, info.git_hash)
-      } else {
-        info.deno.to_string()
-      };
-
-      let trace = deno_panic::trace();
-      eprintln!("View stack trace at:");
-      eprintln!(
-        "https://panic.deno.com/v{}/{}/{}",
-        version,
-        env!("TARGET"),
-        trace
-      );
-    }
-
+    eprintln!("\nDeno runtime panicked");
     orig_hook(panic_info);
     deno_runtime::exit(1);
   }));
-
-  fn error_handler(file: &str, line: i32, message: &str) {
-    // Override C++ abort with a rust panic, so we
-    // get our message above and a nice backtrace.
-    panic!("Fatal error in {file}:{line}: {message}");
-  }
-
-  deno_core::v8::V8::set_fatal_error_handler(error_handler);
 }
 
 fn exit_with_message(message: &str, code: i32) -> ! {
@@ -600,840 +169,8 @@ fn maybe_setup_permission_broker() {
   deno_runtime::deno_permissions::broker::set_broker(broker);
 }
 
-// Edge Runtime architecture implementation directly in main.rs
-use std::net::SocketAddr;
-
-use deno_core::ModuleSpecifier;
-use tokio::{
-  sync::mpsc,
-  time::{Duration, MissedTickBehavior, sleep},
-};
+use tokio::time::{Duration, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
-
-// Server configuration similar to edge-runtime ServerFlags
-#[derive(Debug, Clone)]
-struct EdgeServerFlags {
-  no_module_cache: bool,
-  graceful_exit_deadline_sec: u64,
-  tcp_nodelay: bool,
-  request_wait_timeout_ms: Option<u64>,
-}
-
-impl Default for EdgeServerFlags {
-  fn default() -> Self {
-    Self {
-      no_module_cache: false,
-      graceful_exit_deadline_sec: 10,
-      tcp_nodelay: true,
-      request_wait_timeout_ms: Some(30000),
-    }
-  }
-}
-
-// Worker supervisor policy similar to edge-runtime
-#[derive(Debug, Clone, Copy)]
-enum EdgeSupervisorPolicy {
-  PerWorker,
-  PerRequest { oneshot: bool },
-}
-
-impl Default for EdgeSupervisorPolicy {
-  fn default() -> Self {
-    Self::PerWorker
-  }
-}
-
-// Worker pool policy
-#[derive(Debug, Clone)]
-struct EdgeWorkerPoolPolicy {
-  supervisor_policy: EdgeSupervisorPolicy,
-  max_parallelism: usize,
-  request_wait_timeout_ms: u64,
-}
-
-impl Default for EdgeWorkerPoolPolicy {
-  fn default() -> Self {
-    Self {
-      supervisor_policy: EdgeSupervisorPolicy::default(),
-      max_parallelism: std::thread::available_parallelism().unwrap().get(),
-      request_wait_timeout_ms: 30000,
-    }
-  }
-}
-
-// Request message similar to edge-runtime WorkerRequestMsg
-#[derive(Debug)]
-struct EdgeWorkerRequestMsg {
-  req: String, // Simplified HTTP request as string
-  res_tx: tokio::sync::oneshot::Sender<Result<String, deno_core::anyhow::Error>>,
-  conn_token: Option<CancellationToken>,
-}
-
-// Worker context initialization options
-#[derive(Debug, Clone)]
-struct EdgeWorkerContextInitOpts {
-  service_path: PathBuf,
-  no_module_cache: bool,
-  env_vars: HashMap<String, String>,
-}
-
-// Termination token for graceful shutdown
-#[derive(Clone)]
-struct EdgeTerminationToken {
-  cancel: CancellationToken,
-}
-
-impl EdgeTerminationToken {
-  fn new() -> Self {
-    Self {
-      cancel: CancellationToken::new(),
-    }
-  }
-
-  async fn cancel_and_wait(&self) {
-    self.cancel.cancel();
-    sleep(Duration::from_millis(100)).await;
-  }
-}
-
-// Worker surface similar to edge-runtime MainWorkerSurface
-struct EdgeMainWorkerSurface {
-  msg_tx: mpsc::UnboundedSender<EdgeWorkerRequestMsg>,
-  cancel: CancellationToken,
-  worker_handle: tokio::task::JoinHandle<Result<(), deno_core::anyhow::Error>>,
-}
-
-impl EdgeMainWorkerSurface {
-  async fn new(
-    init_opts: EdgeWorkerContextInitOpts,
-    flags: Arc<EdgeServerFlags>,
-    termination_token: EdgeTerminationToken,
-  ) -> Result<Self, deno_core::anyhow::Error> {
-    let (msg_tx, msg_rx) = mpsc::unbounded_channel::<EdgeWorkerRequestMsg>();
-    let cancel = termination_token.cancel.clone();
-
-    // Spawn the main worker task similar to edge-runtime Worker::start
-    let worker_handle =
-      tokio::task::spawn_local(Self::worker_task(init_opts, flags, msg_rx, cancel.clone()));
-
-    Ok(Self {
-      msg_tx,
-      cancel,
-      worker_handle,
-    })
-  }
-
-  async fn worker_task(
-    init_opts: EdgeWorkerContextInitOpts,
-    _flags: Arc<EdgeServerFlags>,
-    mut msg_rx: mpsc::UnboundedReceiver<EdgeWorkerRequestMsg>,
-    cancel_token: CancellationToken,
-  ) -> Result<(), deno_core::anyhow::Error> {
-    println!("Starting main worker for: {:?}", init_opts.service_path);
-
-    // Create minimal flags for worker with JSR/NPM support and default permissions
-    let mut flags = crate::args::Flags::default();
-
-    if init_opts.no_module_cache {
-      println!("🧰 Module cache is disabled for this worker run");
-    }
-    if !init_opts.env_vars.is_empty() {
-      println!(
-        "🌱 Propagating {} environment variables into the worker runtime",
-        init_opts.env_vars.len()
-      );
-    }
-
-    // Set default permissions - allow all for embedded runtime
-    flags.permissions.allow_all = true;
-    flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all  
-    flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_ffi = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_sys = Some(vec![]); // Empty vec means allow all
-
-    flags.subcommand = crate::args::DenoSubcommand::Run(crate::args::RunFlags {
-      script: init_opts.service_path.to_string_lossy().to_string(),
-      ..Default::default()
-    });
-
-    // Create factory with full Deno capabilities
-    let factory = CliFactory::from_flags(Arc::new(flags.clone()));
-    let worker_factory = factory.create_cli_main_worker_factory().await?;
-
-    // Create and run the module if it exists
-    if init_opts.service_path.exists() {
-      let module_specifier = ModuleSpecifier::from_file_path(&init_opts.service_path)
-        .map_err(|_| deno_core::anyhow::Error::msg("Invalid service path"))?;
-
-      println!("Loading module: {}", module_specifier);
-
-      // Create worker and execute the module
-      let cli_worker = worker_factory
-        .create_main_worker(
-          deno_runtime::WorkerExecutionMode::Run,
-          module_specifier.clone(),
-          vec![], // preload_modules
-        )
-        .await
-        .map_err(|e| deno_core::anyhow::Error::msg(format!("Failed to create worker: {e:?}")))?;
-
-      // Convert to MainWorker to access the methods
-      let mut worker = cli_worker.into_main_worker();
-
-      #[cfg(unix)]
-      {
-        use crate::deno_tokio_process::DenoTokioProcess;
-
-        let (unix_stream, _peer) = tokio::net::UnixStream::pair().map_err(|err| {
-          deno_core::anyhow::Error::msg(format!(
-            "Failed to create unix stream for deno tokio process: {err:?}"
-          ))
-        })?;
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        let process = DenoTokioProcess::new(&mut worker, module_specifier.clone(), None);
-        process.run(unix_stream, shutdown_tx).await?;
-        let _ = shutdown_rx.await;
-      }
-
-      #[cfg(not(unix))]
-      {
-        worker.execute_main_module(&module_specifier).await?;
-        worker.dispatch_load_event()?;
-        worker.run_event_loop(false).await?;
-      }
-
-      println!("✅ Module loaded and executed successfully!");
-      println!("Worker ready to handle requests...");
-
-      // Main worker loop with tokio::select! for handling async messages
-      // This loop handles:
-      // 1. Incoming request messages from the channel
-      // 2. Cancellation signals for graceful shutdown
-      // 3. Event loop processing to keep the worker alive
-      let mut request_count = 0u64;
-      let worker_start_time = std::time::Instant::now();
-
-      loop {
-        tokio::select! {
-            // Handle incoming request messages
-            msg = msg_rx.recv() => {
-                match msg {
-                    Some(EdgeWorkerRequestMsg { req, res_tx, conn_token }) => {
-                        request_count += 1;
-                        println!("📨 Main worker processing request #{}: {}", request_count, req);
-
-                        // Check if connection is cancelled
-                        if let Some(ref token) = conn_token {
-                            if token.is_cancelled() {
-                                println!("⚠️  Request #{} cancelled before processing", request_count);
-                                let _ = res_tx.send(Err(deno_core::anyhow::Error::msg("Request cancelled")));
-                                continue;
-                            }
-                        }
-
-                        // Execute request using the worker's JS runtime with timeout
-                        let request_start = std::time::Instant::now();
-                        let result = tokio::time::timeout(
-                            Duration::from_secs(30),
-                            Self::handle_request_with_worker(&mut worker, &req)
-                        ).await;
-
-                        let request_duration = request_start.elapsed();
-
-                        match result {
-                            Ok(Ok(response)) => {
-                                println!("✅ Worker processed request #{} successfully in {:?}", request_count, request_duration);
-                                let _ = res_tx.send(Ok(response));
-                            }
-                            Ok(Err(e)) => {
-                                println!("❌ Worker request #{} failed: {:?}", request_count, e);
-                                let _ = res_tx.send(Err(e));
-                            }
-                            Err(_) => {
-                                println!("⏱️  Worker request #{} timed out after {:?}", request_count, request_duration);
-                                let _ = res_tx.send(Err(deno_core::anyhow::Error::msg("Request timeout")));
-                            }
-                        }
-                    }
-                    None => {
-                        println!("📪 Main worker message channel closed");
-                        println!("📊 Total requests processed: {}", request_count);
-                        println!("⏱️  Total runtime: {:?}", worker_start_time.elapsed());
-                        break;
-                    }
-                }
-            }
-
-            // Handle cancellation signal for graceful shutdown
-            _ = cancel_token.cancelled() => {
-                println!("🛑 Main worker received cancellation signal");
-                println!("📊 Statistics:");
-                println!("   - Requests processed: {}", request_count);
-                println!("   - Uptime: {:?}", worker_start_time.elapsed());
-
-                // Dispatch unload event before shutdown
-                if let Err(e) = worker.dispatch_unload_event() {
-                    println!("⚠️  Error dispatching unload event: {:?}", e);
-                }
-
-                println!("🔄 Worker shutting down gracefully...");
-                break;
-            }
-
-            // Periodic event loop processing to handle pending promises and timers
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                // Run the event loop periodically to process any pending JS promises/timers
-                if let Err(e) = worker.run_event_loop(false).await {
-                    println!("⚠️  Event loop error: {:?}", e);
-                    // Don't break on event loop errors, just log them
-                }
-            }
-        }
-      }
-    } else {
-      println!("Service path does not exist: {:?}", init_opts.service_path);
-      return Err(deno_core::anyhow::Error::msg("Service path does not exist"));
-    }
-
-    println!("Main worker finished");
-    Ok(())
-  }
-
-  async fn handle_request_with_worker(
-    worker: &mut deno_runtime::worker::MainWorker,
-    request: &str,
-  ) -> Result<String, deno_core::anyhow::Error> {
-    // Execute the request handler in JS using the worker's runtime
-    let script = format!(
-      r#"
-                (() => {{
-                    try {{
-                        if (typeof globalThis.handleRequest === 'function') {{
-                            const result = globalThis.handleRequest({});
-                            return JSON.stringify(result);
-                        }} else {{
-                            return `No handleRequest function found - processed: {}`;
-                        }}
-                    }} catch (e) {{
-                        return `Error: ${{e.message}}`;
-                    }}
-                }})()
-            "#,
-      serde_json::to_string(request).unwrap(),
-      serde_json::to_string(request).unwrap()
-    );
-
-    // Use the worker's js_runtime field directly
-    let _result = worker
-      .js_runtime
-      .execute_script("handle_request", deno_core::FastString::from(script))?;
-    worker.run_event_loop(false).await?;
-
-    // Use eval_script pattern instead of trying to extract from v8::Global
-    // This is a simplified approach that just returns a status message
-    Ok(format!(
-      "Request '{}' processed successfully by worker",
-      request
-    ))
-  }
-}
-
-// Server similar to edge-runtime Server
-struct EdgeServer {
-  addr: SocketAddr,
-  main_worker_surface: EdgeMainWorkerSurface,
-  termination_tokens: EdgeTerminationTokens,
-  flags: Arc<EdgeServerFlags>,
-  user_worker_policy: Option<EdgeWorkerPoolPolicy>,
-  listener_cancel: CancellationToken,
-}
-
-// Termination tokens for different components
-#[derive(Clone)]
-struct EdgeTerminationTokens {
-  main: EdgeTerminationToken,
-  pool: EdgeTerminationToken,
-}
-
-impl EdgeTerminationTokens {
-  fn new() -> Self {
-    Self {
-      main: EdgeTerminationToken::new(),
-      pool: EdgeTerminationToken::new(),
-    }
-  }
-
-  async fn terminate(&self) {
-    self.pool.cancel_and_wait().await;
-    self.main.cancel_and_wait().await;
-  }
-}
-
-// Builder similar to edge-runtime Builder
-struct EdgeBuilder {
-  addr: SocketAddr,
-  main_service_path: PathBuf,
-  flags: EdgeServerFlags,
-  user_worker_policy: Option<EdgeWorkerPoolPolicy>,
-}
-
-impl EdgeBuilder {
-  fn new(addr: SocketAddr, main_service_path: &PathBuf) -> Self {
-    Self {
-      addr,
-      main_service_path: main_service_path.clone(),
-      flags: EdgeServerFlags::default(),
-      user_worker_policy: None,
-    }
-  }
-
-  fn user_worker_policy(&mut self, policy: EdgeWorkerPoolPolicy) -> &mut Self {
-    self.user_worker_policy = Some(policy);
-    self
-  }
-
-  fn flags_mut(&mut self) -> &mut EdgeServerFlags {
-    &mut self.flags
-  }
-
-  async fn build(self) -> Result<EdgeServer, deno_core::anyhow::Error> {
-    let mut flags = self.flags;
-    if let Some(policy) = &self.user_worker_policy {
-      if flags.request_wait_timeout_ms.is_none() {
-        flags.request_wait_timeout_ms = Some(policy.request_wait_timeout_ms);
-      }
-    }
-    let flags = Arc::new(flags);
-    let termination_tokens = EdgeTerminationTokens::new();
-    let listener_cancel = CancellationToken::new();
-
-    // Create worker context init options
-    let init_opts = EdgeWorkerContextInitOpts {
-      service_path: self.main_service_path,
-      no_module_cache: flags.no_module_cache,
-      env_vars: std::env::vars().collect(),
-    };
-
-    // Create main worker surface
-    let main_worker_surface =
-      EdgeMainWorkerSurface::new(init_opts, flags.clone(), termination_tokens.main.clone()).await?;
-
-    Ok(EdgeServer {
-      addr: self.addr,
-      main_worker_surface,
-      termination_tokens,
-      flags,
-      user_worker_policy: self.user_worker_policy,
-      listener_cancel,
-    })
-  }
-}
-
-impl EdgeServer {
-  async fn terminate(&self) {
-    self.listener_cancel.cancel();
-    self.main_worker_surface.cancel.cancel();
-    self.termination_tokens.terminate().await;
-  }
-
-  fn listener_cancel_token(&self) -> CancellationToken {
-    self.listener_cancel.clone()
-  }
-
-  async fn listen(&mut self) -> Result<(), deno_core::anyhow::Error> {
-    println!("🚀 Edge runtime listening on: {}", self.addr);
-
-    if self.flags.tcp_nodelay {
-      println!("🛠️ TCP_NODELAY enabled for listener sockets");
-    }
-
-    if let Some(policy) = &self.user_worker_policy {
-      let supervisor = match policy.supervisor_policy {
-        EdgeSupervisorPolicy::PerWorker => "per-worker",
-        EdgeSupervisorPolicy::PerRequest { oneshot } => {
-          if oneshot {
-            "per-request (oneshot)"
-          } else {
-            "per-request"
-          }
-        }
-      };
-      println!(
-        "👥 Worker pool policy: supervisor={}, max_parallelism={}",
-        supervisor, policy.max_parallelism
-      );
-    }
-
-    let health_check_timeout = self
-      .flags
-      .request_wait_timeout_ms
-      .or_else(|| {
-        self
-          .user_worker_policy
-          .as_ref()
-          .map(|policy| policy.request_wait_timeout_ms)
-      })
-      .map(Duration::from_millis)
-      .unwrap_or_else(|| Duration::from_secs(10));
-
-    // Give worker time to initialize
-    sleep(Duration::from_millis(1000)).await;
-
-    // Check if worker is still running
-    if self.main_worker_surface.worker_handle.is_finished() {
-      println!("⚠️  WARNING: Worker task has already finished!");
-      println!("   This indicates the worker panicked or exited early during initialization.");
-      return Err(deno_core::anyhow::Error::msg("Worker failed to initialize"));
-    } else {
-      println!("✅ Worker task is running and ready");
-      println!("💡 Press Ctrl+C to gracefully shutdown");
-      println!("🔄 Server running in background mode...\n");
-    }
-
-    // Create a cancellation token for this listener
-    let listener_cancel = self.listener_cancel.clone();
-    let listener_cancel_clone = listener_cancel.clone();
-
-    // Spawn a task to handle Ctrl+C for graceful shutdown
-    tokio::task::spawn_local(async move {
-      match tokio::signal::ctrl_c().await {
-        Ok(()) => {
-          println!("\n🛑 Received Ctrl+C, initiating graceful shutdown...");
-          listener_cancel_clone.cancel();
-        }
-        Err(err) => {
-          eprintln!("⚠️  Error listening for Ctrl+C: {}", err);
-        }
-      }
-    });
-
-    // Main server loop - keeps running in background until cancelled
-    let mut request_num = 0u64;
-    let server_start = std::time::Instant::now();
-    let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(30));
-
-    // Skip first tick (immediate)
-    heartbeat_interval.tick().await;
-
-    loop {
-      tokio::select! {
-        // Periodic heartbeat to show the server is alive
-        _ = heartbeat_interval.tick() => {
-          println!("💓 Heartbeat - Uptime: {:?}, Requests handled: {}",
-            server_start.elapsed(), request_num);
-        }
-
-        // Handle cancellation (Ctrl+C)
-        _ = listener_cancel.cancelled() => {
-          println!("\n📊 Server Statistics:");
-          println!("   - Total requests processed: {}", request_num);
-          println!("   - Total uptime: {:?}", server_start.elapsed());
-          println!("� Initiating graceful shutdown...");
-          break;
-        }
-
-        // Check if worker crashed
-        _ = async {
-          if self.main_worker_surface.worker_handle.is_finished() {
-            Some(())
-          } else {
-            None::<()>
-          }
-        }, if self.main_worker_surface.worker_handle.is_finished() => {
-          println!("❌ Worker task has terminated unexpectedly!");
-          break;
-        }
-
-        // Optional: Send periodic health check requests (comment out for production)
-        // In production, replace this with actual network listener: listener.accept().await
-        _ = tokio::time::sleep(Duration::from_secs(120)) => {
-          request_num += 1;
-          let request = format!("Health check #{} at {:?}", request_num, server_start.elapsed());
-
-          let (res_tx, res_rx) = tokio::sync::oneshot::channel();
-          let worker_msg = EdgeWorkerRequestMsg {
-            req: request.clone(),
-            res_tx,
-            conn_token: None,
-          };
-
-          if let Err(e) = self.main_worker_surface.msg_tx.send(worker_msg) {
-            println!("⚠️  Failed to send health check: {}", e);
-          } else {
-            // Don't block on response, spawn a task to handle it
-            tokio::task::spawn_local(async move {
-              match tokio::time::timeout(health_check_timeout, res_rx).await {
-                Ok(Ok(Ok(_))) => {
-                  // Health check passed
-                }
-                Ok(Ok(Err(e))) => println!("⚠️  Health check failed: {}", e),
-                Ok(Err(_)) => println!("⚠️  Health check channel closed"),
-                Err(_) => println!("⚠️  Health check timeout"),
-              }
-            });
-          }
-        }
-      }
-    }
-
-    println!("🛑 Server stopped");
-    Ok(())
-  }
-}
-
-// Demo function using edge-runtime architecture
-fn demo_edge_runtime() -> Result<(), deno_core::anyhow::Error> {
-  println!("Starting Edge Runtime Demo with real architecture...");
-
-  // Create Tokio runtime similar to edge-runtime CLI
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .thread_name("edge-main")
-    .build()
-    .unwrap();
-
-  let local = tokio::task::LocalSet::new();
-
-  local.block_on(&runtime, async {
-    use std::net::IpAddr;
-
-    // Setup similar to edge-runtime CLI
-    let addr = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 9999);
-    let main_service_path = PathBuf::from("./simple_main.ts");
-
-    // Create server builder
-    let mut builder = EdgeBuilder::new(addr, &main_service_path);
-
-    // Configure worker pool policy
-    builder.user_worker_policy(EdgeWorkerPoolPolicy {
-      supervisor_policy: EdgeSupervisorPolicy::PerRequest { oneshot: false },
-      max_parallelism: 2,
-      request_wait_timeout_ms: 30000,
-    });
-
-    // Configure server flags
-    builder.flags_mut().no_module_cache = false;
-    builder.flags_mut().graceful_exit_deadline_sec = 10;
-
-    // Build and start server
-    let server = builder.build().await?;
-    println!("Edge runtime server created, starting to listen...");
-
-    let server_cell = Rc::new(RefCell::new(Some(server)));
-
-    // Capture cancellation and termination handles before moving the server
-    let listener_cancel = {
-      let server_ref = server_cell.borrow();
-      server_ref.as_ref().unwrap().listener_cancel_token()
-    };
-    let termination_tokens = {
-      let server_ref = server_cell.borrow();
-      server_ref.as_ref().unwrap().termination_tokens.clone()
-    };
-
-    let (exit_tx, mut exit_rx) = tokio::sync::oneshot::channel::<()>();
-    let server_task_cell = Rc::clone(&server_cell);
-
-    let listen_handle = tokio::task::spawn_local(async move {
-      let mut server_instance = {
-        let mut cell = server_task_cell.borrow_mut();
-        cell.take().expect("Edge runtime server is already running")
-      };
-
-      let result = server_instance.listen().await;
-
-      {
-        let mut cell = server_task_cell.borrow_mut();
-        cell.replace(server_instance);
-      }
-
-      let _ = exit_tx.send(());
-      result
-    });
-
-    println!("Edge runtime daemon is running. Press Ctrl+C to stop.\n");
-
-    enum ShutdownReason {
-      CtrlC,
-      ServerExited,
-      ChannelClosed,
-    }
-
-    let shutdown_reason = tokio::select! {
-      res = &mut exit_rx => match res {
-        Ok(()) => ShutdownReason::ServerExited,
-        Err(_) => ShutdownReason::ChannelClosed,
-      },
-      _ = tokio::signal::ctrl_c() => ShutdownReason::CtrlC,
-    };
-
-    if matches!(shutdown_reason, ShutdownReason::CtrlC) {
-      println!("\n🛑 Received Ctrl+C, initiating graceful shutdown...");
-      listener_cancel.cancel();
-      termination_tokens.terminate().await;
-    }
-
-    let listen_result = listen_handle.await;
-
-    match (shutdown_reason, listen_result) {
-      (ShutdownReason::CtrlC, Ok(Ok(()))) => {
-        println!("Edge runtime daemon stopped gracefully.");
-      }
-      (ShutdownReason::CtrlC, Ok(Err(err))) => {
-        println!("Edge runtime daemon exited with error: {}", err);
-        return Err(err);
-      }
-      (ShutdownReason::CtrlC, Err(join_err)) => {
-        return Err(AnyError::from(join_err));
-      }
-      (ShutdownReason::ServerExited, Ok(Ok(()))) => {
-        println!("⚠️  Edge runtime daemon stopped without an external shutdown signal.");
-      }
-      (ShutdownReason::ServerExited, Ok(Err(err))) => {
-        println!("❌ Edge runtime daemon failed: {}", err);
-        return Err(err);
-      }
-      (ShutdownReason::ServerExited, Err(join_err)) => {
-        return Err(AnyError::from(join_err));
-      }
-      (ShutdownReason::ChannelClosed, Ok(Ok(()))) => {
-        println!("⚠️  Edge runtime daemon exit channel closed unexpectedly.");
-      }
-      (ShutdownReason::ChannelClosed, Ok(Err(err))) => {
-        println!(
-          "❌ Edge runtime daemon encountered an error after channel closed: {}",
-          err
-        );
-        return Err(err);
-      }
-      (ShutdownReason::ChannelClosed, Err(join_err)) => {
-        println!(
-          "❌ Edge runtime daemon join error after channel closed: {}",
-          join_err
-        );
-        return Err(AnyError::from(join_err));
-      }
-    }
-
-    if let Some(server) = server_cell.borrow_mut().take() {
-      server.terminate().await;
-    }
-
-    println!("Edge runtime demo finished");
-    Ok(())
-  })
-}
-
-pub fn main() {
-  #[cfg(feature = "dhat-heap")]
-  let profiler = dhat::Profiler::new_heap();
-
-  setup_panic_hook();
-
-  init_logging(None, None);
-
-  util::unix::raise_fd_limit();
-  util::windows::ensure_stdio_open();
-  #[cfg(windows)]
-  {
-    deno_subprocess_windows::disable_stdio_inheritance();
-    colors::enable_ansi(); // For Windows 10
-  }
-  deno_runtime::deno_permissions::prompter::set_prompt_callbacks(
-    Box::new(util::draw_thread::DrawThread::hide),
-    Box::new(util::draw_thread::DrawThread::show),
-  );
-
-  maybe_setup_permission_broker();
-
-  rustls::crypto::aws_lc_rs::default_provider()
-    .install_default()
-    .unwrap();
-
-  let (args, mut daemon_mode) = filter_daemon_args(env::args_os().collect());
-
-  if env::var_os("EMBED_DENO_DISABLE_DAEMON").is_some() {
-    daemon_mode = DaemonMode::Disabled;
-  } else if env::var_os("EMBED_DENO_ENABLE_DAEMON").is_some() {
-    daemon_mode = DaemonMode::Enabled;
-  }
-
-  let args_vec: Vec<String> = args
-    .iter()
-    .map(|arg| arg.to_string_lossy().to_string())
-    .collect();
-  let should_run_demo = args_vec.len() == 1 || args_vec.iter().any(|arg| arg == "--edge-demo");
-
-  let future_args = args.clone();
-  let future = async move {
-    let args = future_args;
-    let roots = LibWorkerFactoryRoots::default();
-
-    #[cfg(unix)]
-    let (waited_unconfigured_runtime, waited_args) = match wait_for_start(&args, roots.clone()) {
-      Some(f) => match f.await {
-        Ok(v) => match v {
-          Some((u, a)) => (Some(u), Some(a)),
-          None => (None, None),
-        },
-        Err(e) => {
-          panic!("Failure from control sock: {e}");
-        }
-      },
-      None => (None, None),
-    };
-
-    #[cfg(not(unix))]
-    let (waited_unconfigured_runtime, waited_args) = (None, None);
-
-    let args = waited_args.unwrap_or(args);
-
-    // NOTE(lucacasonato): due to new PKU feature introduced in V8 11.6 we need to
-    // initialize the V8 platform on a parent thread of all threads that will spawn
-    // V8 isolates.
-    let flags = resolve_flags_and_init(args).await?;
-
-    if waited_unconfigured_runtime.is_none() {
-      init_v8(&flags);
-    }
-
-    run_subcommand(Arc::new(flags), waited_unconfigured_runtime, roots).await
-  };
-
-  if should_run_demo {
-    match demo_edge_runtime() {
-      Ok(()) => {
-        println!("Edge runtime demo completed successfully");
-        return;
-      }
-      Err(e) => {
-        println!("Edge runtime demo failed: {}", e);
-        std::process::exit(1);
-      }
-    }
-  } else {
-    // Run normal Deno CLI when not running demo
-    let result = create_and_run_current_thread_with_maybe_metrics(future);
-
-    #[cfg(feature = "dhat-heap")]
-    drop(profiler);
-
-    match result {
-      Ok(exit_code) => {
-        if daemon_mode.is_enabled() && exit_code == 0 {
-          println!("Deno task completed successfully. Entering daemon mode; press Ctrl+C to stop.");
-          run_daemon_mode(exit_code);
-        } else {
-          deno_runtime::exit(exit_code);
-        }
-      }
-      Err(err) => exit_for_error(err),
-    }
-  }
-}
 
 fn run_daemon_mode(exit_code: i32) -> ! {
   let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1483,6 +220,86 @@ fn run_daemon_mode(exit_code: i32) -> ! {
   deno_runtime::exit(exit_code);
 }
 
+pub fn main() {
+  #[cfg(feature = "dhat-heap")]
+  let profiler = dhat::Profiler::new_heap();
+
+  setup_panic_hook();
+
+  init_logging(None, None);
+
+  util::unix::raise_fd_limit();
+  util::windows::ensure_stdio_open();
+  #[cfg(windows)]
+  {
+    deno_subprocess_windows::disable_stdio_inheritance();
+    colors::enable_ansi(); // For Windows 10
+  }
+  deno_runtime::deno_permissions::prompter::set_prompt_callbacks(
+    Box::new(util::draw_thread::DrawThread::hide),
+    Box::new(util::draw_thread::DrawThread::show),
+  );
+
+  maybe_setup_permission_broker();
+
+  rustls::crypto::aws_lc_rs::default_provider()
+    .install_default()
+    .unwrap();
+
+  let args: Vec<OsString> = env::args_os().collect();
+
+  let future = async move {
+    let roots = LibWorkerFactoryRoots::default();
+
+    #[cfg(unix)]
+    let (waited_unconfigured_runtime, waited_args) = match wait_for_start(&args, roots.clone()) {
+      Some(f) => match f.await {
+        Ok(v) => match v {
+          Some((u, a)) => (Some(u), Some(a)),
+          None => (None, None),
+        },
+        Err(e) => {
+          panic!("Failure from control sock: {e}");
+        }
+      },
+      None => (None, None),
+    };
+
+    #[cfg(not(unix))]
+    let (waited_unconfigured_runtime, waited_args) = (None, None);
+
+    let args = waited_args.unwrap_or(args);
+
+    // NOTE(lucacasonato): due to new PKU feature introduced in V8 11.6 we need to
+    // initialize the V8 platform on a parent thread of all threads that will spawn
+    // V8 isolates.
+    let flags = resolve_flags_and_init(args).await?;
+
+    if waited_unconfigured_runtime.is_none() {
+      init_v8(&flags);
+    }
+
+    run_subcommand(Arc::new(flags), waited_unconfigured_runtime, roots).await
+  };
+
+  let result = create_and_run_current_thread_with_maybe_metrics(future);
+
+  #[cfg(feature = "dhat-heap")]
+  drop(profiler);
+
+  match result {
+    Ok(exit_code) => {
+      if exit_code == 0 {
+        println!("Deno script completed. Running in background mode...");
+        run_daemon_mode(exit_code);
+      } else {
+        deno_runtime::exit(exit_code);
+      }
+    }
+    Err(err) => exit_for_error(err),
+  }
+}
+
 async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, AnyError> {
   let mut flags = match flags_from_vec(args) {
     Ok(flags) => flags,
@@ -1521,26 +338,6 @@ async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, 
     .map(|files| files.iter().map(PathBuf::from).collect());
   load_env_variables_from_env_files(env_file_paths.as_ref(), flags.log_level);
 
-  if deno_lib::args::has_flag_env_var("DENO_CONNECTED")
-    && matches!(
-      flags.subcommand,
-      DenoSubcommand::Run { .. } | DenoSubcommand::Serve { .. } | DenoSubcommand::Task { .. }
-    )
-  {
-    flags.tunnel = true;
-  }
-
-  // Tunnel sets up env vars and OTEL, so connect before everything else.
-  if flags.tunnel {
-    if let Err(err) = initialize_tunnel(&flags).await {
-      exit_for_error(err.context("Failed to start with tunnel"));
-    }
-    // SAFETY: We're doing this before any threads are created.
-    unsafe {
-      std::env::set_var("DENO_CONNECTED", "1");
-    }
-  }
-
   flags.unstable_config.fill_with_env();
   if std::env::var("DENO_COMPAT").is_ok() {
     flags.unstable_config.enable_node_compat();
@@ -1561,45 +358,11 @@ async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, 
     otel_config.clone(),
   )?;
 
-  if flags.permission_set.is_some() {
-    log::warn!(
-      "{} Permissions in the config file is an experimental feature and may change in the future.",
-      colors::yellow("Warning")
-    );
-  }
-
-  // TODO(bartlomieju): remove in Deno v2.5 and hard error then.
-  if flags.unstable_config.legacy_flag_enabled {
-    log::warn!(
-      "{} The `--unstable` flag has been removed in Deno 2.0. Use granular `--unstable-*` flags instead.\nLearn more at: https://docs.deno.com/runtime/manual/tools/unstable_flags",
-      colors::yellow("Warning")
-    );
-  }
-
-  if let Ok(audit_path) = std::env::var("DENO_AUDIT_PERMISSIONS") {
-    let audit_file = deno_runtime::deno_permissions::AUDIT_FILE.set(
-      deno_core::parking_lot::Mutex::new(std::fs::File::create(audit_path)?),
-    );
-    if audit_file.is_err() {
-      log::warn!("⚠️  {}", colors::yellow("Audit file is already set"));
-    }
-  }
-
   Ok(flags)
 }
 
 fn init_v8(flags: &Flags) {
-  let default_v8_flags = match flags.subcommand {
-    DenoSubcommand::Lsp => vec![
-      "--stack-size=1024".to_string(),
-      "--js-explicit-resource-management".to_string(),
-      // Using same default as VSCode:
-      // https://github.com/microsoft/vscode/blob/48d4ba271686e8072fc6674137415bc80d936bc7/extensions/typescript-language-features/src/configuration/configuration.ts#L213-L214
-      "--max-old-space-size=3072".to_string(),
-    ],
-    _ => get_default_v8_flags(),
-  };
-
+  let default_v8_flags = get_default_v8_flags();
   let env_v8_flags = get_v8_flags_from_env();
   let is_single_threaded = env_v8_flags
     .iter()
@@ -1620,10 +383,6 @@ fn init_logging(maybe_level: Option<log::Level>, otel_config: Option<OtelConfig>
   deno_lib::util::logger::init(deno_lib::util::logger::InitLoggingOptions {
     maybe_level,
     otel_config,
-    // it was considered to hold the draw thread's internal lock
-    // across logging, but if outputting to stderr blocks then that
-    // could potentially block other threads that access the draw
-    // thread's state
     on_log_start: DrawThread::hide,
     on_log_end: DrawThread::show,
   })
@@ -1635,7 +394,9 @@ fn wait_for_start(
   args: &[std::ffi::OsString],
   roots: LibWorkerFactoryRoots,
 ) -> Option<
-  impl Future<Output = Result<Option<(UnconfiguredRuntime, Vec<std::ffi::OsString>)>, AnyError>> + use<>,
+  impl std::future::Future<
+    Output = Result<Option<(UnconfiguredRuntime, Vec<std::ffi::OsString>)>, AnyError>,
+  > + use<>,
 > {
   let startup_snapshot = deno_snapshots::CLI_SNAPSHOT?;
   let addr = std::env::var("DENO_UNSTABLE_CONTROL_SOCK").ok()?;
@@ -1746,194 +507,4 @@ fn wait_for_start(
 
     Ok(Some((unconfigured, args)))
   })
-}
-
-async fn auth_tunnel(env_token: Option<String>) -> Result<String, deno_core::anyhow::Error> {
-  let mut args = vec!["deploy".to_string(), "tunnel-login".to_string()];
-
-  if let Some(token) = &env_token {
-    args.push("--token".to_string());
-    args.push(token.clone());
-  }
-
-  let mut child = tokio::process::Command::new(env::current_exe()?)
-    .args(args)
-    .spawn()?;
-  let out = child.wait().await?;
-
-  if !out.success() {
-    deno_runtime::exit(1);
-  }
-
-  if let Some(token) = env_token {
-    Ok(token)
-  } else {
-    Ok(tools::deploy::get_token_entry()?.get_password()?)
-  }
-}
-
-#[allow(clippy::print_stderr)]
-async fn initialize_tunnel(flags: &Flags) -> Result<(), deno_core::anyhow::Error> {
-  let mut factory = CliFactory::from_flags(Arc::new(flags.clone()));
-  let mut cli_options = factory.cli_options()?;
-  let deploy_config = cli_options.start_dir.to_deploy_config()?;
-
-  let host = std::env::var("DENO_DEPLOY_TUNNEL_ENDPOINT")
-    .unwrap_or_else(|_| "tunnel.global.prod.deno-cluster.net:443".into());
-
-  let env_token = env::var("DENO_DEPLOY_TOKEN").ok();
-  let env_org = env::var("DENO_DEPLOY_ORG").ok();
-  let env_app = env::var("DENO_DEPLOY_APP").ok();
-
-  let token = if env_token.is_some() && env_org.is_some() && env_app.is_some() {
-    env_token.clone().unwrap()
-  } else {
-    auth_tunnel(env_token.clone()).await?
-  };
-
-  let (org, app) = if let (Some(org), Some(app)) = (env_org, env_app) {
-    (org, app)
-  } else {
-    if deploy_config.is_none() {
-      // we regenerate the factory & CliOptions since auth_tunnel updates
-      // the config file with the deploy config, only if it was not set previously.
-      factory = CliFactory::from_flags(Arc::new(flags.clone()));
-      cli_options = factory.cli_options()?;
-    }
-
-    let deploy_config = cli_options
-      .start_dir
-      .to_deploy_config()?
-      .expect("auth to be called");
-
-    (deploy_config.org, deploy_config.app)
-  };
-
-  let Some(addr) = tokio::net::lookup_host(&host).await?.next() else {
-    return Ok(());
-  };
-  let Some((hostname, _)) = host.split_once(':') else {
-    return Ok(());
-  };
-
-  let cert_store_provider = factory.root_cert_store_provider();
-  let root_cert_store = cert_store_provider.get_or_try_init()?.clone();
-
-  let tls_config =
-    deno_runtime::deno_tls::create_client_config(deno_runtime::deno_tls::TlsClientConfigOptions {
-      root_cert_store: Some(root_cert_store),
-      ca_certs: vec![],
-      unsafely_ignore_certificate_errors: None,
-      unsafely_disable_hostname_verification: false,
-      cert_chain_and_key: deno_runtime::deno_tls::TlsKeys::Null,
-      socket_use: deno_runtime::deno_tls::SocketUse::GeneralSsl,
-    })?;
-
-  let mut metadata = HashMap::new();
-  metadata.insert(
-    "hostname".into(),
-    deno_runtime::deno_os::sys_info::hostname(),
-  );
-  match &flags.subcommand {
-    DenoSubcommand::Run(run_flags) => {
-      metadata.insert("subcommand".into(), "run".into());
-      metadata.insert("entrypoint".into(), run_flags.script.clone());
-    }
-    DenoSubcommand::Serve(serve_flags) => {
-      metadata.insert("subcommand".into(), "serve".into());
-      metadata.insert("entrypoint".into(), serve_flags.script.clone());
-    }
-    DenoSubcommand::Task(task_flags) => {
-      metadata.insert("subcommand".into(), "task".into());
-      if let Some(task) = &task_flags.task {
-        metadata.insert("task".into(), task.clone());
-      }
-    }
-    DenoSubcommand::Repl(_) => {
-      metadata.insert("subcommand".into(), "repl".into());
-    }
-    DenoSubcommand::Eval(_) => {
-      metadata.insert("subcommand".into(), "eval".into());
-    }
-    _ => {}
-  }
-
-  let on_event = |event| {
-    use deno_runtime::deno_net::tunnel::Event;
-    match event {
-      Event::Routed(addr) => {
-        let endpoint = if addr.port() == 443 {
-          format!("https://{}", addr.hostname())
-        } else {
-          format!("https://{}:{}", addr.hostname(), addr.port())
-        };
-
-        log::info!(
-          "{}",
-          colors::green(format!("You are connected to {endpoint}"))
-        );
-      }
-      Event::Reconnect(duration, reason) => {
-        let reason = if let Some(reason) = reason {
-          format!(" ({reason})")
-        } else {
-          "".into()
-        };
-        log::info!(
-          "{}",
-          colors::green(format!(
-            "Reconnecting tunnel in {}s...{}",
-            duration.as_secs(),
-            reason
-          ))
-        );
-      }
-      _ => {}
-    }
-  };
-
-  let tunnel = match deno_runtime::deno_net::tunnel::TunnelConnection::connect(
-    addr,
-    hostname.to_owned(),
-    tls_config.clone(),
-    deno_runtime::deno_net::tunnel::Authentication::App {
-      token,
-      org: org.clone(),
-      app: app.clone(),
-    },
-    metadata.clone(),
-    on_event,
-  )
-  .await
-  {
-    Ok(res) => res,
-    Err(deno_runtime::deno_net::tunnel::Error::Unauthorized) => {
-      tools::deploy::get_token_entry()?.delete_credential()?;
-
-      let token = auth_tunnel(env_token).await?;
-      deno_runtime::deno_net::tunnel::TunnelConnection::connect(
-        addr,
-        hostname.to_owned(),
-        tls_config,
-        deno_runtime::deno_net::tunnel::Authentication::App { token, org, app },
-        metadata.clone(),
-        on_event,
-      )
-      .await?
-    }
-    Err(e) => return Err(e.into()),
-  };
-
-  if let Some(metadata) = tunnel.metadata() {
-    for (k, v) in metadata.env {
-      // SAFETY: We're doing this before any threads are created.
-      unsafe {
-        std::env::set_var(k, v);
-      }
-    }
-  }
-
-  deno_runtime::deno_net::tunnel::set_tunnel(tunnel);
-
-  Ok(())
 }
