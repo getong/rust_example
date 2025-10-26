@@ -37,7 +37,7 @@ pub(crate) mod deps;
 mod outdated;
 
 pub use cache_deps::cache_top_level_deps;
-pub use outdated::outdated;
+// pub use outdated::outdated;
 
 #[derive(Debug, Copy, Clone, Hash)]
 enum ConfigKind {
