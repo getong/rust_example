@@ -59,7 +59,7 @@ const UNSUPPORTED_SCHEME: &str = "Unsupported scheme";
 
 use self::util::draw_thread::DrawThread;
 use crate::{
-  args::{DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
+  args::{CompletionsFlags, DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
   util::{
     display,
     v8::{get_v8_flags_from_env, init_v8_flags},
@@ -115,6 +115,9 @@ async fn run_subcommand(
     DenoSubcommand::Add(add_flags) => spawn_subcommand(async {
       tools::pm::add(flags, add_flags, tools::pm::AddCommandName::Add).await
     }),
+    DenoSubcommand::Audit(audit_flags) => {
+      spawn_subcommand(async { tools::pm::audit(flags, audit_flags).await })
+    }
     DenoSubcommand::Remove(remove_flags) => {
       spawn_subcommand(async { tools::pm::remove(flags, remove_flags).await })
     }
@@ -406,7 +409,16 @@ async fn run_subcommand(
     }
     DenoSubcommand::Completions(completions_flags) => {
       spawn_subcommand(async move {
-        display::write_to_stdout_ignore_sigpipe(&completions_flags.buf)
+        match completions_flags {
+          CompletionsFlags::Static(buf) => {
+            display::write_to_stdout_ignore_sigpipe(&buf)
+              .map_err(AnyError::from)
+          }
+          CompletionsFlags::Dynamic(f) => {
+            f()?;
+            Ok(())
+          }
+        }
       })
     }
     DenoSubcommand::Types => spawn_subcommand(async move {
@@ -638,6 +650,13 @@ pub fn main() {
 }
 
 async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, AnyError> {
+  // this env var is used by clap to enable dynamic completions, it's set by the shell when
+  // executing deno to get dynamic completions.
+  if std::env::var("COMPLETE").is_ok() {
+    crate::args::handle_shell_completion()?;
+    deno_runtime::exit(0);
+  }
+
   let mut flags = match flags_from_vec(args) {
     Ok(flags) => flags,
     Err(err @ clap::Error { .. }) if err.kind() == clap::error::ErrorKind::DisplayVersion => {

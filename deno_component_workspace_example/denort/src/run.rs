@@ -10,8 +10,8 @@ use std::{
 use deno_cache_dir::npm::NpmCacheDir;
 use deno_config::workspace::ResolverWorkspaceJsrPackage;
 use deno_core::{
-  FastString, ModuleLoader, ModuleSourceCode, ModuleType, RequestedModuleType, ResolutionKind,
-  SourceCodeCacheInfo,
+  FastString, ModuleLoadReferrer, ModuleLoader, ModuleSourceCode, ModuleType, RequestedModuleType,
+  ResolutionKind, SourceCodeCacheInfo,
   error::{AnyError, ModuleLoaderError},
   futures::{FutureExt, future::LocalBoxFuture},
   url::Url,
@@ -330,7 +330,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
   fn load(
     &self,
     original_specifier: &Url,
-    maybe_referrer: Option<&Url>,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dynamic: bool,
     requested_module_type: RequestedModuleType,
   ) -> deno_core::ModuleLoadResponse {
@@ -357,7 +357,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
     if self.shared.node_resolver.in_npm_package(original_specifier) {
       let shared = self.shared.clone();
       let original_specifier = original_specifier.clone();
-      let maybe_referrer = maybe_referrer.cloned();
+      let maybe_referrer = maybe_referrer.map(|r| r.specifier.clone());
       return deno_core::ModuleLoadResponse::Async(
         async move {
           let code_source = shared

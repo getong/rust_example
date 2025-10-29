@@ -1,6 +1,6 @@
 [package]
 name = "deno"
-version = "2.5.4"
+version = "2.5.5"
 edition = "2024"
 
 [dependencies]
@@ -14,9 +14,9 @@ bytes = "1.10.1"
 bytes-str = "0.2.7"
 capacity_builder = "0.5.0"
 chrono = { version = "0.4.42", features = ["now"] }
-clap = { version = "4.5.48", features = ["env", "string", "wrap_help", "error-context"] }
-clap_complete = "4.5.58"
-clap_complete_fig = "4.5.2"
+clap = { version = "=4.5.47", features = ["env", "string", "wrap_help", "error-context"] }
+clap_complete = { version = "=4.5.57", features = ["unstable-dynamic"] }
+clap_complete_fig = "=4.5.2"
 color-print = "0.3.7"
 console_static_text = "0.8.3"
 crossterm = "0.29.0"
@@ -34,39 +34,40 @@ deno_ast = { version = "0.50.3", features = [
   "visit",
   "utils",
 ] }
-deno_bundle_runtime = "0.6.0"
+deno_bundle_runtime = "0.7.0"
 deno_cache_dir = { version = "=0.25.0", features = ["sync"] }
-deno_config = { version = "0.69.0", features = ["sync", "workspace"] }
-deno_core = { version = "0.362.0", features = [
+deno_config = { version = "0.70.0", features = ["sync", "workspace"] }
+deno_core = { version = "0.363.0", features = [
   "include_js_files_for_snapshotting",
 ] }
-deno_doc = { version = "=0.185.0", features = ["rust", "comrak"] }
+deno_doc = { version = "=0.186.0", features = ["rust", "comrak"] }
 deno_error = "=0.7.0"
-deno_graph = { version = "=0.102.0", default-features = false, features = ["fast_check"] }
-deno_lib = "0.37.0"
+deno_graph = { version = "=0.103.1", default-features = false, features = ["fast_check"] }
+deno_lib = "0.38.0"
 deno_lint = "=0.80.0"
-deno_lockfile = "=0.32.0"
+deno_lockfile = "=0.32.2"
 deno_media_type = { version = "=0.2.9", features = [
   "data_url",
   "decoding",
   "module_specifier",
 ] }
-deno_npm = "=0.40.0"
-deno_npm_cache = "0.38.0"
-deno_npm_installer = "0.14.0"
-deno_package_json = { version = "0.21.0", features = ["sync"] }
+deno_npm = "=0.42.0"
+deno_npm_cache = "0.39.0"
+deno_npm_installer = "0.15.0"
+deno_package_json = { version = "0.22.0", features = ["sync"] }
 deno_panic = { version = "0.1.0", optional = true }
-deno_path_util = "=0.6.1"
-deno_resolver = { version = "0.50.0", features = ["deno_ast", "graph", "sync"] }
-deno_runtime = { version = "0.227.0", features = [
+deno_path_util = "=0.6.3"
+deno_resolver = { version = "0.51.0", features = ["deno_ast", "graph", "sync"] }
+deno_runtime = { version = "0.228.0", features = [
   "include_js_files_for_snapshotting",
 ] }
 deno_semver = "=0.9.0"
-deno_signals = "0.10.0"
-deno_snapshots = "0.34.0"
+deno_signals = "0.11.0"
+deno_snapshots = "0.35.0"
 deno_task_shell = "=0.26.0"
-deno_telemetry = "0.41.0"
+deno_telemetry = "0.42.0"
 deno_terminal = "=0.2.2"
+deno_typescript_go_client_rust = "0.2.0"
 dhat = { version = "0.3.3", optional = true }
 dissimilar = "=1.0.9"
 dotenvy = "0.15.7"
@@ -76,22 +77,22 @@ dprint-plugin-jupyter = "=0.2.0"
 dprint-plugin-markdown = "=0.19.0"
 dprint-plugin-typescript = "=0.95.11"
 esbuild_client = { version = "0.7.1", features = ["serde"] }
-eszip = "=0.102.0"
+eszip = "=0.104.0"
 fancy-regex = "0.16.2"
 faster-hex = "0.10.0"
-flate2 = { version = "1.1.4", features = ["default"] }
+flate2 = { version = "1.1.5", features = ["default"] }
 fs3 = "0.5.0"
 http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.3"
 import_map = { version = "0.24.0", features = ["ext"] }
 indexmap = { version = "2", features = ["serde"] }
-jsonc-parser = { version = "0.26.3", features = ["cst", "serde"] }
+jsonc-parser = { version = "0.27.0", features = ["cst", "serde"] }
 jupyter-protocol = "=0.8.0"
 jupyter_runtime = { package = "runtimelib", version = "=0.28.0", default-features = false, features = ["tokio-runtime", "aws-lc-rs"] }
 keyring = { version = "3.6.3", features = ["apple-native", "sync-secret-service", "windows-native", "vendored"] }
-lazy-regex = "3.4.1"
-libc = "0.2.176"
+lazy-regex = "3.4.2"
+libc = "0.2.177"
 libffi = "=4.1.2"
 libffi-sys = "=3.3.3"
 libsui = "0.10.0"
@@ -102,7 +103,7 @@ lsp-types = "0.97.0"
 malva = "=0.12.1"
 markup_fmt = "=0.22.0"
 memchr = "2.7.6"
-node_resolver = { version = "0.57.0", features = ["graph", "sync"] }
+node_resolver = { version = "0.58.0", features = ["graph", "sync"] }
 notify = "=6.1.1"
 once_cell = "1.21.3"
 open = "5.3.2"
@@ -117,12 +118,12 @@ phf = { version = "=0.11", features = ["macros"] }
 pretty_yaml = "=0.5.0"
 quick-junit = "=0.3.6"
 rand = { version = "=0.8.5", features = ["small_rng"] }
-regex = "1.11.3"
+regex = "1.12.2"
 rustc-hash = "2.1.1"
 rustls = { version = "=0.23.28", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] }
 rustyline = "=13.0.0"
 rustyline-derive = "=0.7.0"
-serde = { version = "1.0.225", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_repr = "0.1.20"
 sha2 = "0.10.9"
@@ -136,7 +137,7 @@ text-size = "1.1.1"
 text_lines = "0.6.0"
 thiserror = "2.0.17"
 timezone_provider = "=0.0.14"
-tokio = { version = "1.47.1", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full"] }
 tokio-util = "0.7.16"
 tower = "0.5.2"
 tower-lsp = { package = "deno_tower_lsp", version = "=0.4.3", features = ["proposed"] }
@@ -154,7 +155,7 @@ zstd = "=0.13.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["knownfolders", "mswsock", "objbase", "shlobj", "tlhelp32", "winbase", "winerror", "winsock2"] }
-deno_subprocess_windows = "0.14.0"
+deno_subprocess_windows = "0.15.0"
 
 [target.'cfg(unix)'.dependencies]
 nix = "=0.27.1"
@@ -164,8 +165,8 @@ shell-escape = "0.1.5"
 tokio-vsock = "0.7.2"
 
 [dev-dependencies]
-deno_bench_util = "0.213.0"
-deno_core = { version = "0.362.0", features = [
+deno_bench_util = "0.214.0"
+deno_core = { version = "0.363.0", features = [
   "include_js_files_for_snapshotting",
   "unsafe_use_unprotected_platform"
 ] }
@@ -173,11 +174,11 @@ pretty_assertions = "1.4.1"
 sys_traits = { version = "0.1.17", features = ["memory"] }
 
 [build-dependencies]
-deno_core = { version = "0.362.0", features = ["include_js_files_for_snapshotting"] }
+deno_core = { version = "0.363.0", features = ["include_js_files_for_snapshotting"] }
 deno_error = "=0.7.0"
-deno_runtime = { version = "0.227.0", features = ["include_js_files_for_snapshotting", "only_snapshotted_js_sources"] }
-flate2 = { version = "1.1.4", features = ["default"] }
-lazy-regex = "3.4.1"
+deno_runtime = { version = "0.228.0", features = ["include_js_files_for_snapshotting", "only_snapshotted_js_sources"] }
+flate2 = { version = "1.1.5", features = ["default"] }
+lazy-regex = "3.4.2"
 zstd = "=0.13.2"
 
 [features]

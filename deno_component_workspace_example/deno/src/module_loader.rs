@@ -19,15 +19,15 @@ use std::{
 use deno_ast::{MediaType, ModuleKind};
 use deno_cache_dir::file_fetcher::{FetchLocalOptions, MemoryFiles as _};
 use deno_core::{
-  FastString, ModuleLoader, ModuleResolutionError, ModuleSource, ModuleSourceCode, ModuleSpecifier,
-  ModuleType, RequestedModuleType, SourceCodeCacheInfo,
+  FastString, ModuleLoadReferrer, ModuleLoader, ModuleResolutionError, ModuleSource,
+  ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, SourceCodeCacheInfo,
   anyhow::{Context as _, bail},
   error::{AnyError, ModuleLoaderError},
   futures::{StreamExt, future::FutureExt, io::BufReader, stream::FuturesOrdered},
   parking_lot::Mutex,
   resolve_url, serde_json,
 };
-use deno_error::JsErrorBox;
+use deno_error::{JsErrorBox, JsErrorClass};
 use deno_graph::{GraphKind, ModuleGraph, WalkOptions};
 use deno_lib::{
   loader::{
@@ -38,11 +38,12 @@ use deno_lib::{
   util::hash::FastInsecureHasher,
   worker::{CreateModuleLoaderResult, ModuleLoaderFactory},
 };
+use deno_npm_installer::resolution::HasJsExecutionStartedFlagRc;
 use deno_path_util::{PathToUrlError, resolve_url_or_path};
 use deno_resolver::{
   cache::ParsedSourceCache,
   file_fetcher::{FetchOptions, FetchPermissionsOptionRef},
-  graph::{ResolveWithGraphErrorKind, ResolveWithGraphOptions},
+  graph::{ResolveWithGraphErrorKind, ResolveWithGraphOptions, format_range_with_colors},
   loader::{
     LoadCodeSourceError, LoadPreparedModuleError, LoadedModule, LoadedModuleOrAsset, MemoryFiles,
     StrippingTypesNodeModulesError,
@@ -296,6 +297,7 @@ struct SharedCliModuleLoaderState {
   code_cache: Option<Arc<CodeCache>>,
   emitter: Arc<CliEmitter>,
   file_fetcher: Arc<CliFileFetcher>,
+  has_js_execution_started_flag: HasJsExecutionStartedFlagRc,
   in_npm_pkg_checker: DenoInNpmPackageChecker,
   main_module_graph_container: Arc<MainModuleGraphContainer>,
   memory_files: Arc<MemoryFiles>,
@@ -356,6 +358,7 @@ impl CliModuleLoaderFactory {
     code_cache: Option<Arc<CodeCache>>,
     emitter: Arc<CliEmitter>,
     file_fetcher: Arc<CliFileFetcher>,
+    has_js_execution_started_flag: HasJsExecutionStartedFlagRc,
     in_npm_pkg_checker: DenoInNpmPackageChecker,
     main_module_graph_container: Arc<MainModuleGraphContainer>,
     memory_files: Arc<MemoryFiles>,
@@ -383,6 +386,7 @@ impl CliModuleLoaderFactory {
         code_cache,
         emitter,
         file_fetcher,
+        has_js_execution_started_flag,
         in_npm_pkg_checker,
         main_module_graph_container,
         memory_files,
@@ -935,7 +939,7 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dynamic: bool,
     requested_module_type: RequestedModuleType,
   ) -> deno_core::ModuleLoadResponse {
@@ -952,8 +956,35 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
     deno_core::ModuleLoadResponse::Async(
       async move {
         inner
-          .load_inner(&specifier, maybe_referrer.as_ref(), &requested_module_type)
+          .load_inner(
+            &specifier,
+            maybe_referrer.as_ref().map(|r| &r.specifier),
+            &requested_module_type,
+          )
           .await
+          .map_err(|err| {
+            let Some(referrer) = maybe_referrer else {
+              return err;
+            };
+            let position = deno_graph::Position {
+              line: referrer.line_number as usize - 1,
+              character: referrer.column_number as usize - 1,
+            };
+            JsErrorBox::new(
+              err.get_class(),
+              format!(
+                "{err}\n    at {}",
+                format_range_with_colors(&deno_graph::Range {
+                  specifier: referrer.specifier,
+                  range: deno_graph::PositionRange {
+                    start: position,
+                    end: position
+                  },
+                  resolution_mode: None
+                })
+              ),
+            )
+          })
       }
       .boxed_local(),
     )
@@ -978,10 +1009,12 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
     }
 
     if self.0.shared.in_npm_pkg_checker.in_npm_package(specifier) {
+      self.0.shared.has_js_execution_started_flag.raise();
       return Box::pin(deno_core::futures::future::ready(Ok(())));
     }
 
     if self.0.shared.maybe_eszip_loader.is_some() {
+      self.0.shared.has_js_execution_started_flag.raise();
       return Box::pin(deno_core::futures::future::ready(Ok(())));
     }
 
@@ -1045,6 +1078,7 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
           .map_err(JsErrorBox::from_err)?;
         graph.prune_types();
         update_permit.commit();
+        inner.shared.has_js_execution_started_flag.raise();
       }
 
       if is_dynamic {

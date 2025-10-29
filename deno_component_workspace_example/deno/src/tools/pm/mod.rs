@@ -32,10 +32,12 @@ use crate::{
   npm::NpmFetchResolver,
 };
 
+mod audit;
 mod cache_deps;
 pub(crate) mod deps;
 mod outdated;
 
+pub use audit::audit;
 pub use cache_deps::cache_top_level_deps;
 pub use outdated::outdated;
 
