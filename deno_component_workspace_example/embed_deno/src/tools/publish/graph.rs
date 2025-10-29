@@ -67,10 +67,16 @@ impl GraphDiagnosticsCollector {
               if let Ok(jsr_req_ref) = NpmPackageReqReference::from_specifier(&resolution.specifier)
                 && jsr_req_ref.req().version_req.version_text() == "*"
               {
-                let maybe_version = graph
-                  .get(&resolution.specifier)
-                  .and_then(|m| m.npm())
-                  .map(|n| n.nv_reference.nv().version.clone());
+                let maybe_version =
+                  graph
+                    .get(&resolution.specifier)
+                    .and_then(|m| m.npm())
+                    .map(|n| {
+                      // TODO(dsherret): ok to use for now, but we should use the req in the future
+                      #[allow(deprecated)]
+                      let nv = n.nv_reference.nv();
+                      nv.version.clone()
+                    });
                 diagnostics_collector.push(PublishDiagnostic::MissingConstraint {
                   specifier: resolution.specifier.clone(),
                   specifier_text: specifier_text.to_string(),

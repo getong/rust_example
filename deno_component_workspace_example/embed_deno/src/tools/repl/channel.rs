@@ -2,9 +2,7 @@
 
 use std::cell::RefCell;
 
-use deno_core::{
-  InspectorPostMessageError, anyhow::anyhow, error::AnyError, serde_json, serde_json::Value,
-};
+use deno_core::{anyhow::anyhow, error::AnyError, serde_json, serde_json::Value};
 use deno_error::JsErrorBox;
 use tokio::sync::mpsc::{
   Receiver, Sender, UnboundedReceiver, UnboundedSender, channel, unbounded_channel,
@@ -43,7 +41,7 @@ pub enum RustylineSyncMessage {
 }
 
 pub enum RustylineSyncResponse {
-  PostMessage(Result<Value, InspectorPostMessageError>),
+  PostMessage(Value),
   LspCompletions(Vec<ReplCompletionItem>),
 }
 
@@ -58,7 +56,7 @@ impl RustylineSyncMessageSender {
     &self,
     method: &str,
     params: Option<T>,
-  ) -> Result<Value, InspectorPostMessageError> {
+  ) -> Result<Value, JsErrorBox> {
     match self
       .message_tx
       .blocking_send(RustylineSyncMessage::PostMessage {
@@ -68,9 +66,9 @@ impl RustylineSyncMessageSender {
           .transpose()
           .map_err(JsErrorBox::from_err)?,
       }) {
-      Err(err) => Err(JsErrorBox::from_err(err).into()),
+      Err(err) => Err(JsErrorBox::from_err(err)),
       _ => match self.response_rx.borrow_mut().blocking_recv().unwrap() {
-        RustylineSyncResponse::PostMessage(result) => result,
+        RustylineSyncResponse::PostMessage(result) => Ok(result),
         RustylineSyncResponse::LspCompletions(_) => unreachable!(),
       },
     }

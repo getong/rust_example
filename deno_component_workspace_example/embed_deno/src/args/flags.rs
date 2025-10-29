@@ -9,6 +9,7 @@ use std::{
   num::{NonZeroU8, NonZeroU32, NonZeroUsize},
   path::{Path, PathBuf},
   str::FromStr,
+  sync::{Arc, LazyLock},
 };
 
 use clap::{
@@ -17,10 +18,11 @@ use clap::{
   error::ErrorKind,
   value_parser,
 };
+use clap_complete::{CompletionCandidate, engine::SubcommandCandidates};
 use color_print::cstr;
 use deno_bundle_runtime::{BundleFormat, BundlePlatform, PackageHandling, SourceMapType};
 use deno_config::{
-  deno_json::NodeModulesDirMode,
+  deno_json::{NewestDependencyDate, NodeModulesDirMode},
   glob::{FilePatterns, PathOrPatternSet},
 };
 use deno_core::{
@@ -89,6 +91,17 @@ pub struct AddFlags {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuditFlags {
+  pub severity: String,
+  pub ignore_registry_errors: bool,
+  pub ignore_unfixable: bool,
+  pub dev: bool,
+  pub prod: bool,
+  pub optional: bool,
+  pub ignore: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RemoveFlags {
   pub packages: Vec<String>,
 }
@@ -137,9 +150,31 @@ impl CompileFlags {
   }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompletionsFlags {
-  pub buf: Box<[u8]>,
+#[derive(Clone)]
+pub enum CompletionsFlags {
+  Static(Box<[u8]>),
+  Dynamic(Arc<dyn Fn() -> Result<(), AnyError> + Send + Sync + 'static>),
+}
+
+impl PartialEq for CompletionsFlags {
+  fn eq(&self, other: &Self) -> bool {
+    match (self, other) {
+      (Self::Static(l0), Self::Static(r0)) => l0 == r0,
+      (Self::Dynamic(l0), Self::Dynamic(r0)) => Arc::ptr_eq(l0, r0),
+      _ => false,
+    }
+  }
+}
+
+impl Eq for CompletionsFlags {}
+
+impl std::fmt::Debug for CompletionsFlags {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Static(arg0) => f.debug_tuple("Static").field(arg0).finish(),
+      Self::Dynamic(_) => f.debug_tuple("Dynamic").finish(),
+    }
+  }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
@@ -479,6 +514,7 @@ pub struct BundleFlags {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DenoSubcommand {
   Add(AddFlags),
+  Audit(AuditFlags),
   Remove(RemoveFlags),
   Bench(BenchFlags),
   Bundle(BundleFlags),
@@ -664,6 +700,11 @@ impl Default for TypeCheckMode {
   }
 }
 
+fn minutes_duration_or_date_parser(s: &str) -> Result<NewestDependencyDate, clap::Error> {
+  deno_config::parse_minutes_duration_or_date(&sys_traits::impls::RealSys, s)
+    .map_err(|e| clap::Error::raw(clap::error::ErrorKind::InvalidValue, e))
+}
+
 fn parse_packages_allowed_scripts(s: &str) -> Result<String, AnyError> {
   if !s.starts_with("npm:") {
     bail!(
@@ -716,8 +757,7 @@ pub struct Flags {
   pub location: Option<Url>,
   pub lock: Option<String>,
   pub log_level: Option<Level>,
-  // TODO(#30752): hook this up so users can specify it
-  pub minimum_dependency_age: Option<chrono::DateTime<chrono::Utc>>,
+  pub minimum_dependency_age: Option<NewestDependencyDate>,
   pub no_remote: bool,
   pub no_lock: bool,
   pub no_npm: bool,
@@ -1261,58 +1301,74 @@ static ENV_VARIABLES_HELP: &str = cstr!(
 );
 
 static DENO_HELP: &str = cstr!(
-    "Deno: <g>A modern JavaScript and TypeScript runtime</>\n\
-\n\
-<p(245)>Usage:</> <g>{usage}</>\n\
-\n\
-<y>Commands:</>\n\
-<y>Execution:</>\n\
-    <g>run</>          Run a JavaScript or TypeScript program, or a task\n\
-                  <p(245)>deno run main.ts  |  deno run --allow-net=google.com main.ts  |  deno main.ts</>\n\
-    <g>serve</>        Run a server\n\
-                  <p(245)>deno serve main.ts</>\n\
-    <g>task</>         Run a task defined in the configuration file\n\
-                  <p(245)>deno task dev</>\n\
-    <g>repl</>         Start an interactive Read-Eval-Print Loop (REPL) for Deno\n\
-    <g>eval</>         Evaluate a script from the command line\n\
-\n\
-  <y>Dependency management:</>\n\
-    <g>add</>          Add dependencies\n\
-                  <p(245)>deno add jsr:@std/assert  |  deno add npm:express</>\n\
-    <g>install</>      Installs dependencies either in the local project or globally to a bin directory\n\
-    <g>uninstall</>    Uninstalls a dependency or an executable script in the installation root's bin directory\n\
-    <g>outdated</>     Find and update outdated dependencies\n\
-    <g>remove</>       Remove dependencies from the configuration file\n\
-\n\
-  <y>Tooling:</>\n\
-    <g>bench</>        Run benchmarks\n\
-                  <p(245)>deno bench bench.ts</>\n\
-    <g>check</>        Type-check the dependencies\n\
-    <g>clean</>        Remove the cache directory\n\
-    <g>compile</>      Compile the script into a self contained executable\n\
-                  <p(245)>deno compile main.ts  |  deno compile --target=x86_64-unknown-linux-gnu</>\n\
-    <g>coverage</>     Print coverage reports\n\
-    <g>deploy</>       Manage and publish applications with Deno Deploy\n\
-    <g>doc</>          Generate and show documentation for a module or built-ins\n\
-                  <p(245)>deno doc  |  deno doc --json  |  deno doc --html mod.ts</>\n\
-    <g>fmt</>          Format source files\n\
-                  <p(245)>deno fmt  |  deno fmt main.ts</>\n\
-    <g>info</>         Show info about cache or info related to source file\n\
-    <g>jupyter</>      Deno kernel for Jupyter notebooks\n\
-    <g>lint</>         Lint source files\n\
-    <g>init</>         Initialize a new project\n\
-    <g>test</>         Run tests\n\
-                  <p(245)>deno test  |  deno test test.ts</>\n\
-    <g>publish</>      Publish the current working directory's package or workspace\n\
-    <g>upgrade</>      Upgrade deno executable to given version\n\
-                  <p(245)>deno upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>\n\
-\n\
-{after-help}\n\
-\n\
-<y>Docs:</> https://docs.deno.com\n\
-<y>Standard Library:</> https://jsr.io/@std\n\
-<y>Bugs:</> https://github.com/denoland/deno/issues\n\
-<y>Discord:</> https://discord.gg/deno\n"
+    "Deno: <g>A modern JavaScript and TypeScript runtime</>
+
+<p(245)>Usage:</> <g>{usage}</>
+
+<y>Commands:</><y>Execution:</><g>run</>          \
+     Run a JavaScript or TypeScript program, or a task
+                  <p(245)>deno run main.ts  |  \
+     deno run --allow-net=google.com main.ts  |  deno main.ts</>
+    <g>serve</>        Run a server\
+     
+                  <p(245)>deno serve main.ts</>
+    <g>task</>         Run a task defined in the \
+     configuration file
+                  <p(245)>deno task dev</>
+    <g>repl</>         Start an interactive \
+     Read-Eval-Print Loop (REPL) for Deno
+    <g>eval</>         Evaluate a script from the command \
+     line
+
+  <y>Dependency management:</>
+    <g>add</>          Add dependencies
+                  <p(245)>deno \
+     add jsr:@std/assert  |  deno add npm:express</>
+    <g>install</>      Installs dependencies either \
+     in the local project or globally to a bin directory
+    <g>uninstall</>    Uninstalls a dependency \
+     or an executable script in the installation root's bin directory
+    <g>outdated</>     Find and \
+     update outdated dependencies
+    <g>remove</>       Remove dependencies from the configuration \
+     file<y>Tooling:</><g>bench</>        Run benchmarks
+                  <p(245)>deno bench bench.ts</><g>check</>        \
+     Type-check the dependencies
+    <g>clean</>        Remove the cache directory<g>compile</>      \
+     Compile the script into a self contained executable
+                  <p(245)>deno compile main.ts  \
+     |  deno compile --target=x86_64-unknown-linux-gnu</>
+    <g>coverage</>     Print coverage reports\
+     
+    <g>deploy</>       Manage and publish applications with Deno Deploy
+    <g>doc</>          \
+     Generate and show documentation for a module or built-ins
+                  <p(245)>deno doc  |  \
+     deno doc --json  |  deno doc --html mod.ts</>
+    <g>fmt</>          Format source files
+                  \
+     <p(245)>deno fmt  |  deno fmt main.ts</>
+    <g>info</>         Show info about cache or info related \
+     to source file
+    <g>jupyter</>      Deno kernel for Jupyter notebooks
+    <g>lint</>         Lint \
+     source files
+    <g>init</>         Initialize a new project
+    <g>test</>         Run tests
+                  \
+     <p(245)>deno test  |  deno test test.ts</>
+    <g>publish</>      Publish the current working directory's \
+     package or workspace<g>upgrade</>      Upgrade deno executable to given version
+                  \
+     <p(245)>deno upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>
+{after-help}
+
+<y>Docs:</> \
+     https://docs.deno.com<y>Standard Library:</> https://jsr.io/@std
+<y>Bugs:</> https://github.com/denoland/deno/issues\
+     
+<y>Discord:</> https://discord.gg/deno
+"
   );
 
 /// Main entry point for parsing deno's command line flags.
@@ -1453,6 +1509,7 @@ pub fn flags_from_vec(args: Vec<OsString>) -> clap::error::Result<Flags> {
 
       match subcommand.as_str() {
         "add" => add_parse(&mut flags, &mut m)?,
+        "audit" => audit_parse(&mut flags, &mut m)?,
         "remove" => remove_parse(&mut flags, &mut m),
         "bench" => bench_parse(&mut flags, &mut m)?,
         "bundle" => bundle_parse(&mut flags, &mut m)?,
@@ -1710,6 +1767,7 @@ pub fn clap_root() -> Command {
     .defer(|cmd| {
       let cmd = cmd
         .subcommand(add_subcommand())
+        .subcommand(audit_subcommand())
         .subcommand(remove_subcommand())
         .subcommand(bench_subcommand())
         .subcommand(bundle_subcommand())
@@ -1810,6 +1868,47 @@ Or multiple dependencies at once:
       .arg(allow_scripts_arg())
       .args(lock_args())
       .args(default_registry_args())
+  })
+}
+
+fn audit_subcommand() -> Command {
+  command(
+    "audit",
+    cstr!(
+      "Audit currently installed dependencies.
+  <p(245)>deno audit</>
+      
+Show only high and critical severity vulnerabilities
+  <p(245)>deno audit --level=high</>
+
+Don't error if the audit data can't be retrieved from the registry
+  <p(245)>deno audit --ignore-registry-errors</>"
+    ),
+    UnstableArgsConfig::None,
+  )
+  .defer(|cmd| {
+    cmd
+      .args(lock_args())
+      .arg(
+        Arg::new("level")
+          .long("level")
+          .alias("audit-level")
+          .alias("severity")
+          .help("Only show advisories with severity greater or equal to the one specified")
+          .value_parser(["low", "moderate", "high", "critical"]),
+      )
+      .arg(
+        Arg::new("ignore-unfixable")
+          .long("ignore-unfixable")
+          .help("Ignore advisories that don't have any actions to resolve them")
+          .action(ArgAction::SetTrue),
+      )
+      .arg(
+        Arg::new("ignore-registry-errors")
+          .long("ignore-registry-errors")
+          .help("Return exit code 0 if remote service(s) responds with an error.")
+          .action(ArgAction::SetTrue),
+      )
   })
 }
 
@@ -2069,13 +2168,16 @@ fn cache_subcommand() -> Command {
   command(
     "cache",
     cstr!(
-      "Cache and compile remote dependencies.\n\
-\n\
-Download and compile a module with all of its static dependencies and save them in the local cache, without running any code:\n\
-  <p(245)>deno cache jsr:@std/http/file-server</>\n\
-\n\
-Future runs of this module will trigger no downloads or compilation unless --reload is specified\n\
-\n\
+      "Cache and compile remote dependencies.
+
+Download and compile a module with all of its static dependencies \
+       and save them in the local cache, without running any code:
+  <p(245)>deno cache jsr:@std/http/file-server</>\
+       
+
+Future runs of this module will trigger no downloads or compilation unless --reload is specified\
+       
+
 <y>Read more:</> <c>https://docs.deno.com/go/cache</>"
     ),
     UnstableArgsConfig::ResolutionOnly,
@@ -2306,11 +2408,22 @@ fn completions_subcommand() -> Command {
     UnstableArgsConfig::None,
   )
   .defer(|cmd| {
-    cmd.disable_help_subcommand(true).arg(
-      Arg::new("shell")
-        .value_parser(["bash", "fish", "powershell", "zsh", "fig"])
-        .required_unless_present("help"),
-    )
+    cmd
+      .disable_help_subcommand(true)
+      .arg(
+        Arg::new("shell")
+          .value_parser(["bash", "fish", "powershell", "zsh", "fig"])
+          .required_unless_present("help"),
+      )
+      .arg(
+        Arg::new("dynamic")
+          .long("dynamic")
+          .action(ArgAction::SetTrue)
+          .help(
+            "Generate dynamic completions for the given shell (unstable), currently this only \
+             provides available tasks for `deno task`.",
+          ),
+      )
   })
 }
 
@@ -2318,25 +2431,32 @@ fn coverage_subcommand() -> Command {
   command(
     "coverage",
     cstr!(
-      "Print coverage reports from coverage profiles.\n\
-\n\
-Collect a coverage profile with deno test:\n\
-  <p(245)>deno test --coverage=cov_profile</>\n\
-\n\
-Print a report to stdout:\n\
-  <p(245)>deno coverage cov_profile</>\n\
-\n\
-Include urls that start with the file schema and exclude files ending with <c>test.ts</> and <c>test.js</>,\n\
-for an url to match it must match the include pattern and not match the exclude pattern:\n\
-  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>\n\
-\n\
-Write a report using the lcov format:\n\
-  <p(245)>deno coverage --lcov --output=cov.lcov cov_profile/</>\n\
-\n\
-Generate html reports from lcov:\n\
-  <p(245)>genhtml -o html_cov cov.lcov</>\n\
-\n\
-<y>Read more:</> <c>https://docs.deno.com/go/coverage</>\n"
+      "Print coverage reports from coverage profiles.
+
+Collect a coverage profile with deno test:
+  <p(245)>deno \
+       test --coverage=cov_profile</>
+
+Print a report to stdout:
+  <p(245)>deno coverage cov_profile</>\
+       
+
+Include urls that start with the file schema and exclude files ending with <c>test.ts</> and \
+       <c>test.js</>,
+for an url to match it must match the include pattern and not match the exclude \
+       pattern:
+  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>\
+       
+
+Write a report using the lcov format:
+  <p(245)>deno coverage --lcov --output=cov.lcov cov_profile/</>\
+       
+
+Generate html reports from lcov:
+  <p(245)>genhtml -o html_cov cov.lcov</>
+
+<y>Read more:</> <c>https://docs.deno.com/go/coverage</>\
+       "
     ),
     UnstableArgsConfig::None,
   )
@@ -2886,39 +3006,48 @@ fn install_subcommand() -> Command {
   command(
     "install",
     cstr!(
-      "Installs dependencies either in the local project or globally to a bin directory.\n\
-\n\
-<g>Local installation</>Add dependencies to the local project's configuration (<p(245)>deno.json / package.json</>) and installs them\n\
-in the package cache. If no dependency is specified, installs all dependencies listed in the config file.\n\
-If the <p(245)>--entrypoint</> flag is passed, installs the dependencies of the specified entrypoint(s).\n\
-\n\
-  <p(245)>deno install</>\n\
-  <p(245)>deno install jsr:@std/bytes</>\n\
-  <p(245)>deno install npm:chalk</>\n\
-  <p(245)>deno install --entrypoint entry1.ts entry2.ts</>\n\
-\n\
-<g>Global installation</>\n\
-If the <bold>--global</> flag is set, installs a script as an executable in the installation root's bin directory.\n\
-\n\
-  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>\n\
-  <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>\n\
-\n\
-To change the executable name, use <c>-n</>/<c>--name</>:\n\
-  <p(245)>deno install -g --allow-net --allow-read -n serve jsr:@std/http/file-server</>\n\
-\n\
-The executable name is inferred by default:\n\
-  - Attempt to take the file stem of the URL path. The above example would become <p(245)>file_server</>.\n\
-  - If the file stem is something generic like <p(245)>main</>, <p(245)>mod</>, <p(245)>index</> or <p(245)>cli</>, and the path has no parent, take the file name of the parent path. Otherwise settle with the generic name.\n\
-  - If the resulting name has an <p(245)>@...</> suffix, strip it.\n\
-\n\
-To change the installation root, use <c>--root</>:\n\
-  <p(245)>deno install -g --allow-net --allow-read --root /usr/local jsr:@std/http/file-server</>\n\
-\n\
-The installation root is determined, in order of precedence:\n\
-  - <p(245)>--root</> option\n\
-  - <p(245)>DENO_INSTALL_ROOT</> environment variable\n\
-  - <p(245)>$HOME/.deno</>\n\
-\n\
+      "Installs dependencies either in the local project or globally to a bin directory.
+
+<g>Local installation</>Add \
+       dependencies to the local project's configuration (<p(245)>deno.json / package.json</>) and \
+       installs them
+in the package cache. If no dependency is specified, installs all dependencies \
+       listed in the config file.
+If the <p(245)>--entrypoint</> flag is passed, installs the dependencies \
+       of the specified entrypoint(s).
+
+  <p(245)>deno install</>
+  <p(245)>deno install jsr:@std/bytes</><p(245)>deno \
+       install npm:chalk</>
+  <p(245)>deno install --entrypoint entry1.ts entry2.ts</><g>Global installation</>\
+       
+
+If the <bold>--global</> flag is set, installs a script as an executable in the installation \
+       root's bin directory.
+
+  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>\
+       
+  <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>To change the executable \
+       name, use <c>-n</>/<c>--name</>:
+  <p(245)>deno install -g --allow-net --allow-read -n serve jsr:@std/http/file-server</>
+
+The executable name is inferred by default:
+  - Attempt to take the file stem of the URL path. The above example would
+    become <p(245)>file_server</>.
+  - If the file stem is something generic like <p(245)>main</>, <p(245)>mod</>, <p(245)>index</> \
+       or <p(245)>cli</>,
+    and the path has no parent, take the file name of the parent path. Otherwise
+    settle with the generic name.
+  - If the resulting name has an <p(245)>@...</> suffix, strip it.
+
+To change the installation root, use <c>--root</>:
+  <p(245)>deno install -g --allow-net --allow-read --root /usr/local jsr:@std/http/file-server</>
+
+The installation root is determined, in order of precedence:
+  - <p(245)>--root</> option
+  - <p(245)>DENO_INSTALL_ROOT</> environment variable
+  - <p(245)>$HOME/.deno</>
+
 These must be added to the path manually if required."
     ),
     UnstableArgsConfig::ResolutionAndRuntime,
@@ -3050,7 +3179,7 @@ fn jupyter_subcommand() -> Command {
   )
 }
 
-fn update_and_outdated_args() -> [Arg; 4] {
+fn update_and_outdated_args() -> [Arg; 5] {
   [
     Arg::new("filters")
       .num_args(0 ..)
@@ -3075,6 +3204,7 @@ fn update_and_outdated_args() -> [Arg; 4] {
       .short('r')
       .action(ArgAction::SetTrue)
       .help("Include all workspace members"),
+    min_dep_age_arg(),
   ]
 }
 
@@ -3580,6 +3710,7 @@ Evaluate a task from string:
   )
   .defer(|cmd| {
     cmd
+      .add(SubcommandCandidates::new(complete_available_tasks))
       .allow_external_subcommands(true)
       .subcommand_value_name("TASK")
       .arg(config_arg())
@@ -3614,6 +3745,63 @@ Evaluate a task from string:
       .arg(node_modules_dir_arg())
       .arg(tunnel_arg())
   })
+}
+
+// This is used to pass the parsed flags to the completion function. This is so
+// we can take into account things like the `--config` flag. We could also take into account
+// `--recursive` or `--filter` in the future.
+// The completion function can't take any args, so we use a static instead.
+// This code will only run if we are actually running the completion code.
+static TASK_FLAGS_FOR_COMPLETION: LazyLock<Option<Flags>> = LazyLock::new(|| {
+  let mut flags = Flags::default();
+  let args = std::env::args_os().skip(2);
+  let app = clap_root().ignore_errors(true);
+  let Ok(mut matches) = app.clone().try_get_matches_from(args) else {
+    return None;
+  };
+  match matches.remove_subcommand() {
+    Some((sub, mut matches)) => {
+      if sub == "task" {
+        let _ = task_parse(&mut flags, &mut matches, app);
+        Some(flags)
+      } else {
+        None
+      }
+    }
+    None => None,
+  }
+});
+
+fn complete_available_tasks_inner() -> Result<Vec<CompletionCandidate>, AnyError> {
+  let parsed_flags = TASK_FLAGS_FOR_COMPLETION.clone();
+
+  let flags = parsed_flags.unwrap_or_default();
+
+  let completions =
+    crate::tools::task::get_available_tasks_for_completion(std::sync::Arc::new(flags))?;
+
+  Ok(
+    completions
+      .into_iter()
+      .map(|c| {
+        let mut candidate = CompletionCandidate::new(c.name);
+        if let Some(description) = c.task.description {
+          candidate = candidate.help(Some(description.into()));
+        }
+        candidate
+      })
+      .collect(),
+  )
+}
+
+fn complete_available_tasks() -> Vec<CompletionCandidate> {
+  match complete_available_tasks_inner() {
+    Ok(candidates) => candidates,
+    Err(e) => {
+      log::debug!("Error during available tasks completion: {e}");
+      vec![]
+    }
+  }
 }
 
 fn test_subcommand() -> Command {
@@ -4006,6 +4194,7 @@ fn compile_args_without_check_args(app: Command) -> Command {
     .arg(ca_file_arg())
     .arg(unsafely_ignore_certificate_errors_arg())
     .arg(preload_arg())
+    .arg(min_dep_age_arg())
 }
 
 fn permission_args(app: Command, requires: Option<&'static str>) -> Command {
@@ -4022,7 +4211,7 @@ fn permission_args(app: Command, requires: Option<&'static str>) -> Command {
   <g>-W, --allow-write[=<<PATH>...]</>            Allow file system write access. Optionally specify allowed paths.
                                              <p(245)>--allow-write  |  --allow-write="/etc,/var/log.txt"</>
   <g>-I, --allow-import[=<<IP_OR_HOSTNAME>...]</> Allow importing from remote hosts. Optionally specify allowed IP addresses and host names, with ports as necessary.
-                                            Default value: <p(245)>deno.land:443,jsr.io:443,esm.sh:443,cdn.jsdelivr.net:443,raw.githubusercontent.com:443,user.githubusercontent.com:443</>
+                                            Default value: <p(245)>deno.land:443,jsr.io:443,esm.sh:443,cdn.jsdelivr.net:443,raw.githubusercontent.com:443,gist.githubusercontent.com:443</>
                                              <p(245)>--allow-import  |  --allow-import="example.com,github.com"</>
   <g>-N, --allow-net[=<<IP_OR_HOSTNAME>...]</>    Allow network access. Optionally specify allowed IP addresses and host names, with ports as necessary.
                                              <p(245)>--allow-net  |  --allow-net="localhost:8080,deno.land"</>
@@ -4479,7 +4668,7 @@ fn allow_import_arg() -> Arg {
       "Allow importing from remote hosts. Optionally specify allowed IP addresses and host names, \
        with ports as necessary. Default value: \
        <p(245)>deno.land:443,jsr.io:443,esm.sh:443,cdn.jsdelivr.net:443,raw.githubusercontent.com:\
-       443,user.githubusercontent.com:443</>"
+       443,gist.githubusercontent.com:443</>"
     ))
     .value_parser(flags_net::validator)
 }
@@ -4605,6 +4794,17 @@ fn preload_arg() -> Arg {
     .action(ArgAction::Append)
     .help("A list of files that will be executed before the main module")
     .value_hint(ValueHint::FilePath)
+}
+
+fn min_dep_age_arg() -> Arg {
+  Arg::new("minimum-dependency-age")
+    .long("minimum-dependency-age")
+    .value_parser(minutes_duration_or_date_parser)
+    .help(
+      "(Unstable) The age in minutes, ISO-8601 duration or RFC3339 absolute timestamp (e.g. '120' \
+       for two hours, 'P2D' for two days, '2025-09-16' for cutoff date, \
+       '2025-09-16T12:00:00+00:00' for cutoff time, '0' to disable)",
+    )
 }
 
 fn ca_file_arg() -> Arg {
@@ -5118,6 +5318,30 @@ fn allow_scripts_arg_parse(flags: &mut Flags, matches: &mut ArgMatches) -> clap:
   Ok(())
 }
 
+fn audit_parse(flags: &mut Flags, matches: &mut ArgMatches) -> clap::error::Result<()> {
+  lock_args_parse(flags, matches);
+  let severity = matches
+    .remove_one::<String>("level")
+    .unwrap_or_else(|| "low".to_string());
+  let ignore_unfixable = matches.get_flag("ignore-unfixable");
+  let ignore_registry_errors = matches.get_flag("ignore-registry-errors");
+  let dev = true;
+  let prod = true;
+  let optional = true;
+  let ignore = vec![];
+
+  flags.subcommand = DenoSubcommand::Audit(AuditFlags {
+    severity,
+    dev,
+    prod,
+    optional,
+    ignore_registry_errors,
+    ignore_unfixable,
+    ignore,
+  });
+  Ok(())
+}
+
 fn add_parse(flags: &mut Flags, matches: &mut ArgMatches) -> clap::error::Result<()> {
   allow_scripts_arg_parse(flags, matches)?;
   lock_args_parse(flags, matches);
@@ -5181,6 +5405,7 @@ fn outdated_parse(
     recursive,
     kind,
   });
+  min_dep_age_arg_parse(flags, matches);
   Ok(())
 }
 
@@ -5352,7 +5577,29 @@ fn completions_parse(flags: &mut Flags, matches: &mut ArgMatches, mut app: Comma
   let mut buf: Vec<u8> = vec![];
   let name = "deno";
 
-  match matches.get_one::<String>("shell").unwrap().as_str() {
+  let dynamic = matches.get_flag("dynamic");
+
+  let shell = matches.get_one::<String>("shell").unwrap().as_str();
+
+  if dynamic && matches!(shell, "bash" | "fish" | "zsh") {
+    let shell = shell.to_string();
+    flags.subcommand =
+      DenoSubcommand::Completions(CompletionsFlags::Dynamic(Arc::new(move || {
+        // SAFETY: unavoidable
+        // Clap uses this to detect if it should generate dynamic completions, so if it isn't set,
+        // clap will just bail out instead of actually printing out the completion command.
+        unsafe {
+          std::env::set_var("COMPLETE", &shell);
+        }
+        handle_shell_completion_with_args(std::env::args_os().take(1))?;
+        Ok(())
+      })));
+    return;
+  } else if dynamic {
+    log::warn!("dynamic completions are currently only supported for bash, fish, and zsh");
+  }
+
+  match shell {
     "bash" => generate(Bash, &mut app, name, &mut buf),
     "fish" => generate(Fish, &mut app, name, &mut buf),
     "powershell" => generate(PowerShell, &mut app, name, &mut buf),
@@ -5361,9 +5608,7 @@ fn completions_parse(flags: &mut Flags, matches: &mut ArgMatches, mut app: Comma
     _ => unreachable!(),
   }
 
-  flags.subcommand = DenoSubcommand::Completions(CompletionsFlags {
-    buf: buf.into_boxed_slice(),
-  });
+  flags.subcommand = DenoSubcommand::Completions(CompletionsFlags::Static(buf.into_boxed_slice()));
 }
 
 fn coverage_parse(flags: &mut Flags, matches: &mut ArgMatches) -> clap::error::Result<()> {
@@ -6046,6 +6291,25 @@ fn task_parse(
   Ok(())
 }
 
+pub fn handle_shell_completion() -> Result<(), AnyError> {
+  handle_shell_completion_with_args(std::env::args_os())
+}
+
+fn handle_shell_completion_with_args(
+  args: impl IntoIterator<Item = OsString>,
+) -> Result<(), AnyError> {
+  let args = args.into_iter().collect::<Vec<_>>();
+  let app = clap_root();
+
+  let ran_completion = clap_complete::CompleteEnv::with_factory(|| app.clone())
+    .try_complete(args, Some(&std::env::current_dir()?))?;
+
+  // we should only run this function when we're doing completions
+  assert!(ran_completion);
+
+  Ok(())
+}
+
 fn test_parse(flags: &mut Flags, matches: &mut ArgMatches) -> clap::error::Result<()> {
   flags.type_check_mode = TypeCheckMode::Local;
   runtime_args_parse(flags, matches, true, true, true)?;
@@ -6209,6 +6473,7 @@ fn compile_args_without_check_parse(
   ca_file_arg_parse(flags, matches);
   unsafely_ignore_certificate_errors_parse(flags, matches);
   preload_arg_parse(flags, matches);
+  min_dep_age_arg_parse(flags, matches);
   Ok(())
 }
 
@@ -6465,6 +6730,10 @@ fn preload_arg_parse(flags: &mut Flags, matches: &mut ArgMatches) {
   }
 }
 
+fn min_dep_age_arg_parse(flags: &mut Flags, matches: &mut ArgMatches) {
+  flags.minimum_dependency_age = matches.remove_one("minimum-dependency-age");
+}
+
 fn ca_file_arg_parse(flags: &mut Flags, matches: &mut ArgMatches) {
   flags.ca_data = matches.remove_one::<String>("cert").and_then(CaData::parse);
 }
@@ -6676,6 +6945,7 @@ fn unstable_args_parse(flags: &mut Flags, matches: &mut ArgMatches, cfg: Unstabl
   flags.unstable_config.raw_imports = matches.get_flag("unstable-raw-imports");
   flags.unstable_config.sloppy_imports = matches.get_flag("unstable-sloppy-imports");
   flags.unstable_config.npm_lazy_caching = matches.get_flag("unstable-npm-lazy-caching");
+  flags.unstable_config.tsgo = matches.get_flag("unstable-tsgo");
 
   if matches!(cfg, UnstableArgsConfig::ResolutionAndRuntime) {
     for feature in deno_runtime::UNSTABLE_FEATURES {
@@ -9424,7 +9694,7 @@ mod tests {
     let r = flags_from_vec(svec!["deno", "completions", "zsh"]).unwrap();
 
     match r.subcommand {
-      DenoSubcommand::Completions(CompletionsFlags { buf }) => {
+      DenoSubcommand::Completions(CompletionsFlags::Static(buf)) => {
         assert!(!buf.is_empty())
       }
       _ => unreachable!(),

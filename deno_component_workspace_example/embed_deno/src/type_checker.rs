@@ -2,6 +2,7 @@
 
 use std::{
   collections::{HashMap, HashSet, VecDeque},
+  path::PathBuf,
   rc::Rc,
   sync::Arc,
 };
@@ -29,7 +30,7 @@ use crate::{
   args::{CliOptions, CompilerOptions, DenoSubcommand, TsTypeLib, TypeCheckMode},
   cache::{CacheDBHash, Caches, TypeCheckCache},
   graph_util::{BuildFastCheckGraphOptions, ModuleGraphBuilder, module_error_for_tsc_diagnostic},
-  node::CliNodeResolver,
+  node::{CliNodeResolver, CliPackageJsonResolver},
   npm::CliNpmResolver,
   sys::CliSys,
   tsc,
@@ -96,9 +97,11 @@ pub struct TypeChecker {
   module_graph_builder: Arc<ModuleGraphBuilder>,
   node_resolver: Arc<CliNodeResolver>,
   npm_resolver: CliNpmResolver,
+  package_json_resolver: Arc<CliPackageJsonResolver>,
   sys: CliSys,
   compiler_options_resolver: Arc<CompilerOptionsResolver>,
   code_cache: Option<Arc<crate::cache::CodeCache>>,
+  tsgo_path: Option<PathBuf>,
 }
 
 impl TypeChecker {
@@ -110,9 +113,11 @@ impl TypeChecker {
     module_graph_builder: Arc<ModuleGraphBuilder>,
     node_resolver: Arc<CliNodeResolver>,
     npm_resolver: CliNpmResolver,
+    package_json_resolver: Arc<CliPackageJsonResolver>,
     sys: CliSys,
     compiler_options_resolver: Arc<CompilerOptionsResolver>,
     code_cache: Option<Arc<crate::cache::CodeCache>>,
+    tsgo_path: Option<PathBuf>,
   ) -> Self {
     Self {
       caches,
@@ -121,9 +126,11 @@ impl TypeChecker {
       module_graph_builder,
       node_resolver,
       npm_resolver,
+      package_json_resolver,
       sys,
       compiler_options_resolver,
       code_cache,
+      tsgo_path,
     }
   }
 
@@ -222,6 +229,7 @@ impl TypeChecker {
         cjs_tracker: &self.cjs_tracker,
         node_resolver: &self.node_resolver,
         npm_resolver: &self.npm_resolver,
+        package_json_resolver: &self.package_json_resolver,
         compiler_options_resolver: &self.compiler_options_resolver,
         log_level: self.cli_options.log_level(),
         npm_check_state_hash: check_state_hash(&self.npm_resolver),
@@ -231,6 +239,8 @@ impl TypeChecker {
         options,
         seen_diagnotics: Default::default(),
         code_cache: self.code_cache.clone(),
+        tsgo_path: self.tsgo_path.clone(),
+        initial_cwd: self.cli_options.initial_cwd().to_path_buf(),
       }),
     ))
   }
@@ -345,6 +355,7 @@ struct DiagnosticsByFolderRealIterator<'a> {
   cjs_tracker: &'a Arc<TypeCheckingCjsTracker>,
   node_resolver: &'a Arc<CliNodeResolver>,
   npm_resolver: &'a CliNpmResolver,
+  package_json_resolver: &'a Arc<CliPackageJsonResolver>,
   compiler_options_resolver: &'a CompilerOptionsResolver,
   type_check_cache: TypeCheckCache,
   groups: Vec<CheckGroup<'a>>,
@@ -354,6 +365,8 @@ struct DiagnosticsByFolderRealIterator<'a> {
   seen_diagnotics: HashSet<String>,
   options: CheckOptions,
   code_cache: Option<Arc<crate::cache::CodeCache>>,
+  tsgo_path: Option<PathBuf>,
+  initial_cwd: PathBuf,
 }
 
 impl Iterator for DiagnosticsByFolderRealIterator<'_> {
@@ -504,12 +517,15 @@ impl DiagnosticsByFolderRealIterator<'_> {
           cjs_tracker: self.cjs_tracker.clone(),
           node_resolver: self.node_resolver.clone(),
           npm_resolver: self.npm_resolver.clone(),
+          package_json_resolver: self.package_json_resolver.clone(),
         }),
         maybe_tsbuildinfo,
         root_names,
         check_mode: self.options.type_check_mode,
+        initial_cwd: self.initial_cwd.clone(),
       },
       code_cache,
+      self.tsgo_path.as_deref(),
     )?;
 
     let ambient_modules = response.ambient_modules;
@@ -746,6 +762,15 @@ impl<'a> GraphWalker<'a> {
               MediaType::Dts,
             ));
           }
+        }
+      }
+
+      if module.media_type().is_declaration() {
+        let compiler_options_data = self
+          .compiler_options_resolver
+          .for_specifier(module.specifier());
+        if compiler_options_data.skip_lib_check() {
+          continue;
         }
       }
 

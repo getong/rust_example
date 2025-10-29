@@ -296,7 +296,7 @@ impl CliJsrSearchApi {
       file_fetcher.clone(),
       Arc::new(JsrVersionResolver {
         // not currently supported in the lsp
-        newest_dependency_date: None,
+        newest_dependency_date_options: Default::default(),
       }),
     );
     Self {

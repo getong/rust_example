@@ -7,7 +7,7 @@ use std::{
 };
 
 use deno_core::{
-  InspectorPostMessageError, InspectorPostMessageErrorKind, LocalInspectorSession,
+  LocalInspectorSession,
   error::CoreError,
   parking_lot::Mutex,
   serde_json::{
@@ -265,9 +265,9 @@ impl HmrRunner {
             let mut tries = 1;
             loop {
               let msg_id = self.set_script_source(&id, source_code.as_str());
-              let value = self.wait_for_response(msg_id).await?;
+              let value = self.wait_for_response(msg_id).await;
               let result: cdp::SetScriptSourceResponse = serde_json::from_value(value).map_err(|e| {
-                InspectorPostMessageErrorKind::JsBox(JsErrorBox::from_err(e)).into_box()
+                JsErrorBox::from_err(e)
               })?;
 
 
@@ -293,15 +293,12 @@ impl HmrRunner {
     }
   }
 
-  async fn wait_for_response(
-    &self,
-    msg_id: i32,
-  ) -> Result<serde_json::Value, InspectorPostMessageError> {
+  async fn wait_for_response(&self, msg_id: i32) -> serde_json::Value {
     if let Some(message_state) = self.state.0.lock().messages.remove(&msg_id) {
       let InspectorMessageState::Ready(mut value) = message_state else {
         unreachable!();
       };
-      return Ok(value["result"].take());
+      return value["result"].take();
     }
 
     let (tx, rx) = oneshot::channel();
@@ -312,7 +309,7 @@ impl HmrRunner {
       .messages
       .insert(msg_id, InspectorMessageState::WaitingFor(tx));
     let mut value = rx.await.unwrap();
-    Ok(value["result"].take())
+    value["result"].take()
   }
 
   fn set_script_source(&mut self, script_id: &str, source: &str) -> i32 {

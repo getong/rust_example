@@ -469,6 +469,16 @@ impl CliFactory {
     self.resolver_factory()?.in_npm_package_checker()
   }
 
+  pub async fn tsgo_path(&self) -> Result<Option<&PathBuf>, AnyError> {
+    if self.cli_options()?.unstable_tsgo() {
+      Ok(Some(
+        crate::tsc::ensure_tsgo(self.deno_dir()?, self.http_client_provider().clone()).await?,
+      ))
+    } else {
+      Ok(None)
+    }
+  }
+
   pub fn jsr_version_resolver(&self) -> Result<&Arc<JsrVersionResolver>, AnyError> {
     self.resolver_factory()?.jsr_version_resolver()
   }
@@ -675,6 +685,7 @@ impl CliFactory {
             self.module_graph_builder().await?.clone(),
             self.node_resolver().await?.clone(),
             self.npm_resolver().await?.clone(),
+            self.resolver_factory()?.pkg_json_resolver().clone(),
             self.sys(),
             self.compiler_options_resolver()?.clone(),
             if cli_options.code_cache_enabled() {
@@ -682,6 +693,7 @@ impl CliFactory {
             } else {
               None
             },
+            self.tsgo_path().await?.cloned(),
           )))
         }
         .boxed_local(),
@@ -878,6 +890,7 @@ impl CliFactory {
     let in_npm_pkg_checker = self.in_npm_pkg_checker()?;
     let workspace_factory = self.workspace_factory()?;
     let resolver_factory = self.resolver_factory()?;
+    let npm_installer_factory = self.npm_installer_factory()?;
     let cjs_tracker = self.cjs_tracker()?.clone();
     let npm_registry_permission_checker = {
       let mode = if resolver_factory.use_byonm()? {
@@ -901,6 +914,9 @@ impl CliFactory {
       },
       self.emitter()?.clone(),
       self.file_fetcher()?.clone(),
+      npm_installer_factory
+        .has_js_execution_started_flag()
+        .clone(),
       in_npm_pkg_checker.clone(),
       self.main_module_graph_container().await?.clone(),
       self.memory_files().clone(),
@@ -1052,7 +1068,7 @@ impl CliFactory {
           } else {
             IsCjsResolutionMode::Disabled
           },
-          newest_dependency_date: options.newest_dependency_date(),
+          newest_dependency_date: self.flags.minimum_dependency_age,
           node_analysis_cache: Some(node_analysis_cache),
           node_resolver_options: NodeResolverOptions {
             conditions: NodeConditionOptions {
@@ -1141,13 +1157,14 @@ fn new_workspace_factory_options(
     // resolver so it can set up the `node_modules/` directory.
     is_package_manager_subcommand: matches!(
       flags.subcommand,
-      DenoSubcommand::Install(_)
-        | DenoSubcommand::Uninstall(_)
-        | DenoSubcommand::Add(_)
-        | DenoSubcommand::Remove(_)
-        | DenoSubcommand::Init(_)
-        | DenoSubcommand::Outdated(_)
+      DenoSubcommand::Add(_)
+        | DenoSubcommand::Audit(_)
         | DenoSubcommand::Clean(_)
+        | DenoSubcommand::Init(_)
+        | DenoSubcommand::Install(_)
+        | DenoSubcommand::Outdated(_)
+        | DenoSubcommand::Remove(_)
+        | DenoSubcommand::Uninstall(_)
     ),
     no_lock: flags.no_lock
       || matches!(

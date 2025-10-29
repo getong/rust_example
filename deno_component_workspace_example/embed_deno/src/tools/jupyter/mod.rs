@@ -422,8 +422,7 @@ impl JupyterReplSession {
           non_indexed_properties_only: Some(true),
         }),
       )
-      .await
-      .ok()?;
+      .await;
     serde_json::from_value(get_properties_response).ok()
   }
 
@@ -450,8 +449,7 @@ impl JupyterReplSession {
           unique_context_id: None,
         }),
       )
-      .await
-      .ok()?;
+      .await;
     serde_json::from_value(evaluate_response).ok()
   }
 
@@ -464,8 +462,7 @@ impl JupyterReplSession {
           execution_context_id: Some(self.repl_session.context_id),
         }),
       )
-      .await
-      .unwrap();
+      .await;
     serde_json::from_value(evaluate_response).unwrap()
   }
 
@@ -509,8 +506,7 @@ impl JupyterReplSession {
           "awaitPromise": true,
         })),
       )
-      .await
-      .ok()?;
+      .await;
     serde_json::from_value(response).ok()
   }
 }
