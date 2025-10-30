@@ -21,7 +21,7 @@ color-print = "0.3.7"
 console_static_text = "0.8.3"
 crossterm = "0.29.0"
 dashmap = "6.1.0"
-deno_ast = { version = "0.51.0", features = [
+deno_ast = { version = "0.50.3", features = [
   "bundler",
   "cjs",
   "codegen",
