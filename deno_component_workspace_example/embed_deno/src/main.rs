@@ -86,39 +86,16 @@ where
 }
 
 async fn run_subcommand(
-  flags: Arc<Flags>,
+  _flags: Arc<Flags>,
   _unconfigured_runtime: Option<deno_runtime::UnconfiguredRuntime>,
-  roots: LibWorkerFactoryRoots,
+  _roots: LibWorkerFactoryRoots,
 ) -> Result<i32, AnyError> {
-  let handle = match flags.subcommand.clone() {
-    DenoSubcommand::Run(run_flags) => spawn_subcommand(async move {
-      if run_flags.is_stdin() {
-        // Handle stdin input
-        crate::tools::run::run_from_stdin(flags.clone(), None, roots)
-          .boxed_local()
-          .await
-      } else {
-        // Run the script with tokio deno process
-        let result = crate::tools::run::run_script(
-          WorkerExecutionMode::Run,
-          flags.clone(),
-          run_flags.watch,
-          None,
-          roots.clone(),
-        )
-        .await;
-        result
-      }
-    }),
-    _ => {
-      // Only support Run command, exit with error for others
-      return Err(AnyError::msg(
-        "Only 'run' command is supported in this build",
-      ));
-    }
-  };
-
-  handle.await?
+  // This function is now deprecated - the logic has been moved to
+  // deno_tokio_process::run_typescript_file It should not be called anymore, but we keep it for
+  // compatibility
+  Err(AnyError::msg(
+    "run_subcommand is deprecated - use deno_tokio_process::run_typescript_file instead",
+  ))
 }
 
 #[allow(clippy::print_stderr)]
@@ -270,16 +247,15 @@ pub fn main() {
 
     let args = waited_args.unwrap_or(args);
 
-    // NOTE(lucacasonato): due to new PKU feature introduced in V8 11.6 we need to
-    // initialize the V8 platform on a parent thread of all threads that will spawn
-    // V8 isolates.
-    let flags = resolve_flags_and_init(args).await?;
+    // Check if V8 was already initialized in wait_for_start
+    let v8_already_initialized = waited_unconfigured_runtime.is_some();
 
-    if waited_unconfigured_runtime.is_none() {
-      init_v8(&flags);
-    }
-
-    run_subcommand(Arc::new(flags), waited_unconfigured_runtime, roots).await
+    // Use the new entry point in deno_tokio_process module
+    // This function will handle:
+    // 1. Flag parsing and V8 initialization
+    // 2. TypeScript file execution
+    // 3. Daemon mode with heartbeat loop
+    crate::deno_tokio_process::run_with_daemon_mode(args, roots, v8_already_initialized).await
   };
 
   let result = create_and_run_current_thread_with_maybe_metrics(future);
@@ -289,12 +265,9 @@ pub fn main() {
 
   match result {
     Ok(exit_code) => {
-      if exit_code == 0 {
-        println!("Deno script completed. Running in background mode...");
-        run_daemon_mode(exit_code);
-      } else {
-        deno_runtime::exit(exit_code);
-      }
+      // The daemon mode is now handled inside run_with_daemon_mode
+      // So we just exit with the code
+      deno_runtime::exit(exit_code);
     }
     Err(err) => exit_for_error(err),
   }

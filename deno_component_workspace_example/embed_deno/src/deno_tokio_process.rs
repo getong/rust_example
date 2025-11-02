@@ -1,15 +1,29 @@
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, ffi::OsString, path::PathBuf, sync::Arc, time::Instant};
 
 use deno_core::{
   ModuleSpecifier,
   anyhow::{Context, Error},
+  error::AnyError,
 };
-use deno_runtime::worker::MainWorker;
+use deno_lib::{util::result::js_error_downcast_ref, worker::LibWorkerFactoryRoots};
+use deno_runtime::{WorkerExecutionMode, fmt_errors::format_js_error, worker::MainWorker};
+use deno_telemetry::OtelConfig;
+use deno_terminal::colors;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use tokio::{
   net::UnixStream,
   sync::{mpsc, oneshot},
+  time::{Duration, MissedTickBehavior},
+};
+
+use crate::{
+  args::{DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
+  factory::CliFactory,
+  util::{
+    v8::{get_v8_flags_from_env, init_v8_flags},
+    watch_env_tracker::{WatchEnvTracker, load_env_variables_from_env_files},
+  },
 };
 
 #[allow(dead_code)]
@@ -270,4 +284,214 @@ impl<'a> DenoTokioProcess<'a> {
       0
     }
   }
+}
+
+/// High-level entry point for running TypeScript files from command line arguments
+/// This function integrates the main.rs logic for parsing args and executing scripts
+pub async fn run_typescript_file(
+  args: Vec<OsString>,
+  roots: LibWorkerFactoryRoots,
+  v8_already_initialized: bool,
+) -> Result<i32, AnyError> {
+  info!("Running TypeScript file with args: {:?}", args);
+
+  // Parse command line flags
+  let flags = resolve_flags(args).await?;
+
+  // Initialize V8 if not already done
+  if !v8_already_initialized {
+    init_v8(&flags);
+  }
+
+  // Execute the script based on the subcommand
+  let exit_code = match flags.subcommand.clone() {
+    DenoSubcommand::Run(run_flags) => {
+      if run_flags.is_stdin() {
+        // Handle stdin input
+        crate::tools::run::run_from_stdin(Arc::new(flags), None, roots).await?
+      } else {
+        // Run the script file
+        info!("Executing script: {:?}", run_flags.script);
+        crate::tools::run::run_script(
+          WorkerExecutionMode::Run,
+          Arc::new(flags),
+          run_flags.watch,
+          None,
+          roots,
+        )
+        .await?
+      }
+    }
+    _ => {
+      return Err(AnyError::msg(
+        "Only 'run' command is supported in this build",
+      ));
+    }
+  };
+
+  info!(
+    "TypeScript file execution completed with exit code: {}",
+    exit_code
+  );
+  Ok(exit_code)
+}
+
+/// Initialize V8 runtime
+fn init_v8(flags: &Flags) {
+  let default_v8_flags = get_default_v8_flags();
+  let env_v8_flags = get_v8_flags_from_env();
+  let is_single_threaded = env_v8_flags
+    .iter()
+    .chain(&flags.v8_flags)
+    .any(|flag| flag == "--single-threaded");
+  init_v8_flags(&default_v8_flags, &flags.v8_flags, env_v8_flags);
+  let v8_platform = if is_single_threaded {
+    Some(::deno_core::v8::Platform::new_single_threaded(true).make_shared())
+  } else {
+    None
+  };
+
+  deno_core::JsRuntime::init_platform(v8_platform, false);
+}
+
+/// Initialize logging with optional level and otel config
+fn init_logging(maybe_level: Option<log::Level>, otel_config: Option<OtelConfig>) {
+  deno_lib::util::logger::init(deno_lib::util::logger::InitLoggingOptions {
+    maybe_level,
+    otel_config,
+    on_log_start: crate::util::draw_thread::DrawThread::hide,
+    on_log_end: crate::util::draw_thread::DrawThread::show,
+  })
+}
+
+/// Parse and resolve command line flags
+async fn resolve_flags(args: Vec<OsString>) -> Result<Flags, AnyError> {
+  let mut flags = match flags_from_vec(args) {
+    Ok(flags) => flags,
+    Err(err @ clap::Error { .. }) if err.kind() == clap::error::ErrorKind::DisplayVersion => {
+      // Ignore results to avoid BrokenPipe errors.
+      let _ = err.print();
+      std::process::exit(0);
+    }
+    Err(err) => {
+      let error_string = format!("{err:?}");
+      error!(
+        "{}: {}",
+        colors::red_bold("error"),
+        error_string.trim_start_matches("error: ")
+      );
+      return Err(AnyError::from(err));
+    }
+  };
+
+  // Set default permissions for embedded Deno runtime if no explicit permissions were provided
+  if !flags.permissions.allow_all
+    && flags.permissions.allow_read.is_none()
+    && flags.permissions.allow_write.is_none()
+    && flags.permissions.allow_net.is_none()
+    && flags.permissions.allow_env.is_none()
+    && flags.permissions.allow_run.is_none()
+  {
+    flags.permissions.allow_all = true;
+    flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_ffi = Some(vec![]); // Empty vec means allow all
+    flags.permissions.allow_sys = Some(vec![]); // Empty vec means allow all
+  }
+
+  // Handle environment variables and configuration
+  if flags.subcommand.watch_flags().is_some() {
+    WatchEnvTracker::snapshot();
+  }
+  let env_file_paths: Option<Vec<PathBuf>> = flags
+    .env_file
+    .as_ref()
+    .map(|files| files.iter().map(PathBuf::from).collect());
+  load_env_variables_from_env_files(env_file_paths.as_ref(), flags.log_level);
+
+  flags.unstable_config.fill_with_env();
+  if std::env::var("DENO_COMPAT").is_ok() {
+    flags.unstable_config.enable_node_compat();
+  }
+  if flags.node_conditions.is_empty()
+    && let Ok(conditions) = std::env::var("DENO_CONDITIONS")
+  {
+    flags.node_conditions = conditions
+      .split(",")
+      .map(|c| c.trim().to_string())
+      .collect();
+  }
+
+  // Initialize logging and telemetry
+  let otel_config = flags.otel_config();
+  init_logging(flags.log_level, Some(otel_config.clone()));
+  deno_telemetry::init(
+    deno_lib::version::otel_runtime_config(),
+    otel_config.clone(),
+  )?;
+
+  Ok(flags)
+}
+
+/// Main entry point that runs TypeScript file first, then continues with daemon mode
+/// This is the recommended entry point for the embed_deno binary
+pub async fn run_with_daemon_mode(
+  args: Vec<OsString>,
+  roots: LibWorkerFactoryRoots,
+  v8_already_initialized: bool,
+) -> Result<i32, AnyError> {
+  info!("Starting embed_deno with daemon mode");
+
+  // Step 1: Execute the TypeScript file
+  let exit_code = run_typescript_file(args, roots, v8_already_initialized).await?;
+
+  info!("TypeScript execution completed with exit code: {}", exit_code);
+
+  // Step 2: If successful, run in daemon mode
+  if exit_code == 0 {
+    info!("Deno script completed successfully. Entering daemon mode...");
+    run_daemon_loop(exit_code).await;
+  }
+
+  Ok(exit_code)
+}
+
+/// Run the daemon heartbeat loop
+/// This keeps the process alive and logs periodic heartbeats
+async fn run_daemon_loop(exit_code: i32) -> ! {
+  let start_time = std::time::Instant::now();
+  let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+  heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+  heartbeat.tick().await; // First tick completes immediately
+
+  let mut heartbeat_count = 0u64;
+
+  loop {
+    tokio::select! {
+      result = tokio::signal::ctrl_c() => {
+        match result {
+          Ok(_) => {
+            println!("\n🛑 Daemon shutdown requested (Ctrl+C). Total uptime: {:?}", start_time.elapsed());
+          }
+          Err(err) => {
+            eprintln!("⚠️  Error listening for Ctrl+C: {}", err);
+          }
+        }
+        break;
+      }
+      _ = heartbeat.tick() => {
+        heartbeat_count += 1;
+        println!(
+          "💤 Daemon heartbeat #{}, uptime {:?}",
+          heartbeat_count,
+          start_time.elapsed()
+        );
+      }
+    }
+  }
+
+  deno_runtime::exit(exit_code);
 }
