@@ -250,12 +250,19 @@ pub fn main() {
     // Check if V8 was already initialized in wait_for_start
     let v8_already_initialized = waited_unconfigured_runtime.is_some();
 
-    // Use the new entry point in deno_tokio_process module
-    // This function will handle:
+    // Create and run the Deno Runtime Manager
+    // This will handle:
     // 1. Flag parsing and V8 initialization
     // 2. TypeScript file execution
     // 3. Daemon mode with heartbeat loop
-    crate::deno_tokio_process::run_with_daemon_mode(args, roots, v8_already_initialized).await
+    let runtime_manager = crate::deno_tokio_process::DenoRuntimeManager::from_args(
+      args,
+      roots,
+      v8_already_initialized,
+    )
+    .await?;
+
+    runtime_manager.run().await
   };
 
   let result = create_and_run_current_thread_with_maybe_metrics(future);
