@@ -298,7 +298,7 @@ async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, 
   {
     flags.permissions.allow_all = true;
     flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all  
+    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all
     flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
     flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
     flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
