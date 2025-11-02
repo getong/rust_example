@@ -255,12 +255,9 @@ pub fn main() {
     // 1. Flag parsing and V8 initialization
     // 2. TypeScript file execution
     // 3. Daemon mode with heartbeat loop
-    let runtime_manager = crate::deno_tokio_process::DenoRuntimeManager::from_args(
-      args,
-      roots,
-      v8_already_initialized,
-    )
-    .await?;
+    let runtime_manager =
+      crate::deno_tokio_process::DenoRuntimeManager::from_args(args, roots, v8_already_initialized)
+        .await?;
 
     runtime_manager.run().await
   };

@@ -448,7 +448,10 @@ pub async fn run_with_daemon_mode(
   // Step 1: Execute the TypeScript file
   let exit_code = run_typescript_file(args, roots, v8_already_initialized).await?;
 
-  info!("TypeScript execution completed with exit code: {}", exit_code);
+  info!(
+    "TypeScript execution completed with exit code: {}",
+    exit_code
+  );
 
   // Step 2: If successful, run in daemon mode
   if exit_code == 0 {
@@ -535,7 +538,10 @@ impl DenoRuntimeManager {
     // Step 1: Execute the TypeScript file
     let exit_code = self.execute_typescript().await?;
 
-    info!("TypeScript execution completed with exit code: {}", exit_code);
+    info!(
+      "TypeScript execution completed with exit code: {}",
+      exit_code
+    );
 
     // Step 2: If successful, run in daemon mode
     if exit_code == 0 {
@@ -552,12 +558,8 @@ impl DenoRuntimeManager {
       DenoSubcommand::Run(run_flags) => {
         if run_flags.is_stdin() {
           // Handle stdin input
-          crate::tools::run::run_from_stdin(
-            Arc::new(self.flags.clone()),
-            None,
-            self.roots.clone(),
-          )
-          .await?
+          crate::tools::run::run_from_stdin(Arc::new(self.flags.clone()), None, self.roots.clone())
+            .await?
         } else {
           // Run the script file
           info!("Executing script: {:?}", run_flags.script);
@@ -681,7 +683,10 @@ impl DenoRuntimeManager {
     // Initialize logging and telemetry
     let otel_config = flags.otel_config();
     Self::init_logging(flags.log_level, Some(otel_config.clone()));
-    deno_telemetry::init(deno_lib::version::otel_runtime_config(), otel_config.clone())?;
+    deno_telemetry::init(
+      deno_lib::version::otel_runtime_config(),
+      otel_config.clone(),
+    )?;
 
     Ok(flags)
   }
