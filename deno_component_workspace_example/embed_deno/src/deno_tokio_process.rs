@@ -1,33 +1,72 @@
 use std::{ffi::OsString, path::PathBuf, sync::Arc, time::Instant};
 
-use deno_core::error::AnyError;
+use deno_core::{PollEventLoopOptions, error::AnyError};
 use deno_lib::worker::LibWorkerFactoryRoots;
-use deno_runtime::WorkerExecutionMode;
+use deno_runtime::{WorkerExecutionMode, worker::MainWorker};
 use deno_telemetry::OtelConfig;
 use deno_terminal::colors;
 use log::{error, info};
-use tokio::time::{Duration, MissedTickBehavior};
+use tokio::{
+  sync::{Mutex as TokioMutex, mpsc, oneshot},
+  time::{Duration, MissedTickBehavior},
+};
 
 use crate::{
   args::{DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
+  factory::CliFactory,
   util::{
     v8::{get_v8_flags_from_env, init_v8_flags},
     watch_env_tracker::{WatchEnvTracker, load_env_variables_from_env_files},
   },
 };
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub enum UserWorkerMsgs {
-  Shutdown,
+/// Request to execute TypeScript code
+#[derive(Debug)]
+pub struct DenoRequest {
+  /// The script to execute
+  pub script: String,
+  /// Optional request ID for tracking
+  pub id: String,
+  /// Channel to send the response back
+  pub response_tx: oneshot::Sender<DenoResponse>,
 }
 
-/// Deno Runtime Manager - encapsulates the entire lifecycle of running TypeScript
-/// and managing the daemon process
+/// Response from TypeScript execution
+#[derive(Debug, Clone)]
+pub struct DenoResponse {
+  pub result: Result<String, String>,
+}
+
+/// Handle for communicating with the Deno runtime
+pub struct DenoRuntimeHandle {
+  tx: mpsc::UnboundedSender<DenoRequest>,
+}
+
+impl DenoRuntimeHandle {
+  pub async fn execute(&self, script: String) -> Result<String, AnyError> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let (response_tx, response_rx) = oneshot::channel();
+
+    self
+      .tx
+      .send(DenoRequest {
+        script,
+        id,
+        response_tx,
+      })
+      .expect("couldn't send on channel");
+
+    let response = response_rx.await?;
+    response.result.map_err(|err| AnyError::msg(err))
+  }
+}
+
+/// Core Deno runtime manager
 pub struct DenoRuntimeManager {
-  flags: Flags,
+  flags: Arc<Flags>,
   roots: LibWorkerFactoryRoots,
   start_time: Instant,
+  worker: Arc<TokioMutex<MainWorker>>,
 }
 
 impl DenoRuntimeManager {
@@ -41,105 +80,208 @@ impl DenoRuntimeManager {
 
     // Parse and resolve flags
     let flags = Self::resolve_flags(args).await?;
+    let flags_arc = Arc::new(flags);
 
     // Initialize V8 if not already done
     if !v8_already_initialized {
-      Self::init_v8(&flags);
+      Self::init_v8(&flags_arc);
     }
 
+    // Create the main worker using CliFactory
+    let worker = Self::create_main_worker(flags_arc.clone(), &roots).await?;
+
     Ok(Self {
-      flags,
+      flags: flags_arc,
       roots,
       start_time: Instant::now(),
+      #[allow(clippy::arc_with_non_send_sync)]
+      worker: Arc::new(TokioMutex::new(worker)),
     })
   }
 
-  /// Main entry point - executes TypeScript and then runs daemon loop
+  /// Create a MainWorker instance using CliFactory (proper way with all extensions)
+  async fn create_main_worker(
+    flags: Arc<Flags>,
+    _roots: &LibWorkerFactoryRoots,
+  ) -> Result<MainWorker, AnyError> {
+    // Create CliFactory
+    let cli_factory = CliFactory::from_flags(flags.clone());
+
+    // Create worker factory with proper extensions
+    let worker_factory = cli_factory.create_cli_main_worker_factory().await?;
+
+    // Get the module specifier
+    let module_specifier = if let DenoSubcommand::Run(run_flags) = &flags.subcommand {
+      deno_core::resolve_url_or_path(&run_flags.script, std::env::current_dir()?.as_path())?
+    } else {
+      return Err(AnyError::msg("No script specified"));
+    };
+
+    // Create the worker with empty side module list and convert to MainWorker
+    let cli_worker = worker_factory
+      .create_main_worker(WorkerExecutionMode::Run, module_specifier, vec![])
+      .await?;
+
+    // Convert CliMainWorker to MainWorker
+    Ok(cli_worker.into_main_worker())
+  }
+
+  /// Initialize the Deno engine by executing the main module
+  async fn init_engine(&self, module_url: &deno_core::ModuleSpecifier) -> Result<(), AnyError> {
+    let mut worker = self.worker.lock().await;
+    worker.execute_main_module(module_url).await?;
+    worker.dispatch_load_event()?;
+    info!("Deno engine initialized successfully");
+    Ok(())
+  }
+
+  /// Execute a script asynchronously and return the result as a string
+  async fn execute_script_async(&self, script: String) -> Result<String, AnyError> {
+    // Wrap the script in an async IIFE to ensure it's async
+    let wrapped_script = format!(
+      r#"
+      (async () => {{
+        const result = await ({});
+        return result;
+      }})();
+      "#,
+      script
+    );
+
+    let mut worker = self.worker.lock().await;
+    let execute_result = worker.execute_script("[execute]", wrapped_script.into())?;
+    let _resolve_result = worker.js_runtime.resolve(execute_result).await?;
+
+    // TODO: Properly extract and serialize the result
+    // For now, return a simple success message
+    info!("Script executed successfully");
+    Ok(String::from(
+      "{\"status\":\"success\",\"message\":\"Script executed\"}",
+    ))
+  }
+
+  /// Poll the Deno event loop
+  async fn poll_event_loop(&self) -> Result<(), AnyError> {
+    let mut worker = self.worker.lock().await;
+    worker
+      .js_runtime
+      .run_event_loop(PollEventLoopOptions {
+        wait_for_inspector: false,
+        pump_v8_message_loop: true,
+      })
+      .await?;
+    Ok(())
+  }
+
+  /// Generate the execution slot future that processes incoming requests
+  fn generate_execution_slot(
+    rx: Arc<TokioMutex<mpsc::UnboundedReceiver<DenoRequest>>>,
+    manager: Arc<DenoRuntimeManager>,
+  ) -> impl std::future::Future<Output = ()> {
+    async move {
+      loop {
+        let mut maybe_request = rx.lock().await;
+        if let Some(request) = maybe_request.recv().await {
+          let script = request.script.clone();
+          let manager_cloned = manager.clone();
+          let response_tx = request.response_tx;
+
+          tokio::task::spawn_local(async move {
+            match manager_cloned.execute_script_async(script).await {
+              Ok(res) => {
+                info!("Script execution completed successfully");
+                let _ = response_tx.send(DenoResponse { result: Ok(res) });
+              }
+              Err(err) => {
+                error!("Error executing script: {:?}", err);
+                let _ = response_tx.send(DenoResponse {
+                  result: Err(err.to_string()),
+                });
+              }
+            }
+          });
+        } else {
+          tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+      }
+    }
+  }
+
+  /// Main entry point - runs the daemon loop with tokio::select
   pub async fn run(self) -> Result<i32, AnyError> {
     info!("Starting Deno runtime execution");
 
-    // Step 1: Execute the TypeScript file
-    let exit_code = self.execute_typescript().await?;
-
-    info!(
-      "TypeScript execution completed with exit code: {}",
-      exit_code
-    );
-
-    // Step 2: If successful, run in daemon mode
-    if exit_code == 0 {
-      info!("Deno script completed successfully. Entering daemon mode...");
-      self.run_daemon_loop(exit_code).await;
-    }
-
-    Ok(exit_code)
-  }
-
-  /// Execute the TypeScript file based on the subcommand
-  async fn execute_typescript(&self) -> Result<i32, AnyError> {
-    let exit_code = match self.flags.subcommand.clone() {
-      DenoSubcommand::Run(run_flags) => {
-        if run_flags.is_stdin() {
-          // Handle stdin input
-          crate::tools::run::run_from_stdin(Arc::new(self.flags.clone()), None, self.roots.clone())
-            .await?
-        } else {
-          // Run the script file
-          info!("Executing script: {:?}", run_flags.script);
-          crate::tools::run::run_script(
-            WorkerExecutionMode::Run,
-            Arc::new(self.flags.clone()),
-            run_flags.watch,
-            None,
-            self.roots.clone(),
-          )
-          .await?
-        }
-      }
-      _ => {
-        return Err(AnyError::msg(
-          "Only 'run' command is supported in this build",
-        ));
-      }
+    // Get the module specifier
+    let module_specifier = if let DenoSubcommand::Run(run_flags) = &self.flags.subcommand {
+      deno_core::resolve_url_or_path(&run_flags.script, std::env::current_dir()?.as_path())?
+    } else {
+      return Err(AnyError::msg("No script specified"));
     };
 
-    Ok(exit_code)
-  }
+    // Initialize the engine
+    self.init_engine(&module_specifier).await?;
 
-  /// Run the daemon heartbeat loop
-  /// This keeps the process alive and logs periodic heartbeats
-  async fn run_daemon_loop(self, exit_code: i32) -> ! {
+    // Create channels for request/response
+    let (_tx_outside, rx_inside) = mpsc::unbounded_channel::<DenoRequest>();
+    let rx_inside = Arc::new(TokioMutex::new(rx_inside));
+
+    // Store the handle in an Arc for sharing
+    let manager_arc = Arc::new(self);
+
+    // Create heartbeat timer
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    heartbeat.tick().await; // First tick completes immediately
+    heartbeat.tick().await;
 
     let mut heartbeat_count = 0u64;
 
+    info!("Entering daemon loop with tokio::select");
+
+    // Main event loop
+    let local_set = tokio::task::LocalSet::new();
+
     loop {
       tokio::select! {
-        result = tokio::signal::ctrl_c() => {
+        // Poll Deno event loop
+        result = manager_arc.poll_event_loop() => {
           match result {
             Ok(_) => {
-              println!("\n🛑 Daemon shutdown requested (Ctrl+C). Total uptime: {:?}", self.start_time.elapsed());
+              // Event loop polled successfully
             }
             Err(err) => {
-              eprintln!("⚠️  Error listening for Ctrl+C: {}", err);
+              error!("Deno event loop error: {}", err);
+              break;
             }
           }
-          break;
         }
+
+        // Process script execution requests
+        _ = local_set.run_until(Self::generate_execution_slot(
+          rx_inside.clone(),
+          manager_arc.clone()
+        )) => {
+          info!("Execution slot completed");
+        }
+
+        // Heartbeat
         _ = heartbeat.tick() => {
           heartbeat_count += 1;
-          println!(
-            "💤 Daemon heartbeat #{}, uptime {:?}",
+          info!(
+            "Daemon heartbeat #{}, uptime {:?}",
             heartbeat_count,
-            self.start_time.elapsed()
+            manager_arc.start_time.elapsed()
           );
+        }
+
+        // Ctrl+C signal
+        _ = tokio::signal::ctrl_c() => {
+          info!("Shutdown signal received. Total uptime: {:?}", manager_arc.start_time.elapsed());
+          break;
         }
       }
     }
 
-    deno_runtime::exit(exit_code);
+    Ok(0)
   }
 
   /// Parse and resolve command line flags
@@ -147,7 +289,6 @@ impl DenoRuntimeManager {
     let mut flags = match flags_from_vec(args) {
       Ok(flags) => flags,
       Err(err @ clap::Error { .. }) if err.kind() == clap::error::ErrorKind::DisplayVersion => {
-        // Ignore results to avoid BrokenPipe errors.
         let _ = err.print();
         std::process::exit(0);
       }
@@ -162,7 +303,7 @@ impl DenoRuntimeManager {
       }
     };
 
-    // Set default permissions for embedded Deno runtime if no explicit permissions were provided
+    // Set default permissions
     if !flags.permissions.allow_all
       && flags.permissions.allow_read.is_none()
       && flags.permissions.allow_write.is_none()
@@ -171,16 +312,16 @@ impl DenoRuntimeManager {
       && flags.permissions.allow_run.is_none()
     {
       flags.permissions.allow_all = true;
-      flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
-      flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all
-      flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
-      flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
-      flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
-      flags.permissions.allow_ffi = Some(vec![]); // Empty vec means allow all
-      flags.permissions.allow_sys = Some(vec![]); // Empty vec means allow all
+      flags.permissions.allow_read = Some(vec![]);
+      flags.permissions.allow_write = Some(vec![]);
+      flags.permissions.allow_net = Some(vec![]);
+      flags.permissions.allow_env = Some(vec![]);
+      flags.permissions.allow_run = Some(vec![]);
+      flags.permissions.allow_ffi = Some(vec![]);
+      flags.permissions.allow_sys = Some(vec![]);
     }
 
-    // Handle environment variables and configuration
+    // Handle environment variables
     if flags.subcommand.watch_flags().is_some() {
       WatchEnvTracker::snapshot();
     }
@@ -203,7 +344,7 @@ impl DenoRuntimeManager {
         .collect();
     }
 
-    // Initialize logging and telemetry
+    // Initialize logging
     let otel_config = flags.otel_config();
     Self::init_logging(flags.log_level, Some(otel_config.clone()));
     deno_telemetry::init(
@@ -232,7 +373,7 @@ impl DenoRuntimeManager {
     deno_core::JsRuntime::init_platform(v8_platform, false);
   }
 
-  /// Initialize logging with optional level and otel config
+  /// Initialize logging
   fn init_logging(maybe_level: Option<log::Level>, otel_config: Option<OtelConfig>) {
     deno_lib::util::logger::init(deno_lib::util::logger::InitLoggingOptions {
       maybe_level,
