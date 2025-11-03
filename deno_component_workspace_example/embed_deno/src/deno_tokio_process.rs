@@ -137,12 +137,12 @@ impl DenoRuntimeManager {
 
   /// Execute a script asynchronously and return the result as a string
   async fn execute_script_async(&self, script: String) -> Result<String, AnyError> {
-    // Wrap the script in an async IIFE to ensure it's async
+    // Wrap the script in an async IIFE and stringify the result
     let wrapped_script = format!(
       r#"
       (async () => {{
         const result = await ({});
-        return result;
+        return JSON.stringify(result);
       }})();
       "#,
       script
@@ -150,14 +150,17 @@ impl DenoRuntimeManager {
 
     let mut worker = self.worker.lock().await;
     let execute_result = worker.execute_script("[execute]", wrapped_script.into())?;
-    let _resolve_result = worker.js_runtime.resolve(execute_result).await?;
+    let resolve_result = worker.js_runtime.resolve(execute_result).await?;
 
-    // TODO: Properly extract and serialize the result
-    // For now, return a simple success message
-    info!("Script executed successfully");
-    Ok(String::from(
-      "{\"status\":\"success\",\"message\":\"Script executed\"}",
-    ))
+    // Extract the stringified result from V8 Global
+    let result_str = {
+      deno_core::scope!(scope, &mut worker.js_runtime);
+      let local = deno_core::v8::Local::new(scope, resolve_result);
+      local.to_rust_string_lossy(scope)
+    };
+
+    info!("Script executed successfully, result: {}", result_str);
+    Ok(result_str)
   }
 
   /// Poll the Deno event loop
