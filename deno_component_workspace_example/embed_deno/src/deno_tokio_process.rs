@@ -47,6 +47,7 @@ impl DenoRuntimeHandle {
     let id = uuid::Uuid::new_v4().to_string();
     let (response_tx, response_rx) = oneshot::channel();
 
+    info!("📤 Sending request via channel (id: {})", id);
     self
       .tx
       .send(DenoRequest {
@@ -56,7 +57,9 @@ impl DenoRuntimeHandle {
       })
       .expect("couldn't send on channel");
 
+    info!("⏳ Waiting for response...");
     let response = response_rx.await?;
+    info!("📬 Received response");
     response.result.map_err(|err| AnyError::msg(err))
   }
 }
@@ -138,11 +141,11 @@ impl DenoRuntimeManager {
   /// Execute a script asynchronously and return the result as a string
   async fn execute_script_async(&self, script: String) -> Result<String, AnyError> {
     // Wrap the script in an async IIFE and stringify the result
+    // The script can contain statements, so we use a function body
     let wrapped_script = format!(
       r#"
       (async () => {{
-        const result = await ({});
-        return JSON.stringify(result);
+        {}
       }})();
       "#,
       script
@@ -150,7 +153,19 @@ impl DenoRuntimeManager {
 
     let mut worker = self.worker.lock().await;
     let execute_result = worker.execute_script("[execute]", wrapped_script.into())?;
-    let resolve_result = worker.js_runtime.resolve(execute_result).await?;
+
+    // Resolve the promise and poll event loop
+    let resolve_future = worker.js_runtime.resolve(execute_result);
+    let resolve_result = worker
+      .js_runtime
+      .with_event_loop_future(
+        resolve_future,
+        PollEventLoopOptions {
+          wait_for_inspector: false,
+          pump_v8_message_loop: true,
+        },
+      )
+      .await?;
 
     // Extract the stringified result from V8 Global
     let result_str = {
@@ -176,41 +191,36 @@ impl DenoRuntimeManager {
     Ok(())
   }
 
-  /// Generate the execution slot future that processes incoming requests
-  fn generate_execution_slot(
+  /// Process a single request from the queue
+  async fn process_request(
     rx: Arc<TokioMutex<mpsc::UnboundedReceiver<DenoRequest>>>,
     manager: Arc<DenoRuntimeManager>,
-  ) -> impl std::future::Future<Output = ()> {
-    async move {
-      loop {
-        let mut maybe_request = rx.lock().await;
-        if let Some(request) = maybe_request.recv().await {
-          let script = request.script.clone();
-          let manager_cloned = manager.clone();
-          let response_tx = request.response_tx;
+  ) {
+    let mut receiver = rx.lock().await;
+    if let Ok(request) = receiver.try_recv() {
+      info!("📨 Received request to execute script");
+      drop(receiver); // Release lock immediately
 
-          tokio::task::spawn_local(async move {
-            match manager_cloned.execute_script_async(script).await {
-              Ok(res) => {
-                info!("Script execution completed successfully");
-                let _ = response_tx.send(DenoResponse { result: Ok(res) });
-              }
-              Err(err) => {
-                error!("Error executing script: {:?}", err);
-                let _ = response_tx.send(DenoResponse {
-                  result: Err(err.to_string()),
-                });
-              }
-            }
+      let script = request.script;
+      let response_tx = request.response_tx;
+
+      info!("🔄 Executing script...");
+      match manager.execute_script_async(script).await {
+        Ok(res) => {
+          info!("✅ Script execution completed successfully");
+          let _ = response_tx.send(DenoResponse { result: Ok(res) });
+        }
+        Err(err) => {
+          error!("❌ Error executing script: {:?}", err);
+          let _ = response_tx.send(DenoResponse {
+            result: Err(err.to_string()),
           });
-        } else {
-          tokio::time::sleep(Duration::from_millis(1)).await;
         }
       }
     }
   }
 
-  /// Main entry point - runs the daemon loop with tokio::select
+  /// Main entry point - runs daemon with handle
   pub async fn run(self) -> Result<i32, AnyError> {
     info!("Starting Deno runtime execution");
 
@@ -225,45 +235,77 @@ impl DenoRuntimeManager {
     self.init_engine(&module_specifier).await?;
 
     // Create channels for request/response
-    let (_tx_outside, rx_inside) = mpsc::unbounded_channel::<DenoRequest>();
+    let (tx_outside, rx_inside) = mpsc::unbounded_channel::<DenoRequest>();
     let rx_inside = Arc::new(TokioMutex::new(rx_inside));
 
     // Store the handle in an Arc for sharing
     let manager_arc = Arc::new(self);
 
+    // Clone tx for testing
+    let handle = DenoRuntimeHandle { tx: tx_outside };
+
+    // Send a test script execution request
+    println!("Sending test script execution request...");
+    let test_script = r#"
+      const result = {
+        message: "Hello from TypeScript!",
+        timestamp: new Date().toISOString(),
+        env: {
+          api_key: Deno.env.get("STREAM_API_KEY"),
+          api_secret: Deno.env.get("STREAM_API_SECRET")
+        }
+      };
+      return JSON.stringify(result);
+    "#
+    .to_string();
+
+    let handle_clone = DenoRuntimeHandle {
+      tx: handle.tx.clone(),
+    };
+    tokio::spawn(async move {
+      tokio::time::sleep(Duration::from_secs(2)).await;
+      match handle_clone.execute(test_script).await {
+        Ok(result) => {
+          println!("✅ Script execution result:");
+          println!("{}", result);
+        }
+        Err(err) => {
+          eprintln!("❌ Script execution failed: {}", err);
+        }
+      }
+    });
+
+    // Run the daemon loop
+    Self::run_daemon_loop(rx_inside, manager_arc).await;
+
+    Ok(0)
+  }
+
+  /// Background daemon loop
+  async fn run_daemon_loop(
+    rx_inside: Arc<TokioMutex<mpsc::UnboundedReceiver<DenoRequest>>>,
+    manager_arc: Arc<DenoRuntimeManager>,
+  ) {
     // Create heartbeat timer
     let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     heartbeat.tick().await;
 
+    // Create a ticker for processing requests
+    let mut request_ticker = tokio::time::interval(Duration::from_millis(10));
+    request_ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
     let mut heartbeat_count = 0u64;
 
     info!("Entering daemon loop with tokio::select");
 
-    // Main event loop
-    let local_set = tokio::task::LocalSet::new();
-
     loop {
       tokio::select! {
-        // Poll Deno event loop
-        result = manager_arc.poll_event_loop() => {
-          match result {
-            Ok(_) => {
-              // Event loop polled successfully
-            }
-            Err(err) => {
-              error!("Deno event loop error: {}", err);
-              break;
-            }
-          }
-        }
-
         // Process script execution requests
-        _ = local_set.run_until(Self::generate_execution_slot(
-          rx_inside.clone(),
-          manager_arc.clone()
-        )) => {
-          info!("Execution slot completed");
+        // Note: We don't poll event loop separately because execute_script_async
+        // handles event loop polling internally through resolve()
+        _ = request_ticker.tick() => {
+          Self::process_request(rx_inside.clone(), manager_arc.clone()).await;
         }
 
         // Heartbeat
@@ -283,8 +325,6 @@ impl DenoRuntimeManager {
         }
       }
     }
-
-    Ok(0)
   }
 
   /// Parse and resolve command line flags
