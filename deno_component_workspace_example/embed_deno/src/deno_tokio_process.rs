@@ -92,6 +92,18 @@ pub struct DenoRuntimeManager {
 }
 
 impl DenoRuntimeManager {
+  /// Main entry point - runs daemon with handle
+  pub async fn run(self) -> Result<i32, AnyError> {
+    let (_handle, daemon_future) = self.run_with_handle().await?;
+
+    // Run daemon until interrupted
+    tokio::select! {
+      _ = daemon_future => {},
+      _ = tokio::signal::ctrl_c() => {},
+    }
+
+    Ok(0)
+  }
   /// Create a new DenoRuntimeManager from command line arguments
   pub async fn from_args(
     args: Vec<OsString>,
@@ -154,6 +166,11 @@ impl DenoRuntimeManager {
 
   /// Execute a script asynchronously and return the result as a string
   async fn execute_script_async(&self, script: String) -> Result<String, AnyError> {
+    // Check if the script contains imports - if so, use module execution
+    if script.contains("import ") {
+      return self.execute_module_async(script).await;
+    }
+
     // Wrap the script in an async IIFE and stringify the result
     // The script can contain statements, so we use a function body
     let wrapped_script = format!(
@@ -189,6 +206,65 @@ impl DenoRuntimeManager {
     };
 
     info!("Script executed successfully, result: {}", result_str);
+    Ok(result_str)
+  }
+
+  /// Execute module code (with import statements) by writing to temp file and using dynamic import
+  async fn execute_module_async(&self, module_code: String) -> Result<String, AnyError> {
+    // Create a temporary file for the module
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!("deno_module_{}.ts", uuid::Uuid::new_v4()));
+
+    info!("Writing module to temporary file: {:?}", temp_file);
+    std::fs::write(&temp_file, &module_code)?;
+
+    // Convert to file:// URL
+    let file_url = format!("file://{}", temp_file.display());
+
+    info!("Executing module via dynamic import from: {}", file_url);
+
+    // Use dynamic import to load and execute the module
+    let import_script = format!(
+      r#"
+      (async () => {{
+        try {{
+          await import("{}");
+          return "Module executed successfully";
+        }} catch (e) {{
+          throw e;
+        }}
+      }})();
+      "#,
+      file_url
+    );
+
+    let mut worker = self.worker.lock().await;
+    let execute_result = worker.execute_script("[dynamic_import]", import_script.into())?;
+
+    // Resolve the promise and poll event loop
+    let resolve_future = worker.js_runtime.resolve(execute_result);
+    let resolve_result = worker
+      .js_runtime
+      .with_event_loop_future(
+        resolve_future,
+        PollEventLoopOptions {
+          wait_for_inspector: false,
+          pump_v8_message_loop: true,
+        },
+      )
+      .await?;
+
+    // Extract the result
+    let result_str = {
+      scope!(scope, &mut worker.js_runtime);
+      let local = Local::new(scope, resolve_result);
+      local.to_rust_string_lossy(scope)
+    };
+
+    // Clean up temp file
+    let _ = std::fs::remove_file(&temp_file);
+
+    info!("Module executed successfully, result: {}", result_str);
     Ok(result_str)
   }
 
@@ -239,8 +315,17 @@ impl DenoRuntimeManager {
     }
   }
 
-  /// Main entry point - runs daemon with handle
-  pub async fn run(self) -> Result<i32, AnyError> {
+  /// Run daemon and return handle for sending requests
+  /// Returns (handle, daemon_future) where daemon_future must be polled
+  pub async fn run_with_handle(
+    self,
+  ) -> Result<
+    (
+      DenoRuntimeHandle,
+      impl std::future::Future<Output = ()> + 'static,
+    ),
+    AnyError,
+  > {
     info!("Starting Deno runtime execution");
 
     // Get the module specifier
@@ -260,44 +345,15 @@ impl DenoRuntimeManager {
     // Store the handle in an Arc for sharing
     let manager_arc = Arc::new(self);
 
-    // Clone tx for testing
+    // Return handle to caller
     let handle = DenoRuntimeHandle { tx: tx_outside };
 
-    // Send a test script execution request
-    println!("Sending test script execution request...");
-    let test_script = r#"
-      const result = {
-        message: "Hello from TypeScript!",
-        timestamp: new Date().toISOString(),
-        env: {
-          api_key: Deno.env.get("STREAM_API_KEY"),
-          api_secret: Deno.env.get("STREAM_API_SECRET")
-        }
-      };
-      return JSON.stringify(result);
-    "#
-    .to_string();
-
-    let handle_clone = DenoRuntimeHandle {
-      tx: handle.tx.clone(),
+    // Create daemon future
+    let daemon_future = async move {
+      Self::run_daemon_loop(rx_inside, manager_arc).await;
     };
-    tokio::spawn(async move {
-      tokio::time::sleep(Duration::from_secs(2)).await;
-      match handle_clone.execute(test_script).await {
-        Ok(result) => {
-          println!("✅ Script execution result:");
-          println!("{}", result);
-        }
-        Err(err) => {
-          eprintln!("❌ Script execution failed: {}", err);
-        }
-      }
-    });
 
-    // Run the daemon loop
-    Self::run_daemon_loop(rx_inside, manager_arc).await;
-
-    Ok(0)
+    Ok((handle, daemon_future))
   }
 
   /// Background daemon loop

@@ -260,7 +260,68 @@ pub fn main() {
       crate::deno_tokio_process::DenoRuntimeManager::from_args(args, v8_already_initialized)
         .await?;
 
-    runtime_manager.run().await
+    // Get handle and daemon future for sending requests
+    let (handle, daemon_future) = runtime_manager.run_with_handle().await?;
+
+    // Read stream.ts file and execute it
+    let stream_ts_path = std::env::current_dir()?.join("stream.ts");
+    println!("📖 Reading stream.ts file from: {:?}", stream_ts_path);
+
+    let stream_script = match std::fs::read_to_string(&stream_ts_path) {
+      Ok(content) => {
+        println!(
+          "✅ Successfully read stream.ts file ({} bytes)",
+          content.len()
+        );
+        content
+      }
+      Err(err) => {
+        eprintln!("❌ Failed to read stream.ts file: {}", err);
+        eprintln!("   Using fallback test script instead");
+        // Fallback to test script
+        r#"
+          const result = {
+            message: "Hello from TypeScript!",
+            timestamp: new Date().toISOString(),
+            env: {
+              api_key: Deno.env.get("STREAM_API_KEY"),
+              api_secret: Deno.env.get("STREAM_API_SECRET")
+            }
+          };
+          return JSON.stringify(result);
+        "#
+        .to_string()
+      }
+    };
+
+    // Create a future for script execution
+    let script_execution = async {
+      // Give daemon time to start
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+      // Send the script for execution
+      println!("📤 Sending script for execution...");
+      match handle.execute(stream_script).await {
+        Ok(result) => {
+          println!("✅ Execution result:");
+          println!("{}", result);
+        }
+        Err(err) => {
+          eprintln!("❌ Execution failed: {}", err);
+        }
+      }
+
+      // Keep running until interrupted
+      tokio::signal::ctrl_c().await.ok();
+    };
+
+    // Run both the daemon and script execution concurrently
+    tokio::select! {
+      _ = daemon_future => {},
+      _ = script_execution => {},
+    }
+
+    Ok(0)
   };
 
   let result = create_and_run_current_thread_with_maybe_metrics(future);

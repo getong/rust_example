@@ -1301,78 +1301,75 @@ static ENV_VARIABLES_HELP: &str = cstr!(
 );
 
 static DENO_HELP: &str = cstr!(
-  "Deno: <g>A modern JavaScript and TypeScript runtime</>
+    "Deno: <g>A modern JavaScript and TypeScript runtime</>
 
 <p(245)>Usage:</> <g>{usage}</>
 
-<y>Commands:</><y>Execution:</>\
-   
-    <g>run</>          Run a JavaScript or TypeScript program, or a task
-                  <p(245)>deno \
-   run main.ts  |  deno run --allow-net=google.com main.ts  |  deno main.ts</>
-    <g>serve</>        \
-   Run a server
+<y>Commands:</><y>Execution:</><g>run</>          \
+     Run a JavaScript or TypeScript program, or a task
+                  <p(245)>deno run main.ts  |  \
+     deno run --allow-net=google.com main.ts  |  deno main.ts</>
+    <g>serve</>        Run a server\
+     
                   <p(245)>deno serve main.ts</>
-    <g>task</>         Run a task defined \
-   in the configuration file
+    <g>task</>         Run a task defined in the \
+     configuration file
                   <p(245)>deno task dev</>
-    <g>repl</>         Start \
-   an interactive Read-Eval-Print Loop (REPL) for Deno
-    <g>eval</>         Evaluate a script from \
-   the command line
+    <g>repl</>         Start an interactive \
+     Read-Eval-Print Loop (REPL) for Deno
+    <g>eval</>         Evaluate a script from the command \
+     line
 
   <y>Dependency management:</>
     <g>add</>          Add dependencies
-                  \
-   <p(245)>deno add jsr:@std/assert  |  deno add npm:express</>
-    <g>install</>      Installs dependencies \
-   either in the local project or globally to a bin directory
+                  <p(245)>deno \
+     add jsr:@std/assert  |  deno add npm:express</>
+    <g>install</>      Installs dependencies either \
+     in the local project or globally to a bin directory
     <g>uninstall</>    Uninstalls a dependency \
-   or an executable script in the installation root's bin directory
+     or an executable script in the installation root's bin directory
     <g>outdated</>     Find and \
-   update outdated dependencies
-    <g>remove</>       Remove dependencies from the configuration file<y>Tooling:</>\
-   
-    <g>bench</>        Run benchmarks
+     update outdated dependencies
+    <g>remove</>       Remove dependencies from the configuration \
+     file<y>Tooling:</><g>bench</>        Run benchmarks
                   <p(245)>deno bench bench.ts</><g>check</>        \
-   Type-check the dependencies
-    <g>clean</>        Remove the cache directory<g>compile</>      Compile \
-   the script into a self contained executable
-                  <p(245)>deno compile main.ts  |  deno \
-   compile --target=x86_64-unknown-linux-gnu</>
-    <g>coverage</>     Print coverage reports
-    <g>deploy</>       \
-   Manage and publish applications with Deno Deploy
-    <g>doc</>          Generate and show documentation \
-   for a module or built-ins
-                  <p(245)>deno doc  |  deno doc --json  |  deno doc --html \
-   mod.ts</>
+     Type-check the dependencies
+    <g>clean</>        Remove the cache directory<g>compile</>      \
+     Compile the script into a self contained executable
+                  <p(245)>deno compile main.ts  \
+     |  deno compile --target=x86_64-unknown-linux-gnu</>
+    <g>coverage</>     Print coverage reports\
+     
+    <g>deploy</>       Manage and publish applications with Deno Deploy
+    <g>doc</>          \
+     Generate and show documentation for a module or built-ins
+                  <p(245)>deno doc  |  \
+     deno doc --json  |  deno doc --html mod.ts</>
     <g>fmt</>          Format source files
-                  <p(245)>deno fmt  |  deno fmt \
-   main.ts</>
-    <g>info</>         Show info about cache or info related to source file
-    <g>jupyter</>      \
-   Deno kernel for Jupyter notebooks
-    <g>lint</>         Lint source files
-    <g>init</>         \
-   Initialize a new project
+                  \
+     <p(245)>deno fmt  |  deno fmt main.ts</>
+    <g>info</>         Show info about cache or info related \
+     to source file
+    <g>jupyter</>      Deno kernel for Jupyter notebooks
+    <g>lint</>         Lint \
+     source files
+    <g>init</>         Initialize a new project
     <g>test</>         Run tests
-                  <p(245)>deno test  |  \
-   deno test test.ts</>
-    <g>publish</>      Publish the current working directory's package or workspace\
-   
-    <g>upgrade</>      Upgrade deno executable to given version
-                  <p(245)>deno upgrade  \
-   |  deno upgrade 1.45.0  |  deno upgrade canary</>
+                  \
+     <p(245)>deno test  |  deno test test.ts</>
+    <g>publish</>      Publish the current working directory's \
+     package or workspace<g>upgrade</>      Upgrade deno executable to given version
+                  \
+     <p(245)>deno upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>
 {after-help}
 
-<y>Docs:</> https://docs.deno.com<y>Standard \
-   Library:</> https://jsr.io/@std
-<y>Bugs:</> https://github.com/denoland/deno/issues
-<y>Discord:</> \
-   https://discord.gg/deno
+<y>Docs:</> \
+     https://docs.deno.com<y>Standard Library:</> https://jsr.io/@std
+<y>Bugs:</> https://github.com/denoland/deno/issues\
+     
+<y>Discord:</> https://discord.gg/deno
 "
-);
+  );
 
 /// Main entry point for parsing deno's command line flags.
 pub fn flags_from_vec(args: Vec<OsString>) -> clap::error::Result<Flags> {
