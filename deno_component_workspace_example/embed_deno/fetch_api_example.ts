@@ -16,10 +16,31 @@ async function main() {
     console.error(`HTTP ${res.status} ${res.statusText}`);
 
     const body = await res.text();
-    console.log(body);
+
+    // Return structured data back to Rust
+    return JSON.stringify(
+      {
+        url: url,
+        status: res.status,
+        statusText: res.statusText,
+        bodyLength: body.length,
+        body: body,
+      },
+      null,
+      2,
+    );
   } catch (err) {
-    console.error("Error:", err);
+    return JSON.stringify(
+      {
+        error: String(err),
+      },
+      null,
+      2,
+    );
   }
 }
 
-main();
+// Await main() - Rust wrapper will capture the return value
+let result = await main();
+console.log(result);
+return result;
