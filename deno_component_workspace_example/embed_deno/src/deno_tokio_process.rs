@@ -1,7 +1,12 @@
 use std::{ffi::OsString, path::PathBuf, sync::Arc, time::Instant};
 
-use deno_core::{PollEventLoopOptions, error::AnyError};
-use deno_lib::worker::LibWorkerFactoryRoots;
+use deno_core::{
+  JsRuntime, ModuleSpecifier, PollEventLoopOptions,
+  error::AnyError,
+  resolve_url_or_path, scope,
+  v8::{Local, Platform},
+};
+use deno_lib::{version, worker::LibWorkerFactoryRoots};
 use deno_runtime::{WorkerExecutionMode, worker::MainWorker};
 use deno_telemetry::OtelConfig;
 use deno_terminal::colors;
@@ -10,6 +15,7 @@ use tokio::{
   sync::{Mutex as TokioMutex, mpsc, oneshot},
   time::{Duration, MissedTickBehavior},
 };
+use uuid::Uuid;
 
 use crate::{
   args::{DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
@@ -44,10 +50,13 @@ pub struct DenoRuntimeHandle {
 
 impl DenoRuntimeHandle {
   pub async fn execute(&self, script: String) -> Result<String, AnyError> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = Uuid::new_v4().to_string();
     let (response_tx, response_rx) = oneshot::channel();
 
-    info!("📤 Sending request via channel (id: {})", id);
+    info!(
+      "📤 Sending request via channel (id: {})， the script is {:?}",
+      id, script
+    );
     self
       .tx
       .send(DenoRequest {
@@ -115,7 +124,7 @@ impl DenoRuntimeManager {
 
     // Get the module specifier
     let module_specifier = if let DenoSubcommand::Run(run_flags) = &flags.subcommand {
-      deno_core::resolve_url_or_path(&run_flags.script, std::env::current_dir()?.as_path())?
+      resolve_url_or_path(&run_flags.script, std::env::current_dir()?.as_path())?
     } else {
       return Err(AnyError::msg("No script specified"));
     };
@@ -130,7 +139,7 @@ impl DenoRuntimeManager {
   }
 
   /// Initialize the Deno engine by executing the main module
-  async fn init_engine(&self, module_url: &deno_core::ModuleSpecifier) -> Result<(), AnyError> {
+  async fn init_engine(&self, module_url: &ModuleSpecifier) -> Result<(), AnyError> {
     let mut worker = self.worker.lock().await;
     worker.execute_main_module(module_url).await?;
     worker.dispatch_load_event()?;
@@ -169,8 +178,8 @@ impl DenoRuntimeManager {
 
     // Extract the stringified result from V8 Global
     let result_str = {
-      deno_core::scope!(scope, &mut worker.js_runtime);
-      let local = deno_core::v8::Local::new(scope, resolve_result);
+      scope!(scope, &mut worker.js_runtime);
+      let local = Local::new(scope, resolve_result);
       local.to_rust_string_lossy(scope)
     };
 
@@ -226,7 +235,7 @@ impl DenoRuntimeManager {
 
     // Get the module specifier
     let module_specifier = if let DenoSubcommand::Run(run_flags) = &self.flags.subcommand {
-      deno_core::resolve_url_or_path(&run_flags.script, std::env::current_dir()?.as_path())?
+      resolve_url_or_path(&run_flags.script, std::env::current_dir()?.as_path())?
     } else {
       return Err(AnyError::msg("No script specified"));
     };
@@ -390,10 +399,7 @@ impl DenoRuntimeManager {
     // Initialize logging
     let otel_config = flags.otel_config();
     Self::init_logging(flags.log_level, Some(otel_config.clone()));
-    deno_telemetry::init(
-      deno_lib::version::otel_runtime_config(),
-      otel_config.clone(),
-    )?;
+    deno_telemetry::init(version::otel_runtime_config(), otel_config.clone())?;
 
     Ok(flags)
   }
@@ -408,12 +414,12 @@ impl DenoRuntimeManager {
       .any(|flag| flag == "--single-threaded");
     init_v8_flags(&default_v8_flags, &flags.v8_flags, env_v8_flags);
     let v8_platform = if is_single_threaded {
-      Some(::deno_core::v8::Platform::new_single_threaded(true).make_shared())
+      Some(Platform::new_single_threaded(true).make_shared())
     } else {
       None
     };
 
-    deno_core::JsRuntime::init_platform(v8_platform, false);
+    JsRuntime::init_platform(v8_platform, false);
   }
 
   /// Initialize logging
