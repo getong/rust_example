@@ -6,7 +6,7 @@ use deno_core::{
   resolve_url_or_path, scope,
   v8::{Local, Platform},
 };
-use deno_lib::{version, worker::LibWorkerFactoryRoots};
+use deno_lib::version;
 use deno_runtime::{WorkerExecutionMode, worker::MainWorker};
 use deno_telemetry::OtelConfig;
 use deno_terminal::colors;
@@ -76,7 +76,6 @@ impl DenoRuntimeHandle {
 /// Core Deno runtime manager
 pub struct DenoRuntimeManager {
   flags: Arc<Flags>,
-  roots: LibWorkerFactoryRoots,
   start_time: Instant,
   worker: Arc<TokioMutex<MainWorker>>,
 }
@@ -85,7 +84,6 @@ impl DenoRuntimeManager {
   /// Create a new DenoRuntimeManager from command line arguments
   pub async fn from_args(
     args: Vec<OsString>,
-    roots: LibWorkerFactoryRoots,
     v8_already_initialized: bool,
   ) -> Result<Self, AnyError> {
     info!("Initializing DenoRuntimeManager from args: {:?}", args);
@@ -100,11 +98,10 @@ impl DenoRuntimeManager {
     }
 
     // Create the main worker using CliFactory
-    let worker = Self::create_main_worker(flags_arc.clone(), &roots).await?;
+    let worker = Self::create_main_worker(flags_arc.clone()).await?;
 
     Ok(Self {
       flags: flags_arc,
-      roots,
       start_time: Instant::now(),
       #[allow(clippy::arc_with_non_send_sync)]
       worker: Arc::new(TokioMutex::new(worker)),
@@ -112,10 +109,7 @@ impl DenoRuntimeManager {
   }
 
   /// Create a MainWorker instance using CliFactory (proper way with all extensions)
-  async fn create_main_worker(
-    flags: Arc<Flags>,
-    _roots: &LibWorkerFactoryRoots,
-  ) -> Result<MainWorker, AnyError> {
+  async fn create_main_worker(flags: Arc<Flags>) -> Result<MainWorker, AnyError> {
     // Create CliFactory
     let cli_factory = CliFactory::from_flags(flags.clone());
 

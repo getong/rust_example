@@ -257,7 +257,7 @@ pub fn main() {
     // 3. Daemon mode with heartbeat loop
     // 4. Message passing for script execution
     let runtime_manager =
-      crate::deno_tokio_process::DenoRuntimeManager::from_args(args, roots, v8_already_initialized)
+      crate::deno_tokio_process::DenoRuntimeManager::from_args(args, v8_already_initialized)
         .await?;
 
     runtime_manager.run().await
