@@ -40,6 +40,8 @@ pub struct DenoRequest {
 /// Response from TypeScript execution
 #[derive(Debug, Clone)]
 pub struct DenoResponse {
+  /// Request ID for tracking
+  pub id: String,
   pub result: Result<String, String>,
 }
 
@@ -61,14 +63,23 @@ impl DenoRuntimeHandle {
       .tx
       .send(DenoRequest {
         script,
-        id,
+        id: id.clone(),
         response_tx,
       })
       .expect("couldn't send on channel");
 
     info!("⏳ Waiting for response...");
     let response = response_rx.await?;
-    info!("📬 Received response");
+
+    // Verify request/response ID match
+    if response.id != id {
+      return Err(AnyError::msg(format!(
+        "Response ID mismatch: expected {}, got {}",
+        id, response.id
+      )));
+    }
+
+    info!("📬 Received response (id: {})", response.id);
     response.result.map_err(|err| AnyError::msg(err))
   }
 }
@@ -201,9 +212,10 @@ impl DenoRuntimeManager {
   ) {
     let mut receiver = rx.lock().await;
     if let Ok(request) = receiver.try_recv() {
-      info!("📨 Received request to execute script");
+      info!("📨 Received request to execute script (id: {})", request.id);
       drop(receiver); // Release lock immediately
 
+      let request_id = request.id;
       let script = request.script;
       let response_tx = request.response_tx;
 
@@ -211,11 +223,15 @@ impl DenoRuntimeManager {
       match manager.execute_script_async(script).await {
         Ok(res) => {
           info!("✅ Script execution completed successfully");
-          let _ = response_tx.send(DenoResponse { result: Ok(res) });
+          let _ = response_tx.send(DenoResponse {
+            id: request_id,
+            result: Ok(res),
+          });
         }
         Err(err) => {
           error!("❌ Error executing script: {:?}", err);
           let _ = response_tx.send(DenoResponse {
+            id: request_id,
             result: Err(err.to_string()),
           });
         }
@@ -319,6 +335,10 @@ impl DenoRuntimeManager {
             heartbeat_count,
             manager_arc.start_time.elapsed()
           );
+          // Poll event loop periodically during heartbeat
+          if let Err(e) = manager_arc.poll_event_loop().await {
+            error!("Error polling event loop: {:?}", e);
+          }
         }
 
         // Ctrl+C signal
