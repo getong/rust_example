@@ -35,7 +35,7 @@ use std::{env, ffi::OsString, path::PathBuf, sync::Arc};
 use deno_core::error::AnyError;
 use deno_lib::{util::result::js_error_downcast_ref, worker::LibWorkerFactoryRoots};
 use deno_runtime::{
-  UnconfiguredRuntime, WorkerExecutionMode, fmt_errors::format_js_error,
+  UnconfiguredRuntime, fmt_errors::format_js_error,
   tokio_util::create_and_run_current_thread_with_maybe_metrics,
 };
 use deno_telemetry::OtelConfig;
@@ -44,7 +44,7 @@ use factory::CliFactory;
 
 use self::util::draw_thread::DrawThread;
 use crate::{
-  args::{DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
+  args::{Flags, flags_from_vec, get_default_v8_flags},
   util::{
     display,
     v8::{get_v8_flags_from_env, init_v8_flags},
