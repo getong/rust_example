@@ -264,7 +264,7 @@ pub fn main() {
     let (handle, daemon_future) = runtime_manager.run_with_handle().await?;
 
     // Read stream.ts file and execute it
-    let stream_ts_path = std::env::current_dir()?.join("stream.ts");
+    let stream_ts_path = std::env::current_dir()?.join("fetch_api_example.ts");
     println!("📖 Reading stream.ts file from: {:?}", stream_ts_path);
 
     let stream_script = match std::fs::read_to_string(&stream_ts_path) {

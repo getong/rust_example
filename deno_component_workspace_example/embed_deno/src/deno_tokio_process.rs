@@ -205,6 +205,17 @@ impl DenoRuntimeManager {
       local.to_rust_string_lossy(scope)
     };
 
+    // IMPORTANT: Continue polling the event loop until all pending operations complete
+    // This ensures async operations like fetch() complete even if the script returns early
+    info!("Polling event loop to completion to handle remaining async operations...");
+    worker
+      .js_runtime
+      .run_event_loop(PollEventLoopOptions {
+        wait_for_inspector: false,
+        pump_v8_message_loop: true,
+      })
+      .await?;
+
     info!("Script executed successfully, result: {}", result_str);
     Ok(result_str)
   }
