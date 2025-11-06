@@ -395,36 +395,37 @@ impl DenoRuntimeManager {
     Ok(())
   }
 
-  /// Process a single request from the queue
-  async fn process_request(
+  /// Wait for the next request from the queue
+  async fn recv_request(
     rx: Arc<TokioMutex<mpsc::UnboundedReceiver<DenoRequest>>>,
-    manager: Arc<DenoRuntimeManager>,
-  ) {
+  ) -> Option<DenoRequest> {
     let mut receiver = rx.lock().await;
-    if let Ok(request) = receiver.try_recv() {
-      info!("📨 Received request to execute script (id: {})", request.id);
-      drop(receiver); // Release lock immediately
+    receiver.recv().await
+  }
 
-      let request_id = request.id;
-      let script = request.script;
-      let response_tx = request.response_tx;
+  /// Process a single request from the queue
+  async fn process_request(request: DenoRequest, manager: Arc<DenoRuntimeManager>) {
+    info!("📨 Received request to execute script (id: {})", request.id);
 
-      info!("🔄 Executing script...");
-      match manager.execute_script_async(script).await {
-        Ok(res) => {
-          info!("✅ Script execution completed successfully");
-          let _ = response_tx.send(DenoResponse {
-            id: request_id,
-            result: Ok(res),
-          });
-        }
-        Err(err) => {
-          error!("❌ Error executing script: {:?}", err);
-          let _ = response_tx.send(DenoResponse {
-            id: request_id,
-            result: Err(err.to_string()),
-          });
-        }
+    let request_id = request.id;
+    let script = request.script;
+    let response_tx = request.response_tx;
+
+    info!("🔄 Executing script...");
+    match manager.execute_script_async(script).await {
+      Ok(res) => {
+        info!("✅ Script execution completed successfully");
+        let _ = response_tx.send(DenoResponse {
+          id: request_id,
+          result: Ok(res),
+        });
+      }
+      Err(err) => {
+        error!("❌ Error executing script: {:?}", err);
+        let _ = response_tx.send(DenoResponse {
+          id: request_id,
+          result: Err(err.to_string()),
+        });
       }
     }
   }
@@ -480,21 +481,23 @@ impl DenoRuntimeManager {
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
     heartbeat.tick().await;
 
-    // Create a ticker for processing requests
-    let mut request_ticker = tokio::time::interval(Duration::from_millis(10));
-    request_ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
     let mut heartbeat_count = 0u64;
 
     info!("Entering daemon loop with tokio::select");
 
     loop {
       tokio::select! {
-        // Process script execution requests
-        // Note: We don't poll event loop separately because execute_script_async
-        // handles event loop polling internally through resolve()
-        _ = request_ticker.tick() => {
-          Self::process_request(rx_inside.clone(), manager_arc.clone()).await;
+        // Process script execution requests as soon as they arrive
+        maybe_request = Self::recv_request(rx_inside.clone()) => {
+          match maybe_request {
+            Some(request) => {
+              Self::process_request(request, manager_arc.clone()).await;
+            }
+            None => {
+              info!("Request channel closed. Shutting down daemon loop.");
+              break;
+            }
+          }
         }
 
         // Heartbeat
