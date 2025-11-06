@@ -1,0 +1,7 @@
+[package]
+name = "aws_lc_rs_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aws-lc-rs = "1.14.1"
