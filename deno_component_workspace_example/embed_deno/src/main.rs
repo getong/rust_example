@@ -263,52 +263,45 @@ pub fn main() {
     // Get handle and daemon future for sending requests
     let (handle, daemon_future) = runtime_manager.run_with_handle().await?;
 
-    // Read stream.ts file and execute it
-    let stream_ts_path = std::env::current_dir()?.join("fetch_api_example.ts");
-    println!("📖 Reading stream.ts file from: {:?}", stream_ts_path);
-
-    let stream_script = match std::fs::read_to_string(&stream_ts_path) {
-      Ok(content) => {
-        println!(
-          "✅ Successfully read stream.ts file ({} bytes)",
-          content.len()
-        );
-        content
-      }
-      Err(err) => {
-        eprintln!("❌ Failed to read stream.ts file: {}", err);
-        eprintln!("   Using fallback test script instead");
-        // Fallback to test script
-        r#"
-          const result = {
-            message: "Hello from TypeScript!",
-            timestamp: new Date().toISOString(),
-            env: {
-              api_key: Deno.env.get("STREAM_API_KEY"),
-              api_secret: Deno.env.get("STREAM_API_SECRET")
-            }
-          };
-          return JSON.stringify(result);
-        "#
-        .to_string()
-      }
-    };
+    // Define the TypeScript files to execute
+    let ts_files = vec!["fetch_api_example.ts", "stream.ts"];
 
     // Create a future for script execution
     let script_execution = async {
       // Give daemon time to start
       tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-      // Send the script for execution
-      println!("📤 Sending script for execution...");
-      match handle.execute(stream_script).await {
-        Ok(result) => {
-          println!("✅ Execution result:");
-          println!("{}", result);
+      // Loop through each TypeScript file and execute it
+      for ts_file in ts_files {
+        println!("\n📖 Reading {} file...", ts_file);
+        let ts_path = std::env::current_dir().unwrap().join(ts_file);
+
+        let script = match std::fs::read_to_string(&ts_path) {
+          Ok(content) => {
+            println!("✅ Successfully read {} ({} bytes)", ts_file, content.len());
+            content
+          }
+          Err(err) => {
+            eprintln!("❌ Failed to read {}: {}", ts_file, err);
+            eprintln!("   Skipping this file...");
+            continue;
+          }
+        };
+
+        // Send the script for execution
+        println!("📤 Sending {} for execution...", ts_file);
+        match handle.execute(script).await {
+          Ok(result) => {
+            println!("✅ Execution result for {}:", ts_file);
+            println!("{}", result);
+          }
+          Err(err) => {
+            eprintln!("❌ Execution failed for {}: {}", ts_file, err);
+          }
         }
-        Err(err) => {
-          eprintln!("❌ Execution failed: {}", err);
-        }
+
+        // Small delay between executions
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
       }
 
       // Keep running until interrupted
