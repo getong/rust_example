@@ -166,6 +166,28 @@ impl DenoRuntimeManager {
 
   /// Execute a script asynchronously and return the result as a string
   async fn execute_script_async(&self, script: String) -> Result<String, AnyError> {
+    // Check if this is a function call request (format:
+    // CALL_FUNCTION:module_path|function_name|args_json)
+    if script.starts_with("CALL_FUNCTION:") {
+      let parts: Vec<&str> = script
+        .trim_start_matches("CALL_FUNCTION:")
+        .split('|')
+        .collect();
+      if parts.len() == 3 {
+        let module_path = parts[0].trim().to_string();
+        let function_name = parts[1].trim().to_string();
+        let args_json = parts[2].trim().to_string();
+        return self
+          .call_module_function(module_path, function_name, args_json)
+          .await;
+      } else {
+        return Err(AnyError::msg(
+          "Invalid CALL_FUNCTION format. Expected: \
+           CALL_FUNCTION:module_path|function_name|args_json",
+        ));
+      }
+    }
+
     // Check if the script contains imports - if so, use module execution
     if script.contains("import ") {
       return self.execute_module_async(script).await;
@@ -276,6 +298,87 @@ impl DenoRuntimeManager {
     let _ = std::fs::remove_file(&temp_file);
 
     info!("Module executed successfully, result: {}", result_str);
+    Ok(result_str)
+  }
+
+  /// Call a specific function from a TypeScript module with arguments
+  ///
+  /// # Arguments
+  /// * `module_path` - Path to the TypeScript module (e.g., "file:///path/to/module.ts")
+  /// * `function_name` - Name of the exported function to call
+  /// * `args_json` - JSON string containing the arguments array
+  ///
+  /// # Returns
+  /// * `Result<String, AnyError>` - JSON stringified result from the function call
+  async fn call_module_function(
+    &self,
+    module_path: String,
+    function_name: String,
+    args_json: String,
+  ) -> Result<String, AnyError> {
+    info!(
+      "Calling function '{}' from module '{}' with args: {}",
+      function_name, module_path, args_json
+    );
+
+    // Build the import and function call script
+    let call_script = format!(
+      r#"
+      (async () => {{
+        try {{
+          const module = await import("{}");
+          const func = module["{}"];
+          if (typeof func !== 'function') {{
+            throw new Error(`Function '{}' not found or is not a function in module`);
+          }}
+          const args = {};
+          const result = await func(...args);
+          return JSON.stringify(result);
+        }} catch (e) {{
+          throw e;
+        }}
+      }})();
+      "#,
+      module_path, function_name, function_name, args_json
+    );
+
+    let mut worker = self.worker.lock().await;
+    let execute_result = worker.execute_script("[call_function]", call_script.into())?;
+
+    // Resolve the promise and poll event loop
+    let resolve_future = worker.js_runtime.resolve(execute_result);
+    let resolve_result = worker
+      .js_runtime
+      .with_event_loop_future(
+        resolve_future,
+        PollEventLoopOptions {
+          wait_for_inspector: false,
+          pump_v8_message_loop: true,
+        },
+      )
+      .await?;
+
+    // Extract the result
+    let result_str = {
+      scope!(scope, &mut worker.js_runtime);
+      let local = Local::new(scope, resolve_result);
+      local.to_rust_string_lossy(scope)
+    };
+
+    // Continue polling event loop to completion
+    info!("Polling event loop to completion...");
+    worker
+      .js_runtime
+      .run_event_loop(PollEventLoopOptions {
+        wait_for_inspector: false,
+        pump_v8_message_loop: true,
+      })
+      .await?;
+
+    info!(
+      "Function call executed successfully, result: {}",
+      result_str
+    );
     Ok(result_str)
   }
 

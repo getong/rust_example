@@ -304,6 +304,105 @@ pub fn main() {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
       }
 
+      // NEW: Test the CALL_FUNCTION pattern with function_caller.ts module
+      println!("\n🎯 Testing CALL_FUNCTION pattern with function_caller.ts module");
+      println!("═══════════════════════════════════════════════════════════\n");
+
+      let module_path = format!(
+        "file://{}",
+        std::env::current_dir()
+          .unwrap()
+          .join("function_caller.ts")
+          .display()
+      );
+
+      // Test 1: Simple greeting function
+      println!("📞 Test 1: Calling greet function");
+      let call_script = format!("CALL_FUNCTION:{}|greet|[\"World\"]", module_path);
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 2: Add function with two numbers
+      println!("📞 Test 2: Calling add function");
+      let call_script = format!("CALL_FUNCTION:{}|add|[10, 25]", module_path);
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 3: Multiply with multiple arguments
+      println!("📞 Test 3: Calling multiply function with multiple args");
+      let call_script = format!("CALL_FUNCTION:{}|multiply|[2, 3, 4, 5]", module_path);
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 4: Process user with object-like args
+      println!("📞 Test 4: Calling processUser function");
+      let call_script = format!(
+        "CALL_FUNCTION:{}|processUser|[\"Alice\", 30, \"alice@example.com\"]",
+        module_path
+      );
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 5: Async function with delay
+      println!("📞 Test 5: Calling delayedGreeting async function");
+      let call_script = format!(
+        "CALL_FUNCTION:{}|delayedGreeting|[\"Bob\", 1000]",
+        module_path
+      );
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 6: Array processing
+      println!("📞 Test 6: Calling sumArray function");
+      let call_script = format!(
+        "CALL_FUNCTION:{}|sumArray|[[1, 2, 3, 4, 5, 10]]",
+        module_path
+      );
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 7: Text analysis
+      println!("📞 Test 7: Calling analyzeText function");
+      let call_script = format!(
+        "CALL_FUNCTION:{}|analyzeText|[\"Hello TypeScript from Rust!\"]",
+        module_path
+      );
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 8: Division (success case)
+      println!("📞 Test 8: Calling divide function (success)");
+      let call_script = format!("CALL_FUNCTION:{}|divide|[100, 5]", module_path);
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      }
+
+      // Test 9: Division (error case - divide by zero)
+      println!("📞 Test 9: Calling divide function (error - divide by zero)");
+      let call_script = format!("CALL_FUNCTION:{}|divide|[100, 0]", module_path);
+      match handle.execute(call_script).await {
+        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Err(err) => eprintln!("   ❌ Expected error: {}\n", err),
+      }
+
+      println!("═══════════════════════════════════════════════════════════");
+      println!("✨ All CALL_FUNCTION tests completed!\n");
+
       // Keep running until interrupted
       tokio::signal::ctrl_c().await.ok();
     };
