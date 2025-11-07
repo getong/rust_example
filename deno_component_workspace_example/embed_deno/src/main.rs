@@ -126,6 +126,10 @@ fn exit_for_error(error: AnyError) -> ! {
   exit_with_message(&error_string, 1);
 }
 
+fn format_json_output(value: &serde_json::Value) -> String {
+  serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+}
+
 pub(crate) fn unstable_exit_cb(feature: &str, api_name: &str) {
   log::error!(
     "Unstable API '{api_name}'. The `--unstable-{}` flag must be provided.",
@@ -293,7 +297,7 @@ pub fn main() {
         match handle.execute(script).await {
           Ok(result) => {
             println!("✅ Execution result for {}:", ts_file);
-            println!("{}", result);
+            println!("{}", format_json_output(&result));
           }
           Err(err) => {
             eprintln!("❌ Execution failed for {}: {}", ts_file, err);
@@ -320,7 +324,7 @@ pub fn main() {
       println!("📞 Test 1: Calling greet function");
       let call_script = format!("CALL_FUNCTION:{}|greet|[\"World\"]", module_path);
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -328,7 +332,7 @@ pub fn main() {
       println!("📞 Test 2: Calling add function");
       let call_script = format!("CALL_FUNCTION:{}|add|[10, 25]", module_path);
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -336,7 +340,7 @@ pub fn main() {
       println!("📞 Test 3: Calling multiply function with multiple args");
       let call_script = format!("CALL_FUNCTION:{}|multiply|[2, 3, 4, 5]", module_path);
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -347,7 +351,7 @@ pub fn main() {
         module_path
       );
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -358,7 +362,7 @@ pub fn main() {
         module_path
       );
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -369,7 +373,7 @@ pub fn main() {
         module_path
       );
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -380,7 +384,7 @@ pub fn main() {
         module_path
       );
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -388,7 +392,7 @@ pub fn main() {
       println!("📞 Test 8: Calling divide function (success)");
       let call_script = format!("CALL_FUNCTION:{}|divide|[100, 5]", module_path);
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Error: {}\n", err),
       }
 
@@ -396,7 +400,7 @@ pub fn main() {
       println!("📞 Test 9: Calling divide function (error - divide by zero)");
       let call_script = format!("CALL_FUNCTION:{}|divide|[100, 0]", module_path);
       match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", result),
+        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
         Err(err) => eprintln!("   ❌ Expected error: {}\n", err),
       }
 

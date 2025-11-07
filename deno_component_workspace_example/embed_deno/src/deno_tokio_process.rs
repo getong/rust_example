@@ -3,14 +3,15 @@ use std::{ffi::OsString, path::PathBuf, sync::Arc, time::Instant};
 use deno_core::{
   JsRuntime, ModuleSpecifier, PollEventLoopOptions,
   error::AnyError,
-  resolve_url_or_path, scope,
-  v8::{Local, Platform},
+  resolve_url_or_path, scope, serde_v8,
+  v8::{self, Local, Platform},
 };
 use deno_lib::version;
 use deno_runtime::{WorkerExecutionMode, worker::MainWorker};
 use deno_telemetry::OtelConfig;
 use deno_terminal::colors;
-use log::{error, info};
+use log::{error, info, warn};
+use serde_json::Value as JsonValue;
 use tokio::{
   sync::{Mutex as TokioMutex, mpsc, oneshot},
   time::{Duration, MissedTickBehavior},
@@ -42,7 +43,7 @@ pub struct DenoRequest {
 pub struct DenoResponse {
   /// Request ID for tracking
   pub id: String,
-  pub result: Result<String, String>,
+  pub result: Result<JsonValue, String>,
 }
 
 /// Handle for communicating with the Deno runtime
@@ -51,7 +52,7 @@ pub struct DenoRuntimeHandle {
 }
 
 impl DenoRuntimeHandle {
-  pub async fn execute(&self, script: String) -> Result<String, AnyError> {
+  pub async fn execute(&self, script: String) -> Result<JsonValue, AnyError> {
     let id = Uuid::new_v4().to_string();
     let (response_tx, response_rx) = oneshot::channel();
 
@@ -164,8 +165,8 @@ impl DenoRuntimeManager {
     Ok(())
   }
 
-  /// Execute a script asynchronously and return the result as a string
-  async fn execute_script_async(&self, script: String) -> Result<String, AnyError> {
+  /// Execute a script asynchronously and return the result as JSON
+  async fn execute_script_async(&self, script: String) -> Result<JsonValue, AnyError> {
     // Check if this is a function call request (format:
     // CALL_FUNCTION:module_path|function_name|args_json)
     if script.starts_with("CALL_FUNCTION:") {
@@ -193,7 +194,7 @@ impl DenoRuntimeManager {
       return self.execute_module_async(script).await;
     }
 
-    // Wrap the script in an async IIFE and stringify the result
+    // Wrap the script in an async IIFE and capture the result
     // The script can contain statements, so we use a function body
     let wrapped_script = format!(
       r#"
@@ -220,12 +221,8 @@ impl DenoRuntimeManager {
       )
       .await?;
 
-    // Extract the stringified result from V8 Global
-    let result_str = {
-      scope!(scope, &mut worker.js_runtime);
-      let local = Local::new(scope, resolve_result);
-      local.to_rust_string_lossy(scope)
-    };
+    // Extract the result as JSON
+    let result_value = Self::v8_global_to_json_value(&mut worker.js_runtime, resolve_result);
 
     // IMPORTANT: Continue polling the event loop until all pending operations complete
     // This ensures async operations like fetch() complete even if the script returns early
@@ -238,12 +235,12 @@ impl DenoRuntimeManager {
       })
       .await?;
 
-    info!("Script executed successfully, result: {}", result_str);
-    Ok(result_str)
+    info!("Script executed successfully, result: {}", result_value);
+    Ok(result_value)
   }
 
   /// Execute module code (with import statements) by writing to temp file and using dynamic import
-  async fn execute_module_async(&self, module_code: String) -> Result<String, AnyError> {
+  async fn execute_module_async(&self, module_code: String) -> Result<JsonValue, AnyError> {
     // Create a temporary file for the module
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!("deno_module_{}.ts", uuid::Uuid::new_v4()));
@@ -288,17 +285,13 @@ impl DenoRuntimeManager {
       .await?;
 
     // Extract the result
-    let result_str = {
-      scope!(scope, &mut worker.js_runtime);
-      let local = Local::new(scope, resolve_result);
-      local.to_rust_string_lossy(scope)
-    };
+    let result_value = Self::v8_global_to_json_value(&mut worker.js_runtime, resolve_result);
 
     // Clean up temp file
     let _ = std::fs::remove_file(&temp_file);
 
-    info!("Module executed successfully, result: {}", result_str);
-    Ok(result_str)
+    info!("Module executed successfully, result: {}", result_value);
+    Ok(result_value)
   }
 
   /// Call a specific function from a TypeScript module with arguments
@@ -309,13 +302,13 @@ impl DenoRuntimeManager {
   /// * `args_json` - JSON string containing the arguments array
   ///
   /// # Returns
-  /// * `Result<String, AnyError>` - JSON stringified result from the function call
+  /// * `Result<JsonValue, AnyError>` - JSON result from the function call
   async fn call_module_function(
     &self,
     module_path: String,
     function_name: String,
     args_json: String,
-  ) -> Result<String, AnyError> {
+  ) -> Result<JsonValue, AnyError> {
     info!(
       "Calling function '{}' from module '{}' with args: {}",
       function_name, module_path, args_json
@@ -333,7 +326,7 @@ impl DenoRuntimeManager {
           }}
           const args = {};
           const result = await func(...args);
-          return JSON.stringify(result);
+          return result ?? null;
         }} catch (e) {{
           throw e;
         }}
@@ -359,11 +352,7 @@ impl DenoRuntimeManager {
       .await?;
 
     // Extract the result
-    let result_str = {
-      scope!(scope, &mut worker.js_runtime);
-      let local = Local::new(scope, resolve_result);
-      local.to_rust_string_lossy(scope)
-    };
+    let result_value = Self::v8_global_to_json_value(&mut worker.js_runtime, resolve_result);
 
     // Continue polling event loop to completion
     info!("Polling event loop to completion...");
@@ -377,9 +366,9 @@ impl DenoRuntimeManager {
 
     info!(
       "Function call executed successfully, result: {}",
-      result_str
+      result_value
     );
-    Ok(result_str)
+    Ok(result_value)
   }
 
   /// Poll the Deno event loop
@@ -519,6 +508,29 @@ impl DenoRuntimeManager {
           info!("Shutdown signal received. Total uptime: {:?}", manager_arc.start_time.elapsed());
           break;
         }
+      }
+    }
+  }
+
+  fn v8_global_to_json_value(
+    js_runtime: &mut JsRuntime,
+    value: v8::Global<v8::Value>,
+  ) -> JsonValue {
+    scope!(scope, js_runtime);
+    let local = Local::new(scope, value);
+
+    if local.is_null() || local.is_undefined() {
+      return JsonValue::Null;
+    }
+
+    match serde_v8::from_v8::<JsonValue>(scope, local) {
+      Ok(json_value) => json_value,
+      Err(err) => {
+        warn!(
+          "Failed to convert V8 value to JSON: {}. Falling back to string representation.",
+          err
+        );
+        JsonValue::String(local.to_rust_string_lossy(scope))
       }
     }
   }
