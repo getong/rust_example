@@ -404,6 +404,39 @@ pub fn main() {
         Err(err) => eprintln!("   ❌ Expected error: {}\n", err),
       }
 
+      println!("🧪 Verifying runtime responsiveness after error...");
+      let follow_up_script = r#"
+        globalThis.__runtimeHeartbeatCount =
+          (globalThis.__runtimeHeartbeatCount ?? 0) + 1;
+        console.log(
+          `[ts heartbeat] invocation #${globalThis.__runtimeHeartbeatCount}`,
+        );
+        const sumCheck = 40 + 2;
+        const nowIso = new Date().toISOString();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return {
+          status: "runtime_alive",
+          heartbeatCount: globalThis.__runtimeHeartbeatCount,
+          sumCheck,
+          now: nowIso,
+        };
+      "#
+      .to_string();
+      match handle.execute(follow_up_script).await {
+        Ok(result) => println!("   ✅ Runtime response: {}\n", format_json_output(&result)),
+        Err(err) => eprintln!("   ❌ Runtime follow-up failed: {}\n", err),
+      }
+
+      println!("🔁 Re-running greet() to confirm RPC pipeline is healthy...");
+      let recovery_call = format!("CALL_FUNCTION:{}|greet|[\"Runtime\"]", module_path);
+      match handle.execute(recovery_call).await {
+        Ok(result) => println!(
+          "   ✅ Post-error RPC result: {}\n",
+          format_json_output(&result)
+        ),
+        Err(err) => eprintln!("   ❌ Post-error RPC failed: {}\n", err),
+      }
+
       println!("═══════════════════════════════════════════════════════════");
       println!("✨ All CALL_FUNCTION tests completed!\n");
 
