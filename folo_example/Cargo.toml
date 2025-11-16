@@ -1,0 +1,8 @@
+[package]
+name = "folo_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+many_cpus = { git = "https://github.com/folo-rs/folo", package = "many_cpus" }
+sysinfo = "0.37"
