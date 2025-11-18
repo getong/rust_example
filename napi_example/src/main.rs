@@ -1,4 +1,8 @@
-use napi_example::{Greeter, add, average, repeat, summarize, version};
+use napi_example::{
+  Greeter, add, average, call_typescript_transformer_example, emit_typescript_events_example,
+  orchestrate_typescript_decision_example, repeat, run_typescript_callback_example, summarize,
+  version,
+};
 
 fn main() {
   println!("napi example version: {}", version());
@@ -27,4 +31,45 @@ fn main() {
 
   greeter.set_greeting("Hola".to_string());
   println!("{}", greeter.greet("Carlos".to_string()));
+
+  match run_typescript_callback_example("TypeScript callbacks".to_string()) {
+    Ok(response) => println!("run_typescript_callback_example -> {}", response),
+    Err(err) => eprintln!("run_typescript_callback_example error: {}", err),
+  }
+
+  match emit_typescript_events_example(vec![
+    "alpha".to_string(),
+    "beta".to_string(),
+    "gamma".to_string(),
+  ]) {
+    Ok(events) => {
+      println!("emit_typescript_events_example collected:");
+      for event in events {
+        println!("  {}", event);
+      }
+    }
+    Err(err) => eprintln!("emit_typescript_events_example error: {}", err),
+  }
+
+  match call_typescript_transformer_example("Rust <-> TypeScript".to_string(), 3) {
+    Ok(result) => println!("call_typescript_transformer_example -> {}", result),
+    Err(err) => eprintln!("call_typescript_transformer_example error: {}", err),
+  }
+
+  match orchestrate_typescript_decision_example("Ship napi example".to_string()) {
+    Ok(summary) => {
+      println!(
+        "orchestrate_typescript_decision_example decision: {}",
+        if summary.decision {
+          "approved"
+        } else {
+          "rejected"
+        }
+      );
+      for entry in summary.log {
+        println!("  {}", entry);
+      }
+    }
+    Err(err) => eprintln!("orchestrate_typescript_decision_example error: {}", err),
+  }
 }
