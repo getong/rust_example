@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "scraper_example",
+  "thirtyfour_basic_example",
+  "thirtyfour_advance_example",
+]

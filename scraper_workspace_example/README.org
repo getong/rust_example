@@ -1,0 +1,3 @@
+* scraper workspace example
+
+copy from [[https://www.twilio.com/en-us/blog/developers/community/web-scraping-rust-selenium][Web Scraping in Rust With Scraper and Selenium]]
