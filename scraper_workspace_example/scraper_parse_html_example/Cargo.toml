@@ -1,0 +1,10 @@
+[package]
+name = "scraper_parse_html_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+csv = "1.4.0"
+reqwest = { version = "0.12.24", features = ["blocking"] }
+scraper = "0.24.0"
+tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros"] }

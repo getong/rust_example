@@ -6,4 +6,5 @@ members = [
   "scraper_example",
   "thirtyfour_basic_example",
   "thirtyfour_advance_example",
+  "scraper_parse_html_example",
 ]
