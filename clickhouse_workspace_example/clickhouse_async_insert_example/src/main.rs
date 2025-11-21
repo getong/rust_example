@@ -40,7 +40,8 @@ async fn main() -> Result<()> {
     .execute()
     .await?;
 
-  let mut insert = client.insert(table_name)?;
+  // Start an async insert; await the future before writing rows
+  let mut insert = client.insert::<Event>(table_name).await?;
   insert
     .write(&Event {
       timestamp: now(),

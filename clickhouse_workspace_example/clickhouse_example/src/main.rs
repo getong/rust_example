@@ -34,7 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .execute()
     .await?;
 
-  let mut insert = client.insert("some")?;
+  // Insertion is async; await the future before writing rows. Type is explicit for inference.
+  let mut insert = client.insert::<MyRow<'static>>("some").await?;
   insert.write(&MyRow { no: 0, name: "foo" }).await?;
   insert.write(&MyRow { no: 1, name: "bar" }).await?;
   Ok(insert.end().await?)
