@@ -9,4 +9,5 @@ members = [
   "scraper_parse_html_example",
   "spider_basic_example",
   "spider_crawl_example",
+  "spider_scraper_basic_example",
 ]
