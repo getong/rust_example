@@ -1,0 +1,7 @@
+[package]
+name = "fastrace_basic_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fastrace = "0.7.14"

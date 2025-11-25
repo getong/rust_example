@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "fastrace_basic_example",
+  "fastrace_asynchronous_example",
+]
