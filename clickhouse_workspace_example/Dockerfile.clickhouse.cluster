@@ -1,0 +1,49 @@
+FROM clickhouse/clickhouse-server:24.8
+
+# Default credentials/DB align with the local samples; override at runtime.
+ENV CLICKHOUSE_USER=default \
+    CLICKHOUSE_DB=test \
+    CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+
+RUN mkdir -p /etc/clickhouse-server/config.d /docker-entrypoint-initdb.d
+
+RUN cat <<'EOF' > /etc/clickhouse-server/config.d/listen.xml
+<clickhouse>
+  <listen_host>0.0.0.0</listen_host>
+</clickhouse>
+EOF
+
+RUN cat <<'EOF' > /etc/clickhouse-server/config.d/cluster.xml
+<clickhouse>
+  <remote_servers>
+    <ch_cluster>
+      <shard>
+        <replica>
+          <host>ch1</host>
+          <port>9000</port>
+          <user>default</user>
+          <password>changeme</password>
+        </replica>
+      </shard>
+      <shard>
+        <replica>
+          <host>ch2</host>
+          <port>9000</port>
+          <user>default</user>
+          <password>changeme</password>
+        </replica>
+      </shard>
+    </ch_cluster>
+  </remote_servers>
+  <macros>
+    <cluster>ch_cluster</cluster>
+    <!-- Filled from env at runtime -->
+    <shard>{$CLICKHOUSE_SHARD:1}</shard>
+    <replica>{$CLICKHOUSE_REPLICA:1}</replica>
+  </macros>
+</clickhouse>
+EOF
+
+RUN echo 'CREATE DATABASE IF NOT EXISTS test;' > /docker-entrypoint-initdb.d/01_init.sql
+
+EXPOSE 8123 9000 9009
