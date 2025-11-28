@@ -1,6 +1,6 @@
 use std::{env, time::UNIX_EPOCH};
 
-use clickhouse::{error::Result as ChResult, Client, Row};
+use clickhouse::{error::Result as ChResult, Client, Compression, Row};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Row)]
@@ -10,22 +10,29 @@ struct Event {
   message: String,
 }
 
-fn env_or(key: &str, default: &str) -> String {
-  env::var(key).unwrap_or_else(|_| default.to_string())
+// fn env_or(key: &str, default: &str) -> String {
+//  env::var(key).unwrap_or_else(|_| default.to_string())
+//}
+
+fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
+  keys
+    .iter()
+    .find_map(|k| env::var(k).ok())
+    .unwrap_or_else(|| default.to_string())
 }
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-  let url = env_or("CH_URL", "http://localhost:8123"); // kept for backward compat
-  let user = env_or("CH_USER", "default");
-  // Default to cluster password ("changeme"); override via CH_PASSWORD
-  let password = env_or("CH_PASSWORD", "changeme");
-  let database = env_or("CH_DB", "test");
-  let node_urls = env_or(
-    "CH_NODES",
+  // Prefer official ClickHouse env names, fallback to legacy CH_* for compatibility.
+  let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "http://localhost:8123");
+  let user = env_first(&["CLICKHOUSE_USER", "CH_USER"], "default");
+  let password = env_first(&["CLICKHOUSE_PASSWORD", "CH_PASSWORD"], "changeme");
+  let database = env_first(&["CLICKHOUSE_DATABASE", "CH_DB"], "test");
+  let node_urls = env_first(
+    &["CLICKHOUSE_NODES", "CH_NODES"],
     &format!("{url},http://localhost:8124,http://localhost:8125,http://localhost:8126"),
   );
-  let cluster = env_or("CH_CLUSTER", "ch_cluster");
+  let cluster = env_first(&["CLICKHOUSE_CLUSTER", "CH_CLUSTER"], "ch_cluster");
 
   let clients = build_clients(&node_urls, &user, &password, &database);
   let primary = clients
@@ -69,6 +76,8 @@ fn build_clients(urls: &str, user: &str, password: &str, db: &str) -> Vec<Client
         .with_user(user)
         .with_password(password)
         .with_database(db.to_string())
+        // Use LZ4 compression (default feature); matches official ClickHouse Rust client docs.
+        .with_compression(Compression::Lz4)
     })
     .collect()
 }

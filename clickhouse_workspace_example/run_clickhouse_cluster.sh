@@ -27,6 +27,7 @@ NETWORK_NAME="${NETWORK_NAME:-clickhouse-cluster-net}"
 CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-changeme}"
 CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 CLICKHOUSE_DB="${CLICKHOUSE_DB:-test}"
+SKIP_BUILD="${SKIP_BUILD:-1}"
 
 # HTTP ports for each node (exposed to host)
 NODE1_HTTP_PORT="${NODE1_HTTP_PORT:-8123}"
