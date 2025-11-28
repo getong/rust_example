@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and start a 2-node ClickHouse cluster (two shards, one replica each).
+# Build and start a 4-node ClickHouse cluster (two shards, two replicas each).
+# Includes built-in ClickHouse Keeper for replication coordination.
 # Defaults align with local samples; override with env vars if needed.
+#
+# Cluster topology:
+#   - Shard 1: ch1 (replica 1), ch2 (replica 2)
+#   - Shard 2: ch3 (replica 1), ch4 (replica 2)
 #
 # Environment overrides:
 #   IMAGE_NAME            - docker image tag (default: clickhouse-cluster)
@@ -11,11 +16,9 @@ set -euo pipefail
 #   CLICKHOUSE_USER       - ClickHouse user (default: default)
 #   CLICKHOUSE_DB         - default DB (default: test)
 #   NODE1_HTTP_PORT       - host HTTP port for ch1 (default: 8123)
-#   NODE1_TCP_PORT        - host TCP port for ch1 (default: 9000)
-#   NODE1_INTERSERVER     - host interserver port for ch1 (default: 9009)
 #   NODE2_HTTP_PORT       - host HTTP port for ch2 (default: 8124)
-#   NODE2_TCP_PORT        - host TCP port for ch2 (default: 9001)
-#   NODE2_INTERSERVER     - host interserver port for ch2 (default: 9010)
+#   NODE3_HTTP_PORT       - host HTTP port for ch3 (default: 8125)
+#   NODE4_HTTP_PORT       - host HTTP port for ch4 (default: 8126)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -25,16 +28,22 @@ CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-changeme}"
 CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 CLICKHOUSE_DB="${CLICKHOUSE_DB:-test}"
 
+# HTTP ports for each node (exposed to host)
 NODE1_HTTP_PORT="${NODE1_HTTP_PORT:-8123}"
-NODE1_TCP_PORT="${NODE1_TCP_PORT:-9000}"
-NODE1_INTERSERVER="${NODE1_INTERSERVER:-9009}"
-
 NODE2_HTTP_PORT="${NODE2_HTTP_PORT:-8124}"
-NODE2_TCP_PORT="${NODE2_TCP_PORT:-9001}"
-NODE2_INTERSERVER="${NODE2_INTERSERVER:-9010}"
+NODE3_HTTP_PORT="${NODE3_HTTP_PORT:-8125}"
+NODE4_HTTP_PORT="${NODE4_HTTP_PORT:-8126}"
 
-echo "Building ${IMAGE_NAME} from Dockerfile.clickhouse.cluster..."
-docker build --pull -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+  echo "Skipping image build (SKIP_BUILD=1). Using existing image: ${IMAGE_NAME}"
+else
+  echo "Building ${IMAGE_NAME} from Dockerfile.clickhouse.cluster..."
+  if [ "${NO_PULL:-0}" = "1" ]; then
+    docker build --no-cache -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
+  else
+    docker build --pull -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
+  fi
+fi
 
 if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK_NAME}"; then
   echo "Creating docker network ${NETWORK_NAME}..."
@@ -46,35 +55,71 @@ start_node() {
   local shard="$2"
   local replica="$3"
   local http_port="$4"
-  local tcp_port="$5"
-  local inter_port="$6"
+  local enable_keeper="$5"
+  local keeper_id="$6"
 
   if docker ps -a --format '{{.Names}}' | grep -Eq "^${name}\$"; then
     echo "Container ${name} already exists. Removing it to apply fresh config..."
     docker rm -f "${name}" >/dev/null
   fi
 
-  echo "Starting ${name} (shard=${shard}, replica=${replica})..."
+  local keeper_status="disabled"
+  if [ "$enable_keeper" = "true" ]; then
+    keeper_status="enabled (id=${keeper_id})"
+  fi
+  
+  echo "Starting ${name} (shard=${shard}, replica=${replica}, keeper=${keeper_status})..."
   docker run -d \
     --name "${name}" \
     --hostname "${name}" \
     --network "${NETWORK_NAME}" \
     -p "${http_port}:8123" \
-    -p "${tcp_port}:9000" \
-    -p "${inter_port}:9009" \
     -e CLICKHOUSE_USER="${CLICKHOUSE_USER}" \
     -e CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD}" \
     -e CLICKHOUSE_DB="${CLICKHOUSE_DB}" \
     -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
     -e CLICKHOUSE_SHARD="${shard}" \
     -e CLICKHOUSE_REPLICA="${replica}" \
+    -e ENABLE_KEEPER="${enable_keeper}" \
+    -e KEEPER_SERVER_ID="${keeper_id}" \
     "${IMAGE_NAME}"
 }
 
-start_node ch1 1 1 "${NODE1_HTTP_PORT}" "${NODE1_TCP_PORT}" "${NODE1_INTERSERVER}"
-start_node ch2 2 1 "${NODE2_HTTP_PORT}" "${NODE2_TCP_PORT}" "${NODE2_INTERSERVER}"
+# Start all 4 nodes
+# Shard 1: ch1 (replica 1), ch2 (replica 2)
+# Shard 2: ch3 (replica 1), ch4 (replica 2)
+# Only first 3 nodes run Keeper (quorum requires odd number of nodes)
+start_node ch1 1 1 "${NODE1_HTTP_PORT}" true 1
+start_node ch2 1 2 "${NODE2_HTTP_PORT}" true 2
+start_node ch3 2 1 "${NODE3_HTTP_PORT}" true 3
+start_node ch4 2 2 "${NODE4_HTTP_PORT}" false 0
 
-echo "Cluster is starting."
-echo "Node ch1 HTTP: ${NODE1_HTTP_PORT}, TCP: ${NODE1_TCP_PORT}"
-echo "Node ch2 HTTP: ${NODE2_HTTP_PORT}, TCP: ${NODE2_TCP_PORT}"
-echo "Check logs: docker logs -f ch1  | docker logs -f ch2"
+echo ""
+echo "========================================="
+echo "Cluster is starting with replication enabled"
+echo "========================================="
+echo "Shard 1 (replicas):"
+echo "  - ch1 HTTP: http://localhost:${NODE1_HTTP_PORT} [Keeper enabled]"
+echo "  - ch2 HTTP: http://localhost:${NODE2_HTTP_PORT} [Keeper enabled]"
+echo ""
+echo "Shard 2 (replicas):"
+echo "  - ch3 HTTP: http://localhost:${NODE3_HTTP_PORT} [Keeper enabled]"
+echo "  - ch4 HTTP: http://localhost:${NODE4_HTTP_PORT}"
+echo ""
+echo "Note: Only ch1, ch2, ch3 run ClickHouse Keeper (requires 3-node quorum)"
+echo ""
+echo "Wait 15-30 seconds for Keeper to establish quorum, then check status:"
+echo "  docker exec -it ch1 clickhouse-client --user=${CLICKHOUSE_USER} --password=${CLICKHOUSE_PASSWORD} --query=\"SELECT * FROM system.zookeeper WHERE path='/'\""
+echo ""
+echo "To connect with clickhouse-client:"
+echo "  docker exec -it ch1 clickhouse-client --user=${CLICKHOUSE_USER} --password=${CLICKHOUSE_PASSWORD}"
+echo ""
+echo "To check logs:"
+echo "  docker logs -f ch1"
+echo "  docker logs -f ch2"
+echo "  docker logs -f ch3"
+echo "  docker logs -f ch4"
+echo ""
+echo "Run the Rust example:"
+echo "  export CH_NODES=\"http://localhost:${NODE1_HTTP_PORT},http://localhost:${NODE2_HTTP_PORT},http://localhost:${NODE3_HTTP_PORT},http://localhost:${NODE4_HTTP_PORT}\""
+echo "  cargo run --bin clickhouse_cluster_example"

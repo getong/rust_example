@@ -1,0 +1,344 @@
+* ClickHouse 集群配置说明
+:PROPERTIES:
+:CUSTOM_ID: clickhouse-集群配置说明
+:END:
+** 集群架构
+:PROPERTIES:
+:CUSTOM_ID: 集群架构
+:END:
+本示例实现了一个*高可用的 ClickHouse 集群*，包含：
+
+- *2 个分片 (Shards)*：数据水平分区，提升查询和写入性能
+- *每个分片 2 个副本 (Replicas)*：提供数据冗余和高可用性
+- *总共 4 个节点*：
+  - *Shard 1*: ch1 (replica 1), ch2 (replica 2)
+  - *Shard 2*: ch3 (replica 1), ch4 (replica 2)
+- *内置 ClickHouse Keeper*：用于副本间的协调和元数据管理（替代
+  Zookeeper）
+
+#+begin_example
+┌─────────────────────────────────────────────────────────┐
+│                     ClickHouse 集群                      │
+├─────────────────────────┬───────────────────────────────┤
+│       Shard 1           │          Shard 2              │
+├─────────────┬───────────┼──────────────┬────────────────┤
+│     ch1     │    ch2    │     ch3      │      ch4       │
+│  (replica1) │(replica2) │  (replica1)  │  (replica2)    │
+│  :8123      │  :8124    │   :8125      │    :8126       │
+└─────────────┴───────────┴──────────────┴────────────────┘
+        │            │             │              │
+        └────────────┴─────────────┴──────────────┘
+                  ClickHouse Keeper
+                 (分布式协调服务)
+#+end_example
+
+** 关键特性
+:PROPERTIES:
+:CUSTOM_ID: 关键特性
+:END:
+*** 1. *ReplicatedMergeTree 引擎*
+:PROPERTIES:
+:CUSTOM_ID: replicatedmergetree-引擎
+:END:
+使用 =ReplicatedMergeTree= 替代普通的 =MergeTree=，实现： - ✅
+自动数据复制到同一分片的所有副本 - ✅ 副本间数据一致性保证 - ✅
+自动故障恢复 - ✅ 读取负载均衡
+
+#+begin_src sql
+ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/test/cluster_events', '{replica}')
+ORDER BY (user_id, timestamp)
+#+end_src
+
+*** 2. *基于 user_id 的智能分片*
+:PROPERTIES:
+:CUSTOM_ID: 基于-user_id-的智能分片
+:END:
+使用 =cityHash64(user_id)= 作为分片键： - ✅
+同一用户的所有数据存储在同一分片 - ✅
+提高单用户查询性能（避免跨分片查询） - ✅ 数据均匀分布在各分片上 - ✅
+便于按用户进行数据管理
+
+#+begin_src sql
+ENGINE = Distributed(ch_cluster, test, cluster_events, cityHash64(user_id))
+#+end_src
+
+*** 3. *内置 ClickHouse Keeper*
+:PROPERTIES:
+:CUSTOM_ID: 内置-clickhouse-keeper
+:END:
+替代传统的 Zookeeper，提供： - ✅ 更轻量级的部署（无需单独安装
+Zookeeper） - ✅ 更好的性能和更低的延迟 - ✅ 与 ClickHouse 深度集成 - ✅
+3 节点 Keeper 集群提供高可用性
+
+*** 4. *全面的健康检查*
+:PROPERTIES:
+:CUSTOM_ID: 全面的健康检查
+:END:
+程序启动时自动执行： - ✅ 检查所有节点是否在线 - ✅
+验证集群配置是否正确 - ✅ 确认表在所有节点正确创建 - ✅ 检查
+ReplicatedMergeTree 引擎状态 - ✅ 验证数据分布情况
+
+** 快速启动
+:PROPERTIES:
+:CUSTOM_ID: 快速启动
+:END:
+*** 1. 启动集群
+:PROPERTIES:
+:CUSTOM_ID: 启动集群
+:END:
+#+begin_src sh
+./run_clickhouse_cluster.sh
+#+end_src
+
+等待约 10-20 秒让集群完全启动并完成初始化。
+
+*** 2. 验证集群状态
+:PROPERTIES:
+:CUSTOM_ID: 验证集群状态
+:END:
+连接到任一节点检查集群状态：
+
+#+begin_src sh
+docker exec -it ch1 clickhouse-client --user=default --password=changeme
+#+end_src
+
+在 ClickHouse 客户端中执行：
+
+#+begin_src sql
+-- 查看集群配置
+SELECT cluster, shard_num, replica_num, host_name 
+FROM system.clusters 
+WHERE cluster = 'ch_cluster' 
+ORDER BY shard_num, replica_num;
+
+-- 查看副本状态
+SELECT 
+    database,
+    table,
+    is_leader,
+    is_readonly,
+    absolute_delay,
+    queue_size
+FROM system.replicas;
+#+end_src
+
+*** 3. 运行 Rust 示例
+:PROPERTIES:
+:CUSTOM_ID: 运行-rust-示例
+:END:
+#+begin_src sh
+# 设置环境变量（可选，脚本会显示默认值）
+export CH_NODES="http://localhost:8123,http://localhost:8124,http://localhost:8125,http://localhost:8126"
+export CH_PASSWORD="changeme"
+
+# 运行示例
+cargo run --bin clickhouse_cluster_example
+#+end_src
+
+** 示例输出
+:PROPERTIES:
+:CUSTOM_ID: 示例输出
+:END:
+程序会执行以下操作并显示详细信息：
+
+#+begin_example
+Performing health check on cluster nodes...
+✓ Node 1 is healthy (ClickHouse version: 24.8.x.x)
+✓ Node 2 is healthy (ClickHouse version: 24.8.x.x)
+✓ Node 3 is healthy (ClickHouse version: 24.8.x.x)
+✓ Node 4 is healthy (ClickHouse version: 24.8.x.x)
+
+Cluster configuration:
+  Cluster: ch_cluster, Shard: 1, Replica: 1, Host: ch1
+  Cluster: ch_cluster, Shard: 1, Replica: 2, Host: ch2
+  Cluster: ch_cluster, Shard: 2, Replica: 1, Host: ch3
+  Cluster: ch_cluster, Shard: 2, Replica: 2, Host: ch4
+
+Creating tables...
+
+Verifying tables on all nodes...
+✓ Node 1: table 'cluster_events' exists (Engine: ReplicatedMergeTree)
+✓ Node 2: table 'cluster_events' exists (Engine: ReplicatedMergeTree)
+✓ Node 3: table 'cluster_events' exists (Engine: ReplicatedMergeTree)
+✓ Node 4: table 'cluster_events' exists (Engine: ReplicatedMergeTree)
+✓ Distributed table 'cluster_events_dist' exists on primary node
+
+Inserting sample data...
+
+Reading back data...
+Read 10 events across the cluster:
+Event { user_id: 1001, timestamp: ..., message: "Event from user 1001" }
+...
+
+Checking data distribution across shards...
+Node 1 local table has 5 rows
+Node 2 local table has 5 rows  # 副本，数据相同
+Node 3 local table has 5 rows
+Node 4 local table has 5 rows  # 副本，数据相同
+Total rows across cluster (via distributed table): 10
+
+Data distribution by user_id:
+  user_id 1001: 1 events
+  user_id 1002: 1 events
+  ...
+#+end_example
+
+** 数据流程说明
+:PROPERTIES:
+:CUSTOM_ID: 数据流程说明
+:END:
+*** 写入流程
+:PROPERTIES:
+:CUSTOM_ID: 写入流程
+:END:
+1. *客户端* → 写入到分布式表 =cluster_events_dist=
+2. *分布式表* → 根据 =cityHash64(user_id)= 计算目标分片
+3. *目标分片主副本* → 接收数据并写入本地表
+4. *ReplicatedMergeTree* → 自动复制到该分片的其他副本
+5. *所有副本* → 数据最终一致
+
+*** 查询流程
+:PROPERTIES:
+:CUSTOM_ID: 查询流程
+:END:
+1. *客户端* → 查询分布式表 =cluster_events_dist=
+2. *分布式表* → 并行查询所有分片的主副本
+3. *各分片* → 返回本地结果
+4. *分布式表* → 合并结果并返回客户端
+
+** 高可用性测试
+:PROPERTIES:
+:CUSTOM_ID: 高可用性测试
+:END:
+*** 测试副本容错
+:PROPERTIES:
+:CUSTOM_ID: 测试副本容错
+:END:
+停止一个副本节点，验证系统仍然正常工作：
+
+#+begin_src sh
+# 停止 ch2 (Shard 1 的副本 2)
+docker stop ch2
+
+# 运行测试 - 应该仍然成功
+cargo run --bin clickhouse_cluster_example
+
+# 重新启动 ch2
+docker start ch2
+
+# ch2 会自动从 ch1 同步数据
+#+end_src
+
+*** 测试分片容错
+:PROPERTIES:
+:CUSTOM_ID: 测试分片容错
+:END:
+如果整个分片不可用（两个副本都停止），该分片的数据将不可访问，但其他分片仍然正常工作。
+
+** 性能优化建议
+:PROPERTIES:
+:CUSTOM_ID: 性能优化建议
+:END:
+*** 1. 分片键选择
+:PROPERTIES:
+:CUSTOM_ID: 分片键选择
+:END:
+- ✅ 使用 =user_id=：适合按用户查询的场景
+- ✅ 使用 =tenant_id=：多租户系统
+- ✅ 使用 =region_id=：地理分布的数据
+- ❌ 避免使用 =timestamp=：会导致数据倾斜
+
+*** 2. 副本数量
+:PROPERTIES:
+:CUSTOM_ID: 副本数量
+:END:
+- *2 副本*：平衡成本和可用性（本示例）
+- *3 副本*：更高可用性，适合关键数据
+- *1 副本*：无冗余，仅用于测试
+
+*** 3. 分片数量
+:PROPERTIES:
+:CUSTOM_ID: 分片数量
+:END:
+- 根据数据量和查询负载调整
+- 每个分片建议 100GB-1TB 数据
+- 分片过多会增加查询协调开销
+
+** 清理环境
+:PROPERTIES:
+:CUSTOM_ID: 清理环境
+:END:
+#+begin_src sh
+# 停止并删除所有容器
+docker rm -f ch1 ch2 ch3 ch4
+
+# 删除网络
+docker network rm clickhouse-cluster-net
+
+# 删除镜像（可选）
+docker rmi clickhouse-cluster
+#+end_src
+
+** 故障排查
+:PROPERTIES:
+:CUSTOM_ID: 故障排查
+:END:
+*** 副本延迟过高
+:PROPERTIES:
+:CUSTOM_ID: 副本延迟过高
+:END:
+#+begin_src sql
+SELECT 
+    table,
+    absolute_delay,
+    queue_size
+FROM system.replicas
+WHERE absolute_delay > 10;
+#+end_src
+
+*** 检查 Keeper 状态
+:PROPERTIES:
+:CUSTOM_ID: 检查-keeper-状态
+:END:
+#+begin_src sql
+SELECT * FROM system.zookeeper WHERE path = '/clickhouse';
+#+end_src
+
+*** 查看副本同步日志
+:PROPERTIES:
+:CUSTOM_ID: 查看副本同步日志
+:END:
+#+begin_src sh
+docker logs ch1 | grep -i replica
+#+end_src
+
+** 环境变量配置
+:PROPERTIES:
+:CUSTOM_ID: 环境变量配置
+:END:
+| 变量名        | 默认值                      | 说明                 |
+|---------------+-----------------------------+----------------------|
+| =CH_NODES=    | =http://localhost:8123,...= | 所有节点的 HTTP 地址 |
+| =CH_USER=     | =default=                   | ClickHouse 用户名    |
+| =CH_PASSWORD= | =changeme=                  | ClickHouse 密码      |
+| =CH_DB=       | =test=                      | 数据库名称           |
+| =CH_CLUSTER=  | =ch_cluster=                | 集群名称             |
+
+** 技术栈
+:PROPERTIES:
+:CUSTOM_ID: 技术栈
+:END:
+- *ClickHouse*: 24.8
+- *Rust*: Edition 2021
+- *clickhouse crate*: 0.14.1
+- *Docker*: 用于容器化部署
+- *ClickHouse Keeper*: 内置分布式协调服务
+
+** 参考资料
+:PROPERTIES:
+:CUSTOM_ID: 参考资料
+:END:
+- [[https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication][ClickHouse 官方文档 - 集群配置]]
+- [[https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication][ReplicatedMergeTree 引擎]]
+- [[https://clickhouse.com/docs/en/engines/table-engines/special/distributed][Distributed 表引擎]]
+- [[https://clickhouse.com/docs/en/guides/sre/keeper/clickhouse-keeper][ClickHouse Keeper]]

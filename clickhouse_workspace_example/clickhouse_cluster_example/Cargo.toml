@@ -1,7 +1,7 @@
 [package]
 name = "clickhouse_cluster_example"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 clickhouse = "0.14.1"

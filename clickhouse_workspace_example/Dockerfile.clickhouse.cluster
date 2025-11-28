@@ -1,33 +1,153 @@
-FROM clickhouse/clickhouse-server:24.8
+FROM clickhouse:25.9
 
 # Default credentials/DB align with the local samples; override at runtime.
 ENV CLICKHOUSE_USER=default \
+    CLICKHOUSE_PASSWORD=changeme \
     CLICKHOUSE_DB=test \
     CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
 
-RUN mkdir -p /etc/clickhouse-server/config.d /docker-entrypoint-initdb.d
+RUN mkdir -p /etc/clickhouse-server/config.d /etc/clickhouse-server/users.d /docker-entrypoint-initdb.d
+
+# Set default password for built-in user in the base users.xml
+RUN sed -i 's#<password></password>#<password>changeme</password>#' /etc/clickhouse-server/users.xml
+
+# Default user auth + allow remote connections (used by the Rust samples)
+RUN cat <<'EOF' > /etc/clickhouse-server/users.d/default-user.xml
+<clickhouse>
+  <users>
+    <default>
+      <password>changeme</password>
+      <networks>
+        <ip>::/0</ip>
+        <ip>0.0.0.0/0</ip>
+      </networks>
+      <profile>default</profile>
+      <quota>default</quota>
+    </default>
+  </users>
+</clickhouse>
+EOF
 
 RUN cat <<'EOF' > /etc/clickhouse-server/config.d/listen.xml
 <clickhouse>
   <listen_host>0.0.0.0</listen_host>
+  <listen_host>::</listen_host>
 </clickhouse>
 EOF
+
+RUN cat <<'EOF' > /etc/clickhouse-server/config.d/zookeeper.xml
+<clickhouse>
+  <!-- Configure ClickHouse to use Keeper for replication -->
+  <zookeeper>
+    <node>
+      <host>ch1</host>
+      <port>9181</port>
+    </node>
+    <node>
+      <host>ch2</host>
+      <port>9181</port>
+    </node>
+    <node>
+      <host>ch3</host>
+      <port>9181</port>
+    </node>
+  </zookeeper>
+</clickhouse>
+EOF
+
+# Keeper configuration - only enabled for specific nodes via environment variable
+RUN cat <<'EOF' > /etc/clickhouse-server/config.d/keeper.xml.template
+<clickhouse>
+  <!-- Use built-in ClickHouse Keeper for replication coordination -->
+  <keeper_server>
+    <tcp_port>9181</tcp_port>
+    <server_id>KEEPER_SERVER_ID_PLACEHOLDER</server_id>
+    <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+    <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+
+    <coordination_settings>
+      <operation_timeout_ms>10000</operation_timeout_ms>
+      <session_timeout_ms>30000</session_timeout_ms>
+      <raft_logs_level>information</raft_logs_level>
+    </coordination_settings>
+
+    <raft_configuration>
+      <server>
+        <id>1</id>
+        <hostname>ch1</hostname>
+        <port>9234</port>
+      </server>
+      <server>
+        <id>2</id>
+        <hostname>ch2</hostname>
+        <port>9234</port>
+      </server>
+      <server>
+        <id>3</id>
+        <hostname>ch3</hostname>
+        <port>9234</port>
+      </server>
+    </raft_configuration>
+  </keeper_server>
+</clickhouse>
+EOF
+
+# Custom entrypoint to conditionally enable Keeper
+RUN cat <<'EOF' > /enable-keeper.sh
+#!/bin/bash
+set -e
+
+# Only enable Keeper if ENABLE_KEEPER is set to "true" and KEEPER_SERVER_ID is provided
+if [ "$ENABLE_KEEPER" = "true" ] && [ -n "$KEEPER_SERVER_ID" ]; then
+  echo "Enabling ClickHouse Keeper with server ID: $KEEPER_SERVER_ID"
+  sed "s/KEEPER_SERVER_ID_PLACEHOLDER/$KEEPER_SERVER_ID/g" \
+    /etc/clickhouse-server/config.d/keeper.xml.template > \
+    /etc/clickhouse-server/config.d/keeper.xml
+else
+  echo "ClickHouse Keeper disabled for this node"
+  rm -f /etc/clickhouse-server/config.d/keeper.xml
+fi
+
+# Execute the original entrypoint (args are handled there; we don't forward ours)
+exec /entrypoint.sh
+EOF
+
+RUN chmod +x /enable-keeper.sh
+
+ENTRYPOINT ["/enable-keeper.sh"]
+CMD ["--config-file=/etc/clickhouse-server/config.xml"]
 
 RUN cat <<'EOF' > /etc/clickhouse-server/config.d/cluster.xml
 <clickhouse>
   <remote_servers>
     <ch_cluster>
+      <!-- Shard 1 with 2 replicas -->
       <shard>
+        <internal_replication>true</internal_replication>
         <replica>
           <host>ch1</host>
           <port>9000</port>
           <user>default</user>
           <password>changeme</password>
         </replica>
-      </shard>
-      <shard>
         <replica>
           <host>ch2</host>
+          <port>9000</port>
+          <user>default</user>
+          <password>changeme</password>
+        </replica>
+      </shard>
+      <!-- Shard 2 with 2 replicas -->
+      <shard>
+        <internal_replication>true</internal_replication>
+        <replica>
+          <host>ch3</host>
+          <port>9000</port>
+          <user>default</user>
+          <password>changeme</password>
+        </replica>
+        <replica>
+          <host>ch4</host>
           <port>9000</port>
           <user>default</user>
           <password>changeme</password>
@@ -38,12 +158,12 @@ RUN cat <<'EOF' > /etc/clickhouse-server/config.d/cluster.xml
   <macros>
     <cluster>ch_cluster</cluster>
     <!-- Filled from env at runtime -->
-    <shard>{$CLICKHOUSE_SHARD:1}</shard>
-    <replica>{$CLICKHOUSE_REPLICA:1}</replica>
+    <shard from_env="CLICKHOUSE_SHARD"/>
+    <replica from_env="CLICKHOUSE_REPLICA"/>
   </macros>
 </clickhouse>
 EOF
 
 RUN echo 'CREATE DATABASE IF NOT EXISTS test;' > /docker-entrypoint-initdb.d/01_init.sql
 
-EXPOSE 8123 9000 9009
+EXPOSE 8123 9000 9009 9181 9234
