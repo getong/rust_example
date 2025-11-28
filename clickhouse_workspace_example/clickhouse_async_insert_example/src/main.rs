@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Row)]
 struct Event {
-  timestamp: u64,
+  // Store nanoseconds since UNIX epoch as unsigned 128-bit integer.
+  timestamp: u128,
   message: String,
 }
 
@@ -29,7 +30,7 @@ async fn main() -> Result<()> {
     .query(
       "
             CREATE OR REPLACE TABLE ? (
-                timestamp DateTime64(9),
+                timestamp UInt128,
                 message   String
             )
             ENGINE = MergeTree
@@ -71,9 +72,9 @@ async fn main() -> Result<()> {
   Ok(())
 }
 
-fn now() -> u64 {
+fn now() -> u128 {
   UNIX_EPOCH
     .elapsed()
     .expect("invalid system time")
-    .as_nanos() as u64
+    .as_nanos()
 }
