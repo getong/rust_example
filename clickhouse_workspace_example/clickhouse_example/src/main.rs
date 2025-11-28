@@ -1,3 +1,5 @@
+use std::env;
+
 use clickhouse::{sql, Client, Row};
 use serde_derive::{Deserialize, Serialize};
 
@@ -7,12 +9,17 @@ struct MyRow<'a> {
   name: &'a str,
 }
 
+fn env_or(key: &str, default: &str) -> String {
+  env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+  // Defaults align with the local Docker setup; override via CH_URL/CH_USER/CH_PASSWORD.
   let client = Client::default()
-    .with_url("http://192.168.5.203:8123")
-    .with_user("default")
-    .with_password("aeYee8ah");
+    .with_url(env_or("CH_URL", "http://localhost:8123"))
+    .with_user(env_or("CH_USER", "default"))
+    .with_password(env_or("CH_PASSWORD", "changeme"));
 
   client
     .query("CREATE DATABASE IF NOT EXISTS ?")
