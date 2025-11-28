@@ -1,0 +1,16 @@
+FROM clickhouse:25.9
+
+# Default credentials/DB align with the sample binaries in this workspace.
+# Password is not baked into the image—set CLICKHOUSE_PASSWORD at runtime.
+ENV CLICKHOUSE_USER=default \
+    CLICKHOUSE_DB=test \
+    CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+
+# Listen on all interfaces and ensure the test DB exists on first start.
+RUN mkdir -p /etc/clickhouse-server/config.d /docker-entrypoint-initdb.d \
+ && printf '<clickhouse>\n  <listen_host>0.0.0.0</listen_host>\n</clickhouse>\n' \
+    > /etc/clickhouse-server/config.d/listen.xml \
+ && echo 'CREATE DATABASE IF NOT EXISTS test;' \
+    > /docker-entrypoint-initdb.d/01_init.sql
+
+EXPOSE 8123 9000 9009

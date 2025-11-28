@@ -3,7 +3,7 @@
 resolver = "2"
 
 members = [
-  "clickhouse-rs_example",
+  # "clickhouse-rs_example",
   "clickhouse_example",
   "clickhouse_async_insert_example"
 ]
