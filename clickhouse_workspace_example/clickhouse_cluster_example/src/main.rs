@@ -1,4 +1,8 @@
-use std::{env, time::UNIX_EPOCH};
+use std::{
+  env,
+  sync::atomic::{AtomicUsize, Ordering},
+  time::UNIX_EPOCH,
+};
 
 use clickhouse::{error::Result as ChResult, Client, Compression, Row};
 use serde::{Deserialize, Serialize};
@@ -8,6 +12,35 @@ struct Event {
   user_id: u64,
   timestamp: u128,
   message: String,
+}
+
+struct ClientPool {
+  clients: Vec<Client>,
+  cursor: AtomicUsize,
+}
+
+impl ClientPool {
+  fn new(clients: Vec<Client>) -> Self {
+    assert!(
+      !clients.is_empty(),
+      "at least one ClickHouse node URL is required"
+    );
+    Self {
+      clients,
+      cursor: AtomicUsize::new(0),
+    }
+  }
+
+  fn all(&self) -> &[Client] {
+    &self.clients
+  }
+
+  /// Round-robin pick of the next client; returns (node_idx, Client).
+  fn next(&self) -> (usize, Client) {
+    let current = self.cursor.fetch_add(1, Ordering::Relaxed);
+    let idx = current % self.clients.len();
+    (idx, self.clients[idx].clone())
+  }
 }
 
 // fn env_or(key: &str, default: &str) -> String {
@@ -34,34 +67,43 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
   );
   let cluster = env_first(&["CLICKHOUSE_CLUSTER", "CH_CLUSTER"], "ch_cluster");
 
-  let clients = build_clients(&node_urls, &user, &password, &database);
-  let primary = clients
-    .get(0)
-    .expect("at least one node url required")
-    .clone();
+  let pool = ClientPool::new(build_clients(&node_urls, &user, &password, &database));
 
   // Health check before proceeding
   println!("Performing health check on cluster nodes...");
-  check_cluster_health(&clients).await?;
+  check_cluster_health(pool.all(), &cluster).await?;
 
   println!("\nCreating tables...");
-  create_tables(&clients, &cluster, &database).await?;
+  create_tables(pool.all(), &cluster, &database).await?;
 
   // Verify tables were created on all nodes
   println!("\nVerifying tables on all nodes...");
-  verify_tables(&clients, &database).await?;
+  verify_tables(pool.all(), &database).await?;
 
-  println!("\nInserting sample data...");
-  insert_sample(&primary).await?;
+  let (writer_idx, writer) = pool.next();
+  println!(
+    "\nInserting sample data using node {} (round-robin load balanced)...",
+    writer_idx + 1
+  );
+  insert_sample(&writer).await?;
 
   // Wait a bit for replication to propagate
   tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-  println!("\nReading back data...");
-  read_back(&primary).await?;
+  let (reader_idx, reader) = pool.next();
+  println!(
+    "\nReading back data using node {} (round-robin load balanced)...",
+    reader_idx + 1
+  );
+  read_back(&reader).await?;
 
   println!("\nChecking data distribution across shards...");
-  check_data_distribution(&clients, &database).await?;
+  let (dist_idx, dist_client) = pool.next();
+  println!(
+    "Using node {} for distributed table checks (round-robin load balanced)...",
+    dist_idx + 1
+  );
+  check_data_distribution(pool.all(), &dist_client, &database).await?;
 
   Ok(())
 }
@@ -105,9 +147,8 @@ async fn create_tables(clients: &[Client], cluster: &str, db: &str) -> ChResult<
     client.query(&create_local).execute().await?;
   }
 
-  // Create distributed table only on the first (primary) node
-  // Use user_id as sharding key to ensure same user data goes to same shard
-  let primary = &clients[0];
+  // Create distributed table on every node so any node can be used via load balancing.
+  // Use user_id as sharding key to ensure same user data goes to same shard.
   let create_dist = format!(
     "
     CREATE TABLE IF NOT EXISTS {db}.cluster_events_dist
@@ -115,7 +156,9 @@ async fn create_tables(clients: &[Client], cluster: &str, db: &str) -> ChResult<
     ENGINE = Distributed({cluster}, {db}, cluster_events, cityHash64(user_id))
     "
   );
-  primary.query(&create_dist).execute().await?;
+  for client in clients {
+    client.query(&create_dist).execute().await?;
+  }
 
   Ok(())
 }
@@ -157,8 +200,7 @@ fn now_nanos() -> u128 {
     .as_nanos()
 }
 
-// Health check: verify all nodes are accessible and responding
-async fn check_cluster_health(clients: &[Client]) -> ChResult<()> {
+async fn check_cluster_health(clients: &[Client], cluster: &str) -> ChResult<()> {
   for (idx, client) in clients.iter().enumerate() {
     match client.query("SELECT version()").fetch_one::<String>().await {
       Ok(version) => {
@@ -179,9 +221,10 @@ async fn check_cluster_health(clients: &[Client]) -> ChResult<()> {
   let primary = &clients[0];
   let cluster_info = primary
     .query(
-      "SELECT cluster, shard_num, replica_num, host_name FROM system.clusters WHERE cluster = \
-       'ch_cluster' ORDER BY shard_num, replica_num",
+      "SELECT cluster, shard_num, replica_num, host_name FROM system.clusters WHERE cluster = ? \
+       ORDER BY shard_num, replica_num",
     )
+    .bind(cluster)
     .fetch_all::<(String, u32, u32, String)>()
     .await?;
 
@@ -233,28 +276,42 @@ async fn verify_tables(clients: &[Client], db: &str) -> ChResult<()> {
       idx + 1,
       engine
     );
-  }
 
-  // Verify distributed table on primary node
-  let dist_exists = clients[0]
-    .query(&format!(
-      "SELECT count() FROM system.tables WHERE database = '{}' AND name = 'cluster_events_dist'",
-      db
-    ))
-    .fetch_one::<u64>()
-    .await?;
+    // Verify distributed table on each node for load-balanced access.
+    let dist_exists = client
+      .query(&format!(
+        "SELECT count() FROM system.tables WHERE database = '{}' AND name = 'cluster_events_dist'",
+        db
+      ))
+      .fetch_one::<u64>()
+      .await?;
 
-  if dist_exists > 0 {
-    println!("✓ Distributed table 'cluster_events_dist' exists on primary node");
-  } else {
-    eprintln!("✗ Distributed table 'cluster_events_dist' not found");
+    if dist_exists > 0 {
+      println!(
+        "✓ Node {}: distributed table 'cluster_events_dist' exists",
+        idx + 1
+      );
+    } else {
+      eprintln!(
+        "✗ Node {}: distributed table 'cluster_events_dist' not found",
+        idx + 1
+      );
+      return Err(clickhouse::error::Error::Custom(format!(
+        "Distributed table verification failed on node {}",
+        idx + 1
+      )));
+    }
   }
 
   Ok(())
 }
 
 // Check how data is distributed across shards
-async fn check_data_distribution(clients: &[Client], db: &str) -> ChResult<()> {
+async fn check_data_distribution(
+  clients: &[Client],
+  dist_client: &Client,
+  db: &str,
+) -> ChResult<()> {
   for (idx, client) in clients.iter().enumerate() {
     let count = client
       .query(&format!("SELECT count() FROM {}.cluster_events", db))
@@ -265,7 +322,7 @@ async fn check_data_distribution(clients: &[Client], db: &str) -> ChResult<()> {
   }
 
   // Check total via distributed table
-  let total = clients[0]
+  let total = dist_client
     .query(&format!("SELECT count() FROM {}.cluster_events_dist", db))
     .fetch_one::<u64>()
     .await?;
@@ -276,7 +333,7 @@ async fn check_data_distribution(clients: &[Client], db: &str) -> ChResult<()> {
   );
 
   // Show sample of data distribution by user_id
-  let distribution = clients[0]
+  let distribution = dist_client
     .query(&format!(
       "SELECT user_id, count() as cnt FROM {}.cluster_events_dist GROUP BY user_id ORDER BY \
        user_id",
