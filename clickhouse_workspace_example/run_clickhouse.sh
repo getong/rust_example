@@ -22,6 +22,7 @@ INTERSERVER_PORT="${INTERSERVER_PORT:-9009}"
 CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-changeme}"
 CLICKHOUSE_DB="${CLICKHOUSE_DB:-test}"
+SKIP_BUILD="${SKIP_BUILD:-1}"
 
 echo "Building ${IMAGE_NAME} from Dockerfile.clickhouse..."
 docker build -f "${ROOT_DIR}/Dockerfile.clickhouse" -t "${IMAGE_NAME}" "${ROOT_DIR}"
