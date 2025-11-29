@@ -1,4 +1,4 @@
-FROM clickhouse:25.9
+FROM clickhouse/clickhouse-server:25.11
 
 # Default credentials/DB align with the local samples; override at runtime.
 ENV CLICKHOUSE_USER=default \

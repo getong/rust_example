@@ -1,4 +1,4 @@
-FROM clickhouse:25.9
+FROM clickhouse/clickhouse-server:25.11
 
 # Default credentials/DB align with the sample binaries in this workspace.
 # Password is not baked into the image—set CLICKHOUSE_PASSWORD at runtime.
