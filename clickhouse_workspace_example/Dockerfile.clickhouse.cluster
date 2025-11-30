@@ -6,7 +6,14 @@ ENV CLICKHOUSE_USER=default \
     CLICKHOUSE_DB=test \
     CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
 
-RUN mkdir -p /etc/clickhouse-server/config.d /etc/clickhouse-server/users.d /docker-entrypoint-initdb.d
+RUN mkdir -p /etc/clickhouse-server/config.d /etc/clickhouse-server/users.d /docker-entrypoint-initdb.d /etc/clickhouse-server/tls
+
+# Self-signed TLS assets for local HTTPS usage (SANs cover localhost + ch1-ch4).
+COPY tls/server.crt /etc/clickhouse-server/tls/server.crt
+COPY tls/server.key /etc/clickhouse-server/tls/server.key
+RUN chown clickhouse:clickhouse /etc/clickhouse-server/tls/server.crt /etc/clickhouse-server/tls/server.key \
+  && chmod 640 /etc/clickhouse-server/tls/server.key \
+  && chmod 640 /etc/clickhouse-server/tls/server.crt
 
 # Set default password for built-in user in the base users.xml
 RUN sed -i 's#<password></password>#<password>changeme</password>#' /etc/clickhouse-server/users.xml
@@ -32,6 +39,18 @@ RUN cat <<'EOF' > /etc/clickhouse-server/config.d/listen.xml
 <clickhouse>
   <listen_host>0.0.0.0</listen_host>
   <listen_host>::</listen_host>
+</clickhouse>
+EOF
+
+RUN cat <<'EOF' > /etc/clickhouse-server/config.d/https.xml
+<clickhouse>
+  <https_port>8443</https_port>
+  <openSSL>
+    <server>
+      <certificateFile>/etc/clickhouse-server/tls/server.crt</certificateFile>
+      <privateKeyFile>/etc/clickhouse-server/tls/server.key</privateKeyFile>
+    </server>
+  </openSSL>
 </clickhouse>
 EOF
 
@@ -166,4 +185,4 @@ EOF
 
 RUN echo 'CREATE DATABASE IF NOT EXISTS test;' > /docker-entrypoint-initdb.d/01_init.sql
 
-EXPOSE 8123 9000 9009 9181 9234
+EXPOSE 8123 8443 9000 9009 9181 9234

@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clickhouse = "0.14.1"
+clickhouse = { version = "0.14.1", features = ["lz4", "rustls-tls"] }
+dotenvy = "0.15"
+hyper-rustls = { version = "0.27", default-features = true }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+rustls = "0.23"
+rustls-native-certs = "0.8"
+rustls-pemfile = "2.2"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.48.0", features = ["full"] }

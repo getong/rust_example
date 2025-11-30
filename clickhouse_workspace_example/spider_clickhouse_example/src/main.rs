@@ -1,15 +1,23 @@
-use std::sync::{
-  atomic::{AtomicUsize, Ordering},
-  Arc,
+use std::{
+  path::Path,
+  sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+  },
+  time::Duration,
 };
 
-use axum::{
-  extract::State,
-  http::StatusCode,
-  routing::get,
-  Json, Router,
-};
+use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
 use clickhouse::{Client, Compression, Row, sql};
+use dotenvy::from_filename;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::{
+  client::legacy::{Client as HyperClient, connect::HttpConnector},
+  rt::TokioExecutor,
+};
+use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
+use rustls_native_certs::load_native_certs;
+use rustls_pemfile::certs;
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 use spider::{Client as SpiderClient, page::Page};
@@ -70,12 +78,71 @@ fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
     .unwrap_or_else(|| default.to_string())
 }
 
-fn build_clients(urls: &str, user: &str, password: &str, db: Option<&str>) -> Vec<Client> {
-  urls
+fn read_ca_path() -> Option<String> {
+  let path = env_first(&["CLICKHOUSE_CA_CERT", "CH_CA_CERT"], "tls/ca.crt");
+  if Path::new(&path).exists() {
+    Some(path)
+  } else {
+    eprintln!("Warning: CA certificate not found at {path}; falling back to native roots only");
+    None
+  }
+}
+
+fn build_clients(
+  urls: &str,
+  user: &str,
+  password: &str,
+  db: Option<&str>,
+  ca_cert: Option<&str>,
+) -> Result<Vec<Client>, Box<dyn std::error::Error>> {
+  let mut connector = HttpConnector::new();
+  connector.set_keepalive(Some(Duration::from_secs(60)));
+  connector.enforce_http(false);
+
+  let mut roots = RootCertStore::empty();
+  let native = load_native_certs();
+  if !native.errors.is_empty() {
+    eprintln!(
+      "Warning: failed to load some native certs: {:?}",
+      native.errors
+    );
+  }
+  for cert in native.certs {
+    roots.add(cert)?;
+  }
+
+  if let Some(path) = ca_cert {
+    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut found = 0;
+    for cert in certs(&mut reader) {
+      roots.add(cert?)?;
+      found += 1;
+    }
+
+    if found == 0 {
+      return Err(format!("no certificates found in {path}").into());
+    }
+  }
+
+  let tls = ClientConfig::builder()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+
+  let https = HttpsConnectorBuilder::new()
+    .with_tls_config(tls)
+    .https_or_http()
+    .enable_http1()
+    .wrap_connector(connector);
+
+  let transport = HyperClient::builder(TokioExecutor::new())
+    .pool_idle_timeout(Duration::from_secs(2))
+    .build(https);
+
+  let clients = urls
     .split(',')
     .filter(|s| !s.trim().is_empty())
     .map(|url| {
-      let client = Client::default()
+      let client = Client::with_http_client(transport.clone())
         .with_url(url.trim())
         .with_user(user)
         .with_password(password)
@@ -87,11 +154,16 @@ fn build_clients(urls: &str, user: &str, password: &str, db: Option<&str>) -> Ve
         client
       }
     })
-    .collect()
-}
+    .collect::<Vec<_>>();
 
+  Ok(clients)
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+  // Load .env if present for local runs (silently ignores missing file).
+  let _ = from_filename(".env");
+  let _ = aws_lc_rs::default_provider().install_default();
+
   let target_url = "https://www.scrapingcourse.com/ecommerce/";
 
   // Fetch the page HTML with spider's HTTP client.
@@ -158,18 +230,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // Set up ClickHouse connection and write scraped data to a table using the cluster-style
   // connection pattern (CLICKHOUSE_* envs first, CH_* fallbacks, optional node list).
-  let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "http://localhost:8123");
+  let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "https://localhost:8443");
   let user = env_first(&["CLICKHOUSE_USER", "CH_USER"], "default");
   let password = env_first(&["CLICKHOUSE_PASSWORD", "CH_PASSWORD"], "changeme");
   let database = env_first(&["CLICKHOUSE_DATABASE", "CH_DB"], "spider");
   let node_urls = env_first(
     &["CLICKHOUSE_NODES", "CH_NODES"],
-    &format!("{url},http://localhost:8124,http://localhost:8125,http://localhost:8126"),
+    &format!("{url},https://localhost:8444,https://localhost:8445,https://localhost:8446"),
   );
+  let ca_cert = read_ca_path();
 
   // First, create the database using clients without a default database set to avoid
   // UNKNOWN_DATABASE errors.
-  let base_pool = ClientPool::new(build_clients(&node_urls, &user, &password, None));
+  let base_pool = ClientPool::new(build_clients(
+    &node_urls,
+    &user,
+    &password,
+    None,
+    ca_cert.as_deref(),
+  )?);
   for client in base_pool.all() {
     client
       .query("CREATE DATABASE IF NOT EXISTS ?")
@@ -184,7 +263,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     &user,
     &password,
     Some(&database),
-  )));
+    ca_cert.as_deref(),
+  )?));
 
   // Ensure database and table exist on every configured node to avoid missing-table errors
   // when a different node is selected via round-robin.
@@ -254,7 +334,9 @@ fn flatten_text(el: ElementRef<'_>) -> String {
   el.text().collect::<Vec<_>>().join("").trim().to_string()
 }
 
-async fn list_products(State(state): State<AppState>) -> Result<Json<Vec<Product>>, (StatusCode, String)> {
+async fn list_products(
+  State(state): State<AppState>,
+) -> Result<Json<Vec<Product>>, (StatusCode, String)> {
   // Always read from the node that received the writes to avoid empty results when the pool
   // round-robins across non-replicated nodes.
   let client = state.pool.get(state.primary_idx);

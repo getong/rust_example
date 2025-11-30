@@ -19,6 +19,10 @@ set -euo pipefail
 #   NODE2_HTTP_PORT       - host HTTP port for ch2 (default: 8124)
 #   NODE3_HTTP_PORT       - host HTTP port for ch3 (default: 8125)
 #   NODE4_HTTP_PORT       - host HTTP port for ch4 (default: 8126)
+#   NODE1_HTTPS_PORT      - host HTTPS port for ch1 (default: 8443)
+#   NODE2_HTTPS_PORT      - host HTTPS port for ch2 (default: 8444)
+#   NODE3_HTTPS_PORT      - host HTTPS port for ch3 (default: 8445)
+#   NODE4_HTTPS_PORT      - host HTTPS port for ch4 (default: 8446)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -34,6 +38,11 @@ NODE1_HTTP_PORT="${NODE1_HTTP_PORT:-8123}"
 NODE2_HTTP_PORT="${NODE2_HTTP_PORT:-8124}"
 NODE3_HTTP_PORT="${NODE3_HTTP_PORT:-8125}"
 NODE4_HTTP_PORT="${NODE4_HTTP_PORT:-8126}"
+# HTTPS ports for each node (exposed to host)
+NODE1_HTTPS_PORT="${NODE1_HTTPS_PORT:-8443}"
+NODE2_HTTPS_PORT="${NODE2_HTTPS_PORT:-8444}"
+NODE3_HTTPS_PORT="${NODE3_HTTPS_PORT:-8445}"
+NODE4_HTTPS_PORT="${NODE4_HTTPS_PORT:-8446}"
 
 if [ "${SKIP_BUILD:-0}" = "1" ]; then
   echo "Skipping image build (SKIP_BUILD=1). Using existing image: ${IMAGE_NAME}"
@@ -56,8 +65,9 @@ start_node() {
   local shard="$2"
   local replica="$3"
   local http_port="$4"
-  local enable_keeper="$5"
-  local keeper_id="$6"
+  local https_port="$5"
+  local enable_keeper="$6"
+  local keeper_id="$7"
 
   if docker ps -a --format '{{.Names}}' | grep -Eq "^${name}\$"; then
     echo "Container ${name} already exists. Removing it to apply fresh config..."
@@ -75,6 +85,7 @@ start_node() {
     --hostname "${name}" \
     --network "${NETWORK_NAME}" \
     -p "${http_port}:8123" \
+    -p "${https_port}:8443" \
     -e CLICKHOUSE_USER="${CLICKHOUSE_USER}" \
     -e CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD}" \
     -e CLICKHOUSE_DB="${CLICKHOUSE_DB}" \
@@ -90,10 +101,10 @@ start_node() {
 # Shard 1: ch1 (replica 1), ch2 (replica 2)
 # Shard 2: ch3 (replica 1), ch4 (replica 2)
 # Only first 3 nodes run Keeper (quorum requires odd number of nodes)
-start_node ch1 1 1 "${NODE1_HTTP_PORT}" true 1
-start_node ch2 1 2 "${NODE2_HTTP_PORT}" true 2
-start_node ch3 2 1 "${NODE3_HTTP_PORT}" true 3
-start_node ch4 2 2 "${NODE4_HTTP_PORT}" false 0
+start_node ch1 1 1 "${NODE1_HTTP_PORT}" "${NODE1_HTTPS_PORT}" true 1
+start_node ch2 1 2 "${NODE2_HTTP_PORT}" "${NODE2_HTTPS_PORT}" true 2
+start_node ch3 2 1 "${NODE3_HTTP_PORT}" "${NODE3_HTTPS_PORT}" true 3
+start_node ch4 2 2 "${NODE4_HTTP_PORT}" "${NODE4_HTTPS_PORT}" false 0
 
 echo ""
 echo "========================================="
@@ -101,11 +112,15 @@ echo "Cluster is starting with replication enabled"
 echo "========================================="
 echo "Shard 1 (replicas):"
 echo "  - ch1 HTTP: http://localhost:${NODE1_HTTP_PORT} [Keeper enabled]"
+echo "  - ch1 HTTPS: https://localhost:${NODE1_HTTPS_PORT} [Keeper enabled]"
 echo "  - ch2 HTTP: http://localhost:${NODE2_HTTP_PORT} [Keeper enabled]"
+echo "  - ch2 HTTPS: https://localhost:${NODE2_HTTPS_PORT} [Keeper enabled]"
 echo ""
 echo "Shard 2 (replicas):"
 echo "  - ch3 HTTP: http://localhost:${NODE3_HTTP_PORT} [Keeper enabled]"
+echo "  - ch3 HTTPS: https://localhost:${NODE3_HTTPS_PORT} [Keeper enabled]"
 echo "  - ch4 HTTP: http://localhost:${NODE4_HTTP_PORT}"
+echo "  - ch4 HTTPS: https://localhost:${NODE4_HTTPS_PORT}"
 echo ""
 echo "Note: Only ch1, ch2, ch3 run ClickHouse Keeper (requires 3-node quorum)"
 echo ""
@@ -122,5 +137,6 @@ echo "  docker logs -f ch3"
 echo "  docker logs -f ch4"
 echo ""
 echo "Run the Rust example:"
-echo "  export CH_NODES=\"http://localhost:${NODE1_HTTP_PORT},http://localhost:${NODE2_HTTP_PORT},http://localhost:${NODE3_HTTP_PORT},http://localhost:${NODE4_HTTP_PORT}\""
+echo "  export CH_NODES=\"https://localhost:${NODE1_HTTPS_PORT},https://localhost:${NODE2_HTTPS_PORT},https://localhost:${NODE3_HTTPS_PORT},https://localhost:${NODE4_HTTPS_PORT}\""
+echo "  export CH_CA_CERT=\"${ROOT_DIR}/tls/ca.crt\""
 echo "  cargo run --bin clickhouse_cluster_example"

@@ -1,11 +1,21 @@
 use std::{
   env,
   sync::atomic::{AtomicUsize, Ordering},
-  time::UNIX_EPOCH,
+  time::{Duration, UNIX_EPOCH},
 };
 
 use clickhouse::{error::Result as ChResult, Client, Compression, Row};
+use dotenvy::from_filename;
+use hyper_rustls::HttpsConnectorBuilder;
+use hyper_util::{
+  client::legacy::{connect::HttpConnector, Client as HyperClient},
+  rt::TokioExecutor,
+};
+use rustls::{crypto::aws_lc_rs, ClientConfig, RootCertStore};
+use rustls_native_certs::load_native_certs;
+use rustls_pemfile::certs;
 use serde::{Deserialize, Serialize};
+use tokio::time::sleep;
 
 #[derive(Debug, Serialize, Deserialize, Row)]
 struct Event {
@@ -47,6 +57,16 @@ impl ClientPool {
 //  env::var(key).unwrap_or_else(|_| default.to_string())
 //}
 
+fn read_ca_path() -> Option<String> {
+  let path = env_first(&["CLICKHOUSE_CA_CERT", "CH_CA_CERT"], "tls/ca.crt");
+  if std::path::Path::new(&path).exists() {
+    Some(path)
+  } else {
+    eprintln!("Warning: CA certificate not found at {path}; falling back to native roots only");
+    None
+  }
+}
+
 fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
   keys
     .iter()
@@ -56,18 +76,30 @@ fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+  // Load .env if present for local runs (silently ignores missing file).
+  let _ = from_filename(".env");
+  // rustls needs a provider installed explicitly when multiple backends exist.
+  let _ = aws_lc_rs::default_provider().install_default();
+
   // Prefer official ClickHouse env names, fallback to legacy CH_* for compatibility.
-  let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "http://localhost:8123");
+  let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "https://localhost:8443");
   let user = env_first(&["CLICKHOUSE_USER", "CH_USER"], "default");
   let password = env_first(&["CLICKHOUSE_PASSWORD", "CH_PASSWORD"], "changeme");
   let database = env_first(&["CLICKHOUSE_DATABASE", "CH_DB"], "test");
   let node_urls = env_first(
     &["CLICKHOUSE_NODES", "CH_NODES"],
-    &format!("{url},http://localhost:8124,http://localhost:8125,http://localhost:8126"),
+    &format!("{url},https://localhost:8444,https://localhost:8445,https://localhost:8446"),
   );
   let cluster = env_first(&["CLICKHOUSE_CLUSTER", "CH_CLUSTER"], "ch_cluster");
+  let ca_cert = read_ca_path();
 
-  let pool = ClientPool::new(build_clients(&node_urls, &user, &password, &database));
+  let pool = ClientPool::new(build_clients(
+    &node_urls,
+    &user,
+    &password,
+    &database,
+    ca_cert.as_deref(),
+  )?);
 
   // Health check before proceeding
   println!("Performing health check on cluster nodes...");
@@ -88,7 +120,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
   insert_sample(&writer).await?;
 
   // Wait a bit for replication to propagate
-  tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+  sleep(Duration::from_secs(2)).await;
 
   let (reader_idx, reader) = pool.next();
   println!(
@@ -108,12 +140,61 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
   Ok(())
 }
 
-fn build_clients(urls: &str, user: &str, password: &str, db: &str) -> Vec<Client> {
-  urls
+fn build_clients(
+  urls: &str,
+  user: &str,
+  password: &str,
+  db: &str,
+  ca_cert: Option<&str>,
+) -> Result<Vec<Client>, Box<dyn std::error::Error>> {
+  let mut connector = HttpConnector::new();
+  connector.set_keepalive(Some(Duration::from_secs(60)));
+  connector.enforce_http(false);
+
+  let mut roots = RootCertStore::empty();
+  let native = load_native_certs();
+  if !native.errors.is_empty() {
+    eprintln!(
+      "Warning: failed to load some native certs: {:?}",
+      native.errors
+    );
+  }
+  for cert in native.certs {
+    roots.add(cert)?;
+  }
+
+  if let Some(path) = ca_cert {
+    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut found = 0;
+    for cert in certs(&mut reader) {
+      roots.add(cert?)?;
+      found += 1;
+    }
+
+    if found == 0 {
+      return Err(format!("no certificates found in {path}").into());
+    }
+  }
+
+  let tls = ClientConfig::builder()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+
+  let https = HttpsConnectorBuilder::new()
+    .with_tls_config(tls)
+    .https_or_http()
+    .enable_http1()
+    .wrap_connector(connector);
+
+  let transport = HyperClient::builder(TokioExecutor::new())
+    .pool_idle_timeout(Duration::from_secs(2))
+    .build(https);
+
+  let clients = urls
     .split(',')
     .filter(|s| !s.trim().is_empty())
     .map(|url| {
-      Client::default()
+      Client::with_http_client(transport.clone())
         .with_url(url.trim())
         .with_user(user)
         .with_password(password)
@@ -121,7 +202,9 @@ fn build_clients(urls: &str, user: &str, password: &str, db: &str) -> Vec<Client
         // Use LZ4 compression (default feature); matches official ClickHouse Rust client docs.
         .with_compression(Compression::Lz4)
     })
-    .collect()
+    .collect();
+
+  Ok(clients)
 }
 
 async fn create_tables(clients: &[Client], cluster: &str, db: &str) -> ChResult<()> {
