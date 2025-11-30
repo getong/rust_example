@@ -1,5 +1,14 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+  atomic::{AtomicUsize, Ordering},
+  Arc,
+};
 
+use axum::{
+  extract::State,
+  http::StatusCode,
+  routing::get,
+  Json, Router,
+};
 use clickhouse::{Client, Compression, Row, sql};
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -11,6 +20,12 @@ struct Product {
   image: String,
   name: String,
   price: String,
+}
+
+#[derive(Clone)]
+struct AppState {
+  pool: Arc<ClientPool>,
+  primary_idx: usize,
 }
 
 struct ClientPool {
@@ -39,6 +54,12 @@ impl ClientPool {
     let current = self.cursor.fetch_add(1, Ordering::Relaxed);
     let idx = current % self.clients.len();
     (idx, self.clients[idx].clone())
+  }
+
+  /// Get a specific client by index; clamps to the first client if out of bounds.
+  fn get(&self, idx: usize) -> Client {
+    let safe_idx = if idx < self.clients.len() { idx } else { 0 };
+    self.clients[safe_idx].clone()
   }
 }
 
@@ -158,7 +179,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 
   // Rebuild pool with the target database attached for table creation and DML.
-  let pool = ClientPool::new(build_clients(&node_urls, &user, &password, Some(&database)));
+  let pool = Arc::new(ClientPool::new(build_clients(
+    &node_urls,
+    &user,
+    &password,
+    Some(&database),
+  )));
 
   // Ensure database and table exist on every configured node to avoid missing-table errors
   // when a different node is selected via round-robin.
@@ -188,7 +214,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 
   // Use round-robin pick for writing/reading; defaults to the first node when only one is set.
-  let (_writer_idx, ch_client) = pool.next();
+  let (writer_idx, ch_client) = pool.next();
 
   let mut insert = ch_client.insert::<Product>("products").await?;
   for product in products {
@@ -207,9 +233,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{:?}", product);
   }
 
+  // Serve data via Axum so it can be consumed externally.
+  let app_state = AppState {
+    pool: pool.clone(),
+    primary_idx: writer_idx,
+  };
+  let router = Router::new()
+    .route("/products", get(list_products))
+    .with_state(app_state);
+
+  let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+  println!("Axum server running at http://0.0.0.0:3000/products");
+
+  axum::serve(listener, router).await?;
+
   Ok(())
 }
 
 fn flatten_text(el: ElementRef<'_>) -> String {
   el.text().collect::<Vec<_>>().join("").trim().to_string()
+}
+
+async fn list_products(State(state): State<AppState>) -> Result<Json<Vec<Product>>, (StatusCode, String)> {
+  // Always read from the node that received the writes to avoid empty results when the pool
+  // round-robins across non-replicated nodes.
+  let client = state.pool.get(state.primary_idx);
+  client
+    .query("SELECT ?fields FROM products ORDER BY name")
+    .fetch_all::<Product>()
+    .await
+    .map(Json)
+    .map_err(internal_error)
+}
+
+fn internal_error<E: std::fmt::Display>(err: E) -> (StatusCode, String) {
+  (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
 }

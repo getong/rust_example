@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.7"
 clickhouse = "0.14.1"
 scraper = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
