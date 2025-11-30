@@ -32,6 +32,7 @@ CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-changeme}"
 CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 CLICKHOUSE_DB="${CLICKHOUSE_DB:-test}"
 SKIP_BUILD="${SKIP_BUILD:-1}"
+NO_CACHE="${NO_CACHE:-1}"
 
 # HTTP ports for each node (exposed to host)
 NODE1_HTTP_PORT="${NODE1_HTTP_PORT:-8123}"
@@ -48,11 +49,10 @@ if [ "${SKIP_BUILD:-0}" = "1" ]; then
   echo "Skipping image build (SKIP_BUILD=1). Using existing image: ${IMAGE_NAME}"
 else
   echo "Building ${IMAGE_NAME} from Dockerfile.clickhouse.cluster..."
-  if [ "${NO_PULL:-0}" = "1" ]; then
-    docker build --no-cache -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
-  else
-    docker build --pull -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
-  fi
+  build_flags=()
+  [ "${NO_PULL:-0}" != "1" ] && build_flags+=(--pull)
+  [ "${NO_CACHE}" = "1" ] && build_flags+=(--no-cache)
+  docker build "${build_flags[@]}" -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
 fi
 
 if ! docker network ls --format '{{.Name}}' | grep -qx "${NETWORK_NAME}"; then

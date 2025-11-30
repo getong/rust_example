@@ -1,5 +1,7 @@
 use std::{
   env,
+  panic::catch_unwind,
+  path::Path,
   sync::atomic::{AtomicUsize, Ordering},
   time::{Duration, UNIX_EPOCH},
 };
@@ -67,6 +69,24 @@ fn read_ca_path() -> Option<String> {
   }
 }
 
+fn ensure_tls_dir() -> Result<(), Box<dyn std::error::Error>> {
+  let tls_dir = Path::new("tls");
+  if tls_dir.exists() {
+    return Ok(());
+  }
+
+  eprintln!("TLS directory missing, running ./generate_tls.sh ...");
+  // let status = Command::new("./generate_tls.sh").status()?;
+  // if !status.success() {
+  //   return Err("generate_tls.sh failed".into());
+  // }
+
+  // if !tls_dir.exists() {
+  //   return Err("TLS directory still missing after generate_tls.sh".into());
+  // }
+  Err("please run generate_tls.sh".into())
+}
+
 fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
   keys
     .iter()
@@ -80,6 +100,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
   let _ = from_filename(".env");
   // rustls needs a provider installed explicitly when multiple backends exist.
   let _ = aws_lc_rs::default_provider().install_default();
+  ensure_tls_dir()?;
 
   // Prefer official ClickHouse env names, fallback to legacy CH_* for compatibility.
   let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "https://localhost:8443");
@@ -152,15 +173,16 @@ fn build_clients(
   connector.enforce_http(false);
 
   let mut roots = RootCertStore::empty();
-  let native = load_native_certs();
-  if !native.errors.is_empty() {
-    eprintln!(
-      "Warning: failed to load some native certs: {:?}",
-      native.errors
-    );
-  }
-  for cert in native.certs {
-    roots.add(cert)?;
+  if let Some(native) = load_native_roots_safely() {
+    if !native.errors.is_empty() {
+      eprintln!(
+        "Warning: failed to load some native certs: {:?}",
+        native.errors
+      );
+    }
+    for cert in native.certs {
+      roots.add(cert)?;
+    }
   }
 
   if let Some(path) = ca_cert {
@@ -205,6 +227,16 @@ fn build_clients(
     .collect();
 
   Ok(clients)
+}
+
+fn load_native_roots_safely() -> Option<rustls_native_certs::CertificateResult> {
+  match catch_unwind(|| load_native_certs()) {
+    Ok(result) => Some(result),
+    Err(_) => {
+      eprintln!("Warning: native certificate store is unavailable; proceeding with custom CA only");
+      None
+    }
+  }
 }
 
 async fn create_tables(clients: &[Client], cluster: &str, db: &str) -> ChResult<()> {
