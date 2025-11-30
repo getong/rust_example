@@ -1,0 +1,9 @@
+[package]
+name = "spider_csv_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+csv = "1.4.0"
+scraper = "0.24.0"
+spider = "2.38.23"
