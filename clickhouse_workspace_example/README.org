@@ -1,0 +1,10 @@
+run command
+
+#+begin_src shell
+ ./stop_clickhouse_cluster.sh
+rm -rf tls
+./generate_tls.sh
+NO_PULL=1 ./run_clickhouse_cluster.sh
+cargo run -p clickhouse_cluster_example
+cargo run -p spider_clickhouse_example
+#+end_src
