@@ -667,7 +667,7 @@ impl RealV8Executor {
       if let Ok(console_array) = v8::Local::<v8::Array>::try_from(console_result) {
         let length = console_array.length();
         println!("🔍 JavaScript Console Output ({} messages):", length);
-        for i in 0..length {
+        for i in 0 .. length {
           if let Some(element) = console_array.get_index(scope, i) {
             if let Some(element_str) = element.to_string(scope) {
               let message = element_str.to_rust_string_lossy(scope);
