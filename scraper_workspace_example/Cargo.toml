@@ -10,4 +10,5 @@ members = [
   "spider_basic_example",
   "spider_crawl_example",
   "spider_scraper_basic_example",
+  "headless_chrome_example",
 ]

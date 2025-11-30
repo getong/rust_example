@@ -1,0 +1,8 @@
+[package]
+name = "headless_chrome_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+csv = "1.4.0"
+headless_chrome = "1.0.18"
