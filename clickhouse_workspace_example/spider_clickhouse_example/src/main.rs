@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use clickhouse::{Client, Compression, Row, sql};
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -11,11 +13,60 @@ struct Product {
   price: String,
 }
 
+struct ClientPool {
+  clients: Vec<Client>,
+  cursor: AtomicUsize,
+}
+
+impl ClientPool {
+  fn new(clients: Vec<Client>) -> Self {
+    assert!(
+      !clients.is_empty(),
+      "at least one ClickHouse node URL is required"
+    );
+    Self {
+      clients,
+      cursor: AtomicUsize::new(0),
+    }
+  }
+
+  fn all(&self) -> &[Client] {
+    &self.clients
+  }
+
+  /// Round-robin pick of the next client; returns (node_idx, Client).
+  fn next(&self) -> (usize, Client) {
+    let current = self.cursor.fetch_add(1, Ordering::Relaxed);
+    let idx = current % self.clients.len();
+    (idx, self.clients[idx].clone())
+  }
+}
+
 fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
   keys
     .iter()
     .find_map(|k| std::env::var(k).ok())
     .unwrap_or_else(|| default.to_string())
+}
+
+fn build_clients(urls: &str, user: &str, password: &str, db: Option<&str>) -> Vec<Client> {
+  urls
+    .split(',')
+    .filter(|s| !s.trim().is_empty())
+    .map(|url| {
+      let client = Client::default()
+        .with_url(url.trim())
+        .with_user(user)
+        .with_password(password)
+        .with_compression(Compression::Lz4);
+
+      if let Some(db_name) = db {
+        client.with_database(db_name.to_string())
+      } else {
+        client
+      }
+    })
+    .collect()
 }
 
 #[tokio::main]
@@ -84,42 +135,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
   }
 
-  // Set up ClickHouse connection and write scraped data to a table. Prefer official env
-  // names (CLICKHOUSE_*) with CH_* fallbacks to mirror cluster example behavior.
+  // Set up ClickHouse connection and write scraped data to a table using the cluster-style
+  // connection pattern (CLICKHOUSE_* envs first, CH_* fallbacks, optional node list).
   let url = env_first(&["CLICKHOUSE_URL", "CH_URL"], "http://localhost:8123");
   let user = env_first(&["CLICKHOUSE_USER", "CH_USER"], "default");
   let password = env_first(&["CLICKHOUSE_PASSWORD", "CH_PASSWORD"], "changeme");
   let database = env_first(&["CLICKHOUSE_DATABASE", "CH_DB"], "spider");
+  let node_urls = env_first(
+    &["CLICKHOUSE_NODES", "CH_NODES"],
+    &format!("{url},http://localhost:8124,http://localhost:8125,http://localhost:8126"),
+  );
 
-  let base_client = Client::default()
-    .with_url(url)
-    .with_user(user)
-    .with_password(password)
-    .with_compression(Compression::Lz4);
+  // First, create the database using clients without a default database set to avoid
+  // UNKNOWN_DATABASE errors.
+  let base_pool = ClientPool::new(build_clients(&node_urls, &user, &password, None));
+  for client in base_pool.all() {
+    client
+      .query("CREATE DATABASE IF NOT EXISTS ?")
+      .bind(sql::Identifier(&database))
+      .execute()
+      .await?;
+  }
 
-  base_client
-    .query("CREATE DATABASE IF NOT EXISTS ?")
-    .bind(sql::Identifier(&database))
-    .execute()
-    .await?;
+  // Rebuild pool with the target database attached for table creation and DML.
+  let pool = ClientPool::new(build_clients(&node_urls, &user, &password, Some(&database)));
 
-  let ch_client = base_client.with_database(database.clone());
+  // Ensure database and table exist on every configured node to avoid missing-table errors
+  // when a different node is selected via round-robin.
+  for client in pool.all() {
+    // Database now exists but keep the creation idempotent.
+    client
+      .query("CREATE DATABASE IF NOT EXISTS ?")
+      .bind(sql::Identifier(&database))
+      .execute()
+      .await?;
 
-  ch_client
-    .query(
-      "
-        CREATE TABLE IF NOT EXISTS products (
-          url String,
-          image String,
-          name String,
-          price String
-        )
-        ENGINE = MergeTree
-        ORDER BY (url)
-      ",
-    )
-    .execute()
-    .await?;
+    client
+      .query(
+        "
+          CREATE TABLE IF NOT EXISTS products (
+            url String,
+            image String,
+            name String,
+            price String
+          )
+          ENGINE = MergeTree
+          ORDER BY (url)
+        ",
+      )
+      .execute()
+      .await?;
+  }
+
+  // Use round-robin pick for writing/reading; defaults to the first node when only one is set.
+  let (_writer_idx, ch_client) = pool.next();
 
   let mut insert = ch_client.insert::<Product>("products").await?;
   for product in products {
