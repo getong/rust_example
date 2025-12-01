@@ -16,12 +16,14 @@ use hyper_util::{
   client::legacy::{Client as HyperClient, connect::HttpConnector},
   rt::TokioExecutor,
 };
+use reqwest::Client as HttpClient;
 use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
 use rustls_native_certs::load_native_certs;
 use rustls_pemfile::certs;
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 use spider::{Client as SpiderClient, page::Page};
+use url::Url;
 
 #[derive(Debug, Row, Serialize, Deserialize)]
 struct Product {
@@ -107,6 +109,81 @@ fn ensure_tls_dir() -> Result<(), Box<dyn std::error::Error>> {
   Err("please run generate_tls.sh".into())
 }
 
+fn absolute_url(base: &Url, value: &str) -> String {
+  if value.starts_with("http://") || value.starts_with("https://") {
+    return value.to_string();
+  }
+
+  base
+    .join(value.trim_start_matches('/'))
+    .map(|u| u.to_string())
+    .unwrap_or_else(|_| value.to_string())
+}
+
+fn parse_products(html: &str, base_url: &Url) -> Vec<Product> {
+  // BooksToScrape layout:
+  // <article class="product_pod">
+  //   <div class="image_container"><a><img src="..."/></a></div>
+  //   <h3><a title="NAME" href="catalogue/..."></a></h3>
+  //   <p class="price_color">£xx.xx</p>
+  // </article>
+  let document = Html::parse_document(html);
+  let product_selector = Selector::parse("article.product_pod").expect("valid product selector");
+  let link_selector = Selector::parse("h3 a").expect("valid link selector");
+  let image_selector = Selector::parse("div.image_container img").expect("valid image selector");
+  let price_selector = Selector::parse("p.price_color").expect("valid price selector");
+
+  let mut products = Vec::new();
+
+  for product_el in document.select(&product_selector) {
+    let url = product_el
+      .select(&link_selector)
+      .next()
+      .and_then(|link| link.value().attr("href"))
+      .map(|href| absolute_url(base_url, href))
+      .unwrap_or_else(String::new);
+
+    let image = product_el
+      .select(&image_selector)
+      .next()
+      .and_then(|img| {
+        img
+          .value()
+          .attr("src")
+          .or_else(|| img.value().attr("data-src"))
+          .or_else(|| img.value().attr("data-lazy-src"))
+      })
+      .map(|src| absolute_url(base_url, src))
+      .unwrap_or_else(String::new);
+
+    let name = product_el
+      .select(&link_selector)
+      .next()
+      .and_then(|link| link.value().attr("title"))
+      .map(|t| t.to_string())
+      .unwrap_or_default();
+
+    let price = product_el
+      .select(&price_selector)
+      .next()
+      .map(flatten_text)
+      .unwrap_or_default();
+
+    if url.is_empty() && image.is_empty() && name.is_empty() && price.is_empty() {
+      continue;
+    }
+
+    products.push(Product {
+      url,
+      image,
+      name,
+      price,
+    });
+  }
+
+  products
+}
+
 fn build_clients(
   urls: &str,
   user: &str,
@@ -188,6 +265,26 @@ fn load_native_roots_safely() -> Option<rustls_native_certs::CertificateResult> 
     }
   }
 }
+
+async fn fetch_html_with_spider(target_url: &str) -> Result<String, Box<dyn std::error::Error>> {
+  let spider_client = SpiderClient::builder()
+    .user_agent("spider-clickhouse-example/0.1")
+    .build()?;
+  let page = Page::new_page(target_url, &spider_client).await;
+  Ok(page.get_html())
+}
+
+async fn fetch_html_with_reqwest(
+  target_url: &str,
+) -> Result<(String, Url), Box<dyn std::error::Error>> {
+  let client = HttpClient::builder()
+    .user_agent("spider-clickhouse-example/0.1")
+    .build()?;
+  let resp = client.get(target_url).send().await?;
+  let final_url = resp.url().clone();
+  let html = resp.error_for_status()?.text().await?;
+  Ok((html, final_url))
+}
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Load .env if present for local runs (silently ignores missing file).
@@ -195,68 +292,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let _ = aws_lc_rs::default_provider().install_default();
   ensure_tls_dir()?;
 
-  let target_url = "https://www.scrapingcourse.com/ecommerce/";
+  // let target_url = "https://www.scrapingcourse.com/ecommerce/";
+  let target_url = "https://books.toscrape.com/";
+  let base_url = Url::parse(target_url)?;
 
-  // Fetch the page HTML with spider's HTTP client.
-  let spider_client = SpiderClient::builder()
-    .user_agent("spider-clickhouse-example/0.1")
-    .build()?;
-  let page = Page::new_page(target_url, &spider_client).await;
-  let html = page.get_html();
+  // Fetch the page HTML with spider's HTTP client; if it returns zero products (e.g., blocked),
+  // retry with a plain reqwest client.
+  let html = fetch_html_with_spider(target_url).await?;
+  let mut products = parse_products(&html, &base_url);
 
-  // Parse products from the HTML.
-  let document = Html::parse_document(&html);
-  let product_selector = Selector::parse("li.product").expect("valid product selector");
-  let link_selector = Selector::parse("a").expect("valid link selector");
-  let image_selector = Selector::parse("img").expect("valid img selector");
-  let name_selector = Selector::parse("h2").expect("valid name selector");
-  let price_selector = Selector::parse(".price").expect("valid price selector");
-
-  let mut products = Vec::new();
-
-  for product_el in document.select(&product_selector) {
-    let url = product_el
-      .select(&link_selector)
-      .next()
-      .and_then(|link| link.value().attr("href"))
-      .unwrap_or("")
-      .to_string();
-
-    let image = product_el
-      .select(&image_selector)
-      .next()
-      .and_then(|img| {
-        img
-          .value()
-          .attr("src")
-          .or_else(|| img.value().attr("data-src"))
-          .or_else(|| img.value().attr("data-lazy-src"))
-      })
-      .unwrap_or("")
-      .to_string();
-
-    let name = product_el
-      .select(&name_selector)
-      .next()
-      .map(flatten_text)
-      .unwrap_or_default();
-
-    let price = product_el
-      .select(&price_selector)
-      .next()
-      .map(flatten_text)
-      .unwrap_or_default();
-
-    if url.is_empty() && image.is_empty() && name.is_empty() && price.is_empty() {
-      continue;
+  if products.is_empty() {
+    eprintln!("Spider fetch returned 0 products; retrying with reqwest...");
+    if let Ok((fallback_html, fallback_base_url)) = fetch_html_with_reqwest(target_url).await {
+      let fallback_products = parse_products(&fallback_html, &fallback_base_url);
+      if !fallback_products.is_empty() {
+        products = fallback_products;
+      } else {
+        eprintln!("Fallback fetch also returned 0 products; check target page markup.");
+      }
     }
-
-    products.push(Product {
-      url,
-      image,
-      name,
-      price,
-    });
   }
 
   // Set up ClickHouse connection and write scraped data to a table using the cluster-style

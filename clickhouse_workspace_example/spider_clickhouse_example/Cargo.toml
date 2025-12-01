@@ -9,6 +9,7 @@ clickhouse = { version = "0.14.1", features = ["lz4", "rustls-tls"] }
 dotenvy = "0.15"
 hyper-rustls = { version = "0.27", default-features = true }
 hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "charset", "gzip", "brotli", "deflate"] }
 rustls = "0.23"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
@@ -16,3 +17,4 @@ scraper = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 spider = "2.38.23"
 tokio = { version = "1.48.0", features = ["full"] }
+url = "2.5"
