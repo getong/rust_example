@@ -50,7 +50,8 @@ if [ "${SKIP_BUILD:-0}" = "1" ]; then
 else
   echo "Building ${IMAGE_NAME} from Dockerfile.clickhouse.cluster..."
   build_flags=()
-  [ "${NO_PULL:-0}" != "1" ] && build_flags+=(--pull)
+  # Pull latest base image only if explicitly requested.
+  [ "${PULL_LATEST:-0}" = "1" ] && build_flags+=(--pull)
   [ "${NO_CACHE}" = "1" ] && build_flags+=(--no-cache)
   docker build "${build_flags[@]}" -f "${ROOT_DIR}/Dockerfile.clickhouse.cluster" -t "${IMAGE_NAME}" "${ROOT_DIR}"
 fi
