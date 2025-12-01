@@ -74,6 +74,34 @@ impl ClientPool {
   }
 }
 
+fn log_html_diagnostics(
+  source: &str,
+  base_url: &Url,
+  status: Option<reqwest::StatusCode>,
+  html: &str,
+) {
+  let snippet = html
+    .chars()
+    .take(160)
+    .collect::<String>()
+    .replace('\n', " ");
+  let contains_cf = html.to_ascii_lowercase().contains("just a moment")
+    || html.contains("cf-chl-")
+    || html.contains("cloudflare");
+  let contains_products = html.contains("class=\"product\"");
+  println!(
+    "[{}] base_url={} status={:?} bytes={} contains_products={} cloudflare_challenge={} \
+     snippet=\"{}\"",
+    source,
+    base_url,
+    status,
+    html.len(),
+    contains_products,
+    contains_cf,
+    snippet
+  );
+}
+
 fn env_first<'a>(keys: &[&'a str], default: &str) -> String {
   keys
     .iter()
@@ -276,14 +304,15 @@ async fn fetch_html_with_spider(target_url: &str) -> Result<String, Box<dyn std:
 
 async fn fetch_html_with_reqwest(
   target_url: &str,
-) -> Result<(String, Url), Box<dyn std::error::Error>> {
+) -> Result<(String, Url, reqwest::StatusCode), Box<dyn std::error::Error>> {
   let client = HttpClient::builder()
     .user_agent("spider-clickhouse-example/0.1")
     .build()?;
   let resp = client.get(target_url).send().await?;
+  let status = resp.status();
   let final_url = resp.url().clone();
   let html = resp.error_for_status()?.text().await?;
-  Ok((html, final_url))
+  Ok((html, final_url, status))
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -299,11 +328,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Fetch the page HTML with spider's HTTP client; if it returns zero products (e.g., blocked),
   // retry with a plain reqwest client.
   let html = fetch_html_with_spider(target_url).await?;
+  log_html_diagnostics("spider", &base_url, None, &html);
   let mut products = parse_products(&html, &base_url);
 
   if products.is_empty() {
     eprintln!("Spider fetch returned 0 products; retrying with reqwest...");
-    if let Ok((fallback_html, fallback_base_url)) = fetch_html_with_reqwest(target_url).await {
+    if let Ok((fallback_html, fallback_base_url, status)) =
+      fetch_html_with_reqwest(target_url).await
+    {
+      log_html_diagnostics("reqwest", &fallback_base_url, Some(status), &fallback_html);
       let fallback_products = parse_products(&fallback_html, &fallback_base_url);
       if !fallback_products.is_empty() {
         products = fallback_products;
