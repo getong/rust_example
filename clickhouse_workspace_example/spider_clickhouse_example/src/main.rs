@@ -5,7 +5,7 @@ use std::{
     Arc,
     atomic::{AtomicUsize, Ordering},
   },
-  time::Duration,
+  time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
@@ -16,6 +16,7 @@ use hyper_util::{
   client::legacy::{Client as HyperClient, connect::HttpConnector},
   rt::TokioExecutor,
 };
+use redis::{AsyncCommands, cluster::ClusterClient, cluster_async::ClusterConnection};
 use reqwest::Client as HttpClient;
 use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
 use rustls_native_certs::load_native_certs;
@@ -23,6 +24,7 @@ use rustls_pemfile::certs;
 use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
 use spider::{Client as SpiderClient, page::Page};
+use tokio::time::timeout;
 use url::Url;
 
 #[derive(Debug, Row, Serialize, Deserialize)]
@@ -314,6 +316,35 @@ async fn fetch_html_with_reqwest(
   let html = resp.error_for_status()?.text().await?;
   Ok((html, final_url, status))
 }
+
+async fn connect_redis_cluster(
+  urls: &str,
+) -> Result<ClusterConnection, Box<dyn std::error::Error>> {
+  let nodes = urls
+    .split(',')
+    .filter_map(|s| {
+      let trimmed = s.trim();
+      if trimmed.is_empty() {
+        None
+      } else if trimmed.starts_with("redis://") {
+        Some(trimmed.to_string())
+      } else {
+        Some(format!("redis://{trimmed}"))
+      }
+    })
+    .collect::<Vec<_>>();
+
+  if nodes.is_empty() {
+    return Err("at least one Redis node URL is required".into());
+  }
+
+  let client = ClusterClient::new(nodes)?;
+  let mut conn = client.get_async_connection().await?;
+  // Health check to fail fast if the cluster is unreachable.
+  let _: String = redis::cmd("PING").query_async(&mut conn).await?;
+  Ok(conn)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Load .env if present for local runs (silently ignores missing file).
@@ -357,6 +388,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     &format!("{url},https://localhost:8444,https://localhost:8445,https://localhost:8446"),
   );
   let ca_cert = read_ca_path();
+  let redis_nodes = env_first(
+    &["REDIS_NODES", "REDIS_CLUSTER_NODES"],
+    "redis://localhost:7001,redis://localhost:7002,redis://localhost:7003,redis://localhost:7004,\
+     redis://localhost:7005,redis://localhost:7006",
+  );
+  let redis_timeout_ms: u64 = env_first(&["REDIS_CONNECT_TIMEOUT_MS"], "5000")
+    .parse()
+    .unwrap_or(5000);
+  let redis_optional = env_first(&["REDIS_OPTIONAL"], "false")
+    .parse::<bool>()
+    .unwrap_or(false);
+
+  // Connect to Redis Cluster early so start-up fails fast if the cluster is unavailable.
+  // If REDIS_OPTIONAL=true, continue without Redis on connection failure.
+  let mut redis_conn_opt = match timeout(
+    Duration::from_millis(redis_timeout_ms),
+    connect_redis_cluster(&redis_nodes),
+  )
+  .await
+  {
+    Ok(Ok(conn)) => {
+      println!("✓ Connected to Redis cluster");
+      Some(conn)
+    }
+    Ok(Err(e)) => {
+      let msg = format!("Redis connection failed: {}", e);
+      if redis_optional {
+        eprintln!("⚠ {}; continuing without Redis (REDIS_OPTIONAL=true)", msg);
+        None
+      } else {
+        return Err(msg.into());
+      }
+    }
+    Err(_) => {
+      let msg = format!(
+        "Redis connect timed out after {}ms (nodes={})",
+        redis_timeout_ms, redis_nodes
+      );
+      if redis_optional {
+        eprintln!("⚠ {}; continuing without Redis (REDIS_OPTIONAL=true)", msg);
+        None
+      } else {
+        return Err(msg.into());
+      }
+    }
+  };
 
   // First, create the database using clients without a default database set to avoid
   // UNKNOWN_DATABASE errors.
@@ -411,6 +488,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       .await?;
   }
 
+  // Record the scrape run metadata in Redis for quick inspection (if connected).
+  if let Some(redis_conn) = redis_conn_opt.as_mut() {
+    let last_run_ts = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_secs()
+      .to_string();
+    let _: () = redis_conn.set("spider:last_run", last_run_ts).await?;
+    let _: () = redis_conn.set("spider:last_target", target_url).await?;
+  }
+
   // Use round-robin pick for writing/reading; defaults to the first node when only one is set.
   let (writer_idx, ch_client) = pool.next();
 
@@ -427,8 +515,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
   println!("Read {} products from ClickHouse:", stored.len());
-  for product in stored {
+  for product in &stored {
     println!("{:?}", product);
+  }
+
+  // Cache the number of scraped products so external tools can read a cheap heartbeat (if connected).
+  if let Some(redis_conn) = redis_conn_opt.as_mut() {
+    let _: () = redis_conn
+      .set("spider:last_product_count", stored.len() as i64)
+      .await?;
   }
 
   // Serve data via Axum so it can be consumed externally.

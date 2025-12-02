@@ -1,0 +1,38 @@
+FROM redis:8.4
+
+# Minimal Redis configuration tuned for local cluster experiments.
+RUN mkdir -p /usr/local/etc/redis
+
+RUN cat <<'EOF' > /usr/local/etc/redis/redis.conf
+protected-mode no
+port 6379
+cluster-enabled yes
+cluster-config-file /data/nodes.conf
+cluster-node-timeout 5000
+appendonly yes
+io-threads 1
+EOF
+
+# Entry script lets us pass announce host/ports from docker run while keeping the
+# config file static.
+RUN cat <<'EOF' > /usr/local/bin/redis-entrypoint.sh
+#!/bin/sh
+set -e
+
+ANNOUNCE_HOST="${REDIS_ANNOUNCE_HOST:-$HOSTNAME}"
+ANNOUNCE_PORT="${REDIS_ANNOUNCE_PORT:-6379}"
+ANNOUNCE_BUS_PORT="${REDIS_ANNOUNCE_BUS_PORT:-}"
+if [ -z "$ANNOUNCE_BUS_PORT" ]; then
+  ANNOUNCE_BUS_PORT=$((ANNOUNCE_PORT + 10000))
+fi
+
+exec redis-server /usr/local/etc/redis/redis.conf \
+  --cluster-announce-ip "${ANNOUNCE_HOST}" \
+  --cluster-announce-port "${ANNOUNCE_PORT}" \
+  --cluster-announce-bus-port "${ANNOUNCE_BUS_PORT}"
+EOF
+
+RUN chmod +x /usr/local/bin/redis-entrypoint.sh
+
+EXPOSE 6379 16379
+ENTRYPOINT ["/usr/local/bin/redis-entrypoint.sh"]
