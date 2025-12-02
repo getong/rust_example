@@ -11,7 +11,7 @@ use ::clickhouse as clickhouse_driver;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
 use clickhouse_driver::Row;
 use dotenvy::from_filename;
-use redis_cluster::{RedisSettings, redis_connection, set_string, REDIS_CONN};
+use redis_cluster::{REDIS_CONN, RedisSettings, redis_connection, set_string};
 use reqwest::Client as HttpClient;
 use rustls::crypto::aws_lc_rs;
 use scraper::{ElementRef, Html, Selector};
@@ -81,21 +81,25 @@ fn read_ca_path() -> Option<String> {
 }
 
 fn ensure_tls_dir() -> Result<(), Box<dyn std::error::Error>> {
-  let tls_dir = Path::new("tls");
-  if tls_dir.exists() {
+  let ca_path = env_first(&["CLICKHOUSE_CA_CERT", "CH_CA_CERT"], "tls/ca.crt");
+  let ca_path = Path::new(&ca_path);
+  if ca_path.exists() {
     return Ok(());
   }
 
-  eprintln!("TLS directory missing, running ./generate_tls.sh ...");
-  // let status = Command::new("./generate_tls.sh").status()?;
-  // if !status.success() {
-  //   return Err("generate_tls.sh failed".into());
-  // }
-
-  // if !tls_dir.exists() {
-  //   return Err("TLS directory still missing after generate_tls.sh".into());
-  // }
-  Err("please run generate_tls.sh".into())
+  let dir = ca_path
+    .parent()
+    .map(|p| p.display().to_string())
+    .unwrap_or_else(|| ".".into());
+  Err(
+    format!(
+      "TLS assets missing: {} (looked in {}) - set CH_CA_CERT/CLICKHOUSE_CA_CERT or run \
+       ./generate_tls.sh",
+      ca_path.display(),
+      dir
+    )
+    .into(),
+  )
 }
 
 fn absolute_url(base: &Url, value: &str) -> String {
