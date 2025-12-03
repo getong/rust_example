@@ -1,0 +1,9 @@
+[package]
+name = "insta_review_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[dev-dependencies]
+insta = { version = "1.21.1", features = ["redactions", "yaml", "json"] }

@@ -38,3 +38,4 @@ buffer_example_workspace/sample.json
 **/.gitmodules
 **/package-lock.json
 **/.claude
+**/snapshots
