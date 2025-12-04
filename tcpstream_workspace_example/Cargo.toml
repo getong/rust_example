@@ -1,6 +1,8 @@
 [workspace]
 
+resolver = "2"
 
 members = [
-        "rust_multithread_http_server",
+  "rust_multithread_http_server",
+  "nonblocking_stream_example",
 ]
