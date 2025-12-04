@@ -10,4 +10,4 @@ console-subscriber = "0.5.0"
 futures = "0.3.31"
 num_cpus = "1.17.0"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "tracing"] }
-tracing = "0.1.41"
+tracing = "0.1.43"

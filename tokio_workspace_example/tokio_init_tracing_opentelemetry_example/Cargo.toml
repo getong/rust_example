@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.8.6"
+axum = "0.8.7"
 axum-tracing-opentelemetry = "0.32.2"
-init-tracing-opentelemetry = { version = "0.33.0", features = ["otlp", "tracing_subscriber_ext"] }
+init-tracing-opentelemetry = { version = "0.34.0", features = ["otlp", "tracing_subscriber_ext"] }
 tokio = { version = "1.48.0", features = ["full"] }
