@@ -5,8 +5,12 @@ edition = "2024"
 
 [dependencies]
 among = "0.1.7"
-bincode = "2.0.1"
-clap = "4.5.53"
+bincode = { version = "2", features = ["serde"] }
+clap = { version = "4.5.53", features = ["derive"] }
 crossbeam-skiplist = "0.1.3"
-memberlist = "0.7.0"
+memberlist = { version = "0.7.0", features = ["default", "tokio", "tcp", "serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.48.0", features = ["full"] }
+trace = "0.1.7"
+tracing = "0.1.43"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
