@@ -79,7 +79,7 @@ start_node() {
   if [ "$enable_keeper" = "true" ]; then
     keeper_status="enabled (id=${keeper_id})"
   fi
-  
+
   echo "Starting ${name} (shard=${shard}, replica=${replica}, keeper=${keeper_status})..."
   docker run -d \
     --name "${name}" \
@@ -140,4 +140,3 @@ echo ""
 echo "Run the Rust example:"
 echo "  export CH_NODES=\"https://localhost:${NODE1_HTTPS_PORT},https://localhost:${NODE2_HTTPS_PORT},https://localhost:${NODE3_HTTPS_PORT},https://localhost:${NODE4_HTTPS_PORT}\""
 echo "  export CH_CA_CERT=\"${ROOT_DIR}/tls/ca.crt\""
-echo "  cargo run --bin clickhouse_cluster_example"
