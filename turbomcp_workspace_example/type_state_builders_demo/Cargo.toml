@@ -1,0 +1,7 @@
+[package]
+name = "type_state_builders_demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+turbomcp-protocol = "2.2.3"

@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "type_state_builders_demo",
+]
