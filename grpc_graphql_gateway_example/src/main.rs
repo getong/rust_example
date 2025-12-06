@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod generated;
 
 use std::{net::SocketAddr, pin::Pin, sync::Arc};
