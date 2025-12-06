@@ -1,0 +1,15 @@
+[package]
+name = "quicmesh_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.53", features = ["derive"] }
+hex = "0.4.3"
+quicmesh = { git = "https://github.com/beemesh/quicmesh", rev = "e9cc01db6493a3c5084df4e70b0ecd00fea7d710" }
+quinn = "0.11.9"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tokio = { version = "1.48.0", features = ["full"] }
+tracing = "0.1.43"
