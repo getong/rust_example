@@ -1,0 +1,11 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "lindera_tantivy_cc_cedict",
+  "lindera_tantivy_ipadic",
+  "lindera_tantivy_ko_dic",
+  "lindera_tantivy_tokenize_with_config",
+  "lindera_tantivy_unidic",
+]

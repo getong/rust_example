@@ -1,0 +1,9 @@
+[package]
+name = "lindera_tantivy_tokenize_with_config"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lindera = "1.4.1"
+lindera-tantivy = "1.1.1"
+tantivy = "0.25.0"
