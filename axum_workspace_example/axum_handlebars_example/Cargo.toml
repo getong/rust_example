@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-trait = "0.1.88"
-axum = { version = "0.8.4", features = ["macros"] }
+async-trait = "0.1.89"
+axum = { version = "0.8.7", features = ["macros"] }
 handlebars = "6.3.2"
-serde = { version = "1.0.219", features = ["derive"] }
-tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
-uuid = { version = "1.17.0", features = ["v4", "serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1.19.0", features = ["v4", "serde"] }

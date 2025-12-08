@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.8.4"
-axum-streams = { version = "0.21.0", features = ["json", "protobuf", "csv", "arrow", "text"] }
+axum = "0.8.7"
+axum-streams = { version = "0.24.0", features = ["json", "protobuf", "csv", "arrow", "text"] }
 futures = "0.3.31"
-serde = { version = "1.0.219", features = ["derive"] }
-tokio = { version = "1.47.1", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["full"] }
