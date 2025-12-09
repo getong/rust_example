@@ -9,6 +9,7 @@ fn main() {
 
 fn dereference(ptr: *const usize) -> usize {
   let mut res: usize;
-  unsafe { asm!("mov {0}, [{1}]", out(reg) res, in(reg) ptr) };
+  // On aarch64 we must use `ldr` to load from memory; `mov` doesn't support memory operands.
+  unsafe { asm!("ldr {0}, [{1}]", out(reg) res, in(reg) ptr) };
   res
 }
