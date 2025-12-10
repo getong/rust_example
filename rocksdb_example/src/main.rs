@@ -1,4 +1,4 @@
-use rocksdb::{Options, DB};
+use rocksdb::{DB, Options};
 
 fn main() {
   // println!("Hello, world!");
