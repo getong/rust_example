@@ -1,90 +1,48 @@
-use mysql::{prelude::*, *};
+use std::env;
+
+use mysql::{params, prelude::*, Opts, Pool};
 
 #[derive(Debug, PartialEq, Eq)]
-struct Payment {
-  customer_id: i32,
-  amount: i32,
-  account_name: Option<String>,
+struct Row {
+  id: i32,
+  name: String,
 }
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-  // let connstr = "mysql://root:Password@192.168.4.25:3306/database";
-  // let sqlpool = Pool::new(connstr).unwrap();
-  // let connection = sqlpool.get_conn().unwrap();
-  // println!("{}", connection.connection_id());
-
-  let url = "mysql://root:Password@192.168.4.25:3306/database";
-  // # Opts::try_from(url)?;
-  // # let url = get_opts();
-  let pool = Pool::new(url)?;
-
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+  // Connect to TiDB (MySQL compatible). Override with TIDB_URL if needed.
+  // Default matches the container started by tidb/start_tidb.sh.
+  let url =
+    env::var("TIDB_URL").unwrap_or_else(|_| "mysql://root@127.0.0.1:4000/test_db".to_string());
+  let opts = Opts::from_url(&url)?;
+  let pool = Pool::new(opts)?;
   let mut conn = pool.get_conn()?;
 
-  // Let's create a table for payments.
+  // Ensure table exists (compatible with init SQL).
   conn.query_drop(
-    r"CREATE TEMPORARY TABLE payment (
-            customer_id int not null,
-            amount int not null,
-            account_name text
+    r"CREATE TABLE IF NOT EXISTS my_table (
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            name VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )",
   )?;
 
-  let payments = vec![
-    Payment {
-      customer_id: 1,
-      amount: 2,
-      account_name: None,
-    },
-    Payment {
-      customer_id: 3,
-      amount: 4,
-      account_name: Some("foo".into()),
-    },
-    Payment {
-      customer_id: 5,
-      amount: 6,
-      account_name: None,
-    },
-    Payment {
-      customer_id: 7,
-      amount: 8,
-      account_name: None,
-    },
-    Payment {
-      customer_id: 9,
-      amount: 10,
-      account_name: Some("bar".into()),
-    },
-  ];
-
-  // Now let's insert payments to the database
+  // Insert a couple of rows.
+  let names = vec!["Rust via TiDB", "Hello TiDB"];
   conn.exec_batch(
-    r"INSERT INTO payment (customer_id, amount, account_name)
-          VALUES (:customer_id, :amount, :account_name)",
-    payments.iter().map(|p| {
-      params! {
-          "customer_id" => p.customer_id,
-          "amount" => p.amount,
-          "account_name" => &p.account_name,
-      }
-    }),
+    "INSERT INTO my_table (name) VALUES (:name)",
+    names.iter().map(|name| params! { "name" => name }),
   )?;
 
-  // Let's select payments from database. Type inference should do the trick here.
-  let selected_payments = conn.query_map(
-    "SELECT customer_id, amount, account_name from payment",
-    |(customer_id, amount, account_name)| Payment {
-      customer_id,
-      amount,
-      account_name,
-    },
+  // Fetch the last few rows and print them.
+  let rows: Vec<Row> = conn.query_map(
+    "SELECT id, name FROM my_table ORDER BY id DESC LIMIT 5",
+    |(id, name)| Row { id, name },
   )?;
 
-  // Let's make sure, that `payments` equals to `selected_payments`.
-  // Mysql gives no guaranties on order of returned rows
-  // without `ORDER BY`, so assume we are lucky.
-  assert_eq!(payments, selected_payments);
-  println!("Yay!");
+  println!("Fetched rows:");
+  for row in rows {
+    println!("  id={}, name={}", row.id, row.name);
+  }
 
   Ok(())
 }
