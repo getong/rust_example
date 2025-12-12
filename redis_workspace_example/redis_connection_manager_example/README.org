@@ -7,3 +7,32 @@ redis-server redis.conf
 
 cargo run
 #+end_example
+
+* Docker 启动 Redis Raft 集群
+- 直接使用官方镜像启动 3 节点集群（需能访问 docker pull redislabs/redisraft:latest 或本地已有该镜像）：
+  #+begin_example
+  ./scripts/start_redis_raft_cluster.sh
+  #+end_example
+- 默认端口/密码：Redis 6379/6380/6381，Raft 5001/5002/5003，密码 `abc123`。可通过环境变量覆盖，例如：
+  #+begin_example
+  IMAGE_NAME=my-raft REDIS_PASSWORD=secret ./scripts/start_redis_raft_cluster.sh
+  #+end_example
+- 集群创建完成后，可验证：
+  #+begin_example
+  redis-cli -a abc123 -p 6379 RAFT.INFO
+  #+end_example
+
+* Redis Raft 集群快速启动
+- 在仓库根目录放置编译好的 `redisraft.so`，保持 `redis.conf` 中的路径 `./redisraft.so` 可用。
+- 为每个节点准备独立的配置，调整端口、Raft 地址和数据目录，例如：
+  - 节点1：使用默认 `redis.conf`（端口6379，Raft 127.0.0.1:5001，数据目录 `data/node1`）。
+  - 节点2：复制 `redis.conf` 为 `redis-node2.conf`，修改为端口6380，`loadmodule ./redisraft.so ... raft-addr 127.0.0.1:5002`，`dir ./data/node2`，`pidfile ./data/node2/redis_6380.pid`，`logfile "./data/node2/redis.log"`。
+  - 节点3：同理创建 `redis-node3.conf`，端口6381，`raft-addr 127.0.0.1:5003`，`dir ./data/node3` 等。
+- 启动各节点：`redis-server redis.conf`、`redis-server redis-node2.conf`、`redis-server redis-node3.conf`。
+- 组成集群（在节点1上创建，其余节点加入）：
+  #+begin_example
+  redis-cli -a abc123 -p 6379 RAFT.CLUSTER CREATE
+  redis-cli -a abc123 -p 6380 RAFT.CLUSTER JOIN 127.0.0.1:6379
+  redis-cli -a abc123 -p 6381 RAFT.CLUSTER JOIN 127.0.0.1:6379
+  #+end_example
+- 验证：`redis-cli -a abc123 -p 6379 RAFT.INFO`，看到 state=Leader 且有 3 个节点即成功。
