@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::Result;
 use libp2p::{
   // core::transport::upgrade::Version,
-  floodsub::{Floodsub, FloodsubEvent, Topic},
+  floodsub::{Behaviour as FloodsubBehaviour, Event as FloodsubEvent, Topic},
   futures::StreamExt,
   identity,
   identity::Keypair,
@@ -69,7 +69,7 @@ enum EventType {
 #[derive(NetworkBehaviour)]
 #[behaviour(to_swarm = "RecipeBehaviourEvent")]
 struct RecipeBehaviour {
-  floodsub: Floodsub,
+  floodsub: FloodsubBehaviour,
   mdns: mdns::tokio::Behaviour,
   // #[behaviour(ignore)]
   // response_sender: mpsc::UnboundedSender<ListResponse>,
@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
       // MyBehaviour::new(peer_id).unwrap()
       let local_peer_id = PeerId::from_public_key(&key.public());
       RecipeBehaviour {
-        floodsub: Floodsub::new(*PEER_ID),
+        floodsub: FloodsubBehaviour::new(*PEER_ID),
         mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id).unwrap(),
         // response_sender,
       }
