@@ -49,9 +49,13 @@ fn main() -> Result<(), Box<dyn Error>> {
   }
 
   let secp = Secp256k1::new();
+  let private_key_array: [u8; 32] = private_key_bytes
+    .as_slice()
+    .try_into()
+    .map_err(|_| "Invalid private key provided. Ensure it is a valid secp256k1 key.")?;
 
   // Parse the private key from the slice
-  let private_key = SecretKey::from_slice(&private_key_bytes)
+  let private_key = SecretKey::from_byte_array(private_key_array)
     .map_err(|_| "Invalid private key provided. Ensure it is a valid secp256k1 key.")?;
 
   let public_key = PublicKey::from_secret_key(&secp, &private_key);

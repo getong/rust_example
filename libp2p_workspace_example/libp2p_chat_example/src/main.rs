@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use anyhow::Result;
 use libp2p::{
-  floodsub::{self, Floodsub, FloodsubEvent},
+  floodsub::{self, Behaviour as Floodsub, Event as FloodsubEvent},
   futures::StreamExt,
   identity, mdns, noise,
   swarm::{NetworkBehaviour, SwarmEvent},

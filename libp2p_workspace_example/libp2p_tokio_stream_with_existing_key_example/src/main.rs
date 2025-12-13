@@ -143,7 +143,7 @@ async fn echo(mut stream: Stream) -> io::Result<usize> {
 }
 
 async fn send(mut stream: Stream) -> io::Result<()> {
-  let num_bytes = rand::random_range(0..1000usize);
+  let num_bytes = rand::random_range(0 .. 1000usize);
 
   let mut bytes = vec![0; num_bytes];
   rand::rng().fill_bytes(&mut bytes);

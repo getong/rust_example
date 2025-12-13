@@ -3,7 +3,7 @@ use std::error::Error;
 use futures::StreamExt;
 use libp2p::{
   // core::transport::upgrade::Version,
-  floodsub::{self, Floodsub, FloodsubEvent},
+  floodsub::{self, Behaviour as Floodsub, Event as FloodsubEvent},
   identity,
   mdns,
 
