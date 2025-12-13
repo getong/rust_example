@@ -8,4 +8,5 @@ members = [
   "kameo_message_queue",
   "kameo_forward_with_fallback",
   "kameo_remote",
+  "kameo_custom_swarm",
 ]
