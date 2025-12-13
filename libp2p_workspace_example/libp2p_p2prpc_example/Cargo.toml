@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-trait = "0.1.88"
+async-trait = "0.1.89"
 futures = "0.3.31"
 libp2p = { version = "0.56", features = ["full"] }
-serde = { version = "1.0.219", features = ["derive"] }
-tokio = { version = "1.44.1", features = ["full"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["full"] }

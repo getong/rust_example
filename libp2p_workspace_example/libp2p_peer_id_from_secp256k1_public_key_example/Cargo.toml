@@ -7,4 +7,4 @@ edition = "2024"
 ethers = "2.0.14"
 hex = "0.4.3"
 libp2p = { version = "0.56", features = ["full"] }
-secp256k1 = "0.30.0"
+secp256k1 = "0.31.1"
