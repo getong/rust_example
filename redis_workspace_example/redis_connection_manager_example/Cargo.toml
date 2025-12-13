@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-redis = { version = "0.32.5", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "0.32.5", features = ["tokio-comp", "cluster-async"] }
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros"] }

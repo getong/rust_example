@@ -45,9 +45,16 @@ cargo run
   #+begin_example
   docker build -f docker/valkey-cluster.Dockerfile -t valkey-cluster .
   #+end_example
-- 示例：在同一网络启动 6 个节点（3 主 3 从），统一密码 `abc123`。如果宿主机已经占用了 6379/6380/6381 等端口，请改用其他宿主机端口（下例用 7001 起始）：
+- 脚本快速拉起：默认 6 个节点（3 主 3 从），密码 `abc123`，端口 7001..7006/17001..17006。Docker Desktop 可直接用 `host.docker.internal`，Linux 建议传宿主机 docker0 IP（通常 172.17.0.1）。
+  #+begin_example
+  CLUSTER_HOST_IP=host.docker.internal ./scripts/create_valkey_cluster.sh
+  # Linux 示例：CLUSTER_HOST_IP=172.17.0.1 ./scripts/create_valkey_cluster.sh
+  #+end_example
+- 手动示例：在同一网络启动 6 个节点（3 主 3 从），统一密码 `abc123`。如果宿主机已经占用了 6379/6380/6381 等端口，请改用其他宿主机端口（下例用 7001 起始）。**从宿主机访问时，必须让节点对外宣告宿主机可达的 IP 与映射端口，否则客户端握手会因地址不可达而失败。**
   #+begin_example
   docker network create valkey-net
+  # 对外访问使用宿主机可达的 IP；Docker Desktop 可用 host.docker.internal，Linux 可用宿主机在 docker0 网桥上的 IP（如 172.17.0.1）
+  HOST_IP=host.docker.internal
   BASE_PORT=7000 # 宿主机映射起始（7001..7006、17001..17006）
   for i in 1 2 3 4 5 6; do
     port=$((BASE_PORT + i))
@@ -57,7 +64,9 @@ cargo run
       -e NODE_ID=$i \
       -e VALKEY_PORT=${port} \
       -e VALKEY_PASSWORD=abc123 \
-      -e CLUSTER_ANNOUNCE_IP=valkey-$i \
+      -e CLUSTER_ANNOUNCE_IP=${HOST_IP} \
+      -e CLUSTER_ANNOUNCE_PORT=${port} \
+      -e CLUSTER_ANNOUNCE_BUS_PORT=${bus} \
       valkey-cluster
   done
   # 若仅容器互通，不需要暴露到宿主机，可去掉 -p 映射。
@@ -74,3 +83,14 @@ cargo run
   docker exec -it valkey-1 valkey-cli -a abc123 -p 7001 cluster info
   docker exec -it valkey-1 valkey-cli -a abc123 -p 7001 cluster nodes
   #+end_example
+- 如果客户端与 Valkey 在同一个 Docker 网络内（无需宿主机访问），可以把 `CLUSTER_ANNOUNCE_IP` 设置为容器名（如 `valkey-1`），并改用容器内端口 6379/16379；此时客户端连接串也应使用容器名，例如 `VALKEY_NODES="redis://:abc123@valkey-1:6379/,..."`，且可移除 `-p` 端口映射。
+
+
+** run cli example
+
+#+begin_src shell
+export CLUSTER_HOST_IP=192.168.31.29
+./scripts/create_valkey_cluster.sh
+export VALKEY_NODES="redis://:abc123@192.168.31.29:7001/,redis://:abc123@192.168.31.29:7002/,redis://:abc123@192.168.31.29:7003/,redis://:abc123@192.168.31.29:7004/,redis://:abc123@192.168.31.29:7005/,redis://:abc123@192.168.31.29:7006/"
+cargo run
+#+end_src
