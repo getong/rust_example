@@ -9,14 +9,16 @@ cargo run
 #+end_example
 
 * Docker 启动 Redis Raft 集群
-- 直接使用官方镜像启动 3 节点集群（需能访问 docker pull redislabs/redisraft:latest 或本地已有该镜像）：
+- 默认镜像 `redis:8.4-alpine` 假设已内置 RAFT，直接启动 3 节点集群：
   #+begin_example
   ./scripts/start_redis_raft_cluster.sh
   #+end_example
-- 默认端口/密码：Redis 6379/6380/6381，Raft 5001/5002/5003，密码 `abc123`。可通过环境变量覆盖，例如：
+- 若需要手动加载 `redisraft.so`（自带镜像或本地文件），设置 `ENABLE_REDISRAFT_MODULE=1`：本地 so 用 `REDISRAFT_SO=./redisraft.so`，镜像自带则加 `USE_IMAGE_REDISRAFT=1` 并可用 `CONTAINER_MODULE_PATH` 指定路径。模块模式下会为三个节点配置 `raft-addr` 5001/5002/5003，`PUBLISH_RAFT_PORTS=1` 可暴露到宿主机。
+- 默认端口/密码：Redis 6379/6380/6381，密码 `abc123`。可通过环境变量覆盖，例如：
   #+begin_example
   IMAGE_NAME=my-raft REDIS_PASSWORD=secret ./scripts/start_redis_raft_cluster.sh
   #+end_example
+- 如之前 export 过 `IMAGE_NAME`（例如 `redis:8.4-alpine`），运行前可以 `unset IMAGE_NAME`，或显式指定 `IMAGE_NAME=redis:8.4-alpine ./scripts/start_redis_raft_cluster.sh`。
 - 集群创建完成后，可验证：
   #+begin_example
   redis-cli -a abc123 -p 6379 RAFT.INFO
