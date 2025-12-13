@@ -1,0 +1,26 @@
+* kameo_remote
+
+Rust 示例，演示使用 kameo 的远程 actor 功能。默认通过 `remote::bootstrap()` 启动 libp2p swarm；设置环境变量 `CUSTOM_SWARM=1` 时，使用自定义 swarm（含 mDNS、可配置超时与并发）。
+
+* 运行
+- 开始（默认 bootstrap）::
+  #+begin_src shell
+  cargo run
+  #+end_src
+- 自定义 swarm（CUSTOM_SWARM）::
+  #+begin_src shell
+  CUSTOM_SWARM=1 cargo run
+  #+end_src
+
+* 依赖
+- Rust 1.81+ （edition 2024）
+- crates: kameo (remote), libp2p, tokio, futures, serde, tracing
+
+* 行为说明
+- 启动后注册本地 actor ``incrementor``，并周期性查找其他 peer 上的同名 actor。
+- 对远端 actor 发送 ``Inc`` 消息并打印累计值；自身的消息会被跳过。
+- 自定义 swarm 会额外打印 mDNS 发现、连接、监听地址等事件。
+
+* 相关文件
+- 源码: `src/main.rs`
+- 配置: `Cargo.toml`
