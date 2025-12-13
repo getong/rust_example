@@ -1,7 +1,9 @@
 use std::{error::Error, time::Duration};
 
 use futures::StreamExt;
-use libp2p::{core::multiaddr::Multiaddr, identify, noise, swarm::SwarmEvent, tcp, yamux};
+use libp2p::{
+  core::multiaddr::Multiaddr, identify, identity, noise, swarm::SwarmEvent, tcp, yamux,
+};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -11,19 +13,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .try_init();
 
   let mut swarm = libp2p::SwarmBuilder::with_new_identity()
-    .with_async_std()
+    .with_tokio()
     .with_tcp(
       tcp::Config::default(),
       noise::Config::new,
       yamux::Config::default,
     )?
-    .with_behaviour(|key| {
+    .with_behaviour(|key: &identity::Keypair| {
       identify::Behaviour::new(identify::Config::new(
         "/ipfs/id/1.0.0".to_string(),
         key.public(),
       ))
     })?
-    .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+    .with_swarm_config(|c: libp2p::swarm::Config| {
+      c.with_idle_connection_timeout(Duration::from_secs(60))
+    })
     .build();
 
   // Tell the swarm to listen on all interfaces and a random, OS-assigned
