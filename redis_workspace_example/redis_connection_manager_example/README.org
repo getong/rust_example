@@ -38,3 +38,39 @@ cargo run
   redis-cli -a abc123 -p 6381 RAFT.CLUSTER JOIN 127.0.0.1:6379
   #+end_example
 - 验证：`redis-cli -a abc123 -p 6379 RAFT.INFO`，看到 state=Leader 且有 3 个节点即成功。
+
+* Valkey Cluster Dockerfile
+- 镜像 `docker/valkey-cluster.Dockerfile` 基于官方 `valkey/valkey:7.2-alpine`，入口脚本自动生成 cluster 配置（启用 cluster、设置 announce 端口、可选密码），与 https://valkey.io/topics/migration/ 和 https://valkey.io/topics/cluster-tutorial/ 的配置一致。
+- 构建镜像：
+  #+begin_example
+  docker build -f docker/valkey-cluster.Dockerfile -t valkey-cluster .
+  #+end_example
+- 示例：在同一网络启动 6 个节点（3 主 3 从），统一密码 `abc123`。如果宿主机已经占用了 6379/6380/6381 等端口，请改用其他宿主机端口（下例用 7001 起始）：
+  #+begin_example
+  docker network create valkey-net
+  BASE_PORT=7000 # 宿主机映射起始（7001..7006、17001..17006）
+  for i in 1 2 3 4 5 6; do
+    port=$((BASE_PORT + i))
+    bus=$((port + 10000))
+    docker run -d --name valkey-$i --net valkey-net \
+      -p ${port}:${port} -p ${bus}:${bus} \
+      -e NODE_ID=$i \
+      -e VALKEY_PORT=${port} \
+      -e VALKEY_PASSWORD=abc123 \
+      -e CLUSTER_ANNOUNCE_IP=valkey-$i \
+      valkey-cluster
+  done
+  # 若仅容器互通，不需要暴露到宿主机，可去掉 -p 映射。
+  #+end_example
+- 组成集群（3 主 3 从）：
+  #+begin_example
+  docker exec -it valkey-1 valkey-cli -a abc123 --cluster create \
+    valkey-1:7001 valkey-2:7002 valkey-3:7003 valkey-4:7004 valkey-5:7005 valkey-6:7006 \
+    --cluster-replicas 1 --cluster-yes
+  #+end_example
+- 验证：
+  #+begin_example
+  # 根据启动时的 VALKEY_PORT 连接（例：7001）
+  docker exec -it valkey-1 valkey-cli -a abc123 -p 7001 cluster info
+  docker exec -it valkey-1 valkey-cli -a abc123 -p 7001 cluster nodes
+  #+end_example
