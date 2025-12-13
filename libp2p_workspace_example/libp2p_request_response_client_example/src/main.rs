@@ -116,6 +116,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         request_response::Event::Message {
           peer,
           message: request_response::Message::Response { response, .. },
+          ..
         },
       )) => {
         println!("Received response from {:?}: {:?}", peer, response.0);
