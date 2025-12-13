@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   #[derive(NetworkBehaviour)]
   struct Behaviour {
     kademlia: kad::Behaviour<MemoryStore>,
-    mdns: mdns::async_io::Behaviour,
+    mdns: mdns::tokio::Behaviour,
   }
 
   let mut swarm = libp2p::SwarmBuilder::with_new_identity()
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
           key.public().to_peer_id(),
           MemoryStore::new(key.public().to_peer_id()),
         ),
-        mdns: mdns::async_io::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?,
+        mdns: mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?,
       })
     })?
     .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
