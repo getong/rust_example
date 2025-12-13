@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.73"
-quickwit-actors = { git = "https://github.com/quickwit-oss/quickwit", version = "0.6.3" }
+quickwit-actors = { git = "https://github.com/quickwit-oss/quickwit", tag = "qw-collocation-251106" }
 tokio = { version = "1.30.0", features = ["full"] }
