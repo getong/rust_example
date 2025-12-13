@@ -7,4 +7,5 @@ members = [
   "kameo_basic",
   "kameo_message_queue",
   "kameo_forward_with_fallback",
+  "kameo_remote",
 ]
