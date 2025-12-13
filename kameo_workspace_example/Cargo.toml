@@ -5,4 +5,5 @@ resolver = "2"
 
 members = [
   "kameo_basic",
+  "kameo_message_queue",
 ]
