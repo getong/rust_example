@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use fluvio::{Fluvio, Offset, RecordKey, consumer::ConsumerConfigExtBuilder};
+use fluvio::{
+  Fluvio, FluvioClusterConfig, Offset, RecordKey,
+  config::{Config, ConfigFile, Profile},
+  consumer::ConsumerConfigExtBuilder,
+};
 use futures::StreamExt;
 
 const TOPIC: &str = "echo-test";
@@ -8,7 +12,18 @@ const MAX_RECORDS: u8 = 10;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let fluvio = Fluvio::connect().await?;
+  // let fluvio = Fluvio::connect().await?;
+  let mut config = Config::new();
+  let cluster = FluvioClusterConfig::new("https://cloud.fluvio.io".to_string());
+  config.add_cluster(cluster, "fluvio-cloud".to_string());
+  let profile = Profile::new("fluvio-cloud".to_string());
+  config.add_profile(profile, "fluvio-cloud".to_string());
+  config.set_current_profile("fluvio-cloud");
+
+  let mut config_file = ConfigFile::load_default_or_new()?;
+  *config_file.mut_config() = config;
+  let cluster_config = config_file.config().current_cluster()?;
+  let fluvio = Fluvio::connect_with_config(cluster_config).await?;
   let producer = fluvio.topic_producer(TOPIC).await?;
 
   for i in 0 .. MAX_RECORDS {
