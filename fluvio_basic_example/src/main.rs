@@ -78,3 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   Ok(())
 }
+
+// docker cluster
+// read https://www.fluvio.io/docs/fluvio/installation/docker
+// https://github.com/fluvio-community/fluvio/tree/master/examples/docker-compose
