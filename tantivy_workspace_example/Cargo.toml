@@ -11,4 +11,5 @@ members = [
   "lindera_tokenize_example",
   "aggregation",
   "basic_search",
+  "custom_collector",
 ]
