@@ -10,4 +10,5 @@ members = [
   "lindera_tantivy_unidic",
   "lindera_tokenize_example",
   "aggregation",
+  "basic_search",
 ]
