@@ -9,4 +9,5 @@ members = [
   "lindera_tantivy_tokenize_with_config",
   "lindera_tantivy_unidic",
   "lindera_tokenize_example",
+  "aggregation",
 ]
