@@ -19,10 +19,12 @@
 use std::{net::SocketAddr, ops::ControlFlow, path::PathBuf};
 
 // allows to extract the IP of connecting user
-use axum::extract::connect_info::ConnectInfo;
 use axum::{
   body::Bytes,
-  extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+  extract::{
+    connect_info::ConnectInfo,
+    ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+  },
   response::IntoResponse,
   routing::any,
   Router,
