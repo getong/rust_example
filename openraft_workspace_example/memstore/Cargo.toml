@@ -3,7 +3,7 @@ name = "memstore"
 version = "0.1.0"
 readme = "README.md"
 
-edition = "2021"
+edition = "2024"
 authors = ["drdr xp <drdr.xp@gmail.com>"]
 categories = ["algorithms", "asynchronous", "data-structures"]
 description = "An example in-memory storage for `openraft`."
@@ -12,16 +12,16 @@ keywords = ["raft", "consensus"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/databendlabs/openraft"
 
-[dependencies]
-openraft = { git = "https://github.com/databendlabs/openraft", features = [
-  "serde",
-  "type-alias",
-  "serde_json",
-] }
-
-tokio = { version = "1.46", default-features = false, features = ["sync"] }
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 
-[package.metadata.docs.rs]
-all-features = true
+serde = ["openraft/serde"]
+
+[dependencies]
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", features = [
+  "type-alias",
+  "tokio-rt",
+] }
+tokio = { version = "1.48", default-features = false, features = ["sync"] }
