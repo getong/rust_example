@@ -1,7 +1,10 @@
+use futures::{Stream, StreamExt};
 use openraft::{
-  AnyError, RaftNetworkFactory,
+  AnyError, OptionalSend, RaftNetworkFactory,
+  base::{BoxFuture, BoxStream},
   error::{NetworkError, Unreachable},
   network::{RPCOption, v2::RaftNetworkV2},
+  raft::{StreamAppendError, StreamAppendResult},
 };
 use tonic::{codegen::tokio_stream::wrappers::ReceiverStream, transport::Channel};
 
@@ -42,6 +45,54 @@ impl NetworkConnection {
   pub fn new(target_node: Node) -> Self {
     NetworkConnection { target_node }
   }
+
+  /// Creates a gRPC channel to the target node.
+  async fn create_channel(&self) -> Result<Channel, RPCError> {
+    let server_addr = &self.target_node.rpc_addr;
+    let channel = Channel::builder(format!("http://{}", server_addr).parse().unwrap())
+      .connect()
+      .await
+      .map_err(|e| RPCError::Unreachable(Unreachable::new(&e)))?;
+    Ok(channel)
+  }
+
+  /// Convert pb::AppendEntriesResponse to StreamAppendResult.
+  ///
+  /// For `StreamAppend`, conflict is encoded as `conflict = true` plus a required `last_log_id`
+  /// carrying the conflict log id.
+  fn pb_to_stream_result(
+    resp: pb::AppendEntriesResponse,
+  ) -> Result<StreamAppendResult<TypeConfig>, RPCError> {
+    if let Some(higher_vote) = resp.rejected_by {
+      return Ok(Err(StreamAppendError::HigherVote(higher_vote)));
+    }
+
+    if resp.conflict {
+      let conflict_log_id = resp.last_log_id.ok_or_else(|| {
+        RPCError::Network(NetworkError::new(&AnyError::error(
+          "Missing `last_log_id` in conflict stream-append response",
+        )))
+      })?;
+      return Ok(Err(StreamAppendError::Conflict(conflict_log_id.into())));
+    }
+
+    Ok(Ok(resp.last_log_id.map(Into::into)))
+  }
+
+  /// Sends snapshot data in chunks through the provided channel.
+  async fn send_snapshot_chunks(
+    tx: &tokio::sync::mpsc::Sender<pb::SnapshotRequest>,
+    snapshot_data: &[u8],
+  ) -> Result<(), NetworkError> {
+    let chunk_size = 1024 * 1024;
+    for chunk in snapshot_data.chunks(chunk_size) {
+      let request = pb::SnapshotRequest {
+        payload: Some(pb::snapshot_request::Payload::Chunk(chunk.to_vec())),
+      };
+      tx.send(request).await.map_err(|e| NetworkError::new(&e))?;
+    }
+    Ok(())
+  }
 }
 
 /// Implementation of RaftNetwork trait for handling Raft protocol communications.
@@ -52,24 +103,46 @@ impl RaftNetworkV2<TypeConfig> for NetworkConnection {
     req: AppendEntriesRequest,
     _option: RPCOption,
   ) -> Result<AppendEntriesResponse, RPCError> {
-    let server_addr = self.target_node.rpc_addr.clone();
-    let channel = match Channel::builder(format!("http://{}", server_addr).parse().unwrap())
-      .connect()
-      .await
-    {
-      Ok(channel) => channel,
-      Err(e) => {
-        return Err(RPCError::Unreachable(Unreachable::new(&e)));
-      }
-    };
+    let channel = self.create_channel().await?;
     let mut client = RaftServiceClient::new(channel);
 
     let response = client
       .append_entries(pb::AppendEntriesRequest::from(req))
       .await
       .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-    let response = response.into_inner();
-    Ok(AppendEntriesResponse::from(response))
+
+    Ok(AppendEntriesResponse::from(response.into_inner()))
+  }
+
+  fn stream_append<'s, S>(
+    &'s mut self,
+    input: S,
+    _option: RPCOption,
+  ) -> BoxFuture<
+    's,
+    Result<BoxStream<'s, Result<StreamAppendResult<TypeConfig>, RPCError>>, RPCError>,
+  >
+  where
+    S: Stream<Item = AppendEntriesRequest> + OptionalSend + Unpin + 'static,
+  {
+    let fu = async move {
+      let channel = self.create_channel().await?;
+      let mut client = RaftServiceClient::new(channel);
+
+      let response = client
+        .stream_append(input.map(pb::AppendEntriesRequest::from))
+        .await
+        .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+
+      let output = response.into_inner().map(|result| {
+        let resp = result.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
+        Self::pb_to_stream_result(resp)
+      });
+
+      Ok(Box::pin(output) as BoxStream<'s, _>)
+    };
+
+    Box::pin(fu)
   }
 
   async fn full_snapshot(
@@ -81,21 +154,11 @@ impl RaftNetworkV2<TypeConfig> for NetworkConnection {
     + 'static,
     _option: RPCOption,
   ) -> Result<SnapshotResponse, crate::typ::StreamingError> {
-    let server_addr = self.target_node.rpc_addr.clone();
-    let channel = match Channel::builder(format!("http://{}", server_addr).parse().unwrap())
-      .connect()
-      .await
-    {
-      Ok(channel) => channel,
-      Err(e) => {
-        return Err(RPCError::Unreachable(Unreachable::new(&e)).into());
-      }
-    };
+    let channel = self.create_channel().await?;
+    let mut client = RaftServiceClient::new(channel);
 
     let (tx, rx) = tokio::sync::mpsc::channel(1024);
     let strm = ReceiverStream::new(rx);
-
-    let mut client = RaftServiceClient::new(channel);
     let response = client
       .snapshot(strm)
       .await
@@ -120,14 +183,7 @@ impl RaftNetworkV2<TypeConfig> for NetworkConnection {
     tx.send(request).await.map_err(|e| NetworkError::new(&e))?;
 
     // 2. Send data chunks
-
-    let chunk_size = 1024 * 1024;
-    for chunk in snapshot.snapshot.chunks(chunk_size) {
-      let request = pb::SnapshotRequest {
-        payload: Some(pb::snapshot_request::Payload::Chunk(chunk.to_vec())),
-      };
-      tx.send(request).await.map_err(|e| NetworkError::new(&e))?;
-    }
+    Self::send_snapshot_chunks(&tx, &snapshot.snapshot).await?;
 
     // 3. receive response
 
@@ -141,16 +197,7 @@ impl RaftNetworkV2<TypeConfig> for NetworkConnection {
   }
 
   async fn vote(&mut self, req: VoteRequest, _option: RPCOption) -> Result<VoteResponse, RPCError> {
-    let server_addr = self.target_node.rpc_addr.clone();
-    let channel = match Channel::builder(format!("http://{}", server_addr).parse().unwrap())
-      .connect()
-      .await
-    {
-      Ok(channel) => channel,
-      Err(e) => {
-        return Err(RPCError::Unreachable(Unreachable::new(&e)));
-      }
-    };
+    let channel = self.create_channel().await?;
     let mut client = RaftServiceClient::new(channel);
 
     // Convert the openraft VoteRequest to protobuf VoteRequest

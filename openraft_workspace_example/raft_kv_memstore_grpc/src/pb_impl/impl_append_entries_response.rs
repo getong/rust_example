@@ -1,4 +1,9 @@
-use crate::{pb, typ::AppendEntriesResponse};
+use openraft::raft::StreamAppendError;
+
+use crate::{
+  pb,
+  typ::{AppendEntriesResponse, StreamAppendResult},
+};
 
 impl From<pb::AppendEntriesResponse> for AppendEntriesResponse {
   fn from(r: pb::AppendEntriesResponse) -> Self {
@@ -38,6 +43,33 @@ impl From<AppendEntriesResponse> for pb::AppendEntriesResponse {
       },
       AppendEntriesResponse::HigherVote(v) => pb::AppendEntriesResponse {
         rejected_by: Some(v),
+        conflict: false,
+        last_log_id: None,
+      },
+    }
+  }
+}
+
+impl From<StreamAppendResult> for pb::AppendEntriesResponse {
+  fn from(result: StreamAppendResult) -> Self {
+    match result {
+      Ok(Some(log_id)) => pb::AppendEntriesResponse {
+        rejected_by: None,
+        conflict: false,
+        last_log_id: Some(log_id.into()),
+      },
+      Ok(None) => pb::AppendEntriesResponse {
+        rejected_by: None,
+        conflict: false,
+        last_log_id: None,
+      },
+      Err(StreamAppendError::Conflict(log_id)) => pb::AppendEntriesResponse {
+        rejected_by: None,
+        conflict: true,
+        last_log_id: Some(log_id.into()),
+      },
+      Err(StreamAppendError::HigherVote(vote)) => pb::AppendEntriesResponse {
+        rejected_by: Some(vote),
         conflict: false,
         last_log_id: None,
       },

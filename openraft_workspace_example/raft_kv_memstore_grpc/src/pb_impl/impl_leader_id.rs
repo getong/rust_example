@@ -21,6 +21,18 @@ impl PartialOrd for pb::LeaderId {
   }
 }
 
+impl PartialEq<u64> for pb::LeaderId {
+  fn eq(&self, _other: &u64) -> bool {
+    false
+  }
+}
+
+impl PartialOrd<u64> for pb::LeaderId {
+  fn partial_cmp(&self, other: &u64) -> Option<Ordering> {
+    self.term.partial_cmp(other)
+  }
+}
+
 impl fmt::Display for pb::LeaderId {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "T{}-N{}", self.term, self.node_id)
@@ -38,8 +50,8 @@ impl RaftLeaderId<TypeConfig> for pb::LeaderId {
     self.term
   }
 
-  fn node_id(&self) -> Option<&u64> {
-    Some(&self.node_id)
+  fn node_id(&self) -> &u64 {
+    &self.node_id
   }
 
   fn to_committed(&self) -> Self::Committed {

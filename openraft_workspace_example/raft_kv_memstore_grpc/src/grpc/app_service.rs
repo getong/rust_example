@@ -78,11 +78,7 @@ impl AppService for AppServiceImpl {
     let req = request.into_inner();
     debug!("Processing get request for key: {}", req.key);
 
-    let sm = self
-      .state_machine_store
-      .state_machine
-      .lock()
-      .map_err(|e| Status::internal(format!("error getting lock on sm: {}", e)))?;
+    let sm = self.state_machine_store.state_machine.lock().await;
     let value = sm
       .data
       .get(&req.key)
@@ -109,15 +105,7 @@ impl AppService for AppServiceImpl {
     let nodes_map: BTreeMap<u64, pb::Node> = req
       .nodes
       .into_iter()
-      .map(|node| {
-        (
-          node.node_id,
-          pb::Node {
-            rpc_addr: node.rpc_addr,
-            node_id: node.node_id,
-          },
-        )
-      })
+      .map(|node| (node.node_id, node))
       .collect();
 
     // Initialize the cluster
