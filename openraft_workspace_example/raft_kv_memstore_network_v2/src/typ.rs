@@ -13,6 +13,9 @@ pub type EntryPayload = openraft::EntryPayload<TypeConfig>;
 pub type Membership = openraft::membership::Membership<TypeConfig>;
 pub type StoredMembership = openraft::StoredMembership<TypeConfig>;
 
+pub type ApplyResponder = openraft::storage::ApplyResponder<TypeConfig>;
+pub type EntryResponder = openraft::storage::EntryResponder<TypeConfig>;
+
 pub type Node = <TypeConfig as openraft::RaftTypeConfig>::Node;
 
 pub type LogState = openraft::storage::LogState<TypeConfig>;
@@ -35,7 +38,7 @@ pub type StreamingError = openraft::error::StreamingError<TypeConfig>;
 pub type RaftMetrics = openraft::RaftMetrics<TypeConfig>;
 
 pub type ClientWriteError = openraft::error::ClientWriteError<TypeConfig>;
-pub type CheckIsLeaderError = openraft::error::CheckIsLeaderError<TypeConfig>;
+pub type LinearizableReadError = openraft::error::LinearizableReadError<TypeConfig>;
 pub type ForwardToLeader = openraft::error::ForwardToLeader<TypeConfig>;
 pub type InitializeError = openraft::error::InitializeError<TypeConfig>;
 
@@ -47,3 +50,4 @@ pub type InstallSnapshotRequest = openraft::raft::InstallSnapshotRequest<TypeCon
 pub type InstallSnapshotResponse = openraft::raft::InstallSnapshotResponse<TypeConfig>;
 pub type SnapshotResponse = openraft::raft::SnapshotResponse<TypeConfig>;
 pub type ClientWriteResponse = openraft::raft::ClientWriteResponse<TypeConfig>;
+pub type StreamAppendResult = openraft::raft::StreamAppendResult<TypeConfig>;

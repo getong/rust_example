@@ -20,10 +20,10 @@ pub async fn read(app: &mut App, req: String) -> String {
     Ok(linearizer) => {
       linearizer.await_ready(&app.raft).await.unwrap();
 
-      let state_machine = app.state_machine.state_machine.lock().unwrap();
+      let state_machine = app.state_machine.state_machine.lock().await;
       let value = state_machine.data.get(&key).cloned();
 
-      let res: Result<String, RaftError<CheckIsLeaderError>> = Ok(value.unwrap_or_default());
+      let res: Result<String, RaftError<LinearizableReadError>> = Ok(value.unwrap_or_default());
       res
     }
     Err(e) => Err(e),

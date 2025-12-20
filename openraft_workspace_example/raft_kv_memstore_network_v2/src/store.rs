@@ -1,10 +1,16 @@
 use std::{
   collections::BTreeMap,
+  fmt,
   fmt::Debug,
+  io,
   sync::{Arc, Mutex},
 };
 
-use openraft::{storage::RaftStateMachine, EntryPayload, RaftSnapshotBuilder};
+use futures::{Stream, TryStreamExt};
+use openraft::{
+  storage::{EntryResponder, RaftStateMachine},
+  EntryPayload, OptionalSend, RaftSnapshotBuilder,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{typ::*, TypeConfig};
@@ -14,6 +20,14 @@ pub type LogStore = mem_log::LogStore<TypeConfig>;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
   Set { key: String, value: String },
+}
+
+impl fmt::Display for Request {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Request::Set { key, value } => write!(f, "Set {{ key: {}, value: {} }}", key, value),
+    }
+  }
 }
 
 impl Request {
@@ -58,7 +72,7 @@ pub struct StateMachineData {
 #[derive(Debug, Default)]
 pub struct StateMachineStore {
   /// The Raft state machine.
-  pub state_machine: Mutex<StateMachineData>,
+  pub state_machine: tokio::sync::Mutex<StateMachineData>,
 
   snapshot_idx: Mutex<u64>,
 
@@ -68,14 +82,14 @@ pub struct StateMachineStore {
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<Snapshot, StorageError> {
+  async fn build_snapshot(&mut self) -> Result<Snapshot, io::Error> {
     let data;
     let last_applied_log;
     let last_membership;
 
     {
       // Serialize the data of the state machine.
-      let state_machine = self.state_machine.lock().unwrap().clone();
+      let state_machine = self.state_machine.lock().await.clone();
 
       last_applied_log = state_machine.last_applied;
       last_membership = state_machine.last_membership.clone();
@@ -125,8 +139,8 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
 impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   type SnapshotBuilder = Self;
 
-  async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), StorageError> {
-    let state_machine = self.state_machine.lock().unwrap();
+  async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), io::Error> {
+    let state_machine = self.state_machine.lock().await;
     Ok((
       state_machine.last_applied,
       state_machine.last_membership.clone(),
@@ -134,40 +148,42 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   }
 
   #[tracing::instrument(level = "trace", skip(self, entries))]
-  async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError>
+  async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
   where
-    I: IntoIterator<Item = Entry>,
+    Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
-    let mut res = Vec::new(); // No `with_capacity`; do not know `len` of iterator
+    let mut sm = self.state_machine.lock().await;
 
-    let mut sm = self.state_machine.lock().unwrap();
-
-    for entry in entries {
+    while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
 
       sm.last_applied = Some(entry.log_id);
 
-      match entry.payload {
-        EntryPayload::Blank => res.push(Response { value: None }),
+      let response = match entry.payload {
+        EntryPayload::Blank => Response { value: None },
         EntryPayload::Normal(ref req) => match req {
           Request::Set { key, value, .. } => {
             sm.data.insert(key.clone(), value.clone());
-            res.push(Response {
+            Response {
               value: Some(value.clone()),
-            })
+            }
           }
         },
         EntryPayload::Membership(ref mem) => {
           sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
-          res.push(Response { value: None })
+          Response { value: None }
         }
       };
+
+      if let Some(responder) = responder {
+        responder.send(response);
+      }
     }
-    Ok(res)
+    Ok(())
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotData, StorageError> {
+  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotData, io::Error> {
     Ok(Default::default())
   }
 
@@ -176,7 +192,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     &mut self,
     meta: &SnapshotMeta,
     snapshot: SnapshotData,
-  ) -> Result<(), StorageError> {
+  ) -> Result<(), io::Error> {
     tracing::info!("install snapshot");
 
     let new_snapshot = StoredSnapshot {
@@ -187,7 +203,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     // Update the state machine.
     {
       let updated_state_machine: StateMachineData = new_snapshot.data.clone();
-      let mut state_machine = self.state_machine.lock().unwrap();
+      let mut state_machine = self.state_machine.lock().await;
       *state_machine = updated_state_machine;
     }
 
@@ -198,7 +214,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot>, StorageError> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot>, io::Error> {
     match &*self.current_snapshot.lock().unwrap() {
       Some(snapshot) => {
         let data = snapshot.data.clone();

@@ -1,13 +1,13 @@
 //! Provide `LogStore`, which is a in-memory implementation of `RaftLogStore` for demonstration
 //! purpose only.
 
-use std::{collections::BTreeMap, fmt::Debug, ops::RangeBounds, sync::Arc};
+use std::{collections::BTreeMap, fmt::Debug, io, ops::RangeBounds, sync::Arc};
 
 use openraft::{
   alias::{LogIdOf, VoteOf},
   entry::RaftEntry,
   storage::IOFlushed,
-  LogState, RaftTypeConfig, StorageError,
+  LogState, RaftTypeConfig,
 };
 use tokio::sync::Mutex;
 
@@ -47,7 +47,7 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
   async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug>(
     &mut self,
     range: RB,
-  ) -> Result<Vec<C::Entry>, StorageError<C>>
+  ) -> Result<Vec<C::Entry>, io::Error>
   where
     C::Entry: Clone,
   {
@@ -59,7 +59,7 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
     Ok(response)
   }
 
-  async fn get_log_state(&mut self) -> Result<LogState<C>, StorageError<C>> {
+  async fn get_log_state(&mut self) -> Result<LogState<C>, io::Error> {
     let last = self.log.iter().next_back().map(|(_, ent)| ent.log_id());
 
     let last_purged = self.last_purged_log_id.clone();
@@ -75,25 +75,25 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
     })
   }
 
-  async fn save_committed(&mut self, committed: Option<LogIdOf<C>>) -> Result<(), StorageError<C>> {
+  async fn save_committed(&mut self, committed: Option<LogIdOf<C>>) -> Result<(), io::Error> {
     self.committed = committed;
     Ok(())
   }
 
-  async fn read_committed(&mut self) -> Result<Option<LogIdOf<C>>, StorageError<C>> {
+  async fn read_committed(&mut self) -> Result<Option<LogIdOf<C>>, io::Error> {
     Ok(self.committed.clone())
   }
 
-  async fn save_vote(&mut self, vote: &VoteOf<C>) -> Result<(), StorageError<C>> {
+  async fn save_vote(&mut self, vote: &VoteOf<C>) -> Result<(), io::Error> {
     self.vote = Some(vote.clone());
     Ok(())
   }
 
-  async fn read_vote(&mut self) -> Result<Option<VoteOf<C>>, StorageError<C>> {
+  async fn read_vote(&mut self) -> Result<Option<VoteOf<C>>, io::Error> {
     Ok(self.vote.clone())
   }
 
-  async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), StorageError<C>>
+  async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), io::Error>
   where
     I: IntoIterator<Item = C::Entry>,
   {
@@ -106,7 +106,7 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
     Ok(())
   }
 
-  async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), StorageError<C>> {
+  async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
     let keys = self
       .log
       .range(log_id.index() ..)
@@ -119,7 +119,7 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
     Ok(())
   }
 
-  async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), StorageError<C>> {
+  async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
     {
       let ld = &mut self.last_purged_log_id;
       assert!(ld.as_ref() <= Some(&log_id));
@@ -142,12 +142,12 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
 }
 
 mod impl_log_store {
-  use std::{fmt::Debug, ops::RangeBounds};
+  use std::{fmt::Debug, io, ops::RangeBounds};
 
   use openraft::{
     alias::{LogIdOf, VoteOf},
     storage::{IOFlushed, RaftLogStorage},
-    LogState, RaftLogReader, RaftTypeConfig, StorageError,
+    LogState, RaftLogReader, RaftTypeConfig,
   };
 
   use crate::log_store::LogStore;
@@ -159,12 +159,12 @@ mod impl_log_store {
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug>(
       &mut self,
       range: RB,
-    ) -> Result<Vec<C::Entry>, StorageError<C>> {
+    ) -> Result<Vec<C::Entry>, io::Error> {
       let mut inner = self.inner.lock().await;
       inner.try_get_log_entries(range).await
     }
 
-    async fn read_vote(&mut self) -> Result<Option<VoteOf<C>>, StorageError<C>> {
+    async fn read_vote(&mut self) -> Result<Option<VoteOf<C>>, io::Error> {
       let mut inner = self.inner.lock().await;
       inner.read_vote().await
     }
@@ -176,30 +176,27 @@ mod impl_log_store {
   {
     type LogReader = Self;
 
-    async fn get_log_state(&mut self) -> Result<LogState<C>, StorageError<C>> {
+    async fn get_log_state(&mut self) -> Result<LogState<C>, io::Error> {
       let mut inner = self.inner.lock().await;
       inner.get_log_state().await
     }
 
-    async fn save_committed(
-      &mut self,
-      committed: Option<LogIdOf<C>>,
-    ) -> Result<(), StorageError<C>> {
+    async fn save_committed(&mut self, committed: Option<LogIdOf<C>>) -> Result<(), io::Error> {
       let mut inner = self.inner.lock().await;
       inner.save_committed(committed).await
     }
 
-    async fn read_committed(&mut self) -> Result<Option<LogIdOf<C>>, StorageError<C>> {
+    async fn read_committed(&mut self) -> Result<Option<LogIdOf<C>>, io::Error> {
       let mut inner = self.inner.lock().await;
       inner.read_committed().await
     }
 
-    async fn save_vote(&mut self, vote: &VoteOf<C>) -> Result<(), StorageError<C>> {
+    async fn save_vote(&mut self, vote: &VoteOf<C>) -> Result<(), io::Error> {
       let mut inner = self.inner.lock().await;
       inner.save_vote(vote).await
     }
 
-    async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), StorageError<C>>
+    async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), io::Error>
     where
       I: IntoIterator<Item = C::Entry>,
     {
@@ -207,12 +204,12 @@ mod impl_log_store {
       inner.append(entries, callback).await
     }
 
-    async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), StorageError<C>> {
+    async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
       let mut inner = self.inner.lock().await;
       inner.truncate(log_id).await
     }
 
-    async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), StorageError<C>> {
+    async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
       let mut inner = self.inner.lock().await;
       inner.purge(log_id).await
     }
