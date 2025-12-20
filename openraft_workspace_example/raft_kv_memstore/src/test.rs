@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use openraft::{
-  testing::log::{StoreBuilder, Suite},
   StorageError,
+  testing::log::{StoreBuilder, Suite},
 };
 
 use crate::{
-  store::{LogStore, StateMachineStore},
   TypeConfig,
+  store::{LogStore, StateMachineStore},
 };
 
 struct MemKVStoreBuilder {}

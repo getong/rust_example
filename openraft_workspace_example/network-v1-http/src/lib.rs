@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use openraft::{
+  BasicNode, RaftTypeConfig,
   error::{
     Infallible, InstallSnapshotError, NetworkError, RPCError, RaftError, RemoteError, Unreachable,
   },
@@ -9,10 +10,9 @@ use openraft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
   },
-  BasicNode, RaftTypeConfig,
 };
 use reqwest::Client;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
 
 pub struct NetworkFactory {}

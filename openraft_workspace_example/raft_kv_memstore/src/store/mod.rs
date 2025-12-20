@@ -1,17 +1,21 @@
 use std::{
   collections::BTreeMap,
+  fmt,
   fmt::Debug,
+  io,
   io::Cursor,
   sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
   },
 };
 
+use futures::{Stream, TryStreamExt};
 use openraft::{
+  EntryPayload, LogId, OptionalSend, RaftSnapshotBuilder, SnapshotMeta, StorageError,
+  StoredMembership,
   alias::SnapshotDataOf,
-  storage::{RaftStateMachine, Snapshot},
-  Entry, EntryPayload, LogId, RaftSnapshotBuilder, SnapshotMeta, StorageError, StoredMembership,
+  storage::{EntryResponder, RaftStateMachine, Snapshot},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -29,11 +33,38 @@ pub enum Request {
   Set { key: String, value: String },
 }
 
-/// Here you will defined what type of answer you expect from reading the data of a node.
-/// In this example it will return a optional value from a given key in
-/// the `Request.Set`.
+impl fmt::Display for Request {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Request::Set { key, value, .. } => write!(f, "Set {{ key: {}, value: {} }}", key, value),
+    }
+  }
+}
+
+/// Here you define the response type for client read/write requests.
 ///
-/// TODO: Should we explain how to create multiple `AppDataResponse`?
+/// This Response type is used as the `AppDataResponse` in the `TypeConfig`.
+/// It represents the result returned to clients after applying operations
+/// to the state machine.
+///
+/// In this example, it returns an optional value for a given key.
+///
+/// ## Using Multiple Response Types
+///
+/// For applications with diverse operations, you can use an enum:
+///
+/// ```ignore
+/// #[derive(Serialize, Deserialize, Debug, Clone)]
+/// pub enum Response {
+///     Get { value: Option<String> },
+///     Set { prev_value: Option<String> },
+///     Delete { existed: bool },
+///     List { keys: Vec<String> },
+/// }
+/// ```
+///
+/// Each variant corresponds to a different operation in your `Request` enum,
+/// providing strongly-typed responses for different client operations.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
   pub value: Option<String>,
@@ -82,11 +113,11 @@ pub struct StateMachineStore {
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, StorageError<TypeConfig>> {
+  async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, io::Error> {
     // Serialize the data of the state machine.
     let state_machine = self.state_machine.read().await;
-    let data =
-      serde_json::to_vec(&state_machine.data).map_err(|e| StorageError::read_state_machine(&e))?;
+    let data = serde_json::to_vec(&state_machine.data)
+      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     let last_applied_log = state_machine.last_applied_log;
     let last_membership = state_machine.last_membership.clone();
@@ -133,8 +164,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
 
   async fn applied_state(
     &mut self,
-  ) -> Result<(Option<LogId<TypeConfig>>, StoredMembership<TypeConfig>), StorageError<TypeConfig>>
-  {
+  ) -> Result<(Option<LogId<TypeConfig>>, StoredMembership<TypeConfig>), io::Error> {
     let state_machine = self.state_machine.read().await;
     Ok((
       state_machine.last_applied_log,
@@ -143,42 +173,42 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   }
 
   #[tracing::instrument(level = "trace", skip(self, entries))]
-  async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError<TypeConfig>>
+  async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
   where
-    I: IntoIterator<Item = Entry<TypeConfig>> + Send,
+    Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
-    let mut res = Vec::new(); // No `with_capacity`; do not know `len` of iterator
-
     let mut sm = self.state_machine.write().await;
 
-    for entry in entries {
+    while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
 
       sm.last_applied_log = Some(entry.log_id);
 
-      match entry.payload {
-        EntryPayload::Blank => res.push(Response { value: None }),
+      let response = match entry.payload {
+        EntryPayload::Blank => Response { value: None },
         EntryPayload::Normal(ref req) => match req {
           Request::Set { key, value } => {
             sm.data.insert(key.clone(), value.clone());
-            res.push(Response {
+            Response {
               value: Some(value.clone()),
-            })
+            }
           }
         },
         EntryPayload::Membership(ref mem) => {
           sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
-          res.push(Response { value: None })
+          Response { value: None }
         }
       };
+
+      if let Some(responder) = responder {
+        responder.send(response);
+      }
     }
-    Ok(res)
+    Ok(())
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn begin_receiving_snapshot(
-    &mut self,
-  ) -> Result<SnapshotDataOf<TypeConfig>, StorageError<TypeConfig>> {
+  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotDataOf<TypeConfig>, io::Error> {
     Ok(Cursor::new(Vec::new()))
   }
 
@@ -187,7 +217,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     &mut self,
     meta: &SnapshotMeta<TypeConfig>,
     snapshot: SnapshotDataOf<TypeConfig>,
-  ) -> Result<(), StorageError<TypeConfig>> {
+  ) -> Result<(), io::Error> {
     tracing::info!(
       { snapshot_size = snapshot.get_ref().len() },
       "decoding snapshot for installation"
@@ -220,9 +250,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn get_current_snapshot(
-    &mut self,
-  ) -> Result<Option<Snapshot<TypeConfig>>, StorageError<TypeConfig>> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, io::Error> {
     match &*self.current_snapshot.read().await {
       Some(snapshot) => {
         let data = snapshot.data.clone();

@@ -1,11 +1,12 @@
 use std::{
   collections::BTreeSet,
+  fmt,
   sync::{Arc, Mutex},
 };
 
 use openraft::{
   error::{
-    CheckIsLeaderError, ClientWriteError, ForwardToLeader, Infallible, InitializeError,
+    ClientWriteError, ForwardToLeader, Infallible, InitializeError, LinearizableReadError,
     NetworkError, RPCError, Unreachable,
   },
   raft::ClientWriteResponse,
@@ -13,6 +14,19 @@ use openraft::{
 };
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Serialize};
+
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct FollowerReadError {
+  pub message: String,
+}
+
+impl fmt::Display for FollowerReadError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.message)
+  }
+}
+
+impl std::error::Error for FollowerReadError {}
 
 pub struct ExampleClient<C>
 where
@@ -63,11 +77,11 @@ where
 
   /// Consistent Read value by key, in an inconsistent mode.
   ///
-  /// This method MUST return consistent value or CheckIsLeaderError.
+  /// This method MUST return consistent value or LinearizableReadError.
   pub async fn linearizable_read(
     &self,
     req: &String,
-  ) -> Result<Result<String, CheckIsLeaderError<C>>, RPCError<C>> {
+  ) -> Result<Result<String, LinearizableReadError<C>>, RPCError<C>> {
     self
       .send_with_forwarding("linearizable_read", Some(req), 0)
       .await
@@ -78,10 +92,23 @@ where
   pub async fn linearizable_read_auto_forward(
     &self,
     req: &String,
-  ) -> Result<Result<String, CheckIsLeaderError<C>>, RPCError<C>> {
+  ) -> Result<Result<String, LinearizableReadError<C>>, RPCError<C>> {
     self
       .send_with_forwarding("linearizable_read", Some(req), 3)
       .await
+  }
+
+  /// Perform a linearizable read on a follower.
+  ///
+  /// This method demonstrates follower reads: it fetches a linearizer from the leader,
+  /// waits for the local state machine to catch up, then reads from the local state machine.
+  ///
+  /// Returns the value if successful, or an error from the follower.
+  pub async fn follower_read(
+    &self,
+    req: &String,
+  ) -> Result<Result<String, FollowerReadError>, RPCError<C>> {
+    self.send("follower_read", Some(req)).await
   }
 
   // --- Cluster management API
@@ -145,10 +172,12 @@ where
     req: Option<&Req>,
   ) -> Result<Result<Resp, Err>, RPCError<C>>
   where
-    Req: Serialize + 'static,
+    Req: Serialize + fmt::Debug + 'static,
     Resp: Serialize + DeserializeOwned,
     Err: std::error::Error + Serialize + DeserializeOwned,
   {
+    tracing::debug!("client-http: start, send to {}; request: {:?}", uri, req);
+
     let (_leader_id, url) = {
       let t = self.leader.lock().unwrap();
       let target_addr = &t.1;
@@ -161,9 +190,15 @@ where
         url,
         serde_json::to_string_pretty(&r).unwrap()
       );
+      tracing::debug!(
+        ">>> client send request to {}: {}",
+        url,
+        serde_json::to_string_pretty(&r).unwrap()
+      );
       self.inner.post(url.clone()).json(r)
     } else {
       println!(">>> client send request to {}", url,);
+      tracing::debug!(">>> client send request to {}", url,);
       self.inner.get(url.clone())
     }
     .send()
@@ -203,7 +238,7 @@ where
     mut retry: usize,
   ) -> Result<Result<Resp, Err>, RPCError<C>>
   where
-    Req: Serialize + 'static,
+    Req: Serialize + fmt::Debug + 'static,
     Resp: Serialize + DeserializeOwned,
     Err: std::error::Error + Serialize + DeserializeOwned + TryAsRef<ForwardToLeader<C>> + Clone,
   {

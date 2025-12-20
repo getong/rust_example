@@ -1,16 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use actix_web::{
-  get, post,
+  Responder, get, post,
   web::{Data, Json},
-  Responder,
 };
 use openraft::{
-  error::{decompose::DecomposeResult, Infallible},
-  BasicNode, RaftMetrics,
+  BasicNode, LogId, RaftMetrics, ReadPolicy,
+  error::{Infallible, decompose::DecomposeResult},
 };
+use serde::{Deserialize, Serialize};
 
-use crate::{app::App, NodeId, TypeConfig};
+use crate::{NodeId, TypeConfig, app::App};
+
+/// Serializable representation of linearizer data for follower reads
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinearizerData {
+  pub node_id: NodeId,
+  pub read_log_id: LogId<TypeConfig>,
+  pub applied: Option<LogId<TypeConfig>>,
+}
 
 // --- Cluster management
 
@@ -24,9 +32,9 @@ pub async fn add_learner(
   app: Data<App>,
   req: Json<(NodeId, String)>,
 ) -> actix_web::Result<impl Responder> {
-  let node_id = req.0 .0;
+  let node_id = req.0.0;
   let node = BasicNode {
-    addr: req.0 .1.clone(),
+    addr: req.0.1.clone(),
   };
   let res = app
     .raft
@@ -83,4 +91,33 @@ pub async fn metrics(app: Data<App>) -> actix_web::Result<impl Responder> {
 
   let res: Result<RaftMetrics<TypeConfig>, Infallible> = Ok(metrics);
   Ok(Json(res))
+}
+
+/// Get linearizer data for performing linearizable reads on followers
+///
+/// This endpoint is used by followers to obtain linearizer data from the leader.
+/// The follower can then reconstruct a Linearizer and wait for its local state
+/// machine to catch up before performing a linearizable read.
+#[post("/get_linearizer")]
+pub async fn get_linearizer(app: Data<App>) -> actix_web::Result<impl Responder> {
+  let linearizer = app
+    .raft
+    .get_read_linearizer(ReadPolicy::ReadIndex)
+    .await
+    .decompose()
+    .unwrap();
+
+  let data = match linearizer {
+    Ok(lin) => {
+      let data = LinearizerData {
+        node_id: *lin.node_id(),
+        read_log_id: *lin.read_log_id(),
+        applied: lin.applied().cloned(),
+      };
+      Ok(data)
+    }
+    Err(e) => Err(e),
+  };
+
+  Ok(Json(data))
 }
