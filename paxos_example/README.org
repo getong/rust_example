@@ -1,0 +1,24 @@
+* Simple Paxos Implementation
+
+** How to run it
+
+Run the following commands in different terminals:
+
+#+begin_src sh
+cargo run -- --id 0
+cargo run -- --id 1
+cargo run -- --id 2
+#+end_src
+
+Send a propose to any of the nodes:
+
+#+begin_src sh
+curl -X POST http://0.0.0.0:8000/ -d "proposed value"
+#+end_src
+
+** References
+
+- https://lamport.azurewebsites.net/pubs/paxos-simple.pdf
+- https://people.cs.rutgers.edu/~pxk/417/notes/paxos.html
+
+copy from https://github.com/hehehenri/paxos
