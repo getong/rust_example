@@ -1,7 +1,9 @@
-use std::{collections::BTreeMap, fmt::Debug, io::Cursor, path::Path, sync::Arc};
+use std::{collections::BTreeMap, fmt, fmt::Debug, io, io::Cursor, path::Path, sync::Arc};
 
+use futures::{Stream, TryStreamExt};
 use openraft::{
-  storage::RaftStateMachine, AnyError, EntryPayload, ErrorVerb, OptionalSend, RaftSnapshotBuilder,
+  storage::{EntryResponder, RaftStateMachine},
+  EntryPayload, OptionalSend, RaftSnapshotBuilder,
 };
 use openraft_rocksstore::log_store::RocksLogStore;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
@@ -19,11 +21,38 @@ pub enum Request {
   Set { key: String, value: String },
 }
 
-/// Here you will defined what type of answer you expect from reading the data of a node.
-/// In this example it will return a optional value from a given key in
-/// the `ExampleRequest.Set`.
+impl fmt::Display for Request {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Request::Set { key, value, .. } => write!(f, "Set {{ key: {}, value: {} }}", key, value),
+    }
+  }
+}
+
+/// Here you define the response type for client read/write requests.
 ///
-/// TODO: Should we explain how to create multiple `AppDataResponse`?
+/// This Response type is used as the `AppDataResponse` in the `TypeConfig`.
+/// It represents the result returned to clients after applying operations
+/// to the state machine.
+///
+/// In this example, it returns an optional value for a given key.
+///
+/// ## Using Multiple Response Types
+///
+/// For applications with diverse operations, you can use an enum:
+///
+/// ```ignore
+/// #[derive(Serialize, Deserialize, Debug, Clone)]
+/// pub enum Response {
+///     Get { value: Option<String> },
+///     Set { prev_value: Option<String> },
+///     Delete { existed: bool },
+///     List { keys: Vec<String> },
+/// }
+/// ```
+///
+/// Each variant corresponds to a different operation in your `Request` enum,
+/// providing strongly-typed responses for different client operations.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Response {
   pub value: Option<String>,
@@ -62,13 +91,13 @@ pub struct StateMachineData {
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
-  async fn build_snapshot(&mut self) -> Result<Snapshot, StorageError> {
+  async fn build_snapshot(&mut self) -> Result<Snapshot, io::Error> {
     let last_applied_log = self.data.last_applied_log_id;
     let last_membership = self.data.last_membership.clone();
 
     let kv_json = {
       let kvs = self.data.kvs.read().await;
-      serde_json::to_vec(&*kvs).map_err(|e| StorageError::read_state_machine(&e))?
+      serde_json::to_vec(&*kvs).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
     };
 
     let snapshot_id = if let Some(last) = last_applied_log {
@@ -103,7 +132,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
 }
 
 impl StateMachineStore {
-  async fn new(db: Arc<DB>) -> Result<StateMachineStore, StorageError> {
+  async fn new(db: Arc<DB>) -> Result<StateMachineStore, io::Error> {
     let mut sm = Self {
       data: StateMachineData {
         last_applied_log_id: None,
@@ -122,9 +151,9 @@ impl StateMachineStore {
     Ok(sm)
   }
 
-  async fn update_state_machine_(&mut self, snapshot: StoredSnapshot) -> Result<(), StorageError> {
+  async fn update_state_machine_(&mut self, snapshot: StoredSnapshot) -> Result<(), io::Error> {
     let kvs: BTreeMap<String, String> = serde_json::from_slice(&snapshot.data)
-      .map_err(|e| StorageError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
+      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     self.data.last_applied_log_id = snapshot.meta.last_log_id;
     self.data.last_membership = snapshot.meta.last_membership.clone();
@@ -134,17 +163,17 @@ impl StateMachineStore {
     Ok(())
   }
 
-  fn get_current_snapshot_(&self) -> StorageResult<Option<StoredSnapshot>> {
+  fn get_current_snapshot_(&self) -> Result<Option<StoredSnapshot>, io::Error> {
     Ok(
       self
         .db
         .get_cf(self.store(), b"snapshot")
-        .map_err(|e| StorageError::read(&e))?
+        .map_err(io::Error::other)?
         .and_then(|v| serde_json::from_slice(&v).ok()),
     )
   }
 
-  fn set_current_snapshot_(&self, snap: StoredSnapshot) -> StorageResult<()> {
+  fn set_current_snapshot_(&self, snap: StoredSnapshot) -> Result<(), io::Error> {
     self
       .db
       .put_cf(
@@ -152,19 +181,8 @@ impl StateMachineStore {
         b"snapshot",
         serde_json::to_vec(&snap).unwrap().as_slice(),
       )
-      .map_err(|e| StorageError::write_snapshot(Some(snap.meta.signature()), &e))?;
-    self.flush(
-      ErrorSubject::Snapshot(Some(snap.meta.signature())),
-      ErrorVerb::Write,
-    )?;
-    Ok(())
-  }
-
-  fn flush(&self, subject: ErrorSubject, verb: ErrorVerb) -> Result<(), StorageError> {
-    self
-      .db
-      .flush_wal(true)
-      .map_err(|e| StorageError::new(subject, verb, AnyError::new(&e)))?;
+      .map_err(io::Error::other)?;
+    self.db.flush_wal(true).map_err(io::Error::other)?;
     Ok(())
   }
 
@@ -176,44 +194,40 @@ impl StateMachineStore {
 impl RaftStateMachine<TypeConfig> for StateMachineStore {
   type SnapshotBuilder = Self;
 
-  async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), StorageError> {
+  async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), io::Error> {
     Ok((
       self.data.last_applied_log_id,
       self.data.last_membership.clone(),
     ))
   }
 
-  async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError>
+  async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
   where
-    I: IntoIterator<Item = Entry> + OptionalSend,
-    I::IntoIter: OptionalSend,
+    Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
-    let entries = entries.into_iter();
-    let mut replies = Vec::with_capacity(entries.size_hint().0);
+    while let Some((entry, responder)) = entries.try_next().await? {
+      self.data.last_applied_log_id = Some(entry.log_id);
 
-    for ent in entries {
-      self.data.last_applied_log_id = Some(ent.log_id);
-
-      let mut resp_value = None;
-
-      match ent.payload {
-        EntryPayload::Blank => {}
+      let response = match entry.payload {
+        EntryPayload::Blank => Response { value: None },
         EntryPayload::Normal(req) => match req {
           Request::Set { key, value } => {
-            resp_value = Some(value.clone());
-
             let mut st = self.data.kvs.write().await;
-            st.insert(key, value);
+            st.insert(key, value.clone());
+            Response { value: Some(value) }
           }
         },
         EntryPayload::Membership(mem) => {
-          self.data.last_membership = StoredMembership::new(Some(ent.log_id), mem);
+          self.data.last_membership = StoredMembership::new(Some(entry.log_id), mem);
+          Response { value: None }
         }
-      }
+      };
 
-      replies.push(Response { value: resp_value });
+      if let Some(responder) = responder {
+        responder.send(response);
+      }
     }
-    Ok(replies)
+    Ok(())
   }
 
   async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
@@ -221,7 +235,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     self.clone()
   }
 
-  async fn begin_receiving_snapshot(&mut self) -> Result<Cursor<Vec<u8>>, StorageError> {
+  async fn begin_receiving_snapshot(&mut self) -> Result<Cursor<Vec<u8>>, io::Error> {
     Ok(Cursor::new(Vec::new()))
   }
 
@@ -229,7 +243,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     &mut self,
     meta: &SnapshotMeta,
     snapshot: SnapshotData,
-  ) -> Result<(), StorageError> {
+  ) -> Result<(), io::Error> {
     let new_snapshot = StoredSnapshot {
       meta: meta.clone(),
       data: snapshot.into_inner(),
@@ -242,7 +256,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     Ok(())
   }
 
-  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot>, StorageError> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot>, io::Error> {
     let x = self.get_current_snapshot_()?;
     Ok(x.map(|s| Snapshot {
       meta: s.meta.clone(),
@@ -250,8 +264,6 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
     }))
   }
 }
-
-type StorageResult<T> = Result<T, StorageError>;
 
 pub(crate) async fn new_storage<P: AsRef<Path>>(
   db_path: P,

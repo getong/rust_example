@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::{error::Infallible, BasicNode};
+use openraft::{error::Infallible, BasicNode, ReadPolicy};
 
 use crate::{app::App, decode, encode, typ::*, NodeId};
 
@@ -14,14 +14,16 @@ pub async fn write(app: &mut App, req: String) -> String {
 pub async fn read(app: &mut App, req: String) -> String {
   let key: String = decode(&req);
 
-  let ret = app.raft.ensure_linearizable().await;
+  let ret = app.raft.get_read_linearizer(ReadPolicy::ReadIndex).await;
 
   let res = match ret {
-    Ok(_) => {
+    Ok(linearizer) => {
+      linearizer.await_ready(&app.raft).await.unwrap();
+
       let state_machine = app.state_machine.state_machine.borrow();
       let value = state_machine.data.get(&key).cloned();
 
-      let res: Result<String, RaftError<CheckIsLeaderError>> = Ok(value.unwrap_or_default());
+      let res: Result<String, RaftError<LinearizableReadError>> = Ok(value.unwrap_or_default());
       res
     }
     Err(e) => Err(e),

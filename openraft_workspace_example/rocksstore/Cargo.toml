@@ -6,26 +6,27 @@ readme = "README.md"
 
 version = "0.1.0"
 edition = "2021"
-authors = [
-    "drdr xp <drdr.xp@gmail.com>",
-]
+authors = ["drdr xp <drdr.xp@gmail.com>"]
 categories = ["algorithms", "asynchronous", "data-structures"]
 homepage = "https://github.com/databendlabs/openraft"
 keywords = ["raft", "consensus"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/databendlabs/openraft"
 
+[features]
+bt = ["openraft/bt"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
-rocksdb = "0.23.0"
-rand = "0.9"
 byteorder = "1.5.0"
-
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-tokio = { version = "1.46", default-features = false, features = [
+futures = "0.3.31"
+openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"] }
+rand = "0.9"
+rocksdb = "0.24.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tokio = { version = "1.48", default-features = false, features = [
     "io-util",
     "macros",
     "rt",
@@ -33,7 +34,7 @@ tokio = { version = "1.46", default-features = false, features = [
     "sync",
     "time",
 ] }
-tracing = { version = "0.1.41" }
+tracing = { version = "0.1.44" }
 
 [dev-dependencies]
-tempfile = { version = "3.20.0" }
+tempfile = { version = "3.23.0" }

@@ -6,12 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-openraft = {git = "https://github.com/databendlabs/openraft", features = ["serde", "singlethreaded", "type-alias"]}
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-tokio = { version = "1.46.1", default-features = false, features = ["sync"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+futures = "0.3.31"
+openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "singlethreaded", "type-alias"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tokio = { version = "1.48.0", default-features = false, features = ["sync"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 [dev-dependencies]
 maplit = "1.0.2"
