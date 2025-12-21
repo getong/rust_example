@@ -13,4 +13,5 @@ members = [
   "memstore",
   "chitchat_poem_tarpc_rocksdb_example",
   "chitchat_openraft_axum_example",
+  "multi_raft_kv",
 ]
