@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +67,62 @@ pub enum Request {
   AllTables,
 }
 
+impl fmt::Display for Request {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Request::Set { table, key, value } => write!(
+        f,
+        "Set {{ table: {}, key: {}, value_len: {} }}",
+        table,
+        key,
+        value.0.len()
+      ),
+      Request::BatchSet { table, values } => {
+        write!(
+          f,
+          "BatchSet {{ table: {}, count: {} }}",
+          table,
+          values.len()
+        )
+      }
+      Request::Get { table, key } => write!(f, "Get {{ table: {}, key: {} }}", table, key),
+      Request::BatchGet { table, keys } => {
+        write!(f, "BatchGet {{ table: {}, count: {} }}", table, keys.len())
+      }
+      Request::Upsert {
+        table,
+        key,
+        value,
+        upsert_fn,
+      } => write!(
+        f,
+        "Upsert {{ table: {}, key: {}, value_len: {}, op: {:?} }}",
+        table,
+        key,
+        value.0.len(),
+        upsert_fn
+      ),
+      Request::BatchUpsert {
+        table,
+        upsert_fn,
+        values,
+      } => write!(
+        f,
+        "BatchUpsert {{ table: {}, count: {}, op: {:?} }}",
+        table,
+        values.len(),
+        upsert_fn
+      ),
+      Request::CreateTable { table } => write!(f, "CreateTable {{ table: {} }}", table),
+      Request::DropTable { table } => write!(f, "DropTable {{ table: {} }}", table),
+      Request::CloneTable { from, to } => {
+        write!(f, "CloneTable {{ from: {}, to: {} }}", from, to)
+      }
+      Request::AllTables => write!(f, "AllTables"),
+    }
+  }
+}
+
 // Response types for the distributed store
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Response {
@@ -93,6 +149,12 @@ impl Table {
   }
 }
 
+impl fmt::Display for Table {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&self.0)
+  }
+}
+
 impl From<String> for Table {
   fn from(v: String) -> Self {
     Self(v)
@@ -109,6 +171,12 @@ impl From<&str> for Table {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(transparent)]
 pub struct Key(pub String);
+
+impl fmt::Display for Key {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&self.0)
+  }
+}
 
 impl From<String> for Key {
   fn from(v: String) -> Self {

@@ -1,13 +1,19 @@
 use std::{
   collections::BTreeMap,
+  io,
   sync::{Arc, Mutex},
 };
 
-use openraft::{EntryPayload, RaftSnapshotBuilder, storage::RaftStateMachine};
+use futures::{Stream, TryStreamExt};
+use openraft::{
+  EntryPayload, OptionalSend, RaftSnapshotBuilder, StorageError,
+  alias::SnapshotDataOf,
+  storage::{EntryResponder, RaftStateMachine, Snapshot},
+};
 
 use super::raft_types::{
-  Entry, Key, LogId, Request, Response, Snapshot, SnapshotMeta, StateMachineData, StorageError,
-  StoredMembership, Table, TypeConfig, UpsertAction, UpsertEnum, Value,
+  Key, LogId, Request, Response, SnapshotMeta, StateMachineData, StoredMembership, Table,
+  TypeConfig, UpsertAction, UpsertEnum, Value,
 };
 
 #[derive(Debug)]
@@ -149,7 +155,7 @@ pub struct StateMachineStore {
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<Snapshot, StorageError> {
+  async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, io::Error> {
     let data;
     let last_applied_log;
     let last_membership;
@@ -195,8 +201,8 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
       *current_snapshot = Some(snapshot);
     }
 
-    let snapshot_data = serde_json::to_vec(&data)
-      .map_err(|e| StorageError::read_snapshot(Some(meta.signature()), &e))?;
+    let snapshot_data =
+      serde_json::to_vec(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     Ok(Snapshot {
       meta,
@@ -208,7 +214,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
 impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   type SnapshotBuilder = Self;
 
-  async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), StorageError> {
+  async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), io::Error> {
     let state_machine = self.state_machine.lock().unwrap();
     Ok((
       state_machine.last_applied,
@@ -217,95 +223,100 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   }
 
   #[tracing::instrument(level = "trace", skip(self, entries))]
-  async fn apply<I>(&mut self, entries: I) -> Result<Vec<Response>, StorageError>
+  async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
   where
-    I: IntoIterator<Item = Entry>,
+    Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
-    let mut res = Vec::new();
-    let mut sm = self.state_machine.lock().unwrap();
-
-    for entry in entries {
+    while let Some((entry, responder)) = entries.try_next().await? {
+      let mut sm = self.state_machine.lock().unwrap();
       tracing::debug!(%entry.log_id, "replicate to sm");
 
       sm.last_applied = Some(entry.log_id);
 
-      match entry.payload {
-        EntryPayload::Blank => res.push(Response::Empty),
+      let response = match entry.payload {
+        EntryPayload::Blank => Response::Empty,
         EntryPayload::Normal(ref req) => match req {
           Request::Set { table, key, value } => {
             sm.set(table.clone(), key.clone(), value.clone());
-            res.push(Response::Set(Ok(())))
+            Response::Set(Ok(()))
           }
           Request::BatchSet { table, values } => {
             sm.batch_set(table.clone(), values.clone());
-            res.push(Response::Set(Ok(())))
+            Response::Set(Ok(()))
           }
           Request::Get { table, key } => {
             let value = sm.get(table, key);
-            res.push(Response::Get(Ok(value)))
+            Response::Get(Ok(value))
           }
           Request::BatchGet { table, keys } => {
             let values = sm.batch_get(table, keys);
-            res.push(Response::BatchGet(Ok(values)))
+            Response::BatchGet(Ok(values))
           }
           Request::Upsert {
             table,
             key,
             value,
             upsert_fn,
-          } => res.push(Response::Upsert(Ok(sm.upsert(
+          } => Response::Upsert(Ok(sm.upsert(
             table.clone(),
             upsert_fn,
             key.clone(),
             value.clone(),
-          )))),
+          ))),
           Request::BatchUpsert {
             table,
             upsert_fn,
             values,
-          } => res.push(Response::BatchUpsert(Ok(sm.batch_upsert(
+          } => Response::BatchUpsert(Ok(sm.batch_upsert(
             table.clone(),
             upsert_fn,
             values.clone(),
-          )))),
+          ))),
           Request::CreateTable { table } => {
             sm.new_table(table.clone());
-            res.push(Response::CreateTable(Ok(())))
+            Response::CreateTable(Ok(()))
           }
           Request::DropTable { table } => {
             sm.drop_table(table);
-            res.push(Response::DropTable(Ok(())))
+            Response::DropTable(Ok(()))
           }
-          Request::AllTables => res.push(Response::AllTables(Ok(sm.tables()))),
+          Request::AllTables => Response::AllTables(Ok(sm.tables())),
           Request::CloneTable { from, to } => {
             sm.clone_table(from, to.clone());
-            res.push(Response::CloneTable(Ok(())))
+            Response::CloneTable(Ok(()))
           }
         },
         EntryPayload::Membership(ref mem) => {
           sm.last_membership = StoredMembership::new(Some(entry.log_id), mem.clone());
-          res.push(Response::Empty)
+          Response::Empty
         }
       };
+      drop(sm);
+
+      if let Some(responder) = responder {
+        responder.send(response);
+      }
     }
-    Ok(res)
+    Ok(())
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn begin_receiving_snapshot(&mut self) -> Result<std::io::Cursor<Vec<u8>>, StorageError> {
+  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotDataOf<TypeConfig>, io::Error> {
     Ok(std::io::Cursor::new(Vec::new()))
   }
   #[tracing::instrument(level = "trace", skip(self, snapshot))]
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMeta,
-    snapshot: std::io::Cursor<Vec<u8>>,
-  ) -> Result<(), StorageError> {
+    snapshot: SnapshotDataOf<TypeConfig>,
+  ) -> Result<(), io::Error> {
     tracing::info!("install snapshot");
 
     // Deserialize the snapshot data
-    let snapshot_data: StateMachineData = serde_json::from_slice(snapshot.get_ref())
+    let mut snapshot_data: StateMachineData = serde_json::from_slice(snapshot.get_ref())
       .map_err(|e| StorageError::read_snapshot(Some(meta.signature()), &e))?;
+    snapshot_data.last_applied = meta.last_log_id;
+    snapshot_data.last_membership = meta.last_membership.clone();
 
     let new_snapshot = StoredSnapshot {
       meta: meta.clone(),
@@ -324,7 +335,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     Ok(())
   }
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot>, StorageError> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, io::Error> {
     match &*self.current_snapshot.lock().unwrap() {
       Some(snapshot) => {
         let data = serde_json::to_vec(&snapshot.data)

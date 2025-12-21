@@ -3,6 +3,9 @@ name = "chitchat_openraft_axum_example"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+file-logging = []
+
 [dependencies]
 aide = { version = "0.15", features = [
   "redoc",
@@ -17,18 +20,19 @@ base64 = "0.22.1"
 bincode = "2"
 chitchat = { git = "https://github.com/quickwit-oss/chitchat", rev = "c6f7809cd782173e8dbddf79e25d9cb40c9c14a4" }
 chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 cool-id-generator = "1"
+futures = "0.3"
 itertools = "0.14"
 mem-log = { path = "../mem-log", features = [] }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "54ffb00dbb8ed7518d0363c4846813761ff80e92", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", features = [
   "serde",
   "type-alias",
 ] }
 schemars = { version = "0.9", features = ["uuid1"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-tokio = { version = "1.46.1", features = [
+tokio = { version = "1.48.0", features = [
   "net",
   "sync",
   "rt-multi-thread",
@@ -39,12 +43,9 @@ tokio = { version = "1.46.1", features = [
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-uuid = { version = "1.0", features = ["serde", "v4"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+uuid = { version = "1.19", features = ["serde", "v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
-
-[features]
-file-logging = []
