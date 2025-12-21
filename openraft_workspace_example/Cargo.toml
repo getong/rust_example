@@ -8,10 +8,11 @@ members = [
   "raft_kv_memstore_singlethreaded",
   "raft_kv_memstore_network_v2",
   "raft_kv_memstore_grpc",
-  "raft_poem_tarpc_rocksdb",
   "rocksstore",
   "memstore",
+  "raft_poem_tarpc_rocksdb",
   "chitchat_poem_tarpc_rocksdb_example",
   "chitchat_openraft_axum_example",
+  "crabcluster",
   "multi_raft_kv",
 ]

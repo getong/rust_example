@@ -1,16 +1,20 @@
 use std::{
   collections::BTreeMap,
+  fmt,
   fmt::Debug,
+  io,
   io::Cursor,
   ops::RangeBounds,
   sync::{Arc, Mutex},
 };
 
+use futures::{Stream, TryStreamExt};
 use openraft::{
-  AnyError, Entry, ErrorSubject, ErrorVerb, LogId, LogState, RaftLogReader, RaftSnapshotBuilder,
-  SnapshotMeta, StorageError, StoredMembership, Vote,
+  Entry, EntryPayload, LogId, LogState, OptionalSend, RaftLogReader, RaftSnapshotBuilder,
+  SnapshotMeta, StoredMembership, Vote,
+  alias::SnapshotDataOf,
   entry::RaftEntry,
-  storage::{IOFlushed, RaftLogStorage, RaftStateMachine, Snapshot},
+  storage::{EntryResponder, IOFlushed, RaftLogStorage, RaftStateMachine, Snapshot},
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -24,6 +28,16 @@ use crate::node::RaftTypeConfig;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RaftRequest {
   Set { key: String, value: String },
+}
+
+impl fmt::Display for RaftRequest {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      RaftRequest::Set { key, value } => {
+        write!(f, "Set {{ key: {}, value_len: {} }}", key, value.len())
+      }
+    }
+  }
 }
 
 /// Here you will defined what type of answer you expect from reading the data of a node.
@@ -78,9 +92,7 @@ pub struct RaftStore {
 impl RaftLogStorage<RaftTypeConfig> for Arc<RaftStore> {
   type LogReader = Self;
 
-  async fn get_log_state(
-    &mut self,
-  ) -> Result<LogState<RaftTypeConfig>, StorageError<RaftTypeConfig>> {
+  async fn get_log_state(&mut self) -> Result<LogState<RaftTypeConfig>, io::Error> {
     let log = self.log.read().await;
     let last_log_id = log.iter().rev().next().map(|(_, ent)| ent.log_id());
     let last_purged_log_id = *self.last_purged_log_id.read().await;
@@ -100,7 +112,7 @@ impl RaftLogStorage<RaftTypeConfig> for Arc<RaftStore> {
     &mut self,
     entries: I,
     callback: IOFlushed<RaftTypeConfig>,
-  ) -> Result<(), StorageError<RaftTypeConfig>>
+  ) -> Result<(), io::Error>
   where
     I: IntoIterator<Item = Entry<RaftTypeConfig>> + Send,
     I::IntoIter: Send,
@@ -114,10 +126,7 @@ impl RaftLogStorage<RaftTypeConfig> for Arc<RaftStore> {
   }
 
   #[tracing::instrument(level = "debug", skip(self))]
-  async fn truncate(
-    &mut self,
-    log_id: LogId<RaftTypeConfig>,
-  ) -> Result<(), StorageError<RaftTypeConfig>> {
+  async fn truncate(&mut self, log_id: LogId<RaftTypeConfig>) -> Result<(), io::Error> {
     tracing::debug!("delete_log: [{:?}, +oo)", log_id);
 
     let mut log = self.log.write().await;
@@ -132,10 +141,7 @@ impl RaftLogStorage<RaftTypeConfig> for Arc<RaftStore> {
   }
 
   #[tracing::instrument(level = "debug", skip(self))]
-  async fn purge(
-    &mut self,
-    log_id: LogId<RaftTypeConfig>,
-  ) -> Result<(), StorageError<RaftTypeConfig>> {
+  async fn purge(&mut self, log_id: LogId<RaftTypeConfig>) -> Result<(), io::Error> {
     tracing::debug!("purge_log: [0, {:?}]", log_id);
 
     {
@@ -158,10 +164,7 @@ impl RaftLogStorage<RaftTypeConfig> for Arc<RaftStore> {
     Ok(())
   }
 
-  async fn save_vote(
-    &mut self,
-    vote: &Vote<RaftTypeConfig>,
-  ) -> Result<(), StorageError<RaftTypeConfig>> {
+  async fn save_vote(&mut self, vote: &Vote<RaftTypeConfig>) -> Result<(), io::Error> {
     let mut v = self.vote.write().await;
     *v = Some(*vote);
     Ok(())
@@ -172,7 +175,7 @@ impl RaftLogReader<RaftTypeConfig> for Arc<RaftStore> {
   async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + Send>(
     &mut self,
     range: RB,
-  ) -> Result<Vec<Entry<RaftTypeConfig>>, StorageError<RaftTypeConfig>> {
+  ) -> Result<Vec<Entry<RaftTypeConfig>>, io::Error> {
     let log = self.log.read().await;
     let response = log
       .range(range.clone())
@@ -181,18 +184,14 @@ impl RaftLogReader<RaftTypeConfig> for Arc<RaftStore> {
     Ok(response)
   }
 
-  async fn read_vote(
-    &mut self,
-  ) -> Result<Option<Vote<RaftTypeConfig>>, StorageError<RaftTypeConfig>> {
+  async fn read_vote(&mut self) -> Result<Option<Vote<RaftTypeConfig>>, io::Error> {
     Ok(*self.vote.read().await)
   }
 }
 
 impl RaftSnapshotBuilder<RaftTypeConfig> for Arc<RaftStore> {
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(
-    &mut self,
-  ) -> Result<Snapshot<RaftTypeConfig>, StorageError<RaftTypeConfig>> {
+  async fn build_snapshot(&mut self) -> Result<Snapshot<RaftTypeConfig>, io::Error> {
     let data;
     let last_applied_log;
     let last_membership;
@@ -200,13 +199,8 @@ impl RaftSnapshotBuilder<RaftTypeConfig> for Arc<RaftStore> {
     {
       // Serialize the data of the state machine.
       let state_machine = self.state_machine.read().await;
-      data = serde_json::to_vec(&*state_machine).map_err(|e| {
-        StorageError::new(
-          ErrorSubject::StateMachine,
-          ErrorVerb::Read,
-          AnyError::new(&e),
-        )
-      })?;
+      data = serde_json::to_vec(&*state_machine)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
       last_applied_log = state_machine.last_applied_log;
       last_membership = state_machine.last_membership.clone();
@@ -258,43 +252,42 @@ impl RaftStateMachine<RaftTypeConfig> for Arc<RaftStore> {
       Option<LogId<RaftTypeConfig>>,
       StoredMembership<RaftTypeConfig>,
     ),
-    StorageError<RaftTypeConfig>,
+    io::Error,
   > {
     let sm = self.state_machine.read().await;
     Ok((sm.last_applied_log, sm.last_membership.clone()))
   }
 
-  async fn apply<I>(
-    &mut self,
-    entries: I,
-  ) -> Result<Vec<RaftResponse>, StorageError<RaftTypeConfig>>
+  async fn apply<Strm>(&mut self, mut entries: Strm) -> Result<(), io::Error>
   where
-    I: IntoIterator<Item = Entry<RaftTypeConfig>> + Send,
-    I::IntoIter: Send,
+    Strm: Stream<Item = Result<EntryResponder<RaftTypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
-    let mut res = Vec::new();
-    let mut sm = self.state_machine.write().await;
-
-    for entry in entries {
+    while let Some((entry, responder)) = entries.try_next().await? {
+      let mut sm = self.state_machine.write().await;
       sm.last_applied_log = Some(entry.log_id());
 
-      match entry.payload {
-        openraft::EntryPayload::Blank => res.push(RaftResponse { value: None }),
-        openraft::EntryPayload::Normal(ref req) => match req {
+      let response = match entry.payload {
+        EntryPayload::Blank => RaftResponse { value: None },
+        EntryPayload::Normal(ref req) => match req {
           RaftRequest::Set { key, value } => {
             sm.data.insert(key.clone(), value.clone());
-            res.push(RaftResponse {
+            RaftResponse {
               value: Some(value.clone()),
-            });
+            }
           }
         },
-        openraft::EntryPayload::Membership(ref mem) => {
+        EntryPayload::Membership(ref mem) => {
           sm.last_membership = StoredMembership::new(Some(entry.log_id()), mem.clone());
-          res.push(RaftResponse { value: None });
+          RaftResponse { value: None }
         }
       };
+      drop(sm);
+
+      if let Some(responder) = responder {
+        responder.send(response);
+      }
     }
-    Ok(res)
+    Ok(())
   }
 
   async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
@@ -303,15 +296,15 @@ impl RaftStateMachine<RaftTypeConfig> for Arc<RaftStore> {
 
   async fn begin_receiving_snapshot(
     &mut self,
-  ) -> Result<Cursor<Vec<u8>>, StorageError<RaftTypeConfig>> {
+  ) -> Result<SnapshotDataOf<RaftTypeConfig>, io::Error> {
     Ok(Cursor::new(Vec::new()))
   }
 
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMeta<RaftTypeConfig>,
-    snapshot: Cursor<Vec<u8>>,
-  ) -> Result<(), StorageError<RaftTypeConfig>> {
+    snapshot: SnapshotDataOf<RaftTypeConfig>,
+  ) -> Result<(), io::Error> {
     // For simplicity, just update the current snapshot
     let data = snapshot.into_inner();
     let new_snapshot = RaftSnapshot {
@@ -326,7 +319,7 @@ impl RaftStateMachine<RaftTypeConfig> for Arc<RaftStore> {
 
   async fn get_current_snapshot(
     &mut self,
-  ) -> Result<Option<openraft::storage::Snapshot<RaftTypeConfig>>, StorageError<RaftTypeConfig>> {
+  ) -> Result<Option<openraft::storage::Snapshot<RaftTypeConfig>>, io::Error> {
     match &*self.current_snapshot.read().await {
       Some(snapshot) => {
         let data = snapshot.data.clone();

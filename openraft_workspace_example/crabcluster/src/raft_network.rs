@@ -135,9 +135,6 @@ impl RaftNetworkV2<RaftTypeConfig> for RaftNetworkConnection {
               &AnyError::error(format!("Remote error: {:?}", remote_err)),
             )))
           }
-          _ => Err(StreamingError::Network(NetworkError::new(
-            &AnyError::error("Unknown RPC error"),
-          ))),
         }
       }
     }

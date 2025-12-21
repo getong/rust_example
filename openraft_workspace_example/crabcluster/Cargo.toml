@@ -7,28 +7,38 @@ keywords = ["cluster", "orchestration", "container"]
 categories = ["command-line-utilities", "network-programming"]
 version = "0.1.0"
 edition = "2024"
-resolver = "2"
-
-[profile.release]
-codegen-units = 1
-lto = true
-strip = true
 
 [dependencies]
 anyhow = "1"
 async-trait = "0.1.88"
-axum = { version = "0.8", default-features = false, features = ["http2", "tokio", "json"] }
-clap = { version = "4", features = ["derive", "cargo", "wrap_help", "deprecated"] }
+axum = { version = "0.8", default-features = false, features = [
+  "http2",
+  "tokio",
+  "json",
+] }
+clap = { version = "4", features = [
+  "derive",
+  "cargo",
+  "wrap_help",
+  "deprecated",
+] }
 directories = "6"
-openraft = { git = "https://github.com/datafuselabs/openraft", features = ["serde"] }
+futures = "0.3"
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", features = [
+  "serde",
+  "type-alias",
+] }
 podman-api = "0.10"
 reqwest = { version = "0.12.22", default-features = false, features = ["json"] }
 # clap_complete = "4"
 # clap_mangen = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sled = { version = "0.34", features = ["compression"] }
-tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread"] }
+sled = "0.34"
+tokio = { version = "1", default-features = false, features = [
+  "macros",
+  "rt-multi-thread",
+] }
 tower-http = { version = "0.6", features = ["trace"] }
 tracing = "0.1.41"
 tracing-futures = "0.2.5"
