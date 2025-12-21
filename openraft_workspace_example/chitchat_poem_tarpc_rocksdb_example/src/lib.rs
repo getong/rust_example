@@ -3,8 +3,8 @@
 use std::{fmt::Display, io::Cursor, net::SocketAddr, path::Path, sync::Arc, time::SystemTime};
 
 use chitchat::{
-  spawn_chitchat, transport::UdpTransport, Chitchat, ChitchatConfig, ChitchatId,
-  FailureDetectorConfig,
+  Chitchat, ChitchatConfig, ChitchatId, FailureDetectorConfig, spawn_chitchat,
+  transport::UdpTransport,
 };
 use cool_id_generator::Size;
 use openraft::Config;
@@ -15,7 +15,7 @@ use tokio::{sync::Mutex, time::Duration};
 use crate::{
   common::ChitchatApi,
   network::Network,
-  store::{new_storage, Request, Response},
+  store::{Request, Response, new_storage},
 };
 
 pub mod api_rpc;
@@ -29,10 +29,10 @@ pub mod web_openapi;
 use std::net::{IpAddr, Ipv4Addr};
 
 use futures::prelude::*;
-use poem::{listener::TcpListener, Route};
+use poem::{Route, listener::TcpListener};
 use poem_openapi::OpenApiService;
 use tarpc::{
-  server::{self, incoming::Incoming, Channel},
+  server::{self, Channel, incoming::Incoming},
   tokio_serde::formats::Json,
 };
 

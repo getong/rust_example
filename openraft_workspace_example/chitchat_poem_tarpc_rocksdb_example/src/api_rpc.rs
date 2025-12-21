@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tarpc::context;
 use thiserror::Error;
 
-use crate::{common::Api, TypeConfig};
+use crate::{TypeConfig, common::Api};
 
 #[derive(Clone, Debug, Error, Serialize, Deserialize)]
 pub enum ServiceError {

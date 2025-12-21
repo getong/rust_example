@@ -1,5 +1,5 @@
 use chitchat::{ChitchatId, ClusterStateSnapshot};
-use poem_openapi::{param::Query, payload::Json, OpenApi};
+use poem_openapi::{OpenApi, param::Query, payload::Json};
 use serde::{Deserialize, Serialize};
 
 use crate::common::ChitchatApi;
