@@ -5,13 +5,13 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser, Clone, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Opt {
-  #[clap(long)]
+  #[arg(long)]
   pub id: u64,
 
-  #[clap(long)]
+  #[arg(long)]
   pub http_addr: String,
 
-  #[clap(long)]
+  #[arg(long)]
   pub rpc_addr: String,
 }
 
