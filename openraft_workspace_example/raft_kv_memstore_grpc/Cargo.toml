@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bincode = "2.0.1"
+bincode = "2.0.0"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 dashmap = "6.1.0"
 futures = "0.3.31"
