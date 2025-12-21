@@ -21,7 +21,7 @@ bt = ["openraft/bt"]
 [dependencies]
 byteorder = "1.5.0"
 futures = "0.3.31"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", features = ["serde", "type-alias"] }
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = ["serde", "type-alias"] }
 rand = "0.9"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }

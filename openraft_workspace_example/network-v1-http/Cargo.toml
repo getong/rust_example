@@ -15,7 +15,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/databendlabs/openraft"
 
 [dependencies]
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
   "serde",
   "type-alias",
 ] }

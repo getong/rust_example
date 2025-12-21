@@ -6,12 +6,12 @@ edition = "2024"
 [dependencies]
 futures = "0.3.31"
 mem-log = { path = "../mem-log", features = [] }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", default-features = false, features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", default-features = false, features = [
   "serde",
   "type-alias",
   "tokio-rt",
 ] }
-openraft-multi = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0" }
+openraft-multi = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tokio = { version = "1.48", default-features = false, features = ["sync"] }
