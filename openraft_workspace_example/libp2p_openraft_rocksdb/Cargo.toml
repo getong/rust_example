@@ -1,0 +1,28 @@
+[package]
+name = "libp2p_openraft_rocksdb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.53", features = ["derive"] }
+futures = "0.3.31"
+libp2p = { version = "0.56", features = [
+	"tokio",
+	"tcp",
+	"noise",
+	"yamux",
+	"request-response",
+	"cbor",
+	"macros",
+	"identify",
+] }
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
+	"serde",
+	"type-alias",
+] }
+openraft-rocksstore = { path = "../rocksstore" }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48", default-features = false, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }

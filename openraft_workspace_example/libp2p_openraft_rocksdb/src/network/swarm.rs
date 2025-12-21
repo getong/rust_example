@@ -1,0 +1,247 @@
+use std::{collections::HashMap, error::Error, fmt, time::Duration};
+
+use futures::StreamExt;
+use libp2p::{
+  Multiaddr, PeerId, Swarm,
+  request_response::{self, OutboundRequestId},
+  swarm::{NetworkBehaviour, SwarmEvent},
+};
+use openraft::error::Unreachable;
+use tokio::sync::{mpsc, oneshot};
+
+use crate::{
+  network::rpc::{RaftRpcRequest, RaftRpcResponse},
+  typ::{Raft, Snapshot},
+};
+
+#[derive(Debug)]
+pub struct NetErr(pub String);
+
+impl fmt::Display for NetErr {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+impl Error for NetErr {}
+
+#[derive(NetworkBehaviour)]
+#[behaviour(out_event = "BehaviourEvent")]
+pub struct Behaviour {
+  pub raft: request_response::cbor::Behaviour<RaftRpcRequest, RaftRpcResponse>,
+}
+
+#[derive(Debug)]
+pub enum BehaviourEvent {
+  Raft(request_response::Event<RaftRpcRequest, RaftRpcResponse>),
+}
+
+impl From<request_response::Event<RaftRpcRequest, RaftRpcResponse>> for BehaviourEvent {
+  fn from(value: request_response::Event<RaftRpcRequest, RaftRpcResponse>) -> Self {
+    Self::Raft(value)
+  }
+}
+
+pub enum Command {
+  Dial {
+    addr: Multiaddr,
+  },
+  Request {
+    peer: PeerId,
+    req: RaftRpcRequest,
+    resp: oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
+  },
+}
+
+#[derive(Clone)]
+pub struct Libp2pClient {
+  tx: mpsc::Sender<Command>,
+  timeout: Duration,
+}
+
+impl Libp2pClient {
+  pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
+    Self { tx, timeout }
+  }
+
+  pub async fn dial(&self, addr: Multiaddr) {
+    let _ = self.tx.send(Command::Dial { addr }).await;
+  }
+
+  pub async fn request(
+    &self,
+    peer: PeerId,
+    req: RaftRpcRequest,
+  ) -> Result<RaftRpcResponse, Unreachable> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::Request {
+        peer,
+        req,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
+      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
+
+    resp.map_err(|e| Unreachable::new(&e))
+  }
+}
+
+pub async fn run_swarm(
+  mut swarm: Swarm<Behaviour>,
+  mut cmd_rx: mpsc::Receiver<Command>,
+  raft: Raft,
+) {
+  let mut pending: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>> =
+    HashMap::new();
+
+  loop {
+    tokio::select! {
+      cmd = cmd_rx.recv() => {
+        let Some(cmd) = cmd else { return; };
+        match cmd {
+          Command::Dial { addr } => {
+            let _ = Swarm::dial(&mut swarm, addr);
+          }
+          Command::Request { peer, req, resp } => {
+            let id = swarm.behaviour_mut().raft.send_request(&peer, req);
+            pending.insert(id, resp);
+          }
+        }
+      }
+
+      ev = swarm.select_next_some() => {
+        match ev {
+          SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => match event {
+            request_response::Event::Message { message, .. } => match message {
+              request_response::Message::Request { request, channel, .. } => {
+                let resp = handle_inbound_rpc(raft.clone(), request).await;
+                let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+              }
+              request_response::Message::Response { request_id, response } => {
+                if let Some(tx) = pending.remove(&request_id) {
+                  let _ = tx.send(Ok(response));
+                }
+              }
+            },
+
+            request_response::Event::OutboundFailure { request_id, error, .. } => {
+              if let Some(tx) = pending.remove(&request_id) {
+                let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
+              }
+            }
+
+            request_response::Event::InboundFailure { .. } => {}
+            request_response::Event::ResponseSent { .. } => {}
+          },
+
+          SwarmEvent::NewListenAddr { address, .. } => {
+            tracing::info!("listening on {address}");
+          }
+
+          _ => {}
+        }
+      }
+    }
+  }
+}
+
+/// Client-only swarm loop.
+///
+/// It supports outbound requests/responses but does not require a `Raft` handle.
+/// If it receives an inbound request, it responds with `RaftRpcResponse::Error`.
+pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Receiver<Command>) {
+  let mut pending: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>> =
+    HashMap::new();
+
+  loop {
+    tokio::select! {
+      cmd = cmd_rx.recv() => {
+        let Some(cmd) = cmd else { return; };
+        match cmd {
+          Command::Dial { addr } => {
+            let _ = Swarm::dial(&mut swarm, addr);
+          }
+          Command::Request { peer, req, resp } => {
+            let id = swarm.behaviour_mut().raft.send_request(&peer, req);
+            pending.insert(id, resp);
+          }
+        }
+      }
+
+      ev = swarm.select_next_some() => {
+        match ev {
+          SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => match event {
+            request_response::Event::Message { message, .. } => match message {
+              request_response::Message::Request { channel, .. } => {
+                let _ = swarm
+                  .behaviour_mut()
+                  .raft
+                  .send_response(channel, RaftRpcResponse::Error("client-only".to_string()));
+              }
+              request_response::Message::Response { request_id, response } => {
+                if let Some(tx) = pending.remove(&request_id) {
+                  let _ = tx.send(Ok(response));
+                }
+              }
+            },
+
+            request_response::Event::OutboundFailure { request_id, error, .. } => {
+              if let Some(tx) = pending.remove(&request_id) {
+                let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
+              }
+            }
+
+            request_response::Event::InboundFailure { .. } => {}
+            request_response::Event::ResponseSent { .. } => {}
+          },
+
+          SwarmEvent::NewListenAddr { address, .. } => {
+            tracing::info!("listening on {address}");
+          }
+
+          _ => {}
+        }
+      }
+    }
+  }
+}
+
+async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcResponse {
+  match request {
+    RaftRpcRequest::AppendEntries(req) => {
+      let res = raft.append_entries(req).await;
+      RaftRpcResponse::AppendEntries(res)
+    }
+    RaftRpcRequest::Vote(req) => {
+      let res = raft.vote(req).await;
+      RaftRpcResponse::Vote(res)
+    }
+    RaftRpcRequest::GetMetrics => {
+      let metrics = raft.metrics().borrow().clone();
+      RaftRpcResponse::GetMetrics(metrics)
+    }
+    RaftRpcRequest::FullSnapshot { vote, meta, data } => {
+      let snapshot = Snapshot {
+        meta,
+        snapshot: std::io::Cursor::new(data),
+      };
+
+      // Match the error-mapping pattern used elsewhere in this workspace.
+      let res = raft
+        .install_full_snapshot(vote, snapshot)
+        .await
+        .map_err(|e| {
+          openraft::error::RaftError::<openraft_rocksstore::TypeConfig, openraft::error::Infallible>::Fatal(e)
+        });
+
+      RaftRpcResponse::FullSnapshot(res)
+    }
+  }
+}
