@@ -2,24 +2,27 @@
 [package]
 name = "raft_poem_tarpc_rocksdb"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 byteorder = "1.5"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures = "0.3"
-openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias"] }
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "06911c90379b99ec067b62c03295468c296b64d0", features = [
+  "serde",
+  "type-alias",
+] }
 openraft-rocksstore = { path = "../rocksstore" }
 poem = "3.1"
 poem-openapi = { version = "5.1", features = ["swagger-ui", "email"] }
 reqwest = { version = "0.12", features = ["json"] }
-rocksdb = "0.23"
+rocksdb = "0.24"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tarpc = { version = "0.36", features = ["full"] }
+tarpc = { version = "0.37", features = ["full"] }
 thiserror = "2"
-tokio = { version = "1.46", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

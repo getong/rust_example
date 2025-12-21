@@ -1,18 +1,18 @@
 use openraft::{
+  AnyError,
   error::{InstallSnapshotError, NetworkError, RPCError, RaftError},
   network::{RPCOption, RaftNetwork, RaftNetworkFactory},
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
   },
-  AnyError,
 };
 use serde::de::DeserializeOwned;
 use tarpc::{client, context, tokio_serde::formats::Json};
 
 use crate::{
-  api_rpc::{ServiceError, WorldClient},
   Node, NodeId, TypeConfig,
+  api_rpc::{ServiceError, WorldClient},
 };
 
 pub struct Network {}

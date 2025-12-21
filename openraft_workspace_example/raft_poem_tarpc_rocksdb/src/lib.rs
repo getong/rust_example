@@ -8,12 +8,12 @@ use std::{
   sync::Arc,
 };
 
-use futures::{future, Future, StreamExt};
+use futures::{Future, StreamExt, future};
 use openraft::Config;
-use poem::{listener::TcpListener, Route};
+use poem::{Route, listener::TcpListener};
 use poem_openapi::OpenApiService;
 use tarpc::{
-  server::{self, incoming::Incoming, Channel},
+  server::{self, Channel, incoming::Incoming},
   tokio_serde::formats::Json,
 };
 
@@ -21,7 +21,7 @@ use crate::{
   api_rpc::World,
   common::Api,
   network::Network,
-  store::{new_storage, Request, Response},
+  store::{Request, Response, new_storage},
 };
 
 pub mod api_rpc;

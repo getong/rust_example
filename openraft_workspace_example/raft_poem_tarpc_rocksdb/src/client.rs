@@ -4,13 +4,13 @@ use std::{
 };
 
 use openraft::{
-  error::{NetworkError, RemoteError, Unreachable},
   TryAsRef,
+  error::{CheckIsLeaderError, NetworkError, RemoteError, Unreachable},
 };
 use reqwest::Client;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{typ::*, NodeId, Request};
+use crate::{NodeId, Request, TypeConfig, typ::*};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Empty {}
@@ -61,7 +61,7 @@ impl ExampleClient {
   pub async fn linearizable_read(
     &self,
     req: &String,
-  ) -> Result<String, RPCError<RaftError<CheckIsLeaderError>>> {
+  ) -> Result<String, RPCError<RaftError<CheckIsLeaderError<TypeConfig>>>> {
     self
       .do_send_rpc_to_leader("api/linearizable_read", Some(req))
       .await
