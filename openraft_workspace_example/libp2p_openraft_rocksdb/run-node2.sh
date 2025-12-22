@@ -26,6 +26,10 @@ NODE1_LISTEN="${NODE1_LISTEN:-/ip4/127.0.0.1/tcp/4001}"
 NODE2_LISTEN="${NODE2_LISTEN:-/ip4/127.0.0.1/tcp/4002}"
 NODE3_LISTEN="${NODE3_LISTEN:-/ip4/127.0.0.1/tcp/4003}"
 
+NODE1_HTTP="${NODE1_HTTP:-127.0.0.1:3001}"
+NODE2_HTTP="${NODE2_HTTP:-127.0.0.1:3002}"
+NODE3_HTTP="${NODE3_HTTP:-127.0.0.1:3003}"
+
 LOG_DIR="$DB_ROOT/logs"
 NODE2_LOG="$LOG_DIR/node2.log"
 NODE1_PEER_ID_FILE="$NODE1_DB/peer.id"
@@ -125,6 +129,7 @@ echo "Starting node2 (Ctrl-C to stop)..."
 cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
 	--id 2 \
 	--listen "$NODE2_LISTEN" \
+	--http "$NODE2_HTTP" \
 	--db "$NODE2_DB" \
 	--node 1="$ADDR1" \
 	--node 2="$ADDR2" \
