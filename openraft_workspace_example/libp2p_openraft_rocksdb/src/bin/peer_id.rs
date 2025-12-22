@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use clap::Parser;
-use libp2p::{identity, PeerId};
+use libp2p::{PeerId, identity};
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "Print libp2p PeerId from a protobuf key file")]
+#[command(
+  author,
+  version,
+  about = "Print libp2p PeerId from a protobuf key file"
+)]
 struct Opt {
   /// Path to the protobuf-encoded libp2p keypair (same format used by the example).
   #[arg(long)]

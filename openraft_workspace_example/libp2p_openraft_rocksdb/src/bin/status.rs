@@ -7,8 +7,6 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, yamux,
 };
-use tokio::sync::mpsc;
-
 use libp2p_openraft_rocksdb::{
   app,
   network::{
@@ -17,9 +15,14 @@ use libp2p_openraft_rocksdb::{
     transport::parse_p2p_addr,
   },
 };
+use tokio::sync::mpsc;
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about = "Query OpenRaft metrics (leader/term) via libp2p RPC")]
+#[command(
+  author,
+  version,
+  about = "Query OpenRaft metrics (leader/term) via libp2p RPC"
+)]
 pub struct Opt {
   /// Target node multiaddr including /p2p/<peerid>
   #[arg(long)]

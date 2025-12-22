@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::typ::{
-  AppendEntriesRequest, AppendEntriesResponse, RaftError, SnapshotMeta, SnapshotResponse, Vote,
-  VoteRequest, VoteResponse, RaftMetrics,
+  AppendEntriesRequest, AppendEntriesResponse, RaftError, RaftMetrics, SnapshotMeta,
+  SnapshotResponse, Vote, VoteRequest, VoteResponse,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,5 +1,6 @@
 use std::{
   collections::BTreeMap,
+  env,
   path::{Path, PathBuf},
   time::Duration,
 };
@@ -22,6 +23,9 @@ use crate::{
   store,
   typ::NodeId,
 };
+
+const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
+const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
@@ -85,13 +89,62 @@ pub fn load_or_create_keypair(path: &Path) -> anyhow::Result<identity::Keypair> 
   Ok(kp)
 }
 
+fn load_env_file() {
+  let candidates = [
+    PathBuf::from(".env"),
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env"),
+  ];
+
+  for path in candidates {
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+      continue;
+    };
+
+    for raw_line in contents.lines() {
+      let line = raw_line.trim();
+      if line.is_empty() || line.starts_with('#') {
+        continue;
+      }
+
+      let Some((key, value)) = line.split_once('=') else {
+        continue;
+      };
+
+      let key = key.trim();
+      if key.is_empty() || env::var_os(key).is_some() {
+        continue;
+      }
+
+      let value = value.trim();
+      unsafe {
+        env::set_var(key, value);
+      }
+    }
+
+    break;
+  }
+}
+
+fn node_name_for_id(id: NodeId) -> String {
+  let key = format!("LIBP2P_NODE_NAME_{id}");
+  env::var(key).unwrap_or_else(|_| format!("node{id}"))
+}
+
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
+  load_env_file();
+
   std::fs::create_dir_all(&opt.db).context("create db dir")?;
 
   let key_path = opt.key.clone().unwrap_or_else(|| default_key_path(&opt.db));
   let local_key = load_or_create_keypair(&key_path)?;
   let local_peer_id = PeerId::from(local_key.public());
-  tracing::info!("node_id={}, peer_id={}", opt.id, local_peer_id);
+  let node_name = env::var(ENV_SELF_NAME).unwrap_or_else(|_| node_name_for_id(opt.id));
+  tracing::info!(
+    "node_id={}, node_name={}, peer_id={}",
+    opt.id,
+    node_name,
+    local_peer_id
+  );
 
   let listen_addr: Multiaddr = opt.listen.parse().context("invalid --listen multiaddr")?;
 
@@ -149,6 +202,44 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
         addr: addr.to_string(),
       },
     );
+  }
+
+  if let Ok(bootstrap_name) = env::var(ENV_BOOTSTRAP_NAME) {
+    let mut bootstrap_target: Option<(NodeId, String)> = None;
+    for (id, node) in &members {
+      if node_name_for_id(*id) == bootstrap_name {
+        bootstrap_target = Some((*id, node.addr.clone()));
+        break;
+      }
+    }
+
+    match bootstrap_target {
+      Some((id, addr)) if id == opt.id => {
+        tracing::info!(
+          "bootstrap_name={}, bootstrap_id={}, bootstrap_addr={}, skipping self dial",
+          bootstrap_name,
+          id,
+          addr
+        );
+      }
+      Some((_id, addr)) => match addr.parse::<Multiaddr>() {
+        Ok(maddr) => {
+          tracing::info!("dialing bootstrap_name={} addr={}", bootstrap_name, addr);
+          client.dial(maddr).await;
+        }
+        Err(err) => {
+          tracing::warn!(
+            "bootstrap_name={}, invalid multiaddr: {} ({})",
+            bootstrap_name,
+            addr,
+            err
+          );
+        }
+      },
+      None => {
+        tracing::warn!("bootstrap_name={} not found in --node list", bootstrap_name);
+      }
+    }
   }
 
   if opt.init {
