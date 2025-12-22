@@ -2,6 +2,7 @@
 #![deny(unused_qualifications)]
 
 pub mod app;
+pub mod http;
 pub mod network;
 pub mod store;
 pub mod typ;

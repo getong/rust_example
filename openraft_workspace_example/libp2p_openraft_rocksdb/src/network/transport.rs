@@ -43,6 +43,14 @@ impl Libp2pNetworkFactory {
     Ok(())
   }
 
+  pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
+    let map = self.node_peers.read().await;
+    map
+      .iter()
+      .map(|(id, (peer, addr))| (*id, *peer, addr.clone()))
+      .collect()
+  }
+
   async fn peer_for(&self, node_id: NodeId) -> Result<PeerId, Unreachable> {
     let map = self.node_peers.read().await;
     map

@@ -1,6 +1,7 @@
 use std::{
   collections::BTreeMap,
   env,
+  net::SocketAddr,
   path::{Path, PathBuf},
   time::Duration,
 };
@@ -18,6 +19,7 @@ use openraft::{BasicNode, Raft};
 use tokio::sync::mpsc;
 
 use crate::{
+  http,
   network::{
     swarm::{Behaviour, Libp2pClient, run_swarm},
     transport::Libp2pNetworkFactory,
@@ -39,6 +41,10 @@ pub struct Opt {
   /// Libp2p listen address, e.g. /ip4/0.0.0.0/tcp/4001
   #[arg(long)]
   pub listen: String,
+
+  /// HTTP listen address for axum API.
+  #[arg(long, default_value = "0.0.0.0:3000")]
+  pub http: String,
 
   /// Directory for RocksDB data.
   #[arg(long)]
@@ -149,6 +155,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   );
 
   let listen_addr: Multiaddr = opt.listen.parse().context("invalid --listen multiaddr")?;
+  let http_addr: SocketAddr = opt.http.parse().context("invalid --http")?;
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()
@@ -200,6 +207,21 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .context("create raft")?;
 
   tokio::spawn(run_swarm(swarm, cmd_rx, raft.clone()));
+
+  let http_state = http::AppState {
+    node_id: opt.id,
+    node_name: node_name.clone(),
+    peer_id: local_peer_id.to_string(),
+    listen: opt.listen.clone(),
+    network: network.clone(),
+    raft: raft.clone(),
+  };
+
+  tokio::spawn(async move {
+    if let Err(err) = http::serve(http_addr, http_state).await {
+      tracing::error!("http server error: {err}");
+    }
+  });
 
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
   for n in &opt.nodes {
