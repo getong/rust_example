@@ -3,6 +3,8 @@ use std::{collections::HashMap, error::Error, fmt, time::Duration};
 use futures::StreamExt;
 use libp2p::{
   Multiaddr, PeerId, Swarm,
+  kad::{self, store::MemoryStore},
+  mdns,
   request_response::{self, OutboundRequestId},
   swarm::{NetworkBehaviour, SwarmEvent},
 };
@@ -29,16 +31,32 @@ impl Error for NetErr {}
 #[behaviour(out_event = "BehaviourEvent")]
 pub struct Behaviour {
   pub raft: request_response::cbor::Behaviour<RaftRpcRequest, RaftRpcResponse>,
+  pub mdns: mdns::tokio::Behaviour,
+  pub kad: kad::Behaviour<MemoryStore>,
 }
 
 #[derive(Debug)]
 pub enum BehaviourEvent {
   Raft(request_response::Event<RaftRpcRequest, RaftRpcResponse>),
+  Mdns(mdns::Event),
+  Kad(kad::Event),
 }
 
 impl From<request_response::Event<RaftRpcRequest, RaftRpcResponse>> for BehaviourEvent {
   fn from(value: request_response::Event<RaftRpcRequest, RaftRpcResponse>) -> Self {
     Self::Raft(value)
+  }
+}
+
+impl From<mdns::Event> for BehaviourEvent {
+  fn from(value: mdns::Event) -> Self {
+    Self::Mdns(value)
+  }
+}
+
+impl From<kad::Event> for BehaviourEvent {
+  fn from(value: kad::Event) -> Self {
+    Self::Kad(value)
   }
 }
 
@@ -107,7 +125,9 @@ pub async fn run_swarm(
         let Some(cmd) = cmd else { return; };
         match cmd {
           Command::Dial { addr } => {
-            let _ = Swarm::dial(&mut swarm, addr);
+            let dial_addr = addr.clone();
+            let _ = Swarm::dial(&mut swarm, dial_addr);
+            add_kad_address_from_p2p(&mut swarm, &addr);
           }
           Command::Request { peer, req, resp } => {
             let id = swarm.behaviour_mut().raft.send_request(&peer, req);
@@ -141,6 +161,24 @@ pub async fn run_swarm(
             request_response::Event::ResponseSent { .. } => {}
           },
 
+          SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
+            mdns::Event::Discovered(list) => {
+              for (peer, addr) in list {
+                add_kad_peer_address(&mut swarm, peer, addr);
+              }
+            }
+            mdns::Event::Expired(list) => {
+              for (peer, addr) in list {
+                let addr = strip_p2p(addr);
+                swarm.behaviour_mut().kad.remove_address(&peer, &addr);
+              }
+            }
+          },
+
+          SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
+            tracing::debug!("kad event: {:?}", event);
+          }
+
           SwarmEvent::NewListenAddr { address, .. } => {
             tracing::info!("listening on {address}");
           }
@@ -166,7 +204,9 @@ pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Rec
         let Some(cmd) = cmd else { return; };
         match cmd {
           Command::Dial { addr } => {
-            let _ = Swarm::dial(&mut swarm, addr);
+            let dial_addr = addr.clone();
+            let _ = Swarm::dial(&mut swarm, dial_addr);
+            add_kad_address_from_p2p(&mut swarm, &addr);
           }
           Command::Request { peer, req, resp } => {
             let id = swarm.behaviour_mut().raft.send_request(&peer, req);
@@ -202,6 +242,24 @@ pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Rec
             request_response::Event::ResponseSent { .. } => {}
           },
 
+          SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
+            mdns::Event::Discovered(list) => {
+              for (peer, addr) in list {
+                add_kad_peer_address(&mut swarm, peer, addr);
+              }
+            }
+            mdns::Event::Expired(list) => {
+              for (peer, addr) in list {
+                let addr = strip_p2p(addr);
+                swarm.behaviour_mut().kad.remove_address(&peer, &addr);
+              }
+            }
+          },
+
+          SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
+            tracing::debug!("kad event: {:?}", event);
+          }
+
           SwarmEvent::NewListenAddr { address, .. } => {
             tracing::info!("listening on {address}");
           }
@@ -211,6 +269,29 @@ pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Rec
       }
     }
   }
+}
+
+fn add_kad_address_from_p2p(swarm: &mut Swarm<Behaviour>, addr: &Multiaddr) {
+  let mut addr = addr.clone();
+  let Some(libp2p::multiaddr::Protocol::P2p(peer)) = addr.pop() else {
+    return;
+  };
+  add_kad_peer_address(swarm, peer, addr);
+}
+
+fn add_kad_peer_address(swarm: &mut Swarm<Behaviour>, peer: PeerId, addr: Multiaddr) {
+  let addr = strip_p2p(addr);
+  swarm.behaviour_mut().kad.add_address(&peer, addr);
+}
+
+fn strip_p2p(mut addr: Multiaddr) -> Multiaddr {
+  if matches!(
+    addr.iter().last(),
+    Some(libp2p::multiaddr::Protocol::P2p(_))
+  ) {
+    let _ = addr.pop();
+  }
+  addr
 }
 
 async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcResponse {

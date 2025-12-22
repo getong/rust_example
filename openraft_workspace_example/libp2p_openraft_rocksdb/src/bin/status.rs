@@ -3,7 +3,9 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::Parser;
 use libp2p::{
-  Multiaddr, StreamProtocol, identity, noise,
+  Multiaddr, StreamProtocol, identity,
+  kad::{self, store::MemoryStore},
+  mdns, noise,
   request_response::{self, ProtocolSupport},
   tcp, yamux,
 };
@@ -60,9 +62,14 @@ async fn main() -> anyhow::Result<()> {
       yamux::Config::default,
     )
     .context("build tcp/noise/yamux")?
-    .with_behaviour(|_| {
+    .with_behaviour(|key| {
       let cfg = request_response::Config::default();
-      Behaviour {
+      let peer_id = libp2p::PeerId::from(key.public());
+      let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
+      let mut kad = kad::Behaviour::new(peer_id, MemoryStore::new(peer_id));
+      kad.set_mode(Some(kad::Mode::Client));
+
+      Ok(Behaviour {
         raft: request_response::cbor::Behaviour::new(
           [(
             StreamProtocol::new("/openraft/raft/1"),
@@ -70,7 +77,9 @@ async fn main() -> anyhow::Result<()> {
           )],
           cfg,
         ),
-      }
+        mdns,
+        kad,
+      })
     })
     .context("build behaviour")?
     .build();
