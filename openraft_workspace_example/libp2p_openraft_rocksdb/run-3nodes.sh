@@ -15,7 +15,7 @@ cargo build -p libp2p_openraft_rocksdb >/dev/null
 
 export SKIP_BUILD=1
 
-echo "Starting 2 nodes (Ctrl-C to stop)..."
+echo "Starting 3 nodes (Ctrl-C to stop)..."
 
 cleanup() {
   echo "Stopping..."
@@ -29,5 +29,10 @@ trap cleanup INT TERM EXIT
 sleep 1
 
 "$ROOT_DIR/run-node2.sh" &
+
+# Give node2 a moment to start listening.
+sleep 1
+
+"$ROOT_DIR/run-node3.sh" &
 
 wait
