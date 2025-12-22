@@ -4,17 +4,19 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
-DB_BASE="${DB_BASE:-/tmp/libp2p_openraft_rocksdb_demo}"
-DB_ROOT_FILE="${DB_ROOT_FILE:-$ROOT_DIR/.run-2nodes-db-root}"
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
+if [[ -f "$ENV_FILE" ]]; then
+	set -a
+	. "$ENV_FILE"
+	set +a
+fi
 
-if [[ -z "${DB_ROOT:-}" ]]; then
-  if [[ -f "$DB_ROOT_FILE" ]]; then
-    DB_ROOT="$(cat "$DB_ROOT_FILE")"
-  else
-    echo "Error: DB_ROOT is not set and $DB_ROOT_FILE not found."
-    echo "Hint: start run-node1.sh first (it writes the shared DB_ROOT), or set DB_ROOT explicitly."
-    exit 1
-  fi
+DB_BASE="${DB_BASE:-/tmp/libp2p_openraft_rocksdb_demo}"
+DB_ROOT="${DB_ROOT:-}"
+if [[ -z "$DB_ROOT" ]]; then
+	echo "Error: DB_ROOT is not set."
+	echo "Hint: set DB_ROOT in .env or export it before running this script."
+	exit 1
 fi
 NODE1_DB="$DB_ROOT/node1"
 NODE2_DB="$DB_ROOT/node2"
@@ -26,33 +28,63 @@ NODE3_LISTEN="${NODE3_LISTEN:-/ip4/127.0.0.1/tcp/4003}"
 
 LOG_DIR="$DB_ROOT/logs"
 NODE3_LOG="$LOG_DIR/node3.log"
+NODE1_PEER_ID_FILE="$NODE1_DB/peer.id"
+NODE2_PEER_ID_FILE="$NODE2_DB/peer.id"
+NODE3_PEER_ID_FILE="$NODE3_DB/peer.id"
 
 mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$LOG_DIR"
 
 if [[ "${RESET:-0}" == "1" ]]; then
-  # Only makes sense when user explicitly sets DB_ROOT. With default unique DB_ROOT it is harmless.
-  rm -rf "$DB_ROOT"
-  mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$LOG_DIR"
+	# Only makes sense when user explicitly sets DB_ROOT. With default unique DB_ROOT it is harmless.
+	rm -rf "$DB_ROOT"
+	mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$LOG_DIR"
 fi
 
 echo "Workspace: $WS_DIR"
 echo "DB root:   $DB_ROOT"
 
+PEER_ID_WAIT_SECS="${PEER_ID_WAIT_SECS:-120}"
+GEN_SCRIPT="$ROOT_DIR/generate_libp2p_id.sh"
+
+if [[ ! -x "$GEN_SCRIPT" ]]; then
+	echo "Error: missing executable $GEN_SCRIPT"
+	exit 1
+fi
+
 cd "$WS_DIR"
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  echo "Building..."
-  cargo build -p libp2p_openraft_rocksdb >/dev/null
+	echo "Building..."
+	cargo build -p libp2p_openraft_rocksdb >/dev/null
 fi
 
-peer_id() {
-  local key_path="$1"
-  cargo run -q -p libp2p_openraft_rocksdb --bin peer_id -- --key "$key_path" --create
+generate_peer_id() {
+	local key_path="$1"
+	local out_path="$2"
+	"$GEN_SCRIPT" --key "$key_path" --out "$out_path"
 }
 
-P1="$(peer_id "$NODE1_DB/node.key")"
-P2="$(peer_id "$NODE2_DB/node.key")"
-P3="$(peer_id "$NODE3_DB/node.key")"
+wait_for_peer_id() {
+	local label="$1"
+	local path="$2"
+	local deadline=$((SECONDS + PEER_ID_WAIT_SECS))
+	while [[ ! -s "$path" ]]; do
+		if ((PEER_ID_WAIT_SECS == 0)); then
+			echo "Error: peer id for ${label} not found at ${path}"
+			exit 1
+		fi
+		if ((SECONDS >= deadline)); then
+			echo "Error: timed out waiting for peer id for ${label} at ${path}"
+			exit 1
+		fi
+		sleep 0.2
+	done
+	cat "$path"
+}
+
+P3="$(generate_peer_id "$NODE3_DB/node.key" "$NODE3_PEER_ID_FILE")"
+P1="$(wait_for_peer_id "node1" "$NODE1_PEER_ID_FILE")"
+P2="$(wait_for_peer_id "node2" "$NODE2_PEER_ID_FILE")"
 
 ADDR1="$NODE1_LISTEN/p2p/$P1"
 ADDR2="$NODE2_LISTEN/p2p/$P2"
@@ -66,20 +98,20 @@ echo "Node2 addr:    $ADDR2"
 echo "Node3 addr:    $ADDR3"
 
 port_in_use() {
-  local port="$1"
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -ti "tcp:${port}" >/dev/null 2>&1
-  else
-    return 1
-  fi
+	local port="$1"
+	if command -v lsof >/dev/null 2>&1; then
+		lsof -ti "tcp:${port}" >/dev/null 2>&1
+	else
+		return 1
+	fi
 }
 
 if [[ "$NODE3_LISTEN" =~ /tcp/([0-9]+) ]]; then
-  if port_in_use "${BASH_REMATCH[1]}"; then
-    echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE3_LISTEN=$NODE3_LISTEN)."
-    echo "Hint: stop the previous nodes, or set NODE1_LISTEN/NODE2_LISTEN/NODE3_LISTEN to other ports."
-    exit 1
-  fi
+	if port_in_use "${BASH_REMATCH[1]}"; then
+		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE3_LISTEN=$NODE3_LISTEN)."
+		echo "Hint: stop the previous nodes, or set NODE1_LISTEN/NODE2_LISTEN/NODE3_LISTEN to other ports."
+		exit 1
+	fi
 fi
 
 export RUST_LOG="${RUST_LOG:-info}"
@@ -91,10 +123,10 @@ echo "Starting node3 (Ctrl-C to stop)..."
 
 # Node3 just joins the network (it will be contacted by the leader during replication).
 cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
-  --id 3 \
-  --listen "$NODE3_LISTEN" \
-  --db "$NODE3_DB" \
-  --node 1="$ADDR1" \
-  --node 2="$ADDR2" \
-  --node 3="$ADDR3" \
-  2>&1 | tee "$NODE3_LOG"
+	--id 3 \
+	--listen "$NODE3_LISTEN" \
+	--db "$NODE3_DB" \
+	--node 1="$ADDR1" \
+	--node 2="$ADDR2" \
+	--node 3="$ADDR3" \
+	2>&1 | tee "$NODE3_LOG"

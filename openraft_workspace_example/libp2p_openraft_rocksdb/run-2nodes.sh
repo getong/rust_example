@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
+if [[ -f "$ENV_FILE" ]]; then
+	set -a
+	. "$ENV_FILE"
+	set +a
+fi
+
 DB_BASE="${DB_BASE:-/tmp/libp2p_openraft_rocksdb_demo}"
 DB_ROOT="${DB_ROOT:-$DB_BASE/$(date +%Y%m%d-%H%M%S)}"
 
@@ -18,8 +25,8 @@ export SKIP_BUILD=1
 echo "Starting 2 nodes (Ctrl-C to stop)..."
 
 cleanup() {
-  echo "Stopping..."
-  jobs -p | xargs -r kill 2>/dev/null || true
+	echo "Stopping..."
+	jobs -p | xargs -r kill 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
 
