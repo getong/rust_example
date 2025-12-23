@@ -205,7 +205,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let config = std::sync::Arc::new(config.validate().context("validate raft config")?);
 
   let (log_store, state_machine) = store::open_store(&opt.db).await?;
-  let kv_reader = store::open_kv_reader(&opt.db)?;
+  let kv_data = store::kv_data(&state_machine);
 
   let (cmd_tx, cmd_rx) = mpsc::channel(256);
   let timeout = Duration::from_secs(5);
@@ -222,7 +222,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     cmd_rx,
     cmd_tx.clone(),
     raft.clone(),
-    kv_reader.clone(),
+    kv_data.clone(),
     kv_client.clone(),
   ));
 
@@ -234,6 +234,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     network: network.clone(),
     raft: raft.clone(),
     kv_client: kv_client.clone(),
+    kv_data: kv_data.clone(),
   };
 
   tokio::spawn(async move {

@@ -22,7 +22,7 @@ use crate::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
-  store::KvStoreReader,
+  store::KvData,
   typ::{Raft, Snapshot},
 };
 
@@ -187,7 +187,7 @@ pub async fn run_swarm(
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
   raft: Raft,
-  kv_reader: KvStoreReader,
+  kv_data: KvData,
   kv_client: KvClient,
 ) {
   let mut pending_raft: HashMap<
@@ -265,11 +265,11 @@ pub async fn run_swarm(
             request_response::Event::Message { message, .. } => match message {
               request_response::Message::Request { request, channel, .. } => {
                 let raft = raft.clone();
-                let kv_reader = kv_reader.clone();
+                let kv_data = kv_data.clone();
                 let kv_client = kv_client.clone();
                 let tx = cmd_tx.clone();
                 tokio::spawn(async move {
-                  let resp = handle_inbound_kv(raft, kv_reader, kv_client, request).await;
+                  let resp = handle_inbound_kv(raft, kv_data, kv_client, request).await;
                   let _ = tx.send(Command::KvRespond { channel, resp }).await;
                 });
               }
@@ -464,7 +464,7 @@ fn strip_p2p(mut addr: Multiaddr) -> Multiaddr {
 
 async fn handle_inbound_kv(
   raft: Raft,
-  kv_reader: KvStoreReader,
+  kv_data: KvData,
   kv_client: KvClient,
   request: RaftKvRequest,
 ) -> RaftKvResponse {
@@ -491,21 +491,23 @@ async fn handle_inbound_kv(
   };
 
   match op {
-    KvRequestOp::Get(req) => match kv_reader.get(req.key).await {
-      Ok(Some(value)) => RaftKvResponse {
-        op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
-          found: true,
-          value,
-        })),
-      },
-      Ok(None) => RaftKvResponse {
-        op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
-          found: false,
-          value: String::new(),
-        })),
-      },
-      Err(err) => kv_error_response(format!("kv read error: {err}")),
-    },
+    KvRequestOp::Get(req) => {
+      let kvs = kv_data.read().await;
+      match kvs.get(&req.key) {
+        Some(value) => RaftKvResponse {
+          op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
+            found: true,
+            value: value.clone(),
+          })),
+        },
+        None => RaftKvResponse {
+          op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
+            found: false,
+            value: String::new(),
+          })),
+        },
+      }
+    }
     KvRequestOp::Set(req) => {
       let key = req.key;
       let value = req.value;
@@ -528,16 +530,21 @@ async fn handle_inbound_kv(
     KvRequestOp::Update(req) => {
       let key = req.key;
       let value = req.value;
-      match kv_reader.exists(key.clone()).await {
-        Ok(false) => RaftKvResponse {
+      let exists = {
+        let kvs = kv_data.read().await;
+        kvs.contains_key(&key)
+      };
+      if !exists {
+        RaftKvResponse {
           op: Some(KvResponseOp::Update(
             crate::proto::raft_kv::UpdateValueResponse {
               ok: false,
               value: String::new(),
             },
           )),
-        },
-        Ok(true) => match raft
+        }
+      } else {
+        match raft
           .client_write(RocksRequest::Update {
             key,
             value: value.clone(),
@@ -553,29 +560,34 @@ async fn handle_inbound_kv(
             )),
           },
           Err(err) => kv_error_response(format!("{err:?}")),
-        },
-        Err(err) => kv_error_response(format!("kv read error: {err}")),
+        }
       }
     }
-    KvRequestOp::Delete(req) => match kv_reader.exists(req.key.clone()).await {
-      Ok(false) => RaftKvResponse {
-        op: Some(KvResponseOp::Delete(
-          crate::proto::raft_kv::DeleteValueResponse { ok: false },
-        )),
-      },
-      Ok(true) => match raft
-        .client_write(RocksRequest::Delete { key: req.key })
-        .await
-      {
-        Ok(_) => RaftKvResponse {
+    KvRequestOp::Delete(req) => {
+      let exists = {
+        let kvs = kv_data.read().await;
+        kvs.contains_key(&req.key)
+      };
+      if !exists {
+        RaftKvResponse {
           op: Some(KvResponseOp::Delete(
-            crate::proto::raft_kv::DeleteValueResponse { ok: true },
+            crate::proto::raft_kv::DeleteValueResponse { ok: false },
           )),
-        },
-        Err(err) => kv_error_response(format!("{err:?}")),
-      },
-      Err(err) => kv_error_response(format!("kv read error: {err}")),
-    },
+        }
+      } else {
+        match raft
+          .client_write(RocksRequest::Delete { key: req.key })
+          .await
+        {
+          Ok(_) => RaftKvResponse {
+            op: Some(KvResponseOp::Delete(
+              crate::proto::raft_kv::DeleteValueResponse { ok: true },
+            )),
+          },
+          Err(err) => kv_error_response(format!("{err:?}")),
+        }
+      }
+    }
   }
 }
 

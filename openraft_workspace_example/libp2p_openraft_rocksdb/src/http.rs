@@ -16,6 +16,7 @@ use crate::{
     UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
+  store::KvData,
   typ::{NodeId, Raft},
 };
 
@@ -28,6 +29,7 @@ pub struct AppState {
   pub network: Libp2pNetworkFactory,
   pub raft: Raft,
   pub kv_client: KvClient,
+  pub kv_data: KvData,
 }
 
 pub async fn serve(addr: SocketAddr, state: AppState) -> anyhow::Result<()> {
@@ -53,6 +55,7 @@ struct ClusterInfoResponse {
   listen: String,
   known_nodes: Vec<KnownNodeResponse>,
   raft_metrics: serde_json::Value,
+  kv_data: Vec<KvPairResponse>,
 }
 
 #[derive(Serialize)]
@@ -60,6 +63,12 @@ struct KnownNodeResponse {
   node_id: NodeId,
   peer_id: String,
   addr: String,
+}
+
+#[derive(Serialize)]
+struct KvPairResponse {
+  key: String,
+  value: String,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +135,16 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
   let raft_metrics = serde_json::to_value(metrics)
     .unwrap_or_else(|err| serde_json::Value::String(format!("metrics serialize error: {err}")));
 
+  let mut kv_data = Vec::new();
+  let kvs = state.kv_data.read().await;
+  for (key, value) in kvs.iter() {
+    kv_data.push(KvPairResponse {
+      key: key.clone(),
+      value: value.clone(),
+    });
+  }
+  kv_data.sort_by(|a, b| a.key.cmp(&b.key));
+
   Json(ClusterInfoResponse {
     node_id: state.node_id,
     node_name: state.node_name.clone(),
@@ -133,6 +152,7 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
     listen: state.listen.clone(),
     known_nodes: nodes,
     raft_metrics,
+    kv_data,
   })
 }
 
