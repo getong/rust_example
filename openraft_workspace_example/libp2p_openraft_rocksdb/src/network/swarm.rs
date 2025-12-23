@@ -22,7 +22,7 @@ use crate::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
-  store::KvData,
+  store::{KvData, ensure_linearizable_read},
   typ::{Raft, Snapshot},
 };
 
@@ -492,6 +492,9 @@ async fn handle_inbound_kv(
 
   match op {
     KvRequestOp::Get(req) => {
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
       let kvs = kv_data.read().await;
       match kvs.get(&req.key) {
         Some(value) => RaftKvResponse {
@@ -530,6 +533,9 @@ async fn handle_inbound_kv(
     KvRequestOp::Update(req) => {
       let key = req.key;
       let value = req.value;
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
       let exists = {
         let kvs = kv_data.read().await;
         kvs.contains_key(&key)
@@ -564,6 +570,9 @@ async fn handle_inbound_kv(
       }
     }
     KvRequestOp::Delete(req) => {
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
       let exists = {
         let kvs = kv_data.read().await;
         kvs.contains_key(&req.key)
@@ -628,7 +637,10 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcRespo
         .install_full_snapshot(vote, snapshot)
         .await
         .map_err(|e| {
-          openraft::error::RaftError::<openraft_rocksstore_crud::TypeConfig, openraft::error::Infallible>::Fatal(e)
+          openraft::error::RaftError::<
+            openraft_rocksstore_crud::TypeConfig,
+            openraft::error::Infallible,
+          >::Fatal(e)
         });
 
       RaftRpcResponse::FullSnapshot(res)

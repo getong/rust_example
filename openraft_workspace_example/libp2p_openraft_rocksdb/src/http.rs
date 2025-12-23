@@ -16,7 +16,7 @@ use crate::{
     UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
-  store::KvData,
+  store::{KvData, ensure_linearizable_read},
   typ::{NodeId, Raft},
 };
 
@@ -136,12 +136,27 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
     .unwrap_or_else(|err| serde_json::Value::String(format!("metrics serialize error: {err}")));
 
   let mut kv_data = Vec::new();
-  let kvs = state.kv_data.read().await;
-  for (key, value) in kvs.iter() {
-    kv_data.push(KvPairResponse {
-      key: key.clone(),
-      value: value.clone(),
-    });
+  let allow_local_read = match ensure_linearizable_read(&state.raft).await {
+    Ok(()) => true,
+    Err(err) => {
+      let is_forward = matches!(
+        err.api_error(),
+        Some(openraft::error::LinearizableReadError::ForwardToLeader(_))
+      );
+      if !is_forward {
+        tracing::warn!("cluster_info read index failed: {err:?}");
+      }
+      is_forward
+    }
+  };
+  if allow_local_read {
+    let kvs = state.kv_data.read().await;
+    for (key, value) in kvs.iter() {
+      kv_data.push(KvPairResponse {
+        key: key.clone(),
+        value: value.clone(),
+      });
+    }
   }
   kv_data.sort_by(|a, b| a.key.cmp(&b.key));
 
