@@ -3,7 +3,7 @@
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use anyhow::Context;
-use openraft_rocksstore::{RocksStateMachine, TypeConfig, log_store::RocksLogStore};
+use openraft_rocksstore_crud::{RocksStateMachine, TypeConfig, log_store::RocksLogStore};
 use tokio::sync::RwLock;
 
 pub type LogStore = RocksLogStore<TypeConfig>;
@@ -13,7 +13,7 @@ pub type KvData = Arc<RwLock<BTreeMap<String, String>>>;
 pub async fn open_store<P: AsRef<Path>>(
   db_dir: P,
 ) -> anyhow::Result<(LogStore, StateMachineStore)> {
-  openraft_rocksstore::new::<TypeConfig, _>(db_dir)
+  openraft_rocksstore_crud::new::<TypeConfig, _>(db_dir)
     .await
     .context("open rocksdb store")
 }

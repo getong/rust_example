@@ -15,5 +15,6 @@ members = [
   "chitchat_openraft_axum_example",
   "crabcluster",
   "multi_raft_kv",
+  "rocksstore_crud",
   "libp2p_openraft_rocksdb",
 ]

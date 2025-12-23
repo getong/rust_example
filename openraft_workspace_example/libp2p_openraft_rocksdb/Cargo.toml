@@ -25,7 +25,7 @@ openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f698
   "serde",
   "type-alias",
 ] }
-openraft-rocksstore = { path = "../rocksstore" }
+openraft-rocksstore-crud = { path = "../rocksstore_crud" }
 prost = "0.14.1"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }

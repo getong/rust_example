@@ -9,7 +9,7 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
 };
 use openraft::error::Unreachable;
-use openraft_rocksstore::RocksRequest;
+use openraft_rocksstore_crud::RocksRequest;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -628,7 +628,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcRespo
         .install_full_snapshot(vote, snapshot)
         .await
         .map_err(|e| {
-          openraft::error::RaftError::<openraft_rocksstore::TypeConfig, openraft::error::Infallible>::Fatal(e)
+          openraft::error::RaftError::<openraft_rocksstore_crud::TypeConfig, openraft::error::Infallible>::Fatal(e)
         });
 
       RaftRpcResponse::FullSnapshot(res)

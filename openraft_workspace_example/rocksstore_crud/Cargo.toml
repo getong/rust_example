@@ -1,0 +1,40 @@
+[package]
+name = "openraft-rocksstore-crud"
+description = "A rocksdb based implementation of the `openraft::RaftLogStorage` and `openraft::RaftStateMachine` trait."
+documentation = "https://docs.rs/openraft-rocksstore"
+readme = "README.md"
+
+version = "0.1.0"
+edition = "2024"
+authors = ["drdr xp <drdr.xp@gmail.com>"]
+categories = ["algorithms", "asynchronous", "data-structures"]
+homepage = "https://github.com/databendlabs/openraft"
+keywords = ["raft", "consensus"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/databendlabs/openraft"
+
+[features]
+bt = ["openraft/bt"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+byteorder = "1.5.0"
+futures = "0.3.31"
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = ["serde", "type-alias"] }
+rand = "0.9"
+rocksdb = "0.24.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tokio = { version = "1.48", default-features = false, features = [
+    "io-util",
+    "macros",
+    "rt",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+tracing = { version = "0.1.44" }
+
+[dev-dependencies]
+tempfile = { version = "3.23.0" }

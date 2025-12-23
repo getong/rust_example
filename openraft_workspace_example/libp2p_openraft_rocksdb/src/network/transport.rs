@@ -83,7 +83,7 @@ pub struct Libp2pConnection {
   factory: Libp2pNetworkFactory,
 }
 
-impl RaftNetworkFactory<openraft_rocksstore::TypeConfig> for Libp2pNetworkFactory {
+impl RaftNetworkFactory<openraft_rocksstore_crud::TypeConfig> for Libp2pNetworkFactory {
   type Network = Libp2pConnection;
 
   async fn new_client(&mut self, target: NodeId, node: &BasicNode) -> Self::Network {
@@ -96,7 +96,7 @@ impl RaftNetworkFactory<openraft_rocksstore::TypeConfig> for Libp2pNetworkFactor
   }
 }
 
-impl RaftNetworkV2<openraft_rocksstore::TypeConfig> for Libp2pConnection {
+impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
   async fn append_entries(
     &mut self,
     req: AppendEntriesRequest,

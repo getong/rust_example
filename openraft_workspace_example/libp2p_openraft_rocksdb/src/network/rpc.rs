@@ -1,4 +1,4 @@
-use openraft_rocksstore::RocksRequest;
+use openraft_rocksstore_crud::RocksRequest;
 use serde::{Deserialize, Serialize};
 
 use crate::typ::{

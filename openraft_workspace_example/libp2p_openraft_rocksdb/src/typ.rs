@@ -1,6 +1,6 @@
 //! Declare the Raft type with the TypeConfig.
 
-use openraft_rocksstore::TypeConfig;
+use openraft_rocksstore_crud::TypeConfig;
 
 pub type NodeId = u64;
 
