@@ -1,0 +1,23 @@
+* libp2p openraft rocksdb
+
+** usage
+
+#+begin_src shell
+# set
+curl -X POST http://127.0.0.1:3001/write \
+-H 'content-type: application/json' \
+-d '{"key":"counter","value":42}'
+
+# update
+curl -X POST http://127.0.0.1:3002/update \
+-H 'content-type: application/json' \
+-d '{"key":"counter","value":43}'
+
+# delete
+curl -X POST http://127.0.0.1:3002/delete \
+-H 'content-type: application/json' \
+-d '{"key":"counter"}'
+
+# get cluster info
+curl http://127.0.0.1:3001/cluster
+#+end_src
