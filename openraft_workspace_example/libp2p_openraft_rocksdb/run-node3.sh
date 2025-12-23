@@ -18,9 +18,12 @@ if [[ -z "$DB_ROOT" ]]; then
 	echo "Hint: set DB_ROOT in .env or export it before running this script."
 	exit 1
 fi
-NODE1_DB="$DB_ROOT/node1"
-NODE2_DB="$DB_ROOT/node2"
-NODE3_DB="$DB_ROOT/node3"
+NODE1_NAME="${NODE1_NAME:-node1}"
+NODE2_NAME="${NODE2_NAME:-node2}"
+NODE3_NAME="${NODE3_NAME:-node3}"
+NODE1_DB="$DB_ROOT/${NODE1_NAME}-1"
+NODE2_DB="$DB_ROOT/${NODE2_NAME}-2"
+NODE3_DB="$DB_ROOT/${NODE3_NAME}-3"
 
 NODE1_LISTEN="${NODE1_LISTEN:-/ip4/127.0.0.1/tcp/4001}"
 NODE2_LISTEN="${NODE2_LISTEN:-/ip4/127.0.0.1/tcp/4002}"
@@ -46,6 +49,9 @@ fi
 
 echo "Workspace: $WS_DIR"
 echo "DB root:   $DB_ROOT"
+echo "Node1 name: $NODE1_NAME"
+echo "Node2 name: $NODE2_NAME"
+echo "Node3 name: $NODE3_NAME"
 
 PEER_ID_WAIT_SECS="${PEER_ID_WAIT_SECS:-120}"
 GEN_SCRIPT="$ROOT_DIR/generate_libp2p_id.sh"
@@ -119,6 +125,7 @@ if [[ "$NODE3_LISTEN" =~ /tcp/([0-9]+) ]]; then
 fi
 
 export RUST_LOG="${RUST_LOG:-info}"
+export LIBP2P_SELF_NAME="$NODE3_NAME"
 
 echo "Logs:"
 echo "  $NODE3_LOG"

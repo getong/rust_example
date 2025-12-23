@@ -27,6 +27,7 @@ openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f698
 ] }
 openraft-rocksstore = { path = "../rocksstore" }
 prost = "0.14.1"
+rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tokio = { version = "1.48", default-features = false, features = [

@@ -21,10 +21,11 @@ use tokio::sync::mpsc;
 use crate::{
   http,
   network::{
-    proto_codec::ProtoCodec,
-    swarm::{Behaviour, Libp2pClient, run_swarm},
+    proto_codec::{ProstCodec, ProtoCodec},
+    swarm::{Behaviour, KvClient, Libp2pClient, run_swarm},
     transport::Libp2pNetworkFactory,
   },
+  proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   store,
   typ::NodeId,
 };
@@ -180,6 +181,11 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
             StreamProtocol::new("/openraft/raft/1"),
             ProtocolSupport::Full,
           )],
+          cfg.clone(),
+        ),
+        kv: request_response::Behaviour::with_codec(
+          ProstCodec::<RaftKvRequest, RaftKvResponse>::default(),
+          [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
           cfg,
         ),
         mdns,
@@ -199,16 +205,26 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let config = std::sync::Arc::new(config.validate().context("validate raft config")?);
 
   let (log_store, state_machine) = store::open_store(&opt.db).await?;
+  let kv_reader = store::open_kv_reader(&opt.db)?;
 
   let (cmd_tx, cmd_rx) = mpsc::channel(256);
-  let client = Libp2pClient::new(cmd_tx.clone(), Duration::from_secs(5));
+  let timeout = Duration::from_secs(5);
+  let client = Libp2pClient::new(cmd_tx.clone(), timeout);
+  let kv_client = KvClient::new(cmd_tx.clone(), timeout);
   let network = Libp2pNetworkFactory::new(client.clone());
 
   let raft = Raft::new(opt.id, config, network.clone(), log_store, state_machine)
     .await
     .context("create raft")?;
 
-  tokio::spawn(run_swarm(swarm, cmd_rx, cmd_tx.clone(), raft.clone()));
+  tokio::spawn(run_swarm(
+    swarm,
+    cmd_rx,
+    cmd_tx.clone(),
+    raft.clone(),
+    kv_reader.clone(),
+    kv_client.clone(),
+  ));
 
   let http_state = http::AppState {
     node_id: opt.id,
@@ -217,6 +233,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     listen: opt.listen.clone(),
     network: network.clone(),
     raft: raft.clone(),
+    kv_client: kv_client.clone(),
   };
 
   tokio::spawn(async move {

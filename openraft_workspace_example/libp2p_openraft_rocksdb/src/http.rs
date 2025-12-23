@@ -6,15 +6,17 @@ use axum::{
   extract::State,
   routing::{get, post},
 };
-use openraft_rocksstore::RocksRequest;
-use serde::{Deserialize, Serialize};
+use libp2p::{Multiaddr, PeerId};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
-  network::{
-    rpc::{RaftRpcRequest, RaftRpcResponse},
-    transport::Libp2pNetworkFactory,
+  network::{swarm::KvClient, transport::Libp2pNetworkFactory},
+  proto::raft_kv::{
+    DeleteValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
+    UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
+    raft_kv_response::Op as KvResponseOp,
   },
-  typ::{ClientWriteResponse, NodeId, Raft, RaftMetrics},
+  typ::{NodeId, Raft},
 };
 
 #[derive(Clone)]
@@ -25,12 +27,15 @@ pub struct AppState {
   pub listen: String,
   pub network: Libp2pNetworkFactory,
   pub raft: Raft,
+  pub kv_client: KvClient,
 }
 
 pub async fn serve(addr: SocketAddr, state: AppState) -> anyhow::Result<()> {
   let app = Router::new()
     .route("/cluster", get(cluster_info))
-    .route("/write", post(write_value))
+    .route("/write", post(set_value))
+    .route("/update", post(update_value))
+    .route("/delete", post(delete_value))
     .with_state(Arc::new(state));
 
   let listener = tokio::net::TcpListener::bind(addr)
@@ -60,14 +65,46 @@ struct KnownNodeResponse {
 #[derive(Deserialize)]
 struct WriteValueRequest {
   key: String,
-  value: i64,
+  #[serde(deserialize_with = "string_or_number")]
+  value: String,
   target_node_id: Option<NodeId>,
 }
 
 #[derive(Serialize)]
 struct WriteValueResponse {
   target_node_id: Option<NodeId>,
-  result: Result<ClientWriteResponse, String>,
+  ok: bool,
+  value: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateValueRequest {
+  key: String,
+  #[serde(deserialize_with = "string_or_number")]
+  value: String,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct UpdateValueResponse {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  value: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeleteValueRequestBody {
+  key: String,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct DeleteValueResponseBody {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  error: Option<String>,
 }
 
 async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoResponse> {
@@ -99,103 +136,205 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
   })
 }
 
-async fn write_value(
+async fn set_value(
   State(state): State<Arc<AppState>>,
   Json(req): Json<WriteValueRequest>,
 ) -> Json<WriteValueResponse> {
-  let metrics = state.raft.metrics().borrow().clone();
-  let mut target_node_id = req.target_node_id;
-  if target_node_id.is_none() {
-    target_node_id = resolve_leader_id(state.as_ref(), &metrics).await;
-  }
-
-  let Some(target_node_id) = target_node_id else {
-    return Json(WriteValueResponse {
-      target_node_id: None,
-      result: Err("no leader available".to_string()),
-    });
+  let request = RaftKvRequest {
+    op: Some(KvRequestOp::Set(SetValueRequest {
+      key: req.key,
+      value: req.value,
+    })),
   };
-
-  let request = RocksRequest::Set {
-    key: req.key,
-    value: req.value.to_string(),
-  };
-
-  let mut final_target_id = target_node_id;
-  let mut result = send_write(state.as_ref(), final_target_id, request.clone()).await;
-
-  if result.is_err() && final_target_id != state.node_id && req.target_node_id.is_none() {
-    if let Some(leader_id) = discover_leader_id(state.as_ref(), Some(final_target_id)).await {
-      final_target_id = leader_id;
-      result = send_write(state.as_ref(), final_target_id, request).await;
-    }
-  }
-
-  Json(WriteValueResponse {
-    target_node_id: Some(final_target_id),
-    result,
-  })
-}
-
-async fn resolve_leader_id(state: &AppState, metrics: &RaftMetrics) -> Option<NodeId> {
-  if metrics.state.is_leader() {
-    return Some(state.node_id);
-  }
-
-  if let Some(leader_id) = metrics.current_leader {
-    return Some(leader_id);
-  }
-
-  discover_leader_id(state, None).await
-}
-
-async fn discover_leader_id(state: &AppState, skip: Option<NodeId>) -> Option<NodeId> {
-  let nodes = state.network.known_nodes().await;
-  for (node_id, _peer, _addr) in nodes {
-    if node_id == state.node_id || Some(node_id) == skip {
-      continue;
-    }
-
-    let resp = state
-      .network
-      .request(node_id, RaftRpcRequest::GetMetrics)
-      .await;
-
-    let Ok(RaftRpcResponse::GetMetrics(metrics)) = resp else {
-      continue;
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(WriteValueResponse {
+          target_node_id: None,
+          ok: false,
+          value: None,
+          error: Some(err),
+        });
+      }
     };
 
-    if metrics.state.is_leader() {
-      return Some(node_id);
-    }
-    if let Some(leader_id) = metrics.current_leader {
-      return Some(leader_id);
-    }
+  match response.op {
+    Some(KvResponseOp::Set(resp)) => Json(WriteValueResponse {
+      target_node_id,
+      ok: resp.ok,
+      value: Some(resp.value),
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(WriteValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(err.message),
+    }),
+    other => Json(WriteValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
   }
-  None
 }
 
-async fn send_write(
+async fn update_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<UpdateValueRequest>,
+) -> Json<UpdateValueResponse> {
+  let request = RaftKvRequest {
+    op: Some(KvRequestOp::Update(ProtoUpdateValueRequest {
+      key: req.key,
+      value: req.value,
+    })),
+  };
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(UpdateValueResponse {
+          target_node_id: None,
+          ok: false,
+          value: None,
+          error: Some(err),
+        });
+      }
+    };
+
+  match response.op {
+    Some(KvResponseOp::Update(resp)) => Json(UpdateValueResponse {
+      target_node_id,
+      ok: resp.ok,
+      value: Some(resp.value),
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(UpdateValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(err.message),
+    }),
+    other => Json(UpdateValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn delete_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<DeleteValueRequestBody>,
+) -> Json<DeleteValueResponseBody> {
+  let request = RaftKvRequest {
+    op: Some(KvRequestOp::Delete(DeleteValueRequest { key: req.key })),
+  };
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(DeleteValueResponseBody {
+          target_node_id: None,
+          ok: false,
+          error: Some(err),
+        });
+      }
+    };
+
+  match response.op {
+    Some(KvResponseOp::Delete(resp)) => Json(DeleteValueResponseBody {
+      target_node_id,
+      ok: resp.ok,
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(DeleteValueResponseBody {
+      target_node_id,
+      ok: false,
+      error: Some(err.message),
+    }),
+    other => Json(DeleteValueResponseBody {
+      target_node_id,
+      ok: false,
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn send_kv_request(
   state: &AppState,
-  target_node_id: NodeId,
-  request: RocksRequest,
-) -> Result<ClientWriteResponse, String> {
-  if target_node_id == state.node_id {
-    state
-      .raft
-      .client_write(request)
-      .await
-      .map_err(|err| format!("{err:?}"))
-  } else {
-    match state
-      .network
-      .request(target_node_id, RaftRpcRequest::ClientWrite(request))
-      .await
-    {
-      Ok(RaftRpcResponse::ClientWrite(res)) => res.map_err(|err| format!("{err:?}")),
-      Ok(RaftRpcResponse::Error(err)) => Err(err),
-      Ok(other) => Err(format!("unexpected response: {other:?}")),
-      Err(err) => Err(format!("libp2p error: {err}")),
+  target_node_id: Option<NodeId>,
+  request: RaftKvRequest,
+) -> Result<(NodeId, RaftKvResponse), String> {
+  let target = resolve_kv_target(state, target_node_id).await?;
+  state.kv_client.dial(target.addr.clone()).await;
+  let resp = state
+    .kv_client
+    .request(target.peer, request)
+    .await
+    .map_err(|err| format!("libp2p error: {err}"))?;
+  Ok((target.node_id, resp))
+}
+
+struct KvTarget {
+  node_id: NodeId,
+  peer: PeerId,
+  addr: Multiaddr,
+}
+
+async fn resolve_kv_target(
+  state: &AppState,
+  target_node_id: Option<NodeId>,
+) -> Result<KvTarget, String> {
+  let nodes = state.network.known_nodes().await;
+  if nodes.is_empty() {
+    return Err("no known nodes".to_string());
+  }
+
+  let metrics = state.raft.metrics().borrow().clone();
+  let mut candidate = target_node_id.or_else(|| {
+    if metrics.state.is_leader() {
+      Some(state.node_id)
+    } else {
+      metrics.current_leader
     }
+  });
+
+  if candidate.is_none() || candidate == Some(state.node_id) {
+    if let Some((id, _, _)) = nodes.iter().find(|(id, _, _)| *id != state.node_id) {
+      candidate = Some(*id);
+    }
+  }
+
+  let candidate = candidate.or_else(|| nodes.first().map(|(id, _, _)| *id));
+
+  let Some(node_id) = candidate else {
+    return Err("no leader available".to_string());
+  };
+
+  nodes
+    .into_iter()
+    .find(|(id, _, _)| *id == node_id)
+    .map(|(id, peer, addr)| KvTarget {
+      node_id: id,
+      peer,
+      addr,
+    })
+    .ok_or_else(|| format!("unknown target node_id={node_id}"))
+}
+
+fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+  D: Deserializer<'de>,
+{
+  let value = serde_json::Value::deserialize(deserializer)?;
+  match value {
+    serde_json::Value::String(s) => Ok(s),
+    serde_json::Value::Number(n) => Ok(n.to_string()),
+    serde_json::Value::Bool(b) => Ok(b.to_string()),
+    _ => Err(serde::de::Error::custom("value must be string or number")),
   }
 }

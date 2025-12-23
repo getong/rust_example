@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use libp2p::{
   Multiaddr, StreamProtocol, identity,
   kad::{self, store::MemoryStore},
@@ -13,20 +13,18 @@ use libp2p_openraft_rocksdb::{
   app,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
-    rpc::{RaftRpcRequest, RaftRpcResponse},
-    swarm::{Behaviour, Libp2pClient, run_swarm_client},
+    swarm::{Behaviour, KvClient, run_swarm_client},
     transport::parse_p2p_addr,
   },
-  proto::raft_kv::{RaftKvRequest, RaftKvResponse},
+  proto::raft_kv::{
+    DeleteValueRequest, GetValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
+    UpdateValueRequest, raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
+  },
 };
 use tokio::sync::mpsc;
 
 #[derive(Parser, Debug, Clone)]
-#[command(
-  author,
-  version,
-  about = "Query OpenRaft metrics (leader/term) via libp2p RPC"
-)]
+#[command(author, version, about = "KV operations via libp2p protobuf protocol")]
 pub struct Opt {
   /// Target node multiaddr including /p2p/<peerid>
   #[arg(long)]
@@ -39,6 +37,17 @@ pub struct Opt {
   /// RPC timeout seconds
   #[arg(long, default_value_t = 5)]
   pub timeout_secs: u64,
+
+  #[command(subcommand)]
+  pub cmd: Command,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+  Get { key: String },
+  Set { key: String, value: String },
+  Update { key: String, value: String },
+  Delete { key: String },
 }
 
 #[tokio::main]
@@ -92,35 +101,53 @@ async fn main() -> anyhow::Result<()> {
     .context("build behaviour")?
     .build();
 
-  // Client-only tool: no need to listen on a fixed port.
-  // Still, listening on an ephemeral port helps with NAT-less local testing.
   let listen: Multiaddr = "/ip4/127.0.0.1/tcp/0".parse().expect("static addr");
   let _ = swarm.listen_on(listen);
 
   let (cmd_tx, cmd_rx) = mpsc::channel(64);
-  let client = Libp2pClient::new(cmd_tx, Duration::from_secs(opt.timeout_secs));
+  let client = KvClient::new(cmd_tx, Duration::from_secs(opt.timeout_secs));
   tokio::spawn(run_swarm_client(swarm, cmd_rx));
 
   client.dial(maddr.clone()).await;
-
-  // Small delay to allow the dial to happen; libp2p will also dial implicitly.
   tokio::time::sleep(Duration::from_millis(200)).await;
 
-  let resp = client
-    .request(peer, RaftRpcRequest::GetMetrics)
-    .await
-    .context("rpc get-metrics")?;
+  let req = match opt.cmd {
+    Command::Get { key } => RaftKvRequest {
+      op: Some(KvRequestOp::Get(GetValueRequest { key })),
+    },
+    Command::Set { key, value } => RaftKvRequest {
+      op: Some(KvRequestOp::Set(SetValueRequest { key, value })),
+    },
+    Command::Update { key, value } => RaftKvRequest {
+      op: Some(KvRequestOp::Update(UpdateValueRequest { key, value })),
+    },
+    Command::Delete { key } => RaftKvRequest {
+      op: Some(KvRequestOp::Delete(DeleteValueRequest { key })),
+    },
+  };
 
-  match resp {
-    RaftRpcResponse::GetMetrics(metrics) => {
-      // Best-effort extraction; always print full metrics for debugging.
-      println!("current_leader: {:?}", metrics.current_leader);
-      println!("state: {:?}", metrics.state);
-      println!("vote: {:?}", metrics.vote);
-      println!("metrics: {:#?}", metrics);
-      Ok(())
+  let resp = client.request(peer, req).await.context("kv request")?;
+
+  match resp.op {
+    Some(KvResponseOp::Get(resp)) => {
+      println!("found: {}, value: {}", resp.found, resp.value);
     }
-    RaftRpcResponse::Error(e) => anyhow::bail!("remote error: {e}"),
-    other => anyhow::bail!("unexpected response: {other:?}"),
+    Some(KvResponseOp::Set(resp)) => {
+      println!("ok: {}, value: {}", resp.ok, resp.value);
+    }
+    Some(KvResponseOp::Update(resp)) => {
+      println!("ok: {}, value: {}", resp.ok, resp.value);
+    }
+    Some(KvResponseOp::Delete(resp)) => {
+      println!("ok: {}", resp.ok);
+    }
+    Some(KvResponseOp::Error(resp)) => {
+      println!("error: {}", resp.message);
+    }
+    None => {
+      println!("error: empty response");
+    }
   }
+
+  Ok(())
 }

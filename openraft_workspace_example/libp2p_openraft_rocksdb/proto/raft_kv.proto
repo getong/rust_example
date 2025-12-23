@@ -38,3 +38,26 @@ message DeleteValueRequest {
 message DeleteValueResponse {
   bool ok = 1;
 }
+
+message ErrorResponse {
+  string message = 1;
+}
+
+message RaftKvRequest {
+  oneof op {
+    GetValueRequest get = 1;
+    SetValueRequest set = 2;
+    UpdateValueRequest update = 3;
+    DeleteValueRequest delete = 4;
+  }
+}
+
+message RaftKvResponse {
+  oneof op {
+    GetValueResponse get = 1;
+    SetValueResponse set = 2;
+    UpdateValueResponse update = 3;
+    DeleteValueResponse delete = 4;
+    ErrorResponse error = 10;
+  }
+}
