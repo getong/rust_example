@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use crate::{
   http,
   network::{
+    proto_codec::ProtoCodec,
     swarm::{Behaviour, Libp2pClient, run_swarm},
     transport::Libp2pNetworkFactory,
   },
@@ -173,7 +174,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       kad.set_mode(Some(kad::Mode::Server));
 
       Ok(Behaviour {
-        raft: request_response::cbor::Behaviour::new(
+        raft: request_response::Behaviour::with_codec(
+          ProtoCodec::default(),
           [(
             StreamProtocol::new("/openraft/raft/1"),
             ProtocolSupport::Full,

@@ -12,6 +12,7 @@ use libp2p::{
 use libp2p_openraft_rocksdb::{
   app,
   network::{
+    proto_codec::ProtoCodec,
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{Behaviour, Libp2pClient, run_swarm_client},
     transport::parse_p2p_addr,
@@ -70,7 +71,8 @@ async fn main() -> anyhow::Result<()> {
       kad.set_mode(Some(kad::Mode::Client));
 
       Ok(Behaviour {
-        raft: request_response::cbor::Behaviour::new(
+        raft: request_response::Behaviour::with_codec(
+          ProtoCodec::default(),
           [(
             StreamProtocol::new("/openraft/raft/1"),
             ProtocolSupport::Full,

@@ -12,7 +12,10 @@ use openraft::error::Unreachable;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-  network::rpc::{RaftRpcRequest, RaftRpcResponse},
+  network::{
+    proto_codec::ProtoCodec,
+    rpc::{RaftRpcRequest, RaftRpcResponse},
+  },
   typ::{Raft, Snapshot},
 };
 
@@ -30,7 +33,7 @@ impl Error for NetErr {}
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "BehaviourEvent")]
 pub struct Behaviour {
-  pub raft: request_response::cbor::Behaviour<RaftRpcRequest, RaftRpcResponse>,
+  pub raft: request_response::Behaviour<ProtoCodec>,
   pub mdns: mdns::tokio::Behaviour,
   pub kad: kad::Behaviour<MemoryStore>,
 }
