@@ -51,6 +51,24 @@ impl Libp2pNetworkFactory {
       .collect()
   }
 
+  pub async fn request(
+    &self,
+    node_id: NodeId,
+    req: RaftRpcRequest,
+  ) -> Result<RaftRpcResponse, Unreachable> {
+    let (peer, addr) = self.peer_addr_for(node_id).await?;
+    self.client.dial(addr).await;
+    self.client.request(peer, req).await
+  }
+
+  async fn peer_addr_for(&self, node_id: NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {
+    let map = self.node_peers.read().await;
+    map
+      .get(&node_id)
+      .map(|(peer, addr)| (*peer, addr.clone()))
+      .ok_or_else(|| Unreachable::new(&NetErr(format!("unknown target node_id={node_id}"))))
+  }
+
   async fn peer_for(&self, node_id: NodeId) -> Result<PeerId, Unreachable> {
     let map = self.node_peers.read().await;
     map

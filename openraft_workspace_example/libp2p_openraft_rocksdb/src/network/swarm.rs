@@ -5,7 +5,7 @@ use libp2p::{
   Multiaddr, PeerId, Swarm,
   kad::{self, store::MemoryStore},
   mdns,
-  request_response::{self, OutboundRequestId},
+  request_response::{self, OutboundRequestId, ResponseChannel},
   swarm::{NetworkBehaviour, SwarmEvent},
 };
 use openraft::error::Unreachable;
@@ -69,6 +69,10 @@ pub enum Command {
     req: RaftRpcRequest,
     resp: oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
   },
+  Respond {
+    channel: ResponseChannel<RaftRpcResponse>,
+    resp: RaftRpcResponse,
+  },
 }
 
 #[derive(Clone)]
@@ -114,6 +118,7 @@ impl Libp2pClient {
 pub async fn run_swarm(
   mut swarm: Swarm<Behaviour>,
   mut cmd_rx: mpsc::Receiver<Command>,
+  cmd_tx: mpsc::Sender<Command>,
   raft: Raft,
 ) {
   let mut pending: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>> =
@@ -133,6 +138,9 @@ pub async fn run_swarm(
             let id = swarm.behaviour_mut().raft.send_request(&peer, req);
             pending.insert(id, resp);
           }
+          Command::Respond { channel, resp } => {
+            let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+          }
         }
       }
 
@@ -141,8 +149,20 @@ pub async fn run_swarm(
           SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => match event {
             request_response::Event::Message { message, .. } => match message {
               request_response::Message::Request { request, channel, .. } => {
-                let resp = handle_inbound_rpc(raft.clone(), request).await;
-                let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+                match request {
+                  RaftRpcRequest::ClientWrite(req) => {
+                    let raft = raft.clone();
+                    let tx = cmd_tx.clone();
+                    tokio::spawn(async move {
+                      let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
+                      let _ = tx.send(Command::Respond { channel, resp }).await;
+                    });
+                  }
+                  other => {
+                    let resp = handle_inbound_rpc(raft.clone(), other).await;
+                    let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+                  }
+                }
               }
               request_response::Message::Response { request_id, response } => {
                 if let Some(tx) = pending.remove(&request_id) {
@@ -211,6 +231,9 @@ pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Rec
           Command::Request { peer, req, resp } => {
             let id = swarm.behaviour_mut().raft.send_request(&peer, req);
             pending.insert(id, resp);
+          }
+          Command::Respond { channel, resp } => {
+            let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
           }
         }
       }
@@ -303,6 +326,10 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcRespo
     RaftRpcRequest::Vote(req) => {
       let res = raft.vote(req).await;
       RaftRpcResponse::Vote(res)
+    }
+    RaftRpcRequest::ClientWrite(req) => {
+      let res = raft.client_write(req).await;
+      RaftRpcResponse::ClientWrite(res)
     }
     RaftRpcRequest::GetMetrics => {
       let metrics = raft.metrics().borrow().clone();

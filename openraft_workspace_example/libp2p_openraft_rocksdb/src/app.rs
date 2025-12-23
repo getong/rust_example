@@ -206,7 +206,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .await
     .context("create raft")?;
 
-  tokio::spawn(run_swarm(swarm, cmd_rx, raft.clone()));
+  tokio::spawn(run_swarm(swarm, cmd_rx, cmd_tx.clone(), raft.clone()));
 
   let http_state = http::AppState {
     node_id: opt.id,
