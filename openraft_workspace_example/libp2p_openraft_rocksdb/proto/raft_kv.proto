@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package libp2p_openraft_rocksdb;
+
+message GetValueRequest {
+  string key = 1;
+}
+
+message GetValueResponse {
+  bool found = 1;
+  string value = 2;
+}
+
+message SetValueRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message SetValueResponse {
+  bool ok = 1;
+  string value = 2;
+}
+
+message UpdateValueRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message UpdateValueResponse {
+  bool ok = 1;
+  string value = 2;
+}
+
+message DeleteValueRequest {
+  string key = 1;
+}
+
+message DeleteValueResponse {
+  bool ok = 1;
+}

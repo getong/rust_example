@@ -4,5 +4,6 @@
 pub mod app;
 pub mod http;
 pub mod network;
+pub mod proto;
 pub mod store;
 pub mod typ;
