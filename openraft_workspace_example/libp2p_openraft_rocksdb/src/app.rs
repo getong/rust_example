@@ -218,14 +218,27 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .await
     .context("create raft")?;
 
-  tokio::spawn(run_swarm(
-    swarm,
-    cmd_rx,
-    cmd_tx.clone(),
-    raft.clone(),
-    kv_data.clone(),
-    kv_client.clone(),
-  ));
+  let mut shutdown = crate::signal::spawn_handler();
+
+  let swarm_done = shutdown.push("libp2p-swarm");
+  let swarm_shutdown = shutdown.shutdown_rx();
+  let raft_for_swarm = raft.clone();
+  let kv_data_for_swarm = kv_data.clone();
+  let kv_client_for_swarm = kv_client.clone();
+  let cmd_tx_for_swarm = cmd_tx.clone();
+  tokio::spawn(async move {
+    run_swarm(
+      swarm,
+      cmd_rx,
+      cmd_tx_for_swarm,
+      raft_for_swarm,
+      kv_data_for_swarm,
+      kv_client_for_swarm,
+      swarm_shutdown,
+    )
+    .await;
+    let _ = swarm_done.send(Ok(()));
+  });
 
   let http_state = http::AppState {
     node_id: opt.id,
@@ -238,10 +251,23 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     kv_data: kv_data.clone(),
   };
 
+  let http_done = shutdown.push("http");
+  let http_shutdown = shutdown.shutdown_rx();
   tokio::spawn(async move {
-    if let Err(err) = http::serve(http_addr, http_state).await {
-      tracing::error!("http server error: {err}");
-    }
+    let res = http::serve(http_addr, http_state, http_shutdown).await;
+    let _ = http_done.send(res);
+  });
+
+  let raft_done = shutdown.push("openraft");
+  let mut raft_shutdown = shutdown.shutdown_rx();
+  let raft_handle = raft.clone();
+  tokio::spawn(async move {
+    let _ = raft_shutdown.changed().await;
+    let res = raft_handle
+      .shutdown()
+      .await
+      .map_err(|e| anyhow!("openraft shutdown failed: {e:?}"));
+    let _ = raft_done.send(res);
   });
 
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
@@ -303,6 +329,30 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     tracing::info!("initialize result: {:?}", res);
   }
 
-  futures::future::pending::<()>().await;
-  Ok(())
+  let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
+  let mut errors = Vec::new();
+  for (service, res) in results {
+    if let Err(err) = res {
+      tracing::error!(service, error = ?err, "shutdown task failed");
+      errors.push((service, err));
+    }
+  }
+
+  if errors.is_empty() {
+    tracing::info!("shutdown complete");
+    return Ok(());
+  }
+
+  if errors.len() == 1 {
+    let (service, err) = errors.pop().unwrap();
+    return Err(anyhow!("shutdown error in {service}: {err}"));
+  }
+
+  let mut msg = String::new();
+  use std::fmt::Write as _;
+  let _ = writeln!(&mut msg, "encountered {} shutdown errors:", errors.len());
+  for (service, err) in errors {
+    let _ = writeln!(&mut msg, "  {service}: {err}");
+  }
+  Err(anyhow!(msg))
 }

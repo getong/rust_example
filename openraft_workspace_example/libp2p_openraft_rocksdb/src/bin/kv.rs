@@ -13,13 +13,14 @@ use libp2p_openraft_rocksdb::{
   app,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
-    swarm::{Behaviour, KvClient, run_swarm_client},
+    swarm::{Behaviour, KvClient, run_swarm_client_with_shutdown},
     transport::parse_p2p_addr,
   },
   proto::raft_kv::{
     DeleteValueRequest, GetValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
     UpdateValueRequest, raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
   },
+  signal,
 };
 use tokio::sync::mpsc;
 
@@ -107,7 +108,12 @@ async fn main() -> anyhow::Result<()> {
 
   let (cmd_tx, cmd_rx) = mpsc::channel(64);
   let client = KvClient::new(cmd_tx, Duration::from_secs(opt.timeout_secs));
-  tokio::spawn(run_swarm_client(swarm, cmd_rx));
+  let shutdown = signal::spawn_handler();
+  tokio::spawn(run_swarm_client_with_shutdown(
+    swarm,
+    cmd_rx,
+    shutdown.shutdown_rx(),
+  ));
 
   client.dial(maddr.clone()).await;
   tokio::time::sleep(Duration::from_millis(200)).await;

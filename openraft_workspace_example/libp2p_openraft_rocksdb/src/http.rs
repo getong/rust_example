@@ -16,6 +16,7 @@ use crate::{
     UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
+  signal::ShutdownRx,
   store::{KvData, ensure_linearizable_read},
   typ::{NodeId, Raft},
 };
@@ -32,7 +33,11 @@ pub struct AppState {
   pub kv_data: KvData,
 }
 
-pub async fn serve(addr: SocketAddr, state: AppState) -> anyhow::Result<()> {
+pub async fn serve(
+  addr: SocketAddr,
+  state: AppState,
+  mut shutdown_rx: ShutdownRx,
+) -> anyhow::Result<()> {
   let app = Router::new()
     .route("/cluster", get(cluster_info))
     .route("/write", post(set_value))
@@ -43,7 +48,12 @@ pub async fn serve(addr: SocketAddr, state: AppState) -> anyhow::Result<()> {
   let listener = tokio::net::TcpListener::bind(addr)
     .await
     .context("bind http")?;
-  axum::serve(listener, app).await.context("serve http")?;
+  axum::serve(listener, app)
+    .with_graceful_shutdown(async move {
+      let _ = shutdown_rx.changed().await;
+    })
+    .await
+    .context("serve http")?;
   Ok(())
 }
 

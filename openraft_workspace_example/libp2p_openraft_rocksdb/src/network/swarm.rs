@@ -22,6 +22,7 @@ use crate::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
+  signal::ShutdownRx,
   store::{KvData, ensure_linearizable_read},
   typ::{Raft, Snapshot},
 };
@@ -189,6 +190,7 @@ pub async fn run_swarm(
   raft: Raft,
   kv_data: KvData,
   kv_client: KvClient,
+  mut shutdown_rx: ShutdownRx,
 ) {
   let mut pending_raft: HashMap<
     OutboundRequestId,
@@ -199,6 +201,10 @@ pub async fn run_swarm(
 
   loop {
     tokio::select! {
+      _ = shutdown_rx.changed() => {
+        tracing::info!("shutdown signal received, stopping swarm");
+        break;
+      }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
         match cmd {
@@ -323,7 +329,16 @@ pub async fn run_swarm(
 ///
 /// It supports outbound requests/responses but does not require a `Raft` handle.
 /// If it receives an inbound request, it responds with `RaftRpcResponse::Error`.
-pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Receiver<Command>) {
+pub async fn run_swarm_client(swarm: Swarm<Behaviour>, cmd_rx: mpsc::Receiver<Command>) {
+  let (_shutdown_tx, shutdown_rx) = crate::signal::channel();
+  run_swarm_client_with_shutdown(swarm, cmd_rx, shutdown_rx).await;
+}
+
+pub async fn run_swarm_client_with_shutdown(
+  mut swarm: Swarm<Behaviour>,
+  mut cmd_rx: mpsc::Receiver<Command>,
+  mut shutdown_rx: ShutdownRx,
+) {
   let mut pending_raft: HashMap<
     OutboundRequestId,
     oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
@@ -333,6 +348,10 @@ pub async fn run_swarm_client(mut swarm: Swarm<Behaviour>, mut cmd_rx: mpsc::Rec
 
   loop {
     tokio::select! {
+      _ = shutdown_rx.changed() => {
+        tracing::info!("shutdown signal received, stopping swarm client");
+        break;
+      }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
         match cmd {
