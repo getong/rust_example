@@ -15,6 +15,7 @@ use libp2p::{
 };
 use openraft::error::Unreachable;
 use openraft_rocksstore_crud::RocksRequest;
+use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -24,13 +25,15 @@ use crate::{
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   proto::raft_kv::{
-    ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
+    ChatMessage, ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
   signal::ShutdownRx,
   store::{KvData, ensure_linearizable_read},
   typ::{Raft, Snapshot},
 };
+
+pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 
 #[derive(Debug)]
 pub struct NetErr(pub String);
@@ -104,6 +107,10 @@ pub enum Command {
   Dial {
     addr: Multiaddr,
   },
+  GossipsubPublish {
+    topic: String,
+    data: Vec<u8>,
+  },
   RaftRequest {
     peer: PeerId,
     req: RaftRpcRequest,
@@ -137,6 +144,17 @@ impl Libp2pClient {
 
   pub async fn dial(&self, addr: Multiaddr) {
     let _ = self.tx.send(Command::Dial { addr }).await;
+  }
+
+  pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) -> Result<(), NetErr> {
+    self
+      .tx
+      .send(Command::GossipsubPublish {
+        topic: topic.to_string(),
+        data,
+      })
+      .await
+      .map_err(|e| NetErr(format!("command channel closed: {e}")))
   }
 
   pub async fn request(
@@ -256,6 +274,12 @@ pub async fn run_swarm(
             let _ = Swarm::dial(&mut swarm, dial_addr);
             add_kad_address_from_p2p(&mut swarm, &addr);
           }
+          Command::GossipsubPublish { topic, data } => {
+            let topic = gossipsub::IdentTopic::new(topic);
+            if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
+              tracing::warn!("gossipsub publish failed: {err}");
+            }
+          }
           Command::RaftRequest { peer, req, resp } => {
             let id = swarm.behaviour_mut().raft.send_request(&peer, req);
             pending_raft.insert(id, resp);
@@ -361,12 +385,27 @@ pub async fn run_swarm(
               message_id,
               message,
             } => {
-              tracing::info!(
-                peer = %propagation_source,
-                message_id = %message_id,
-                len = message.data.len(),
-                "gossipsub message"
-              );
+              match ChatMessage::decode(message.data.as_slice()) {
+                Ok(chat) => {
+                  tracing::info!(
+                    peer = %propagation_source,
+                    message_id = %message_id,
+                    from = %chat.from,
+                    text = %chat.text,
+                    ts = chat.ts_unix_ms,
+                    "chat message"
+                  );
+                }
+                Err(err) => {
+                  tracing::info!(
+                    peer = %propagation_source,
+                    message_id = %message_id,
+                    len = message.data.len(),
+                    error = %err,
+                    "gossipsub message (decode failed)"
+                  );
+                }
+              }
             }
             other => {
               tracing::debug!("gossipsub event: {:?}", other);
@@ -450,6 +489,12 @@ pub async fn run_swarm_client_with_shutdown(
             let dial_addr = addr.clone();
             let _ = Swarm::dial(&mut swarm, dial_addr);
             add_kad_address_from_p2p(&mut swarm, &addr);
+          }
+          Command::GossipsubPublish { topic, data } => {
+            let topic = gossipsub::IdentTopic::new(topic);
+            if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
+              tracing::warn!("gossipsub publish failed: {err}");
+            }
           }
           Command::RaftRequest { peer, req, resp } => {
             let id = swarm.behaviour_mut().raft.send_request(&peer, req);
@@ -542,12 +587,27 @@ pub async fn run_swarm_client_with_shutdown(
               message_id,
               message,
             } => {
-              tracing::info!(
-                peer = %propagation_source,
-                message_id = %message_id,
-                len = message.data.len(),
-                "gossipsub message"
-              );
+              match ChatMessage::decode(message.data.as_slice()) {
+                Ok(chat) => {
+                  tracing::info!(
+                    peer = %propagation_source,
+                    message_id = %message_id,
+                    from = %chat.from,
+                    text = %chat.text,
+                    ts = chat.ts_unix_ms,
+                    "chat message"
+                  );
+                }
+                Err(err) => {
+                  tracing::info!(
+                    peer = %propagation_source,
+                    message_id = %message_id,
+                    len = message.data.len(),
+                    error = %err,
+                    "gossipsub message (decode failed)"
+                  );
+                }
+              }
             }
             other => {
               tracing::debug!("gossipsub event: {:?}", other);

@@ -20,4 +20,9 @@ curl -X POST http://127.0.0.1:3002/delete \
 
 # get cluster info
 curl http://127.0.0.1:3001/cluster
+
+# chat
+curl -X POST http://127.0.0.1:3001/chat \
+  -H 'content-type: application/json' \
+  -d '{"text":"hello from http","from":"node1"}'
 #+end_src

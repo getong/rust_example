@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package libp2p_openraft_rocksdb;
+
+message ChatMessage {
+  string from = 1;
+  string text = 2;
+  int64 ts_unix_ms = 3;
+}

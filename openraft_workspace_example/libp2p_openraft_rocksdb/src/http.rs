@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+  net::SocketAddr,
+  sync::Arc,
+  time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context;
 use axum::{
@@ -7,12 +11,16 @@ use axum::{
   routing::{get, post},
 };
 use libp2p::{Multiaddr, PeerId};
+use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
-  network::{swarm::KvClient, transport::Libp2pNetworkFactory},
+  network::{
+    swarm::{GOSSIP_TOPIC, KvClient},
+    transport::Libp2pNetworkFactory,
+  },
   proto::raft_kv::{
-    DeleteValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
+    ChatMessage, DeleteValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
     UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
@@ -40,6 +48,7 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
   let app = Router::new()
     .route("/cluster", get(cluster_info))
+    .route("/chat", post(send_chat))
     .route("/write", post(set_value))
     .route("/update", post(update_value))
     .route("/delete", post(delete_value))
@@ -122,6 +131,18 @@ struct DeleteValueRequestBody {
 #[derive(Serialize)]
 struct DeleteValueResponseBody {
   target_node_id: Option<NodeId>,
+  ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ChatRequest {
+  text: String,
+  from: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ChatResponse {
   ok: bool,
   error: Option<String>,
 }
@@ -222,6 +243,41 @@ async fn set_value(
       ok: false,
       value: None,
       error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn send_chat(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<ChatRequest>,
+) -> Json<ChatResponse> {
+  let from = req.from.unwrap_or_else(|| state.node_name.clone());
+  let ts = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis() as i64;
+  let chat = ChatMessage {
+    from,
+    text: req.text,
+    ts_unix_ms: ts,
+  };
+
+  let mut buf = Vec::new();
+  if let Err(err) = chat.encode(&mut buf) {
+    return Json(ChatResponse {
+      ok: false,
+      error: Some(format!("encode error: {err}")),
+    });
+  }
+
+  match state.network.publish_gossipsub(GOSSIP_TOPIC, buf).await {
+    Ok(()) => Json(ChatResponse {
+      ok: true,
+      error: None,
+    }),
+    Err(err) => Json(ChatResponse {
+      ok: false,
+      error: Some(err.to_string()),
     }),
   }
 }

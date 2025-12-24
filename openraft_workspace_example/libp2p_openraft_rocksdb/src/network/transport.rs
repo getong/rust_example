@@ -51,6 +51,10 @@ impl Libp2pNetworkFactory {
       .collect()
   }
 
+  pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) -> Result<(), NetErr> {
+    self.client.publish_gossipsub(topic, data).await
+  }
+
   pub async fn request(
     &self,
     node_id: NodeId,

@@ -22,7 +22,7 @@ use crate::{
   http,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
-    swarm::{Behaviour, KvClient, Libp2pClient, run_swarm},
+    swarm::{Behaviour, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
     transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
@@ -32,7 +32,6 @@ use crate::{
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
-const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
