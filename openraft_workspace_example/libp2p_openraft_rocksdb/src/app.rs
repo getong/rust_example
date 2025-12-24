@@ -222,6 +222,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let swarm_done = shutdown.push("libp2p-swarm");
   let swarm_shutdown = shutdown.shutdown_rx();
+  let network_for_swarm = network.clone();
   let raft_for_swarm = raft.clone();
   let kv_data_for_swarm = kv_data.clone();
   let kv_client_for_swarm = kv_client.clone();
@@ -231,6 +232,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       swarm,
       cmd_rx,
       cmd_tx_for_swarm,
+      network_for_swarm,
       raft_for_swarm,
       kv_data_for_swarm,
       kv_client_for_swarm,

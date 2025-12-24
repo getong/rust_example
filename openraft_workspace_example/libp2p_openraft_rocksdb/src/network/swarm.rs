@@ -1,4 +1,9 @@
-use std::{collections::HashMap, error::Error, fmt, time::Duration};
+use std::{
+  collections::{HashMap, HashSet},
+  error::Error,
+  fmt,
+  time::Duration,
+};
 
 use futures::StreamExt;
 use libp2p::{
@@ -16,7 +21,7 @@ use crate::{
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     rpc::{RaftRpcRequest, RaftRpcResponse},
-    transport::parse_p2p_addr,
+    transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   proto::raft_kv::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
@@ -187,6 +192,7 @@ pub async fn run_swarm(
   mut swarm: Swarm<Behaviour>,
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
+  network: Libp2pNetworkFactory,
   raft: Raft,
   kv_data: KvData,
   kv_client: KvClient,
@@ -198,12 +204,33 @@ pub async fn run_swarm(
   > = HashMap::new();
   let mut pending_kv: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>> =
     HashMap::new();
+  let mut connected_peers: HashSet<PeerId> = HashSet::new();
+  let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
+  reconnect_tick.tick().await;
 
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm");
         break;
+      }
+      _ = reconnect_tick.tick() => {
+        let nodes = network.known_nodes().await;
+        for (_node_id, peer_id, addr) in nodes {
+          if peer_id == *swarm.local_peer_id() {
+            continue;
+          }
+          if connected_peers.contains(&peer_id) {
+            continue;
+          }
+          tracing::info!(
+            peer = %peer_id,
+            addr = %addr,
+            "reconnecting to peer"
+          );
+          let _ = Swarm::dial(&mut swarm, addr.clone());
+          add_kad_address_from_p2p(&mut swarm, &addr);
+        }
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
@@ -312,6 +339,21 @@ pub async fn run_swarm(
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
             tracing::debug!("kad event: {:?}", event);
+          }
+
+          SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+            connected_peers.insert(peer_id);
+          }
+
+          SwarmEvent::ConnectionClosed { peer_id, num_established, cause, .. } => {
+            if num_established == 0 {
+              connected_peers.remove(&peer_id);
+              if let Some(cause) = cause {
+                tracing::warn!(peer = %peer_id, error = %cause, "connection closed");
+              } else {
+                tracing::info!(peer = %peer_id, "connection closed");
+              }
+            }
           }
 
           SwarmEvent::NewListenAddr { address, .. } => {
