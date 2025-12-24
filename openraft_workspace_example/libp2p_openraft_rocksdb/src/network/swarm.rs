@@ -7,9 +7,9 @@ use std::{
 
 use futures::StreamExt;
 use libp2p::{
-  Multiaddr, PeerId, Swarm,
+  Multiaddr, PeerId, Swarm, gossipsub,
   kad::{self, store::MemoryStore},
-  mdns,
+  mdns, ping,
   request_response::{self, OutboundRequestId, ResponseChannel},
   swarm::{NetworkBehaviour, SwarmEvent},
 };
@@ -48,6 +48,8 @@ impl Error for NetErr {}
 pub struct Behaviour {
   pub raft: request_response::Behaviour<ProtoCodec>,
   pub kv: request_response::Behaviour<ProstCodec<RaftKvRequest, RaftKvResponse>>,
+  pub gossipsub: gossipsub::Behaviour,
+  pub ping: ping::Behaviour,
   pub mdns: mdns::tokio::Behaviour,
   pub kad: kad::Behaviour<MemoryStore>,
 }
@@ -56,6 +58,8 @@ pub struct Behaviour {
 pub enum BehaviourEvent {
   Raft(request_response::Event<RaftRpcRequest, RaftRpcResponse>),
   Kv(request_response::Event<RaftKvRequest, RaftKvResponse>),
+  Gossipsub(gossipsub::Event),
+  Ping(ping::Event),
   Mdns(mdns::Event),
   Kad(kad::Event),
 }
@@ -69,6 +73,18 @@ impl From<request_response::Event<RaftRpcRequest, RaftRpcResponse>> for Behaviou
 impl From<request_response::Event<RaftKvRequest, RaftKvResponse>> for BehaviourEvent {
   fn from(value: request_response::Event<RaftKvRequest, RaftKvResponse>) -> Self {
     Self::Kv(value)
+  }
+}
+
+impl From<gossipsub::Event> for BehaviourEvent {
+  fn from(value: gossipsub::Event) -> Self {
+    Self::Gossipsub(value)
+  }
+}
+
+impl From<ping::Event> for BehaviourEvent {
+  fn from(value: ping::Event) -> Self {
+    Self::Ping(value)
   }
 }
 
@@ -327,15 +343,46 @@ pub async fn run_swarm(
             mdns::Event::Discovered(list) => {
               for (peer, addr) in list {
                 add_kad_peer_address(&mut swarm, peer, addr);
+                swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
               }
             }
             mdns::Event::Expired(list) => {
               for (peer, addr) in list {
                 let addr = strip_p2p(addr);
                 swarm.behaviour_mut().kad.remove_address(&peer, &addr);
+                swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
               }
             }
           },
+
+          SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => match event {
+            gossipsub::Event::Message {
+              propagation_source,
+              message_id,
+              message,
+            } => {
+              tracing::info!(
+                peer = %propagation_source,
+                message_id = %message_id,
+                len = message.data.len(),
+                "gossipsub message"
+              );
+            }
+            other => {
+              tracing::debug!("gossipsub event: {:?}", other);
+            }
+          },
+
+          SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
+            match event {
+              ping::Event { peer, result: Ok(rtt), .. } => {
+                tracing::debug!(peer = %peer, rtt = ?rtt, "ping ok");
+              }
+              ping::Event { peer, result: Err(err), .. } => {
+                tracing::warn!(peer = %peer, error = ?err, "ping failed");
+              }
+            }
+          }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
             tracing::debug!("kad event: {:?}", event);
@@ -343,11 +390,13 @@ pub async fn run_swarm(
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             connected_peers.insert(peer_id);
+            swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
           }
 
           SwarmEvent::ConnectionClosed { peer_id, num_established, cause, .. } => {
             if num_established == 0 {
               connected_peers.remove(&peer_id);
+              swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
               if let Some(cause) = cause {
                 tracing::warn!(peer = %peer_id, error = %cause, "connection closed");
               } else {
@@ -475,18 +524,59 @@ pub async fn run_swarm_client_with_shutdown(
             mdns::Event::Discovered(list) => {
               for (peer, addr) in list {
                 add_kad_peer_address(&mut swarm, peer, addr);
+                swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
               }
             }
             mdns::Event::Expired(list) => {
               for (peer, addr) in list {
                 let addr = strip_p2p(addr);
                 swarm.behaviour_mut().kad.remove_address(&peer, &addr);
+                swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
               }
             }
           },
 
+          SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => match event {
+            gossipsub::Event::Message {
+              propagation_source,
+              message_id,
+              message,
+            } => {
+              tracing::info!(
+                peer = %propagation_source,
+                message_id = %message_id,
+                len = message.data.len(),
+                "gossipsub message"
+              );
+            }
+            other => {
+              tracing::debug!("gossipsub event: {:?}", other);
+            }
+          },
+
+          SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
+            match event {
+              ping::Event { peer, result: Ok(rtt), .. } => {
+                tracing::debug!(peer = %peer, rtt = ?rtt, "ping ok");
+              }
+              ping::Event { peer, result: Err(err), .. } => {
+                tracing::warn!(peer = %peer, error = ?err, "ping failed");
+              }
+            }
+          }
+
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
             tracing::debug!("kad event: {:?}", event);
+          }
+
+          SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+            swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+          }
+
+          SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
+            if num_established == 0 {
+              swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+            }
           }
 
           SwarmEvent::NewListenAddr { address, .. } => {

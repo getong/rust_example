@@ -3,9 +3,9 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use libp2p::{
-  Multiaddr, StreamProtocol, identity,
+  Multiaddr, StreamProtocol, gossipsub, identity,
   kad::{self, store::MemoryStore},
-  mdns, noise,
+  mdns, noise, ping,
   request_response::{self, ProtocolSupport},
   tcp, tls, yamux,
 };
@@ -81,6 +81,15 @@ async fn main() -> anyhow::Result<()> {
       let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
       let mut kad = kad::Behaviour::new(peer_id, MemoryStore::new(peer_id));
       kad.set_mode(Some(kad::Mode::Client));
+      let gossipsub_config = gossipsub::ConfigBuilder::default()
+        .build()
+        .map_err(|e| anyhow::anyhow!("gossipsub config error: {e}"))?;
+      let gossipsub = gossipsub::Behaviour::new(
+        gossipsub::MessageAuthenticity::Signed(key.clone()),
+        gossipsub_config,
+      )
+      .map_err(|e| anyhow::anyhow!("gossipsub init error: {e}"))?;
+      let ping = ping::Behaviour::new(ping::Config::new());
 
       Ok(Behaviour {
         raft: request_response::Behaviour::with_codec(
@@ -96,6 +105,8 @@ async fn main() -> anyhow::Result<()> {
           [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
           cfg,
         ),
+        gossipsub,
+        ping,
         mdns,
         kad,
       })

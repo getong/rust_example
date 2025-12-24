@@ -9,9 +9,9 @@ use std::{
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, identity,
+  Multiaddr, PeerId, StreamProtocol, gossipsub, identity,
   kad::{self, store::MemoryStore},
-  mdns, noise,
+  mdns, noise, ping,
   request_response::{self, ProtocolSupport},
   tcp, tls, yamux,
 };
@@ -32,6 +32,7 @@ use crate::{
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
+const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
@@ -174,6 +175,15 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
       let mut kad = kad::Behaviour::new(peer_id, MemoryStore::new(peer_id));
       kad.set_mode(Some(kad::Mode::Server));
+      let gossipsub_config = gossipsub::ConfigBuilder::default()
+        .build()
+        .map_err(|e| anyhow!("gossipsub config error: {e}"))?;
+      let gossipsub = gossipsub::Behaviour::new(
+        gossipsub::MessageAuthenticity::Signed(key.clone()),
+        gossipsub_config,
+      )
+      .map_err(|e| anyhow!("gossipsub init error: {e}"))?;
+      let ping = ping::Behaviour::new(ping::Config::new());
 
       Ok(Behaviour {
         raft: request_response::Behaviour::with_codec(
@@ -189,12 +199,21 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
           [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
           cfg,
         ),
+        gossipsub,
+        ping,
         mdns,
         kad,
       })
     })
     .context("build behaviour")?
     .build();
+
+  let gossip_topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&gossip_topic)
+    .context("gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
 
