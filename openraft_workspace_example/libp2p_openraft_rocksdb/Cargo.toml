@@ -13,6 +13,7 @@ libp2p = { version = "0.56", features = [
   "tokio",
   "tcp",
   "noise",
+  "tls",
   "yamux",
   "request-response",
   "cbor",
@@ -20,6 +21,7 @@ libp2p = { version = "0.56", features = [
   "identify",
   "kad",
   "mdns",
+  "quic",
 ] }
 openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
   "serde",

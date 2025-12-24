@@ -13,7 +13,7 @@ use libp2p::{
   kad::{self, store::MemoryStore},
   mdns, noise,
   request_response::{self, ProtocolSupport},
-  tcp, yamux,
+  tcp, tls, yamux,
 };
 use openraft::{BasicNode, Raft};
 use tokio::sync::mpsc;
@@ -40,7 +40,7 @@ pub struct Opt {
   #[arg(long)]
   pub id: u64,
 
-  /// Libp2p listen address, e.g. /ip4/0.0.0.0/tcp/4001
+  /// Libp2p listen address, e.g. /ip4/0.0.0.0/tcp/4001 or /ip4/0.0.0.0/udp/4001/quic-v1
   #[arg(long)]
   pub listen: String,
 
@@ -163,10 +163,11 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .with_tokio()
     .with_tcp(
       tcp::Config::default(),
-      noise::Config::new,
+      (tls::Config::new, noise::Config::new),
       yamux::Config::default,
     )
     .context("build tcp/noise/yamux")?
+    .with_quic()
     .with_behaviour(|key| {
       let cfg = request_response::Config::default();
       let peer_id = PeerId::from(key.public());

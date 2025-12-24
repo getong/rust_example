@@ -7,7 +7,7 @@ use libp2p::{
   kad::{self, store::MemoryStore},
   mdns, noise,
   request_response::{self, ProtocolSupport},
-  tcp, yamux,
+  tcp, tls, yamux,
 };
 use libp2p_openraft_rocksdb::{
   app,
@@ -69,10 +69,11 @@ async fn main() -> anyhow::Result<()> {
     .with_tokio()
     .with_tcp(
       tcp::Config::default(),
-      noise::Config::new,
+      (tls::Config::new, noise::Config::new),
       yamux::Config::default,
     )
     .context("build tcp/noise/yamux")?
+    .with_quic()
     .with_behaviour(|key| {
       let cfg = request_response::Config::default();
       let peer_id = libp2p::PeerId::from(key.public());
