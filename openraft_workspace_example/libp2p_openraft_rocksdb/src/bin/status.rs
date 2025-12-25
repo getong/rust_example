@@ -3,11 +3,13 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::Parser;
 use libp2p::{
-  Multiaddr, StreamProtocol, gossipsub, identity,
+  Multiaddr, StreamProtocol, Transport,
+  core::upgrade::Version,
+  dns, gossipsub, identity,
   kad::{self, store::MemoryStore},
   mdns, noise, ping,
   request_response::{self, ProtocolSupport},
-  tcp, tls, yamux,
+  tcp, tls, websocket, yamux,
 };
 use libp2p_openraft_rocksdb::{
   app,
@@ -40,6 +42,9 @@ pub struct Opt {
   /// RPC timeout seconds
   #[arg(long, default_value_t = 5)]
   pub timeout_secs: u64,
+
+  #[command(flatten)]
+  pub websocket: app::WebsocketOpt,
 }
 
 #[tokio::main]
@@ -66,6 +71,22 @@ async fn main() -> anyhow::Result<()> {
     )
     .context("build tcp/noise/yamux")?
     .with_quic()
+    .with_other_transport(
+      |key| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
+        let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());
+        let dns_transport = dns::tokio::Transport::system(tcp_transport)?;
+        let mut ws_transport = websocket::Config::new(dns_transport);
+        app::apply_websocket_limits(&mut ws_transport, &opt.websocket);
+        let security = noise::Config::new(key)?;
+        Ok(
+          ws_transport
+            .upgrade(Version::V1Lazy)
+            .authenticate(security)
+            .multiplex(yamux::Config::default()),
+        )
+      },
+    )
+    .context("build websocket transport")?
     .with_behaviour(|key| {
       let cfg = request_response::Config::default();
       let peer_id = libp2p::PeerId::from(key.public());

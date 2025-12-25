@@ -8,12 +8,15 @@ use std::{
 
 use anyhow::{Context, anyhow};
 use clap::Parser;
+use futures::{AsyncRead, AsyncWrite};
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, gossipsub, identity,
+  Multiaddr, PeerId, StreamProtocol, Transport,
+  core::upgrade::Version,
+  dns, gossipsub, identity,
   kad::{self, store::MemoryStore},
   mdns, noise, ping,
   request_response::{self, ProtocolSupport},
-  tcp, tls, yamux,
+  tcp, tls, websocket, yamux,
 };
 use openraft::{BasicNode, Raft};
 use tokio::sync::mpsc;
@@ -33,6 +36,33 @@ use crate::{
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
 
+#[derive(Parser, Debug, Clone, Default)]
+pub struct WebsocketOpt {
+  /// Max websocket frame data size in bytes. Defaults to libp2p-websocket.
+  #[arg(long)]
+  pub ws_max_data_size: Option<usize>,
+
+  /// Max websocket redirect hops to follow.
+  #[arg(long)]
+  pub ws_max_redirects: Option<u8>,
+}
+
+pub fn apply_websocket_limits<T>(ws: &mut websocket::Config<T>, opt: &WebsocketOpt)
+where
+  T: Transport + Send + Unpin + 'static,
+  T::Error: Send + 'static,
+  T::Dial: Send + 'static,
+  T::ListenerUpgrade: Send + 'static,
+  T::Output: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+  if let Some(size) = opt.ws_max_data_size {
+    ws.set_max_data_size(size);
+  }
+  if let Some(max) = opt.ws_max_redirects {
+    ws.set_max_redirects(max);
+  }
+}
+
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 pub struct Opt {
@@ -40,7 +70,7 @@ pub struct Opt {
   #[arg(long)]
   pub id: u64,
 
-  /// Libp2p listen address, e.g. /ip4/0.0.0.0/tcp/4001 or /ip4/0.0.0.0/udp/4001/quic-v1
+  /// Libp2p listen address, e.g. /ip4/0.0.0.0/tcp/4001/ws or /ip4/0.0.0.0/udp/4001/quic-v1
   #[arg(long)]
   pub listen: String,
 
@@ -66,6 +96,9 @@ pub struct Opt {
   /// Cluster node addresses in the form: <id>=<multiaddr-with-/p2p/peerid>
   #[arg(long = "node")]
   pub nodes: Vec<String>,
+
+  #[command(flatten)]
+  pub websocket: WebsocketOpt,
 }
 
 pub fn parse_node_kv(s: &str) -> anyhow::Result<(NodeId, String)> {
@@ -168,6 +201,22 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     )
     .context("build tcp/noise/yamux")?
     .with_quic()
+    .with_other_transport(
+      |key| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
+        let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());
+        let dns_transport = dns::tokio::Transport::system(tcp_transport)?;
+        let mut ws_transport = websocket::Config::new(dns_transport);
+        apply_websocket_limits(&mut ws_transport, &opt.websocket);
+        let security = noise::Config::new(key)?;
+        Ok(
+          ws_transport
+            .upgrade(Version::V1Lazy)
+            .authenticate(security)
+            .multiplex(yamux::Config::default()),
+        )
+      },
+    )
+    .context("build websocket transport")?
     .with_behaviour(|key| {
       let cfg = request_response::Config::default();
       let peer_id = PeerId::from(key.public());
