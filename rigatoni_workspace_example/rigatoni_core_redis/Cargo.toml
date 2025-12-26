@@ -1,0 +1,10 @@
+[package]
+name = "rigatoni_core_redis"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rigatoni-core = "0.2.0"
+rigatoni-destinations = { version = "0.2.0", features = ["s3"] }
+rigatoni-stores = { version = "0.2.0", features = ["redis-store"] }
+tokio = { version = "1.48.0", features = ["full"] }
