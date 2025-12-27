@@ -45,6 +45,14 @@ pub struct WebsocketOpt {
   /// Max websocket redirect hops to follow.
   #[arg(long)]
   pub ws_max_redirects: Option<u8>,
+
+  /// Websocket TLS private key (DER, PKCS#8 or PKCS#1).
+  #[arg(long)]
+  pub ws_tls_key: Option<PathBuf>,
+
+  /// Websocket TLS certificate chain (DER).
+  #[arg(long)]
+  pub ws_tls_cert: Option<PathBuf>,
 }
 
 pub fn apply_websocket_limits<T>(ws: &mut websocket::Config<T>, opt: &WebsocketOpt)
@@ -61,6 +69,56 @@ where
   if let Some(max) = opt.ws_max_redirects {
     ws.set_max_redirects(max);
   }
+}
+
+pub fn apply_websocket_tls<T>(ws: &mut websocket::Config<T>, opt: &WebsocketOpt) -> anyhow::Result<()>
+where
+  T: Transport + Send + Unpin + 'static,
+  T::Error: Send + 'static,
+  T::Dial: Send + 'static,
+  T::ListenerUpgrade: Send + 'static,
+  T::Output: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+  let Some(cert_path) = opt.ws_tls_cert.as_ref() else {
+    if opt.ws_tls_key.is_some() {
+      return Err(anyhow!("--ws-tls-key requires --ws-tls-cert"));
+    }
+    return Ok(());
+  };
+
+  let cert_bytes = std::fs::read(cert_path)
+    .with_context(|| format!("read websocket TLS cert: {}", cert_path.display()))?;
+  let cert = websocket::tls::Certificate::new(cert_bytes);
+
+  // Create a custom TLS config that trusts our self-signed certificate
+  let mut builder = websocket::tls::Config::builder();
+
+  // Add our certificate as a trusted root for peer verification
+  builder.add_trust(&cert)?;
+
+  // If we have a private key, configure the server side
+  if let Some(key_path) = opt.ws_tls_key.as_ref() {
+    let key_bytes = std::fs::read(key_path)
+      .with_context(|| format!("read websocket TLS key: {}", key_path.display()))?;
+    let key = websocket::tls::PrivateKey::new(key_bytes);
+    builder.server(key, vec![cert.clone()])?;
+  }
+
+  ws.set_tls_config(builder.finish());
+  Ok(())
+}
+
+pub fn uses_wss(addr: &Multiaddr) -> bool {
+  let mut saw_tls = false;
+  for proto in addr.iter() {
+    match proto {
+      libp2p::multiaddr::Protocol::Wss(_) => return true,
+      libp2p::multiaddr::Protocol::Tls => saw_tls = true,
+      libp2p::multiaddr::Protocol::Ws(_) if saw_tls => return true,
+      _ => {}
+    }
+  }
+  false
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -191,6 +249,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let listen_addr: Multiaddr = opt.listen.parse().context("invalid --listen multiaddr")?;
   let http_addr: SocketAddr = opt.http.parse().context("invalid --http")?;
+  if uses_wss(&listen_addr)
+    && (opt.websocket.ws_tls_key.is_none() || opt.websocket.ws_tls_cert.is_none())
+  {
+    return Err(anyhow!(
+      "wss listen requires both --ws-tls-key and --ws-tls-cert"
+    ));
+  }
 
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()
@@ -205,11 +270,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       |key| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
         let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());
         let dns_transport = dns::tokio::Transport::system(tcp_transport)?;
-        let mut ws_transport = websocket::Config::new(dns_transport);
-        apply_websocket_limits(&mut ws_transport, &opt.websocket);
-        let security = noise::Config::new(key)?;
-        Ok(
-          ws_transport
+      let mut ws_transport = websocket::Config::new(dns_transport);
+      apply_websocket_limits(&mut ws_transport, &opt.websocket);
+      apply_websocket_tls(&mut ws_transport, &opt.websocket)
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+      let security = noise::Config::new(key)?;
+      Ok(
+        ws_transport
             .upgrade(Version::V1Lazy)
             .authenticate(security)
             .multiplex(yamux::Config::default()),
