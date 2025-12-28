@@ -14,7 +14,7 @@ use serde_json::json;
 async fn main() -> Result<()> {
   // Example of top level client
   // You may also use tonic-generated client from `src/qdrant.rs`
-  let config = QdrantClientConfig::from_url("http://localhost:6334");
+  let config = QdrantClientConfig::from_url("http://localhost:6333");
   let client = QdrantClient::new(Some(config))?;
 
   let collections_list = client.list_collections().await?;
