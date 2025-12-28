@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "qdrant_search",
+  "qdrant_deprecated_search",
+]
