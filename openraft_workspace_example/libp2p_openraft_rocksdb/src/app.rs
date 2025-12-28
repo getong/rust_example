@@ -71,7 +71,10 @@ where
   }
 }
 
-pub fn apply_websocket_tls<T>(ws: &mut websocket::Config<T>, opt: &WebsocketOpt) -> anyhow::Result<()>
+pub fn apply_websocket_tls<T>(
+  ws: &mut websocket::Config<T>,
+  opt: &WebsocketOpt,
+) -> anyhow::Result<()>
 where
   T: Transport + Send + Unpin + 'static,
   T::Error: Send + 'static,
@@ -270,13 +273,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       |key| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
         let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());
         let dns_transport = dns::tokio::Transport::system(tcp_transport)?;
-      let mut ws_transport = websocket::Config::new(dns_transport);
-      apply_websocket_limits(&mut ws_transport, &opt.websocket);
-      apply_websocket_tls(&mut ws_transport, &opt.websocket)
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
-      let security = noise::Config::new(key)?;
-      Ok(
-        ws_transport
+        let mut ws_transport = websocket::Config::new(dns_transport);
+        apply_websocket_limits(&mut ws_transport, &opt.websocket);
+        apply_websocket_tls(&mut ws_transport, &opt.websocket)
+          .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+        let security = noise::Config::new(key)?;
+        Ok(
+          ws_transport
             .upgrade(Version::V1Lazy)
             .authenticate(security)
             .multiplex(yamux::Config::default()),

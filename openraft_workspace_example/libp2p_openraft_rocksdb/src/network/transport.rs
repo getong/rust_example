@@ -1,7 +1,7 @@
 use std::{collections::HashMap, future::Future, sync::Arc};
 
 use anyhow::Context;
-use libp2p::{Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use openraft::{
   BasicNode, RaftNetworkFactory,
   error::{RPCError, Unreachable},
@@ -41,6 +41,35 @@ impl Libp2pNetworkFactory {
     }
     self.client.dial(maddr).await;
     Ok(())
+  }
+
+  pub async fn update_peer_addr_from_mdns(&self, peer: PeerId, addr: Multiaddr) {
+    let mut map = self.node_peers.write().await;
+    for (node_id, (stored_peer, stored_addr)) in map.iter_mut() {
+      if *stored_peer != peer {
+        continue;
+      }
+
+      let candidate = ensure_p2p_addr(addr.clone(), peer);
+      if candidate == *stored_addr {
+        return;
+      }
+
+      let candidate_loopback = is_loopback_addr(&candidate);
+      let stored_loopback = is_loopback_addr(stored_addr);
+      if candidate_loopback != stored_loopback {
+        return;
+      }
+
+      tracing::info!(
+        node_id = *node_id,
+        peer = %peer,
+        addr = %candidate,
+        "updating peer address from mdns"
+      );
+      *stored_addr = candidate;
+      return;
+    }
   }
 
   pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
@@ -184,7 +213,7 @@ pub fn parse_p2p_addr(s: &str) -> anyhow::Result<(PeerId, Multiaddr)> {
 
   let mut peer: Option<PeerId> = None;
   for p in addr.iter() {
-    if let libp2p::multiaddr::Protocol::P2p(pid) = p {
+    if let Protocol::P2p(pid) = p {
       peer = Some(pid);
       break;
     }
@@ -192,4 +221,28 @@ pub fn parse_p2p_addr(s: &str) -> anyhow::Result<(PeerId, Multiaddr)> {
 
   let peer = peer.ok_or_else(|| anyhow::anyhow!("multiaddr must include /p2p/<peerid>: {s}"))?;
   Ok((peer, addr))
+}
+
+fn ensure_p2p_addr(mut addr: Multiaddr, peer: PeerId) -> Multiaddr {
+  if matches!(addr.iter().last(), Some(Protocol::P2p(_))) {
+    return addr;
+  }
+  addr.push(Protocol::P2p(peer.into()));
+  addr
+}
+
+fn is_loopback_addr(addr: &Multiaddr) -> bool {
+  for protocol in addr.iter() {
+    match protocol {
+      Protocol::Ip4(ip) => return ip.is_loopback(),
+      Protocol::Ip6(ip) => return ip.is_loopback(),
+      Protocol::Dns(host) | Protocol::Dns4(host) | Protocol::Dns6(host) => {
+        if host.eq_ignore_ascii_case("localhost") {
+          return true;
+        }
+      }
+      _ => {}
+    }
+  }
+  false
 }

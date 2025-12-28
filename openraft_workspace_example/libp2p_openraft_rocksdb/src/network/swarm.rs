@@ -366,6 +366,7 @@ pub async fn run_swarm(
           SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
             mdns::Event::Discovered(list) => {
               for (peer, addr) in list {
+                network.update_peer_addr_from_mdns(peer, addr.clone()).await;
                 add_kad_peer_address(&mut swarm, peer, addr);
                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
               }
