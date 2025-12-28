@@ -120,3 +120,5 @@ async fn main() -> Result<()> {
 
   Ok(())
 }
+
+// copy from https://github.com/qdrant/rust-client/blob/master/examples/deprecated_search.rs
