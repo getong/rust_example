@@ -291,17 +291,17 @@ echo "Starting node1 (Ctrl-C to stop)..."
 
 should_init=0
 case "$INIT_CLUSTER" in
-	1 | true | yes | always)
+1 | true | yes | always)
+	should_init=1
+	;;
+0 | false | no | never)
+	should_init=0
+	;;
+*)
+	if ! db_has_rocksdb "$NODE1_DB"; then
 		should_init=1
-		;;
-	0 | false | no | never)
-		should_init=0
-		;;
-	*)
-		if ! db_has_rocksdb "$NODE1_DB"; then
-			should_init=1
-		fi
-		;;
+	fi
+	;;
 esac
 
 if ((should_init == 0)) && db_has_rocksdb "$NODE1_DB"; then
