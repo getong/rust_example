@@ -10,7 +10,9 @@ use qdrant_client::{
 async fn main() -> Result<(), QdrantError> {
   // Example of top level client
   // You may also use tonic-generated client from `src/qdrant.rs`
-  let client = Qdrant::from_url("http://localhost:6333").build()?;
+  let qdrant_url =
+    std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
+  let client = Qdrant::from_url(&qdrant_url).build()?;
 
   let collections_list = client.list_collections().await?;
   dbg!(collections_list);
