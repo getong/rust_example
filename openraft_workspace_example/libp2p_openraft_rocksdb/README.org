@@ -26,3 +26,63 @@ curl -X POST http://127.0.0.1:3001/chat \
   -H 'content-type: application/json' \
   -d '{"text":"hello from http","from":"node1"}'
 #+end_src
+
+** websocket
+
+This project enables a websocket transport alongside TCP and QUIC. Use /ws
+multiaddrs for listen and peer addresses.
+
+#+begin_src shell
+# listen with websocket
+cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
+  --id 1 \
+  --listen /ip4/0.0.0.0/tcp/4001/ws \
+  --http 0.0.0.0:3001 \
+  --db /tmp/openraft-node1 \
+  --init \
+  --node 1=/ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
+  --node 2=/ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
+
+# use websocket address in the kv client
+cargo run -p libp2p_openraft_rocksdb --bin kv -- \
+  --addr /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
+  get --key counter
+
+# use websocket address in the status client
+cargo run -p libp2p_openraft_rocksdb --bin status -- \
+  --addr /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1>
+#+end_src
+
+Websocket limits (optional):
+
+#+begin_src shell
+# limit websocket frame size and redirects
+--ws-max-data-size 10485760 --ws-max-redirects 2
+#+end_src
+
+Secure websocket (wss):
+
+#+begin_src shell
+# generate a local self-signed cert (DER)
+./generate_wss_certs.sh ./certs localhost 127.0.0.1
+
+# listen with wss using the generated cert
+cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
+  --id 1 \
+  --listen /ip4/0.0.0.0/tcp/4001/wss \
+  --http 0.0.0.0:3001 \
+  --db /tmp/openraft-node1 \
+  --ws-tls-key ./certs/private.der \
+  --ws-tls-cert ./certs/fullchain.der
+
+# trust the self-signed cert when dialing
+cargo run -p libp2p_openraft_rocksdb --bin kv -- \
+  --addr /ip4/127.0.0.1/tcp/4001/wss/p2p/<peerid1> \
+  --ws-tls-cert ./certs/fullchain.der \
+  get --key counter
+#+end_src
+
+Notes:
+- Websocket addresses use /ws (plain websocket). Secure websocket (/wss or /tls/ws)
+  is not configured by default.
+- You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
