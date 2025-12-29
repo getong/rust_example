@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1.89"
-axum = "0.8.7"
-axum-extra = "0.12.2"
+axum = "0.8.8"
+axum-extra = "0.12.5"
 tokio = { version = "1.48.0", features = ["full"] }
 tower = { version = "0.5.2", features = ["util"] }
