@@ -13,6 +13,7 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
+use rand::seq::IndexedRandom;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
@@ -53,11 +54,24 @@ async fn register_and_run(local_peer_id: PeerId) -> anyhow::Result<()> {
   info!("registered local actor");
 
   loop {
+    let mut remote_incrementors = Vec::new();
     let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
     while let Some(incrementor) = incrementors.try_next().await? {
       if incrementor.id().peer_id() == Some(&local_peer_id) {
         continue;
       }
+      remote_incrementors.push(incrementor);
+    }
+
+    let mut rng = rand::rng();
+    if let Some(incrementor) = remote_incrementors.as_slice().choose(&mut rng) {
+      let peer_id = incrementor
+        .id()
+        .peer_id()
+        .map(|p| p.to_base58()[46 ..].to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+      info!("--> sending inc to random peer {}", peer_id);
 
       match incrementor
         .ask(&Inc {
@@ -69,6 +83,8 @@ async fn register_and_run(local_peer_id: PeerId) -> anyhow::Result<()> {
         Ok(count) => info!("--> send inc: count is {count}"),
         Err(err) => error!("failed to increment actor: {err}"),
       }
+    } else {
+      info!("no remote incrementors available");
     }
 
     tokio::time::sleep(Duration::from_secs(3)).await;
