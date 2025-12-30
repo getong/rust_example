@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod http;
+pub mod kameo_remote;
 pub mod network;
 pub mod proto;
 pub mod signal;

@@ -158,6 +158,10 @@ pub struct Opt {
   #[arg(long = "node")]
   pub nodes: Vec<String>,
 
+  /// Run the kameo remote demo instead of the raft node.
+  #[arg(long, default_value_t = false)]
+  pub kameo_remote: bool,
+
   #[command(flatten)]
   pub websocket: WebsocketOpt,
 }
@@ -236,6 +240,11 @@ fn node_name_for_id(id: NodeId) -> String {
 
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
   load_env_file();
+
+  if opt.kameo_remote {
+    let custom_swarm = env::var("CUSTOM_SWARM").is_ok();
+    return crate::kameo_remote::run(custom_swarm).await;
+  }
 
   std::fs::create_dir_all(&opt.db).context("create db dir")?;
 

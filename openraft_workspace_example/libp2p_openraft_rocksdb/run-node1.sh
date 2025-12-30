@@ -310,6 +310,7 @@ fi
 
 cmd=(
 	cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb --
+	--kameo-remote
 	--id 1
 	--listen "$NODE1_LISTEN"
 	--http "$NODE1_HTTP"

@@ -9,11 +9,13 @@ async-trait = "0.1.89"
 axum = { version = "0.8.7", features = ["json"] }
 clap = { version = "4.5.53", features = ["derive"] }
 futures = "0.3.31"
+kameo = { version = "0.19.2", features = ["remote"] }
 libp2p = { version = "0.56", features = [
   "tokio",
   "tcp",
   "dns",
   "noise",
+  "serde",
   "tls",
   "yamux",
   "request-response",

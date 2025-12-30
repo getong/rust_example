@@ -290,6 +290,7 @@ echo "Starting node3 (Ctrl-C to stop)..."
 
 # Node3 just joins the network (it will be contacted by the leader during replication).
 cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
+	--kameo-remote \
 	--id 3 \
 	--listen "$NODE3_LISTEN" \
 	--http "$NODE3_HTTP" \
