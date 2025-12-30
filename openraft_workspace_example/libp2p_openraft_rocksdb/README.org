@@ -86,3 +86,8 @@ Notes:
 - Websocket addresses use /ws (plain websocket). Secure websocket (/wss or /tls/ws)
   is not configured by default.
 - You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
+
+
+ curl -X POST http://127.0.0.1:3001/kameo/inc \
+    -H 'Content-Type: application/json' \
+    -d '{"amount":10}'

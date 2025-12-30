@@ -1,11 +1,12 @@
-use std::time::Duration;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
+use axum::{Json, Router, extract::State, routing::post};
 use futures::{StreamExt, TryStreamExt};
 use kameo::{
   Actor, RemoteActor,
   actor::{RemoteActorRef, Spawn},
-  message::{Context, Message},
+  message::{Context as KameoContext, Message},
   remote, remote_message,
 };
 use libp2p::{
@@ -13,9 +14,11 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
-use rand::seq::IndexedRandom;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
+
+use crate::signal::ShutdownRx;
 
 #[derive(Actor, RemoteActor)]
 pub struct MyActor {
@@ -32,7 +35,7 @@ pub struct Inc {
 impl Message<Inc> for MyActor {
   type Reply = i64;
 
-  async fn handle(&mut self, msg: Inc, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+  async fn handle(&mut self, msg: Inc, _ctx: &mut KameoContext<Self, Self::Reply>) -> Self::Reply {
     info!(
       "<-- recv inc message from peer {}",
       &msg.from.to_base58()[46 ..]
@@ -48,56 +51,112 @@ struct MyBehaviour {
   mdns: mdns::tokio::Behaviour,
 }
 
-async fn register_and_run(local_peer_id: PeerId) -> anyhow::Result<()> {
-  let actor_ref = MyActor::spawn(MyActor { count: 0 });
-  actor_ref.register("incrementor").await?;
-  info!("registered local actor");
+#[derive(Clone)]
+struct KameoState {
+  local_peer_id: PeerId,
+}
+
+#[derive(Deserialize)]
+struct IncRequest {
+  amount: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct IncResponse {
+  ok: bool,
+  target_peer_id: Option<String>,
+  count: Option<i64>,
+  error: Option<String>,
+}
+
+async fn kameo_inc(
+  State(state): State<Arc<KameoState>>,
+  Json(req): Json<IncRequest>,
+) -> Json<IncResponse> {
+  let amount = req.amount.unwrap_or(10);
+  let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
+  let mut remote_incrementors = Vec::new();
 
   loop {
-    let mut remote_incrementors = Vec::new();
-    let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
-    while let Some(incrementor) = incrementors.try_next().await? {
-      if incrementor.id().peer_id() == Some(&local_peer_id) {
-        continue;
+    match incrementors.try_next().await {
+      Ok(Some(incrementor)) => {
+        if incrementor.id().peer_id() == Some(&state.local_peer_id) {
+          continue;
+        }
+        remote_incrementors.push(incrementor);
       }
-      remote_incrementors.push(incrementor);
+      Ok(None) => break,
+      Err(err) => {
+        return Json(IncResponse {
+          ok: false,
+          target_peer_id: None,
+          count: None,
+          error: Some(format!("lookup error: {err}")),
+        });
+      }
     }
+  }
 
+  if remote_incrementors.is_empty() {
+    return Json(IncResponse {
+      ok: false,
+      target_peer_id: None,
+      count: None,
+      error: Some("no remote incrementors available".to_string()),
+    });
+  }
+
+  let index = {
     let mut rng = rand::rng();
-    if let Some(incrementor) = remote_incrementors.as_slice().choose(&mut rng) {
-      let peer_id = incrementor
-        .id()
-        .peer_id()
-        .map(|p| p.to_base58()[46 ..].to_string())
-        .unwrap_or_else(|| "unknown".to_string());
-
-      info!("--> sending inc to random peer {}", peer_id);
-
-      match incrementor
-        .ask(&Inc {
-          amount: 10,
-          from: local_peer_id,
-        })
-        .await
-      {
-        Ok(count) => info!("--> send inc: count is {count}"),
-        Err(err) => error!("failed to increment actor: {err}"),
-      }
-    } else {
-      info!("no remote incrementors available");
-    }
-
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    rng.random_range(.. remote_incrementors.len())
+  };
+  let incrementor = remote_incrementors.swap_remove(index);
+  let target_peer_id = incrementor.id().peer_id().map(|p| p.to_string());
+  let from = state.local_peer_id.clone();
+  match incrementor.ask(&Inc { amount, from }).await {
+    Ok(count) => Json(IncResponse {
+      ok: true,
+      target_peer_id,
+      count: Some(count),
+      error: None,
+    }),
+    Err(err) => Json(IncResponse {
+      ok: false,
+      target_peer_id,
+      count: None,
+      error: Some(format!("failed to increment actor: {err}")),
+    }),
   }
 }
 
-async fn bootstrap_mode() -> anyhow::Result<()> {
-  let local_peer_id = remote::bootstrap().map_err(|err| anyhow!("bootstrap failed: {err}"))?;
-  info!("bootstrap swarm running as {}", local_peer_id.to_base58());
-  register_and_run(local_peer_id).await
+async fn serve_http(
+  addr: SocketAddr,
+  state: Arc<KameoState>,
+  mut shutdown_rx: ShutdownRx,
+) -> anyhow::Result<()> {
+  let app = Router::new()
+    .route("/kameo/inc", post(kameo_inc))
+    .with_state(state);
+
+  let listener = tokio::net::TcpListener::bind(addr)
+    .await
+    .context("bind kameo http")?;
+  axum::serve(listener, app)
+    .with_graceful_shutdown(async move {
+      let _ = shutdown_rx.changed().await;
+    })
+    .await
+    .context("serve kameo http")?;
+  Ok(())
 }
 
-async fn custom_swarm_mode() -> anyhow::Result<()> {
+async fn bootstrap_mode() -> anyhow::Result<PeerId> {
+  let local_peer_id = remote::bootstrap().map_err(|err| anyhow!("bootstrap failed: {err}"))?;
+  info!("bootstrap swarm running as {}", local_peer_id.to_base58());
+  Ok(local_peer_id)
+}
+
+async fn custom_swarm_mode(mut shutdown_rx: ShutdownRx) -> anyhow::Result<PeerId> {
   let mut swarm = SwarmBuilder::with_new_identity()
     .with_tokio()
     .with_tcp(
@@ -127,7 +186,12 @@ async fn custom_swarm_mode() -> anyhow::Result<()> {
 
   tokio::spawn(async move {
     loop {
-      match swarm.select_next_some().await {
+      tokio::select! {
+        _ = shutdown_rx.changed() => {
+          info!("kameo swarm shutdown signal received");
+          break;
+        }
+        event = swarm.select_next_some() => match event {
         SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
           for (peer_id, multiaddr) in list {
             info!("mDNS discovered peer: {peer_id}");
@@ -158,17 +222,36 @@ async fn custom_swarm_mode() -> anyhow::Result<()> {
           warn!("disconnected from {peer_id}: {cause:?}");
         }
         _ => {}
+        },
       }
     }
   });
 
-  register_and_run(local_peer_id).await
+  Ok(local_peer_id)
 }
 
-pub async fn run(custom_swarm: bool) -> anyhow::Result<()> {
-  if custom_swarm {
-    custom_swarm_mode().await
+pub async fn run(custom_swarm: bool, http_addr: SocketAddr) -> anyhow::Result<()> {
+  let mut shutdown = crate::signal::spawn_handler();
+  let swarm_shutdown = shutdown.shutdown_rx();
+  let local_peer_id = if custom_swarm {
+    custom_swarm_mode(swarm_shutdown).await?
   } else {
-    bootstrap_mode().await
-  }
+    bootstrap_mode().await?
+  };
+
+  let actor_ref = MyActor::spawn(MyActor { count: 0 });
+  actor_ref.register("incrementor").await?;
+  info!("registered local actor (use /kameo/inc to send messages)");
+
+  let state = Arc::new(KameoState { local_peer_id });
+
+  let http_done = shutdown.push("kameo-http");
+  let http_shutdown = shutdown.shutdown_rx();
+  tokio::spawn(async move {
+    let res = serve_http(http_addr, state, http_shutdown).await;
+    let _ = http_done.send(res);
+  });
+
+  let _ = shutdown.wait_signal().await;
+  Ok(())
 }

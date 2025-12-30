@@ -240,10 +240,11 @@ fn node_name_for_id(id: NodeId) -> String {
 
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
   load_env_file();
+  let http_addr: SocketAddr = opt.http.parse().context("invalid --http")?;
 
   if opt.kameo_remote {
     let custom_swarm = env::var("CUSTOM_SWARM").is_ok();
-    return crate::kameo_remote::run(custom_swarm).await;
+    return crate::kameo_remote::run(custom_swarm, http_addr).await;
   }
 
   std::fs::create_dir_all(&opt.db).context("create db dir")?;
@@ -260,7 +261,6 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   );
 
   let listen_addr: Multiaddr = opt.listen.parse().context("invalid --listen multiaddr")?;
-  let http_addr: SocketAddr = opt.http.parse().context("invalid --http")?;
   if uses_wss(&listen_addr)
     && (opt.websocket.ws_tls_key.is_none() || opt.websocket.ws_tls_cert.is_none())
   {
