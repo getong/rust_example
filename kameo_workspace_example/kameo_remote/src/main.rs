@@ -1,7 +1,12 @@
 use std::{env, time::Duration};
 
 use futures::{StreamExt, TryStreamExt};
-use kameo::prelude::*;
+use kameo::{
+  Actor, RemoteActor,
+  actor::{RemoteActorRef, Spawn},
+  message::{Context, Message},
+  remote, remote_message,
+};
 use libp2p::{
   PeerId, SwarmBuilder, mdns, noise,
   swarm::{NetworkBehaviour, SwarmEvent},
