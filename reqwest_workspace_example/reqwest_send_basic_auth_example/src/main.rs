@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -44,15 +44,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Authorization string
   let auth = "your_auth_token";
 
-  // Build the request URL
-  let url = format!("http://localhost:3000/state/{}", channel_id);
+  // Build the request URL with query parameters
+  let mut url = Url::parse(&format!("http://localhost:3000/state/{}", channel_id))?;
+  {
+    let mut pairs = url.query_pairs_mut();
+    for (key, value) in &query_params {
+      pairs.append_pair(key, value.as_str());
+    }
+  }
 
   // Send the POST request, use body method, payload will not changed
   let response = client
-    .post(&url)
+    .post(url.clone())
     .header("auth", auth)
     .body(auth)
-    .query(&query_params)
     .send()
     .await?;
 
@@ -64,10 +69,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // Send the POST request, use json method, payload changed to be \"payload\"
   let response = client
-    .post(&url)
+    .post(url)
     .header("auth", auth)
     .json(auth)
-    .query(&query_params)
     .send()
     .await?;
 
