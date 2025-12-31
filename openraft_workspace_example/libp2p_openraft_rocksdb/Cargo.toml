@@ -11,23 +11,24 @@ clap = { version = "4.5.53", features = ["derive"] }
 futures = "0.3.31"
 kameo = { version = "0.19.2", features = ["remote"] }
 libp2p = { version = "0.56", features = [
-  "tokio",
-  "tcp",
-  "dns",
-  "noise",
-  "serde",
-  "tls",
-  "yamux",
-  "request-response",
   "cbor",
-  "macros",
-  "identify",
-  "kad",
-  "mdns",
+  "dns",
   "gossipsub",
+  "identify",
+  "json",
+  "kad",
+  "macros",
+  "mdns",
+  "noise",
   "ping",
   "quic",
+  "request-response",
+  "serde",
+  "tcp",
+  "tls",
+  "tokio",
   "websocket",
+  "yamux",
 ] }
 openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
   "serde",
@@ -44,9 +45,9 @@ tokio = { version = "1.48", default-features = false, features = [
   "macros",
   "net",
   "rt-multi-thread",
+  "signal",
   "sync",
   "time",
-  "signal",
 ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
