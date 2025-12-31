@@ -8,5 +8,5 @@ async-trait = "0.1.89"
 axum = "0.8.8"
 axum-auth = "0.8.1"
 http = "1.4.0"
-reqwest = "0.12"
+reqwest = "0.13"
 tokio = { version = "1.48.0", features = ["full"] }
