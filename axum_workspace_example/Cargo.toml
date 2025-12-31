@@ -47,14 +47,14 @@ members = [
   "axum_multipart_form_example",
   "axum_askama_template_example",
   "axum_multi_static_file_server_example",
-  "axum_htmx_templates",
+  # "axum_htmx_templates",
   "axum_todo_utoipa_swagger_ui_example",
   # "axum_userp_memory_store_oauth_only_example",
   "axum_csrf_minimal_example",
   "axum_handlebars_example",
   "axum_serve_with_hyper_example",
   "axum_tower_boxclonesyncservice_example",
-  "axum_ssr_rs_example",
+  # "axum_ssr_rs_example",
   "axum_utf8bytes_example",
   "axum_wildcard_router_example",
   "axum_websocket_http2_example",
@@ -64,7 +64,7 @@ members = [
   "axum_aide_example",
   "axum_serve_wasm_example",
   "axum_tower_otel_http_example",
-  "axum_ssr_react_example",
+  # "axum_ssr_react_example",
 ]
 
 exclude = [

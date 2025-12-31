@@ -15,4 +15,4 @@ utoipa-axum = "0.2"
 utoipa-rapidoc = { version = "6", features = ["axum"] }
 utoipa-redoc = { version = "6", features = ["axum"] }
 utoipa-scalar = { version = "0.3", features = ["axum"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }

@@ -5,11 +5,10 @@ use axum::{
   body::Body,
   extract::State,
   handler::{Handler, HandlerWithoutStateExt},
-  http::{Request, Response, StatusCode, Uri},
+  http::{header, Request, Response, StatusCode, Uri},
   response::{IntoResponse, Redirect},
   Router,
 };
-use axum_extra::extract::Host;
 use hyper_util::{client::legacy::connect::HttpConnector, rt::TokioExecutor};
 use log::debug;
 use rustls_acme::{caches::DirCache, AcmeConfig};
@@ -45,7 +44,26 @@ async fn main() -> Result<()> {
       "/d",
       (|state, req| reverse_proxy_http_handler(3001, state, req)).with_state(client),
     )
-    .layer(ValidateRequestHeaderLayer::basic("user", "super safe pw"));
+    .layer(ValidateRequestHeaderLayer::custom(
+      |request: &mut Request<Body>| {
+        const EXPECTED: &str = "Basic dXNlcjpzdXBlciBzYWZlIHB3";
+        let authorized = request
+          .headers()
+          .get(header::AUTHORIZATION)
+          .and_then(|value| value.to_str().ok())
+          .is_some_and(|value| value == EXPECTED);
+
+        if authorized {
+          Ok(())
+        } else {
+          let response = Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body(Body::empty())
+            .unwrap();
+          Err(response)
+        }
+      },
+    ));
 
   let hostname_router = mk_hostname_router(
     [
@@ -159,7 +177,12 @@ async fn mk_redirect_server() -> std::io::Result<()> {
     Ok(new_uri)
   }
 
-  let redirect = move |Host(host): Host, uri: Uri| async move {
+  let redirect = move |request: Request<Body>| async move {
+    let host = match host_from_request(&request) {
+      Some(host) => host,
+      None => return Err(StatusCode::BAD_REQUEST),
+    };
+    let uri = request.uri().clone();
     match make_https(host, uri) {
       Ok(uri) => Ok(Redirect::permanent(&uri.to_string())),
       Err(e) => {
@@ -187,7 +210,11 @@ pub fn mk_hostname_router(
   map: HashMap<String, Router>,
 ) -> BoxCloneSyncService<Request<Body>, Response<Body>, Infallible> {
   BoxCloneSyncService::new(
-    (move |Host(hostname): Host, request: Request<Body>| async move {
+    (move |request: Request<Body>| async move {
+      let hostname = match host_from_request(&request) {
+        Some(hostname) => hostname,
+        None => return Ok(StatusCode::BAD_REQUEST.into_response()),
+      };
       for (name, router) in map {
         if hostname == name {
           println!("serving {name}");
@@ -199,4 +226,12 @@ pub fn mk_hostname_router(
     })
     .into_service(),
   )
+}
+
+fn host_from_request(request: &Request<Body>) -> Option<String> {
+  request
+    .headers()
+    .get(header::HOST)
+    .and_then(|value| value.to_str().ok())
+    .map(|value| value.to_string())
 }
