@@ -240,7 +240,9 @@ pub async fn run_swarm(
     HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
+  let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
   reconnect_tick.tick().await;
+  kad_discovery_tick.tick().await;
 
   loop {
     tokio::select! {
@@ -266,6 +268,9 @@ pub async fn run_swarm(
           add_kad_address_from_p2p(&mut swarm, &addr);
         }
       }
+      _ = kad_discovery_tick.tick() => {
+        kick_kad_queries(&mut swarm);
+      }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
         match cmd {
@@ -273,6 +278,7 @@ pub async fn run_swarm(
             let dial_addr = addr.clone();
             let _ = Swarm::dial(&mut swarm, dial_addr);
             add_kad_address_from_p2p(&mut swarm, &addr);
+            kick_kad_queries(&mut swarm);
           }
           Command::GossipsubPublish { topic, data } => {
             let topic = gossipsub::IdentTopic::new(topic);
@@ -365,10 +371,15 @@ pub async fn run_swarm(
 
           SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
             mdns::Event::Discovered(list) => {
+              let mut saw_peer = false;
               for (peer, addr) in list {
+                saw_peer = true;
                 network.update_peer_addr_from_mdns(peer, addr.clone()).await;
                 add_kad_peer_address(&mut swarm, peer, addr);
                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+              }
+              if saw_peer {
+                kick_kad_queries(&mut swarm);
               }
             }
             mdns::Event::Expired(list) => {
@@ -425,12 +436,13 @@ pub async fn run_swarm(
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-            tracing::debug!("kad event: {:?}", event);
+            handle_kad_event(&mut swarm, Some(&connected_peers), event);
           }
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             connected_peers.insert(peer_id);
             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+            kick_kad_queries(&mut swarm);
           }
 
           SwarmEvent::ConnectionClosed { peer_id, num_established, cause, .. } => {
@@ -476,12 +488,17 @@ pub async fn run_swarm_client_with_shutdown(
   > = HashMap::new();
   let mut pending_kv: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>> =
     HashMap::new();
+  let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
+  kad_discovery_tick.tick().await;
 
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm client");
         break;
+      }
+      _ = kad_discovery_tick.tick() => {
+        kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
@@ -490,6 +507,7 @@ pub async fn run_swarm_client_with_shutdown(
             let dial_addr = addr.clone();
             let _ = Swarm::dial(&mut swarm, dial_addr);
             add_kad_address_from_p2p(&mut swarm, &addr);
+            kick_kad_queries(&mut swarm);
           }
           Command::GossipsubPublish { topic, data } => {
             let topic = gossipsub::IdentTopic::new(topic);
@@ -568,9 +586,14 @@ pub async fn run_swarm_client_with_shutdown(
 
           SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
             mdns::Event::Discovered(list) => {
+              let mut saw_peer = false;
               for (peer, addr) in list {
+                saw_peer = true;
                 add_kad_peer_address(&mut swarm, peer, addr);
                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+              }
+              if saw_peer {
+                kick_kad_queries(&mut swarm);
               }
             }
             mdns::Event::Expired(list) => {
@@ -627,11 +650,12 @@ pub async fn run_swarm_client_with_shutdown(
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-            tracing::debug!("kad event: {:?}", event);
+            handle_kad_event(&mut swarm, None, event);
           }
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+            kick_kad_queries(&mut swarm);
           }
 
           SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
@@ -672,6 +696,69 @@ fn strip_p2p(mut addr: Multiaddr) -> Multiaddr {
     let _ = addr.pop();
   }
   addr
+}
+
+fn ensure_p2p_addr(mut addr: Multiaddr, peer: PeerId) -> Multiaddr {
+  if matches!(
+    addr.iter().last(),
+    Some(libp2p::multiaddr::Protocol::P2p(_))
+  ) {
+    return addr;
+  }
+  addr.push(libp2p::multiaddr::Protocol::P2p(peer.into()));
+  addr
+}
+
+fn kick_kad_queries(swarm: &mut Swarm<Behaviour>) {
+  let local_peer_id = swarm.local_peer_id().to_owned();
+  let _ = swarm.behaviour_mut().kad.bootstrap();
+  swarm.behaviour_mut().kad.get_closest_peers(local_peer_id);
+}
+
+fn handle_kad_event(
+  swarm: &mut Swarm<Behaviour>,
+  connected_peers: Option<&HashSet<PeerId>>,
+  event: kad::Event,
+) {
+  match event {
+    kad::Event::RoutingUpdated {
+      peer, addresses, ..
+    } => {
+      if peer == *swarm.local_peer_id() {
+        return;
+      }
+      let Some(connected_peers) = connected_peers else {
+        tracing::debug!(peer = %peer, "kad routing updated (client)");
+        return;
+      };
+      if connected_peers.contains(&peer) {
+        return;
+      }
+      for addr in addresses.iter() {
+        let dial_addr = ensure_p2p_addr(addr.clone(), peer);
+        let _ = Swarm::dial(swarm, dial_addr);
+      }
+    }
+    kad::Event::OutboundQueryProgressed { result, .. } => {
+      if let kad::QueryResult::GetClosestPeers(result) = result {
+        match result {
+          Ok(ok) => {
+            if ok.peers.is_empty() {
+              tracing::debug!("kad get_closest_peers complete: no peers");
+            } else {
+              tracing::debug!(peers = ?ok.peers, "kad get_closest_peers complete");
+            }
+          }
+          Err(err) => {
+            tracing::debug!(error = ?err, "kad get_closest_peers failed");
+          }
+        }
+      }
+    }
+    other => {
+      tracing::debug!("kad event: {:?}", other);
+    }
+  }
 }
 
 async fn handle_inbound_kv(
