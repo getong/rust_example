@@ -3,16 +3,16 @@
 
 use std::{collections::BTreeMap, fmt::Debug, io, ops::RangeBounds, sync::Arc};
 
+use futures::lock::Mutex;
 use openraft::{
   LogState, RaftTypeConfig,
   alias::{LogIdOf, VoteOf},
   entry::RaftEntry,
   storage::IOFlushed,
 };
-use tokio::sync::Mutex;
 
 /// RaftLogStore implementation with a in-memory storage
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LogStore<C: RaftTypeConfig> {
   inner: Arc<Mutex<LogStoreInner<C>>>,
 }

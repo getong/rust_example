@@ -20,8 +20,8 @@ all-features = true
 serde = ["openraft/serde"]
 
 [dependencies]
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
+futures = "0.3.31"
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "52a0cf54115e0f8fb17dfe38148b4176957b825b", features = [
   "type-alias",
   "tokio-rt",
 ] }
-tokio = { version = "1.48", default-features = false, features = ["sync"] }
