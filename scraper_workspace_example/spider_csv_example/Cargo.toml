@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 csv = "1.4.0"
 scraper = "0.25.0"
-spider = "2.38.110"
+spider = "2.38.115"
