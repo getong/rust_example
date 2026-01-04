@@ -3,13 +3,13 @@ use std::{error::Error, fmt::Debug, io, marker::PhantomData, ops::RangeBounds, s
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use meta::StoreMeta;
 use openraft::{
+  LogState, OptionalSend, RaftLogReader, RaftTypeConfig,
   alias::{EntryOf, LogIdOf, VoteOf},
   entry::RaftEntry,
   storage::{IOFlushed, RaftLogStorage},
-  LogState, OptionalSend, RaftLogReader, RaftTypeConfig, TokioRuntime,
+  type_config::TypeConfigExt,
 };
-use rocksdb::{ColumnFamily, Direction, DB};
-use tokio::task::spawn_blocking;
+use rocksdb::{ColumnFamily, DB, Direction};
 
 #[derive(Debug, Clone)]
 pub struct RocksLogStore<C>
@@ -119,10 +119,9 @@ where
   }
 }
 
-// It requires TokioRuntime because it uses spawn_blocking internally.
 impl<C> RaftLogStorage<C> for RocksLogStore<C>
 where
-  C: RaftTypeConfig<AsyncRuntime = TokioRuntime>,
+  C: RaftTypeConfig,
 {
   type LogReader = Self;
 
@@ -163,10 +162,11 @@ where
 
     // Vote must be persisted to disk before returning.
     let db = self.db.clone();
-    spawn_blocking(move || db.flush_wal(true))
-      .await
-      .map_err(|e| io::Error::other(e.to_string()))?
-      .map_err(|e| io::Error::other(e.to_string()))?;
+    C::spawn_blocking(move || {
+      db.flush_wal(true)
+        .map_err(|e| io::Error::other(e.to_string()))
+    })
+    .await??;
 
     Ok(())
   }
@@ -192,20 +192,24 @@ where
     // But the above `pub_cf()` must be called in this function, not in another task.
     // Because when the function returns, it requires the log entries can be read.
     let db = self.db.clone();
-    let handle = spawn_blocking(move || {
+    std::thread::spawn(move || {
       let res = db.flush_wal(true).map_err(io::Error::other);
       callback.io_completed(res);
     });
-    drop(handle);
 
     // Return now, and the callback will be invoked later when IO is done.
     Ok(())
   }
 
-  async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
-    tracing::debug!("truncate: [{:?}, +oo)", log_id);
+  async fn truncate_after(&mut self, last_log_id: Option<LogIdOf<C>>) -> Result<(), io::Error> {
+    tracing::debug!("truncate_after: ({:?}, +oo)", last_log_id);
 
-    let from = id_to_bin(log_id.index());
+    let start_index = match last_log_id {
+      Some(log_id) => log_id.index() + 1,
+      None => 0,
+    };
+
+    let from = id_to_bin(start_index);
     let to = id_to_bin(u64::MAX);
     self
       .db
@@ -242,8 +246,8 @@ where
 /// This sub mod defines the key-value pairs of these metadata.
 mod meta {
   use openraft::{
-    alias::{LogIdOf, VoteOf},
     RaftTypeConfig,
+    alias::{LogIdOf, VoteOf},
   };
 
   /// Defines metadata key and value
