@@ -128,7 +128,7 @@ if [[ "${RESET:-0}" == "1" ]]; then
 fi
 
 echo "Workspace: $WS_DIR"
-echo "DB root:   $DB_ROOT"
+echo "export DB_ROOT=$DB_ROOT"
 echo "Node1 name: $NODE1_NAME"
 echo "Node2 name: $NODE2_NAME"
 echo "Node3 name: $NODE3_NAME"
@@ -310,7 +310,6 @@ fi
 
 cmd=(
 	cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb --
-	--kameo-remote
 	--id 1
 	--listen "$NODE1_LISTEN"
 	--http "$NODE1_HTTP"
@@ -318,6 +317,10 @@ cmd=(
 	--ws-tls-key "$WS_TLS_KEY"
 	--ws-tls-cert "$WS_TLS_CERT"
 )
+
+if [[ "${KAMEO_REMOTE:-0}" == "1" ]]; then
+	cmd+=(--kameo-remote)
+fi
 
 if ((should_init == 1)); then
 	cmd+=(--init)

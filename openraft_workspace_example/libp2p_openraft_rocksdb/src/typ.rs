@@ -1,8 +1,7 @@
 //! Declare the Raft type with the TypeConfig.
 
-use openraft_rocksstore_crud::TypeConfig;
-
-pub type NodeId = u64;
+// Reference the containing module's type config and re-export it.
+pub use super::TypeConfig;
 
 pub type Raft = openraft::Raft<TypeConfig>;
 
@@ -31,7 +30,6 @@ pub type Infallible = openraft::error::Infallible;
 pub type Fatal = openraft::error::Fatal<TypeConfig>;
 pub type RaftError<E = openraft::error::Infallible> = openraft::error::RaftError<TypeConfig, E>;
 pub type RPCError<E = openraft::error::Infallible> = openraft::error::RPCError<TypeConfig, E>;
-pub type RpcError = openraft::error::RPCError<TypeConfig, openraft::error::Infallible>;
 
 pub type ErrorSubject = openraft::ErrorSubject<TypeConfig>;
 pub type StorageError = openraft::StorageError<TypeConfig>;

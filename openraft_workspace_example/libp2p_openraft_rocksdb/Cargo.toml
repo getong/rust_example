@@ -30,10 +30,11 @@ libp2p = { version = "0.56", features = [
   "websocket",
   "yamux",
 ] }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "a90c8414ccc1fb7b2703f244a53e6ed76b83efdd", features = [
   "serde",
   "type-alias",
 ] }
+# openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "a90c8414ccc1fb7b2703f244a53e6ed76b83efdd" }
 openraft-rocksstore-crud = { path = "../rocksstore_crud" }
 prost = "0.14.1"
 rand = "0.9"
@@ -51,6 +52,7 @@ tokio = { version = "1.48", default-features = false, features = [
 ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+types-kv = { path = "../types-kv" }
 
 [build-dependencies]
 prost-build = "0.14.1"

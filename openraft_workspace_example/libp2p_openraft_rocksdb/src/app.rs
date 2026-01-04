@@ -18,11 +18,11 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
-use openraft::{BasicNode, Raft};
+use openraft::BasicNode;
 use tokio::sync::mpsc;
 
 use crate::{
-  http,
+  NodeId, http,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     swarm::{Behaviour, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
@@ -30,7 +30,7 @@ use crate::{
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   store,
-  typ::NodeId,
+  typ::Raft,
 };
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";

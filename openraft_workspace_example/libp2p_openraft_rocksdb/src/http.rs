@@ -1,7 +1,7 @@
 use std::{
   net::SocketAddr,
   sync::Arc,
-  time::{SystemTime, UNIX_EPOCH},
+  time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Context;
@@ -11,10 +11,12 @@ use axum::{
   routing::{get, post},
 };
 use libp2p::{Multiaddr, PeerId};
+use openraft::async_runtime::WatchReceiver;
 use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
+  NodeId,
   network::{
     swarm::{GOSSIP_TOPIC, KvClient},
     transport::Libp2pNetworkFactory,
@@ -26,7 +28,7 @@ use crate::{
   },
   signal::ShutdownRx,
   store::{KvData, ensure_linearizable_read},
-  typ::{NodeId, Raft},
+  typ::Raft,
 };
 
 #[derive(Clone)]
@@ -162,14 +164,19 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
 
   nodes.sort_by_key(|node| node.node_id);
 
-  let metrics = state.raft.metrics().borrow().clone();
+  let metrics = state.raft.metrics().borrow_watched().clone();
   let raft_metrics = serde_json::to_value(metrics)
     .unwrap_or_else(|err| serde_json::Value::String(format!("metrics serialize error: {err}")));
 
   let mut kv_data = Vec::new();
-  let allow_local_read = match ensure_linearizable_read(&state.raft).await {
-    Ok(()) => true,
-    Err(err) => {
+  let allow_local_read = match tokio::time::timeout(
+    Duration::from_millis(300),
+    ensure_linearizable_read(&state.raft),
+  )
+  .await
+  {
+    Ok(Ok(())) => true,
+    Ok(Err(err)) => {
       let is_forward = matches!(
         err.api_error(),
         Some(openraft::error::LinearizableReadError::ForwardToLeader(_))
@@ -178,6 +185,10 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
         tracing::warn!("cluster_info read index failed: {err:?}");
       }
       is_forward
+    }
+    Err(_) => {
+      tracing::warn!("cluster_info read index timeout");
+      false
     }
   };
   if allow_local_read {
@@ -395,7 +406,7 @@ async fn resolve_kv_target(
     return Err("no known nodes".to_string());
   }
 
-  let metrics = state.raft.metrics().borrow().clone();
+  let metrics = state.raft.metrics().borrow_watched().clone();
   let mut candidate = target_node_id.or_else(|| {
     if metrics.state.is_leader() {
       Some(state.node_id)

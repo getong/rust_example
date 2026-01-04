@@ -4,17 +4,17 @@ use anyhow::Context;
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use openraft::{
   BasicNode, RaftNetworkFactory,
-  error::{RPCError, Unreachable},
   network::{RPCOption, v2::RaftNetworkV2},
 };
 
 use crate::{
+  NodeId, Unreachable,
   network::{
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{Libp2pClient, NetErr},
   },
   typ::{
-    AppendEntriesRequest, AppendEntriesResponse, NodeId, RpcError, Snapshot, SnapshotResponse,
+    AppendEntriesRequest, AppendEntriesResponse, RPCError, Snapshot, SnapshotResponse,
     StreamingError, Vote, VoteRequest, VoteResponse,
   },
 };
@@ -134,7 +134,7 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     &mut self,
     req: AppendEntriesRequest,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse, RpcError> {
+  ) -> Result<AppendEntriesResponse, RPCError> {
     let peer = self.factory.peer_for(self.target).await?;
     let resp = self
       .factory
@@ -152,7 +152,7 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     }
   }
 
-  async fn vote(&mut self, req: VoteRequest, _option: RPCOption) -> Result<VoteResponse, RpcError> {
+  async fn vote(&mut self, req: VoteRequest, _option: RPCOption) -> Result<VoteResponse, RPCError> {
     let peer = self.factory.peer_for(self.target).await?;
     let resp = self
       .factory

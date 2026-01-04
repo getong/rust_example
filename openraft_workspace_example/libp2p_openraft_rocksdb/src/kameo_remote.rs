@@ -1,7 +1,11 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Context, anyhow};
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{
+  Json, Router,
+  extract::State,
+  routing::{get, post},
+};
 use futures::{StreamExt, TryStreamExt};
 use kameo::{
   Actor, RemoteActor,
@@ -69,6 +73,13 @@ struct IncResponse {
   error: Option<String>,
 }
 
+#[derive(Serialize)]
+struct ClusterInfoResponse {
+  mode: &'static str,
+  peer_id: String,
+  message: String,
+}
+
 async fn kameo_inc(
   State(state): State<Arc<KameoState>>,
   Json(req): Json<IncRequest>,
@@ -129,6 +140,15 @@ async fn kameo_inc(
   }
 }
 
+async fn cluster_info(State(state): State<Arc<KameoState>>) -> Json<ClusterInfoResponse> {
+  Json(ClusterInfoResponse {
+    mode: "kameo-remote",
+    peer_id: state.local_peer_id.to_string(),
+    message: "kameo-remote mode does not expose raft cluster info; run without --kameo-remote"
+      .to_string(),
+  })
+}
+
 async fn serve_http(
   addr: SocketAddr,
   state: Arc<KameoState>,
@@ -136,6 +156,7 @@ async fn serve_http(
 ) -> anyhow::Result<()> {
   let app = Router::new()
     .route("/kameo/inc", post(kameo_inc))
+    .route("/cluster", get(cluster_info))
     .with_state(state);
 
   let listener = tokio::net::TcpListener::bind(addr)

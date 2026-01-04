@@ -289,15 +289,24 @@ echo "  $NODE3_LOG"
 echo "Starting node3 (Ctrl-C to stop)..."
 
 # Node3 just joins the network (it will be contacted by the leader during replication).
-cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
-	--kameo-remote \
-	--id 3 \
-	--listen "$NODE3_LISTEN" \
-	--http "$NODE3_HTTP" \
-	--db "$NODE3_DB" \
-	--ws-tls-key "$WS_TLS_KEY" \
-	--ws-tls-cert "$WS_TLS_CERT" \
-	--node 1="$ADDR1" \
-	--node 2="$ADDR2" \
-	--node 3="$ADDR3" \
-	2>&1 | tee "$NODE3_LOG"
+cmd=(
+	cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb --
+	--id 3
+	--listen "$NODE3_LISTEN"
+	--http "$NODE3_HTTP"
+	--db "$NODE3_DB"
+	--ws-tls-key "$WS_TLS_KEY"
+	--ws-tls-cert "$WS_TLS_CERT"
+)
+
+if [[ "${KAMEO_REMOTE:-0}" == "1" ]]; then
+	cmd+=(--kameo-remote)
+fi
+
+cmd+=(
+	--node 1="$ADDR1"
+	--node 2="$ADDR2"
+	--node 3="$ADDR3"
+)
+
+"${cmd[@]}" 2>&1 | tee "$NODE3_LOG"

@@ -13,12 +13,13 @@ use libp2p::{
   request_response::{self, OutboundRequestId, ResponseChannel},
   swarm::{NetworkBehaviour, SwarmEvent},
 };
-use openraft::error::Unreachable;
+use openraft::async_runtime::WatchReceiver;
 use openraft_rocksstore_crud::RocksRequest;
 use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
+  Unreachable,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     rpc::{RaftRpcRequest, RaftRpcResponse},
@@ -767,7 +768,7 @@ async fn handle_inbound_kv(
   kv_client: KvClient,
   request: RaftKvRequest,
 ) -> RaftKvResponse {
-  let metrics = raft.metrics().borrow().clone();
+  let metrics = raft.metrics().borrow_watched().clone();
   if !metrics.state.is_leader() {
     let Some(leader_id) = metrics.current_leader else {
       return kv_error_response("no leader available");
@@ -922,7 +923,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcRespo
       RaftRpcResponse::ClientWrite(res)
     }
     RaftRpcRequest::GetMetrics => {
-      let metrics = raft.metrics().borrow().clone();
+      let metrics = raft.metrics().borrow_watched().clone();
       RaftRpcResponse::GetMetrics(metrics)
     }
     RaftRpcRequest::FullSnapshot { vote, meta, data } => {
