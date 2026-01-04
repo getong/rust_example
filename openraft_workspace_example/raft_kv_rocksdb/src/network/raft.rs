@@ -1,9 +1,9 @@
 use actix_web::{
-  post,
+  Responder, post,
   web::{Data, Json},
-  Responder,
 };
 use openraft::error::decompose::DecomposeResult;
+use openraft_legacy::prelude::*;
 
 use crate::{app::App, typ::*};
 
@@ -29,6 +29,6 @@ pub async fn snapshot(
   app: Data<App>,
   req: Json<InstallSnapshotRequest>,
 ) -> actix_web::Result<impl Responder> {
-  let res = app.raft.install_snapshot(req.0).await.decompose().unwrap();
+  let res = app.raft.install_snapshot(req.0).await;
   Ok(Json(res))
 }

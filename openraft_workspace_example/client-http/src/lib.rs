@@ -5,15 +5,15 @@ use std::{
 };
 
 use openraft::{
+  BasicNode, RaftMetrics, RaftTypeConfig, TryAsRef,
   error::{
     ClientWriteError, ForwardToLeader, Infallible, InitializeError, LinearizableReadError,
     NetworkError, RPCError, Unreachable,
   },
   raft::ClientWriteResponse,
-  BasicNode, RaftMetrics, RaftTypeConfig, TryAsRef,
 };
 use reqwest::Client;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 #[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct FollowerReadError {

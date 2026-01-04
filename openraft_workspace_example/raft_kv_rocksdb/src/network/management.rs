@@ -1,16 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use actix_web::{
-  get, post,
+  Responder, get, post,
   web::{Data, Json},
-  Responder,
 };
 use openraft::{
-  error::{decompose::DecomposeResult, Infallible},
   BasicNode,
+  async_runtime::WatchReceiver,
+  error::{Infallible, decompose::DecomposeResult},
 };
 
-use crate::{app::App, typ::*, NodeId};
+use crate::{NodeId, app::App, typ::*};
 
 // --- Cluster management
 
@@ -77,7 +77,7 @@ pub async fn init(
 /// Get the latest metrics of the cluster
 #[get("/metrics")]
 pub async fn metrics(app: Data<App>) -> actix_web::Result<impl Responder> {
-  let metrics = app.raft.metrics().borrow().clone();
+  let metrics = app.raft.metrics().borrow_watched().clone();
 
   let res: Result<RaftMetrics, Infallible> = Ok(metrics);
   Ok(Json(res))

@@ -1,62 +1,15 @@
-use std::{collections::BTreeMap, fmt, fmt::Debug, io, io::Cursor, path::Path, sync::Arc};
+use std::{collections::BTreeMap, io, io::Cursor, path::Path, sync::Arc};
 
-use futures::{Stream, TryStreamExt};
+use futures::{Stream, TryStreamExt, lock::Mutex};
 use openraft::{
-  storage::{EntryResponder, RaftStateMachine},
   EntryPayload, OptionalSend, RaftSnapshotBuilder,
+  storage::{EntryResponder, RaftStateMachine},
 };
 use openraft_rocksstore::log_store::RocksLogStore;
-use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, Options, DB};
+use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DB, Options};
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
-use crate::{typ::*, TypeConfig};
-
-/// Here you will set the types of request that will interact with the raft nodes.
-/// For example the `Set` will be used to write data (key and value) to the raft database.
-/// The `AddNode` will append a new node to the current existing shared list of nodes.
-/// You will want to add any request that can write data in all nodes here.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Request {
-  Set { key: String, value: String },
-}
-
-impl fmt::Display for Request {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Request::Set { key, value, .. } => write!(f, "Set {{ key: {}, value: {} }}", key, value),
-    }
-  }
-}
-
-/// Here you define the response type for client read/write requests.
-///
-/// This Response type is used as the `AppDataResponse` in the `TypeConfig`.
-/// It represents the result returned to clients after applying operations
-/// to the state machine.
-///
-/// In this example, it returns an optional value for a given key.
-///
-/// ## Using Multiple Response Types
-///
-/// For applications with diverse operations, you can use an enum:
-///
-/// ```ignore
-/// #[derive(Serialize, Deserialize, Debug, Clone)]
-/// pub enum Response {
-///     Get { value: Option<String> },
-///     Set { prev_value: Option<String> },
-///     Delete { existed: bool },
-///     List { keys: Vec<String> },
-/// }
-/// ```
-///
-/// Each variant corresponds to a different operation in your `Request` enum,
-/// providing strongly-typed responses for different client operations.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Response {
-  pub value: Option<String>,
-}
+use crate::{TypeConfig, typ::*};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StoredSnapshot {
@@ -87,7 +40,7 @@ pub struct StateMachineData {
   pub last_membership: StoredMembership,
 
   /// State built from applying the raft logs
-  pub kvs: Arc<RwLock<BTreeMap<String, String>>>,
+  pub kvs: Arc<Mutex<BTreeMap<String, String>>>,
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
@@ -96,7 +49,7 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
     let last_membership = self.data.last_membership.clone();
 
     let kv_json = {
-      let kvs = self.data.kvs.read().await;
+      let kvs = self.data.kvs.lock().await;
       serde_json::to_vec(&*kvs).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
     };
 
@@ -137,7 +90,7 @@ impl StateMachineStore {
       data: StateMachineData {
         last_applied_log_id: None,
         last_membership: Default::default(),
-        kvs: Arc::new(Default::default()),
+        kvs: Arc::new(Mutex::new(BTreeMap::new())),
       },
       snapshot_idx: 0,
       db,
@@ -157,7 +110,7 @@ impl StateMachineStore {
 
     self.data.last_applied_log_id = snapshot.meta.last_log_id;
     self.data.last_membership = snapshot.meta.last_membership.clone();
-    let mut x = self.data.kvs.write().await;
+    let mut x = self.data.kvs.lock().await;
     *x = kvs;
 
     Ok(())
@@ -209,17 +162,17 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
       self.data.last_applied_log_id = Some(entry.log_id);
 
       let response = match entry.payload {
-        EntryPayload::Blank => Response { value: None },
+        EntryPayload::Blank => types_kv::Response::none(),
         EntryPayload::Normal(req) => match req {
-          Request::Set { key, value } => {
-            let mut st = self.data.kvs.write().await;
+          types_kv::Request::Set { key, value } => {
+            let mut st = self.data.kvs.lock().await;
             st.insert(key, value.clone());
-            Response { value: Some(value) }
+            types_kv::Response::new(value)
           }
         },
         EntryPayload::Membership(mem) => {
           self.data.last_membership = StoredMembership::new(Some(entry.log_id), mem);
-          Response { value: None }
+          types_kv::Response::none()
         }
       };
 

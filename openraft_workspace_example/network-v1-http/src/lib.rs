@@ -5,12 +5,13 @@ use openraft::{
   error::{
     Infallible, InstallSnapshotError, NetworkError, RPCError, RaftError, RemoteError, Unreachable,
   },
-  network::{RPCOption, RaftNetwork, RaftNetworkFactory},
+  network::{RPCOption, RaftNetworkFactory},
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
   },
 };
+use openraft_legacy::prelude::*;
 use reqwest::Client;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
@@ -20,12 +21,11 @@ pub struct NetworkFactory {}
 impl<C> RaftNetworkFactory<C> for NetworkFactory
 where
   C: RaftTypeConfig<Node = BasicNode>,
-  // RaftNetworkV2 is implemented automatically for RaftNetwork, but requires the following trait
-  // bounds. In V2 network, the snapshot has no constraints, but RaftNetwork assumes a Snapshot
-  // is a file-like object that can be seeked, read from, and written to.
+  // RaftNetwork requires the snapshot to be a file-like object that can be seeked, read from, and
+  // written to.
   <C as RaftTypeConfig>::SnapshotData: AsyncRead + AsyncWrite + AsyncSeek + Unpin,
 {
-  type Network = Network<C>;
+  type Network = Adapter<C, Network<C>>;
 
   #[tracing::instrument(level = "debug", skip_all)]
   async fn new_client(&mut self, target: C::NodeId, node: &BasicNode) -> Self::Network {
@@ -38,6 +38,7 @@ where
       client,
       target,
     }
+    .into_v2()
   }
 }
 

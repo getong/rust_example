@@ -1,14 +1,17 @@
-use actix_web::{post, web, web::Data, Responder};
+use actix_web::{Responder, post, web, web::Data};
 use openraft::{
-  error::{decompose::DecomposeResult, Infallible, LinearizableReadError},
   ReadPolicy,
+  error::{Infallible, LinearizableReadError, decompose::DecomposeResult},
 };
 use web::Json;
 
-use crate::{app::App, store::Request, TypeConfig};
+use crate::{TypeConfig, app::App};
 
 #[post("/write")]
-pub async fn write(app: Data<App>, req: Json<Request>) -> actix_web::Result<impl Responder> {
+pub async fn write(
+  app: Data<App>,
+  req: Json<types_kv::Request>,
+) -> actix_web::Result<impl Responder> {
   let response = app.raft.client_write(req.0).await.decompose().unwrap();
   Ok(Json(response))
 }
@@ -16,7 +19,7 @@ pub async fn write(app: Data<App>, req: Json<Request>) -> actix_web::Result<impl
 #[post("/read")]
 pub async fn read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl Responder> {
   let key = req.0;
-  let kvs = app.key_values.read().await;
+  let kvs = app.key_values.lock().await;
   let value = kvs.get(&key);
 
   let res: Result<String, Infallible> = Ok(value.cloned().unwrap_or_default());
@@ -40,7 +43,7 @@ pub async fn linearizable_read(
       linearizer.await_ready(&app.raft).await.unwrap();
 
       let key = req.0;
-      let kvs = app.key_values.read().await;
+      let kvs = app.key_values.lock().await;
       let value = kvs.get(&key);
 
       let res: Result<String, LinearizableReadError<TypeConfig>> =

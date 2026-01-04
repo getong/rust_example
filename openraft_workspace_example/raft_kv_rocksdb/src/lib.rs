@@ -3,13 +3,13 @@
 
 use std::{path::Path, sync::Arc};
 
-use actix_web::{middleware, middleware::Logger, web::Data, HttpServer};
+use actix_web::{HttpServer, middleware, middleware::Logger, web::Data};
 use openraft::Config;
 
 use crate::{
   app::App,
   network::{api, management, raft},
-  store::{new_storage, Request, Response},
+  store::new_storage,
 };
 
 pub mod app;
@@ -20,8 +20,8 @@ pub type NodeId = u64;
 
 openraft::declare_raft_types!(
     pub TypeConfig:
-        D = Request,
-        R = Response,
+        D = types_kv::Request,
+        R = types_kv::Response,
 );
 
 pub type LogStore = openraft_rocksstore::log_store::RocksLogStore<TypeConfig>;
