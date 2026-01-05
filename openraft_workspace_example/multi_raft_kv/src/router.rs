@@ -4,13 +4,16 @@ use std::{
   sync::{Arc, Mutex},
 };
 
+use futures::{
+  SinkExt,
+  channel::{mpsc, oneshot},
+};
 use openraft::error::Unreachable;
-use tokio::sync::oneshot;
 
-use crate::{GroupId, NodeId, decode, encode, typ::RaftError};
+use crate::{GroupId, NodeId, TypeConfig, decode, encode, typ::RaftError};
 
-pub type NodeTx = tokio::sync::mpsc::UnboundedSender<NodeMessage>;
-pub type NodeRx = tokio::sync::mpsc::UnboundedReceiver<NodeMessage>;
+pub type NodeTx = mpsc::Sender<NodeMessage>;
+pub type NodeRx = mpsc::Receiver<NodeMessage>;
 
 #[derive(Debug)]
 pub struct RouterError(pub String);
@@ -32,7 +35,7 @@ pub struct NodeMessage {
 }
 
 /// Multi-Raft Router with per-node connection sharing.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Router {
   /// Map from node_id to node connection.
   /// All groups on the same node share this connection.
@@ -65,7 +68,7 @@ impl Router {
     to_group: &GroupId,
     path: &str,
     req: Req,
-  ) -> Result<Resp, Unreachable>
+  ) -> Result<Resp, Unreachable<TypeConfig>>
   where
     Req: serde::Serialize,
     Result<Resp, RaftError>: serde::de::DeserializeOwned,
@@ -81,23 +84,25 @@ impl Router {
       encoded_req
     );
 
-    // Send through the shared node connection
-    {
+    // Clone the sender and release the lock before async send
+    let mut tx = {
       let nodes = self.nodes.lock().unwrap();
-      let tx = nodes
+      nodes
         .get(&to_node)
-        .ok_or_else(|| Unreachable::new(&RouterError(format!("node {} not connected", to_node))))?;
+        .ok_or_else(|| Unreachable::new(&RouterError(format!("node {} not connected", to_node))))?
+        .clone()
+    };
 
-      let msg = NodeMessage {
-        group_id: to_group.clone(),
-        path: path.to_string(),
-        payload: encoded_req,
-        response_tx: resp_tx,
-      };
+    let msg = NodeMessage {
+      group_id: to_group.clone(),
+      path: path.to_string(),
+      payload: encoded_req,
+      response_tx: resp_tx,
+    };
 
-      tx.send(msg)
-        .map_err(|e| Unreachable::new(&RouterError(e.to_string())))?;
-    }
+    tx.send(msg)
+      .await
+      .map_err(|e| Unreachable::new(&RouterError(e.to_string())))?;
 
     let resp_str = resp_rx
       .await

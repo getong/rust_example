@@ -1,12 +1,8 @@
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 
 use openraft::Config;
 
-use crate::{
-  app::Node,
-  router::Router,
-  store::{Request, Response, StateMachineData},
-};
+use crate::{app::Node, router::Router};
 
 pub mod router;
 
@@ -24,16 +20,16 @@ pub type GroupId = String;
 openraft::declare_raft_types!(
     /// Declare the type configuration for Multi-Raft K/V store.
     pub TypeConfig:
-        D = Request,
-        R = Response,
-        // In this example, snapshot is just a copy of the state machine.
-        SnapshotData = StateMachineData,
+        D = types_kv::Request,
+        R = types_kv::Response,
+        SnapshotData = Cursor<Vec<u8>>,
 );
 
 pub type LogStore = store::LogStore;
-pub type StateMachineStore = store::StateMachineStore;
+pub type StateMachineStore = sm_mem::StateMachineStore<TypeConfig>;
 
 /// Define all Raft-related type aliases
+#[path = "../../utils/declare_types.rs"]
 pub mod typ;
 
 pub mod groups {
@@ -72,7 +68,7 @@ pub async fn create_node(node_id: NodeId, group_ids: &[GroupId], router: Router)
 
     let config = Arc::new(config.validate().unwrap());
     let log_store = LogStore::default();
-    let state_machine_store = Arc::new(StateMachineStore::default());
+    let state_machine_store = StateMachineStore::default();
 
     let network = network::NetworkFactory::new(router.clone(), group_id.clone());
 

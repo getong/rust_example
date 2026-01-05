@@ -10,6 +10,8 @@ members = [
   "raft_kv_memstore_grpc",
   "rocksstore",
   "memstore",
+  "sm-mem",
+  "log-mem",
   "types-kv",
   "raft_poem_tarpc_rocksdb",
   "chitchat_poem_tarpc_rocksdb_example",

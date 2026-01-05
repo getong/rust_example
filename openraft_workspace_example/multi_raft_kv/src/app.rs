@@ -1,6 +1,6 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
-use tokio::sync::mpsc;
+use futures::{StreamExt, channel::mpsc};
 
 use crate::{
   GroupId, NodeId, StateMachineStore, api, encode,
@@ -21,7 +21,7 @@ pub struct Node {
 
 impl Node {
   pub fn new(node_id: NodeId, router: Router) -> (Self, NodeTx) {
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(1024);
 
     // Register this node's shared connection
     router.register_node(node_id, tx.clone());
@@ -41,7 +41,7 @@ impl Node {
     &mut self,
     group_id: GroupId,
     raft: typ::Raft,
-    state_machine: Arc<StateMachineStore>,
+    state_machine: StateMachineStore,
   ) {
     let app = GroupApp {
       node_id: self.node_id,
@@ -61,7 +61,7 @@ impl Node {
   /// Routes incoming messages to the correct group based on group_id.
   pub async fn run(mut self) -> Option<()> {
     loop {
-      let msg = self.rx.recv().await?;
+      let msg = self.rx.next().await?;
 
       let NodeMessage {
         group_id,
@@ -117,5 +117,5 @@ pub struct GroupApp {
   pub node_id: NodeId,
   pub group_id: GroupId,
   pub raft: typ::Raft,
-  pub state_machine: Arc<StateMachineStore>,
+  pub state_machine: StateMachineStore,
 }
