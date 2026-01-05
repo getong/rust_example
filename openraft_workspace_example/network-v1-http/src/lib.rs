@@ -11,7 +11,7 @@ use openraft::{
     VoteRequest, VoteResponse,
   },
 };
-use openraft_legacy::prelude::*;
+use openraft_legacy::prelude::{Adapter, RaftNetwork};
 use reqwest::Client;
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
