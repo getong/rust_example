@@ -3,16 +3,16 @@
 
 use std::{collections::BTreeMap, fmt::Debug, io, ops::RangeBounds, sync::Arc};
 
+use futures::lock::Mutex;
 use openraft::{
+  LogState, RaftTypeConfig,
   alias::{LogIdOf, VoteOf},
   entry::RaftEntry,
   storage::IOFlushed,
-  LogState, RaftTypeConfig,
 };
-use tokio::sync::Mutex;
 
 /// RaftLogStore implementation with a in-memory storage
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LogStore<C: RaftTypeConfig> {
   inner: Arc<Mutex<LogStoreInner<C>>>,
 }
@@ -106,10 +106,15 @@ impl<C: RaftTypeConfig> LogStoreInner<C> {
     Ok(())
   }
 
-  async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
+  async fn truncate_after(&mut self, last_log_id: Option<LogIdOf<C>>) -> Result<(), io::Error> {
+    let start_index = match last_log_id {
+      Some(log_id) => log_id.index() + 1,
+      None => 0,
+    };
+
     let keys = self
       .log
-      .range(log_id.index() ..)
+      .range(start_index ..)
       .map(|(k, _v)| *k)
       .collect::<Vec<_>>();
     for key in keys {
@@ -145,9 +150,9 @@ mod impl_log_store {
   use std::{fmt::Debug, io, ops::RangeBounds};
 
   use openraft::{
+    LogState, RaftLogReader, RaftTypeConfig,
     alias::{LogIdOf, VoteOf},
     storage::{IOFlushed, RaftLogStorage},
-    LogState, RaftLogReader, RaftTypeConfig,
   };
 
   use crate::log_store::LogStore;
@@ -204,9 +209,9 @@ mod impl_log_store {
       inner.append(entries, callback).await
     }
 
-    async fn truncate(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
+    async fn truncate_after(&mut self, last_log_id: Option<LogIdOf<C>>) -> Result<(), io::Error> {
       let mut inner = self.inner.lock().await;
-      inner.truncate(log_id).await
+      inner.truncate_after(last_log_id).await
     }
 
     async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
