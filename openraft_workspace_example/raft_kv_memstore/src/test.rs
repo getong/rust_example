@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
 use openraft::{
   StorageError,
   testing::log::{StoreBuilder, Suite},
+  type_config::TypeConfigExt,
 };
 
 use crate::{
@@ -12,16 +11,20 @@ use crate::{
 
 struct MemKVStoreBuilder {}
 
-impl StoreBuilder<TypeConfig, LogStore, Arc<StateMachineStore>, ()> for MemKVStoreBuilder {
+impl StoreBuilder<TypeConfig, LogStore<TypeConfig>, StateMachineStore<TypeConfig>, ()>
+  for MemKVStoreBuilder
+{
   async fn build(
     &self,
-  ) -> Result<((), LogStore, Arc<StateMachineStore>), StorageError<TypeConfig>> {
-    Ok(((), LogStore::default(), Arc::default()))
+  ) -> Result<((), LogStore<TypeConfig>, StateMachineStore<TypeConfig>), StorageError<TypeConfig>>
+  {
+    Ok(((), LogStore::default(), Default::default()))
   }
 }
 
-#[tokio::test]
-pub async fn test_mem_store() -> Result<(), StorageError<TypeConfig>> {
-  Suite::test_all(MemKVStoreBuilder {}).await?;
-  Ok(())
+#[test]
+pub fn test_mem_store() {
+  TypeConfig::run(async {
+    Suite::test_all(MemKVStoreBuilder {}).await.unwrap();
+  });
 }

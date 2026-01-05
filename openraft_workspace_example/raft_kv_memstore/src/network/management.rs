@@ -6,6 +6,7 @@ use actix_web::{
 };
 use openraft::{
   BasicNode, LogId, RaftMetrics, ReadPolicy,
+  async_runtime::WatchReceiver,
   error::{Infallible, decompose::DecomposeResult},
 };
 use serde::{Deserialize, Serialize};
@@ -87,7 +88,7 @@ pub async fn init(
 /// Get the latest metrics of the cluster
 #[get("/metrics")]
 pub async fn metrics(app: Data<App>) -> actix_web::Result<impl Responder> {
-  let metrics = app.raft.metrics().borrow().clone();
+  let metrics = app.raft.metrics().borrow_watched().clone();
 
   let res: Result<RaftMetrics<TypeConfig>, Infallible> = Ok(metrics);
   Ok(Json(res))

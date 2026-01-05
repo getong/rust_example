@@ -2,12 +2,13 @@ use actix_web::{Responder, post, web, web::Data};
 use client_http::FollowerReadError;
 use openraft::{
   ReadPolicy,
+  async_runtime::WatchReceiver,
   error::{Infallible, LinearizableReadError, decompose::DecomposeResult},
   raft::linearizable_read::Linearizer,
 };
 use web::Json;
 
-use crate::{TypeConfig, app::App, store::Request};
+use crate::{TypeConfig, app::App};
 
 /// Application API
 ///
@@ -17,16 +18,19 @@ use crate::{TypeConfig, app::App, store::Request};
 ///  - `POST - /write` saves a value in a key and sync the nodes.
 ///  - `POST - /read` attempt to find a value from a given key.
 #[post("/write")]
-pub async fn write(app: Data<App>, req: Json<Request>) -> actix_web::Result<impl Responder> {
+pub async fn write(
+  app: Data<App>,
+  req: Json<types_kv::Request>,
+) -> actix_web::Result<impl Responder> {
   let response = app.raft.client_write(req.0).await.decompose().unwrap();
   Ok(Json(response))
 }
 
 #[post("/read")]
 pub async fn read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl Responder> {
-  let state_machine = app.state_machine_store.state_machine.read().await;
+  let inner = app.state_machine_store.inner().lock().await;
   let key = req.0;
-  let value = state_machine.data.get(&key).cloned();
+  let value = inner.state_machine.data.get(&key).cloned();
 
   let res: Result<String, Infallible> = Ok(value.unwrap_or_default());
   Ok(Json(res))
@@ -48,9 +52,9 @@ pub async fn linearizable_read(
     Ok(linearizer) => {
       linearizer.await_ready(&app.raft).await.unwrap();
 
-      let state_machine = app.state_machine_store.state_machine.read().await;
+      let inner = app.state_machine_store.inner().lock().await;
       let key = req.0;
-      let value = state_machine.data.get(&key).cloned();
+      let value = inner.state_machine.data.get(&key).cloned();
 
       let res: Result<String, LinearizableReadError<TypeConfig>> = Ok(value.unwrap_or_default());
       Ok(Json(res))
@@ -80,7 +84,7 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
   };
 
   // 2. Get leader's address from membership config
-  let metrics = app.raft.metrics().borrow().clone();
+  let metrics = app.raft.metrics().borrow_watched().clone();
   let leader_node = match metrics.membership_config.membership().get_node(&leader_id) {
     Some(node) => node,
     None => {
@@ -140,9 +144,9 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
   }
 
   // 5. Read from local state machine
-  let state_machine = app.state_machine_store.state_machine.read().await;
+  let inner = app.state_machine_store.inner().lock().await;
   let key = req.0;
-  let value = state_machine.data.get(&key).cloned();
+  let value = inner.state_machine.data.get(&key).cloned();
 
   Ok(Json(Ok(value.unwrap_or_default())))
 }

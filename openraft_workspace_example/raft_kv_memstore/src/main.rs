@@ -3,12 +3,12 @@ use raft_kv_memstore::start_example_raft_node;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Clone, Debug)]
-#[command(author, version, about, long_about = None)]
+#[clap(author, version, about, long_about = None)]
 pub struct Opt {
-  #[arg(long)]
+  #[clap(long)]
   pub id: u64,
 
-  #[arg(long)]
+  #[clap(long)]
   pub http_addr: String,
 }
 

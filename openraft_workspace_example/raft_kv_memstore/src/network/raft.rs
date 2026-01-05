@@ -3,6 +3,7 @@ use actix_web::{
   web::{Data, Json},
 };
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
+use openraft_legacy::prelude::*;
 
 use crate::{TypeConfig, app::App};
 

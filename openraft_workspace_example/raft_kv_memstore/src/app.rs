@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{NodeId, Raft, StateMachineStore};
 
 // Representation of an application state. This struct can be shared around to share
@@ -8,5 +6,5 @@ pub struct App {
   pub id: NodeId,
   pub addr: String,
   pub raft: Raft,
-  pub state_machine_store: Arc<StateMachineStore>,
+  pub state_machine_store: StateMachineStore,
 }

@@ -9,7 +9,6 @@ use openraft::Config;
 use crate::{
   app::App,
   network::{api, management, raft},
-  store::{Request, Response},
 };
 
 pub mod app;
@@ -23,15 +22,14 @@ pub type NodeId = u64;
 openraft::declare_raft_types!(
     /// Declare the type configuration for example K/V store.
     pub TypeConfig:
-        D = Request,
-        R = Response,
+        D = types_kv::Request,
+        R = types_kv::Response,
 );
 
-pub type LogStore = store::LogStore;
-pub type StateMachineStore = store::StateMachineStore;
+pub type LogStore = store::LogStore<TypeConfig>;
+pub type StateMachineStore = store::StateMachineStore<TypeConfig>;
 pub type Raft = openraft::Raft<TypeConfig>;
 
-#[path = "../../utils/declare_types.rs"]
 pub mod typ;
 
 pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std::io::Result<()> {
@@ -48,7 +46,7 @@ pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std:
   // Create a instance of where the Raft logs will be stored.
   let log_store = LogStore::default();
   // Create a instance of where the Raft data will be stored.
-  let state_machine_store = Arc::new(StateMachineStore::default());
+  let state_machine_store = StateMachineStore::default();
 
   // Create the network layer that will connect and communicate the raft instances and
   // will be used in conjunction with the store created above.
