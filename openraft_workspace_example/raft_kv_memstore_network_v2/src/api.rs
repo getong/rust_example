@@ -1,10 +1,13 @@
 //! This mod implements a network API for raft node.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  io::Cursor,
+};
 
-use openraft::{BasicNode, ReadPolicy};
+use openraft::{BasicNode, ReadPolicy, async_runtime::WatchReceiver};
 
-use crate::{app::App, decode, encode, typ::*, NodeId};
+use crate::{NodeId, app::App, decode, encode, typ::*};
 
 pub async fn write(app: &mut App, req: String) -> String {
   let res = app.raft.client_write(decode(&req)).await;
@@ -20,8 +23,8 @@ pub async fn read(app: &mut App, req: String) -> String {
     Ok(linearizer) => {
       linearizer.await_ready(&app.raft).await.unwrap();
 
-      let state_machine = app.state_machine.state_machine.lock().await;
-      let value = state_machine.data.get(&key).cloned();
+      let inner = app.state_machine.inner().lock().await;
+      let value = inner.state_machine.data.get(&key).cloned();
 
       let res: Result<String, RaftError<LinearizableReadError>> = Ok(value.unwrap_or_default());
       res
@@ -45,10 +48,11 @@ pub async fn append(app: &mut App, req: String) -> String {
 
 /// Receive a snapshot and install it.
 pub async fn snapshot(app: &mut App, req: String) -> String {
-  let (vote, snapshot_meta, snapshot_data): (Vote, SnapshotMeta, SnapshotData) = decode(&req);
+  // Receive Vec<u8> and wrap with Cursor for SnapshotData
+  let (vote, snapshot_meta, snapshot_data): (Vote, SnapshotMeta, Vec<u8>) = decode(&req);
   let snapshot = Snapshot {
     meta: snapshot_meta,
-    snapshot: snapshot_data,
+    snapshot: Cursor::new(snapshot_data),
   };
   let res = app
     .raft
@@ -96,7 +100,7 @@ pub async fn init(app: &mut App) -> String {
 
 /// Get the latest metrics of the cluster
 pub async fn metrics(app: &mut App) -> String {
-  let metrics = app.raft.metrics().borrow().clone();
+  let metrics = app.raft.metrics().borrow_watched().clone();
 
   let res: Result<RaftMetrics, Infallible> = Ok(metrics);
   encode(res)

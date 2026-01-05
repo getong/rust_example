@@ -1,12 +1,12 @@
 use std::future::Future;
 
 use openraft::{
-  error::ReplicationClosed,
-  network::{v2::RaftNetworkV2, RPCOption},
   BasicNode, OptionalSend, RaftNetworkFactory,
+  error::ReplicationClosed,
+  network::{RPCOption, v2::RaftNetworkV2},
 };
 
-use crate::{router::Router, typ::*, NodeId, TypeConfig};
+use crate::{NodeId, TypeConfig, router::Router, typ::*};
 
 pub struct Connection {
   router: Router,
@@ -42,13 +42,11 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<SnapshotResponse, StreamingError> {
+    // Extract inner Vec<u8> from Cursor for serialization
+    let data: Vec<u8> = snapshot.snapshot.into_inner();
     let resp = self
       .router
-      .send(
-        self.target,
-        "/raft/snapshot",
-        (vote, snapshot.meta, snapshot.snapshot),
-      )
+      .send(self.target, "/raft/snapshot", (vote, snapshot.meta, data))
       .await?;
     Ok(resp)
   }

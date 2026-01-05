@@ -1,13 +1,15 @@
-use std::sync::Arc;
+use futures::{
+  StreamExt,
+  channel::{mpsc, oneshot},
+};
 
-use tokio::sync::{mpsc, oneshot};
-
-use crate::{api, router::Router, typ, NodeId, StateMachineStore};
+use crate::{NodeId, StateMachineStore, api, router::Router, typ};
 
 pub type Path = String;
 pub type Payload = String;
 pub type ResponseTx = oneshot::Sender<String>;
-pub type RequestTx = mpsc::UnboundedSender<(Path, Payload, ResponseTx)>;
+pub type RequestTx = mpsc::Sender<(Path, Payload, ResponseTx)>;
+pub type RequestRx = mpsc::Receiver<(Path, Payload, ResponseTx)>;
 
 /// Representation of an application state.
 pub struct App {
@@ -15,10 +17,10 @@ pub struct App {
   pub raft: typ::Raft,
 
   /// Receive application requests, Raft protocol request or management requests.
-  pub rx: mpsc::UnboundedReceiver<(Path, Payload, ResponseTx)>,
+  pub rx: RequestRx,
   pub router: Router,
 
-  pub state_machine: Arc<StateMachineStore>,
+  pub state_machine: StateMachineStore,
 }
 
 impl App {
@@ -26,9 +28,9 @@ impl App {
     id: NodeId,
     raft: typ::Raft,
     router: Router,
-    state_machine: Arc<StateMachineStore>,
+    state_machine: StateMachineStore,
   ) -> Self {
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(1024);
 
     {
       let mut targets = router.targets.lock().unwrap();
@@ -46,7 +48,7 @@ impl App {
 
   pub async fn run(mut self) -> Option<()> {
     loop {
-      let (path, payload, response_tx) = self.rx.recv().await?;
+      let (path, payload, response_tx) = self.rx.next().await?;
 
       let res = match path.as_str() {
         // Application API

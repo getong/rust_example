@@ -1,15 +1,11 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 
 use openraft::Config;
 
-use crate::{
-  app::App,
-  router::Router,
-  store::{Request, Response, StateMachineData},
-};
+use crate::{app::App, router::Router};
 
 pub mod router;
 
@@ -23,15 +19,13 @@ pub type NodeId = u64;
 openraft::declare_raft_types!(
     /// Declare the type configuration for example K/V store.
     pub TypeConfig:
-        D = Request,
-        R = Response,
-        // In this example, snapshot is just a copy of the state machine.
-        // And it can be any type.
-        SnapshotData = StateMachineData,
+        D = types_kv::Request,
+        R = types_kv::Response,
+        SnapshotData = Cursor<Vec<u8>>,
 );
 
 pub type LogStore = store::LogStore;
-pub type StateMachineStore = store::StateMachineStore;
+pub type StateMachineStore = sm_mem::StateMachineStore<TypeConfig>;
 
 pub mod typ;
 
@@ -61,7 +55,7 @@ pub async fn new_raft(node_id: NodeId, router: Router) -> (typ::Raft, App) {
   let log_store = LogStore::default();
 
   // Create a instance of where the state machine data will be stored.
-  let state_machine_store = Arc::new(StateMachineStore::default());
+  let state_machine_store = StateMachineStore::default();
 
   // Create a local raft instance.
   let raft = openraft::Raft::new(
