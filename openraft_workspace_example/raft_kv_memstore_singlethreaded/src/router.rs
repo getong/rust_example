@@ -1,17 +1,17 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+use futures::{SinkExt, channel::oneshot};
 use openraft::error::{RemoteError, Unreachable};
-use tokio::sync::oneshot;
 
 use crate::{
+  NodeId,
   app::RequestTx,
   decode, encode,
   typ::{RPCError, RaftError},
-  NodeId,
 };
 
 /// Simulate a network router.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Router {
   pub targets: Rc<RefCell<BTreeMap<NodeId, RequestTx>>>,
 }
@@ -34,12 +34,14 @@ impl Router {
     let encoded_req = encode(req);
     tracing::debug!("send to: {}, {}, {}", to, path, encoded_req);
 
-    {
-      let mut targets = self.targets.borrow_mut();
-      let tx = targets.get_mut(&to).unwrap();
+    let mut tx = {
+      let targets = self.targets.borrow();
+      targets.get(&to).unwrap().clone()
+    };
 
-      tx.send((path.to_string(), encoded_req, resp_tx)).unwrap();
-    }
+    tx.send((path.to_string(), encoded_req, resp_tx))
+      .await
+      .unwrap();
 
     let resp_str = resp_rx.await.unwrap();
     tracing::debug!("resp from: {}, {}, {}", to, path, resp_str);

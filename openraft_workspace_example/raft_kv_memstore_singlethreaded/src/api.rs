@@ -2,9 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::{error::Infallible, BasicNode, ReadPolicy};
+use openraft::{BasicNode, ReadPolicy, async_runtime::WatchReceiver, error::Infallible};
+use openraft_legacy::prelude::*;
 
-use crate::{app::App, decode, encode, typ::*, NodeId};
+use crate::{NodeId, app::App, decode, encode, typ::*};
 
 pub async fn write(app: &mut App, req: String) -> String {
   let res = app.raft.client_write(decode(&req)).await;
@@ -87,7 +88,7 @@ pub async fn init(app: &mut App) -> String {
 
 /// Get the latest metrics of the cluster
 pub async fn metrics(app: &mut App) -> String {
-  let metrics = app.raft.metrics().borrow().clone();
+  let metrics = app.raft.metrics().borrow_watched().clone();
 
   let res: Result<RaftMetrics, Infallible> = Ok(metrics);
   encode(res)

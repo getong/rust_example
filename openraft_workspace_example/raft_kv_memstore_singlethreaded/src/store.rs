@@ -5,12 +5,12 @@ use std::{
 
 use futures::{Stream, TryStreamExt};
 use openraft::{
-  storage::{EntryResponder, RaftLogStorage, RaftStateMachine},
   OptionalSend, RaftLogReader, RaftSnapshotBuilder,
+  storage::{EntryResponder, RaftLogStorage, RaftStateMachine},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{typ::*, TypeConfig};
+use crate::{TypeConfig, typ::*};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
@@ -343,12 +343,17 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
   }
 
   #[tracing::instrument(level = "debug", skip(self))]
-  async fn truncate(&mut self, log_id: LogId) -> Result<(), io::Error> {
-    tracing::debug!("delete_log: [{:?}, +oo)", log_id);
+  async fn truncate_after(&mut self, last_log_id: Option<LogId>) -> Result<(), io::Error> {
+    tracing::debug!("truncate_after: ({:?}, +oo)", last_log_id);
+
+    let start_index = match last_log_id {
+      Some(log_id) => log_id.index() + 1,
+      None => 0,
+    };
 
     let mut log = self.log.borrow_mut();
     let keys = log
-      .range(log_id.index() ..)
+      .range(start_index ..)
       .map(|(k, _v)| *k)
       .collect::<Vec<_>>();
     for key in keys {

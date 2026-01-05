@@ -1,8 +1,7 @@
-use openraft::{
-  error::InstallSnapshotError, network::RPCOption, BasicNode, RaftNetwork, RaftNetworkFactory,
-};
+use openraft::{BasicNode, RaftNetworkFactory, error::InstallSnapshotError, network::RPCOption};
+use openraft_legacy::prelude::*;
 
-use crate::{router::Router, typ::*, NodeId, TypeConfig};
+use crate::{NodeId, TypeConfig, router::Router, typ::*};
 
 pub struct Connection {
   router: Router,
@@ -10,13 +9,14 @@ pub struct Connection {
 }
 
 impl RaftNetworkFactory<TypeConfig> for Router {
-  type Network = Connection;
+  type Network = Adapter<TypeConfig, Connection>;
 
   async fn new_client(&mut self, target: NodeId, _node: &BasicNode) -> Self::Network {
     Connection {
       router: self.clone(),
       target,
     }
+    .into_v2()
   }
 }
 
