@@ -1,19 +1,19 @@
 use std::{
   fmt::Debug,
   io,
-  sync::{Arc, Mutex},
+  sync::{Arc, Mutex as StdMutex},
 };
 
-use futures::{Stream, TryStreamExt};
+use futures::{Stream, TryStreamExt, lock::Mutex};
 use openraft::{
   OptionalSend, RaftSnapshotBuilder,
   entry::RaftEntry,
   storage::{EntryResponder, RaftStateMachine},
 };
 
-use crate::{TypeConfig, protobuf as pb, protobuf::Response, typ::*};
+use crate::{protobuf as pb, protobuf::Response, typ::*};
 
-pub type LogStore = mem_log::LogStore<TypeConfig>;
+pub type LogStore = log_mem::LogStore<TypeConfig>;
 
 #[derive(Debug)]
 pub struct StoredSnapshot {
@@ -28,12 +28,12 @@ pub struct StoredSnapshot {
 #[derive(Debug, Default)]
 pub struct StateMachineStore {
   /// The Raft state machine.
-  pub state_machine: tokio::sync::Mutex<pb::StateMachineData>,
+  pub state_machine: Mutex<pb::StateMachineData>,
 
-  snapshot_idx: Mutex<u64>,
+  snapshot_idx: StdMutex<u64>,
 
   /// The last received snapshot.
-  current_snapshot: Mutex<Option<StoredSnapshot>>,
+  current_snapshot: StdMutex<Option<StoredSnapshot>>,
 }
 
 impl StateMachineStore {

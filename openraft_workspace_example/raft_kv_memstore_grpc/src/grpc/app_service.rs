@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use openraft::async_runtime::WatchReceiver;
 use tonic::{Request, Response, Status};
 use tracing::debug;
 
@@ -186,7 +187,7 @@ impl AppService for AppServiceImpl {
   /// Retrieves metrics about the Raft node
   async fn metrics(&self, _request: Request<()>) -> Result<Response<pb::MetricsResponse>, Status> {
     debug!("Collecting metrics");
-    let metrics = self.raft_node.metrics().borrow().clone();
+    let metrics = self.raft_node.metrics().borrow_watched().clone();
     let resp = pb::MetricsResponse {
       membership: Some(metrics.membership_config.membership().clone().into()),
       other_metrics: metrics.to_string(),
