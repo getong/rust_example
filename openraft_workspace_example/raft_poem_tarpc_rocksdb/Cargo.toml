@@ -9,7 +9,7 @@ edition = "2024"
 byteorder = "1.5"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures = "0.3"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "f9f8c2f6984738783093f9ca197b5d4ef0062e46", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", features = [
   "serde",
   "type-alias",
 ] }
