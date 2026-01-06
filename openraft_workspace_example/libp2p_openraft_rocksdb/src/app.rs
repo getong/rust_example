@@ -22,7 +22,9 @@ use openraft::BasicNode;
 use tokio::sync::mpsc;
 
 use crate::{
-  NodeId, http,
+  NodeId,
+  constants::{SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT},
+  http,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     swarm::{Behaviour, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
@@ -366,7 +368,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let mut shutdown = crate::signal::spawn_handler();
 
-  let swarm_done = shutdown.push("libp2p-swarm");
+  let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
   let swarm_shutdown = shutdown.shutdown_rx();
   let network_for_swarm = network.clone();
   let raft_for_swarm = raft.clone();
@@ -399,14 +401,14 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     kv_data: kv_data.clone(),
   };
 
-  let http_done = shutdown.push("http");
+  let http_done = shutdown.push(SERVICE_HTTP);
   let http_shutdown = shutdown.shutdown_rx();
   tokio::spawn(async move {
     let res = http::serve(http_addr, http_state, http_shutdown).await;
     let _ = http_done.send(res);
   });
 
-  let raft_done = shutdown.push("openraft");
+  let raft_done = shutdown.push(SERVICE_OPENRAFT);
   let mut raft_shutdown = shutdown.shutdown_rx();
   let raft_handle = raft.clone();
   tokio::spawn(async move {

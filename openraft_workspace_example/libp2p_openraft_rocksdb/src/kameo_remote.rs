@@ -22,7 +22,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::signal::ShutdownRx;
+use crate::{constants::SERVICE_KAMEO_HTTP, signal::ShutdownRx};
 
 #[derive(Actor, RemoteActor)]
 pub struct MyActor {
@@ -266,7 +266,7 @@ pub async fn run(custom_swarm: bool, http_addr: SocketAddr) -> anyhow::Result<()
 
   let state = Arc::new(KameoState { local_peer_id });
 
-  let http_done = shutdown.push("kameo-http");
+  let http_done = shutdown.push(SERVICE_KAMEO_HTTP);
   let http_shutdown = shutdown.shutdown_rx();
   tokio::spawn(async move {
     let res = serve_http(http_addr, state, http_shutdown).await;

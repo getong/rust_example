@@ -2,6 +2,7 @@
 #![deny(unused_qualifications)]
 
 pub mod app;
+pub mod constants;
 pub mod http;
 pub mod kameo_remote;
 pub mod network;
