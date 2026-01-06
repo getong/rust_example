@@ -1,9 +1,9 @@
 [package]
 name = "bincode_2_example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bincode = "2.0.0-rc.3"
+bincode = "=2"
