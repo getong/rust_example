@@ -252,221 +252,350 @@ pub async fn run_swarm(
         break;
       }
       _ = reconnect_tick.tick() => {
-        let nodes = network.known_nodes().await;
-        for (_node_id, peer_id, addr) in nodes {
-          if peer_id == *swarm.local_peer_id() {
-            continue;
-          }
-          if connected_peers.contains(&peer_id) {
-            continue;
-          }
-          tracing::info!(
-            peer = %peer_id,
-            addr = %addr,
-            "reconnecting to peer"
-          );
-          let _ = Swarm::dial(&mut swarm, addr.clone());
-          add_kad_address_from_p2p(&mut swarm, &addr);
-        }
+        handle_reconnect_tick(&mut swarm, &network, &connected_peers).await;
       }
       _ = kad_discovery_tick.tick() => {
-        kick_kad_queries(&mut swarm);
+        handle_kad_discovery_tick(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
-        match cmd {
-          Command::Dial { addr } => {
-            let dial_addr = addr.clone();
-            let _ = Swarm::dial(&mut swarm, dial_addr);
-            add_kad_address_from_p2p(&mut swarm, &addr);
-            kick_kad_queries(&mut swarm);
-          }
-          Command::GossipsubPublish { topic, data } => {
-            let topic = gossipsub::IdentTopic::new(topic);
-            if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
-              tracing::warn!("gossipsub publish failed: {err}");
-            }
-          }
-          Command::RaftRequest { peer, req, resp } => {
-            let id = swarm.behaviour_mut().raft.send_request(&peer, req);
-            pending_raft.insert(id, resp);
-          }
-          Command::RaftRespond { channel, resp } => {
-            let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
-          }
-          Command::KvRequest { peer, req, resp } => {
-            let id = swarm.behaviour_mut().kv.send_request(&peer, req);
-            pending_kv.insert(id, resp);
-          }
-          Command::KvRespond { channel, resp } => {
-            let _ = swarm.behaviour_mut().kv.send_response(channel, resp);
-          }
-        }
+        handle_command(&mut swarm, cmd, &mut pending_raft, &mut pending_kv);
       }
 
       ev = swarm.select_next_some() => {
-        match ev {
-          SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => match event {
-            request_response::Event::Message { message, .. } => match message {
-              request_response::Message::Request { request, channel, .. } => {
-                match request {
-                  RaftRpcRequest::ClientWrite(req) => {
-                    let raft = raft.clone();
-                    let tx = cmd_tx.clone();
-                    tokio::spawn(async move {
-                      let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
-                      let _ = tx.send(Command::RaftRespond { channel, resp }).await;
-                    });
-                  }
-                  other => {
-                    let resp = handle_inbound_rpc(raft.clone(), other).await;
-                    let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
-                  }
-                }
-              }
-              request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = pending_raft.remove(&request_id) {
-                  let _ = tx.send(Ok(response));
-                }
-              }
-            },
-
-            request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = pending_raft.remove(&request_id) {
-                let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-              }
-            }
-
-            request_response::Event::InboundFailure { .. } => {}
-            request_response::Event::ResponseSent { .. } => {}
-          },
-
-          SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => match event {
-            request_response::Event::Message { message, .. } => match message {
-              request_response::Message::Request { request, channel, .. } => {
-                let raft = raft.clone();
-                let kv_data = kv_data.clone();
-                let kv_client = kv_client.clone();
-                let tx = cmd_tx.clone();
-                tokio::spawn(async move {
-                  let resp = handle_inbound_kv(raft, kv_data, kv_client, request).await;
-                  let _ = tx.send(Command::KvRespond { channel, resp }).await;
-                });
-              }
-              request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = pending_kv.remove(&request_id) {
-                  let _ = tx.send(Ok(response));
-                }
-              }
-            },
-
-            request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = pending_kv.remove(&request_id) {
-                let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-              }
-            }
-
-            request_response::Event::InboundFailure { .. } => {}
-            request_response::Event::ResponseSent { .. } => {}
-          },
-
-          SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
-            mdns::Event::Discovered(list) => {
-              let mut saw_peer = false;
-              for (peer, addr) in list {
-                saw_peer = true;
-                network.update_peer_addr_from_mdns(peer, addr.clone()).await;
-                add_kad_peer_address(&mut swarm, peer, addr);
-                swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
-              }
-              if saw_peer {
-                kick_kad_queries(&mut swarm);
-              }
-            }
-            mdns::Event::Expired(list) => {
-              for (peer, addr) in list {
-                let addr = strip_p2p(addr);
-                swarm.behaviour_mut().kad.remove_address(&peer, &addr);
-                swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
-              }
-            }
-          },
-
-          SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => match event {
-            gossipsub::Event::Message {
-              propagation_source,
-              message_id,
-              message,
-            } => {
-              match ChatMessage::decode(message.data.as_slice()) {
-                Ok(chat) => {
-                  tracing::info!(
-                    peer = %propagation_source,
-                    message_id = %message_id,
-                    from = %chat.from,
-                    text = %chat.text,
-                    ts = chat.ts_unix_ms,
-                    "chat message"
-                  );
-                }
-                Err(err) => {
-                  tracing::info!(
-                    peer = %propagation_source,
-                    message_id = %message_id,
-                    len = message.data.len(),
-                    error = %err,
-                    "gossipsub message (decode failed)"
-                  );
-                }
-              }
-            }
-            other => {
-              tracing::debug!("gossipsub event: {:?}", other);
-            }
-          },
-
-          SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-            match event {
-              ping::Event { peer, result: Ok(rtt), .. } => {
-                tracing::debug!(peer = %peer, rtt = ?rtt, "ping ok");
-              }
-              ping::Event { peer, result: Err(err), .. } => {
-                tracing::warn!(peer = %peer, error = ?err, "ping failed");
-              }
-            }
-          }
-
-          SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-            handle_kad_event(&mut swarm, Some(&connected_peers), event);
-          }
-
-          SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-            connected_peers.insert(peer_id);
-            swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-            kick_kad_queries(&mut swarm);
-          }
-
-          SwarmEvent::ConnectionClosed { peer_id, num_established, cause, .. } => {
-            if num_established == 0 {
-              connected_peers.remove(&peer_id);
-              swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
-              if let Some(cause) = cause {
-                tracing::warn!(peer = %peer_id, error = %cause, "connection closed");
-              } else {
-                tracing::info!(peer = %peer_id, "connection closed");
-              }
-            }
-          }
-
-          SwarmEvent::NewListenAddr { address, .. } => {
-            tracing::info!("listening on {address}");
-          }
-
-          _ => {}
-        }
+        handle_swarm_event(
+          &mut swarm,
+          ev,
+          &network,
+          &raft,
+          &kv_data,
+          &kv_client,
+          &cmd_tx,
+          &mut pending_raft,
+          &mut pending_kv,
+          &mut connected_peers,
+        )
+        .await;
       }
     }
   }
+}
+
+async fn handle_reconnect_tick(
+  swarm: &mut Swarm<Behaviour>,
+  network: &Libp2pNetworkFactory,
+  connected_peers: &HashSet<PeerId>,
+) {
+  let nodes = network.known_nodes().await;
+  for (_node_id, peer_id, addr) in nodes {
+    if peer_id == *swarm.local_peer_id() {
+      continue;
+    }
+    if connected_peers.contains(&peer_id) {
+      continue;
+    }
+    tracing::info!(
+      peer = %peer_id,
+      addr = %addr,
+      "reconnecting to peer"
+    );
+    let _ = Swarm::dial(swarm, addr.clone());
+    add_kad_address_from_p2p(swarm, &addr);
+  }
+}
+
+fn handle_kad_discovery_tick(swarm: &mut Swarm<Behaviour>) {
+  kick_kad_queries(swarm);
+}
+
+fn handle_command(
+  swarm: &mut Swarm<Behaviour>,
+  cmd: Command,
+  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
+  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
+) {
+  match cmd {
+    Command::Dial { addr } => {
+      let dial_addr = addr.clone();
+      let _ = Swarm::dial(swarm, dial_addr);
+      add_kad_address_from_p2p(swarm, &addr);
+      kick_kad_queries(swarm);
+    }
+    Command::GossipsubPublish { topic, data } => {
+      let topic = gossipsub::IdentTopic::new(topic);
+      if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
+        tracing::warn!("gossipsub publish failed: {err}");
+      }
+    }
+    Command::RaftRequest { peer, req, resp } => {
+      let id = swarm.behaviour_mut().raft.send_request(&peer, req);
+      pending_raft.insert(id, resp);
+    }
+    Command::RaftRespond { channel, resp } => {
+      let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+    }
+    Command::KvRequest { peer, req, resp } => {
+      let id = swarm.behaviour_mut().kv.send_request(&peer, req);
+      pending_kv.insert(id, resp);
+    }
+    Command::KvRespond { channel, resp } => {
+      let _ = swarm.behaviour_mut().kv.send_response(channel, resp);
+    }
+  }
+}
+
+async fn handle_swarm_event(
+  swarm: &mut Swarm<Behaviour>,
+  event: SwarmEvent<BehaviourEvent>,
+  network: &Libp2pNetworkFactory,
+  raft: &Raft,
+  kv_data: &KvData,
+  kv_client: &KvClient,
+  cmd_tx: &mpsc::Sender<Command>,
+  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
+  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
+  connected_peers: &mut HashSet<PeerId>,
+) {
+  match event {
+    SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
+      handle_raft_event(swarm, raft, cmd_tx, pending_raft, event).await;
+    }
+    SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => {
+      handle_kv_event(swarm, raft, kv_data, kv_client, cmd_tx, pending_kv, event);
+    }
+    SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
+      handle_mdns_event(swarm, network, event).await;
+    }
+    SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
+      handle_gossipsub_event(event);
+    }
+    SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
+      handle_ping_event(event);
+    }
+    SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
+      handle_kad_event(swarm, Some(connected_peers), event);
+    }
+    SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+      handle_connection_established(swarm, connected_peers, peer_id);
+    }
+    SwarmEvent::ConnectionClosed {
+      peer_id,
+      num_established,
+      cause,
+      ..
+    } => {
+      handle_connection_closed(swarm, connected_peers, peer_id, num_established, cause);
+    }
+    SwarmEvent::NewListenAddr { address, .. } => {
+      handle_new_listen_addr(address);
+    }
+    _ => {}
+  }
+}
+
+async fn handle_raft_event(
+  swarm: &mut Swarm<Behaviour>,
+  raft: &Raft,
+  cmd_tx: &mpsc::Sender<Command>,
+  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
+  event: request_response::Event<RaftRpcRequest, RaftRpcResponse>,
+) {
+  match event {
+    request_response::Event::Message { message, .. } => match message {
+      request_response::Message::Request {
+        request, channel, ..
+      } => match request {
+        RaftRpcRequest::ClientWrite(req) => {
+          let raft = raft.clone();
+          let tx = cmd_tx.clone();
+          tokio::spawn(async move {
+            let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
+            let _ = tx.send(Command::RaftRespond { channel, resp }).await;
+          });
+        }
+        other => {
+          let resp = handle_inbound_rpc(raft.clone(), other).await;
+          let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+        }
+      },
+      request_response::Message::Response {
+        request_id,
+        response,
+      } => {
+        if let Some(tx) = pending_raft.remove(&request_id) {
+          let _ = tx.send(Ok(response));
+        }
+      }
+    },
+    request_response::Event::OutboundFailure {
+      request_id, error, ..
+    } => {
+      if let Some(tx) = pending_raft.remove(&request_id) {
+        let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
+      }
+    }
+    request_response::Event::InboundFailure { .. } => {}
+    request_response::Event::ResponseSent { .. } => {}
+  }
+}
+
+fn handle_kv_event(
+  _swarm: &mut Swarm<Behaviour>,
+  raft: &Raft,
+  kv_data: &KvData,
+  kv_client: &KvClient,
+  cmd_tx: &mpsc::Sender<Command>,
+  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
+  event: request_response::Event<RaftKvRequest, RaftKvResponse>,
+) {
+  match event {
+    request_response::Event::Message { message, .. } => match message {
+      request_response::Message::Request {
+        request, channel, ..
+      } => {
+        let raft = raft.clone();
+        let kv_data = kv_data.clone();
+        let kv_client = kv_client.clone();
+        let tx = cmd_tx.clone();
+        tokio::spawn(async move {
+          let resp = handle_inbound_kv(raft, kv_data, kv_client, request).await;
+          let _ = tx.send(Command::KvRespond { channel, resp }).await;
+        });
+      }
+      request_response::Message::Response {
+        request_id,
+        response,
+      } => {
+        if let Some(tx) = pending_kv.remove(&request_id) {
+          let _ = tx.send(Ok(response));
+        }
+      }
+    },
+    request_response::Event::OutboundFailure {
+      request_id, error, ..
+    } => {
+      if let Some(tx) = pending_kv.remove(&request_id) {
+        let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
+      }
+    }
+    request_response::Event::InboundFailure { .. } => {}
+    request_response::Event::ResponseSent { .. } => {}
+  }
+}
+
+async fn handle_mdns_event(
+  swarm: &mut Swarm<Behaviour>,
+  network: &Libp2pNetworkFactory,
+  event: mdns::Event,
+) {
+  match event {
+    mdns::Event::Discovered(list) => {
+      let mut saw_peer = false;
+      for (peer, addr) in list {
+        saw_peer = true;
+        network.update_peer_addr_from_mdns(peer, addr.clone()).await;
+        add_kad_peer_address(swarm, peer, addr);
+        swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+      }
+      if saw_peer {
+        kick_kad_queries(swarm);
+      }
+    }
+    mdns::Event::Expired(list) => {
+      for (peer, addr) in list {
+        let addr = strip_p2p(addr);
+        swarm.behaviour_mut().kad.remove_address(&peer, &addr);
+        swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
+      }
+    }
+  }
+}
+
+fn handle_gossipsub_event(event: gossipsub::Event) {
+  match event {
+    gossipsub::Event::Message {
+      propagation_source,
+      message_id,
+      message,
+    } => match ChatMessage::decode(message.data.as_slice()) {
+      Ok(chat) => {
+        tracing::info!(
+          peer = %propagation_source,
+          message_id = %message_id,
+          from = %chat.from,
+          text = %chat.text,
+          ts = chat.ts_unix_ms,
+          "chat message"
+        );
+      }
+      Err(err) => {
+        tracing::info!(
+          peer = %propagation_source,
+          message_id = %message_id,
+          len = message.data.len(),
+          error = %err,
+          "gossipsub message (decode failed)"
+        );
+      }
+    },
+    other => {
+      tracing::debug!("gossipsub event: {:?}", other);
+    }
+  }
+}
+
+fn handle_ping_event(event: ping::Event) {
+  match event {
+    ping::Event {
+      peer,
+      result: Ok(rtt),
+      ..
+    } => {
+      tracing::debug!(peer = %peer, rtt = ?rtt, "ping ok");
+    }
+    ping::Event {
+      peer,
+      result: Err(err),
+      ..
+    } => {
+      tracing::warn!(peer = %peer, error = ?err, "ping failed");
+    }
+  }
+}
+
+fn handle_connection_established(
+  swarm: &mut Swarm<Behaviour>,
+  connected_peers: &mut HashSet<PeerId>,
+  peer_id: PeerId,
+) {
+  connected_peers.insert(peer_id);
+  swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+  kick_kad_queries(swarm);
+}
+
+fn handle_connection_closed<E: fmt::Display>(
+  swarm: &mut Swarm<Behaviour>,
+  connected_peers: &mut HashSet<PeerId>,
+  peer_id: PeerId,
+  num_established: u32,
+  cause: Option<E>,
+) {
+  if num_established == 0 {
+    connected_peers.remove(&peer_id);
+    swarm
+      .behaviour_mut()
+      .gossipsub
+      .remove_explicit_peer(&peer_id);
+    if let Some(cause) = cause {
+      tracing::warn!(peer = %peer_id, error = %cause, "connection closed");
+    } else {
+      tracing::info!(peer = %peer_id, "connection closed");
+    }
+  }
+}
+
+fn handle_new_listen_addr(address: Multiaddr) {
+  tracing::info!("listening on {address}");
 }
 
 /// Client-only swarm loop.
