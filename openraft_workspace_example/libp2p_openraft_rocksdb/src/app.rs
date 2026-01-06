@@ -367,6 +367,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .context("create raft")?;
 
   let mut shutdown = crate::signal::spawn_handler();
+  let mut shutdown_rx_for_ordering = shutdown.shutdown_rx();
 
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
   let swarm_shutdown = shutdown.shutdown_rx();
@@ -375,7 +376,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let kv_data_for_swarm = kv_data.clone();
   let kv_client_for_swarm = kv_client.clone();
   let cmd_tx_for_swarm = cmd_tx.clone();
-  tokio::spawn(async move {
+  let swarm_handle = tokio::spawn(async move {
     run_swarm(
       swarm,
       cmd_rx,
@@ -403,21 +404,30 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let http_done = shutdown.push(SERVICE_HTTP);
   let http_shutdown = shutdown.shutdown_rx();
-  tokio::spawn(async move {
+  let http_handle = tokio::spawn(async move {
     let res = http::serve(http_addr, http_state, http_shutdown).await;
     let _ = http_done.send(res);
   });
 
+  // Openraft should shut down after libp2p/http have stopped.
+  let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
   let raft_done = shutdown.push(SERVICE_OPENRAFT);
-  let mut raft_shutdown = shutdown.shutdown_rx();
   let raft_handle = raft.clone();
   tokio::spawn(async move {
-    let _ = raft_shutdown.changed().await;
+    let _ = openraft_shutdown_rx.changed().await;
     let res = raft_handle
       .shutdown()
       .await
       .map_err(|e| anyhow!("openraft shutdown failed: {e:?}"));
     let _ = raft_done.send(res);
+  });
+
+  let openraft_shutdown_tx = openraft_shutdown_tx.clone();
+  tokio::spawn(async move {
+    let _ = shutdown_rx_for_ordering.changed().await;
+    let _ = swarm_handle.await;
+    let _ = http_handle.await;
+    let _ = openraft_shutdown_tx.send(());
   });
 
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
