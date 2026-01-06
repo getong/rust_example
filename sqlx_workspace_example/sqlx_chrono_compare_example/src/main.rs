@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // Insert random data into the table
   let now = Utc::now().naive_utc();
-  let random_name: String = rand::thread_rng()
+  let random_name: String = rand::rng()
     .sample_iter(&Alphanumeric)
     .take(10)
     .map(char::from)

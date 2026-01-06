@@ -11,7 +11,7 @@ sqlx = { version = "0.8", features = [
   "any",
   "bigdecimal",
 ] }
-ethereum-types = "0.14"
-bigdecimal = "0.4.5"
+ethereum-types = "0.16"
+bigdecimal = "0.4.10"
 tokio = { version = "1", features = ["full"] }
 dotenv = "0.15.0"

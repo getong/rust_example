@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 env_logger = "0.11.8"
-log = "0.4.27"
-sqlx = "0.8.5"
+log = "0.4.29"
+sqlx = "0.8.6"
