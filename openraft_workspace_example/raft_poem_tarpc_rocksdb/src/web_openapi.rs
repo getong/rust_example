@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::ReadPolicy;
+use openraft::{ReadPolicy, async_runtime::WatchReceiver};
 use poem_openapi::{ApiResponse, Object, OpenApi, payload::Json};
 
 use crate::{Node, NodeId, Request, common::Api};
@@ -162,7 +162,7 @@ impl Api {
 
   #[oai(path = "/metrics", method = "post")]
   pub async fn metrics(&self) -> MetricsResponse {
-    let res = self.raft.metrics().borrow().clone();
+    let res = self.raft.metrics().borrow_watched().clone();
     // println!("res:{:?}", res);
     MetricsResponse::Ok(Json(res.to_string()))
   }

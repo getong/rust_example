@@ -6,7 +6,7 @@ use std::{
 };
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use openraft::BasicNode;
+use openraft::{BasicNode, async_runtime::WatchReceiver};
 
 use crate::node::{NodeId, RaftApp};
 
@@ -47,7 +47,7 @@ pub async fn change_membership(
 
 #[tracing::instrument(level = "debug", skip(app_state))]
 pub async fn metrics(State(app_state): State<RaftApp>) -> impl IntoResponse {
-  let metrics = app_state.raft.metrics().borrow().clone();
+  let metrics = app_state.raft.metrics().borrow_watched().clone();
 
   let res: Result<_, openraft::error::Infallible> = Ok(metrics);
   (StatusCode::OK, Json(res))

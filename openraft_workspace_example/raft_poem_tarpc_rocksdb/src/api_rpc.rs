@@ -4,6 +4,7 @@ use openraft::raft::{
   AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
   VoteRequest, VoteResponse,
 };
+use openraft_legacy::network_v1::ChunkedSnapshotReceiver;
 use serde::{Deserialize, Serialize};
 use tarpc::context;
 use thiserror::Error;

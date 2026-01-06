@@ -1,7 +1,7 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::{marker::PhantomData, rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use openraft::Config;
 
@@ -18,41 +18,7 @@ pub mod app;
 pub mod network;
 pub mod store;
 
-// pub type NodeId = u64;
-
-#[derive(
-  Debug,
-  Clone,
-  Copy,
-  PartialEq,
-  Eq,
-  PartialOrd,
-  Ord,
-  Hash,
-  Default,
-  serde::Serialize,
-  serde::Deserialize,
-)]
-#[serde(transparent)]
-pub struct NodeId {
-  pub id: u64,
-  _p: PhantomData<*const ()>,
-}
-
-impl NodeId {
-  pub fn new(id: u64) -> Self {
-    Self {
-      id,
-      _p: PhantomData,
-    }
-  }
-}
-
-impl std::fmt::Display for NodeId {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.id.fmt(f)
-  }
-}
+pub type NodeId = u64;
 
 openraft::declare_raft_types!(
     /// Declare the type configuration for example K/V store.
@@ -87,10 +53,10 @@ pub async fn start_raft(node_id: NodeId, router: Router) -> std::io::Result<()> 
   let config = Arc::new(config.validate().unwrap());
 
   // Create a instance of where the Raft logs will be stored.
-  let log_store = Rc::new(LogStore::default());
+  let log_store = Arc::new(LogStore::default());
 
   // Create a instance of where the state machine data will be stored.
-  let state_machine_store = Rc::new(StateMachineStore::default());
+  let state_machine_store = Arc::new(StateMachineStore::default());
 
   // Create a local raft instance.
   let raft = openraft::Raft::new(

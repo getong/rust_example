@@ -2,6 +2,7 @@
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
+use openraft_legacy::network_v1::ChunkedSnapshotReceiver;
 
 use crate::node::{RaftApp, RaftTypeConfig};
 

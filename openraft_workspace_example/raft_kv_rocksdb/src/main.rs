@@ -3,12 +3,12 @@ use raft_kv_rocksdb::start_example_raft_node;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Clone, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 pub struct Opt {
-  #[clap(long)]
+  #[arg(long)]
   pub id: u64,
 
-  #[clap(long)]
+  #[arg(long)]
   pub addr: String,
 }
 

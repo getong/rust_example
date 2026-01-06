@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use futures::{
   StreamExt,
@@ -22,15 +22,20 @@ pub struct App {
   pub rx: RequestRx,
   pub router: Router,
 
-  pub state_machine: Rc<StateMachineStore>,
+  pub state_machine: Arc<StateMachineStore>,
 }
 
 impl App {
-  pub fn new(id: NodeId, raft: Raft, router: Router, state_machine: Rc<StateMachineStore>) -> Self {
+  pub fn new(
+    id: NodeId,
+    raft: Raft,
+    router: Router,
+    state_machine: Arc<StateMachineStore>,
+  ) -> Self {
     let (tx, rx) = mpsc::channel(1024);
 
     {
-      let mut targets = router.targets.borrow_mut();
+      let mut targets = router.targets.lock().unwrap();
       targets.insert(id, tx);
     }
 

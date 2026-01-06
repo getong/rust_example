@@ -1,6 +1,11 @@
 use std::{
-  cell::RefCell, collections::BTreeMap, fmt, fmt::Debug, io, io::Cursor, marker::PhantomData,
-  ops::RangeBounds, rc::Rc,
+  collections::BTreeMap,
+  fmt,
+  fmt::Debug,
+  io,
+  io::Cursor,
+  ops::RangeBounds,
+  sync::{Arc, Mutex},
 };
 
 use futures::{Stream, TryStreamExt};
@@ -14,11 +19,7 @@ use crate::{TypeConfig, typ::*};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
-  Set {
-    key: String,
-    value: String,
-    _p: PhantomData<*const ()>,
-  },
+  Set { key: String, value: String },
 }
 
 impl fmt::Display for Request {
@@ -34,15 +35,12 @@ impl Request {
     Self::Set {
       key: key.to_string(),
       value: value.to_string(),
-      _p: PhantomData,
     }
   }
 }
 
 #[cfg(test)]
 mod tests {
-  use std::marker::PhantomData;
-
   use crate::store::Request;
 
   #[test]
@@ -50,7 +48,6 @@ mod tests {
     let a = Request::Set {
       key: "foo".to_string(),
       value: "bar".to_string(),
-      _p: PhantomData,
     };
 
     let b = serde_json::to_string(&a).unwrap();
@@ -91,33 +88,33 @@ pub struct StateMachineData {
 #[derive(Debug, Default)]
 pub struct StateMachineStore {
   /// The Raft state machine.
-  pub state_machine: RefCell<StateMachineData>,
+  pub state_machine: Mutex<StateMachineData>,
 
-  snapshot_idx: RefCell<u64>,
+  snapshot_idx: Mutex<u64>,
 
   /// The last received snapshot.
-  current_snapshot: RefCell<Option<StoredSnapshot>>,
+  current_snapshot: Mutex<Option<StoredSnapshot>>,
 }
 
 #[derive(Debug, Default)]
 pub struct LogStore {
-  last_purged_log_id: RefCell<Option<LogId>>,
+  last_purged_log_id: Mutex<Option<LogId>>,
 
   /// The Raft log.
-  log: RefCell<BTreeMap<u64, Entry>>,
+  log: Mutex<BTreeMap<u64, Entry>>,
 
-  committed: RefCell<Option<LogId>>,
+  committed: Mutex<Option<LogId>>,
 
   /// The current granted vote.
-  vote: RefCell<Option<Vote>>,
+  vote: Mutex<Option<Vote>>,
 }
 
-impl RaftLogReader<TypeConfig> for Rc<LogStore> {
+impl RaftLogReader<TypeConfig> for Arc<LogStore> {
   async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug>(
     &mut self,
     range: RB,
   ) -> Result<Vec<Entry>, io::Error> {
-    let log = self.log.borrow();
+    let log = self.log.lock().unwrap();
     let response = log
       .range(range.clone())
       .map(|(_, val)| val.clone())
@@ -126,11 +123,11 @@ impl RaftLogReader<TypeConfig> for Rc<LogStore> {
   }
 
   async fn read_vote(&mut self) -> Result<Option<Vote>, io::Error> {
-    Ok(*self.vote.borrow())
+    Ok(*self.vote.lock().unwrap())
   }
 }
 
-impl RaftSnapshotBuilder<TypeConfig> for Rc<StateMachineStore> {
+impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self))]
   async fn build_snapshot(&mut self) -> Result<Snapshot, io::Error> {
     let data;
@@ -139,7 +136,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Rc<StateMachineStore> {
 
     {
       // Serialize the data of the state machine.
-      let state_machine = self.state_machine.borrow();
+      let state_machine = self.state_machine.lock().unwrap();
       data = serde_json::to_vec(&*state_machine)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
@@ -148,7 +145,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Rc<StateMachineStore> {
     }
 
     let snapshot_idx = {
-      let mut l = self.snapshot_idx.borrow_mut();
+      let mut l = self.snapshot_idx.lock().unwrap();
       *l += 1;
       *l
     };
@@ -176,7 +173,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Rc<StateMachineStore> {
     };
 
     {
-      let mut current_snapshot = self.current_snapshot.borrow_mut();
+      let mut current_snapshot = self.current_snapshot.lock().unwrap();
       *current_snapshot = Some(snapshot);
     }
 
@@ -187,11 +184,11 @@ impl RaftSnapshotBuilder<TypeConfig> for Rc<StateMachineStore> {
   }
 }
 
-impl RaftStateMachine<TypeConfig> for Rc<StateMachineStore> {
+impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   type SnapshotBuilder = Self;
 
   async fn applied_state(&mut self) -> Result<(Option<LogId>, StoredMembership), io::Error> {
-    let state_machine = self.state_machine.borrow();
+    let state_machine = self.state_machine.lock().unwrap();
     Ok((
       state_machine.last_applied,
       state_machine.last_membership.clone(),
@@ -206,7 +203,7 @@ impl RaftStateMachine<TypeConfig> for Rc<StateMachineStore> {
     while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
 
-      let mut sm = self.state_machine.borrow_mut();
+      let mut sm = self.state_machine.lock().unwrap();
 
       sm.last_applied = Some(entry.log_id);
 
@@ -258,19 +255,20 @@ impl RaftStateMachine<TypeConfig> for Rc<StateMachineStore> {
     {
       let updated_state_machine: StateMachineData = serde_json::from_slice(&new_snapshot.data)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-      let mut state_machine = self.state_machine.borrow_mut();
+      let mut state_machine = self.state_machine.lock().unwrap();
       *state_machine = updated_state_machine;
     }
 
     // Update current snapshot.
-    let mut current_snapshot = self.current_snapshot.borrow_mut();
+    let mut current_snapshot = self.current_snapshot.lock().unwrap();
     *current_snapshot = Some(new_snapshot);
     Ok(())
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
   async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot>, io::Error> {
-    match &*self.current_snapshot.borrow() {
+    let current_snapshot = self.current_snapshot.lock().unwrap();
+    match current_snapshot.as_ref() {
       Some(snapshot) => {
         let data = snapshot.data.clone();
         Ok(Some(Snapshot {
@@ -287,14 +285,16 @@ impl RaftStateMachine<TypeConfig> for Rc<StateMachineStore> {
   }
 }
 
-impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
+impl RaftLogStorage<TypeConfig> for Arc<LogStore> {
   type LogReader = Self;
 
   async fn get_log_state(&mut self) -> Result<LogState, io::Error> {
-    let log = self.log.borrow();
-    let last = log.iter().next_back().map(|(_, ent)| ent.log_id);
+    let last = {
+      let log = self.log.lock().unwrap();
+      log.iter().next_back().map(|(_, ent)| ent.log_id)
+    };
 
-    let last_purged = *self.last_purged_log_id.borrow();
+    let last_purged = *self.last_purged_log_id.lock().unwrap();
 
     let last = match last {
       None => last_purged,
@@ -308,19 +308,19 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
   }
 
   async fn save_committed(&mut self, committed: Option<LogId>) -> Result<(), io::Error> {
-    let mut c = self.committed.borrow_mut();
+    let mut c = self.committed.lock().unwrap();
     *c = committed;
     Ok(())
   }
 
   async fn read_committed(&mut self) -> Result<Option<LogId>, io::Error> {
-    let committed = self.committed.borrow();
+    let committed = self.committed.lock().unwrap();
     Ok(*committed)
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
   async fn save_vote(&mut self, vote: &Vote) -> Result<(), io::Error> {
-    let mut v = self.vote.borrow_mut();
+    let mut v = self.vote.lock().unwrap();
     *v = Some(*vote);
     Ok(())
   }
@@ -332,7 +332,7 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
   {
     // Simple implementation that calls the flush-before-return `append_to_log`.
     {
-      let mut log = self.log.borrow_mut();
+      let mut log = self.log.lock().unwrap();
       for entry in entries {
         log.insert(entry.log_id.index(), entry);
       }
@@ -351,7 +351,7 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
       None => 0,
     };
 
-    let mut log = self.log.borrow_mut();
+    let mut log = self.log.lock().unwrap();
     let keys = log
       .range(start_index ..)
       .map(|(k, _v)| *k)
@@ -368,13 +368,13 @@ impl RaftLogStorage<TypeConfig> for Rc<LogStore> {
     tracing::debug!("delete_log: (-oo, {:?}]", log_id);
 
     {
-      let mut ld = self.last_purged_log_id.borrow_mut();
+      let mut ld = self.last_purged_log_id.lock().unwrap();
       assert!(*ld <= Some(log_id));
       *ld = Some(log_id);
     }
 
     {
-      let mut log = self.log.borrow_mut();
+      let mut log = self.log.lock().unwrap();
 
       let keys = log
         .range(..= log_id.index())

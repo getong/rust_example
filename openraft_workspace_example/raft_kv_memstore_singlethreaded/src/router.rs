@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{
+  collections::BTreeMap,
+  sync::{Arc, Mutex},
+};
 
 use futures::{SinkExt, channel::oneshot};
 use openraft::error::{RemoteError, Unreachable};
@@ -13,7 +16,7 @@ use crate::{
 /// Simulate a network router.
 #[derive(Clone, Default)]
 pub struct Router {
-  pub targets: Rc<RefCell<BTreeMap<NodeId, RequestTx>>>,
+  pub targets: Arc<Mutex<BTreeMap<NodeId, RequestTx>>>,
 }
 
 impl Router {
@@ -35,7 +38,7 @@ impl Router {
     tracing::debug!("send to: {}, {}, {}", to, path, encoded_req);
 
     let mut tx = {
-      let targets = self.targets.borrow();
+      let targets = self.targets.lock().unwrap();
       targets.get(&to).unwrap().clone()
     };
 

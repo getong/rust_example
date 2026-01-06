@@ -1,12 +1,13 @@
 use openraft::{
   AnyError,
   error::{InstallSnapshotError, NetworkError, RPCError, RaftError},
-  network::{RPCOption, RaftNetwork, RaftNetworkFactory},
+  network::{RPCOption, RaftNetworkFactory},
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
   },
 };
+use openraft_legacy::network_v1::{Adapter, RaftNetwork};
 use serde::de::DeserializeOwned;
 use tarpc::{client, context, tokio_serde::formats::Json};
 
@@ -20,7 +21,7 @@ pub struct Network {}
 // NOTE: This could be implemented also on `Arc<ExampleNetwork>`, but since it's empty, implemented
 // directly.
 impl RaftNetworkFactory<TypeConfig> for Network {
-  type Network = NetworkConnection;
+  type Network = Adapter<TypeConfig, NetworkConnection>;
 
   #[tracing::instrument(level = "debug", skip_all)]
   async fn new_client(&mut self, target: NodeId, node: &Node) -> Self::Network {
@@ -34,6 +35,7 @@ impl RaftNetworkFactory<TypeConfig> for Network {
       client: Some(client),
       target,
     }
+    .into_v2()
   }
 }
 
@@ -55,7 +57,7 @@ impl NetworkConnection {
     self
       .client
       .as_ref()
-      .ok_or_else(|| RPCError::Network(NetworkError::from(AnyError::default())))
+      .ok_or_else(|| RPCError::Network(NetworkError::new(&AnyError::default())))
   }
 }
 
@@ -63,7 +65,7 @@ fn to_error<E: std::error::Error + 'static + Clone>(
   _e: ServiceError,
   _target: NodeId,
 ) -> RPCError<TypeConfig, E> {
-  RPCError::Network(NetworkError::from(AnyError::default()))
+  RPCError::Network(NetworkError::new(&AnyError::default()))
 }
 
 #[allow(clippy::blocks_in_conditions)]

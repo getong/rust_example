@@ -4,9 +4,7 @@ version = "0.1.0"
 readme = "README.md"
 
 edition = "2024"
-authors = [
-    "drdr xp <drdr.xp@gmail.com>",
-]
+authors = ["drdr xp <drdr.xp@gmail.com>"]
 categories = ["algorithms", "asynchronous", "data-structures"]
 description = "An example in-memory state machine for `openraft`."
 homepage = "https://github.com/databendlabs/openraft"
@@ -14,13 +12,13 @@ keywords = ["raft", "consensus"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/databendlabs/openraft"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 futures = "0.3.31"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", default-features = false, features = ["type-alias", "tokio-rt"]}
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", default-features = false, features = ["type-alias", "tokio-rt"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 types-kv = { path = "../types-kv" }
-
-[package.metadata.docs.rs]
-all-features = true

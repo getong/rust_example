@@ -126,12 +126,20 @@ impl RaftLogStorage<RaftTypeConfig> for Arc<RaftStore> {
   }
 
   #[tracing::instrument(level = "debug", skip(self))]
-  async fn truncate(&mut self, log_id: LogId<RaftTypeConfig>) -> Result<(), io::Error> {
-    tracing::debug!("delete_log: [{:?}, +oo)", log_id);
+  async fn truncate_after(
+    &mut self,
+    log_id: Option<LogId<RaftTypeConfig>>,
+  ) -> Result<(), io::Error> {
+    tracing::debug!("truncate_after: ({:?}, +oo)", log_id);
+
+    let start_index = match log_id {
+      Some(id) => id.index + 1,
+      None => 0,
+    };
 
     let mut log = self.log.write().await;
     let keys = log
-      .range(log_id.index ..)
+      .range(start_index ..)
       .map(|(k, _v)| *k)
       .collect::<Vec<_>>();
     for key in keys {

@@ -9,7 +9,6 @@ edition = "2024"
 futures = "0.3.31"
 openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", features = [
   "serde",
-  "single-threaded",
   "type-alias",
 ] }
 openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606" }

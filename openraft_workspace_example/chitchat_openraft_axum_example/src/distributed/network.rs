@@ -1,14 +1,15 @@
 use std::collections::BTreeSet;
 
 use openraft::{
-  BasicNode,
+  BasicNode, RaftNetworkFactory,
   error::{InstallSnapshotError, RPCError, RaftError},
-  network::{RPCOption, RaftNetwork, RaftNetworkFactory},
+  network::RPCOption,
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
     VoteRequest, VoteResponse,
   },
 };
+use openraft_legacy::prelude::*;
 
 use super::raft_types::{NodeId, TypeConfig};
 
@@ -39,10 +40,10 @@ impl ChitchatRaftNetwork {
 }
 
 impl RaftNetworkFactory<TypeConfig> for ChitchatRaftNetwork {
-  type Network = ChitchatRaftNetworkConnection;
+  type Network = Adapter<TypeConfig, ChitchatRaftNetworkConnection>;
 
   async fn new_client(&mut self, _target: NodeId, _node: &BasicNode) -> Self::Network {
-    ChitchatRaftNetworkConnection
+    ChitchatRaftNetworkConnection.into_v2()
   }
 }
 

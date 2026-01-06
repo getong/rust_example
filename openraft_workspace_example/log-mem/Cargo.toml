@@ -12,16 +12,16 @@ keywords = ["raft", "consensus"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/databendlabs/openraft"
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+
+serde = ["openraft/serde"]
+
 [dependencies]
 futures = "0.3.31"
 openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", default-features = false, features = [
   "type-alias",
   "tokio-rt",
 ] }
-
-[features]
-
-serde = ["openraft/serde"]
-
-[package.metadata.docs.rs]
-all-features = true

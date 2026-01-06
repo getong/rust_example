@@ -2,9 +2,10 @@ use std::{collections::BTreeMap, fmt, io, io::Cursor, path::Path, sync::Arc};
 
 use futures::{Stream, TryStreamExt};
 use openraft::{
-  AnyError, EntryPayload, ErrorVerb, OptionalSend, RaftSnapshotBuilder,
+  EntryPayload, ErrorVerb, OptionalSend, RaftSnapshotBuilder,
   alias::SnapshotDataOf,
   storage::{EntryResponder, RaftStateMachine},
+  type_config::TypeConfigExt,
 };
 use openraft_rocksstore::log_store::RocksLogStore;
 use rocksdb::{ColumnFamily, ColumnFamilyDescriptor, DB, Options};
@@ -136,8 +137,12 @@ impl StateMachineStore {
   }
 
   async fn update_state_machine_(&mut self, snapshot: StoredSnapshot) -> Result<(), StorageError> {
-    let kvs: BTreeMap<String, String> = serde_json::from_slice(&snapshot.data)
-      .map_err(|e| StorageError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
+    let kvs: BTreeMap<String, String> = serde_json::from_slice(&snapshot.data).map_err(|e| {
+      StorageError::read_snapshot(
+        Some(snapshot.meta.signature()),
+        TypeConfig::err_from_error(&e),
+      )
+    })?;
 
     self.data.last_applied_log_id = snapshot.meta.last_log_id;
     self.data.last_membership = snapshot.meta.last_membership.clone();
@@ -152,7 +157,7 @@ impl StateMachineStore {
       self
         .db
         .get_cf(self.store(), b"snapshot")
-        .map_err(|e| StorageError::read(&e))?
+        .map_err(|e| StorageError::read(TypeConfig::err_from_error(&e)))?
         .and_then(|v| serde_json::from_slice(&v).ok()),
     )
   }
@@ -165,7 +170,9 @@ impl StateMachineStore {
         b"snapshot",
         serde_json::to_vec(&snap).unwrap().as_slice(),
       )
-      .map_err(|e| StorageError::write_snapshot(Some(snap.meta.signature()), &e))?;
+      .map_err(|e| {
+        StorageError::write_snapshot(Some(snap.meta.signature()), TypeConfig::err_from_error(&e))
+      })?;
     self.flush(
       ErrorSubject::Snapshot(Some(snap.meta.signature())),
       ErrorVerb::Write,
@@ -177,7 +184,7 @@ impl StateMachineStore {
     self
       .db
       .flush_wal(true)
-      .map_err(|e| StorageError::new(subject, verb, AnyError::new(&e)))?;
+      .map_err(|e| StorageError::new(subject, verb, TypeConfig::err_from_error(&e)))?;
     Ok(())
   }
 

@@ -57,11 +57,11 @@ impl ExampleClient {
 
   /// Consistent Read value by key, in an inconsistent mode.
   ///
-  /// This method MUST return consistent value or CheckIsLeaderError.
+  /// This method MUST return consistent value or LinearizableReadError.
   pub async fn linearizable_read(
     &self,
     req: &String,
-  ) -> Result<String, RPCError<RaftError<CheckIsLeaderError>>> {
+  ) -> Result<String, RPCError<RaftError<LinearizableReadError>>> {
     self
       .do_send_rpc_to_leader("api/linearizable_read", Some(req))
       .await

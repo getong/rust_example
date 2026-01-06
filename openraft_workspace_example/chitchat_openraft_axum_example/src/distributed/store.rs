@@ -9,6 +9,7 @@ use openraft::{
   EntryPayload, OptionalSend, RaftSnapshotBuilder, StorageError,
   alias::SnapshotDataOf,
   storage::{EntryResponder, RaftStateMachine, Snapshot},
+  type_config::TypeConfigExt,
 };
 
 use super::raft_types::{
@@ -313,8 +314,10 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     tracing::info!("install snapshot");
 
     // Deserialize the snapshot data
-    let mut snapshot_data: StateMachineData = serde_json::from_slice(snapshot.get_ref())
-      .map_err(|e| StorageError::read_snapshot(Some(meta.signature()), &e))?;
+    let mut snapshot_data: StateMachineData =
+      serde_json::from_slice(snapshot.get_ref()).map_err(|e| {
+        StorageError::read_snapshot(Some(meta.signature()), TypeConfig::err_from_error(&e))
+      })?;
     snapshot_data.last_applied = meta.last_log_id;
     snapshot_data.last_membership = meta.last_membership.clone();
 
@@ -338,8 +341,12 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
   async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, io::Error> {
     match &*self.current_snapshot.lock().unwrap() {
       Some(snapshot) => {
-        let data = serde_json::to_vec(&snapshot.data)
-          .map_err(|e| StorageError::read_snapshot(Some(snapshot.meta.signature()), &e))?;
+        let data = serde_json::to_vec(&snapshot.data).map_err(|e| {
+          StorageError::read_snapshot(
+            Some(snapshot.meta.signature()),
+            TypeConfig::err_from_error(&e),
+          )
+        })?;
         Ok(Some(Snapshot {
           meta: snapshot.meta.clone(),
           snapshot: std::io::Cursor::new(data),
