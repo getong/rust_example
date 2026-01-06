@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bigdecimal = "0.4.10"
+dotenv = "0.15.0"
+ethereum-types = "0.16"
 sqlx = { version = "0.8", features = [
   "runtime-tokio-native-tls",
   "postgres",
@@ -11,7 +14,4 @@ sqlx = { version = "0.8", features = [
   "any",
   "bigdecimal",
 ] }
-ethereum-types = "0.16"
-bigdecimal = "0.4.10"
 tokio = { version = "1", features = ["full"] }
-dotenv = "0.15.0"
