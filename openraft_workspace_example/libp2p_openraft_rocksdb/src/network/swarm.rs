@@ -255,7 +255,7 @@ pub async fn run_swarm(
         handle_reconnect_tick(&mut swarm, &network, &connected_peers).await;
       }
       _ = kad_discovery_tick.tick() => {
-        handle_kad_discovery_tick(&mut swarm);
+        kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
@@ -302,10 +302,6 @@ async fn handle_reconnect_tick(
     let _ = Swarm::dial(swarm, addr.clone());
     add_kad_address_from_p2p(swarm, &addr);
   }
-}
-
-fn handle_kad_discovery_tick(swarm: &mut Swarm<Behaviour>) {
-  kick_kad_queries(swarm);
 }
 
 fn handle_command(
@@ -387,7 +383,7 @@ async fn handle_swarm_event(
       handle_connection_closed(swarm, connected_peers, peer_id, num_established, cause);
     }
     SwarmEvent::NewListenAddr { address, .. } => {
-      handle_new_listen_addr(address);
+      tracing::info!("listening on {address}");
     }
     _ => {}
   }
@@ -592,10 +588,6 @@ fn handle_connection_closed<E: fmt::Display>(
       tracing::info!(peer = %peer_id, "connection closed");
     }
   }
-}
-
-fn handle_new_listen_addr(address: Multiaddr) {
-  tracing::info!("listening on {address}");
 }
 
 /// Client-only swarm loop.
