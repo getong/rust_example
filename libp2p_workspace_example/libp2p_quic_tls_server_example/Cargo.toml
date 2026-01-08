@@ -7,4 +7,4 @@ edition = "2024"
 anyhow = "1.0.100"
 futures = "0.3.31"
 libp2p = { version = "0.56.0", features = ["full"] }
-tokio = { version = "1.48.0", features = ["full"] }
+tokio = { version = "1.49.0", features = ["full"] }
