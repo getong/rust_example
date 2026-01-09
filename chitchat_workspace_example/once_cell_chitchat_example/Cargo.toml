@@ -6,13 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-once_cell = "1.21.1"
-tokio = { version = "1.44.1", features = ["full"] }
-# chitchat = "0.9"
-chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
-cool-id-generator = "1.0.1"
 anyhow = "1.0.97"
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
+chitchat = "0.10"
+# chitchat = { git = "https://github.com/quickwit-oss/chitchat"}
 clap = { version = "4.5.32", features = ["derive"] }
 console-subscriber = "0.4.1"
+cool-id-generator = "1.0.1"
+once_cell = "1.21.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = { version = "1.44.1", features = ["full"] }

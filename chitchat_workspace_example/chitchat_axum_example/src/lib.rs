@@ -1,4 +1,4 @@
-use aide::OperationOutput;
+use aide::{OperationOutput, openapi::StatusCode};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -32,7 +32,7 @@ impl OperationOutput for ApiResponse {
   fn inferred_responses(
     ctx: &mut aide::generate::GenContext,
     operation: &mut aide::openapi::Operation,
-  ) -> Vec<(Option<u16>, aide::openapi::Response)> {
+  ) -> Vec<(Option<StatusCode>, aide::openapi::Response)> {
     <axum::Json<Self> as OperationOutput>::inferred_responses(ctx, operation)
   }
 }
@@ -55,7 +55,7 @@ impl OperationOutput for SetKeyValueResponse {
   fn inferred_responses(
     ctx: &mut aide::generate::GenContext,
     operation: &mut aide::openapi::Operation,
-  ) -> Vec<(Option<u16>, aide::openapi::Response)> {
+  ) -> Vec<(Option<StatusCode>, aide::openapi::Response)> {
     <axum::Json<Self> as OperationOutput>::inferred_responses(ctx, operation)
   }
 }
@@ -78,7 +78,7 @@ impl OperationOutput for ClusterMembersResponse {
   fn inferred_responses(
     ctx: &mut aide::generate::GenContext,
     operation: &mut aide::openapi::Operation,
-  ) -> Vec<(Option<u16>, aide::openapi::Response)> {
+  ) -> Vec<(Option<StatusCode>, aide::openapi::Response)> {
     <axum::Json<Self> as OperationOutput>::inferred_responses(ctx, operation)
   }
 }
@@ -102,7 +102,7 @@ impl OperationOutput for ServiceUpdateResponse {
   fn inferred_responses(
     ctx: &mut aide::generate::GenContext,
     operation: &mut aide::openapi::Operation,
-  ) -> Vec<(Option<u16>, aide::openapi::Response)> {
+  ) -> Vec<(Option<StatusCode>, aide::openapi::Response)> {
     <axum::Json<Self> as OperationOutput>::inferred_responses(ctx, operation)
   }
 }
