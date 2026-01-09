@@ -9,7 +9,8 @@ edition = "2024"
 anyhow = "1.0.100"
 async-trait = "0.1.89"
 byteorder = "1.5.0"
-chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
+# chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
+chitchat = "0.10"
 clap = { version = "4.5.54", features = ["derive", "env"] }
 console-subscriber = "0.5.0"
 cool-id-generator = "1.0.1"
