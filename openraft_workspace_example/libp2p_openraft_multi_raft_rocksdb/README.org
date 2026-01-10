@@ -1,30 +1,62 @@
-* libp2p openraft rocksdb
+* libp2p openraft multi-raft rocksdb
 
 ** usage
 
+Raft groups: `users`, `orders`, `products`. Default group is `users`.
+Use `group_id` in HTTP bodies, `--group` in CLI tools, or `?group=` on `/cluster`.
+
 #+begin_src shell
-# set
+# set (default group: users)
 curl -X POST http://127.0.0.1:3001/write \
 -H 'content-type: application/json' \
--d '{"key":"counter","value":42}'
+-d '{"key":"user:1","value":"Alice"}'
 
-# update
+# set into orders group
+curl -X POST http://127.0.0.1:3001/write \
+-H 'content-type: application/json' \
+-d '{"group_id":"orders","key":"order:1001","value":"pending"}'
+
+# update products group
 curl -X POST http://127.0.0.1:3002/update \
 -H 'content-type: application/json' \
--d '{"key":"counter","value":43}'
+-d '{"group_id":"products","key":"product:A","value":"Widget"}'
 
-# delete
+# delete from users group
 curl -X POST http://127.0.0.1:3002/delete \
 -H 'content-type: application/json' \
--d '{"key":"counter"}'
+-d '{"group_id":"users","key":"user:1"}'
 
-# get cluster info
+# get cluster info (default group)
 curl http://127.0.0.1:3001/cluster
+
+# get cluster info for orders group
+curl "http://127.0.0.1:3001/cluster?group=orders"
 
 # chat
 curl -X POST http://127.0.0.1:3001/chat \
   -H 'content-type: application/json' \
   -d '{"text":"hello from http","from":"node1"}'
+#+end_src
+
+** cli examples
+
+#+begin_src shell
+# write into users group
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin kv -- \
+  --addr /ip4/127.0.0.1/tcp/4001/p2p/<peerid1> \
+  --group users \
+  set --key user:2 --value Bob
+
+# read from orders group
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin kv -- \
+  --addr /ip4/127.0.0.1/tcp/4001/p2p/<peerid1> \
+  --group orders \
+  get --key order:1001
+
+# query metrics for products group
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin status -- \
+  --addr /ip4/127.0.0.1/tcp/4001/p2p/<peerid1> \
+  --group products
 #+end_src
 
 ** websocket
@@ -34,7 +66,7 @@ multiaddrs for listen and peer addresses.
 
 #+begin_src shell
 # listen with websocket
-cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin libp2p_openraft_multi_raft_rocksdb -- \
   --id 1 \
   --listen /ip4/0.0.0.0/tcp/4001/ws \
   --http 0.0.0.0:3001 \
@@ -44,12 +76,13 @@ cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
   --node 2=/ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
 
 # use websocket address in the kv client
-cargo run -p libp2p_openraft_rocksdb --bin kv -- \
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin kv -- \
   --addr /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
+  --group users \
   get --key counter
 
 # use websocket address in the status client
-cargo run -p libp2p_openraft_rocksdb --bin status -- \
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin status -- \
   --addr /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1>
 #+end_src
 
@@ -67,7 +100,7 @@ Secure websocket (wss):
 ./generate_wss_certs.sh ./certs localhost 127.0.0.1
 
 # listen with wss using the generated cert
-cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin libp2p_openraft_multi_raft_rocksdb -- \
   --id 1 \
   --listen /ip4/0.0.0.0/tcp/4001/wss \
   --http 0.0.0.0:3001 \
@@ -76,8 +109,9 @@ cargo run -p libp2p_openraft_rocksdb --bin libp2p_openraft_rocksdb -- \
   --ws-tls-cert ./certs/fullchain.der
 
 # trust the self-signed cert when dialing
-cargo run -p libp2p_openraft_rocksdb --bin kv -- \
+cargo run -p libp2p_openraft_multi_raft_rocksdb --bin kv -- \
   --addr /ip4/127.0.0.1/tcp/4001/wss/p2p/<peerid1> \
+  --group users \
   --ws-tls-cert ./certs/fullchain.der \
   get --key counter
 #+end_src
@@ -86,7 +120,6 @@ Notes:
 - Websocket addresses use /ws (plain websocket). Secure websocket (/wss or /tls/ws)
   is not configured by default.
 - You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
-
 
  curl -X POST http://127.0.0.1:3001/kameo/inc \
     -H 'Content-Type: application/json' \
