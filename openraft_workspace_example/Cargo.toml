@@ -20,4 +20,5 @@ members = [
   "multi_raft_kv",
   "rocksstore_crud",
   "libp2p_openraft_rocksdb",
+  "libp2p_openraft_multi_raft_rocksdb",
 ]
