@@ -1,6 +1,10 @@
 //! RocksDB-backed storage.
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+  collections::BTreeMap,
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use anyhow::Context;
 use openraft::ReadPolicy;
@@ -19,6 +23,18 @@ pub async fn open_store<P: AsRef<Path>>(
   openraft_rocksstore_crud::new::<TypeConfig, _>(db_dir)
     .await
     .context("open rocksdb store")
+}
+
+pub fn group_db_dir(base_dir: &Path, group_id: &str) -> PathBuf {
+  base_dir.join(group_id)
+}
+
+pub async fn open_store_for_group<P: AsRef<Path>>(
+  db_dir: P,
+  group_id: &str,
+) -> anyhow::Result<(LogStore, StateMachineStore)> {
+  let db_path = group_db_dir(db_dir.as_ref(), group_id);
+  open_store(db_path).await
 }
 
 pub fn kv_data(state_machine: &StateMachineStore) -> KvData {

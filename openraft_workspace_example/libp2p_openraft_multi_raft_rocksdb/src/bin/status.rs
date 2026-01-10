@@ -12,10 +12,10 @@ use libp2p::{
   tcp, tls, websocket, yamux,
 };
 use libp2p_openraft_multi_raft_rocksdb::{
-  app,
+  app, groups,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
-    rpc::{RaftRpcRequest, RaftRpcResponse},
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{Behaviour, Libp2pClient, run_swarm_client_with_shutdown},
     transport::parse_p2p_addr,
   },
@@ -42,6 +42,10 @@ pub struct Opt {
   /// RPC timeout seconds
   #[arg(long, default_value_t = 5)]
   pub timeout_secs: u64,
+
+  /// Raft group id.
+  #[arg(long, default_value = groups::USERS)]
+  pub group: String,
 
   #[command(flatten)]
   pub websocket: app::WebsocketOpt,
@@ -148,7 +152,13 @@ async fn main() -> anyhow::Result<()> {
   tokio::time::sleep(Duration::from_millis(200)).await;
 
   let resp = client
-    .request(peer, RaftRpcRequest::GetMetrics)
+    .request(
+      peer,
+      RaftRpcRequest {
+        group_id: opt.group.clone(),
+        op: RaftRpcOp::GetMetrics,
+      },
+    )
     .await
     .context("rpc get-metrics")?;
 

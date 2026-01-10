@@ -12,7 +12,7 @@ use libp2p::{
   tcp, tls, websocket, yamux,
 };
 use libp2p_openraft_multi_raft_rocksdb::{
-  app,
+  app, groups,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     swarm::{Behaviour, KvClient, run_swarm_client_with_shutdown},
@@ -40,6 +40,10 @@ pub struct Opt {
   /// RPC timeout seconds
   #[arg(long, default_value_t = 5)]
   pub timeout_secs: u64,
+
+  /// Raft group id.
+  #[arg(long, default_value = groups::USERS)]
+  pub group: String,
 
   #[command(flatten)]
   pub websocket: app::WebsocketOpt,
@@ -154,15 +158,19 @@ async fn main() -> anyhow::Result<()> {
 
   let req = match opt.cmd {
     Command::Get { key } => RaftKvRequest {
+      group_id: opt.group.clone(),
       op: Some(KvRequestOp::Get(GetValueRequest { key })),
     },
     Command::Set { key, value } => RaftKvRequest {
+      group_id: opt.group.clone(),
       op: Some(KvRequestOp::Set(SetValueRequest { key, value })),
     },
     Command::Update { key, value } => RaftKvRequest {
+      group_id: opt.group.clone(),
       op: Some(KvRequestOp::Update(UpdateValueRequest { key, value })),
     },
     Command::Delete { key } => RaftKvRequest {
+      group_id: opt.group.clone(),
       op: Some(KvRequestOp::Delete(DeleteValueRequest { key })),
     },
   };

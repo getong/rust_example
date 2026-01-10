@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use axum::{
   Json, Router,
-  extract::State,
+  extract::{Query, State},
   routing::{get, post},
 };
 use libp2p::{Multiaddr, PeerId};
@@ -16,7 +16,7 @@ use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
-  NodeId,
+  GroupHandleMap, GroupId, NodeId,
   network::{
     swarm::{GOSSIP_TOPIC, KvClient},
     transport::Libp2pNetworkFactory,
@@ -27,8 +27,7 @@ use crate::{
     raft_kv_response::Op as KvResponseOp,
   },
   signal::ShutdownRx,
-  store::{KvData, ensure_linearizable_read},
-  typ::Raft,
+  store::ensure_linearizable_read,
 };
 
 #[derive(Clone)]
@@ -38,9 +37,9 @@ pub struct AppState {
   pub peer_id: String,
   pub listen: String,
   pub network: Libp2pNetworkFactory,
-  pub raft: Raft,
   pub kv_client: KvClient,
-  pub kv_data: KvData,
+  pub groups: GroupHandleMap,
+  pub default_group: GroupId,
 }
 
 pub async fn serve(
@@ -74,9 +73,12 @@ struct ClusterInfoResponse {
   node_name: String,
   peer_id: String,
   listen: String,
+  group_id: String,
+  groups: Vec<String>,
   known_nodes: Vec<KnownNodeResponse>,
   raft_metrics: serde_json::Value,
   kv_data: Vec<KvPairResponse>,
+  error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -97,6 +99,7 @@ struct WriteValueRequest {
   key: String,
   #[serde(deserialize_with = "string_or_number")]
   value: String,
+  group_id: Option<String>,
   target_node_id: Option<NodeId>,
 }
 
@@ -113,6 +116,7 @@ struct UpdateValueRequest {
   key: String,
   #[serde(deserialize_with = "string_or_number")]
   value: String,
+  group_id: Option<String>,
   target_node_id: Option<NodeId>,
 }
 
@@ -127,6 +131,7 @@ struct UpdateValueResponse {
 #[derive(Deserialize)]
 struct DeleteValueRequestBody {
   key: String,
+  group_id: Option<String>,
   target_node_id: Option<NodeId>,
 }
 
@@ -149,7 +154,16 @@ struct ChatResponse {
   error: Option<String>,
 }
 
-async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoResponse> {
+#[derive(Deserialize)]
+struct ClusterQuery {
+  #[serde(alias = "group")]
+  group_id: Option<String>,
+}
+
+async fn cluster_info(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Json<ClusterInfoResponse> {
   let mut nodes: Vec<KnownNodeResponse> = state
     .network
     .known_nodes()
@@ -164,14 +178,35 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
 
   nodes.sort_by_key(|node| node.node_id);
 
-  let metrics = state.raft.metrics().borrow_watched().clone();
+  let group_id = query
+    .group_id
+    .unwrap_or_else(|| state.default_group.clone());
+
+  let groups: Vec<String> = state.groups.keys().cloned().collect();
+
+  let Some(group) = state.groups.get(&group_id) else {
+    return Json(ClusterInfoResponse {
+      node_id: state.node_id,
+      node_name: state.node_name.clone(),
+      peer_id: state.peer_id.clone(),
+      listen: state.listen.clone(),
+      group_id,
+      groups,
+      known_nodes: nodes,
+      raft_metrics: serde_json::Value::String("unknown group".to_string()),
+      kv_data: Vec::new(),
+      error: Some("unknown group_id".to_string()),
+    });
+  };
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
   let raft_metrics = serde_json::to_value(metrics)
     .unwrap_or_else(|err| serde_json::Value::String(format!("metrics serialize error: {err}")));
 
   let mut kv_data = Vec::new();
   let allow_local_read = match tokio::time::timeout(
     Duration::from_millis(300),
-    ensure_linearizable_read(&state.raft),
+    ensure_linearizable_read(&group.raft),
   )
   .await
   {
@@ -192,7 +227,7 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
     }
   };
   if allow_local_read {
-    let kvs = state.kv_data.read().await;
+    let kvs = group.kv_data.read().await;
     for (key, value) in kvs.iter() {
       kv_data.push(KvPairResponse {
         key: key.clone(),
@@ -207,9 +242,12 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
     node_name: state.node_name.clone(),
     peer_id: state.peer_id.clone(),
     listen: state.listen.clone(),
+    group_id,
+    groups,
     known_nodes: nodes,
     raft_metrics,
     kv_data,
+    error: None,
   })
 }
 
@@ -217,14 +255,27 @@ async fn set_value(
   State(state): State<Arc<AppState>>,
   Json(req): Json<WriteValueRequest>,
 ) -> Json<WriteValueResponse> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(WriteValueResponse {
+        target_node_id: None,
+        ok: false,
+        value: None,
+        error: Some(err),
+      });
+    }
+  };
+
   let request = RaftKvRequest {
+    group_id: group_id.clone(),
     op: Some(KvRequestOp::Set(SetValueRequest {
       key: req.key,
       value: req.value,
     })),
   };
   let (target_node_id, response) =
-    match send_kv_request(state.as_ref(), req.target_node_id, request).await {
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
       Ok((id, resp)) => (Some(id), resp),
       Err(err) => {
         return Json(WriteValueResponse {
@@ -297,14 +348,27 @@ async fn update_value(
   State(state): State<Arc<AppState>>,
   Json(req): Json<UpdateValueRequest>,
 ) -> Json<UpdateValueResponse> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(UpdateValueResponse {
+        target_node_id: None,
+        ok: false,
+        value: None,
+        error: Some(err),
+      });
+    }
+  };
+
   let request = RaftKvRequest {
+    group_id: group_id.clone(),
     op: Some(KvRequestOp::Update(ProtoUpdateValueRequest {
       key: req.key,
       value: req.value,
     })),
   };
   let (target_node_id, response) =
-    match send_kv_request(state.as_ref(), req.target_node_id, request).await {
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
       Ok((id, resp)) => (Some(id), resp),
       Err(err) => {
         return Json(UpdateValueResponse {
@@ -342,11 +406,23 @@ async fn delete_value(
   State(state): State<Arc<AppState>>,
   Json(req): Json<DeleteValueRequestBody>,
 ) -> Json<DeleteValueResponseBody> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(DeleteValueResponseBody {
+        target_node_id: None,
+        ok: false,
+        error: Some(err),
+      });
+    }
+  };
+
   let request = RaftKvRequest {
+    group_id: group_id.clone(),
     op: Some(KvRequestOp::Delete(DeleteValueRequest { key: req.key })),
   };
   let (target_node_id, response) =
-    match send_kv_request(state.as_ref(), req.target_node_id, request).await {
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
       Ok((id, resp)) => (Some(id), resp),
       Err(err) => {
         return Json(DeleteValueResponseBody {
@@ -378,10 +454,11 @@ async fn delete_value(
 
 async fn send_kv_request(
   state: &AppState,
+  group_id: &str,
   target_node_id: Option<NodeId>,
   request: RaftKvRequest,
 ) -> Result<(NodeId, RaftKvResponse), String> {
-  let target = resolve_kv_target(state, target_node_id).await?;
+  let target = resolve_kv_target(state, group_id, target_node_id).await?;
   state.kv_client.dial(target.addr.clone()).await;
   let resp = state
     .kv_client
@@ -397,8 +474,22 @@ struct KvTarget {
   addr: Multiaddr,
 }
 
+fn resolve_group_id(state: &AppState, group_id: Option<String>) -> Result<GroupId, String> {
+  match group_id {
+    Some(group_id) => {
+      if state.groups.contains_key(&group_id) {
+        Ok(group_id)
+      } else {
+        Err(format!("unknown group_id={group_id}"))
+      }
+    }
+    None => Ok(state.default_group.clone()),
+  }
+}
+
 async fn resolve_kv_target(
   state: &AppState,
+  group_id: &str,
   target_node_id: Option<NodeId>,
 ) -> Result<KvTarget, String> {
   let nodes = state.network.known_nodes().await;
@@ -406,7 +497,11 @@ async fn resolve_kv_target(
     return Err("no known nodes".to_string());
   }
 
-  let metrics = state.raft.metrics().borrow_watched().clone();
+  let group = state
+    .groups
+    .get(group_id)
+    .ok_or_else(|| format!("unknown group_id={group_id}"))?;
+  let metrics = group.raft.metrics().borrow_watched().clone();
   let mut candidate = target_node_id.or_else(|| {
     if metrics.state.is_leader() {
       Some(state.node_id)

@@ -1,13 +1,22 @@
 use openraft_rocksstore_crud::RocksRequest;
 use serde::{Deserialize, Serialize};
 
-use crate::typ::{
-  AppendEntriesRequest, AppendEntriesResponse, ClientWriteError, ClientWriteResponse, RaftError,
-  RaftMetrics, SnapshotMeta, SnapshotResponse, Vote, VoteRequest, VoteResponse,
+use crate::{
+  GroupId,
+  typ::{
+    AppendEntriesRequest, AppendEntriesResponse, ClientWriteError, ClientWriteResponse, RaftError,
+    RaftMetrics, SnapshotMeta, SnapshotResponse, Vote, VoteRequest, VoteResponse,
+  },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum RaftRpcRequest {
+pub struct RaftRpcRequest {
+  pub group_id: GroupId,
+  pub op: RaftRpcOp,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum RaftRpcOp {
   AppendEntries(AppendEntriesRequest),
   Vote(VoteRequest),
   ClientWrite(RocksRequest),

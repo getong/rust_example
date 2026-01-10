@@ -22,9 +22,9 @@ use openraft::BasicNode;
 use tokio::sync::mpsc;
 
 use crate::{
-  NodeId,
+  GroupHandle, GroupHandleMap, GroupId, NodeId,
   constants::{SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT},
-  http,
+  groups, http,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     swarm::{Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
@@ -253,8 +253,7 @@ struct Libp2pHandles {
 }
 
 struct OpenraftHandles {
-  raft: Raft,
-  kv_data: store::KvData,
+  groups: GroupHandleMap,
 }
 
 fn init_node_identity(opt: &Opt) -> anyhow::Result<(identity::Keypair, NodeIdentity)> {
@@ -305,11 +304,16 @@ fn build_libp2p_handles(timeout: Duration) -> (Libp2pHandles, mpsc::Receiver<Com
   )
 }
 
-async fn start_openraft(
+async fn start_openraft_groups(
   node_id: NodeId,
   db_dir: &Path,
   network: Libp2pNetworkFactory,
+  group_ids: &[GroupId],
 ) -> anyhow::Result<OpenraftHandles> {
+  if group_ids.is_empty() {
+    return Err(anyhow!("no group ids configured"));
+  }
+
   let config = openraft::Config {
     heartbeat_interval: 250,
     election_timeout_min: 299,
@@ -317,14 +321,27 @@ async fn start_openraft(
   };
   let config = std::sync::Arc::new(config.validate().context("validate raft config")?);
 
-  let (log_store, state_machine) = store::open_store(db_dir).await?;
-  let kv_data = store::kv_data(&state_machine);
+  let mut groups = BTreeMap::new();
 
-  let raft = Raft::new(node_id, config, network, log_store, state_machine)
+  for group_id in group_ids {
+    let group_network = network.with_group(group_id.clone());
+    let (log_store, state_machine) = store::open_store_for_group(db_dir, group_id).await?;
+    let kv_data = store::kv_data(&state_machine);
+
+    let raft = Raft::new(
+      node_id,
+      config.clone(),
+      group_network,
+      log_store,
+      state_machine,
+    )
     .await
     .context("create raft")?;
 
-  Ok(OpenraftHandles { raft, kv_data })
+    groups.insert(group_id.clone(), GroupHandle { raft, kv_data });
+  }
+
+  Ok(OpenraftHandles { groups })
 }
 
 fn build_swarm(
@@ -419,8 +436,7 @@ fn spawn_libp2p_swarm(
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
   let swarm_shutdown = shutdown.shutdown_rx();
   let network_for_swarm = libp2p.network.clone();
-  let raft_for_swarm = openraft.raft.clone();
-  let kv_data_for_swarm = openraft.kv_data.clone();
+  let groups_for_swarm = openraft.groups.clone();
   let kv_client_for_swarm = libp2p.kv_client.clone();
   let cmd_tx_for_swarm = libp2p.cmd_tx.clone();
   tokio::spawn(async move {
@@ -429,8 +445,7 @@ fn spawn_libp2p_swarm(
       cmd_rx,
       cmd_tx_for_swarm,
       network_for_swarm,
-      raft_for_swarm,
-      kv_data_for_swarm,
+      groups_for_swarm,
       kv_client_for_swarm,
       swarm_shutdown,
     )
@@ -445,15 +460,26 @@ fn build_http_state(
   libp2p: &Libp2pHandles,
   openraft: &OpenraftHandles,
 ) -> http::AppState {
+  let default_group = if openraft.groups.contains_key(groups::USERS) {
+    groups::USERS.to_string()
+  } else {
+    openraft
+      .groups
+      .keys()
+      .next()
+      .cloned()
+      .unwrap_or_else(|| "default".to_string())
+  };
+
   http::AppState {
     node_id: opt.id,
     node_name: identity.node_name.clone(),
     peer_id: identity.local_peer_id.to_string(),
     listen: opt.listen.clone(),
     network: libp2p.network.clone(),
-    raft: openraft.raft.clone(),
+    groups: openraft.groups.clone(),
     kv_client: libp2p.kv_client.clone(),
-    kv_data: openraft.kv_data.clone(),
+    default_group,
   }
 }
 
@@ -472,7 +498,7 @@ fn spawn_http(
 
 fn spawn_openraft_shutdown(
   shutdown: &mut crate::signal::ShutdownHandler,
-  raft: Raft,
+  rafts: Vec<Raft>,
   mut shutdown_rx_for_ordering: crate::signal::ShutdownRx,
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
@@ -480,13 +506,27 @@ fn spawn_openraft_shutdown(
   // Openraft should shut down after libp2p/http have stopped.
   let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
   let raft_done = shutdown.push(SERVICE_OPENRAFT);
-  let raft_handle = raft.clone();
   tokio::spawn(async move {
     let _ = openraft_shutdown_rx.changed().await;
-    let res = raft_handle
-      .shutdown()
-      .await
-      .map_err(|e| anyhow!("openraft shutdown failed: {e:?}"));
+    let mut errors = Vec::new();
+    for raft in rafts {
+      if let Err(err) = raft.shutdown().await {
+        errors.push(anyhow!("openraft shutdown failed: {err:?}"));
+      }
+    }
+    let res = match errors.len() {
+      0 => Ok(()),
+      1 => Err(errors.remove(0)),
+      _ => {
+        let mut msg = String::new();
+        use std::fmt::Write as _;
+        let _ = writeln!(&mut msg, "openraft shutdown errors: {}", errors.len());
+        for err in errors {
+          let _ = writeln!(&mut msg, "  {err}");
+        }
+        Err(anyhow!(msg))
+      }
+    };
     let _ = raft_done.send(res);
   });
 
@@ -564,7 +604,7 @@ async fn maybe_bootstrap(
 }
 
 async fn maybe_init_cluster(
-  raft: &Raft,
+  groups: &GroupHandleMap,
   members: BTreeMap<NodeId, BasicNode>,
   self_id: NodeId,
   init: bool,
@@ -576,9 +616,15 @@ async fn maybe_init_cluster(
   if !members.contains_key(&self_id) {
     return Err(anyhow!("--init requires providing self in --node list"));
   }
-  tracing::info!("initializing cluster membership: {} nodes", members.len());
-  let res = raft.initialize(members).await;
-  tracing::info!("initialize result: {:?}", res);
+  tracing::info!(
+    "initializing cluster membership: {} nodes, {} groups",
+    members.len(),
+    groups.len()
+  );
+  for (group_id, group) in groups {
+    let res = group.raft.initialize(members.clone()).await;
+    tracing::info!(group = group_id, "initialize result: {:?}", res);
+  }
   Ok(())
 }
 
@@ -623,7 +669,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let timeout = Duration::from_secs(5);
   let (libp2p, cmd_rx) = build_libp2p_handles(timeout);
 
-  let openraft = start_openraft(opt.id, &opt.db, libp2p.network.clone()).await?;
+  let group_ids = groups::all();
+  let openraft = start_openraft_groups(opt.id, &opt.db, libp2p.network.clone(), &group_ids).await?;
 
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
   let mut shutdown = crate::signal::spawn_handler();
@@ -641,7 +688,11 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   spawn_openraft_shutdown(
     &mut shutdown,
-    openraft.raft.clone(),
+    openraft
+      .groups
+      .values()
+      .map(|group| group.raft.clone())
+      .collect(),
     shutdown_rx_for_ordering,
     swarm_handle,
     http_handle,
@@ -649,7 +700,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;
   maybe_bootstrap(&libp2p.client, &members, opt.id).await;
-  maybe_init_cluster(&openraft.raft, members, opt.id, opt.init).await?;
+  maybe_init_cluster(&openraft.groups, members, opt.id, opt.init).await?;
 
   await_shutdown(shutdown).await
 }

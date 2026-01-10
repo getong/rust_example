@@ -44,6 +44,7 @@ message ErrorResponse {
 }
 
 message RaftKvRequest {
+  string group_id = 100;
   oneof op {
     GetValueRequest get = 1;
     SetValueRequest set = 2;

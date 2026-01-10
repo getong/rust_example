@@ -8,9 +8,9 @@ use openraft::{
 };
 
 use crate::{
-  NodeId, Unreachable,
+  GroupId, NodeId, Unreachable,
   network::{
-    rpc::{RaftRpcRequest, RaftRpcResponse},
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{Libp2pClient, NetErr},
   },
   typ::{
@@ -23,6 +23,7 @@ use crate::{
 pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
+  group_id: Option<GroupId>,
 }
 
 impl Libp2pNetworkFactory {
@@ -30,6 +31,15 @@ impl Libp2pNetworkFactory {
     Self {
       client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+      group_id: None,
+    }
+  }
+
+  pub fn with_group(&self, group_id: GroupId) -> Self {
+    Self {
+      client: self.client.clone(),
+      node_peers: self.node_peers.clone(),
+      group_id: Some(group_id),
     }
   }
 
@@ -114,6 +124,7 @@ impl Libp2pNetworkFactory {
 pub struct Libp2pConnection {
   target: NodeId,
   factory: Libp2pNetworkFactory,
+  group_id: GroupId,
 }
 
 impl RaftNetworkFactory<openraft_rocksstore_crud::TypeConfig> for Libp2pNetworkFactory {
@@ -121,10 +132,15 @@ impl RaftNetworkFactory<openraft_rocksstore_crud::TypeConfig> for Libp2pNetworkF
 
   async fn new_client(&mut self, target: NodeId, node: &BasicNode) -> Self::Network {
     let _ = self.register_node(target, &node.addr).await;
+    let group_id = self
+      .group_id
+      .clone()
+      .expect("group_id required for raft network");
 
     Libp2pConnection {
       target,
       factory: self.clone(),
+      group_id,
     }
   }
 }
@@ -139,7 +155,13 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     let resp = self
       .factory
       .client
-      .request(peer, RaftRpcRequest::AppendEntries(req))
+      .request(
+        peer,
+        RaftRpcRequest {
+          group_id: self.group_id.clone(),
+          op: RaftRpcOp::AppendEntries(req),
+        },
+      )
       .await?;
 
     match resp {
@@ -157,7 +179,13 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     let resp = self
       .factory
       .client
-      .request(peer, RaftRpcRequest::Vote(req))
+      .request(
+        peer,
+        RaftRpcRequest {
+          group_id: self.group_id.clone(),
+          op: RaftRpcOp::Vote(req),
+        },
+      )
       .await?;
 
     match resp {
@@ -188,10 +216,13 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
       .client
       .request(
         peer,
-        RaftRpcRequest::FullSnapshot {
-          vote,
-          meta: snapshot.meta,
-          data,
+        RaftRpcRequest {
+          group_id: self.group_id.clone(),
+          op: RaftRpcOp::FullSnapshot {
+            vote,
+            meta: snapshot.meta,
+            data,
+          },
         },
       )
       .await

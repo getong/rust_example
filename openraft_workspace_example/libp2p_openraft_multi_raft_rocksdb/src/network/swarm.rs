@@ -19,10 +19,10 @@ use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-  Unreachable,
+  GroupHandleMap, Unreachable,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
-    rpc::{RaftRpcRequest, RaftRpcResponse},
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   proto::raft_kv::{
@@ -228,8 +228,7 @@ pub async fn run_swarm(
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
   network: Libp2pNetworkFactory,
-  raft: Raft,
-  kv_data: KvData,
+  groups: GroupHandleMap,
   kv_client: KvClient,
   mut shutdown_rx: ShutdownRx,
 ) {
@@ -267,8 +266,7 @@ pub async fn run_swarm(
           &mut swarm,
           ev,
           &network,
-          &raft,
-          &kv_data,
+          &groups,
           &kv_client,
           &cmd_tx,
           &mut pending_raft,
@@ -344,8 +342,7 @@ async fn handle_swarm_event(
   swarm: &mut Swarm<Behaviour>,
   event: SwarmEvent<BehaviourEvent>,
   network: &Libp2pNetworkFactory,
-  raft: &Raft,
-  kv_data: &KvData,
+  groups: &GroupHandleMap,
   kv_client: &KvClient,
   cmd_tx: &mpsc::Sender<Command>,
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
@@ -354,10 +351,10 @@ async fn handle_swarm_event(
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
-      handle_raft_event(swarm, raft, cmd_tx, pending_raft, event).await;
+      handle_raft_event(swarm, groups, cmd_tx, pending_raft, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => {
-      handle_kv_event(swarm, raft, kv_data, kv_client, cmd_tx, pending_kv, event);
+      handle_kv_event(swarm, groups, kv_client, cmd_tx, pending_kv, event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
       handle_mdns_event(swarm, network, event).await;
@@ -391,7 +388,7 @@ async fn handle_swarm_event(
 
 async fn handle_raft_event(
   swarm: &mut Swarm<Behaviour>,
-  raft: &Raft,
+  groups: &GroupHandleMap,
   cmd_tx: &mpsc::Sender<Command>,
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   event: request_response::Event<RaftRpcRequest, RaftRpcResponse>,
@@ -400,20 +397,31 @@ async fn handle_raft_event(
     request_response::Event::Message { message, .. } => match message {
       request_response::Message::Request {
         request, channel, ..
-      } => match request {
-        RaftRpcRequest::ClientWrite(req) => {
-          let raft = raft.clone();
-          let tx = cmd_tx.clone();
-          tokio::spawn(async move {
-            let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
-            let _ = tx.send(Command::RaftRespond { channel, resp }).await;
-          });
+      } => {
+        let group_id = request.group_id.clone();
+        let Some(group) = groups.get(&group_id) else {
+          let _ = swarm.behaviour_mut().raft.send_response(
+            channel,
+            RaftRpcResponse::Error(format!("unknown group_id={group_id}")),
+          );
+          return;
+        };
+
+        match request.op {
+          RaftRpcOp::ClientWrite(req) => {
+            let raft = group.raft.clone();
+            let tx = cmd_tx.clone();
+            tokio::spawn(async move {
+              let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
+              let _ = tx.send(Command::RaftRespond { channel, resp }).await;
+            });
+          }
+          other => {
+            let resp = handle_inbound_rpc(group.raft.clone(), other).await;
+            let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+          }
         }
-        other => {
-          let resp = handle_inbound_rpc(raft.clone(), other).await;
-          let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
-        }
-      },
+      }
       request_response::Message::Response {
         request_id,
         response,
@@ -437,8 +445,7 @@ async fn handle_raft_event(
 
 fn handle_kv_event(
   _swarm: &mut Swarm<Behaviour>,
-  raft: &Raft,
-  kv_data: &KvData,
+  groups: &GroupHandleMap,
   kv_client: &KvClient,
   cmd_tx: &mpsc::Sender<Command>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
@@ -449,8 +456,27 @@ fn handle_kv_event(
       request_response::Message::Request {
         request, channel, ..
       } => {
-        let raft = raft.clone();
-        let kv_data = kv_data.clone();
+        let group_id = request.group_id.clone();
+        if group_id.is_empty() {
+          let resp = kv_error_response("missing group_id");
+          let tx = cmd_tx.clone();
+          tokio::spawn(async move {
+            let _ = tx.send(Command::KvRespond { channel, resp }).await;
+          });
+          return;
+        }
+
+        let Some(group) = groups.get(&group_id) else {
+          let resp = kv_error_response(format!("unknown group_id={group_id}"));
+          let tx = cmd_tx.clone();
+          tokio::spawn(async move {
+            let _ = tx.send(Command::KvRespond { channel, resp }).await;
+          });
+          return;
+        };
+
+        let raft = group.raft.clone();
+        let kv_data = group.kv_data.clone();
         let kv_client = kv_client.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
@@ -889,6 +915,10 @@ async fn handle_inbound_kv(
   kv_client: KvClient,
   request: RaftKvRequest,
 ) -> RaftKvResponse {
+  if request.group_id.is_empty() {
+    return kv_error_response("missing group_id");
+  }
+
   let metrics = raft.metrics().borrow_watched().clone();
   if !metrics.state.is_leader() {
     let Some(leader_id) = metrics.current_leader else {
@@ -1029,25 +1059,25 @@ fn kv_error_response(message: impl Into<String>) -> RaftKvResponse {
   }
 }
 
-async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcResponse {
+async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
   match request {
-    RaftRpcRequest::AppendEntries(req) => {
+    RaftRpcOp::AppendEntries(req) => {
       let res = raft.append_entries(req).await;
       RaftRpcResponse::AppendEntries(res)
     }
-    RaftRpcRequest::Vote(req) => {
+    RaftRpcOp::Vote(req) => {
       let res = raft.vote(req).await;
       RaftRpcResponse::Vote(res)
     }
-    RaftRpcRequest::ClientWrite(req) => {
+    RaftRpcOp::ClientWrite(req) => {
       let res = raft.client_write(req).await;
       RaftRpcResponse::ClientWrite(res)
     }
-    RaftRpcRequest::GetMetrics => {
+    RaftRpcOp::GetMetrics => {
       let metrics = raft.metrics().borrow_watched().clone();
       RaftRpcResponse::GetMetrics(metrics)
     }
-    RaftRpcRequest::FullSnapshot { vote, meta, data } => {
+    RaftRpcOp::FullSnapshot { vote, meta, data } => {
       let snapshot = Snapshot {
         meta,
         snapshot: std::io::Cursor::new(data),
