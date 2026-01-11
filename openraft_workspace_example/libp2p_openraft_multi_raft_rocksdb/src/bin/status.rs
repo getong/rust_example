@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::Parser;
+use kameo::remote;
 use libp2p::{
   Multiaddr, StreamProtocol, Transport,
   core::upgrade::Version,
@@ -108,6 +109,12 @@ async fn main() -> anyhow::Result<()> {
       )
       .map_err(|e| anyhow::anyhow!("gossipsub init error: {e}"))?;
       let ping = ping::Behaviour::new(ping::Config::new());
+      let kameo = remote::Behaviour::new(
+        peer_id,
+        remote::messaging::Config::default()
+          .with_request_timeout(Duration::from_secs(30))
+          .with_max_concurrent_streams(100),
+      );
 
       Ok(Behaviour {
         raft: request_response::Behaviour::with_codec(
@@ -127,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
         ping,
         mdns,
         kad,
+        kameo,
       })
     })
     .context("build behaviour")?

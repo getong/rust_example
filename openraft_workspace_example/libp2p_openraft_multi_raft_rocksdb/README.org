@@ -38,6 +38,23 @@ curl -X POST http://127.0.0.1:3001/chat \
   -d '{"text":"hello from http","from":"node1"}'
 #+end_src
 
+** kameo
+
+Kameo remote actor demo runs alongside the raft node. Start at least 2 nodes
+(for example, =./run-2nodes.sh=), then call:
+
+#+begin_src shell
+curl -X POST http://127.0.0.1:3001/kameo/inc \
+  -H 'content-type: application/json' \
+  -d '{"amount":10}'
+
+curl -X POST http://127.0.0.1:3002/kameo/inc \
+  -H 'content-type: application/json' \
+  -d '{"amount":5}'
+#+end_src
+
+Note: =/kameo/inc= forwards to a remote incrementor, so you need more than one node.
+
 ** cli examples
 
 #+begin_src shell
@@ -120,7 +137,3 @@ Notes:
 - Websocket addresses use /ws (plain websocket). Secure websocket (/wss or /tls/ws)
   is not configured by default.
 - You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
-
- curl -X POST http://127.0.0.1:3001/kameo/inc \
-    -H 'Content-Type: application/json' \
-    -d '{"amount":10}'

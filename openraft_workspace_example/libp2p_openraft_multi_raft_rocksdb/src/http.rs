@@ -17,6 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
   GroupHandleMap, GroupId, NodeId,
+  kameo_remote::{self, KameoState},
   network::{
     swarm::{GOSSIP_TOPIC, KvClient},
     transport::Libp2pNetworkFactory,
@@ -40,6 +41,7 @@ pub struct AppState {
   pub kv_client: KvClient,
   pub groups: GroupHandleMap,
   pub default_group: GroupId,
+  pub kameo: Arc<KameoState>,
 }
 
 pub async fn serve(
@@ -50,6 +52,7 @@ pub async fn serve(
   let app = Router::new()
     .route("/cluster", get(cluster_info))
     .route("/chat", post(send_chat))
+    .route("/kameo/inc", post(kameo_inc))
     .route("/write", post(set_value))
     .route("/update", post(update_value))
     .route("/delete", post(delete_value))
@@ -249,6 +252,14 @@ async fn cluster_info(
     kv_data,
     error: None,
   })
+}
+
+async fn kameo_inc(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<kameo_remote::IncRequest>,
+) -> Json<kameo_remote::IncResponse> {
+  let response = kameo_remote::handle_inc(state.kameo.as_ref(), req).await;
+  Json(response)
 }
 
 async fn set_value(

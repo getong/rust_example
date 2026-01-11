@@ -56,21 +56,21 @@ struct MyBehaviour {
 }
 
 #[derive(Clone)]
-struct KameoState {
-  local_peer_id: PeerId,
+pub struct KameoState {
+  pub local_peer_id: PeerId,
 }
 
 #[derive(Deserialize)]
-struct IncRequest {
-  amount: Option<u32>,
+pub struct IncRequest {
+  pub amount: Option<u32>,
 }
 
 #[derive(Serialize)]
-struct IncResponse {
-  ok: bool,
-  target_peer_id: Option<String>,
-  count: Option<i64>,
-  error: Option<String>,
+pub struct IncResponse {
+  pub ok: bool,
+  pub target_peer_id: Option<String>,
+  pub count: Option<i64>,
+  pub error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -80,10 +80,7 @@ struct ClusterInfoResponse {
   message: String,
 }
 
-async fn kameo_inc(
-  State(state): State<Arc<KameoState>>,
-  Json(req): Json<IncRequest>,
-) -> Json<IncResponse> {
+pub async fn handle_inc(state: &KameoState, req: IncRequest) -> IncResponse {
   let amount = req.amount.unwrap_or(10);
   let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
   let mut remote_incrementors = Vec::new();
@@ -98,23 +95,23 @@ async fn kameo_inc(
       }
       Ok(None) => break,
       Err(err) => {
-        return Json(IncResponse {
+        return IncResponse {
           ok: false,
           target_peer_id: None,
           count: None,
           error: Some(format!("lookup error: {err}")),
-        });
+        };
       }
     }
   }
 
   if remote_incrementors.is_empty() {
-    return Json(IncResponse {
+    return IncResponse {
       ok: false,
       target_peer_id: None,
       count: None,
       error: Some("no remote incrementors available".to_string()),
-    });
+    };
   }
 
   let index = {
@@ -125,19 +122,26 @@ async fn kameo_inc(
   let target_peer_id = incrementor.id().peer_id().map(|p| p.to_string());
   let from = state.local_peer_id.clone();
   match incrementor.ask(&Inc { amount, from }).await {
-    Ok(count) => Json(IncResponse {
+    Ok(count) => IncResponse {
       ok: true,
       target_peer_id,
       count: Some(count),
       error: None,
-    }),
-    Err(err) => Json(IncResponse {
+    },
+    Err(err) => IncResponse {
       ok: false,
       target_peer_id,
       count: None,
       error: Some(format!("failed to increment actor: {err}")),
-    }),
+    },
   }
+}
+
+async fn kameo_inc(
+  State(state): State<Arc<KameoState>>,
+  Json(req): Json<IncRequest>,
+) -> Json<IncResponse> {
+  Json(handle_inc(state.as_ref(), req).await)
 }
 
 async fn cluster_info(State(state): State<Arc<KameoState>>) -> Json<ClusterInfoResponse> {
@@ -251,6 +255,13 @@ async fn custom_swarm_mode(mut shutdown_rx: ShutdownRx) -> anyhow::Result<PeerId
   Ok(local_peer_id)
 }
 
+pub async fn register_incrementor(local_peer_id: PeerId) -> anyhow::Result<Arc<KameoState>> {
+  let actor_ref = MyActor::spawn(MyActor { count: 0 });
+  actor_ref.register("incrementor").await?;
+  info!("registered local actor (use /kameo/inc to send messages)");
+  Ok(Arc::new(KameoState { local_peer_id }))
+}
+
 pub async fn run(custom_swarm: bool, http_addr: SocketAddr) -> anyhow::Result<()> {
   let mut shutdown = crate::signal::spawn_handler();
   let swarm_shutdown = shutdown.shutdown_rx();
@@ -260,11 +271,7 @@ pub async fn run(custom_swarm: bool, http_addr: SocketAddr) -> anyhow::Result<()
     bootstrap_mode().await?
   };
 
-  let actor_ref = MyActor::spawn(MyActor { count: 0 });
-  actor_ref.register("incrementor").await?;
-  info!("registered local actor (use /kameo/inc to send messages)");
-
-  let state = Arc::new(KameoState { local_peer_id });
+  let state = register_incrementor(local_peer_id).await?;
 
   let http_done = shutdown.push(SERVICE_KAMEO_HTTP);
   let http_shutdown = shutdown.shutdown_rx();

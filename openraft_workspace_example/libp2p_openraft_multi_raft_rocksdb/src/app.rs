@@ -3,12 +3,14 @@ use std::{
   env,
   net::SocketAddr,
   path::{Path, PathBuf},
+  sync::Arc,
   time::Duration,
 };
 
 use anyhow::{Context, anyhow};
 use clap::Parser;
 use futures::{AsyncRead, AsyncWrite};
+use kameo::remote;
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, Transport,
   core::upgrade::Version,
@@ -25,6 +27,7 @@ use crate::{
   GroupHandle, GroupHandleMap, GroupId, NodeId,
   constants::{SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT},
   groups, http,
+  kameo_remote::KameoState,
   network::{
     proto_codec::{ProstCodec, ProtoCodec},
     swarm::{Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
@@ -319,7 +322,7 @@ async fn start_openraft_groups(
     election_timeout_min: 299,
     ..Default::default()
   };
-  let config = std::sync::Arc::new(config.validate().context("validate raft config")?);
+  let config = Arc::new(config.validate().context("validate raft config")?);
 
   let mut groups = BTreeMap::new();
 
@@ -391,6 +394,12 @@ fn build_swarm(
       )
       .map_err(|e| anyhow!("gossipsub init error: {e}"))?;
       let ping = ping::Behaviour::new(ping::Config::new());
+      let kameo = remote::Behaviour::new(
+        peer_id,
+        remote::messaging::Config::default()
+          .with_request_timeout(Duration::from_secs(30))
+          .with_max_concurrent_streams(100),
+      );
 
       Ok(Behaviour {
         raft: request_response::Behaviour::with_codec(
@@ -410,10 +419,13 @@ fn build_swarm(
         ping,
         mdns,
         kad,
+        kameo,
       })
     })
     .context("build behaviour")?
     .build();
+
+  swarm.behaviour_mut().kameo.init_global();
 
   let gossip_topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
   swarm
@@ -459,6 +471,7 @@ fn build_http_state(
   identity: &NodeIdentity,
   libp2p: &Libp2pHandles,
   openraft: &OpenraftHandles,
+  kameo_state: Arc<KameoState>,
 ) -> http::AppState {
   let default_group = if openraft.groups.contains_key(groups::USERS) {
     groups::USERS.to_string()
@@ -480,6 +493,7 @@ fn build_http_state(
     groups: openraft.groups.clone(),
     kv_client: libp2p.kv_client.clone(),
     default_group,
+    kameo: kameo_state,
   }
 }
 
@@ -683,7 +697,9 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     return crate::kameo_remote::run(custom_swarm, http_addr).await;
   }
 
-  let http_state = build_http_state(&opt, &identity, &libp2p, &openraft);
+  let kameo_state =
+    crate::kameo_remote::register_incrementor(identity.local_peer_id.clone()).await?;
+  let http_state = build_http_state(&opt, &identity, &libp2p, &openraft, kameo_state);
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
 
   spawn_openraft_shutdown(
