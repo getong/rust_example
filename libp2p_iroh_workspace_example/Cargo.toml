@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "libp2p_iroh_basic",
+  "libp2p_iroh_e2e_test",
+  "libp2p_iroh_swarm_dht",
+]

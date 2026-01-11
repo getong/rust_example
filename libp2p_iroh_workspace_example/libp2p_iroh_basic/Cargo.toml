@@ -1,0 +1,10 @@
+[package]
+name = "libp2p_iroh_basic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.31"
+libp2p = "0.56.0"
+libp2p-iroh = { git = "https://github.com/getong/libp2p-iroh", branch = "update-version" }
+tokio = { version = "1.49.0", features = ["full"] }
