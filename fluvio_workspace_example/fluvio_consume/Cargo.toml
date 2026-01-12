@@ -1,0 +1,10 @@
+[package]
+name = "fluvio_consume"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+fluvio = "0.50.1"
+futures-lite = "2.6.1"
+tokio = { version = "1.49.0", features = ["full"] }
