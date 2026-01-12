@@ -5,4 +5,5 @@ resolver = "2"
 members = [
   "fluvio_basic_example",
   "fluvio_add_cluster_example",
+  "fluvio_produce_key_value",
 ]
