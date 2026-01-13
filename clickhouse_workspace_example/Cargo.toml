@@ -8,4 +8,5 @@ members = [
   "clickhouse_async_insert_example",
   "clickhouse_cluster_example",
   "spider_clickhouse_example",
+  "clickhouse_settings",
 ]
