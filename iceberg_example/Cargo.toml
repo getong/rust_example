@@ -1,0 +1,10 @@
+[package]
+name = "iceberg_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.31"
+iceberg = "0.7.0"
+iceberg-catalog-rest = "0.7.0"
+tokio = { version = "1.49.0", features = ["full"] }
