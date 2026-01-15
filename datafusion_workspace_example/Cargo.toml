@@ -1,9 +1,11 @@
 [workspace]
 
+resolver = "3"
 
 members = [
-        "datafusion_dataframe_example",
-        "datafusion_dataframe_join_example",
-        "datafusion_sql_example",
-        "datafusion_sql_join_example",
+  "datafusion_dataframe_example",
+  "datafusion_dataframe_join_example",
+  "datafusion_sql_example",
+  "datafusion_sql_join_example",
+  "datafusion_iceberg_table",
 ]

@@ -1,0 +1,11 @@
+[package]
+name = "datafusion_iceberg_table"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = "57.2.0"
+chrono = "0.4"
+datafusion = "52.0.0"
+parquet = "57.2.0"
+tokio = { version = "1.49.0", features = ["full"] }
