@@ -10,7 +10,7 @@ dashmap = "6.1.0"
 futures = "0.3.31"
 log-mem = { path = "../log-mem", features = [] }
 mem-log = { path = "../mem-log" }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", default-features = false, features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66", default-features = false, features = [
   "type-alias",
 ] }
 prost = "0.14.1"

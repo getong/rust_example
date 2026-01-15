@@ -24,11 +24,11 @@ clap = { version = "4", features = [
 ] }
 directories = "6"
 futures = "0.3"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "8d3592cc2e44e12dbdeeb74ae367d042e98af606" }
+openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66" }
 podman-api = "0.10"
 reqwest = { version = "0.13.1", default-features = false, features = ["json"] }
 # clap_complete = "4"
