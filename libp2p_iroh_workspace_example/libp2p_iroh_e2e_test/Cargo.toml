@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 futures = "0.3.31"
 libp2p = "0.56.0"
-libp2p-iroh = { git = "https://github.com/getong/libp2p-iroh", branch = "update-version" }
+libp2p-iroh = { git = "https://github.com/rustonbsd/libp2p-iroh", rev = "d79b67147ea8f4517f35781956017cb1e1164c8b" }
 tokio = { version = "1.49.0", features = ["full"] }
