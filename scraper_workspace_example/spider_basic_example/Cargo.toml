@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-spider = "2.38.115"
+spider = "2.39.21"
