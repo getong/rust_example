@@ -5,4 +5,5 @@ resolver = "3"
 members = [
   "datafusion_basic",
   "ballista_basic",
+  "ballista_examples",
 ]
