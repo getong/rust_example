@@ -1,8 +1,9 @@
 [package]
-name = "datafusion_basic"
+name = "ballista_basic"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+ballista = "50.0.0"
 datafusion = "=51"
 tokio = { version = "1.49.0", features = ["full"] }
