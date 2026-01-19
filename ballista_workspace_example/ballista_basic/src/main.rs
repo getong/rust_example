@@ -6,7 +6,8 @@ async fn main() -> datafusion::error::Result<()> {
   let ctx = SessionContext::new();
 
   // register the table
-  ctx.register_csv("example", "example.csv", CsvReadOptions::new())
+  ctx
+    .register_csv("example", "example.csv", CsvReadOptions::new())
     .await?;
 
   // create a plan to run a SQL query

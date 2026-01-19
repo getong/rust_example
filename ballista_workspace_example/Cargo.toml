@@ -6,4 +6,5 @@ members = [
   "datafusion_basic",
   "ballista_basic",
   "ballista_examples",
+  "standalone_sql",
 ]
