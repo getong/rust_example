@@ -13,7 +13,6 @@ ballista-core = { version = "50.0.0", default-features = false }
 ballista-executor = { version = "50.0.0", default-features = false }
 ballista-scheduler = { version = "50.0.0", default-features = false }
 ctor = "0.6.3"
-datafusion = "=51"
 env_logger = "0.11.8"
 log = "0.4.29"
 object_store = { version = "0.13.1", features = ["aws"] }
