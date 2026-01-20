@@ -1,7 +1,7 @@
-use datafusion::prelude::*;
+use ballista::datafusion::prelude::*;
 
 #[tokio::main]
-async fn main() -> datafusion::error::Result<()> {
+async fn main() -> ballista::datafusion::error::Result<()> {
   // create SessionContext
   let ctx = SessionContext::new();
 
