@@ -1,0 +1,11 @@
+[package]
+name = "async_read_parquet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = { version = "57.2.0", features = ["prettyprint", "test_utils"] }
+arrow-array = "57.2.0"
+futures = "0.3.31"
+parquet = { version = "57.2.0", features = ["async"] }
+tokio = { version = "1.49.0", features = ["full"] }

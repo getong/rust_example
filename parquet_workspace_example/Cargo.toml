@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "parquet_example",
+  "async_read_parquet",
+]
