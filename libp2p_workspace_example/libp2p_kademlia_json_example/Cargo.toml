@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.42"
+chrono = "0.4.43"
 env_logger = "0.11.8"
 libp2p = { version = "0.56", features = ["full"] }
 log = "0.4.29"

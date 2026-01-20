@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = "1.3.0"
+alloy = "1.4.3"
 anyhow = "1.0.100"
 futures = "0.3.31"
 hex = "0.4.3"
