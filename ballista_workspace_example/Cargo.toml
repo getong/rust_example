@@ -8,5 +8,5 @@ members = [
   "ballista_examples",
   "standalone_sql",
   "custom_client",
-  "custom_executor",
+  "custom_executor", "remote_dataframe",
 ]
