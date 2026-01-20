@@ -7,4 +7,5 @@ members = [
   "ballista_basic",
   "ballista_examples",
   "standalone_sql",
+  "custom_client",
 ]

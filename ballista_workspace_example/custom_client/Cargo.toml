@@ -1,0 +1,25 @@
+[package]
+name = "custom_client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ballista = "51.0.0"
+ballista-core = { version = "51.0.0", default-features = false }
+ballista-executor = { version = "51.0.0", default-features = false }
+ballista-scheduler = { version = "51.0.0", default-features = false }
+ballista_examples = { path = "../ballista_examples" }
+ctor = "0.6.3"
+env_logger = "0.11.8"
+log = "0.4.29"
+object_store = { version = "0.13.1", features = ["aws"] }
+testcontainers-modules = { version = "0.14.0", features = ["minio"] }
+tokio = { version = "1.49.0", features = [
+  "macros",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "parking_lot",
+] }
+tonic = "0.14.2"
+url = "2.5.8"
