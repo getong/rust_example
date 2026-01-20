@@ -1,0 +1,8 @@
+[package]
+name = "read_parquet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arrow = { version = "57.2.0", features = ["prettyprint", "test_utils"] }
+parquet = "57.2.0"
