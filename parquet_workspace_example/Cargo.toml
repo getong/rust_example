@@ -8,4 +8,5 @@ members = [
   "external_metadata",
   "read_parquet",
   "read_with_rowgroup",
+  "write_parquet",
 ]
