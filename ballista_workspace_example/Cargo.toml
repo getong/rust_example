@@ -10,5 +10,5 @@ members = [
   "custom_client",
   "custom_executor",
   "remote_dataframe",
-  "remote_sql",
+  "remote_sql", "custom_scheduler",
 ]
