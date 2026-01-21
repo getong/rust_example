@@ -7,5 +7,5 @@ edition = "2024"
 axum = "0.8.8"
 hyper = { version = "1.8.1", features = ["full"] }
 hyper-util = { version = "0.1.19", features = ["full"] }
-tokio = { version = "1.48.0", features = ["full"] }
-tower = { version = "0.5.2", features = ["full"] }
+tokio = { version = "1.49.0", features = ["full"] }
+tower = { version = "0.5.3", features = ["full"] }

@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["macros"] }
-handlebars = "6.3.2"
+handlebars = "6.4.0"
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
