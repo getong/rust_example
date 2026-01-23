@@ -16,7 +16,16 @@ async fn main() -> Result<(), tracing_loki::Error> {
   tracing_subscriber::registry()
     .with(layer)
     // Also log to stdout for visibility without ANSI colors
-    .with(tracing_subscriber::fmt::Layer::new().with_ansi(false))
+    // Enable file name, line number, and target information
+    .with(
+      tracing_subscriber::fmt::Layer::new()
+        .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true),
+    )
     .init();
 
   // The background task needs to be spawned so the logs actually get
