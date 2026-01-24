@@ -7,14 +7,14 @@ impl<'a> WithSimd for TimesThree<'a> {
   #[inline(always)]
   fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
     let v = self.0;
-    let (head, tail) = S::f64s_as_mut_simd(v);
+    let (head, tail) = S::as_mut_simd_f64s(v);
 
-    let three = simd.f64s_splat(3.0);
-    for x in head {
-      *x = simd.f64s_mul(three, *x);
+    let three = simd.splat_f64s(3.0);
+    for x in head.iter_mut() {
+      *x = simd.mul_f64s(three, *x);
     }
 
-    for x in tail {
+    for x in tail.iter_mut() {
       *x = *x * 3.0;
     }
   }
