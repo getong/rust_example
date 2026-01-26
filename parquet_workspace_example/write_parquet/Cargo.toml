@@ -8,4 +8,4 @@ arrow = "57.2.0"
 chrono = "0.4.43"
 clap = { version = "4.5.54", features = ["derive"] }
 parquet = "57.2.0"
-sysinfo = "0.37.2"
+sysinfo = "0.38.0"
