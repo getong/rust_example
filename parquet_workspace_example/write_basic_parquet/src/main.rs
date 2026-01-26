@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
-use arrow_array::{Int64Array, RecordBatch, StringArray};
+use arrow_array::{Array, Int64Array, RecordBatch, StringArray};
 use bytes::Bytes;
-use parquet::{arrow::async_writer::AsyncArrowWriter, file::properties::WriterProperties};
+use futures::TryStreamExt;
+use parquet::{
+  arrow::{async_reader::ParquetRecordBatchStreamBuilder, async_writer::AsyncArrowWriter},
+  file::properties::WriterProperties,
+};
 use tokio::{fs::File, io::BufWriter};
 
 #[tokio::main]
@@ -15,6 +19,12 @@ async fn main() -> anyhow::Result<()> {
 
   // exmaple 3, write in complex file
   write_complex_data().await?;
+
+  // example 4, read simple file
+  read_simple_file().await?;
+
+  // example 5, read complex file
+  read_complex_file().await?;
 
   Ok(())
 }
@@ -91,6 +101,92 @@ async fn write_complex_data() -> anyhow::Result<()> {
   println!("comple data written: {}", file_path);
   println!("  - {} arrows", batch.num_rows());
   println!("  - {} columns", batch.num_columns());
+
+  Ok(())
+}
+
+async fn read_simple_file() -> anyhow::Result<()> {
+  println!("\n=== example 4: read simple file ===");
+
+  let file_path = "output_simple.parquet";
+  let file = File::open(file_path).await?;
+
+  let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
+
+  println!("File metadata:");
+  println!("  - Schema: {:?}", builder.schema());
+  println!(
+    "  - Num row groups: {}",
+    builder.metadata().num_row_groups()
+  );
+
+  let mut stream = builder.build()?;
+
+  println!("\nReading data:");
+  while let Some(batch) = stream.try_next().await? {
+    println!("  Batch with {} rows:", batch.num_rows());
+    for i in 0 .. batch.num_rows() {
+      let col = batch.column(0);
+      let array = col.as_any().downcast_ref::<Int64Array>().unwrap();
+      println!("    Row {}: numbers = {}", i, array.value(i));
+    }
+  }
+
+  Ok(())
+}
+
+async fn read_complex_file() -> anyhow::Result<()> {
+  println!("\n=== example 5: read complex file ===");
+
+  let file_path = "output_complex.parquet";
+  let file = File::open(file_path).await?;
+
+  let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
+
+  println!("File metadata:");
+  println!("  - Schema: {:?}", builder.schema());
+  println!(
+    "  - Num row groups: {}",
+    builder.metadata().num_row_groups()
+  );
+  println!(
+    "  - Total rows: {:?}",
+    builder.metadata().file_metadata().num_rows()
+  );
+
+  let mut stream = builder.build()?;
+
+  println!("\nReading data:");
+  while let Some(batch) = stream.try_next().await? {
+    println!("  Batch with {} rows:", batch.num_rows());
+
+    let id_col = batch
+      .column(0)
+      .as_any()
+      .downcast_ref::<Int64Array>()
+      .unwrap();
+    let name_col = batch
+      .column(1)
+      .as_any()
+      .downcast_ref::<StringArray>()
+      .unwrap();
+    let age_col = batch
+      .column(2)
+      .as_any()
+      .downcast_ref::<Int64Array>()
+      .unwrap();
+
+    for i in 0 .. batch.num_rows() {
+      let id = id_col.value(i);
+      let name = name_col.value(i);
+      let age = if age_col.is_null(i) {
+        "None".to_string()
+      } else {
+        age_col.value(i).to_string()
+      };
+      println!("    Row {}: id={}, name={}, age={}", i, id, name, age);
+    }
+  }
 
   Ok(())
 }
