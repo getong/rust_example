@@ -1,0 +1,11 @@
+[package]
+name = "write_basic_parquet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+arrow-array = "57.2.0"
+bytes = "1.11.0"
+parquet = { version = "57.2.0", features = ["async"] }
+tokio = { version = "1.49.0", features = ["full"] }
