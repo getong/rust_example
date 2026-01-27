@@ -1,7 +1,7 @@
 use chrono::prelude::*;
 use polars::prelude::*;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
   let df: DataFrame = df!(
       "integer" => &[1, 2, 3],
       "date" => &[
@@ -29,4 +29,16 @@ fn main() {
   )
   .unwrap();
   println!("{df}");
+
+  let result = df
+    .clone()
+    .lazy()
+    .select([
+      col("name"),
+      col("birthdate").dt().year().alias("birth_year"),
+      (col("weight") / col("height").pow(2)).alias("bmi"),
+    ])
+    .collect()?;
+  println!("transform : {result}");
+  Ok(())
 }
