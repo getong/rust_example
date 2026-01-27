@@ -40,5 +40,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ])
     .collect()?;
   println!("transform : {result}");
+
+  let result = df
+    .clone()
+    .lazy()
+    .select([
+      col("name"),
+      (cols(["weight", "height"]).as_expr() * lit(0.95))
+        .round(2, RoundMode::default())
+        .name()
+        .suffix("-5%"),
+    ])
+    .collect()?;
+  println!("transform example2: {result}");
+
   Ok(())
 }

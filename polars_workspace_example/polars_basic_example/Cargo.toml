@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.40"
-polars = { version = "0.46.0", features = ["lazy"] }
+chrono = "0.4.43"
+polars = { version = "0.52.0", features = ["lazy", "polars-ops", "dtype-datetime", "temporal"] }
