@@ -5,4 +5,5 @@ resolver = "2"
 members = [
   "polars_basic_example",
   "polars_example",
+  "polars_writer_example",
 ]
