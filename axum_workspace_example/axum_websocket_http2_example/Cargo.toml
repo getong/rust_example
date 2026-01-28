@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 axum = { version = "0.8.8", features = ["ws", "http2"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls"] }
-tokio = { version = "1.48.0", features = ["full"] }
+tokio = { version = "1.49.0", features = ["full"] }
 tower-http = { version = "0.6.8", features = ["fs"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
