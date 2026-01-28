@@ -1,3 +1,10 @@
 copy from
 [[https://medium.com/@carlosmarcano2704/getting-started-with-axum-209742a2152b][Getting
 started with Axum|Rust]]
+
+
+** compile in macos arm
+
+#+begin_src shell
+CC=clang AR=ar cargo build
+#+end_src
