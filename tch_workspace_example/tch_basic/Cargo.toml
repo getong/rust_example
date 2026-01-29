@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tch = "0.22.0"
+tch = "0.23.0"
