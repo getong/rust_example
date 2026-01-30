@@ -11,7 +11,7 @@ async-trait = "0.1.89"
 byteorder = "1.5.0"
 # chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
 chitchat = "0.10"
-clap = { version = "4.5.54", features = ["derive", "env"] }
+clap = { version = "4.5.56", features = ["derive", "env"] }
 console-subscriber = "0.5.0"
 cool-id-generator = "1.0.1"
 env_logger = "0.11.8"
@@ -25,9 +25,9 @@ poem-openapi = { version = "5", features = ["swagger-ui"] }
 reqwest = { version = "0.13", features = ["json"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
+serde_json = "1.0.149"
 tarpc = { version = "0.37.0", features = ["full"] }
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"

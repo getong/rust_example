@@ -7,7 +7,7 @@ edition = "2024"
 anyhow = "1.0.100"
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["json"] }
-clap = { version = "4.5.54", features = ["derive"] }
+clap = { version = "4.5.56", features = ["derive"] }
 futures = "0.3.31"
 kameo = { version = "0.19.2", features = ["remote"] }
 libp2p = { version = "0.56", features = [
@@ -36,11 +36,11 @@ openraft = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2
 ] }
 # openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606" }
 openraft-rocksstore-crud = { path = "../rocksstore_crud" }
-prost = "0.14.1"
+prost = "0.14.3"
 rand = "0.9"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
+serde_json = "1.0.149"
 tokio = { version = "1.49", default-features = false, features = [
   "io-util",
   "macros",
@@ -55,4 +55,4 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 types-kv = { path = "../types-kv" }
 
 [build-dependencies]
-prost-build = "0.14.1"
+prost-build = "0.14.3"

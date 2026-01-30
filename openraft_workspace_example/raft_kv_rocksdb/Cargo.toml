@@ -9,7 +9,7 @@ edition = "2024"
 [dependencies]
 actix-web = "4.12.1"
 byteorder = "1.5.0"
-clap = { version = "4.5.54", features = ["derive", "env"] }
+clap = { version = "4.5.56", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
 futures = "0.3.31"
 network-v1-http = { path = "../network-v1-http" }
@@ -23,7 +23,7 @@ openraft-rocksstore = { path = "../rocksstore" }
 reqwest = { version = "0.13", features = ["json"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
+serde_json = "1.0.149"
 tokio = { version = "1.49.0", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
