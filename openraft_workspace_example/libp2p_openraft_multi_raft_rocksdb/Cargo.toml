@@ -30,11 +30,11 @@ libp2p = { version = "0.56", features = [
   "websocket",
   "yamux",
 ] }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606", features = [
   "serde",
   "type-alias",
 ] }
-# openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66" }
+# openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606" }
 openraft-rocksstore-crud = { path = "../rocksstore_crud" }
 prost = "0.14.1"
 rand = "0.9"

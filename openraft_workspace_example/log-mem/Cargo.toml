@@ -21,7 +21,7 @@ serde = ["openraft/serde"]
 
 [dependencies]
 futures = "0.3.31"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66", default-features = false, features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606", default-features = false, features = [
   "type-alias",
   "tokio-rt",
 ] }

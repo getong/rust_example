@@ -17,8 +17,8 @@ cool-id-generator = "1.0.1"
 env_logger = "0.11.8"
 futures = "0.3.31"
 once_cell = "1.21.3"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66", features = ["serde", "type-alias"] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5fb443031345cb5232191584096bcf0118205b66" }
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606", features = ["serde", "type-alias"] }
+openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606" }
 openraft-rocksstore = { path = "../rocksstore" }
 poem = "3.1.12"
 poem-openapi = { version = "5", features = ["swagger-ui"] }
