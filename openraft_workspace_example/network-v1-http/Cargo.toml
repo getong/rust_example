@@ -19,11 +19,11 @@ all-features = true
 default = []
 
 [dependencies]
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606" }
+openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d" }
 reqwest = { version = "0.13.1", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

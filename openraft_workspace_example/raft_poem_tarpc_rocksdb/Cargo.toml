@@ -9,11 +9,11 @@ edition = "2024"
 byteorder = "1.5"
 clap = { version = "4.5", features = ["derive", "env"] }
 futures = "0.3"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "bfd11db6e2608c3ddc40e8702efbfa36cde78606" }
+openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d" }
 openraft-rocksstore = { path = "../rocksstore" }
 poem = "3.1"
 poem-openapi = { version = "5.1", features = ["swagger-ui", "email"] }
