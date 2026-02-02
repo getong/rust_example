@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-protobuf = "3.3.0"
+protobuf = "3.7.2"
 
 [build-dependencies]
-protobuf = "3.3.0"
-protobuf-codegen = "3.3.0"
+protobuf = "3.7.2"
+protobuf-codegen = "3.7.2"
