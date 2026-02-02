@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       .unwrap(),
     &bytes,
   );
-  println!("a: {:?}", a);
+  println!("a: {:?}", a.is_ok());
 
   tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
   println!(
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     &bytes,
   )
   .unwrap();
-  println!("get_back_message: {:?}", get_back_message);
+  println!("get_back_message decoded successfully");
   let any: Box<dyn Any> = Box::new(get_back_message);
 
   match any.downcast::<mypackage::MyMessage>() {
