@@ -18,6 +18,8 @@ fn main() {
     .out_dir(output_directory)
     .include_file("mod.rs")
     .enable_type_names()
+    .type_attribute("ReadResponse", "#[allow(dead_code)]")
+    .type_attribute("StateSignal", "#[allow(dead_code)]")
     .compile_protos(&proto_files, &["."])
   {
     Ok(()) => {

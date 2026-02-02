@@ -14,6 +14,7 @@ impl ::prost::Name for MyMessage {
     "/mypackage.MyMessage".into()
   }
 }
+#[allow(dead_code)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct OtherMessage {
   #[prost(string, tag = "1")]

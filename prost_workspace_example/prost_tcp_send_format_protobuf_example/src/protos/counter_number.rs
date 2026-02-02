@@ -22,6 +22,7 @@ impl ::prost::Name for ReadRequest {
     "/counter_number.ReadRequest".into()
   }
 }
+#[allow(dead_code)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ReadResponse {
   #[prost(int32, tag = "1")]

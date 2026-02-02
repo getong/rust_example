@@ -4,6 +4,7 @@ pub struct MyMessage {
   #[prost(string, tag = "1")]
   pub content: ::prost::alloc::string::String,
 }
+#[allow(dead_code)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct OtherMessage {
   #[prost(string, tag = "1")]

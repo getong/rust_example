@@ -2,6 +2,7 @@ use std::process::Command;
 
 fn main() {
   let mut config = prost_build::Config::new();
+  config.type_attribute("OtherMessage", "#[allow(dead_code)]");
   match config
     .out_dir("src")
     .enable_type_names()
