@@ -5,4 +5,5 @@ resolver = "3"
 members = [
   "http_read",
   "http_write_batch_typed",
+  "http_write_one",
 ]

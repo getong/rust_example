@@ -1,0 +1,37 @@
+use chrono::NaiveDateTime;
+use influxdb3::InfluxDbClientBuilder;
+use influxdb3::{DataPointBuilder, FieldDataType};
+
+#[tokio::main]
+async fn main() {
+  let influxdb_client = InfluxDbClientBuilder::new()
+    .with_server_endpoint("http://localhost:8181")
+    .with_token("apiv3_0Z8nqz5wAp5g1kfcZeVKNWwYgv88ia7skv3-E8nQnbeYC6ESjLGX4elUseq_fL4hmZh0tSkeIE33lwk_gXp22g")
+    .database("weather")
+    .build()
+    .unwrap();
+
+  let data_point = DataPointBuilder::new()
+    .table("France")
+    .with_tag("city", "Paris")
+    .with_tag("district", "second")
+    .with_tag("sensor_id", "XKCD722")
+    .with_field("temperature", FieldDataType::Float(19.78))
+    .with_field("hygrometry", FieldDataType::Integer(51))
+    .datetime(
+      NaiveDateTime::parse_from_str("2025-12-29T21:10:59.126", "%Y-%m-%dT%H:%M:%S%.3f")
+        .unwrap()
+        .and_utc(),
+    )
+    .build()
+    .unwrap();
+
+  match influxdb_client.write_one(data_point).await {
+    Ok(cluster_uuid_opt) => {
+      println!("Writing successful : cluster_uuid = {:?}", cluster_uuid_opt);
+    }
+    Err(error_detail) => {
+      println!("Failure : {:?}", error_detail);
+    }
+  }
+}
