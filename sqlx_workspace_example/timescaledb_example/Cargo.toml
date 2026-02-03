@@ -1,0 +1,15 @@
+[package]
+name = "timescaledb_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4", features = ["clock"] }
+sqlx = { version = "0.8", default-features = false, features = [
+  "chrono",
+  "macros",
+  "migrate",
+  "postgres",
+  "runtime-tokio-rustls",
+] }
+tokio = { version = "1.49", features = ["macros", "rt-multi-thread"] }

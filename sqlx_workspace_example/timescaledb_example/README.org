@@ -1,0 +1,3 @@
+* timescaledb example
+
+copy from [[https://blog.exein.io/sqlx_testing-blog-post-by-bogdan/][A tale of TimescaleDB, SQLx and testing in Rust]]

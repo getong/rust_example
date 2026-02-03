@@ -1,6 +1,6 @@
 [workspace]
 
-resolver = "2"
+resolver = "3"
 
 members = [
   "bigdecimal_basic_example",
@@ -12,4 +12,5 @@ members = [
   "sqlx_multi_sql_acquire_example",
   "bigdecimal_serde_json_example",
   "sqlx_track_caller_example",
+  "timescaledb_example",
 ]
