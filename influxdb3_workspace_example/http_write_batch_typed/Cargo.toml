@@ -1,0 +1,10 @@
+[package]
+name = "http_write_batch_typed"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.43"
+influx3_lp = "0.1.1"
+influxdb3 = "0.1.4"
+tokio = { version = "1.49.0", features = ["full"] }
