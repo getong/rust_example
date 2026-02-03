@@ -1,6 +1,5 @@
 use chrono::NaiveDateTime;
-use influxdb3::InfluxDbClientBuilder;
-use influxdb3::{DataPointBuilder, FieldDataType};
+use influxdb3::{DataPointBuilder, FieldDataType, InfluxDbClientBuilder};
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +16,7 @@ async fn main() {
     .with_tag("district", "second")
     .with_tag("sensor_id", "XKCD722")
     .with_field("temperature", FieldDataType::Float(19.78))
-    .with_field("hygrometry", FieldDataType::Integer(51))
+    .with_field("hygrometry", FieldDataType::Float(51.0))
     .datetime(
       NaiveDateTime::parse_from_str("2025-12-29T21:10:59.126", "%Y-%m-%dT%H:%M:%S%.3f")
         .unwrap()
