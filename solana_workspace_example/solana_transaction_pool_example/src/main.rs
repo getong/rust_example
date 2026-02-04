@@ -29,9 +29,14 @@ use tokio::{
   time::{interval, sleep, sleep_until, timeout, Instant as TokioInstant},
 };
 
+const WAIT_BUCKETS_MS: [u64; 8] = [1, 5, 10, 50, 100, 500, 1_000, 5_000];
+const WAIT_BUCKET_COUNT: usize = WAIT_BUCKETS_MS.len() + 1;
+
 static SEND_QUEUE: OnceCell<Arc<dyn QueueInterface<SendTask> + Send + Sync>> = OnceCell::new();
 static CONFIRM_QUEUE: OnceCell<Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>> =
   OnceCell::new();
+static SEND_METRICS: OnceCell<Arc<QueueMetrics>> = OnceCell::new();
+static CONFIRM_METRICS: OnceCell<Arc<QueueMetrics>> = OnceCell::new();
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -49,6 +54,7 @@ struct Config {
   confirm_max_delay_ms: u64,
   worker_idle_tick_ms: u64,
   trace_workers: bool,
+  metrics_interval_ms: u64,
 }
 
 impl Config {
@@ -75,6 +81,7 @@ impl Config {
       confirm_max_delay_ms: env_u64("CONFIRM_MAX_DELAY_MS", 4000),
       worker_idle_tick_ms,
       trace_workers: env_bool("TRACE_WORKER", false),
+      metrics_interval_ms: env_u64("METRICS_INTERVAL_MS", 5_000),
     }
   }
 }
@@ -83,6 +90,7 @@ impl Config {
 struct SendRequest {
   request_id: String,
   tx_b64: String,
+  priority: Priority,
 }
 
 #[derive(Debug)]
@@ -91,6 +99,7 @@ struct SendResponse {
   signature: String,
   worker_id: usize,
   elapsed_ms: u128,
+  priority: Priority,
 }
 
 struct SendTask {
@@ -102,6 +111,7 @@ struct SendTask {
 struct ConfirmRequest {
   request_id: String,
   signature: Signature,
+  priority: Priority,
 }
 
 #[derive(Debug)]
@@ -113,6 +123,7 @@ struct ConfirmResponse {
   worker_id: usize,
   attempts: usize,
   elapsed_ms: u128,
+  priority: Priority,
 }
 
 struct ConfirmTask {
@@ -171,6 +182,7 @@ impl SendInterface for SendWorker {
       signature: signature.to_string(),
       worker_id: self.id,
       elapsed_ms: started.elapsed().as_millis(),
+      priority: req.priority,
     })
   }
 }
@@ -218,6 +230,7 @@ impl ConfirmInterface for ConfirmWorker {
           worker_id: self.id,
           attempts,
           elapsed_ms: started.elapsed().as_millis(),
+          priority: req.priority,
         };
       }
 
@@ -249,6 +262,7 @@ impl ConfirmInterface for ConfirmWorker {
             worker_id: self.id,
             attempts,
             elapsed_ms: started.elapsed().as_millis(),
+            priority: req.priority,
           };
         }
         Ok(Ok(Some(Err(err)))) => {
@@ -260,6 +274,7 @@ impl ConfirmInterface for ConfirmWorker {
             worker_id: self.id,
             attempts,
             elapsed_ms: started.elapsed().as_millis(),
+            priority: req.priority,
           };
         }
         Ok(Ok(None)) => {
@@ -272,6 +287,7 @@ impl ConfirmInterface for ConfirmWorker {
               worker_id: self.id,
               attempts,
               elapsed_ms: started.elapsed().as_millis(),
+              priority: req.priority,
             };
           }
         }
@@ -284,6 +300,7 @@ impl ConfirmInterface for ConfirmWorker {
             worker_id: self.id,
             attempts,
             elapsed_ms: started.elapsed().as_millis(),
+            priority: req.priority,
           };
         }
         Err(_) => {
@@ -302,6 +319,7 @@ impl ConfirmInterface for ConfirmWorker {
             worker_id: self.id,
             attempts,
             elapsed_ms: started.elapsed().as_millis(),
+            priority: req.priority,
           };
         }
       }
@@ -327,6 +345,7 @@ impl ConfirmInterface for ConfirmWorker {
             worker_id: self.id,
             attempts,
             elapsed_ms: started.elapsed().as_millis(),
+            priority: req.priority,
           };
         }
       }
@@ -346,6 +365,31 @@ enum Priority {
   Low,
 }
 
+impl Priority {
+  fn parse(value: &str) -> Option<Self> {
+    match value.trim().to_lowercase().as_str() {
+      "high" | "h" => Some(Self::High),
+      "low" | "l" => Some(Self::Low),
+      "normal" | "n" | "medium" | "m" => Some(Self::Normal),
+      _ => None,
+    }
+  }
+
+  fn label(self) -> &'static str {
+    match self {
+      Self::High => "high",
+      Self::Normal => "normal",
+      Self::Low => "low",
+    }
+  }
+}
+
+impl std::fmt::Display for Priority {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.label())
+  }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 struct PriorityKey {
   level: u8,
@@ -355,6 +399,7 @@ struct PriorityKey {
 #[derive(Debug)]
 struct QueueItem<T> {
   id: u64,
+  enqueued_at: TokioInstant,
   task: T,
 }
 
@@ -382,18 +427,142 @@ struct PriorityQueueImpl<T> {
   inner: Mutex<PriorityQueue<QueueItem<T>, PriorityKey>>,
   notify: Notify,
   max_len: usize,
-  len: AtomicUsize,
   seq: AtomicU64,
+  metrics: Arc<QueueMetrics>,
 }
 
+struct QueueMetrics {
+  name: &'static str,
+  len: AtomicUsize,
+  pushes: AtomicU64,
+  pops: AtomicU64,
+  drops: AtomicU64,
+  wait_total_ms: AtomicU64,
+  wait_max_ms: AtomicU64,
+  wait_buckets: [AtomicUsize; WAIT_BUCKET_COUNT],
+}
+
+impl QueueMetrics {
+  fn new(name: &'static str) -> Self {
+    Self {
+      name,
+      len: AtomicUsize::new(0),
+      pushes: AtomicU64::new(0),
+      pops: AtomicU64::new(0),
+      drops: AtomicU64::new(0),
+      wait_total_ms: AtomicU64::new(0),
+      wait_max_ms: AtomicU64::new(0),
+      wait_buckets: std::array::from_fn(|_| AtomicUsize::new(0)),
+    }
+  }
+
+  fn record_wait(&self, wait_ms: u64) {
+    self.wait_total_ms.fetch_add(wait_ms, Ordering::Relaxed);
+    let idx = wait_bucket_index(wait_ms);
+    self.wait_buckets[idx].fetch_add(1, Ordering::Relaxed);
+
+    let mut current = self.wait_max_ms.load(Ordering::Relaxed);
+    while wait_ms > current {
+      match self.wait_max_ms.compare_exchange(
+        current,
+        wait_ms,
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+      ) {
+        Ok(_) => break,
+        Err(next) => current = next,
+      }
+    }
+  }
+
+  fn snapshot(&self) -> QueueSnapshot {
+    let buckets = std::array::from_fn(|idx| self.wait_buckets[idx].load(Ordering::Relaxed));
+    QueueSnapshot {
+      name: self.name,
+      len: self.len.load(Ordering::Relaxed),
+      pushes: self.pushes.load(Ordering::Relaxed),
+      pops: self.pops.load(Ordering::Relaxed),
+      drops: self.drops.load(Ordering::Relaxed),
+      wait_total_ms: self.wait_total_ms.load(Ordering::Relaxed),
+      wait_max_ms: self.wait_max_ms.load(Ordering::Relaxed),
+      buckets,
+    }
+  }
+}
+
+struct QueueSnapshot {
+  name: &'static str,
+  len: usize,
+  pushes: u64,
+  pops: u64,
+  drops: u64,
+  wait_total_ms: u64,
+  wait_max_ms: u64,
+  buckets: [usize; WAIT_BUCKET_COUNT],
+}
+
+fn wait_bucket_index(wait_ms: u64) -> usize {
+  for (idx, bound) in WAIT_BUCKETS_MS.iter().enumerate() {
+    if wait_ms < *bound {
+      return idx;
+    }
+  }
+  WAIT_BUCKET_COUNT - 1
+}
+
+fn spawn_metrics_reporter(
+  send_metrics: Arc<QueueMetrics>,
+  confirm_metrics: Arc<QueueMetrics>,
+  interval_ms: u64,
+) {
+  let interval_ms = interval_ms.max(500);
+  tokio::spawn(async move {
+    let mut ticker = interval(Duration::from_millis(interval_ms));
+    loop {
+      ticker.tick().await;
+      report_queue_metrics(&send_metrics);
+      report_queue_metrics(&confirm_metrics);
+    }
+  });
+}
+
+fn report_queue_metrics(metrics: &QueueMetrics) {
+  let snapshot = metrics.snapshot();
+  let avg_wait_ms = if snapshot.pops > 0 {
+    snapshot.wait_total_ms / snapshot.pops
+  } else {
+    0
+  };
+  let buckets = snapshot.buckets;
+  eprintln!(
+    "queue_metrics name={} len={} pushes={} pops={} drops={} avg_wait_ms={} max_wait_ms={} \
+     buckets=<1:{} <5:{} <10:{} <50:{} <100:{} <500:{} <1s:{} <5s:{} >=5s:{}",
+    snapshot.name,
+    snapshot.len,
+    snapshot.pushes,
+    snapshot.pops,
+    snapshot.drops,
+    avg_wait_ms,
+    snapshot.wait_max_ms,
+    buckets[0],
+    buckets[1],
+    buckets[2],
+    buckets[3],
+    buckets[4],
+    buckets[5],
+    buckets[6],
+    buckets[7],
+    buckets[8],
+  );
+}
 impl<T> PriorityQueueImpl<T> {
-  fn new(max_len: usize) -> Self {
+  fn new(max_len: usize, metrics: Arc<QueueMetrics>) -> Self {
     Self {
       inner: Mutex::new(PriorityQueue::new()),
       notify: Notify::new(),
       max_len,
-      len: AtomicUsize::new(0),
       seq: AtomicU64::new(0),
+      metrics,
     }
   }
 
@@ -403,7 +572,12 @@ impl<T> PriorityQueueImpl<T> {
     drop(guard);
 
     if let Some((item, _priority)) = popped {
-      self.len.fetch_sub(1, Ordering::Relaxed);
+      self.metrics.len.fetch_sub(1, Ordering::Relaxed);
+      self.metrics.pops.fetch_add(1, Ordering::Relaxed);
+      let wait_ms = TokioInstant::now()
+        .saturating_duration_since(item.enqueued_at)
+        .as_millis() as u64;
+      self.metrics.record_wait(wait_ms);
       return Some(item.task);
     }
 
@@ -417,12 +591,14 @@ where
   T: Send,
 {
   async fn push(&self, priority: Priority, item: T) -> Result<(), String> {
-    let prev = self.len.fetch_add(1, Ordering::Relaxed);
+    let prev = self.metrics.len.fetch_add(1, Ordering::Relaxed);
     if prev >= self.max_len {
-      self.len.fetch_sub(1, Ordering::Relaxed);
+      self.metrics.len.fetch_sub(1, Ordering::Relaxed);
+      self.metrics.drops.fetch_add(1, Ordering::Relaxed);
       return Err("priority queue is full".to_string());
     }
 
+    self.metrics.pushes.fetch_add(1, Ordering::Relaxed);
     let level = match priority {
       Priority::High => 2,
       Priority::Normal => 1,
@@ -434,7 +610,14 @@ where
       seq: Reverse(id),
     };
     let mut guard = self.inner.lock().await;
-    guard.push(QueueItem { id, task: item }, key);
+    guard.push(
+      QueueItem {
+        id,
+        enqueued_at: TokioInstant::now(),
+        task: item,
+      },
+      key,
+    );
     drop(guard);
     self.notify.notify_one();
     Ok(())
@@ -455,22 +638,34 @@ fn init_queues(
 ) -> (
   Arc<dyn QueueInterface<SendTask> + Send + Sync>,
   Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+  Arc<QueueMetrics>,
+  Arc<QueueMetrics>,
 ) {
   let max_len = cfg.queue_size.max(1);
+  let send_metrics = SEND_METRICS
+    .get_or_init(|| Arc::new(QueueMetrics::new("send")))
+    .clone();
+  let confirm_metrics = CONFIRM_METRICS
+    .get_or_init(|| Arc::new(QueueMetrics::new("confirm")))
+    .clone();
   let send_queue = SEND_QUEUE
     .get_or_init(|| {
-      Arc::new(PriorityQueueImpl::<SendTask>::new(max_len))
-        as Arc<dyn QueueInterface<SendTask> + Send + Sync>
+      Arc::new(PriorityQueueImpl::<SendTask>::new(
+        max_len,
+        Arc::clone(&send_metrics),
+      )) as Arc<dyn QueueInterface<SendTask> + Send + Sync>
     })
     .clone();
   let confirm_queue = CONFIRM_QUEUE
     .get_or_init(|| {
-      Arc::new(PriorityQueueImpl::<ConfirmTask>::new(max_len))
-        as Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>
+      Arc::new(PriorityQueueImpl::<ConfirmTask>::new(
+        max_len,
+        Arc::clone(&confirm_metrics),
+      )) as Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>
     })
     .clone();
 
-  (send_queue, confirm_queue)
+  (send_queue, confirm_queue, send_metrics, confirm_metrics)
 }
 
 struct SendPool {
@@ -507,11 +702,12 @@ impl SendPool {
 
   async fn submit(&self, req: SendRequest) -> Result<SendResponse, String> {
     let (resp_tx, resp_rx) = oneshot::channel();
+    let priority = req.priority;
     let task = SendTask { req, resp: resp_tx };
 
     self
       .queue
-      .push(Priority::Normal, task)
+      .push(priority, task)
       .await
       .map_err(|e| format!("send queue error: {e}"))?;
 
@@ -560,11 +756,12 @@ impl ConfirmPool {
 
   async fn submit(&self, req: ConfirmRequest) -> Result<ConfirmResponse, String> {
     let (resp_tx, resp_rx) = oneshot::channel();
+    let priority = req.priority;
     let task = ConfirmTask { req, resp: resp_tx };
 
     self
       .queue
-      .push(Priority::Normal, task)
+      .push(priority, task)
       .await
       .map_err(|e| format!("confirm queue error: {e}"))?;
 
@@ -586,7 +783,7 @@ async fn main() -> Result<()> {
     cfg.rpc_url, cfg.send_workers, cfg.confirm_workers, cfg.queue_size
   );
 
-  let (send_queue, confirm_queue) = init_queues(&cfg);
+  let (send_queue, confirm_queue, send_metrics, confirm_metrics) = init_queues(&cfg);
   let send_pool = Arc::new(SendPool::new(&rpc_url, cfg.send_workers, &cfg, send_queue));
   let confirm_pool = Arc::new(ConfirmPool::new(
     &rpc_url,
@@ -594,6 +791,7 @@ async fn main() -> Result<()> {
     &cfg,
     confirm_queue,
   ));
+  spawn_metrics_reporter(send_metrics, confirm_metrics, cfg.metrics_interval_ms);
 
   let seed_client =
     RpcClient::new_with_commitment(cfg.rpc_url.clone(), CommitmentConfig::confirmed());
@@ -613,14 +811,15 @@ async fn main() -> Result<()> {
       match send_res {
         Ok(sent) => {
           println!(
-            "sent request_id={}, signature={}, worker={}, elapsed_ms={}",
-            sent.request_id, sent.signature, sent.worker_id, sent.elapsed_ms
+            "sent request_id={}, signature={}, worker={}, elapsed_ms={}, priority={}",
+            sent.request_id, sent.signature, sent.worker_id, sent.elapsed_ms, sent.priority
           );
           let signature = Signature::from_str(&sent.signature)
             .map_err(|e| anyhow!("invalid signature {}: {e}", sent.signature))?;
           let confirm_req = ConfirmRequest {
             request_id: sent.request_id.clone(),
             signature,
+            priority: sent.priority,
           };
           let confirm_res = confirm_pool
             .submit(confirm_req)
@@ -639,22 +838,26 @@ async fn main() -> Result<()> {
       Ok(Ok(confirm)) => {
         if confirm.confirmed {
           println!(
-            "confirmed request_id={}, signature={}, worker={}, attempts={}, elapsed_ms={}",
-            confirm.request_id,
-            confirm.signature,
-            confirm.worker_id,
-            confirm.attempts,
-            confirm.elapsed_ms
-          );
-        } else {
-          println!(
-            "failed request_id={}, signature={}, worker={}, attempts={}, elapsed_ms={}, reason={}",
+            "confirmed request_id={}, signature={}, worker={}, attempts={}, elapsed_ms={}, \
+             priority={}",
             confirm.request_id,
             confirm.signature,
             confirm.worker_id,
             confirm.attempts,
             confirm.elapsed_ms,
-            confirm.reason.unwrap_or_else(|| "unknown".to_string())
+            confirm.priority
+          );
+        } else {
+          println!(
+            "failed request_id={}, signature={}, worker={}, attempts={}, elapsed_ms={}, \
+             reason={}, priority={}",
+            confirm.request_id,
+            confirm.signature,
+            confirm.worker_id,
+            confirm.attempts,
+            confirm.elapsed_ms,
+            confirm.reason.unwrap_or_else(|| "unknown".to_string()),
+            confirm.priority
           );
         }
       }
@@ -761,21 +964,33 @@ fn load_requests_from_file(path: &str) -> Result<Vec<SendRequest>> {
     if line.is_empty() || line.starts_with('#') {
       continue;
     }
-    let mut parts = line.splitn(2, ',');
+    let mut parts = line.split(',').map(str::trim);
     let request_id = parts
       .next()
-      .map(str::trim)
       .filter(|s| !s.is_empty())
       .ok_or_else(|| anyhow!("line {} missing request_id", idx + 1))?;
-    let tx_b64 = parts
+    let second = parts
       .next()
-      .map(str::trim)
       .filter(|s| !s.is_empty())
       .ok_or_else(|| anyhow!("line {} missing base64 tx", idx + 1))?;
+    let third = parts.next().filter(|s| !s.is_empty());
+
+    let (priority, tx_b64) = if let Some(tx_b64) = third {
+      let priority = Priority::parse(second)
+        .ok_or_else(|| anyhow!("line {} invalid priority {}", idx + 1, second))?;
+      (priority, tx_b64)
+    } else {
+      (Priority::Normal, second)
+    };
+
+    if parts.next().is_some() {
+      return Err(anyhow!("line {} has too many fields", idx + 1));
+    }
 
     requests.push(SendRequest {
       request_id: request_id.to_string(),
       tx_b64: tx_b64.to_string(),
+      priority,
     });
   }
 
@@ -832,6 +1047,7 @@ async fn build_demo_requests(client: &RpcClient, count: usize) -> Result<Vec<Sen
     requests.push(SendRequest {
       request_id: format!("demo-{idx}"),
       tx_b64,
+      priority: Priority::Normal,
     });
   }
 
