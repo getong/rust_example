@@ -1,8 +1,9 @@
 use std::{
+  cmp::Reverse,
   env, fs,
   str::FromStr,
   sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
     Arc,
   },
   time::{Duration, Instant},
@@ -11,6 +12,8 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
+use once_cell::sync::OnceCell;
+use priority_queue::PriorityQueue;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::{
@@ -21,10 +24,14 @@ use solana_sdk::{
 };
 use solana_system_interface::instruction as system_instruction;
 use tokio::{
-  sync::{mpsc, oneshot},
+  sync::{oneshot, Mutex, Notify},
   task::JoinSet,
   time::{interval, sleep, sleep_until, timeout, Instant as TokioInstant},
 };
+
+static SEND_QUEUE: OnceCell<Arc<dyn QueueInterface<SendTask> + Send + Sync>> = OnceCell::new();
+static CONFIRM_QUEUE: OnceCell<Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>> =
+  OnceCell::new();
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -331,124 +338,153 @@ impl ConfirmInterface for ConfirmWorker {
   }
 }
 
-struct WorkerHandle<T> {
-  id: usize,
-  tx: mpsc::Sender<T>,
-  in_flight: Arc<AtomicUsize>,
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+enum Priority {
+  High,
+  Normal,
+  Low,
 }
 
-// Adaptive scheduling: power-of-two choices + bounded probe + exponential backoff.
-struct AdaptiveScheduler {
-  rr: AtomicUsize,
-  stride: usize,
-  max_probes: usize,
-  backoff_base: Duration,
-  backoff_max: Duration,
-  trace: bool,
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct PriorityKey {
+  level: u8,
+  seq: Reverse<u64>,
 }
 
-impl AdaptiveScheduler {
-  fn new(worker_count: usize) -> Self {
-    let mut stride = (worker_count / 2).max(1);
-    if stride % 2 == 0 {
-      stride += 1;
-    }
-    let max_probes = worker_count.min(6).max(1);
-    let trace = env::var("TRACE_SCHEDULER")
-      .ok()
-      .map(|value| value != "0")
-      .unwrap_or(false);
+#[derive(Debug)]
+struct QueueItem<T> {
+  id: u64,
+  task: T,
+}
+
+impl<T> PartialEq for QueueItem<T> {
+  fn eq(&self, other: &Self) -> bool {
+    self.id == other.id
+  }
+}
+
+impl<T> Eq for QueueItem<T> {}
+
+impl<T> std::hash::Hash for QueueItem<T> {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.id.hash(state);
+  }
+}
+
+#[async_trait]
+trait QueueInterface<T>: Send + Sync {
+  async fn push(&self, priority: Priority, item: T) -> Result<(), String>;
+  async fn pop(&self) -> Option<T>;
+}
+
+struct PriorityQueueImpl<T> {
+  inner: Mutex<PriorityQueue<QueueItem<T>, PriorityKey>>,
+  notify: Notify,
+  max_len: usize,
+  len: AtomicUsize,
+  seq: AtomicU64,
+}
+
+impl<T> PriorityQueueImpl<T> {
+  fn new(max_len: usize) -> Self {
     Self {
-      rr: AtomicUsize::new(0),
-      stride,
-      max_probes,
-      backoff_base: Duration::from_millis(2),
-      backoff_max: Duration::from_millis(30),
-      trace,
+      inner: Mutex::new(PriorityQueue::new()),
+      notify: Notify::new(),
+      max_len,
+      len: AtomicUsize::new(0),
+      seq: AtomicU64::new(0),
     }
   }
 
-  fn pick_two<T>(&self, workers: &[WorkerHandle<T>]) -> usize {
-    let len = workers.len();
-    let a = self.rr.fetch_add(1, Ordering::Relaxed) % len;
-    let b = (a + self.stride) % len;
-    let load_a = workers[a].in_flight.load(Ordering::Relaxed);
-    let load_b = workers[b].in_flight.load(Ordering::Relaxed);
-    if load_b < load_a {
-      b
-    } else {
-      a
+  async fn pop_once(&self) -> Option<T> {
+    let mut guard = self.inner.lock().await;
+    let popped = guard.pop();
+    drop(guard);
+
+    if let Some((item, _priority)) = popped {
+      self.len.fetch_sub(1, Ordering::Relaxed);
+      return Some(item.task);
     }
+
+    None
+  }
+}
+
+#[async_trait]
+impl<T> QueueInterface<T> for PriorityQueueImpl<T>
+where
+  T: Send,
+{
+  async fn push(&self, priority: Priority, item: T) -> Result<(), String> {
+    let prev = self.len.fetch_add(1, Ordering::Relaxed);
+    if prev >= self.max_len {
+      self.len.fetch_sub(1, Ordering::Relaxed);
+      return Err("priority queue is full".to_string());
+    }
+
+    let level = match priority {
+      Priority::High => 2,
+      Priority::Normal => 1,
+      Priority::Low => 0,
+    };
+    let id = self.seq.fetch_add(1, Ordering::Relaxed);
+    let key = PriorityKey {
+      level,
+      seq: Reverse(id),
+    };
+    let mut guard = self.inner.lock().await;
+    guard.push(QueueItem { id, task: item }, key);
+    drop(guard);
+    self.notify.notify_one();
+    Ok(())
   }
 
-  fn pick_least_loaded<T>(&self, workers: &[WorkerHandle<T>]) -> usize {
-    let mut best = 0;
-    let mut best_load = usize::MAX;
-    for (idx, worker) in workers.iter().enumerate() {
-      let load = worker.in_flight.load(Ordering::Relaxed);
-      if load < best_load {
-        best = idx;
-        best_load = load;
-        if load == 0 {
-          break;
-        }
+  async fn pop(&self) -> Option<T> {
+    loop {
+      if let Some(item) = self.pop_once().await {
+        return Some(item);
       }
+      self.notify.notified().await;
     }
-    best
   }
+}
 
-  async fn send<T>(
-    &self,
-    workers: &[WorkerHandle<T>],
-    mut task: T,
-  ) -> Result<(), mpsc::error::SendError<T>> {
-    if workers.is_empty() {
-      return Err(mpsc::error::SendError(task));
-    }
-    let len = workers.len();
-    let start = self.pick_two(workers);
-    let mut backoff = self.backoff_base;
+fn init_queues(
+  cfg: &Config,
+) -> (
+  Arc<dyn QueueInterface<SendTask> + Send + Sync>,
+  Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+) {
+  let max_len = cfg.queue_size.max(1);
+  let send_queue = SEND_QUEUE
+    .get_or_init(|| {
+      Arc::new(PriorityQueueImpl::<SendTask>::new(max_len))
+        as Arc<dyn QueueInterface<SendTask> + Send + Sync>
+    })
+    .clone();
+  let confirm_queue = CONFIRM_QUEUE
+    .get_or_init(|| {
+      Arc::new(PriorityQueueImpl::<ConfirmTask>::new(max_len))
+        as Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>
+    })
+    .clone();
 
-    for attempt in 0 .. self.max_probes {
-      let idx = (start + attempt * self.stride) % len;
-      match workers[idx].tx.try_send(task) {
-        Ok(()) => {
-          if self.trace {
-            eprintln!("dispatch worker_id={} queue_try=true", workers[idx].id);
-          }
-          return Ok(());
-        }
-        Err(mpsc::error::TrySendError::Full(t)) => {
-          task = t;
-          sleep(backoff).await;
-          let next_ms = backoff.as_millis().saturating_mul(2) as u64;
-          let cap_ms = self.backoff_max.as_millis() as u64;
-          backoff = Duration::from_millis(next_ms.min(cap_ms));
-        }
-        Err(mpsc::error::TrySendError::Closed(t)) => return Err(mpsc::error::SendError(t)),
-      }
-    }
-
-    let idx = self.pick_least_loaded(workers);
-    let send_res = workers[idx].tx.send(task).await;
-    if send_res.is_ok() && self.trace {
-      eprintln!("dispatch worker_id={} queue_try=false", workers[idx].id);
-    }
-    send_res
-  }
+  (send_queue, confirm_queue)
 }
 
 struct SendPool {
-  workers: Vec<WorkerHandle<SendTask>>,
-  scheduler: AdaptiveScheduler,
+  queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
 }
 
 impl SendPool {
-  fn new(rpc_url: &str, worker_count: usize, queue_size: usize, cfg: &Config) -> Self {
-    let mut workers = Vec::with_capacity(worker_count);
-
+  fn new(
+    rpc_url: &str,
+    worker_count: usize,
+    cfg: &Config,
+    queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
+  ) -> Self {
     for id in 0 .. worker_count {
-      let (tx, rx) = mpsc::channel(queue_size);
       let in_flight = Arc::new(AtomicUsize::new(0));
       let worker = SendWorker {
         id,
@@ -459,18 +495,14 @@ impl SendPool {
       let in_flight_clone = Arc::clone(&in_flight);
       let idle_tick = Duration::from_millis(cfg.worker_idle_tick_ms);
       let trace = cfg.trace_workers;
+      let queue_clone = Arc::clone(&queue);
 
       tokio::spawn(async move {
-        send_worker_loop(worker, rx, in_flight_clone, idle_tick, trace).await;
+        send_worker_loop(worker, queue_clone, in_flight_clone, idle_tick, trace).await;
       });
-
-      workers.push(WorkerHandle { id, tx, in_flight });
     }
 
-    Self {
-      workers,
-      scheduler: AdaptiveScheduler::new(worker_count),
-    }
+    Self { queue }
   }
 
   async fn submit(&self, req: SendRequest) -> Result<SendResponse, String> {
@@ -478,10 +510,10 @@ impl SendPool {
     let task = SendTask { req, resp: resp_tx };
 
     self
-      .scheduler
-      .send(&self.workers, task)
+      .queue
+      .push(Priority::Normal, task)
       .await
-      .map_err(|_| "send pool is closed".to_string())?;
+      .map_err(|e| format!("send queue error: {e}"))?;
 
     resp_rx
       .await
@@ -490,16 +522,17 @@ impl SendPool {
 }
 
 struct ConfirmPool {
-  workers: Vec<WorkerHandle<ConfirmTask>>,
-  scheduler: AdaptiveScheduler,
+  queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
 }
 
 impl ConfirmPool {
-  fn new(rpc_url: &str, worker_count: usize, queue_size: usize, cfg: &Config) -> Self {
-    let mut workers = Vec::with_capacity(worker_count);
-
+  fn new(
+    rpc_url: &str,
+    worker_count: usize,
+    cfg: &Config,
+    queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+  ) -> Self {
     for id in 0 .. worker_count {
-      let (tx, rx) = mpsc::channel(queue_size);
       let in_flight = Arc::new(AtomicUsize::new(0));
       let worker = ConfirmWorker {
         id,
@@ -515,18 +548,14 @@ impl ConfirmPool {
       let in_flight_clone = Arc::clone(&in_flight);
       let idle_tick = Duration::from_millis(cfg.worker_idle_tick_ms);
       let trace = cfg.trace_workers;
+      let queue_clone = Arc::clone(&queue);
 
       tokio::spawn(async move {
-        confirm_worker_loop(worker, rx, in_flight_clone, idle_tick, trace).await;
+        confirm_worker_loop(worker, queue_clone, in_flight_clone, idle_tick, trace).await;
       });
-
-      workers.push(WorkerHandle { id, tx, in_flight });
     }
 
-    Self {
-      workers,
-      scheduler: AdaptiveScheduler::new(worker_count),
-    }
+    Self { queue }
   }
 
   async fn submit(&self, req: ConfirmRequest) -> Result<ConfirmResponse, String> {
@@ -534,10 +563,10 @@ impl ConfirmPool {
     let task = ConfirmTask { req, resp: resp_tx };
 
     self
-      .scheduler
-      .send(&self.workers, task)
+      .queue
+      .push(Priority::Normal, task)
       .await
-      .map_err(|_| "confirm pool is closed".to_string())?;
+      .map_err(|e| format!("confirm queue error: {e}"))?;
 
     Ok(
       resp_rx
@@ -557,17 +586,13 @@ async fn main() -> Result<()> {
     cfg.rpc_url, cfg.send_workers, cfg.confirm_workers, cfg.queue_size
   );
 
-  let send_pool = Arc::new(SendPool::new(
-    &rpc_url,
-    cfg.send_workers,
-    cfg.queue_size,
-    &cfg,
-  ));
+  let (send_queue, confirm_queue) = init_queues(&cfg);
+  let send_pool = Arc::new(SendPool::new(&rpc_url, cfg.send_workers, &cfg, send_queue));
   let confirm_pool = Arc::new(ConfirmPool::new(
     &rpc_url,
     cfg.confirm_workers,
-    cfg.queue_size,
     &cfg,
+    confirm_queue,
   ));
 
   let seed_client =
@@ -647,7 +672,7 @@ async fn main() -> Result<()> {
 
 async fn send_worker_loop<W>(
   worker: W,
-  mut rx: mpsc::Receiver<SendTask>,
+  queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
   in_flight: Arc<AtomicUsize>,
   idle_tick: Duration,
   trace: bool,
@@ -657,10 +682,9 @@ async fn send_worker_loop<W>(
   let mut ticker = interval(idle_tick);
   loop {
     tokio::select! {
-      maybe = rx.recv() => {
-        let task = match maybe {
-          Some(task) => task,
-          None => break,
+      task = queue.pop() => {
+        let Some(task) = task else {
+          continue;
         };
         in_flight.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
@@ -673,10 +697,9 @@ async fn send_worker_loop<W>(
       _ = ticker.tick() => {
         if trace {
           eprintln!(
-            "send idle worker_id={} in_flight={} queue_len={}",
+            "send idle worker_id={} in_flight={}",
             worker.id(),
-            in_flight.load(Ordering::Relaxed),
-            rx.len()
+            in_flight.load(Ordering::Relaxed)
           );
         }
       }
@@ -686,7 +709,7 @@ async fn send_worker_loop<W>(
 
 async fn confirm_worker_loop<W>(
   worker: W,
-  mut rx: mpsc::Receiver<ConfirmTask>,
+  queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
   in_flight: Arc<AtomicUsize>,
   idle_tick: Duration,
   trace: bool,
@@ -696,10 +719,9 @@ async fn confirm_worker_loop<W>(
   let mut ticker = interval(idle_tick);
   loop {
     tokio::select! {
-      maybe = rx.recv() => {
-        let task = match maybe {
-          Some(task) => task,
-          None => break,
+      task = queue.pop() => {
+        let Some(task) = task else {
+          continue;
         };
         in_flight.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
@@ -712,10 +734,9 @@ async fn confirm_worker_loop<W>(
       _ = ticker.tick() => {
         if trace {
           eprintln!(
-            "confirm idle worker_id={} in_flight={} queue_len={}",
+            "confirm idle worker_id={} in_flight={}",
             worker.id(),
-            in_flight.load(Ordering::Relaxed),
-            rx.len()
+            in_flight.load(Ordering::Relaxed)
           );
         }
       }
