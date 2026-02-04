@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
 use solana_client::rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient};
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature};
+use solana_commitment_config::CommitmentConfig;
+use solana_sdk::{pubkey::Pubkey, signature::Signature};
 use solana_transaction_status::UiTransactionEncoding;
-
 #[tokio::main]
 async fn main() {
   // Replace with your actual Solana RPC URL

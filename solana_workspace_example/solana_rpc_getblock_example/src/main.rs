@@ -1,6 +1,5 @@
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::commitment_config::CommitmentConfig;
-
+use solana_commitment_config::CommitmentConfig;
 fn main() {
   // Create an RPC client to connect to the Solana cluster
   let rpc_url = "https://api.mainnet-beta.solana.com";

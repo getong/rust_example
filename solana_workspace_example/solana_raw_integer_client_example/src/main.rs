@@ -2,15 +2,14 @@ use std::{fs, str::FromStr};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
 use solana_sdk::{
-  commitment_config::CommitmentConfig,
   instruction::{AccountMeta, Instruction},
   pubkey::Pubkey,
   signature::{Keypair, Signer},
   transaction::Transaction,
 };
 use solana_system_interface::instruction as system_instruction;
-
 // Constants
 const KEYPAIR_FILE_PATH: &str = "~/solana-wallets/bob.json";
 

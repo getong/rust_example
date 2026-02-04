@@ -1,8 +1,8 @@
 use std::str::FromStr;
 
 use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
 use solana_program::pubkey::Pubkey;
-use solana_sdk::commitment_config::CommitmentConfig;
 
 fn main() {
   let rpc_url = String::from("https://api.devnet.solana.com");

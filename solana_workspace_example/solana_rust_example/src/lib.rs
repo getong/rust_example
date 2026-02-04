@@ -3,9 +3,9 @@ use solana_account_decoder::{
   parse_token_extension::{parse_extension, UiExtension, UiTokenMetadata},
 };
 use solana_client::rpc_client::RpcClient;
+use solana_sdk::pubkey::Pubkey;
 use spl_token_2022::{
   extension::{ExtensionType::TokenMetadata, StateWithExtensions},
-  solana_program::pubkey::Pubkey,
   state::Mint,
 };
 

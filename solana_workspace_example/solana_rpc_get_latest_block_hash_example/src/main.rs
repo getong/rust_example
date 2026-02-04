@@ -1,9 +1,8 @@
 use std::{thread::sleep, time::Duration};
 
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::commitment_config::CommitmentConfig;
+use solana_commitment_config::CommitmentConfig;
 use solana_transaction_status_client_types::EncodedConfirmedBlock;
-
 #[tokio::main]
 async fn main() {
   let rpc_url = "https://api.mainnet-beta.solana.com"; // Use your preferred RPC provider

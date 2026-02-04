@@ -1,16 +1,18 @@
 use std::{fmt, fmt::Display, rc::Rc};
 
 use anchor_client::{
-  Client, Cluster,
   solana_sdk::{
-    commitment_config::CommitmentConfig,
-    pubkey::Pubkey,
+    commitment_config::CommitmentConfig as AnchorCommitmentConfig,
+    pubkey::Pubkey as AnchorPubkey,
     signature,
     signature::{Signature, Signer, SignerError},
   },
+  Client, Cluster,
 };
 use anyhow::Result;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig as RpcCommitmentConfig;
+use solana_sdk::pubkey::Pubkey as RpcPubkey;
 
 /// A tokio compatible wrapper for `anchor_client::solana_sdk::signature::Keypair`
 ///
@@ -56,7 +58,7 @@ impl Keypair {
 }
 
 impl Signer for Keypair {
-  fn try_pubkey(&self) -> std::result::Result<Pubkey, SignerError> {
+  fn try_pubkey(&self) -> std::result::Result<AnchorPubkey, SignerError> {
     // Convert the stored keypair bytes back to a Keypair
     let keypair = signature::Keypair::try_from(&self.keypair[..])
       .map_err(|e| SignerError::Custom(e.to_string()))?;
@@ -84,13 +86,17 @@ impl Signer for Keypair {
 #[tokio::main]
 async fn main() -> Result<()> {
   // Example program ID - replace with your actual program ID
-  let program_id = Pubkey::new_unique();
+  let program_id = AnchorPubkey::new_unique();
 
   // Create a payer keypair
   let payer = Rc::new(Keypair::from_keypair(&signature::Keypair::new()));
 
   // Create the anchor client
-  let client = Client::new_with_options(Cluster::Localnet, payer, CommitmentConfig::processed());
+  let client = Client::new_with_options(
+    Cluster::Localnet,
+    payer,
+    AnchorCommitmentConfig::processed(),
+  );
   let _program = client.program(program_id)?;
 
   // Create some dummy keypairs for the example
@@ -104,11 +110,11 @@ async fn main() -> Result<()> {
   // Example of getting the latest blockhash
   let rpc_client = RpcClient::new_with_commitment(
     "http://localhost:8899".to_string(),
-    CommitmentConfig::processed(),
+    RpcCommitmentConfig::processed(),
   );
 
   let (blockhash, _) = rpc_client
-    .get_latest_blockhash_with_commitment(CommitmentConfig::processed())
+    .get_latest_blockhash_with_commitment(RpcCommitmentConfig::processed())
     .await?;
 
   println!("Latest blockhash: {}", blockhash);
@@ -117,7 +123,9 @@ async fn main() -> Result<()> {
   // This is just a demonstration of how to use the async client
 
   // Get account info for demonstration
-  let account_info = rpc_client.get_account(&dummy_a.pubkey()).await;
+  let account_info = rpc_client
+    .get_account(&RpcPubkey::from(dummy_a.pubkey().to_bytes()))
+    .await;
   match account_info {
     Ok(account) => {
       println!("Account found with lamports: {}", account.lamports);

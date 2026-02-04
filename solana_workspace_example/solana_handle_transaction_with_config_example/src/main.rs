@@ -4,9 +4,9 @@ use std::str::FromStr;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use solana_client::{rpc_client::RpcClient, rpc_config::RpcTransactionConfig};
+use solana_commitment_config::CommitmentConfig;
 use solana_sdk::{
   // bs58,
-  commitment_config::CommitmentConfig,
   pubkey::Pubkey,
   signature::{
     // read_keypair_file,

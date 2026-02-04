@@ -1,8 +1,9 @@
 use anyhow::Result;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
 use solana_sdk::{
-  commitment_config::CommitmentConfig, native_token::LAMPORTS_PER_SOL, signature::Signer,
-  signer::keypair::Keypair, transaction::Transaction,
+  native_token::LAMPORTS_PER_SOL, signature::Signer, signer::keypair::Keypair,
+  transaction::Transaction,
 };
 use solana_system_interface::instruction as system_instruction;
 

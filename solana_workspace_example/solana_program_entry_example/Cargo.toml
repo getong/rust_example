@@ -3,11 +3,6 @@ name = "solana_program_entry_example"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-borsh = { version = "1.5.5", features = ["derive"] }
-solana-program = "2.2.1"
-solana-system-interface = "1.0.0"
-
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -15,3 +10,8 @@ crate-type = ["cdylib", "rlib"]
 no-entrypoint = []
 custom-heap = []
 custom-panic = []
+
+[dependencies]
+borsh = { version = "1.6.0", features = ["derive"] }
+solana-program = "3.0.0"
+solana-system-interface = "3.0.0"

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.98"
-solana-sdk = "2.3.1"
-solana-system-interface = "1.0.0"
-tokio = { version = "1.46.1", features = ["full"] }
+anyhow = "1.0.100"
+solana-sdk = "3.0.0"
+solana-system-interface = { version = "3.0.0", features = ["bincode"] }
+tokio = { version = "1.49.0", features = ["full"] }

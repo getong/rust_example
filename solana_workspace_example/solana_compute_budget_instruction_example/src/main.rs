@@ -1,7 +1,7 @@
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
+use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_sdk::{
-  commitment_config::CommitmentConfig,
-  compute_budget::ComputeBudgetInstruction,
   native_token::LAMPORTS_PER_SOL,
   signature::{Keypair, Signer},
   transaction::Transaction,

@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mpl-bubblegum = "2.1.0"
-mpl-token-metadata = "5.1.0"
-solana-client = "2.3.3"
-solana-sdk = "2.3.1"
+mpl-bubblegum = "2.1.1"
+mpl-token-metadata = "5.1.1"
+solana-client = "3.1.8"
+solana-sdk = "3.0.0"
 spl-account-compression = "1.0"
 spl-noop = "1.0"

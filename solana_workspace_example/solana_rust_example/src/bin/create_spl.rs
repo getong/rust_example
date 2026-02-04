@@ -5,6 +5,7 @@ use solana_sdk::{
   signer::{keypair::Keypair, Signer},
   transaction::Transaction,
 };
+use solana_system_interface::instruction as system_instruction;
 use spl_token::state::Mint;
 
 #[derive(serde::Deserialize)]
@@ -25,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let minimum_balance_for_rent_exemption =
     client.get_minimum_balance_for_rent_exemption(Mint::LEN)?;
 
-  let create_account_instruction: Instruction = solana_sdk::system_instruction::create_account(
+  let create_account_instruction: Instruction = system_instruction::create_account(
     &signer_wallet.pubkey(),
     &mint_account.pubkey(),
     minimum_balance_for_rent_exemption,

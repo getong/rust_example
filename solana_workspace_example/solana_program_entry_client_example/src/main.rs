@@ -2,15 +2,14 @@ use std::{fs, path::Path, str::FromStr};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
 use solana_program::{instruction::Instruction, pubkey::Pubkey};
 use solana_sdk::{
-  commitment_config::CommitmentConfig,
   instruction::AccountMeta,
   signature::{Keypair, Signer},
   transaction::Transaction,
 };
 use solana_sdk_ids::system_program;
-
 mod misc;
 
 use crate::misc::{derive_pda_address, derive_pda_from_name_and_date, CourseState};
@@ -725,17 +724,17 @@ fn setup_client() -> Result<SolanaClient, Box<dyn std::error::Error>> {
   dotenvy::dotenv().ok();
 
   // Get configuration from environment variables
-  let solana_rpc_url = std::env::var("SOLANA_RPC_URL")
-    .unwrap_or_else(|_| "http://localhost:8899".to_string());
-  
+  let solana_rpc_url =
+    std::env::var("SOLANA_RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string());
+
   let solana_program_id = std::env::var("SOLANA_PROGRAM_ID")
     .map_err(|_| "SOLANA_PROGRAM_ID environment variable not set. Please set it in .env file.")?;
-  
-  let wallet_directory = std::env::var("WALLET_DIRECTORY")
-    .unwrap_or_else(|_| WALLET_DIRECTORY.to_string());
-  
-  let wallet_file_name = std::env::var("WALLET_FILE_NAME")
-    .unwrap_or_else(|_| WALLET_FILE_NAME.to_string());
+
+  let wallet_directory =
+    std::env::var("WALLET_DIRECTORY").unwrap_or_else(|_| WALLET_DIRECTORY.to_string());
+
+  let wallet_file_name =
+    std::env::var("WALLET_FILE_NAME").unwrap_or_else(|_| WALLET_FILE_NAME.to_string());
 
   println!("Using RPC URL: {}", solana_rpc_url);
   println!("Using Program ID: {}", solana_program_id);

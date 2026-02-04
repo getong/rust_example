@@ -3,9 +3,9 @@ name = "solana_serialize_deserialize_example"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-borsh = { version = "1.5.5", features = ["derive"] }
-solana-program = "2.2.1"
-
 [lib]
 crate-type = ["cdylib", "lib"]
+
+[dependencies]
+borsh = { version = "1.6.0", features = ["derive"] }
+solana-program = "3.0.0"

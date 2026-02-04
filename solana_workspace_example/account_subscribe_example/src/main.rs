@@ -5,8 +5,8 @@ use solana_client::{
   rpc_client::RpcClient,
   rpc_config::{RpcAccountInfoConfig, RpcSendTransactionConfig},
 };
+use solana_commitment_config::CommitmentConfig;
 use solana_sdk::{
-  commitment_config::CommitmentConfig,
   native_token::LAMPORTS_PER_SOL,
   signature::{Keypair, Signer},
   transaction::Transaction,

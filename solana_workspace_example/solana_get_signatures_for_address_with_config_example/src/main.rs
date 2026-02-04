@@ -4,8 +4,8 @@ use solana_client::{
   rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient},
   rpc_response::RpcConfirmedTransactionStatusWithSignature,
 };
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
-
+use solana_commitment_config::CommitmentConfig;
+use solana_sdk::pubkey::Pubkey;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Connect to a Solana cluster
