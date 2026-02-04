@@ -5,22 +5,33 @@ use mpl_bubblegum::{
   types::{Collection, Creator, MetadataArgs, TokenProgramVersion, TokenStandard},
 };
 use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
+use solana_program_2::pubkey::Pubkey as ProgramPubkey;
 use solana_sdk::{
-  commitment_config::CommitmentConfig,
+  instruction::{AccountMeta as SdkAccountMeta, Instruction as SdkInstruction},
   message::Message,
-  pubkey::Pubkey,
+  pubkey::Pubkey as SdkPubkey,
   signature::{read_keypair_file, Signer},
   transaction::Transaction,
 };
+use solana_sdk_ids::system_program;
+
+fn program_pubkey_from_sdk(pubkey: &SdkPubkey) -> ProgramPubkey {
+  ProgramPubkey::from(pubkey.to_bytes())
+}
+
+fn sdk_pubkey_from_program(pubkey: &ProgramPubkey) -> SdkPubkey {
+  SdkPubkey::from(pubkey.to_bytes())
+}
 
 // Helper function to derive tree authority PDA
-fn derive_tree_authority(merkle_tree: &Pubkey) -> (Pubkey, u8) {
-  Pubkey::find_program_address(&[merkle_tree.as_ref()], &mpl_bubblegum::ID)
+fn derive_tree_authority(merkle_tree: &ProgramPubkey) -> (ProgramPubkey, u8) {
+  ProgramPubkey::find_program_address(&[merkle_tree.as_ref()], &mpl_bubblegum::ID)
 }
 
 // Helper function to derive metadata PDA
-fn derive_metadata_pda(mint: &Pubkey) -> (Pubkey, u8) {
-  Pubkey::find_program_address(
+fn derive_metadata_pda(mint: &ProgramPubkey) -> (ProgramPubkey, u8) {
+  ProgramPubkey::find_program_address(
     &[
       "metadata".as_bytes(),
       mpl_token_metadata::ID.as_ref(),
@@ -31,8 +42,8 @@ fn derive_metadata_pda(mint: &Pubkey) -> (Pubkey, u8) {
 }
 
 // Helper function to derive edition PDA
-fn derive_edition_pda(mint: &Pubkey) -> (Pubkey, u8) {
-  Pubkey::find_program_address(
+fn derive_edition_pda(mint: &ProgramPubkey) -> (ProgramPubkey, u8) {
+  ProgramPubkey::find_program_address(
     &[
       "metadata".as_bytes(),
       mpl_token_metadata::ID.as_ref(),
@@ -54,11 +65,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let home_dir = std::env::var("HOME").unwrap();
   let keypair_path = format!("{}/.config/solana/id.json", home_dir);
   let payer = read_keypair_file(&keypair_path)?;
+  let payer_pubkey = payer.pubkey();
+  let payer_program_pubkey = program_pubkey_from_sdk(&payer_pubkey);
 
   // Example addresses - Replace these with actual values
   // For testing, you can create these using the Solana CLI or other tools
-  let merkle_tree = Pubkey::from_str("11111111111111111111111111111112")?; // Replace with actual merkle tree
-  let collection_mint = Pubkey::from_str("11111111111111111111111111111113")?; // Replace with actual collection mint
+  let merkle_tree = ProgramPubkey::from_str("11111111111111111111111111111112")?; // Replace with actual merkle tree
+  let collection_mint = ProgramPubkey::from_str("11111111111111111111111111111113")?; // Replace with actual collection mint
 
   // Derive required PDAs
   let (tree_authority, _) = derive_tree_authority(&merkle_tree);
@@ -69,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   // let _collection_update_authority = payer.pubkey();
 
   // Leaf owner (who gets the NFT)
-  let leaf_owner = payer.pubkey();
+  let leaf_owner = payer_program_pubkey;
 
   // Metadata for NFT
   let name = "My Compressed NFT".to_string();
@@ -87,11 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let ix = MintToCollectionV1 {
     tree_config: merkle_tree,
     leaf_owner,
-    leaf_delegate: payer.pubkey(),
+    leaf_delegate: payer_program_pubkey,
     merkle_tree,
-    payer: payer.pubkey(),
-    tree_creator_or_delegate: payer.pubkey(),
-    collection_authority: payer.pubkey(),
+    payer: payer_program_pubkey,
+    tree_creator_or_delegate: payer_program_pubkey,
+    collection_authority: payer_program_pubkey,
     collection_authority_record_pda: None,
     collection_mint,
     collection_metadata,
@@ -100,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log_wrapper: spl_noop::ID,
     compression_program: spl_account_compression::ID,
     token_metadata_program: mpl_token_metadata::ID,
-    system_program: solana_sdk::system_program::ID,
+    system_program: ProgramPubkey::new_from_array(system_program::ID.to_bytes()),
   }
   .instruction(MintToCollectionV1InstructionArgs {
     metadata: MetadataArgs {
@@ -108,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       symbol,
       uri,
       creators: vec![Creator {
-        address: payer.pubkey(),
+        address: payer_program_pubkey,
         verified: true,
         share: 100,
       }],
@@ -126,8 +139,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     },
   });
 
+  let ix = SdkInstruction {
+    program_id: sdk_pubkey_from_program(&ix.program_id),
+    accounts: ix
+      .accounts
+      .into_iter()
+      .map(|meta| SdkAccountMeta {
+        pubkey: sdk_pubkey_from_program(&meta.pubkey),
+        is_signer: meta.is_signer,
+        is_writable: meta.is_writable,
+      })
+      .collect(),
+    data: ix.data,
+  };
+
   // Build the transaction
-  let message = Message::new(&[ix], Some(&payer.pubkey()));
+  let message = Message::new(&[ix], Some(&payer_pubkey));
   let blockhash = rpc.get_latest_blockhash()?;
   let tx = Transaction::new(&[&payer], message, blockhash);
 
