@@ -6,6 +6,7 @@ use std::{
   },
 };
 
+use num_cpus;
 use priority_queue::PriorityQueue;
 use tokio::sync::{Mutex, Notify};
 
@@ -151,7 +152,8 @@ where
   T: Send,
 {
   pub fn new(worker_count: usize, max_len: usize) -> Self {
-    let worker_count = worker_count.max(1);
+    let cpu_max = num_cpus::get().max(1);
+    let worker_count = worker_count.clamp(1, cpu_max);
     let counters = Arc::new(QueueCounters::new());
     let queues = (0 .. worker_count)
       .map(|_| Arc::new(WorkerQueue::new(max_len, Arc::clone(&counters))))

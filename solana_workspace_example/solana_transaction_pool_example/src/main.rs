@@ -7,6 +7,7 @@ mod worker;
 use std::{str::FromStr, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use num_cpus;
 use solana_sdk::signature::Signature;
 use tokio::task::JoinSet;
 
@@ -21,8 +22,9 @@ use crate::{
 #[tokio::main]
 async fn main() -> Result<()> {
   let cfg = Config::from_env();
-  let send_workers = cfg.send_workers.max(1);
-  let confirm_workers = cfg.confirm_workers.max(1);
+  let cpu_max = num_cpus::get().max(1);
+  let send_workers = cfg.send_workers.clamp(1, cpu_max);
+  let confirm_workers = cfg.confirm_workers.clamp(1, cpu_max);
   let endpoints = Arc::new(EndpointSelector::new(cfg.rpc_urls.clone()));
 
   println!(
@@ -34,7 +36,7 @@ async fn main() -> Result<()> {
     cfg.rpc_pool_size
   );
 
-  let max_len = cfg.queue_size.max(1);
+  let max_len = cfg.queue_size.clamp(1, cpu_max);
   let send_queue = Arc::new(ShardedQueue::<SendTask>::new(send_workers, max_len));
   let confirm_queue = Arc::new(ShardedQueue::<ConfirmTask>::new(confirm_workers, max_len));
 
