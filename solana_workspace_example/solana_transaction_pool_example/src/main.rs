@@ -13,7 +13,6 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleResult};
-use once_cell::sync::OnceCell;
 use priority_queue::PriorityQueue;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
@@ -29,14 +28,6 @@ use tokio::{
   task::JoinSet,
   time::{interval, sleep, sleep_until, timeout, Instant as TokioInstant},
 };
-
-const WAIT_BUCKETS_MS: [u64; 8] = [1, 5, 10, 50, 100, 500, 1_000, 5_000];
-const WAIT_BUCKET_COUNT: usize = WAIT_BUCKETS_MS.len() + 1;
-
-static SEND_QUEUE: OnceCell<Arc<ShardedQueue<SendTask>>> = OnceCell::new();
-static CONFIRM_QUEUE: OnceCell<Arc<ShardedQueue<ConfirmTask>>> = OnceCell::new();
-static SEND_METRICS: OnceCell<Arc<QueueMetrics>> = OnceCell::new();
-static CONFIRM_METRICS: OnceCell<Arc<QueueMetrics>> = OnceCell::new();
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -55,7 +46,6 @@ struct Config {
   confirm_max_delay_ms: u64,
   worker_idle_tick_ms: u64,
   trace_workers: bool,
-  metrics_interval_ms: u64,
 }
 
 impl Config {
@@ -90,7 +80,6 @@ impl Config {
       confirm_max_delay_ms: env_u64("CONFIRM_MAX_DELAY_MS", 4000),
       worker_idle_tick_ms,
       trace_workers: env_bool("TRACE_WORKER", false),
-      metrics_interval_ms: env_u64("METRICS_INTERVAL_MS", 5_000),
     }
   }
 }
@@ -465,7 +454,6 @@ struct PriorityKey {
 #[derive(Debug)]
 struct QueueItem<T> {
   id: u64,
-  enqueued_at: TokioInstant,
   task: T,
 }
 
@@ -488,7 +476,7 @@ struct WorkerQueue<T> {
   notify: Arc<Notify>,
   max_len: usize,
   seq: AtomicU64,
-  metrics: Arc<QueueMetrics>,
+  counters: Arc<QueueCounters>,
 }
 
 struct ShardedQueue<T> {
@@ -498,138 +486,27 @@ struct ShardedQueue<T> {
   notify: Arc<Notify>,
 }
 
-struct QueueMetrics {
-  name: &'static str,
+struct QueueCounters {
   len: AtomicUsize,
-  pushes: AtomicU64,
-  pops: AtomicU64,
   drops: AtomicU64,
-  wait_total_ms: AtomicU64,
-  wait_max_ms: AtomicU64,
-  wait_buckets: [AtomicUsize; WAIT_BUCKET_COUNT],
 }
 
-impl QueueMetrics {
-  fn new(name: &'static str) -> Self {
+impl QueueCounters {
+  fn new() -> Self {
     Self {
-      name,
       len: AtomicUsize::new(0),
-      pushes: AtomicU64::new(0),
-      pops: AtomicU64::new(0),
       drops: AtomicU64::new(0),
-      wait_total_ms: AtomicU64::new(0),
-      wait_max_ms: AtomicU64::new(0),
-      wait_buckets: std::array::from_fn(|_| AtomicUsize::new(0)),
     }
   }
-
-  fn record_wait(&self, wait_ms: u64) {
-    self.wait_total_ms.fetch_add(wait_ms, Ordering::Relaxed);
-    let idx = wait_bucket_index(wait_ms);
-    self.wait_buckets[idx].fetch_add(1, Ordering::Relaxed);
-
-    let mut current = self.wait_max_ms.load(Ordering::Relaxed);
-    while wait_ms > current {
-      match self.wait_max_ms.compare_exchange(
-        current,
-        wait_ms,
-        Ordering::Relaxed,
-        Ordering::Relaxed,
-      ) {
-        Ok(_) => break,
-        Err(next) => current = next,
-      }
-    }
-  }
-
-  fn snapshot(&self) -> QueueSnapshot {
-    let buckets = std::array::from_fn(|idx| self.wait_buckets[idx].load(Ordering::Relaxed));
-    QueueSnapshot {
-      name: self.name,
-      len: self.len.load(Ordering::Relaxed),
-      pushes: self.pushes.load(Ordering::Relaxed),
-      pops: self.pops.load(Ordering::Relaxed),
-      drops: self.drops.load(Ordering::Relaxed),
-      wait_total_ms: self.wait_total_ms.load(Ordering::Relaxed),
-      wait_max_ms: self.wait_max_ms.load(Ordering::Relaxed),
-      buckets,
-    }
-  }
-}
-
-struct QueueSnapshot {
-  name: &'static str,
-  len: usize,
-  pushes: u64,
-  pops: u64,
-  drops: u64,
-  wait_total_ms: u64,
-  wait_max_ms: u64,
-  buckets: [usize; WAIT_BUCKET_COUNT],
-}
-
-fn wait_bucket_index(wait_ms: u64) -> usize {
-  for (idx, bound) in WAIT_BUCKETS_MS.iter().enumerate() {
-    if wait_ms < *bound {
-      return idx;
-    }
-  }
-  WAIT_BUCKET_COUNT - 1
-}
-
-fn spawn_metrics_reporter(
-  send_metrics: Arc<QueueMetrics>,
-  confirm_metrics: Arc<QueueMetrics>,
-  interval_ms: u64,
-) {
-  let interval_ms = interval_ms.max(500);
-  tokio::spawn(async move {
-    let mut ticker = interval(Duration::from_millis(interval_ms));
-    loop {
-      ticker.tick().await;
-      report_queue_metrics(&send_metrics);
-      report_queue_metrics(&confirm_metrics);
-    }
-  });
-}
-
-fn report_queue_metrics(metrics: &QueueMetrics) {
-  let snapshot = metrics.snapshot();
-  let avg_wait_ms = if snapshot.pops > 0 {
-    snapshot.wait_total_ms / snapshot.pops
-  } else {
-    0
-  };
-  let buckets = snapshot.buckets;
-  eprintln!(
-    "queue_metrics name={} len={} pushes={} pops={} drops={} avg_wait_ms={} max_wait_ms={} \
-     buckets=<1:{} <5:{} <10:{} <50:{} <100:{} <500:{} <1s:{} <5s:{} >=5s:{}",
-    snapshot.name,
-    snapshot.len,
-    snapshot.pushes,
-    snapshot.pops,
-    snapshot.drops,
-    avg_wait_ms,
-    snapshot.wait_max_ms,
-    buckets[0],
-    buckets[1],
-    buckets[2],
-    buckets[3],
-    buckets[4],
-    buckets[5],
-    buckets[6],
-    buckets[7],
-    buckets[8],
-  );
 }
 impl<T> WorkerQueue<T> {
-  fn new(max_len: usize, metrics: Arc<QueueMetrics>) -> Self {
+  fn new(max_len: usize, counters: Arc<QueueCounters>) -> Self {
     Self {
       inner: Mutex::new(PriorityQueue::new()),
       notify: Arc::new(Notify::new()),
       max_len,
       seq: AtomicU64::new(0),
-      metrics,
+      counters,
     }
   }
 
@@ -639,26 +516,20 @@ impl<T> WorkerQueue<T> {
     drop(guard);
 
     if let Some((item, _priority)) = popped {
-      self.metrics.len.fetch_sub(1, Ordering::Relaxed);
-      self.metrics.pops.fetch_add(1, Ordering::Relaxed);
-      let wait_ms = TokioInstant::now()
-        .saturating_duration_since(item.enqueued_at)
-        .as_millis() as u64;
-      self.metrics.record_wait(wait_ms);
+      self.counters.len.fetch_sub(1, Ordering::Relaxed);
       return Some(item.task);
     }
 
     None
   }
   async fn push(&self, priority: Priority, item: T) -> Result<(), String> {
-    let prev = self.metrics.len.fetch_add(1, Ordering::Relaxed);
+    let prev = self.counters.len.fetch_add(1, Ordering::Relaxed);
     if prev >= self.max_len {
-      self.metrics.len.fetch_sub(1, Ordering::Relaxed);
-      self.metrics.drops.fetch_add(1, Ordering::Relaxed);
+      self.counters.len.fetch_sub(1, Ordering::Relaxed);
+      self.counters.drops.fetch_add(1, Ordering::Relaxed);
       return Err("priority queue is full".to_string());
     }
 
-    self.metrics.pushes.fetch_add(1, Ordering::Relaxed);
     let level = match priority {
       Priority::High => 2,
       Priority::Normal => 1,
@@ -670,14 +541,7 @@ impl<T> WorkerQueue<T> {
       seq: Reverse(id),
     };
     let mut guard = self.inner.lock().await;
-    guard.push(
-      QueueItem {
-        id,
-        enqueued_at: TokioInstant::now(),
-        task: item,
-      },
-      key,
-    );
+    guard.push(QueueItem { id, task: item }, key);
     drop(guard);
     self.notify.notify_one();
     Ok(())
@@ -688,10 +552,11 @@ impl<T> ShardedQueue<T>
 where
   T: Send,
 {
-  fn new(worker_count: usize, max_len: usize, metrics: Arc<QueueMetrics>) -> Self {
+  fn new(worker_count: usize, max_len: usize) -> Self {
     let worker_count = worker_count.max(1);
+    let counters = Arc::new(QueueCounters::new());
     let queues = (0 .. worker_count)
-      .map(|_| Arc::new(WorkerQueue::new(max_len, Arc::clone(&metrics))))
+      .map(|_| Arc::new(WorkerQueue::new(max_len, Arc::clone(&counters))))
       .collect();
     Self {
       queues,
@@ -710,10 +575,7 @@ where
   }
 
   async fn push(&self, priority: Priority, item: T) -> Result<(), String> {
-    let idx = self
-      .next_idx
-      .fetch_add(1, Ordering::Relaxed)
-      % self.queues.len();
+    let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.queues.len();
     self.queues[idx].push(priority, item).await?;
     self.notify.notify_one();
     Ok(())
@@ -746,39 +608,13 @@ fn init_queues(
   cfg: &Config,
   send_workers: usize,
   confirm_workers: usize,
-) -> (
-  Arc<ShardedQueue<SendTask>>,
-  Arc<ShardedQueue<ConfirmTask>>,
-  Arc<QueueMetrics>,
-  Arc<QueueMetrics>,
-) {
+) -> (Arc<ShardedQueue<SendTask>>, Arc<ShardedQueue<ConfirmTask>>) {
   let max_len = cfg.queue_size.max(1);
-  let send_metrics = SEND_METRICS
-    .get_or_init(|| Arc::new(QueueMetrics::new("send")))
-    .clone();
-  let confirm_metrics = CONFIRM_METRICS
-    .get_or_init(|| Arc::new(QueueMetrics::new("confirm")))
-    .clone();
-  let send_queue = SEND_QUEUE
-    .get_or_init(|| {
-      Arc::new(ShardedQueue::<SendTask>::new(
-        send_workers,
-        max_len,
-        Arc::clone(&send_metrics),
-      ))
-    })
-    .clone();
-  let confirm_queue = CONFIRM_QUEUE
-    .get_or_init(|| {
-      Arc::new(ShardedQueue::<ConfirmTask>::new(
-        confirm_workers,
-        max_len,
-        Arc::clone(&confirm_metrics),
-      ))
-    })
-    .clone();
+  let send_queue = Arc::new(ShardedQueue::<SendTask>::new(send_workers, max_len));
 
-  (send_queue, confirm_queue, send_metrics, confirm_metrics)
+  let confirm_queue = Arc::new(ShardedQueue::<ConfirmTask>::new(confirm_workers, max_len));
+
+  (send_queue, confirm_queue)
 }
 
 fn build_rpc_pool(cfg: &Config) -> Result<RpcPool> {
@@ -905,8 +741,7 @@ async fn main() -> Result<()> {
     cfg.rpc_url, send_workers, confirm_workers, cfg.queue_size, cfg.rpc_pool_size
   );
 
-  let (send_queue, confirm_queue, send_metrics, confirm_metrics) =
-    init_queues(&cfg, send_workers, confirm_workers);
+  let (send_queue, confirm_queue) = init_queues(&cfg, send_workers, confirm_workers);
   let rpc_pool = build_rpc_pool(&cfg)?;
   let send_pool = Arc::new(SendPool::new(
     send_workers,
@@ -920,7 +755,6 @@ async fn main() -> Result<()> {
     confirm_queue,
     rpc_pool.clone(),
   ));
-  spawn_metrics_reporter(send_metrics, confirm_metrics, cfg.metrics_interval_ms);
 
   let requests = if let Some(path) = &cfg.tx_file {
     load_requests_from_file(path)?
