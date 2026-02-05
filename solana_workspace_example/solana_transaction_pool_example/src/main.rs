@@ -12,6 +12,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
+use deadpool::managed::{Manager, Metrics, Pool, RecycleResult};
 use once_cell::sync::OnceCell;
 use priority_queue::PriorityQueue;
 use solana_client::nonblocking::rpc_client::RpcClient;
@@ -44,6 +45,7 @@ struct Config {
   send_workers: usize,
   confirm_workers: usize,
   queue_size: usize,
+  rpc_pool_size: usize,
   tx_file: Option<String>,
   demo_count: usize,
   send_timeout_ms: u64,
@@ -65,12 +67,20 @@ impl Config {
     } else {
       idle_tick_ms
     };
+    let send_workers = env_usize("SEND_WORKERS", 4);
+    let confirm_workers = env_usize("CONFIRM_WORKERS", 4);
+    let rpc_pool_size = env_usize(
+      "RPC_POOL_SIZE",
+      send_workers.saturating_add(confirm_workers),
+    )
+    .max(1);
 
     Self {
       rpc_url: env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string()),
-      send_workers: env_usize("SEND_WORKERS", 4),
-      confirm_workers: env_usize("CONFIRM_WORKERS", 4),
+      send_workers,
+      confirm_workers,
       queue_size: env_usize("QUEUE_SIZE", 256),
+      rpc_pool_size,
       tx_file: env::var("TX_FILE").ok(),
       demo_count: env_usize("DEMO_COUNT", 4),
       send_timeout_ms: env_u64("SEND_TIMEOUT_MS", 5_000),
@@ -85,6 +95,42 @@ impl Config {
     }
   }
 }
+
+#[derive(Clone)]
+struct RpcClientManager {
+  rpc_url: String,
+  commitment: CommitmentConfig,
+}
+
+impl RpcClientManager {
+  fn new(rpc_url: String, commitment: CommitmentConfig) -> Self {
+    Self {
+      rpc_url,
+      commitment,
+    }
+  }
+}
+
+impl Manager for RpcClientManager {
+  type Type = RpcClient;
+  type Error = anyhow::Error;
+
+  fn create(&self) -> impl std::future::Future<Output = Result<Self::Type, Self::Error>> + Send {
+    let rpc_url = self.rpc_url.clone();
+    let commitment = self.commitment.clone();
+    async move { Ok(RpcClient::new_with_commitment(rpc_url, commitment)) }
+  }
+
+  fn recycle(
+    &self,
+    _obj: &mut Self::Type,
+    _metrics: &Metrics,
+  ) -> impl std::future::Future<Output = RecycleResult<Self::Error>> + Send {
+    async { Ok(()) }
+  }
+}
+
+type RpcPool = Pool<RpcClientManager>;
 
 #[derive(Debug, Clone)]
 struct SendRequest {
@@ -139,7 +185,7 @@ trait SendInterface {
 
 struct SendWorker {
   id: usize,
-  client: RpcClient,
+  pool: RpcPool,
   timeout: Duration,
   trace: bool,
 }
@@ -152,7 +198,12 @@ impl SendInterface for SendWorker {
 
   async fn send_request(&self, req: SendRequest, started: Instant) -> Result<SendResponse, String> {
     let tx = decode_transaction(&req.tx_b64)?;
-    let send_fut = self.client.send_transaction(&tx);
+    let client = self
+      .pool
+      .get()
+      .await
+      .map_err(|err| format!("rpc pool error: {err}"))?;
+    let send_fut = client.send_transaction(&tx);
     let signature = match timeout(self.timeout, send_fut).await {
       Ok(Ok(signature)) => signature,
       Ok(Err(err)) => return Err(format!("rpc send error: {err}")),
@@ -195,7 +246,7 @@ trait ConfirmInterface {
 
 struct ConfirmWorker {
   id: usize,
-  client: RpcClient,
+  pool: RpcPool,
   timeout: Duration,
   rpc_timeout: Duration,
   max_retries: usize,
@@ -238,13 +289,29 @@ impl ConfirmInterface for ConfirmWorker {
       let remaining = deadline.saturating_duration_since(TokioInstant::now());
       let call_timeout = self.rpc_timeout.min(remaining);
 
-      let status_result = timeout(
-        call_timeout,
-        self
-          .client
-          .get_signature_status_with_commitment(&req.signature, self.commitment),
-      )
-      .await;
+      let status_result = {
+        let client = match self.pool.get().await {
+          Ok(client) => client,
+          Err(err) => {
+            return ConfirmResponse {
+              request_id: req.request_id,
+              signature: req.signature.to_string(),
+              confirmed: false,
+              reason: Some(format!("rpc pool error: {err}")),
+              worker_id: self.id,
+              attempts,
+              elapsed_ms: started.elapsed().as_millis(),
+              priority: req.priority,
+            };
+          }
+        };
+
+        timeout(
+          call_timeout,
+          client.get_signature_status_with_commitment(&req.signature, self.commitment),
+        )
+        .await
+      };
 
       match status_result {
         Ok(Ok(Some(Ok(())))) => {
@@ -668,22 +735,30 @@ fn init_queues(
   (send_queue, confirm_queue, send_metrics, confirm_metrics)
 }
 
+fn build_rpc_pool(cfg: &Config) -> Result<RpcPool> {
+  let manager = RpcClientManager::new(cfg.rpc_url.clone(), CommitmentConfig::confirmed());
+  Pool::builder(manager)
+    .max_size(cfg.rpc_pool_size)
+    .build()
+    .map_err(|err| anyhow!("rpc pool build error: {err}"))
+}
+
 struct SendPool {
   queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
 }
 
 impl SendPool {
   fn new(
-    rpc_url: &str,
     worker_count: usize,
     cfg: &Config,
     queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
+    rpc_pool: RpcPool,
   ) -> Self {
     for id in 0 .. worker_count {
       let in_flight = Arc::new(AtomicUsize::new(0));
       let worker = SendWorker {
         id,
-        client: RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed()),
+        pool: rpc_pool.clone(),
         timeout: Duration::from_millis(cfg.send_timeout_ms.max(1)),
         trace: cfg.trace_workers,
       };
@@ -723,16 +798,16 @@ struct ConfirmPool {
 
 impl ConfirmPool {
   fn new(
-    rpc_url: &str,
     worker_count: usize,
     cfg: &Config,
     queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+    rpc_pool: RpcPool,
   ) -> Self {
     for id in 0 .. worker_count {
       let in_flight = Arc::new(AtomicUsize::new(0));
       let worker = ConfirmWorker {
         id,
-        client: RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed()),
+        pool: rpc_pool.clone(),
         timeout: Duration::from_millis(cfg.confirm_timeout_ms.max(1)),
         rpc_timeout: Duration::from_millis(cfg.confirm_rpc_timeout_ms.max(1)),
         max_retries: cfg.confirm_max_retries,
@@ -776,29 +851,32 @@ impl ConfirmPool {
 #[tokio::main]
 async fn main() -> Result<()> {
   let cfg = Config::from_env();
-  let rpc_url = cfg.rpc_url.clone();
 
   println!(
-    "rpc_url={}, send_workers={}, confirm_workers={}, queue_size={}",
-    cfg.rpc_url, cfg.send_workers, cfg.confirm_workers, cfg.queue_size
+    "rpc_url={}, send_workers={}, confirm_workers={}, queue_size={}, rpc_pool_size={}",
+    cfg.rpc_url, cfg.send_workers, cfg.confirm_workers, cfg.queue_size, cfg.rpc_pool_size
   );
 
   let (send_queue, confirm_queue, send_metrics, confirm_metrics) = init_queues(&cfg);
-  let send_pool = Arc::new(SendPool::new(&rpc_url, cfg.send_workers, &cfg, send_queue));
+  let rpc_pool = build_rpc_pool(&cfg)?;
+  let send_pool = Arc::new(SendPool::new(
+    cfg.send_workers,
+    &cfg,
+    send_queue,
+    rpc_pool.clone(),
+  ));
   let confirm_pool = Arc::new(ConfirmPool::new(
-    &rpc_url,
     cfg.confirm_workers,
     &cfg,
     confirm_queue,
+    rpc_pool.clone(),
   ));
   spawn_metrics_reporter(send_metrics, confirm_metrics, cfg.metrics_interval_ms);
 
-  let seed_client =
-    RpcClient::new_with_commitment(cfg.rpc_url.clone(), CommitmentConfig::confirmed());
   let requests = if let Some(path) = &cfg.tx_file {
     load_requests_from_file(path)?
   } else {
-    build_demo_requests(&seed_client, cfg.demo_count).await?
+    build_demo_requests(&rpc_pool, cfg.demo_count).await?
   };
 
   let mut join_set = JoinSet::new();
@@ -1001,9 +1079,13 @@ fn load_requests_from_file(path: &str) -> Result<Vec<SendRequest>> {
   Ok(requests)
 }
 
-async fn build_demo_requests(client: &RpcClient, count: usize) -> Result<Vec<SendRequest>> {
+async fn build_demo_requests(pool: &RpcPool, count: usize) -> Result<Vec<SendRequest>> {
   let payer = Keypair::new();
   let recipient = Keypair::new();
+  let client = pool
+    .get()
+    .await
+    .map_err(|err| anyhow!("rpc pool error: {err}"))?;
 
   let airdrop_sig = client
     .request_airdrop(&payer.pubkey(), LAMPORTS_PER_SOL)
