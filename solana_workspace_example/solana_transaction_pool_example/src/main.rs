@@ -12,7 +12,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
-use deadpool::managed::{Manager, Metrics, Pool, RecycleResult};
+use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleResult};
 use priority_queue::PriorityQueue;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
@@ -31,7 +31,7 @@ use tokio::{
 
 #[derive(Debug, Clone)]
 struct Config {
-  rpc_url: String,
+  rpc_urls: Vec<String>,
   send_workers: usize,
   confirm_workers: usize,
   queue_size: usize,
@@ -58,6 +58,7 @@ impl Config {
     };
     let send_workers = env_usize("SEND_WORKERS", 4);
     let confirm_workers = env_usize("CONFIRM_WORKERS", 4);
+    let rpc_urls = parse_rpc_urls();
     let rpc_pool_size = env_usize(
       "RPC_POOL_SIZE",
       send_workers.saturating_add(confirm_workers),
@@ -65,7 +66,7 @@ impl Config {
     .max(1);
 
     Self {
-      rpc_url: env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string()),
+      rpc_urls,
       send_workers,
       confirm_workers,
       queue_size: env_usize("QUEUE_SIZE", 256),
@@ -84,16 +85,44 @@ impl Config {
   }
 }
 
+struct EndpointSelector {
+  urls: Vec<String>,
+  index: AtomicUsize,
+}
+
+impl EndpointSelector {
+  fn new(urls: Vec<String>) -> Self {
+    Self {
+      urls,
+      index: AtomicUsize::new(0),
+    }
+  }
+
+  fn current(&self) -> String {
+    let idx = self.index.load(Ordering::Relaxed) % self.urls.len();
+    self.urls[idx].clone()
+  }
+
+  fn rotate(&self) -> String {
+    let idx = self.index.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    self.urls[idx % self.urls.len()].clone()
+  }
+
+  fn list(&self) -> &[String] {
+    &self.urls
+  }
+}
+
 #[derive(Clone)]
 struct RpcClientManager {
-  rpc_url: String,
+  endpoints: Arc<EndpointSelector>,
   commitment: CommitmentConfig,
 }
 
 impl RpcClientManager {
-  fn new(rpc_url: String, commitment: CommitmentConfig) -> Self {
+  fn new(endpoints: Arc<EndpointSelector>, commitment: CommitmentConfig) -> Self {
     Self {
-      rpc_url,
+      endpoints,
       commitment,
     }
   }
@@ -104,7 +133,7 @@ impl Manager for RpcClientManager {
   type Error = anyhow::Error;
 
   fn create(&self) -> impl std::future::Future<Output = Result<Self::Type, Self::Error>> + Send {
-    let rpc_url = self.rpc_url.clone();
+    let rpc_url = self.endpoints.current();
     let commitment = self.commitment.clone();
     async move { Ok(RpcClient::new_with_commitment(rpc_url, commitment)) }
   }
@@ -174,6 +203,7 @@ trait SendInterface {
 struct SendWorker {
   id: usize,
   pool: RpcPool,
+  endpoints: Arc<EndpointSelector>,
   timeout: Duration,
   trace: bool,
 }
@@ -194,7 +224,14 @@ impl SendInterface for SendWorker {
     let send_fut = client.send_transaction(&tx);
     let signature = match timeout(self.timeout, send_fut).await {
       Ok(Ok(signature)) => signature,
-      Ok(Err(err)) => return Err(format!("rpc send error: {err}")),
+      Ok(Err(err)) => {
+        let err_str = err.to_string();
+        if is_rate_limited(&err_str) {
+          let _ = Object::take(client);
+          handle_rate_limit(&self.pool, &self.endpoints, self.trace, self.id, "send");
+        }
+        return Err(format!("rpc send error: {err_str}"));
+      }
       Err(_) => {
         eprintln!(
           "send timeout worker_id={} request_id={} timeout_ms={}",
@@ -235,6 +272,7 @@ trait ConfirmInterface {
 struct ConfirmWorker {
   id: usize,
   pool: RpcPool,
+  endpoints: Arc<EndpointSelector>,
   timeout: Duration,
   rpc_timeout: Duration,
   max_retries: usize,
@@ -277,29 +315,27 @@ impl ConfirmInterface for ConfirmWorker {
       let remaining = deadline.saturating_duration_since(TokioInstant::now());
       let call_timeout = self.rpc_timeout.min(remaining);
 
-      let status_result = {
-        let client = match self.pool.get().await {
-          Ok(client) => client,
-          Err(err) => {
-            return ConfirmResponse {
-              request_id: req.request_id,
-              signature: req.signature.to_string(),
-              confirmed: false,
-              reason: Some(format!("rpc pool error: {err}")),
-              worker_id: self.id,
-              attempts,
-              elapsed_ms: started.elapsed().as_millis(),
-              priority: req.priority,
-            };
-          }
-        };
-
-        timeout(
-          call_timeout,
-          client.get_signature_status_with_commitment(&req.signature, self.commitment),
-        )
-        .await
+      let client = match self.pool.get().await {
+        Ok(client) => client,
+        Err(err) => {
+          return ConfirmResponse {
+            request_id: req.request_id,
+            signature: req.signature.to_string(),
+            confirmed: false,
+            reason: Some(format!("rpc pool error: {err}")),
+            worker_id: self.id,
+            attempts,
+            elapsed_ms: started.elapsed().as_millis(),
+            priority: req.priority,
+          };
+        }
       };
+
+      let status_result = timeout(
+        call_timeout,
+        client.get_signature_status_with_commitment(&req.signature, self.commitment),
+      )
+      .await;
 
       match status_result {
         Ok(Ok(Some(Ok(())))) => {
@@ -347,11 +383,16 @@ impl ConfirmInterface for ConfirmWorker {
           }
         }
         Ok(Err(err)) => {
+          let err_str = err.to_string();
+          if is_rate_limited(&err_str) {
+            let _ = Object::take(client);
+            handle_rate_limit(&self.pool, &self.endpoints, self.trace, self.id, "confirm");
+          }
           return ConfirmResponse {
             request_id: req.request_id,
             signature: req.signature.to_string(),
             confirmed: false,
-            reason: Some(format!("rpc status error: {err}")),
+            reason: Some(format!("rpc status error: {err_str}")),
             worker_id: self.id,
             attempts,
             elapsed_ms: started.elapsed().as_millis(),
@@ -617,8 +658,8 @@ fn init_queues(
   (send_queue, confirm_queue)
 }
 
-fn build_rpc_pool(cfg: &Config) -> Result<RpcPool> {
-  let manager = RpcClientManager::new(cfg.rpc_url.clone(), CommitmentConfig::confirmed());
+fn build_rpc_pool(cfg: &Config, endpoints: Arc<EndpointSelector>) -> Result<RpcPool> {
+  let manager = RpcClientManager::new(endpoints, CommitmentConfig::confirmed());
   Pool::builder(manager)
     .max_size(cfg.rpc_pool_size)
     .build()
@@ -635,12 +676,14 @@ impl SendPool {
     cfg: &Config,
     queue: Arc<ShardedQueue<SendTask>>,
     rpc_pool: RpcPool,
+    endpoints: Arc<EndpointSelector>,
   ) -> Self {
     for id in 0 .. worker_count {
       let in_flight = Arc::new(AtomicUsize::new(0));
       let worker = SendWorker {
         id,
         pool: rpc_pool.clone(),
+        endpoints: endpoints.clone(),
         timeout: Duration::from_millis(cfg.send_timeout_ms.max(1)),
         trace: cfg.trace_workers,
       };
@@ -684,12 +727,14 @@ impl ConfirmPool {
     cfg: &Config,
     queue: Arc<ShardedQueue<ConfirmTask>>,
     rpc_pool: RpcPool,
+    endpoints: Arc<EndpointSelector>,
   ) -> Self {
     for id in 0 .. worker_count {
       let in_flight = Arc::new(AtomicUsize::new(0));
       let worker = ConfirmWorker {
         id,
         pool: rpc_pool.clone(),
+        endpoints: endpoints.clone(),
         timeout: Duration::from_millis(cfg.confirm_timeout_ms.max(1)),
         rpc_timeout: Duration::from_millis(cfg.confirm_rpc_timeout_ms.max(1)),
         max_retries: cfg.confirm_max_retries,
@@ -735,25 +780,32 @@ async fn main() -> Result<()> {
   let cfg = Config::from_env();
   let send_workers = cfg.send_workers.max(1);
   let confirm_workers = cfg.confirm_workers.max(1);
+  let endpoints = Arc::new(EndpointSelector::new(cfg.rpc_urls.clone()));
 
   println!(
-    "rpc_url={}, send_workers={}, confirm_workers={}, queue_size={}, rpc_pool_size={}",
-    cfg.rpc_url, send_workers, confirm_workers, cfg.queue_size, cfg.rpc_pool_size
+    "rpc_urls=[{}], send_workers={}, confirm_workers={}, queue_size={}, rpc_pool_size={}",
+    endpoints.list().join(","),
+    send_workers,
+    confirm_workers,
+    cfg.queue_size,
+    cfg.rpc_pool_size
   );
 
   let (send_queue, confirm_queue) = init_queues(&cfg, send_workers, confirm_workers);
-  let rpc_pool = build_rpc_pool(&cfg)?;
+  let rpc_pool = build_rpc_pool(&cfg, endpoints.clone())?;
   let send_pool = Arc::new(SendPool::new(
     send_workers,
     &cfg,
     send_queue,
     rpc_pool.clone(),
+    endpoints.clone(),
   ));
   let confirm_pool = Arc::new(ConfirmPool::new(
     confirm_workers,
     &cfg,
     confirm_queue,
     rpc_pool.clone(),
+    endpoints.clone(),
   ));
 
   let requests = if let Some(path) = &cfg.tx_file {
@@ -946,6 +998,31 @@ fn decode_transaction(tx_b64: &str) -> Result<VersionedTransaction, String> {
     .map_err(|e| format!("bincode decode error: {e}"))
 }
 
+fn is_rate_limited(err: &str) -> bool {
+  let lower = err.to_lowercase();
+  lower.contains("rate limit")
+    || lower.contains("ratelimit")
+    || lower.contains("too many requests")
+    || lower.contains("429")
+}
+
+fn handle_rate_limit(
+  pool: &RpcPool,
+  endpoints: &EndpointSelector,
+  trace: bool,
+  worker_id: usize,
+  context: &str,
+) {
+  let next = endpoints.rotate();
+  pool.retain(|_, _| false);
+  if trace {
+    eprintln!(
+      "rate limit context={} worker_id={} switch_endpoint={}",
+      context, worker_id, next
+    );
+  }
+}
+
 fn load_requests_from_file(path: &str) -> Result<Vec<SendRequest>> {
   let content = fs::read_to_string(path).with_context(|| format!("read TX_FILE {path}"))?;
   let mut requests = Vec::new();
@@ -1054,6 +1131,22 @@ fn env_usize(key: &str, default: usize) -> usize {
     .ok()
     .and_then(|value| value.parse::<usize>().ok())
     .unwrap_or(default)
+}
+
+fn parse_rpc_urls() -> Vec<String> {
+  if let Ok(value) = env::var("RPC_URLS") {
+    let urls: Vec<String> = value
+      .split(|ch: char| ch == ',' || ch.is_whitespace())
+      .map(str::trim)
+      .filter(|item| !item.is_empty())
+      .map(|item| item.to_string())
+      .collect();
+    if !urls.is_empty() {
+      return urls;
+    }
+  }
+
+  vec![env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:8899".to_string())]
 }
 
 fn env_u64(key: &str, default: u64) -> u64 {
