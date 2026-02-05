@@ -33,9 +33,8 @@ use tokio::{
 const WAIT_BUCKETS_MS: [u64; 8] = [1, 5, 10, 50, 100, 500, 1_000, 5_000];
 const WAIT_BUCKET_COUNT: usize = WAIT_BUCKETS_MS.len() + 1;
 
-static SEND_QUEUE: OnceCell<Arc<dyn QueueInterface<SendTask> + Send + Sync>> = OnceCell::new();
-static CONFIRM_QUEUE: OnceCell<Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>> =
-  OnceCell::new();
+static SEND_QUEUE: OnceCell<Arc<ShardedQueue<SendTask>>> = OnceCell::new();
+static CONFIRM_QUEUE: OnceCell<Arc<ShardedQueue<ConfirmTask>>> = OnceCell::new();
 static SEND_METRICS: OnceCell<Arc<QueueMetrics>> = OnceCell::new();
 static CONFIRM_METRICS: OnceCell<Arc<QueueMetrics>> = OnceCell::new();
 
@@ -484,18 +483,19 @@ impl<T> std::hash::Hash for QueueItem<T> {
   }
 }
 
-#[async_trait]
-trait QueueInterface<T>: Send + Sync {
-  async fn push(&self, priority: Priority, item: T) -> Result<(), String>;
-  async fn pop(&self) -> Option<T>;
-}
-
-struct PriorityQueueImpl<T> {
+struct WorkerQueue<T> {
   inner: Mutex<PriorityQueue<QueueItem<T>, PriorityKey>>,
-  notify: Notify,
+  notify: Arc<Notify>,
   max_len: usize,
   seq: AtomicU64,
   metrics: Arc<QueueMetrics>,
+}
+
+struct ShardedQueue<T> {
+  queues: Vec<Arc<WorkerQueue<T>>>,
+  next_idx: AtomicUsize,
+  steal_seq: AtomicUsize,
+  notify: Arc<Notify>,
 }
 
 struct QueueMetrics {
@@ -622,18 +622,18 @@ fn report_queue_metrics(metrics: &QueueMetrics) {
     buckets[8],
   );
 }
-impl<T> PriorityQueueImpl<T> {
+impl<T> WorkerQueue<T> {
   fn new(max_len: usize, metrics: Arc<QueueMetrics>) -> Self {
     Self {
       inner: Mutex::new(PriorityQueue::new()),
-      notify: Notify::new(),
+      notify: Arc::new(Notify::new()),
       max_len,
       seq: AtomicU64::new(0),
       metrics,
     }
   }
 
-  async fn pop_once(&self) -> Option<T> {
+  async fn try_pop(&self) -> Option<T> {
     let mut guard = self.inner.lock().await;
     let popped = guard.pop();
     drop(guard);
@@ -650,13 +650,6 @@ impl<T> PriorityQueueImpl<T> {
 
     None
   }
-}
-
-#[async_trait]
-impl<T> QueueInterface<T> for PriorityQueueImpl<T>
-where
-  T: Send,
-{
   async fn push(&self, priority: Priority, item: T) -> Result<(), String> {
     let prev = self.metrics.len.fetch_add(1, Ordering::Relaxed);
     if prev >= self.max_len {
@@ -689,22 +682,73 @@ where
     self.notify.notify_one();
     Ok(())
   }
+}
 
-  async fn pop(&self) -> Option<T> {
-    loop {
-      if let Some(item) = self.pop_once().await {
-        return Some(item);
-      }
-      self.notify.notified().await;
+impl<T> ShardedQueue<T>
+where
+  T: Send,
+{
+  fn new(worker_count: usize, max_len: usize, metrics: Arc<QueueMetrics>) -> Self {
+    let worker_count = worker_count.max(1);
+    let queues = (0 .. worker_count)
+      .map(|_| Arc::new(WorkerQueue::new(max_len, Arc::clone(&metrics))))
+      .collect();
+    Self {
+      queues,
+      next_idx: AtomicUsize::new(0),
+      steal_seq: AtomicUsize::new(0),
+      notify: Arc::new(Notify::new()),
     }
+  }
+
+  fn local_notify(&self, worker_id: usize) -> Arc<Notify> {
+    self.queues[worker_id].notify.clone()
+  }
+
+  fn global_notify(&self) -> Arc<Notify> {
+    self.notify.clone()
+  }
+
+  async fn push(&self, priority: Priority, item: T) -> Result<(), String> {
+    let idx = self
+      .next_idx
+      .fetch_add(1, Ordering::Relaxed)
+      % self.queues.len();
+    self.queues[idx].push(priority, item).await?;
+    self.notify.notify_one();
+    Ok(())
+  }
+
+  async fn try_pop(&self, worker_id: usize) -> Option<T> {
+    self.queues[worker_id].try_pop().await
+  }
+
+  async fn steal(&self, worker_id: usize) -> Option<T> {
+    let total = self.queues.len();
+    if total <= 1 {
+      return None;
+    }
+    let start = self.steal_seq.fetch_add(1, Ordering::Relaxed) % total;
+    for offset in 0 .. total {
+      let idx = (start + offset) % total;
+      if idx == worker_id {
+        continue;
+      }
+      if let Some(task) = self.queues[idx].try_pop().await {
+        return Some(task);
+      }
+    }
+    None
   }
 }
 
 fn init_queues(
   cfg: &Config,
+  send_workers: usize,
+  confirm_workers: usize,
 ) -> (
-  Arc<dyn QueueInterface<SendTask> + Send + Sync>,
-  Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+  Arc<ShardedQueue<SendTask>>,
+  Arc<ShardedQueue<ConfirmTask>>,
   Arc<QueueMetrics>,
   Arc<QueueMetrics>,
 ) {
@@ -717,18 +761,20 @@ fn init_queues(
     .clone();
   let send_queue = SEND_QUEUE
     .get_or_init(|| {
-      Arc::new(PriorityQueueImpl::<SendTask>::new(
+      Arc::new(ShardedQueue::<SendTask>::new(
+        send_workers,
         max_len,
         Arc::clone(&send_metrics),
-      )) as Arc<dyn QueueInterface<SendTask> + Send + Sync>
+      ))
     })
     .clone();
   let confirm_queue = CONFIRM_QUEUE
     .get_or_init(|| {
-      Arc::new(PriorityQueueImpl::<ConfirmTask>::new(
+      Arc::new(ShardedQueue::<ConfirmTask>::new(
+        confirm_workers,
         max_len,
         Arc::clone(&confirm_metrics),
-      )) as Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>
+      ))
     })
     .clone();
 
@@ -744,14 +790,14 @@ fn build_rpc_pool(cfg: &Config) -> Result<RpcPool> {
 }
 
 struct SendPool {
-  queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
+  queue: Arc<ShardedQueue<SendTask>>,
 }
 
 impl SendPool {
   fn new(
     worker_count: usize,
     cfg: &Config,
-    queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
+    queue: Arc<ShardedQueue<SendTask>>,
     rpc_pool: RpcPool,
   ) -> Self {
     for id in 0 .. worker_count {
@@ -793,14 +839,14 @@ impl SendPool {
 }
 
 struct ConfirmPool {
-  queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+  queue: Arc<ShardedQueue<ConfirmTask>>,
 }
 
 impl ConfirmPool {
   fn new(
     worker_count: usize,
     cfg: &Config,
-    queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+    queue: Arc<ShardedQueue<ConfirmTask>>,
     rpc_pool: RpcPool,
   ) -> Self {
     for id in 0 .. worker_count {
@@ -851,22 +897,25 @@ impl ConfirmPool {
 #[tokio::main]
 async fn main() -> Result<()> {
   let cfg = Config::from_env();
+  let send_workers = cfg.send_workers.max(1);
+  let confirm_workers = cfg.confirm_workers.max(1);
 
   println!(
     "rpc_url={}, send_workers={}, confirm_workers={}, queue_size={}, rpc_pool_size={}",
-    cfg.rpc_url, cfg.send_workers, cfg.confirm_workers, cfg.queue_size, cfg.rpc_pool_size
+    cfg.rpc_url, send_workers, confirm_workers, cfg.queue_size, cfg.rpc_pool_size
   );
 
-  let (send_queue, confirm_queue, send_metrics, confirm_metrics) = init_queues(&cfg);
+  let (send_queue, confirm_queue, send_metrics, confirm_metrics) =
+    init_queues(&cfg, send_workers, confirm_workers);
   let rpc_pool = build_rpc_pool(&cfg)?;
   let send_pool = Arc::new(SendPool::new(
-    cfg.send_workers,
+    send_workers,
     &cfg,
     send_queue,
     rpc_pool.clone(),
   ));
   let confirm_pool = Arc::new(ConfirmPool::new(
-    cfg.confirm_workers,
+    confirm_workers,
     &cfg,
     confirm_queue,
     rpc_pool.clone(),
@@ -953,7 +1002,7 @@ async fn main() -> Result<()> {
 
 async fn send_worker_loop<W>(
   worker: W,
-  queue: Arc<dyn QueueInterface<SendTask> + Send + Sync>,
+  queue: Arc<ShardedQueue<SendTask>>,
   in_flight: Arc<AtomicUsize>,
   idle_tick: Duration,
   trace: bool,
@@ -961,25 +1010,40 @@ async fn send_worker_loop<W>(
   W: SendInterface + Send + Sync,
 {
   let mut ticker = interval(idle_tick);
+  let worker_id = worker.id();
+  let local_notify = queue.local_notify(worker_id);
+  let global_notify = queue.global_notify();
   loop {
+    if let Some(task) = queue.try_pop(worker_id).await {
+      in_flight.fetch_add(1, Ordering::Relaxed);
+      let started = Instant::now();
+
+      let result = worker.send_request(task.req, started).await;
+
+      in_flight.fetch_sub(1, Ordering::Relaxed);
+      let _ = task.resp.send(result);
+      continue;
+    }
+
+    if let Some(task) = queue.steal(worker_id).await {
+      in_flight.fetch_add(1, Ordering::Relaxed);
+      let started = Instant::now();
+
+      let result = worker.send_request(task.req, started).await;
+
+      in_flight.fetch_sub(1, Ordering::Relaxed);
+      let _ = task.resp.send(result);
+      continue;
+    }
+
     tokio::select! {
-      task = queue.pop() => {
-        let Some(task) = task else {
-          continue;
-        };
-        in_flight.fetch_add(1, Ordering::Relaxed);
-        let started = Instant::now();
-
-        let result = worker.send_request(task.req, started).await;
-
-        in_flight.fetch_sub(1, Ordering::Relaxed);
-        let _ = task.resp.send(result);
-      }
+      _ = local_notify.notified() => {},
+      _ = global_notify.notified() => {},
       _ = ticker.tick() => {
         if trace {
           eprintln!(
             "send idle worker_id={} in_flight={}",
-            worker.id(),
+            worker_id,
             in_flight.load(Ordering::Relaxed)
           );
         }
@@ -990,7 +1054,7 @@ async fn send_worker_loop<W>(
 
 async fn confirm_worker_loop<W>(
   worker: W,
-  queue: Arc<dyn QueueInterface<ConfirmTask> + Send + Sync>,
+  queue: Arc<ShardedQueue<ConfirmTask>>,
   in_flight: Arc<AtomicUsize>,
   idle_tick: Duration,
   trace: bool,
@@ -998,25 +1062,40 @@ async fn confirm_worker_loop<W>(
   W: ConfirmInterface + Send + Sync,
 {
   let mut ticker = interval(idle_tick);
+  let worker_id = worker.id();
+  let local_notify = queue.local_notify(worker_id);
+  let global_notify = queue.global_notify();
   loop {
+    if let Some(task) = queue.try_pop(worker_id).await {
+      in_flight.fetch_add(1, Ordering::Relaxed);
+      let started = Instant::now();
+
+      let response = worker.confirm_request(task.req, started).await;
+
+      in_flight.fetch_sub(1, Ordering::Relaxed);
+      let _ = task.resp.send(response);
+      continue;
+    }
+
+    if let Some(task) = queue.steal(worker_id).await {
+      in_flight.fetch_add(1, Ordering::Relaxed);
+      let started = Instant::now();
+
+      let response = worker.confirm_request(task.req, started).await;
+
+      in_flight.fetch_sub(1, Ordering::Relaxed);
+      let _ = task.resp.send(response);
+      continue;
+    }
+
     tokio::select! {
-      task = queue.pop() => {
-        let Some(task) = task else {
-          continue;
-        };
-        in_flight.fetch_add(1, Ordering::Relaxed);
-        let started = Instant::now();
-
-        let response = worker.confirm_request(task.req, started).await;
-
-        in_flight.fetch_sub(1, Ordering::Relaxed);
-        let _ = task.resp.send(response);
-      }
+      _ = local_notify.notified() => {},
+      _ = global_notify.notified() => {},
       _ = ticker.tick() => {
         if trace {
           eprintln!(
             "confirm idle worker_id={} in_flight={}",
-            worker.id(),
+            worker_id,
             in_flight.load(Ordering::Relaxed)
           );
         }
