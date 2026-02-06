@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   borrow::Cow,
@@ -422,6 +422,8 @@ impl<'a> DenoCompileModuleData<'a> {
       // just assume javascript if we made it here
       MediaType::Css
       | MediaType::Html
+      | MediaType::Jsonc
+      | MediaType::Json5
       | MediaType::SourceMap
       | MediaType::Sql
       | MediaType::Unknown => (ModuleType::JavaScript, DenoCompileModuleSource::Bytes(data)),

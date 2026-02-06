@@ -1,6 +1,6 @@
 [package]
 name = "denort"
-version = "2.5.6"
+version = "2.6.8"
 edition = "2024"
 
 [[bin]]
@@ -8,49 +8,49 @@ name = "denort"
 path = "src/main.rs"
 doc = false
 
+[dependencies]
+async-trait = "0.1.89"
+bincode = "=1.3.3"
+deno_cache_dir = { version = "=0.26.3", features = ["sync"] }
+deno_config = { version = "0.80.0", features = ["sync", "workspace"] }
+deno_core = { version = "0.383.0", features = ["include_js_files_for_snapshotting"] }
+deno_error = "=0.7.1"
+deno_lib = "0.48.0"
+deno_media_type = { version = "=0.3.0", features = ["data_url", "decoding"] }
+deno_npm = "=0.43.0"
+deno_package_json = { version = "0.32.0", features = ["sync"] }
+deno_path_util = "=0.6.4"
+deno_resolver = { version = "0.61.0", features = ["sync"] }
+deno_runtime = { version = "0.238.0", features = ["include_js_files_for_snapshotting"] }
+deno_semver = "=0.9.1"
+deno_snapshots = "0.45.0"
+deno_terminal = "=0.2.3"
+import_map = { version = "0.25.0", features = ["ext"] }
+indexmap = { version = "2", features = ["serde"] }
+libsui = "0.12.6"
+log = { version = "0.4.29", features = ["serde"] }
+node_resolver = "0.68.0"
+rustls = { version = "=0.23.28", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sys_traits = { version = "=0.1.22", features = ["getrandom", "filetime", "libc", "real", "strip_unc", "winapi"] }
+thiserror = "2.0.18"
+timezone_provider = "=0.0.14"
+tokio = { version = "1.49.0", features = ["full"] }
+url = { version = "2.5", features = ["serde", "expose_internals"] }
+
+[target.'cfg(windows)'.dependencies]
+deno_subprocess_windows = "0.25.0"
+memmap2 = "0.9.9"
+
+[build-dependencies]
+deno_core = { version = "0.383.0", features = ["include_js_files_for_snapshotting"] }
+deno_runtime = { version = "0.238.0", features = ["include_js_files_for_snapshotting", "only_snapshotted_js_sources"] }
+
+[dev-dependencies]
+sys_traits = { version = "=0.1.22", features = ["memory"] }
+
 [[test]]
 name = "integration"
 path = "src/integration_tests_runner.rs"
 harness = false
-
-[dependencies]
-async-trait = "0.1.89"
-bincode = "=1.3.3"
-deno_cache_dir = { version = "=0.25.0", features = ["sync"] }
-deno_config = { version = "0.71.0", features = ["sync", "workspace"] }
-deno_core = { version = "0.363.0", features = ["include_js_files_for_snapshotting"] }
-deno_error = "=0.7.0"
-deno_lib = "0.39.0"
-deno_media_type = { version = "=0.2.9", features = ["data_url", "decoding"] }
-deno_npm = "=0.42.0"
-deno_package_json = { version = "0.23.0", features = ["sync"] }
-deno_path_util = "=0.6.4"
-deno_resolver = { version = "0.52.0", features = ["sync"] }
-deno_runtime = { version = "0.229.0", features = ["include_js_files_for_snapshotting"] }
-deno_semver = "=0.9.0"
-deno_snapshots = "0.36.0"
-deno_terminal = "=0.2.2"
-import_map = { version = "0.24.0", features = ["ext"] }
-indexmap = { version = "2", features = ["serde"] }
-libsui = "0.10.0"
-log = { version = "0.4.28", features = ["serde"] }
-node_resolver = "0.59.0"
-rustls = { version = "=0.23.28", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-sys_traits = { version = "0.1.17", features = ["getrandom", "filetime", "libc", "real", "strip_unc", "winapi"] }
-thiserror = "2.0.17"
-timezone_provider = "=0.0.14"
-tokio = { version = "1.48.0", features = ["full"] }
-url = { version = "2.5", features = ["serde", "expose_internals"] }
-
-[target.'cfg(windows)'.dependencies]
-memmap2 = "0.9.9"
-deno_subprocess_windows = "0.16.0"
-
-[dev-dependencies]
-sys_traits = { version = "0.1.17", features = ["memory"] }
-
-[build-dependencies]
-deno_core = { version = "0.363.0", features = ["include_js_files_for_snapshotting"] }
-deno_runtime = { version = "0.229.0", features = ["include_js_files_for_snapshotting", "only_snapshotted_js_sources"] }

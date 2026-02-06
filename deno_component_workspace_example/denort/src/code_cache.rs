@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   collections::HashMap,
@@ -359,4 +359,138 @@ fn deserialize_with_reader<T: Read>(
   }
 
   Ok(map)
+}
+
+#[cfg(test)]
+mod test {
+  use test_util::TempDir;
+
+  use super::*;
+
+  #[test]
+  fn serialize_deserialize() {
+    let cache_key = 123456;
+    let cache = {
+      let mut cache = HashMap::new();
+      cache.insert(
+        ("specifier1".to_string(), CodeCacheType::EsModule),
+        DenoCompileCodeCacheEntry {
+          source_hash: 1,
+          data: vec![1, 2, 3],
+        },
+      );
+      cache.insert(
+        ("specifier2".to_string(), CodeCacheType::EsModule),
+        DenoCompileCodeCacheEntry {
+          source_hash: 2,
+          data: vec![4, 5, 6],
+        },
+      );
+      cache.insert(
+        ("specifier2".to_string(), CodeCacheType::Script),
+        DenoCompileCodeCacheEntry {
+          source_hash: 2,
+          data: vec![6, 5, 1],
+        },
+      );
+      cache
+    };
+    let mut buffer = Vec::new();
+    serialize_with_writer(&mut BufWriter::new(&mut buffer), cache_key, &cache).unwrap();
+    let deserialized =
+      deserialize_with_reader(&mut BufReader::new(&buffer[..]), cache_key).unwrap();
+    assert_eq!(cache, deserialized);
+  }
+
+  #[test]
+  fn serialize_deserialize_empty() {
+    let cache_key = 1234;
+    let cache = HashMap::new();
+    let mut buffer = Vec::new();
+    serialize_with_writer(&mut BufWriter::new(&mut buffer), cache_key, &cache).unwrap();
+    let deserialized =
+      deserialize_with_reader(&mut BufReader::new(&buffer[..]), cache_key).unwrap();
+    assert_eq!(cache, deserialized);
+  }
+
+  #[test]
+  fn serialize_deserialize_corrupt() {
+    let buffer = "corrupttestingtestingtesting".as_bytes().to_vec();
+    let err = deserialize_with_reader(&mut BufReader::new(&buffer[..]), 1234).unwrap_err();
+    assert_eq!(err.to_string(), "Cache key mismatch");
+  }
+
+  #[test]
+  fn code_cache() {
+    let temp_dir = TempDir::new();
+    let file_path = temp_dir.path().join("cache.bin").to_path_buf();
+    let url1 = Url::parse("https://deno.land/example1.js").unwrap();
+    let url2 = Url::parse("https://deno.land/example2.js").unwrap();
+    // first run
+    {
+      let code_cache = DenoCompileCodeCache::new(file_path.clone(), 1234);
+      assert!(
+        code_cache
+          .get_sync(&url1, CodeCacheType::EsModule, 0)
+          .is_none()
+      );
+      assert!(
+        code_cache
+          .get_sync(&url2, CodeCacheType::EsModule, 1)
+          .is_none()
+      );
+      assert!(code_cache.enabled());
+      code_cache.set_sync(url1.clone(), CodeCacheType::EsModule, 0, &[1, 2, 3]);
+      assert!(code_cache.enabled());
+      assert!(!file_path.exists());
+      code_cache.set_sync(url2.clone(), CodeCacheType::EsModule, 1, &[2, 1, 3]);
+      assert!(file_path.exists()); // now the new code cache exists
+      assert!(!code_cache.enabled()); // no longer enabled
+    }
+    // second run
+    {
+      let code_cache = DenoCompileCodeCache::new(file_path.clone(), 1234);
+      assert!(code_cache.enabled());
+      let result1 = code_cache
+        .get_sync(&url1, CodeCacheType::EsModule, 0)
+        .unwrap();
+      assert!(code_cache.enabled());
+      let result2 = code_cache
+        .get_sync(&url2, CodeCacheType::EsModule, 1)
+        .unwrap();
+      assert!(!code_cache.enabled()); // no longer enabled
+      assert_eq!(result1, vec![1, 2, 3]);
+      assert_eq!(result2, vec![2, 1, 3]);
+    }
+
+    // new cache key first run
+    {
+      let code_cache = DenoCompileCodeCache::new(file_path.clone(), 54321);
+      assert!(
+        code_cache
+          .get_sync(&url1, CodeCacheType::EsModule, 0)
+          .is_none()
+      );
+      assert!(
+        code_cache
+          .get_sync(&url2, CodeCacheType::EsModule, 1)
+          .is_none()
+      );
+      code_cache.set_sync(url1.clone(), CodeCacheType::EsModule, 0, &[2, 2, 3]);
+      code_cache.set_sync(url2.clone(), CodeCacheType::EsModule, 1, &[3, 2, 3]);
+    }
+    // new cache key second run
+    {
+      let code_cache = DenoCompileCodeCache::new(file_path.clone(), 54321);
+      let result1 = code_cache
+        .get_sync(&url1, CodeCacheType::EsModule, 0)
+        .unwrap();
+      assert_eq!(result1, vec![2, 2, 3]);
+      assert!(
+        code_cache
+          .get_sync(&url2, CodeCacheType::EsModule, 5) // different hash will cause none
+          .is_none()
+      );
+    }
+  }
 }
