@@ -15,3 +15,29 @@ use deno_lib::loader::loaded_module_source_to_module_source_code;
 #+end_src
 
 STREAM_API_KEY=test_key STREAM_API_SECRET=test_secret CC=clang cargo run -- stream.ts
+
+** 同进程执行 TypeScript 并把结果返回给 embed_deno
+
+在 TypeScript 里调用 ~globalThis.embedDeno.setResult(value)~ 即可把结果返回给当前 ~embed_deno~ 进程。
+
+示例文件：~stream_return.ts~
+
+运行方式：
+
+#+begin_src shell
+cd embed_deno
+STREAM_API_KEY=test_key STREAM_API_SECRET=test_secret CC=clang cargo run -- stream_return.ts
+#+end_src
+
+输出中会包含：
+
+#+begin_src text
+EMBED_DENO_RESULT={"userId":"john","token":"..."}
+#+end_src
+
+➜  embed_deno git:(main) ✗ STREAM_API_KEY=test_key3 STREAM_API_SECRET=test_secret ../target/debug/embed_deno stream_return.ts
+stream token generated for john
+EMBED_DENO_RESULT={"userId":"john","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiam9obiJ9.fiFekyvfOXDuymCTnX_iNx_YHTKXAWOHHqLBjQIt9H4"}
+➜  embed_deno git:(main) ✗ STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ../target/debug/embed_deno stream_return.ts
+stream token generated for john
+EMBED_DENO_RESULT={"userId":"john","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiam9obiJ9.fiFekyvfOXDuymCTnX_iNx_YHTKXAWOHHqLBjQIt9H4"}

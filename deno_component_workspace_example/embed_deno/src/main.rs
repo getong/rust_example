@@ -4,6 +4,7 @@ use std::{
   path::{Path, PathBuf},
   process::{Command, Output},
   rc::Rc,
+  sync::{Arc, Mutex},
   time::Duration,
 };
 
@@ -11,7 +12,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use deno_ast::{EmitOptions, MediaType, ParseParams, SourceMapOption};
 use deno_core::{
   JsRuntime, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
-  ModuleSpecifier, ModuleType, ResolutionKind, RuntimeOptions,
+  ModuleSpecifier, ModuleType, OpState, ResolutionKind, RuntimeOptions,
   error::{AnyError, ModuleLoaderError},
   futures::FutureExt,
   op2, resolve_import,
@@ -35,6 +36,14 @@ async fn op_sleep(ms: u32) {
 #[serde]
 fn op_env_snapshot() -> BTreeMap<String, String> {
   env::vars().collect()
+}
+
+#[op2(fast)]
+fn op_set_result(state: &mut OpState, #[string] value: String) {
+  let holder = state.borrow::<Arc<Mutex<Option<String>>>>();
+  if let Ok(mut slot) = holder.lock() {
+    *slot = Some(value);
+  }
 }
 
 fn hmac_sha256(secret: &[u8], message: &[u8]) -> [u8; 32] {
@@ -322,10 +331,17 @@ deno_core::extension!(
     op_get_random_values,
     op_sleep,
     op_env_snapshot,
+    op_set_result,
     op_read_text_file_sync_result,
     op_sign_jwt_hs256,
     op_fetch_http
-  ]
+  ],
+  options = {
+    result_holder: Arc<Mutex<Option<String>>>,
+  },
+  state = |state, options| {
+    state.put(options.result_holder);
+  }
 );
 
 #[derive(Clone, Debug)]
@@ -749,9 +765,10 @@ fn run() -> Result<(), AnyError> {
 
   let config = RuntimeConfig::from_env()?;
   let loader = Rc::new(EmbeddedModuleLoader::new(config));
+  let result_holder = Arc::new(Mutex::new(None::<String>));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
-    extensions: vec![embed_runtime::init()],
+    extensions: vec![embed_runtime::init(result_holder.clone())],
     ..Default::default()
   });
 
@@ -1392,6 +1409,15 @@ if (!globalThis.fetch) {
     });
   };
 }
+
+if (!globalThis.embedDeno) {
+  globalThis.embedDeno = {
+    setResult(value) {
+      const text = typeof value === "string" ? value : JSON.stringify(value);
+      Deno.core.ops.op_set_result(text);
+    },
+  };
+}
 "#,
   )?;
 
@@ -1409,6 +1435,12 @@ if (!globalThis.fetch) {
     result_receiver.await?;
     Ok::<(), AnyError>(())
   })?;
+
+  if let Ok(slot) = result_holder.lock()
+    && let Some(result) = slot.as_ref()
+  {
+    println!("EMBED_DENO_RESULT={result}");
+  }
 
   Ok(())
 }
