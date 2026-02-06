@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{collections::HashSet, path::Path, sync::Arc, time::Duration};
 
@@ -141,6 +141,7 @@ async fn bench_specifier(
   permissions_container: PermissionsContainer,
   specifier: ModuleSpecifier,
   preload_modules: Vec<ModuleSpecifier>,
+  require_modules: Vec<ModuleSpecifier>,
   sender: UnboundedSender<BenchEvent>,
   filter: TestFilter,
 ) -> Result<(), AnyError> {
@@ -149,6 +150,7 @@ async fn bench_specifier(
     permissions_container,
     specifier.clone(),
     preload_modules,
+    require_modules,
     &sender,
     filter,
   )
@@ -172,6 +174,7 @@ async fn bench_specifier_inner(
   permissions_container: PermissionsContainer,
   specifier: ModuleSpecifier,
   preload_modules: Vec<ModuleSpecifier>,
+  require_modules: Vec<ModuleSpecifier>,
   sender: &UnboundedSender<BenchEvent>,
   filter: TestFilter,
 ) -> Result<(), CreateCustomWorkerError> {
@@ -180,6 +183,7 @@ async fn bench_specifier_inner(
       WorkerExecutionMode::Bench,
       specifier.clone(),
       preload_modules,
+      require_modules,
       permissions_container,
       vec![ops::bench::deno_bench::init(sender.clone())],
       Default::default(),
@@ -284,6 +288,7 @@ async fn bench_specifiers(
   permission_desc_parser: &Arc<RuntimePermissionDescriptorParser<CliSys>>,
   specifiers: Vec<ModuleSpecifier>,
   preload_modules: Vec<ModuleSpecifier>,
+  require_modules: Vec<ModuleSpecifier>,
   options: BenchSpecifierOptions,
 ) -> Result<(), AnyError> {
   let (sender, mut receiver) = unbounded_channel::<BenchEvent>();
@@ -296,6 +301,7 @@ async fn bench_specifiers(
     let sender = sender.clone();
     let options = option_for_handles.clone();
     let preload_modules = preload_modules.clone();
+    let require_modules = require_modules.clone();
     let cli_options = cli_options.clone();
     let permission_desc_parser = permission_desc_parser.clone();
     spawn_blocking(move || {
@@ -312,6 +318,7 @@ async fn bench_specifiers(
         permissions_container,
         specifier,
         preload_modules,
+        require_modules,
         sender,
         options.filter,
       );
@@ -468,6 +475,7 @@ pub async fn run_benchmarks(flags: Arc<Flags>, bench_flags: BenchFlags) -> Resul
   }
 
   let preload_modules = cli_options.preload_modules()?;
+  let require_modules = cli_options.require_modules()?;
   let log_level = cli_options.log_level();
   let worker_factory = Arc::new(factory.create_cli_main_worker_factory().await?);
   bench_specifiers(
@@ -476,6 +484,7 @@ pub async fn run_benchmarks(flags: Arc<Flags>, bench_flags: BenchFlags) -> Resul
     factory.permission_desc_parser()?,
     specifiers,
     preload_modules,
+    require_modules,
     BenchSpecifierOptions {
       filter: TestFilter::from_flag(&workspace_bench_options.filter),
       json: workspace_bench_options.json,
@@ -597,12 +606,14 @@ pub async fn run_benchmarks_with_watch(
 
         let log_level = cli_options.log_level();
         let preload_modules = cli_options.preload_modules()?;
+        let require_modules = cli_options.require_modules()?;
         bench_specifiers(
           worker_factory,
           cli_options,
           factory.permission_desc_parser()?,
           specifiers,
           preload_modules,
+          require_modules,
           BenchSpecifierOptions {
             filter: TestFilter::from_flag(&workspace_bench_options.filter),
             json: workspace_bench_options.json,

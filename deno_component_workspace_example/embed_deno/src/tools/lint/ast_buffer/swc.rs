@@ -1,4 +1,6 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
+
+use std::borrow::Cow;
 
 use deno_ast::{
   ParsedSource,
@@ -11,7 +13,7 @@ use deno_ast::{
       JSXNamespacedName, JSXObject, JSXOpeningElement, Key, Lit, MemberExpr, MemberProp,
       ModuleDecl, ModuleExportName, ModuleItem, ObjectLit, ObjectPatProp, OptChainBase, Param,
       ParamOrTsParamProp, Pat, PrivateName, Program, Prop, PropName, PropOrSpread,
-      SimpleAssignTarget, Stmt, SuperProp, TsEntityName, TsEnumMemberId, TsExprWithTypeArgs,
+      SimpleAssignTarget, Stmt, Str, SuperProp, TsEntityName, TsEnumMemberId, TsExprWithTypeArgs,
       TsFnOrConstructorType, TsFnParam, TsIndexSignature, TsLit, TsLitType, TsModuleName,
       TsModuleRef, TsNamespaceBody, TsParamPropParam, TsThisTypeOrIdent, TsType, TsTypeAnn,
       TsTypeElement, TsTypeParam, TsTypeParamDecl, TsTypeParamInstantiation, TsTypeQueryExpr,
@@ -837,7 +839,7 @@ fn serialize_expr(ctx: &mut TsEsTreeBuilder, expr: &Expr) -> NodeRef {
             &quasi
               .cooked
               .as_ref()
-              .map_or("".to_string(), |v| v.to_string()),
+              .map_or("".to_string(), |v| v.to_string_lossy().to_string()),
           )
         })
         .collect::<Vec<_>>();
@@ -1619,7 +1621,7 @@ fn serialize_jsx_opening_element(ctx: &mut TsEsTreeBuilder, node: &JSXOpeningEle
         };
 
         let value = attr.value.as_ref().map(|value| match value {
-          JSXAttrValue::Lit(lit) => serialize_lit(ctx, lit),
+          JSXAttrValue::Str(str) => serialize_str(ctx, str),
           JSXAttrValue::JSXExprContainer(container) => serialize_jsx_container_expr(ctx, container),
           JSXAttrValue::JSXElement(el) => serialize_jsx_element(ctx, el),
           JSXAttrValue::JSXFragment(frag) => serialize_jsx_fragment(ctx, frag),
@@ -1782,15 +1784,7 @@ fn serialize_prop_name(ctx: &mut TsEsTreeBuilder, prop_name: &PropName) -> NodeR
 
 fn serialize_lit(ctx: &mut TsEsTreeBuilder, lit: &Lit) -> NodeRef {
   match lit {
-    Lit::Str(node) => {
-      let raw_value = if let Some(v) = &node.raw {
-        v.to_string()
-      } else {
-        format!("{}", node.value).to_string()
-      };
-
-      ctx.write_str_lit(&node.span, &node.value, &raw_value)
-    }
+    Lit::Str(node) => serialize_str(ctx, node),
     Lit::Bool(node) => ctx.write_bool_lit(&node.span, node.value),
     Lit::Null(node) => ctx.write_null_lit(&node.span),
     Lit::Num(node) => {
@@ -1838,6 +1832,16 @@ fn serialize_lit(ctx: &mut TsEsTreeBuilder, lit: &Lit) -> NodeRef {
     }
     Lit::JSXText(node) => ctx.write_jsx_text(&node.span, &node.raw, &node.value),
   }
+}
+
+fn serialize_str(ctx: &mut TsEsTreeBuilder, node: &Str) -> NodeRef {
+  let raw_value = if let Some(v) = &node.raw {
+    Cow::Borrowed(v.as_str())
+  } else {
+    node.value.to_string_lossy()
+  };
+
+  ctx.write_str_lit(&node.span, &node.value.to_string_lossy(), &raw_value)
 }
 
 fn serialize_class_member(ctx: &mut TsEsTreeBuilder, member: &ClassMember) -> Option<NodeRef> {
@@ -2452,7 +2456,8 @@ fn serialize_ts_lit_type(ctx: &mut TsEsTreeBuilder, node: &TsLitType) -> NodeRef
             &quasi
               .cooked
               .as_ref()
-              .map_or("".to_string(), |v| v.to_string()),
+              .map(|v| v.to_string_lossy())
+              .unwrap_or(Cow::Borrowed("")),
           )
         })
         .collect::<Vec<_>>();

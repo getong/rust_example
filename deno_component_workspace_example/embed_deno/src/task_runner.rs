@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   collections::HashMap,
@@ -220,13 +220,17 @@ impl ShellCommand for NpmCommand {
         OsStr::new(USE_PKG_JSON_HIDDEN_ENV_VAR_NAME),
         OsStr::new("1"),
       );
-      return ExecutableCommand::new("deno".to_string(), std::env::current_exe().unwrap()).execute(
-        ShellCommandContext {
-          args,
-          state,
-          ..context
-        },
-      );
+      return ExecutableCommand::new(
+        "deno".to_string(),
+        std::env::current_exe()
+          .and_then(|p| p.canonicalize())
+          .unwrap(),
+      )
+      .execute(ShellCommandContext {
+        args,
+        state,
+        ..context
+      });
     }
 
     // fallback to running the real npm command
@@ -249,7 +253,9 @@ impl Default for DenoCommand {
   fn default() -> Self {
     Self(ExecutableCommand::new(
       "deno".to_string(),
-      std::env::current_exe().unwrap(),
+      std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .unwrap(),
     ))
   }
 }
@@ -291,13 +297,17 @@ impl ShellCommand for NodeCommand {
       OsStr::new(USE_PKG_JSON_HIDDEN_ENV_VAR_NAME),
       OsStr::new("1"),
     );
-    ExecutableCommand::new("deno".to_string(), std::env::current_exe().unwrap()).execute(
-      ShellCommandContext {
-        args,
-        state,
-        ..context
-      },
+    ExecutableCommand::new(
+      "deno".to_string(),
+      std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .unwrap(),
     )
+    .execute(ShellCommandContext {
+      args,
+      state,
+      ..context
+    })
   }
 }
 
@@ -317,8 +327,10 @@ impl ShellCommand for NodeGypCommand {
          dependency or install it globally (e.g. `npm install -g node-gyp`)",
         crate::colors::yellow("Warning")
       );
+      Box::pin(std::future::ready(ExecuteResult::from_exit_code(0)))
+    } else {
+      ExecutableCommand::new("node-gyp".to_string(), "node-gyp".to_string().into()).execute(context)
     }
-    ExecutableCommand::new("node-gyp".to_string(), "node-gyp".to_string().into()).execute(context)
   }
 }
 
@@ -372,8 +384,12 @@ impl ShellCommand for NodeModulesFileRunCommand {
       self.path.clone().into_os_string(),
     ];
     args.extend(context.args);
-    let executable_command =
-      deno_task_shell::ExecutableCommand::new("deno".to_string(), std::env::current_exe().unwrap());
+    let executable_command = deno_task_shell::ExecutableCommand::new(
+      "deno".to_string(),
+      std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .unwrap(),
+    );
     // set this environment variable so that the launched process knows the npm command name
     context.state.apply_env_var(
       OsStr::new("DENO_INTERNAL_NPM_CMD_NAME"),
@@ -411,7 +427,10 @@ pub fn resolve_npm_commands_from_bin_dir(
     .map(|(command_name, path)| {
       (
         command_name.clone(),
-        Rc::new(NodeModulesFileRunCommand { command_name, path }) as Rc<dyn ShellCommand>,
+        Rc::new(NodeModulesFileRunCommand {
+          command_name,
+          path: path.path().to_path_buf(),
+        }) as Rc<dyn ShellCommand>,
       )
     })
     .collect()
@@ -428,7 +447,10 @@ fn resolve_managed_npm_commands(
     result.extend(bins.into_iter().map(|(command_name, path)| {
       (
         command_name.clone(),
-        Rc::new(NodeModulesFileRunCommand { command_name, path }) as Rc<dyn ShellCommand>,
+        Rc::new(NodeModulesFileRunCommand {
+          command_name,
+          path: path.path().to_path_buf(),
+        }) as Rc<dyn ShellCommand>,
       )
     }));
   }

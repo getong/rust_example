@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   borrow::Cow,
@@ -66,7 +66,6 @@ use crate::{
   npm::{
     CliByonmNpmResolverCreateOptions, CliManagedNpmResolver, CliNpmCache, CliNpmCacheHttpClient,
     CliNpmInstaller, CliNpmRegistryInfoProvider, CliNpmResolver, CliNpmResolverCreateOptions,
-    get_types_node_version_req,
   },
   resolver::{CliIsCjsResolver, CliNpmReqResolver, CliResolver, on_resolve_diagnostic},
   sys::CliSys,
@@ -187,40 +186,42 @@ impl LspScopedResolver {
       .set_snapshot(self.npm_resolution.snapshot());
     let npm_resolver = self.npm_resolver.as_ref();
     if let Some(npm_resolver) = &npm_resolver {
-      factory.set_npm_resolver(CliNpmResolver::new::<CliSys>(match npm_resolver {
-        CliNpmResolver::Byonm(byonm_npm_resolver) => {
-          CliNpmResolverCreateOptions::Byonm(CliByonmNpmResolverCreateOptions {
-            root_node_modules_dir: byonm_npm_resolver
-              .root_node_modules_path()
-              .map(|p| p.to_path_buf()),
-            sys: factory.node_resolution_sys.clone(),
-            pkg_json_resolver: self.pkg_json_resolver.clone(),
-          })
-        }
-        CliNpmResolver::Managed(managed_npm_resolver) => CliNpmResolverCreateOptions::Managed({
-          let sys = CliSys::default();
-          let npmrc = self
-            .config_data
-            .as_ref()
-            .and_then(|d| d.npmrc.clone())
-            .unwrap_or_else(|| Arc::new(create_default_npmrc(&sys)));
-          let npm_cache_dir = Arc::new(NpmCacheDir::new(
-            &sys,
-            managed_npm_resolver.global_cache_root_path().to_path_buf(),
-            npmrc.get_all_known_registries_urls(),
-          ));
-          ManagedNpmResolverCreateOptions {
-            sys,
-            npm_cache_dir,
-            maybe_node_modules_path: managed_npm_resolver
-              .root_node_modules_path()
-              .map(|p| p.to_path_buf()),
-            npmrc,
-            npm_resolution: factory.services.npm_resolution.clone(),
-            npm_system_info: NpmSystemInfo::default(),
+      factory.set_npm_resolver(CliNpmResolver::<CliSys>::new::<CliSys>(
+        match npm_resolver {
+          CliNpmResolver::Byonm(byonm_npm_resolver) => {
+            CliNpmResolverCreateOptions::Byonm(CliByonmNpmResolverCreateOptions {
+              root_node_modules_dir: byonm_npm_resolver
+                .root_node_modules_path()
+                .map(|p| p.to_path_buf()),
+              sys: factory.node_resolution_sys.clone(),
+              pkg_json_resolver: self.pkg_json_resolver.clone(),
+            })
           }
-        }),
-      }));
+          CliNpmResolver::Managed(managed_npm_resolver) => CliNpmResolverCreateOptions::Managed({
+            let sys = CliSys::default();
+            let npmrc = self
+              .config_data
+              .as_ref()
+              .and_then(|d| d.npmrc.clone())
+              .unwrap_or_else(|| Arc::new(create_default_npmrc(&sys)));
+            let npm_cache_dir = Arc::new(NpmCacheDir::new(
+              &sys,
+              managed_npm_resolver.global_cache_root_path().to_path_buf(),
+              npmrc.get_all_known_registries_urls(),
+            ));
+            ManagedNpmResolverCreateOptions {
+              sys,
+              npm_cache_dir,
+              maybe_node_modules_path: managed_npm_resolver
+                .root_node_modules_path()
+                .map(|p| p.to_path_buf()),
+              npmrc,
+              npm_resolution: factory.services.npm_resolution.clone(),
+              npm_system_info: NpmSystemInfo::default(),
+            }
+          }),
+        },
+      ));
     }
 
     Arc::new(Self {
@@ -511,15 +512,6 @@ impl LspResolver {
         .cloned()
         .unwrap_or_default();
       {
-        if resolver.npm_installer.is_some() && dep_info.has_node_specifier {
-          let has_types_node = {
-            let npm_installer_reqs = resolver.npm_installer_reqs.lock();
-            npm_installer_reqs.iter().any(|r| r.name == "@types/node")
-          };
-          if !has_types_node {
-            resolver.add_npm_reqs(vec![PackageReq::from_str("@types/node").unwrap()]);
-          }
-        }
         let mut resolver_dep_info = resolver.dep_info.lock();
         *resolver_dep_info = dep_info.clone();
       }
@@ -877,7 +869,6 @@ impl<'a> ResolverFactory<'a> {
         None,
       ));
       let npm_version_resolver = Arc::new(NpmVersionResolver {
-        types_node_version_req: Some(get_types_node_version_req()),
         link_packages: link_packages.0.clone(),
         newest_dependency_date_options: Default::default(),
       });
@@ -890,6 +881,7 @@ impl<'a> ResolverFactory<'a> {
         maybe_lockfile.clone(),
       ));
       let npm_installer = Arc::new(CliNpmInstaller::new(
+        None,
         Arc::new(NullLifecycleScriptsExecutor),
         npm_cache.clone(),
         Arc::new(NpmInstallDepsProvider::empty()),
@@ -900,12 +892,13 @@ impl<'a> ResolverFactory<'a> {
         &pb,
         sys.clone(),
         tarball_cache.clone(),
-        maybe_lockfile,
-        maybe_node_modules_path.clone(),
-        LifecycleScriptsConfig::default(),
-        NpmSystemInfo::default(),
-        link_packages,
-        None,
+        deno_npm_installer::NpmInstallerOptions {
+          maybe_lockfile,
+          maybe_node_modules_path: maybe_node_modules_path.clone(),
+          lifecycle_scripts: Arc::new(LifecycleScriptsConfig::default()),
+          system_info: NpmSystemInfo::default(),
+          workspace_link_packages: link_packages,
+        },
       ));
       self.set_npm_installer(npm_installer);
       if let Err(err) = npm_resolution_initializer.ensure_initialized().await {
@@ -921,7 +914,7 @@ impl<'a> ResolverFactory<'a> {
         npm_system_info: NpmSystemInfo::default(),
       })
     };
-    self.set_npm_resolver(CliNpmResolver::new(options));
+    self.set_npm_resolver(CliNpmResolver::<CliSys>::new(options));
   }
 
   pub fn set_npm_installer(&mut self, npm_installer: Arc<CliNpmInstaller>) {

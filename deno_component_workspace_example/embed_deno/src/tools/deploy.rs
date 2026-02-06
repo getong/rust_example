@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::sync::Arc;
 
@@ -8,14 +8,20 @@ use deno_path_util::ResolveUrlOrPathError;
 use deno_runtime::{WorkerExecutionMode, deno_permissions::PermissionsContainer};
 
 use crate::{
-  args::{Flags, jsr_api_url},
+  args::{DeployFlags, Flags, jsr_api_url},
   factory::CliFactory,
   ops, registry,
 };
 
-pub async fn deploy(mut flags: Flags) -> Result<i32, AnyError> {
+pub async fn deploy(mut flags: Flags, deploy_flags: DeployFlags) -> Result<i32, AnyError> {
   flags.node_modules_dir = Some(NodeModulesDirMode::None);
   flags.no_lock = true;
+  if deploy_flags.sandbox {
+    // SAFETY: only this subcommand is running, nothing else, so it's safe to set an env var.
+    unsafe {
+      std::env::set_var("DENO_DEPLOY_CLI_SANDBOX", "1");
+    }
+  }
 
   let mut factory = CliFactory::from_flags(Arc::new(flags));
 
@@ -54,6 +60,7 @@ pub async fn deploy(mut flags: Flags) -> Result<i32, AnyError> {
     .create_custom_worker(
       WorkerExecutionMode::Deploy,
       specifier,
+      vec![],
       vec![],
       PermissionsContainer::allow_all(factory.permission_desc_parser()?.clone()),
       vec![ops::deploy::deno_deploy::init()],

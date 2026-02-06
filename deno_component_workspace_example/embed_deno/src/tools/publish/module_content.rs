@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{borrow::Cow, path::Path, sync::Arc};
 
@@ -11,11 +11,12 @@ use deno_resolver::{
   workspace::ResolutionKind,
 };
 use lazy_regex::Lazy;
-use sys_traits::{FsMetadata, FsRead};
 
 use super::{
   diagnostics::{PublishDiagnostic, PublishDiagnosticsCollector},
-  unfurl::{PositionOrSourceRangeRef, SpecifierUnfurler, SpecifierUnfurlerDiagnostic},
+  unfurl::{
+    PositionOrSourceRangeRef, SpecifierUnfurler, SpecifierUnfurlerDiagnostic, SpecifierUnfurlerSys,
+  },
 };
 use crate::sys::CliSys;
 
@@ -26,14 +27,17 @@ struct JsxFolderOptions<'a> {
   jsx_import_source_types: Option<String>,
 }
 
-pub struct ModuleContentProvider<TSys: FsMetadata + FsRead = CliSys> {
+#[sys_traits::auto_impl]
+pub trait ModuleContentProviderSys: SpecifierUnfurlerSys {}
+
+pub struct ModuleContentProvider<TSys: ModuleContentProviderSys = CliSys> {
   specifier_unfurler: SpecifierUnfurler<TSys>,
   parsed_source_cache: Arc<ParsedSourceCache>,
   sys: TSys,
   compiler_options_resolver: Arc<CompilerOptionsResolver>,
 }
 
-impl<TSys: FsMetadata + FsRead> ModuleContentProvider<TSys> {
+impl<TSys: ModuleContentProviderSys> ModuleContentProvider<TSys> {
   pub fn new(
     parsed_source_cache: Arc<ParsedSourceCache>,
     specifier_unfurler: SpecifierUnfurler<TSys>,
@@ -84,6 +88,8 @@ impl<TSys: FsMetadata + FsRead> ModuleContentProvider<TSys> {
           | MediaType::Html
           | MediaType::Sql
           | MediaType::Json
+          | MediaType::Jsonc
+          | MediaType::Json5
           | MediaType::Wasm
           | MediaType::Css => {
             // not unfurlable data
@@ -268,33 +274,21 @@ impl<TSys: FsMetadata + FsRead> ModuleContentProvider<TSys> {
 mod test {
   use std::path::PathBuf;
 
-  use deno_config::workspace::WorkspaceDiscoverStart;
   use deno_path_util::url_from_file_path;
-  use deno_resolver::{
-    deno_json::CompilerOptionsOverrides,
-    factory::ConfigDiscoveryOption,
-    npm::{
-      ByonmNpmResolverCreateOptions, CreateInNpmPkgCheckerOptions, DenoInNpmPackageChecker,
-      NpmResolverCreateOptions,
-    },
-    workspace::WorkspaceResolver,
-  };
-  use node_resolver::{
-    DenoIsBuiltInNodeModuleChecker, NodeResolver, NodeResolverOptions, PackageJsonResolver,
-    cache::NodeResolutionSys,
+  use deno_resolver::factory::{
+    ResolverFactory, ResolverFactoryOptions, WorkspaceFactory, WorkspaceFactoryOptions,
   };
   use pretty_assertions::assert_eq;
   use sys_traits::{FsCreateDirAll, FsWrite, impls::InMemorySys};
 
   use super::*;
-  use crate::npm::CliNpmResolver;
 
-  #[test]
-  fn test_module_content_jsx() {
+  #[tokio::test]
+  async fn test_module_content_jsx() {
     run_test(&[
       (
         "/deno.json",
-        r#"{ "workspace": ["package-a", "package-b", "package-c", "package-d"] }"#,
+        r#"{ "nodeModulesDir": "manual", "workspace": ["package-a", "package-b", "package-c", "package-d"] }"#,
         None,
       ),
       (
@@ -352,16 +346,14 @@ mod test {
         "/package-a/main.tsx",
         "export const component = <div></div>;",
         Some(
-          "/** @jsxRuntime automatic *//** @jsxImportSource npm:react *//** @jsxImportSourceTypes \
-           npm:@types/react */export const component = <div></div>;",
+          "/** @jsxRuntime automatic *//** @jsxImportSource npm:react *//** @jsxImportSourceTypes npm:@types/react */export const component = <div></div>;",
         ),
       ),
       (
         "/package-b/main.tsx",
         "export const componentB = <div></div>;",
         Some(
-          "/** @jsxRuntime automatic *//** @jsxImportSource npm:react *//** @jsxImportSourceTypes \
-           npm:react */export const componentB = <div></div>;",
+          "/** @jsxRuntime automatic *//** @jsxImportSource npm:react *//** @jsxImportSourceTypes npm:react */export const componentB = <div></div>;",
         ),
       ),
       (
@@ -385,19 +377,17 @@ mod test {
         "/package-c/main.tsx",
         "export const component = <div></div>;",
         Some(
-          "/** @jsxRuntime automatic *//** @jsxImportSource npm:react *//** @jsxImportSourceTypes \
-           npm:@types/react */export const component = <div></div>;",
+          "/** @jsxRuntime automatic *//** @jsxImportSource npm:react *//** @jsxImportSourceTypes npm:@types/react */export const component = <div></div>;",
         ),
       ),
       (
         "/package-d/main.tsx",
         "export const component = <div></div>;",
         Some(
-          "/** @jsxRuntime classic *//** @jsxFactory React.createElement *//** \
-           @jsxFragmentFactory React.Fragment */export const component = <div></div>;",
+          "/** @jsxRuntime classic *//** @jsxFactory React.createElement *//** @jsxFragmentFactory React.Fragment */export const component = <div></div>;",
         ),
       ),
-    ]);
+    ]).await;
   }
 
   fn get_path(path: &str) -> PathBuf {
@@ -408,7 +398,7 @@ mod test {
     })
   }
 
-  fn run_test(files: &[(&'static str, &'static str, Option<&'static str>)]) {
+  async fn run_test(files: &[(&'static str, &'static str, Option<&'static str>)]) {
     let in_memory_sys = InMemorySys::default();
     for (path, text, _) in files {
       let path = get_path(path);
@@ -417,7 +407,7 @@ mod test {
         .unwrap();
       in_memory_sys.fs_write(path, text).unwrap();
     }
-    let provider = module_content_provider(in_memory_sys);
+    let provider = module_content_provider(in_memory_sys).await;
     for (path, _, expected) in files {
       let Some(expected) = expected else {
         continue;
@@ -435,46 +425,45 @@ mod test {
     }
   }
 
-  fn module_content_provider(sys: InMemorySys) -> ModuleContentProvider<InMemorySys> {
-    let workspace_dir = deno_config::workspace::WorkspaceDirectory::discover(
-      &sys,
-      WorkspaceDiscoverStart::Paths(&[get_path("/")]),
-      &Default::default(),
-    )
-    .unwrap();
-    let resolver = Arc::new(
-      WorkspaceResolver::from_workspace(&workspace_dir.workspace, sys.clone(), Default::default())
-        .unwrap(),
+  async fn module_content_provider(sys: InMemorySys) -> ModuleContentProvider<InMemorySys> {
+    let cwd = get_path("/");
+
+    let workspace_factory = Arc::new(WorkspaceFactory::new(
+      sys.clone(),
+      cwd.to_path_buf(),
+      WorkspaceFactoryOptions::default(),
+    ));
+    let resolver_factory = ResolverFactory::new(
+      workspace_factory,
+      ResolverFactoryOptions {
+        package_json_dep_resolution: Some(
+          deno_resolver::workspace::PackageJsonDepResolution::Enabled,
+        ),
+        unstable_sloppy_imports: true,
+        ..Default::default()
+      },
     );
-    let package_json_resolver = Arc::new(PackageJsonResolver::new(sys.clone(), None));
-    let node_resolver = Arc::new(NodeResolver::new(
-      DenoInNpmPackageChecker::new(CreateInNpmPkgCheckerOptions::Byonm),
-      DenoIsBuiltInNodeModuleChecker,
-      CliNpmResolver::new(NpmResolverCreateOptions::Byonm(
-        ByonmNpmResolverCreateOptions {
-          root_node_modules_dir: None,
-          sys: NodeResolutionSys::new(sys.clone(), None),
-          pkg_json_resolver: package_json_resolver.clone(),
-        },
-      )),
-      package_json_resolver,
-      NodeResolutionSys::new(sys.clone(), None),
-      NodeResolverOptions::default(),
-    ));
-    let compiler_options_resolver = Arc::new(CompilerOptionsResolver::new(
-      &sys,
-      &workspace_dir.workspace,
-      &node_resolver,
-      &ConfigDiscoveryOption::DiscoverCwd,
-      &CompilerOptionsOverrides::default(),
-    ));
-    resolver.set_compiler_options_resolver(compiler_options_resolver.clone());
-    let specifier_unfurler = SpecifierUnfurler::new(None, resolver, false);
+
+    let specifier_unfurler = SpecifierUnfurler::new(
+      resolver_factory.node_resolver().unwrap().clone(),
+      resolver_factory.npm_req_resolver().unwrap().clone(),
+      resolver_factory.pkg_json_resolver().clone(),
+      resolver_factory
+        .workspace_factory()
+        .workspace_directory()
+        .unwrap()
+        .clone(),
+      resolver_factory.workspace_resolver().await.unwrap().clone(),
+      true,
+    );
     ModuleContentProvider::new(
       Arc::new(ParsedSourceCache::default()),
       specifier_unfurler,
       sys,
-      compiler_options_resolver,
+      resolver_factory
+        .compiler_options_resolver()
+        .unwrap()
+        .clone(),
     )
   }
 }

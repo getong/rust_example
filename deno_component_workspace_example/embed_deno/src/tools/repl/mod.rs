@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{io, io::Write, sync::Arc};
 
@@ -170,6 +170,8 @@ pub async fn run(flags: Arc<Flags>, repl_flags: ReplFlags) -> Result<i32, AnyErr
       WorkerExecutionMode::Repl,
       main_module.clone(),
       // `deno repl` doesn't support preloading modules
+      vec![],
+      // `deno repl` doesn't support require modules
       vec![],
       permissions.clone(),
       vec![crate::ops::testing::deno_test::init(test_event_sender)],

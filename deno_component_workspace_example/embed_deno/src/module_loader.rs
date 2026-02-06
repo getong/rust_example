@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   borrow::Cow,
@@ -19,8 +19,9 @@ use std::{
 use deno_ast::{MediaType, ModuleKind};
 use deno_cache_dir::file_fetcher::{FetchLocalOptions, MemoryFiles as _};
 use deno_core::{
-  FastString, ModuleLoadReferrer, ModuleLoader, ModuleResolutionError, ModuleSource,
-  ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, SourceCodeCacheInfo,
+  FastString, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoader, ModuleResolutionError,
+  ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType,
+  SourceCodeCacheInfo,
   anyhow::{Context as _, bail},
   error::{AnyError, ModuleLoaderError},
   futures::{StreamExt, future::FutureExt, io::BufReader, stream::FuturesOrdered},
@@ -185,11 +186,11 @@ impl ModuleLoadPreparer {
 
     self
       .module_graph_builder
-      .build_graph_with_npm_resolution(
+      .build_graph_roots_with_npm_resolution(
         graph,
+        roots.to_vec(),
         BuildGraphWithNpmOptions {
           is_dynamic,
-          request: BuildGraphRequest::Roots(roots.to_vec()),
           loader: Some(&mut loader),
           npm_caching: self.options.default_npm_caching_strategy(),
         },
@@ -254,9 +255,9 @@ impl ModuleLoadPreparer {
       .module_graph_builder
       .build_graph_with_npm_resolution(
         graph,
+        BuildGraphRequest::Reload(specifiers),
         BuildGraphWithNpmOptions {
           is_dynamic,
-          request: BuildGraphRequest::Reload(specifiers),
           loader: Some(&mut loader),
           npm_caching: self.options.default_npm_caching_strategy(),
         },
@@ -692,14 +693,20 @@ impl<TGraphContainer: ModuleGraphContainer> CliModuleLoaderInner<TGraphContainer
       )
       .await?;
 
+    let module_type = match requested_module_type {
+      RequestedModuleType::Text => ModuleType::Text,
+      RequestedModuleType::Bytes => ModuleType::Bytes,
+      RequestedModuleType::None => match file.resolve_media_type_and_charset().0 {
+        MediaType::Wasm => ModuleType::Wasm,
+        _ => ModuleType::JavaScript,
+      },
+      t => unreachable!("{t}"),
+    };
+
     Ok(ModuleCodeStringSource {
       code: ModuleSourceCode::Bytes(file.source.into()),
       found_url: file.url,
-      module_type: match requested_module_type {
-        RequestedModuleType::Text => ModuleType::Text,
-        RequestedModuleType::Bytes => ModuleType::Bytes,
-        _ => unreachable!(),
-      },
+      module_type,
     })
   }
 
@@ -940,8 +947,7 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
     &self,
     specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleLoadReferrer>,
-    _is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> deno_core::ModuleLoadResponse {
     let inner = self.0.clone();
 
@@ -959,7 +965,7 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
           .load_inner(
             &specifier,
             maybe_referrer.as_ref().map(|r| &r.specifier),
-            &requested_module_type,
+            &options.requested_module_type,
           )
           .await
           .map_err(|err| {
@@ -994,15 +1000,14 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     // always call this first unconditionally because it will be
     // decremented unconditionally in "finish_load"
     self.0.shared.in_flight_loads_tracker.increase();
 
     if matches!(
-      requested_module_type,
+      options.requested_module_type,
       RequestedModuleType::Text | RequestedModuleType::Bytes
     ) {
       return Box::pin(deno_core::futures::future::ready(Ok(())));
@@ -1024,13 +1029,13 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
     async move {
       let graph_container = &inner.graph_container;
       let module_load_preparer = &inner.shared.module_load_preparer;
-      let permissions = if is_dynamic {
+      let permissions = if options.is_dynamic_import {
         &inner.permissions
       } else {
         &inner.parent_permissions
       };
 
-      if is_dynamic {
+      if options.is_dynamic_import {
         // This doesn't acquire a graph update permit because that will
         // clone the graph which is a bit slow.
         let mut graph = graph_container.graph();
@@ -1055,7 +1060,7 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
         }
       }
 
-      let is_dynamic = is_dynamic || inner.is_worker; // consider workers as dynamic for permissions
+      let is_dynamic = options.is_dynamic_import || inner.is_worker; // consider workers as dynamic for permissions
       let lib = inner.lib;
       let mut update_permit = graph_container.acquire_update_permit().await;
       let specifiers = &[specifier];
@@ -1135,6 +1140,8 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
       "wasm" | "file" | "http" | "https" | "data" | "blob" => (),
       _ => return None,
     }
+
+    // Load the prepared module and extract inline source map
     let graph = self.0.graph_container.graph();
     let source = self
       .0
@@ -1145,26 +1152,86 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader for CliModuleLoader<TGr
     source_map_from_code(source.source.as_bytes()).map(Cow::Owned)
   }
 
+  fn load_external_source_map(&self, source_map_url: &str) -> Option<Cow<'_, [u8]>> {
+    let specifier = resolve_url(source_map_url).ok()?;
+
+    if let Ok(Some(file)) = self
+      .0
+      .shared
+      .file_fetcher
+      .get_cached_source_or_local(&specifier)
+    {
+      return Some(Cow::Owned(file.source.to_vec()));
+    }
+
+    None
+  }
+
+  // todo(dsherret): this method is actually only to determine whether
+  // to show the filename in the stack traces so we should rename it
+  // to something more clear that reflects that (since we skip checking
+  // this for non-npm packages)
+  fn source_map_source_exists(&self, source_url: &str) -> Option<bool> {
+    let specifier = resolve_url(source_url).ok()?;
+
+    // some npm packages rely on the file existing or not to end up in
+    // the stack trace, so for backwards compat reasons only check this
+    // for npm packages because we don't want the perf hit otherwise
+    if self.0.shared.in_npm_pkg_checker.in_npm_package(&specifier)
+      && let Ok(path) = deno_path_util::url_to_file_path(&specifier)
+    {
+      return Some(path.is_file());
+    }
+
+    Some(true)
+  }
+
   fn get_source_mapped_source_line(&self, file_name: &str, line_number: usize) -> Option<String> {
+    let specifier = resolve_url(file_name).ok()?;
     let graph = self.0.graph_container.graph();
-    let code = match graph.get(&resolve_url(file_name).ok()?) {
+
+    let code = match graph.get(&specifier) {
       Some(deno_graph::Module::Js(module)) => &module.source.text,
       Some(deno_graph::Module::Json(module)) => &module.source.text,
-      _ => return None,
+      Some(
+        deno_graph::Module::Wasm(_)
+        | deno_graph::Module::Npm(_)
+        | deno_graph::Module::Node(_)
+        | deno_graph::Module::External(_),
+      ) => {
+        return None;
+      }
+      None => {
+        // Not in graph, try to read from file system (for source-mapped original files)
+        if let Ok(Some(file)) = self
+          .0
+          .shared
+          .file_fetcher
+          .get_cached_source_or_local(&specifier)
+        {
+          return extract_source_line(&String::from_utf8_lossy(&file.source), line_number);
+        } else {
+          return None;
+        }
+      }
     };
-    // Do NOT use .lines(): it skips the terminating empty line.
-    // (due to internally using_terminator() instead of .split())
-    let lines: Vec<&str> = code.split('\n').collect();
-    if line_number >= lines.len() {
-      Some(format!(
-        "{} Couldn't format source line: Line {} is out of bounds (source may have changed at \
-         runtime)",
-        crate::colors::yellow("Warning"),
-        line_number + 1,
-      ))
-    } else {
-      Some(lines[line_number].to_string())
-    }
+
+    extract_source_line(code, line_number)
+  }
+}
+
+/// Extracts a specific line from source code text.
+fn extract_source_line(text: &str, line_number: usize) -> Option<String> {
+  // Do NOT use .lines(): it skips the terminating empty line.
+  // (due to internally using_terminator() instead of .split())
+  match text.split('\n').nth(line_number) {
+    Some(line) => Some(line.to_string()),
+    None => Some(format!(
+      "{} Couldn't format source line: Line {} is out of bounds (source may have changed at \
+       runtime)",
+      crate::colors::yellow("Warning"),
+      line_number + 1,
+    )),
   }
 }
 
@@ -1236,7 +1303,7 @@ impl<TGraphContainer: ModuleGraphContainer> NodeRequireLoader
 {
   fn ensure_read_permission<'a>(
     &self,
-    permissions: &mut dyn deno_runtime::deno_node::NodePermissions,
+    permissions: &mut PermissionsContainer,
     path: Cow<'a, Path>,
   ) -> Result<Cow<'a, Path>, JsErrorBox> {
     if let Ok(url) = deno_path_util::url_from_file_path(&path) {
