@@ -13,3 +13,5 @@ DenoSubcommand::Run(run_flags)
 #+begin_src rust
 use deno_lib::loader::loaded_module_source_to_module_source_code;
 #+end_src
+
+STREAM_API_KEY=test_key STREAM_API_SECRET=test_secret CC=clang cargo run -- stream.ts

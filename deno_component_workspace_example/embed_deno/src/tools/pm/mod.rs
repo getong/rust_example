@@ -39,10 +39,7 @@ pub(crate) mod deps;
 pub(crate) mod interactive_picker;
 mod outdated;
 
-pub use approve_scripts::approve_scripts;
-pub use audit::audit;
 pub use cache_deps::{CacheTopLevelDepsOptions, cache_top_level_deps};
-pub use outdated::outdated;
 
 #[derive(Debug, Copy, Clone, Hash)]
 enum ConfigKind {

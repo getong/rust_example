@@ -1571,7 +1571,7 @@ static DENO_HELP: &str = cstr!(
 
 <p(245)>Usage:</> <g>{usage}</>
 
-<y>Commands:</><y>Execution:</>\
+<y>Commands:</><y>Execution:</>
      
     <g>run</>          Run a JavaScript or TypeScript program, or a task
                   <p(245)>deno \
@@ -1637,7 +1637,7 @@ static DENO_HELP: &str = cstr!(
      upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>
 {after-help}
 
-<y>Docs:</> https://docs.deno.com\
+<y>Docs:</> https://docs.deno.com
      
 <y>Standard Library:</> https://jsr.io/@std
 <y>Bugs:</> https://github.com/denoland/deno/issues<y>Discord:</> \
@@ -2544,10 +2544,12 @@ fn cache_subcommand() -> Command {
 
 Download and compile a module with all of its static dependencies \
        and save them in the local cache, without running any code:
-  <p(245)>deno cache jsr:@std/http/file-server</>\
+  <p(245)>deno cache jsr:@std/http/file-server</>
+       
        
 
-Future runs of this module will trigger no downloads or compilation unless --reload is specified\
+Future runs of this module will trigger no downloads or compilation unless --reload is \
+       specified
        
 
 <y>Read more:</> <c>https://docs.deno.com/go/cache</>"
@@ -2810,24 +2812,28 @@ Collect a coverage profile with deno test:
        test --coverage=cov_profile</>
 
 Print a report to stdout:
-  <p(245)>deno coverage cov_profile</>\
+  <p(245)>deno coverage cov_profile</>
+       
        
 
-Include urls that start with the file schema and exclude files ending with <c>test.ts</> and \
-       <c>test.js</>,
+Include urls that start with the file schema and exclude files ending with <c>test.ts</> \
+       and <c>test.js</>,
 for an url to match it must match the include pattern and not match the exclude \
        pattern:
-  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>\
+  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>
+       
        
 
 Write a report using the lcov format:
-  <p(245)>deno coverage --lcov --output=cov.lcov cov_profile/</>\
+  <p(245)>deno coverage --lcov --output=cov.lcov \
+       cov_profile/</>
        
 
 Generate html reports from lcov:
   <p(245)>genhtml -o html_cov cov.lcov</>
+       
 
-<y>Read more:</> <c>https://docs.deno.com/go/coverage</>\
+<y>Read more:</> <c>https://docs.deno.com/go/coverage</>
        "
     ),
     UnstableArgsConfig::None,
@@ -3416,13 +3422,15 @@ If the <p(245)>--entrypoint</> flag is passed, installs the dependencies \
   <p(245)>deno install</>
   <p(245)>deno install jsr:@std/bytes</><p(245)>deno \
        install npm:chalk</>
-  <p(245)>deno install --entrypoint entry1.ts entry2.ts</><g>Global installation</>\
+  <p(245)>deno install --entrypoint entry1.ts entry2.ts</><g>Global installation</>
+       
        
 
 If the <bold>--global</> flag is set, installs a script as an executable in the installation \
        root's bin directory.
 
-  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>\
+  <p(245)>deno install --global --allow-net --allow-read jsr:@std/http/file-server</>
+       
        
   <p(245)>deno install -g https://examples.deno.land/color-logging.ts</>To change the executable \
        name, use <c>-n</>/<c>--name</>:
@@ -5337,7 +5345,8 @@ fn import_map_arg() -> Arg {
     .value_name("FILE")
     .help(cstr!(
       "Load import map file from local file or remote URL
-  <p(245)>Docs: https://docs.deno.com/runtime/manual/basics/import_maps</>\
+  <p(245)>Docs: https://docs.deno.com/runtime/manual/basics/import_maps</>
+       
        ",
     ))
     .value_hint(ValueHint::FilePath)

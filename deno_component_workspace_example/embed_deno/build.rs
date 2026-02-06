@@ -246,7 +246,6 @@ fn main() {
     return;
   }
 
-  deno_napi::print_linker_flags("embed_deno");
   deno_webgpu::print_linker_flags("embed_deno");
 
   // Host snapshots won't work when cross compiling.

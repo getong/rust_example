@@ -1,678 +1,1414 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
-
-mod args;
-mod cache;
-mod cdp;
-mod deno_tokio_process;
-mod factory;
-mod file_fetcher;
-mod graph_container;
-mod graph_util;
-mod http_util;
-mod jsr;
-mod lsp;
-mod module_loader;
-mod node;
-mod npm;
-mod ops;
-mod registry;
-mod resolver;
-mod standalone;
-mod task_runner;
-mod tools;
-mod tsc;
-mod type_checker;
-mod util;
-mod worker;
-
-pub mod sys {
-  #[allow(clippy::disallowed_types)] // ok, definition
-  pub type CliSys = sys_traits::impls::RealSys;
-}
-
-use std::{env, ffi::OsString, path::PathBuf, sync::Arc};
-
-use deno_core::error::AnyError;
-use deno_lib::{util::result::js_error_downcast_ref, worker::LibWorkerFactoryRoots};
-use deno_runtime::{
-  UnconfiguredRuntime, fmt_errors::format_js_error,
-  tokio_util::create_and_run_current_thread_with_maybe_metrics,
-};
-use deno_telemetry::OtelConfig;
-use deno_terminal::colors;
-use factory::CliFactory;
-
-use self::util::draw_thread::DrawThread;
-use crate::{
-  args::{Flags, flags_from_vec, get_default_v8_flags},
-  util::{
-    display,
-    v8::{get_v8_flags_from_env, init_v8_flags},
-    watch_env_tracker::{WatchEnvTracker, load_env_variables_from_env_files},
-  },
+use std::{
+  collections::BTreeMap,
+  env,
+  path::{Path, PathBuf},
+  process::{Command, Output},
+  rc::Rc,
+  time::Duration,
 };
 
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use deno_ast::{EmitOptions, MediaType, ParseParams, SourceMapOption};
+use deno_core::{
+  JsRuntime, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
+  ModuleSpecifier, ModuleType, ResolutionKind, RuntimeOptions,
+  error::{AnyError, ModuleLoaderError},
+  futures::FutureExt,
+  op2, resolve_import,
+};
+use deno_graph::packages::{JsrPackageInfo, JsrPackageVersionInfo};
+use deno_semver::jsr::JsrPackageReqReference;
+use rand::RngCore;
+use sha2::{Digest, Sha256};
 
-/// Ensures that all subcommands return an i32 exit code and an [`AnyError`] error type.
-trait SubcommandOutput {
-  fn output(self) -> Result<i32, AnyError>;
+#[op2(fast)]
+fn op_get_random_values(#[buffer] output: &mut [u8]) {
+  rand::thread_rng().fill_bytes(output);
 }
 
-impl SubcommandOutput for Result<i32, AnyError> {
-  fn output(self) -> Result<i32, AnyError> {
-    self
+#[op2]
+async fn op_sleep(ms: u32) {
+  tokio::time::sleep(Duration::from_millis(ms as u64)).await;
+}
+
+#[op2]
+#[serde]
+fn op_env_snapshot() -> BTreeMap<String, String> {
+  env::vars().collect()
+}
+
+fn hmac_sha256(secret: &[u8], message: &[u8]) -> [u8; 32] {
+  const BLOCK_SIZE: usize = 64;
+  let mut key_block = [0u8; BLOCK_SIZE];
+
+  if secret.len() > BLOCK_SIZE {
+    let digest = Sha256::digest(secret);
+    key_block[.. digest.len()].copy_from_slice(&digest);
+  } else {
+    key_block[.. secret.len()].copy_from_slice(secret);
+  }
+
+  let mut inner_pad = [0x36u8; BLOCK_SIZE];
+  let mut outer_pad = [0x5cu8; BLOCK_SIZE];
+  for index in 0 .. BLOCK_SIZE {
+    inner_pad[index] ^= key_block[index];
+    outer_pad[index] ^= key_block[index];
+  }
+
+  let mut inner = Sha256::new();
+  inner.update(inner_pad);
+  inner.update(message);
+  let inner_digest = inner.finalize();
+
+  let mut outer = Sha256::new();
+  outer.update(outer_pad);
+  outer.update(inner_digest);
+  let digest = outer.finalize();
+
+  let mut output = [0u8; 32];
+  output.copy_from_slice(&digest);
+  output
+}
+
+#[op2]
+#[string]
+fn op_sign_jwt_hs256(
+  #[string] secret: String,
+  #[serde] payload: deno_core::serde_json::Value,
+  no_timestamp: bool,
+) -> String {
+  let mut payload = match payload {
+    deno_core::serde_json::Value::Object(map) => map,
+    _ => deno_core::serde_json::Map::new(),
+  };
+
+  if !no_timestamp && !payload.contains_key("iat") {
+    let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_secs();
+    payload.insert("iat".to_string(), deno_core::serde_json::Value::from(now));
+  }
+
+  let header_json = deno_core::serde_json::json!({
+    "alg": "HS256",
+    "typ": "JWT",
+  })
+  .to_string();
+  let payload_json = deno_core::serde_json::Value::Object(payload).to_string();
+
+  let header_b64 = URL_SAFE_NO_PAD.encode(header_json.as_bytes());
+  let payload_b64 = URL_SAFE_NO_PAD.encode(payload_json.as_bytes());
+  let signing_input = format!("{header_b64}.{payload_b64}");
+
+  let signature = hmac_sha256(secret.as_bytes(), signing_input.as_bytes());
+  let signature_b64 = URL_SAFE_NO_PAD.encode(signature);
+
+  format!("{signing_input}.{signature_b64}")
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadTextFileSyncResult {
+  ok: bool,
+  text: Option<String>,
+  error_kind: Option<&'static str>,
+  error_message: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FetchHttpResult {
+  status: u16,
+  status_text: String,
+  body: String,
+  error: Option<String>,
+}
+
+fn http_status_text(status: u16) -> &'static str {
+  match status {
+    200 => "OK",
+    201 => "Created",
+    202 => "Accepted",
+    204 => "No Content",
+    301 => "Moved Permanently",
+    302 => "Found",
+    304 => "Not Modified",
+    307 => "Temporary Redirect",
+    308 => "Permanent Redirect",
+    400 => "Bad Request",
+    401 => "Unauthorized",
+    403 => "Forbidden",
+    404 => "Not Found",
+    405 => "Method Not Allowed",
+    408 => "Request Timeout",
+    409 => "Conflict",
+    413 => "Payload Too Large",
+    415 => "Unsupported Media Type",
+    429 => "Too Many Requests",
+    500 => "Internal Server Error",
+    502 => "Bad Gateway",
+    503 => "Service Unavailable",
+    504 => "Gateway Timeout",
+    _ => "",
   }
 }
 
-impl SubcommandOutput for Result<(), AnyError> {
-  fn output(self) -> Result<i32, AnyError> {
-    self.map(|_| 0)
+fn run_curl_fetch(
+  url: &str,
+  method: &str,
+  headers: &BTreeMap<String, String>,
+  body: &Option<String>,
+  disable_proxy_env: bool,
+) -> std::io::Result<Output> {
+  let mut command = Command::new("curl");
+  command
+    .arg("-sSL")
+    .arg("-X")
+    .arg(method)
+    .arg("--connect-timeout")
+    .arg("10")
+    .arg("--max-time")
+    .arg("60")
+    .arg("--retry")
+    .arg("2")
+    .arg("--retry-delay")
+    .arg("1")
+    .arg("-w")
+    .arg("\n__EMBED_DENO_STATUS__%{http_code}");
+
+  if disable_proxy_env {
+    command
+      .arg("--noproxy")
+      .arg("*")
+      .arg("--proxy")
+      .arg("")
+      .env_remove("ALL_PROXY")
+      .env_remove("HTTP_PROXY")
+      .env_remove("HTTPS_PROXY")
+      .env_remove("NO_PROXY")
+      .env_remove("all_proxy")
+      .env_remove("http_proxy")
+      .env_remove("https_proxy")
+      .env_remove("no_proxy");
   }
+
+  for (name, value) in headers {
+    command.arg("-H").arg(format!("{name}: {value}"));
+  }
+
+  if let Some(body) = body {
+    command.arg("--data-binary").arg(body);
+  }
+
+  command.arg(url).output()
 }
 
-use deno_core::{futures::FutureExt, unsync::JoinHandle};
+#[op2]
+#[serde]
+fn op_fetch_http(
+  #[string] url: String,
+  #[string] method: String,
+  #[serde] headers: BTreeMap<String, String>,
+  #[string] body: Option<String>,
+) -> FetchHttpResult {
+  if !env_bool("EMBED_DENO_ALLOW_NET", true) {
+    return FetchHttpResult {
+      status: 0,
+      status_text: String::new(),
+      body: String::new(),
+      error: Some("Network permission denied (set EMBED_DENO_ALLOW_NET=1)".to_string()),
+    };
+  }
 
-/// Ensure that the subcommand runs in a task, rather than being directly executed.
-#[inline(always)]
-fn spawn_subcommand<F, T>(f: F) -> JoinHandle<Result<i32, AnyError>>
-where
-  F: std::future::Future<Output = T> + 'static,
-  T: SubcommandOutput,
-{
-  deno_core::unsync::spawn(async move { f.map(|r| r.output()).await }.boxed_local())
-}
-
-async fn run_subcommand(
-  _flags: Arc<Flags>,
-  _unconfigured_runtime: Option<deno_runtime::UnconfiguredRuntime>,
-  _roots: LibWorkerFactoryRoots,
-) -> Result<i32, AnyError> {
-  // This function is now deprecated - the logic has been moved to
-  // deno_tokio_process::run_typescript_file It should not be called anymore, but we keep it for
-  // compatibility
-  Err(AnyError::msg(
-    "run_subcommand is deprecated - use deno_tokio_process::run_typescript_file instead",
-  ))
-}
-
-#[allow(clippy::print_stderr)]
-fn setup_panic_hook() {
-  let orig_hook = std::panic::take_hook();
-  std::panic::set_hook(Box::new(move |panic_info| {
-    eprintln!("\nDeno runtime panicked");
-    orig_hook(panic_info);
-    deno_runtime::exit(1);
-  }));
-}
-
-fn exit_with_message(message: &str, code: i32) -> ! {
-  log::error!(
-    "{}: {}",
-    colors::red_bold("error"),
-    message.trim_start_matches("error: ")
-  );
-  deno_runtime::exit(code);
-}
-
-fn exit_for_error(error: AnyError) -> ! {
-  let error_string = match js_error_downcast_ref(&error) {
-    Some(e) => format_js_error(e, None),
-    None => format!("{error:?}"),
-  };
-
-  exit_with_message(&error_string, 1);
-}
-
-fn format_json_output(value: &serde_json::Value) -> String {
-  serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
-}
-
-pub(crate) fn unstable_exit_cb(feature: &str, api_name: &str) {
-  log::error!(
-    "Unstable API '{api_name}'. The `--unstable-{}` flag must be provided.",
-    feature
-  );
-  deno_runtime::exit(70);
-}
-
-fn maybe_setup_permission_broker() {
-  let Ok(socket_path) = std::env::var("DENO_PERMISSION_BROKER_PATH") else {
-    return;
-  };
-  log::warn!(
-    "{} Permission broker is an experimental feature",
-    colors::yellow("Warning")
-  );
-  let broker = deno_runtime::deno_permissions::broker::PermissionBroker::new(socket_path);
-  deno_runtime::deno_permissions::broker::set_broker(broker);
-}
-
-use tokio::time::{Duration, MissedTickBehavior};
-use tokio_util::sync::CancellationToken;
-
-fn run_daemon_mode(exit_code: i32) -> ! {
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .thread_name("deno-daemon")
-    .build()
-    .unwrap();
-
-  let local = tokio::task::LocalSet::new();
-
-  local.block_on(&runtime, async {
-    let cancel_token = CancellationToken::new();
-    let cancel_token_clone = cancel_token.clone();
-
-    tokio::task::spawn_local(async move {
-      if let Err(err) = tokio::signal::ctrl_c().await {
-        eprintln!("⚠️  Error listening for Ctrl+C: {}", err);
-      }
-      cancel_token_clone.cancel();
-    });
-
-    let start_time = std::time::Instant::now();
-    let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
-    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    heartbeat.tick().await;
-
-    let mut heartbeat_count = 0u64;
-
-    loop {
-      tokio::select! {
-        _ = cancel_token.cancelled() => {
-          println!("\n🛑 Daemon shutdown requested. Total uptime: {:?}", start_time.elapsed());
-          break;
+  let primary = run_curl_fetch(&url, &method, &headers, &body, false);
+  let output = match primary {
+    Ok(output) if output.status.success() => output,
+    Ok(primary_output) => {
+      let fallback = run_curl_fetch(&url, &method, &headers, &body, true);
+      match fallback {
+        Ok(fallback_output) if fallback_output.status.success() => fallback_output,
+        Ok(fallback_output) => {
+          return FetchHttpResult {
+            status: 0,
+            status_text: String::new(),
+            body: String::new(),
+            error: Some(format!(
+              "Failed to fetch {}\n- with proxy env: {}\n- with direct mode: {}",
+              url,
+              String::from_utf8_lossy(&primary_output.stderr).trim(),
+              String::from_utf8_lossy(&fallback_output.stderr).trim(),
+            )),
+          };
         }
-        _ = heartbeat.tick() => {
-          heartbeat_count += 1;
-          println!(
-            "💤 Daemon heartbeat #{}, uptime {:?}",
-            heartbeat_count,
-            start_time.elapsed()
-          );
+        Err(error) => {
+          return FetchHttpResult {
+            status: 0,
+            status_text: String::new(),
+            body: String::new(),
+            error: Some(format!("Failed to execute curl in direct mode: {error}")),
+          };
         }
       }
     }
+    Err(error) => {
+      return FetchHttpResult {
+        status: 0,
+        status_text: String::new(),
+        body: String::new(),
+        error: Some(format!("Failed to execute curl: {error}")),
+      };
+    }
+  };
+
+  let output_text = String::from_utf8_lossy(&output.stdout).to_string();
+  let marker = "\n__EMBED_DENO_STATUS__";
+  let (body, status) = if let Some(index) = output_text.rfind(marker) {
+    let body = output_text[.. index].to_string();
+    let status_text = output_text[index + marker.len() ..].trim();
+    let status = status_text.parse::<u16>().unwrap_or(0);
+    (body, status)
+  } else {
+    (output_text, 0)
+  };
+
+  FetchHttpResult {
+    status,
+    status_text: http_status_text(status).to_string(),
+    body,
+    error: None,
+  }
+}
+
+#[op2]
+#[serde]
+fn op_read_text_file_sync_result(#[string] path: String) -> ReadTextFileSyncResult {
+  if !env_bool("EMBED_DENO_ALLOW_READ", true) {
+    return ReadTextFileSyncResult {
+      ok: false,
+      text: None,
+      error_kind: Some("PermissionDenied"),
+      error_message: Some("Read permission denied (set EMBED_DENO_ALLOW_READ=1)".to_string()),
+    };
+  }
+
+  match std::fs::read_to_string(path) {
+    Ok(text) => ReadTextFileSyncResult {
+      ok: true,
+      text: Some(text),
+      error_kind: None,
+      error_message: None,
+    },
+    Err(error) => {
+      let error_kind = match error.kind() {
+        std::io::ErrorKind::NotFound => "NotFound",
+        std::io::ErrorKind::PermissionDenied => "PermissionDenied",
+        _ => "Other",
+      };
+
+      ReadTextFileSyncResult {
+        ok: false,
+        text: None,
+        error_kind: Some(error_kind),
+        error_message: Some(error.to_string()),
+      }
+    }
+  }
+}
+
+deno_core::extension!(
+  embed_runtime,
+  ops = [
+    op_get_random_values,
+    op_sleep,
+    op_env_snapshot,
+    op_read_text_file_sync_result,
+    op_sign_jwt_hs256,
+    op_fetch_http
+  ]
+);
+
+#[derive(Clone, Debug)]
+struct RuntimeConfig {
+  allow_read: bool,
+  allow_net: bool,
+  cache_dir: PathBuf,
+}
+
+impl RuntimeConfig {
+  fn from_env() -> Result<Self, AnyError> {
+    let allow_read = env_bool("EMBED_DENO_ALLOW_READ", true);
+    let allow_net = env_bool("EMBED_DENO_ALLOW_NET", true);
+
+    let cache_dir = if let Ok(path) = env::var("EMBED_DENO_CACHE_DIR") {
+      PathBuf::from(path)
+    } else {
+      default_cache_dir()?
+    };
+
+    std::fs::create_dir_all(&cache_dir)?;
+
+    Ok(Self {
+      allow_read,
+      allow_net,
+      cache_dir,
+    })
+  }
+}
+
+#[derive(Clone)]
+struct EmbeddedModuleLoader {
+  config: RuntimeConfig,
+}
+
+impl EmbeddedModuleLoader {
+  fn new(config: RuntimeConfig) -> Self {
+    Self { config }
+  }
+
+  fn resolve_npm_specifier(specifier: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    let npm_req = specifier.trim_start_matches("npm:");
+    ModuleSpecifier::parse(&format!("https://esm.sh/{npm_req}"))
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))
+  }
+
+  fn resolve_jsr_specifier(&self, specifier: &str) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    let req_ref = JsrPackageReqReference::from_str(specifier)
+      .or_else(|_| {
+        specifier
+          .strip_prefix("jsr:/")
+          .ok_or_else(|| ModuleLoaderError::generic(format!("Invalid JSR specifier: {specifier}")))
+          .and_then(|rest| {
+            JsrPackageReqReference::from_str(&format!("jsr:{rest}"))
+              .map_err(|error| ModuleLoaderError::generic(error.to_string()))
+          })
+      })
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+
+    let req = req_ref.req();
+    let package_name = req.name.to_string();
+
+    let package_info_url =
+      ModuleSpecifier::parse(&format!("https://jsr.io/{package_name}/meta.json"))
+        .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+    let package_info_source = self.fetch_remote_http(&package_info_url)?;
+    let package_info: JsrPackageInfo = deno_core::serde_json::from_str(&package_info_source)
+      .map_err(|error| {
+        ModuleLoaderError::generic(format!(
+          "Failed to parse JSR package metadata for {package_name}: {error}"
+        ))
+      })?;
+
+    let version = package_info
+      .versions
+      .iter()
+      .filter(|(version, info)| !info.yanked && req.version_req.matches(version))
+      .map(|(version, _)| version)
+      .max()
+      .ok_or_else(|| {
+        ModuleLoaderError::generic(format!("No matching JSR version for {specifier}"))
+      })?;
+
+    let version_info_url = ModuleSpecifier::parse(&format!(
+      "https://jsr.io/{package_name}/{version}_meta.json"
+    ))
+    .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+    let version_info_source = self.fetch_remote_http(&version_info_url)?;
+    let version_info: JsrPackageVersionInfo = deno_core::serde_json::from_str(&version_info_source)
+      .map_err(|error| {
+        ModuleLoaderError::generic(format!(
+          "Failed to parse JSR version metadata for {package_name}@{version}: {error}"
+        ))
+      })?;
+
+    let export_name = req_ref.export_name();
+    let export_path = version_info.export(export_name.as_ref()).ok_or_else(|| {
+      ModuleLoaderError::generic(format!(
+        "Unable to resolve JSR export '{}' in {specifier}",
+        export_name
+      ))
+    })?;
+    let export_path = export_path.strip_prefix("./").unwrap_or(export_path);
+    let export_path = export_path.strip_prefix('/').unwrap_or(export_path);
+
+    ModuleSpecifier::parse(&format!(
+      "https://jsr.io/{package_name}/{version}/{export_path}"
+    ))
+    .map_err(|error| ModuleLoaderError::generic(error.to_string()))
+  }
+
+  fn curl_fetch(
+    &self,
+    module_specifier: &ModuleSpecifier,
+    disable_proxy_env: bool,
+  ) -> Result<Output, ModuleLoaderError> {
+    let mut command = Command::new("curl");
+    command
+      .arg("-fsSL")
+      .arg("--connect-timeout")
+      .arg("10")
+      .arg("--max-time")
+      .arg("60")
+      .arg("--retry")
+      .arg("2")
+      .arg("--retry-delay")
+      .arg("1");
+
+    if disable_proxy_env {
+      command
+        .arg("--noproxy")
+        .arg("*")
+        .arg("--proxy")
+        .arg("")
+        .env_remove("ALL_PROXY")
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("NO_PROXY")
+        .env_remove("all_proxy")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("no_proxy");
+    }
+
+    command.arg(module_specifier.as_str());
+
+    command
+      .output()
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))
+  }
+
+  fn patch_remote_source(module_specifier: &ModuleSpecifier, source: String) -> String {
+    let spec = module_specifier.as_str();
+    if !spec.contains("esm.sh/")
+      || !spec.contains("stream-chat@")
+      || !spec.contains("stream-chat.mjs")
+    {
+      return source;
+    }
+
+    source
+      .replace(
+        "this.node&&!this.options.httpsAgent&&(this.options.httpsAgent=new \
+         Os.default.Agent({keepAlive:!0,keepAliveMsecs:3e3}))",
+        "this.node&&!this.options.httpsAgent&&(this.options.httpsAgent={})",
+      )
+      .replace(
+        "if(he.default==null||he.default.sign==null)throw Error(\"Unable to find jwt crypto, if \
+         you are getting this error is probably because you are trying to generate tokens on \
+         browser or React Native (or other environment where crypto functions are not available). \
+         Please Note: token should only be generated server-side.\")",
+        "if(he.default==null||he.default.sign==null){}",
+      )
+      .replace(
+        "return n.iat&&(a.noTimestamp=!1),he.default.sign(n,t,a)",
+        "return n.iat&&(a.noTimestamp=!1),he.default&&he.default.sign?he.default.sign(n,t,a):Deno.\
+         core.ops.op_sign_jwt_hs256(t,n,a.noTimestamp===!0)",
+      )
+      .replace(
+        "return he.default.sign(s,t,i)",
+        "return he.default&&he.default.sign?he.default.sign(s,t,i):Deno.core.ops.\
+         op_sign_jwt_hs256(t,s,i.noTimestamp===!0)",
+      )
+  }
+
+  fn read_local_file(
+    &self,
+    module_specifier: &ModuleSpecifier,
+  ) -> Result<String, ModuleLoaderError> {
+    if !self.config.allow_read {
+      return Err(ModuleLoaderError::generic(
+        "Read permission denied (set EMBED_DENO_ALLOW_READ=1)",
+      ));
+    }
+
+    let path = module_specifier
+      .to_file_path()
+      .map_err(|_| ModuleLoaderError::generic(format!("Not a file URL: {module_specifier}")))?;
+
+    std::fs::read_to_string(path).map_err(|error| ModuleLoaderError::generic(error.to_string()))
+  }
+
+  fn fetch_remote_http(
+    &self,
+    module_specifier: &ModuleSpecifier,
+  ) -> Result<String, ModuleLoaderError> {
+    if !self.config.allow_net {
+      return Err(ModuleLoaderError::generic(
+        "Network permission denied (set EMBED_DENO_ALLOW_NET=1)",
+      ));
+    }
+
+    if let Some(cached) = self.read_remote_cache(module_specifier)? {
+      return Ok(cached);
+    }
+
+    let primary_output = self.curl_fetch(module_specifier, false)?;
+    let output = if primary_output.status.success() {
+      primary_output
+    } else {
+      let fallback_output = self.curl_fetch(module_specifier, true)?;
+      if fallback_output.status.success() {
+        fallback_output
+      } else {
+        return Err(ModuleLoaderError::generic(format!(
+          "Failed to fetch {}\n- with proxy env: {}\n- with direct mode: {}",
+          module_specifier,
+          String::from_utf8_lossy(&primary_output.stderr).trim(),
+          String::from_utf8_lossy(&fallback_output.stderr).trim(),
+        )));
+      }
+    };
+
+    if !output.status.success() {
+      return Err(ModuleLoaderError::generic(format!(
+        "Failed to fetch {}: {}",
+        module_specifier,
+        String::from_utf8_lossy(&output.stderr)
+      )));
+    }
+
+    let text = String::from_utf8(output.stdout)
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+
+    self.write_remote_cache(module_specifier, &text)?;
+    Ok(text)
+  }
+
+  fn cache_file_path(&self, module_specifier: &ModuleSpecifier) -> PathBuf {
+    let hash = format!(
+      "{:016x}",
+      twox_hash::XxHash64::oneshot(0, module_specifier.as_str().as_bytes())
+    );
+    self.config.cache_dir.join(format!("{hash}.mjs"))
+  }
+
+  fn read_remote_cache(
+    &self,
+    module_specifier: &ModuleSpecifier,
+  ) -> Result<Option<String>, ModuleLoaderError> {
+    let path = self.cache_file_path(module_specifier);
+    if !path.exists() {
+      return Ok(None);
+    }
+
+    let text = std::fs::read_to_string(path)
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+    Ok(Some(text))
+  }
+
+  fn write_remote_cache(
+    &self,
+    module_specifier: &ModuleSpecifier,
+    content: &str,
+  ) -> Result<(), ModuleLoaderError> {
+    let path = self.cache_file_path(module_specifier);
+    std::fs::write(path, content).map_err(|error| ModuleLoaderError::generic(error.to_string()))
+  }
+
+  fn maybe_transpile(
+    module_specifier: &ModuleSpecifier,
+    source: String,
+  ) -> Result<(ModuleType, String), ModuleLoaderError> {
+    let media_type = MediaType::from_specifier(module_specifier);
+    let needs_transpile = matches!(
+      media_type,
+      MediaType::TypeScript | MediaType::Mts | MediaType::Cts | MediaType::Tsx | MediaType::Jsx
+    );
+
+    if !needs_transpile {
+      let module_type = if media_type == MediaType::Json {
+        ModuleType::Json
+      } else {
+        ModuleType::JavaScript
+      };
+      return Ok((module_type, source));
+    }
+
+    let parsed = deno_ast::parse_module(ParseParams {
+      specifier: module_specifier.clone(),
+      text: source.into(),
+      media_type,
+      capture_tokens: false,
+      maybe_syntax: None,
+      scope_analysis: false,
+    })
+    .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+
+    let transpile_options = deno_ast::TranspileOptions::default();
+    let transpile_module_options = deno_ast::TranspileModuleOptions::default();
+    let emit_options = EmitOptions {
+      source_map: SourceMapOption::None,
+      ..Default::default()
+    };
+
+    let transpiled = parsed
+      .transpile(&transpile_options, &transpile_module_options, &emit_options)
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+
+    Ok((ModuleType::JavaScript, transpiled.into_source().text))
+  }
+}
+
+impl ModuleLoader for EmbeddedModuleLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    if specifier.starts_with("npm:") {
+      return Self::resolve_npm_specifier(specifier);
+    }
+
+    if specifier.starts_with("jsr:") {
+      return self.resolve_jsr_specifier(specifier);
+    }
+
+    if kind == ResolutionKind::MainModule {
+      return if specifier.contains("://") {
+        ModuleSpecifier::parse(specifier)
+          .map_err(|error| ModuleLoaderError::generic(error.to_string()))
+      } else {
+        let absolute = std::fs::canonicalize(Path::new(specifier))
+          .map_err(|error| ModuleLoaderError::generic(error.to_string()))?;
+        ModuleSpecifier::from_file_path(absolute)
+          .map_err(|_| ModuleLoaderError::generic(format!("Invalid script path: {specifier}")))
+      };
+    }
+
+    resolve_import(specifier, referrer)
+      .map_err(|error| ModuleLoaderError::generic(error.to_string()))
+  }
+
+  fn load(
+    &self,
+    module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: deno_core::ModuleLoadOptions,
+  ) -> ModuleLoadResponse {
+    let module_specifier = module_specifier.clone();
+    let this = self.clone();
+
+    ModuleLoadResponse::Async(
+      async move {
+        let source = match module_specifier.scheme() {
+          "file" => this.read_local_file(&module_specifier)?,
+          "http" | "https" => this.fetch_remote_http(&module_specifier)?,
+          scheme => {
+            return Err(ModuleLoaderError::generic(format!(
+              "Unsupported module scheme '{scheme}' for {module_specifier}"
+            )));
+          }
+        };
+
+        let source = Self::patch_remote_source(&module_specifier, source);
+        let (module_type, code) = Self::maybe_transpile(&module_specifier, source)?;
+
+        Ok(ModuleSource::new(
+          module_type,
+          ModuleSourceCode::String(deno_core::ModuleCodeString::from(code)),
+          &module_specifier,
+          None,
+        ))
+      }
+      .boxed(),
+    )
+  }
+}
+
+fn env_bool(name: &str, default: bool) -> bool {
+  match env::var(name) {
+    Ok(value) => matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"),
+    Err(_) => default,
+  }
+}
+
+fn default_cache_dir() -> Result<PathBuf, AnyError> {
+  let home = env::var("HOME").map_err(|_| AnyError::msg("$HOME is not set"))?;
+  Ok(
+    Path::new(&home)
+      .join(".embed_deno_cache")
+      .join("remote_modules"),
+  )
+}
+
+fn main() {
+  if let Err(error) = run() {
+    eprintln!("{error:#}");
+    std::process::exit(1);
+  }
+}
+
+fn run() -> Result<(), AnyError> {
+  let mut args = env::args().skip(1);
+  let Some(main_module_arg) = args.next() else {
+    return Err(AnyError::msg(
+      "Usage: embed_deno <entry.ts|entry.js|npm:pkg>",
+    ));
+  };
+
+  let config = RuntimeConfig::from_env()?;
+  let loader = Rc::new(EmbeddedModuleLoader::new(config));
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    extensions: vec![embed_runtime::init()],
+    ..Default::default()
   });
 
-  deno_runtime::exit(exit_code);
+  runtime.execute_script(
+    "bootstrap://runtime_primitives",
+    r#"
+if (!globalThis.crypto) {
+  globalThis.crypto = {
+    getRandomValues(typedArray) {
+      if (!typedArray || typeof typedArray.length !== "number") {
+        throw new TypeError("Expected an integer typed array");
+      }
+      Deno.core.ops.op_get_random_values(typedArray);
+      return typedArray;
+    },
+    randomUUID() {
+      const bytes = this.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+      return (
+        hex.slice(0, 4).join("") + "-" +
+        hex.slice(4, 6).join("") + "-" +
+        hex.slice(6, 8).join("") + "-" +
+        hex.slice(8, 10).join("") + "-" +
+        hex.slice(10, 16).join("")
+      );
+    },
+  };
 }
 
-pub fn main() {
-  #[cfg(feature = "dhat-heap")]
-  let profiler = dhat::Profiler::new_heap();
+if (!globalThis.setTimeout) {
+  let nextTimerId = 1;
+  const timers = new Map();
 
-  setup_panic_hook();
-
-  init_logging(None, None);
-
-  util::unix::raise_fd_limit();
-  util::windows::ensure_stdio_open();
-  #[cfg(windows)]
-  {
-    deno_subprocess_windows::disable_stdio_inheritance();
-    colors::enable_ansi(); // For Windows 10
+  function normalizeDelay(delay) {
+    if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) {
+      return 0;
+    }
+    return Math.floor(delay);
   }
-  deno_runtime::deno_permissions::prompter::set_prompt_callbacks(
-    Box::new(util::draw_thread::DrawThread::hide),
-    Box::new(util::draw_thread::DrawThread::show),
-  );
 
-  maybe_setup_permission_broker();
+  function ensureCallback(callback) {
+    if (typeof callback !== "function") {
+      throw new TypeError("Timer callback must be a function");
+    }
+  }
 
-  rustls::crypto::aws_lc_rs::default_provider()
-    .install_default()
-    .unwrap();
+  globalThis.setTimeout = (callback, delay = 0, ...args) => {
+    ensureCallback(callback);
+    const timerId = nextTimerId++;
+    const timerState = { cancelled: false, repeat: false };
+    timers.set(timerId, timerState);
 
-  let args: Vec<OsString> = env::args_os().collect();
-
-  let future = async move {
-    let roots = LibWorkerFactoryRoots::default();
-
-    #[cfg(unix)]
-    let (waited_unconfigured_runtime, waited_args) = match wait_for_start(&args, roots.clone()) {
-      Some(f) => match f.await {
-        Ok(v) => match v {
-          Some((u, a)) => (Some(u), Some(a)),
-          None => (None, None),
-        },
-        Err(e) => {
-          panic!("Failure from control sock: {e}");
+    void (async () => {
+      await Deno.core.ops.op_sleep(normalizeDelay(delay));
+      if (!timerState.cancelled) {
+        try {
+          callback(...args);
+        } finally {
+          timers.delete(timerId);
         }
-      },
-      None => (None, None),
+      }
+    })();
+
+    return timerId;
+  };
+
+  globalThis.clearTimeout = (timerId) => {
+    const timerState = timers.get(timerId);
+    if (timerState) {
+      timerState.cancelled = true;
+      timers.delete(timerId);
+    }
+  };
+
+  globalThis.setInterval = (callback, delay = 0, ...args) => {
+    ensureCallback(callback);
+    const timerId = nextTimerId++;
+    const timerState = { cancelled: false, repeat: true };
+    timers.set(timerId, timerState);
+
+    void (async () => {
+      const normalizedDelay = normalizeDelay(delay);
+      while (!timerState.cancelled) {
+        await Deno.core.ops.op_sleep(normalizedDelay);
+        if (timerState.cancelled) {
+          break;
+        }
+        callback(...args);
+      }
+      timers.delete(timerId);
+    })();
+
+    return timerId;
+  };
+
+  globalThis.clearInterval = globalThis.clearTimeout;
+}
+
+if (!globalThis.btoa || !globalThis.atob) {
+  const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+  if (!globalThis.btoa) {
+    globalThis.btoa = (input) => {
+      const str = String(input);
+      let output = "";
+
+      for (let index = 0; index < str.length; index += 3) {
+        const byte1 = str.charCodeAt(index);
+        const hasByte2 = index + 1 < str.length;
+        const hasByte3 = index + 2 < str.length;
+        const byte2 = hasByte2 ? str.charCodeAt(index + 1) : 0;
+        const byte3 = hasByte3 ? str.charCodeAt(index + 2) : 0;
+
+        if (byte1 > 0xff || byte2 > 0xff || byte3 > 0xff) {
+          throw new TypeError("The string to be encoded contains characters outside Latin1 range.");
+        }
+
+        const chunk = (byte1 << 16) | (byte2 << 8) | byte3;
+        const char1 = BASE64_CHARS[(chunk >> 18) & 0x3f];
+        const char2 = BASE64_CHARS[(chunk >> 12) & 0x3f];
+        const char3 = hasByte2 ? BASE64_CHARS[(chunk >> 6) & 0x3f] : "=";
+        const char4 = hasByte3 ? BASE64_CHARS[chunk & 0x3f] : "=";
+        output += char1 + char2 + char3 + char4;
+      }
+
+      return output;
     };
+  }
 
-    #[cfg(not(unix))]
-    let (waited_unconfigured_runtime, waited_args) = (None, None);
+  if (!globalThis.atob) {
+    globalThis.atob = (input) => {
+      let str = String(input).replace(/[\t\n\f\r ]+/g, "");
+      str = str.replace(/-/g, "+").replace(/_/g, "/");
 
-    let args = waited_args.unwrap_or(args);
+      if (str.length % 4 === 1) {
+        throw new TypeError("Invalid base64 input");
+      }
 
-    // Check if V8 was already initialized in wait_for_start
-    let v8_already_initialized = waited_unconfigured_runtime.is_some();
+      while (str.length % 4 !== 0) {
+        str += "=";
+      }
 
-    // Create and run the Deno Runtime Manager
-    // This will handle:
-    // 1. Flag parsing and V8 initialization
-    // 2. TypeScript file execution
-    // 3. Daemon mode with heartbeat loop
-    // 4. Message passing for script execution
-    let runtime_manager =
-      crate::deno_tokio_process::DenoRuntimeManager::from_args(args, v8_already_initialized)
-        .await?;
+      let output = "";
 
-    // Get handle and daemon future for sending requests
-    let (handle, daemon_future) = runtime_manager.run_with_handle().await?;
+      for (let index = 0; index < str.length; index += 4) {
+        const c1 = str[index];
+        const c2 = str[index + 1];
+        const c3 = str[index + 2];
+        const c4 = str[index + 3];
 
-    // Define the TypeScript files to execute
-    let ts_files = vec!["fetch_api_example.ts", "stream.ts"];
+        const v1 = BASE64_CHARS.indexOf(c1);
+        const v2 = BASE64_CHARS.indexOf(c2);
+        const v3 = c3 === "=" ? -1 : BASE64_CHARS.indexOf(c3);
+        const v4 = c4 === "=" ? -1 : BASE64_CHARS.indexOf(c4);
 
-    // Create a future for script execution
-    let script_execution = async {
-      // Give daemon time to start
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        if (v1 < 0 || v2 < 0 || (c3 !== "=" && v3 < 0) || (c4 !== "=" && v4 < 0)) {
+          throw new TypeError("Invalid base64 input");
+        }
 
-      // Loop through each TypeScript file and execute it
-      for ts_file in ts_files {
-        println!("\n📖 Reading {} file...", ts_file);
-        let ts_path = std::env::current_dir().unwrap().join(ts_file);
+        const chunk = (v1 << 18) | (v2 << 12) | ((v3 < 0 ? 0 : v3) << 6) | (v4 < 0 ? 0 : v4);
+        output += String.fromCharCode((chunk >> 16) & 0xff);
+        if (c3 !== "=") {
+          output += String.fromCharCode((chunk >> 8) & 0xff);
+        }
+        if (c4 !== "=") {
+          output += String.fromCharCode(chunk & 0xff);
+        }
+      }
 
-        let script = match std::fs::read_to_string(&ts_path) {
-          Ok(content) => {
-            println!("✅ Successfully read {} ({} bytes)", ts_file, content.len());
-            content
-          }
-          Err(err) => {
-            eprintln!("❌ Failed to read {}: {}", ts_file, err);
-            eprintln!("   Skipping this file...");
+      return output;
+    };
+  }
+}
+
+if (!globalThis.URLSearchParams) {
+  const encode = (value) =>
+    encodeURIComponent(String(value)).replace(/%20/g, "+");
+  const decode = (value) =>
+    decodeURIComponent(String(value).replace(/\+/g, "%20"));
+
+  class URLSearchParams {
+    constructor(init = "") {
+      this._entries = [];
+
+      if (typeof init === "string") {
+        const source = init.startsWith("?") ? init.slice(1) : init;
+        if (!source) {
+          return;
+        }
+        for (const segment of source.split("&")) {
+          if (!segment) {
             continue;
           }
-        };
-
-        // Send the script for execution
-        println!("📤 Sending {} for execution...", ts_file);
-        match handle.execute(script).await {
-          Ok(result) => {
-            println!("✅ Execution result for {}:", ts_file);
-            println!("{}", format_json_output(&result));
-          }
-          Err(err) => {
-            eprintln!("❌ Execution failed for {}: {}", ts_file, err);
+          const index = segment.indexOf("=");
+          if (index === -1) {
+            this.append(decode(segment), "");
+          } else {
+            const key = segment.slice(0, index);
+            const value = segment.slice(index + 1);
+            this.append(decode(key), decode(value));
           }
         }
-
-        // Small delay between executions
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        return;
       }
 
-      // NEW: Test the CALL_FUNCTION pattern with function_caller.ts module
-      println!("\n🎯 Testing CALL_FUNCTION pattern with function_caller.ts module");
-      println!("═══════════════════════════════════════════════════════════\n");
-
-      let module_path = format!(
-        "file://{}",
-        std::env::current_dir()
-          .unwrap()
-          .join("function_caller.ts")
-          .display()
-      );
-
-      // Test 1: Simple greeting function
-      println!("📞 Test 1: Calling greet function");
-      let call_script = format!("CALL_FUNCTION:{}|greet|[\"World\"]", module_path);
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      if (Array.isArray(init) || (init && typeof init[Symbol.iterator] === "function")) {
+        for (const pair of init) {
+          if (!pair || pair.length < 2) {
+            continue;
+          }
+          this.append(pair[0], pair[1]);
+        }
+        return;
       }
 
-      // Test 2: Add function with two numbers
-      println!("📞 Test 2: Calling add function");
-      let call_script = format!("CALL_FUNCTION:{}|add|[10, 25]", module_path);
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
+      if (init && typeof init === "object") {
+        for (const key of Object.keys(init)) {
+          this.append(key, init[key]);
+        }
       }
+    }
 
-      // Test 3: Multiply with multiple arguments
-      println!("📞 Test 3: Calling multiply function with multiple args");
-      let call_script = format!("CALL_FUNCTION:{}|multiply|[2, 3, 4, 5]", module_path);
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
-      }
+    append(name, value) {
+      this._entries.push([String(name), String(value)]);
+    }
 
-      // Test 4: Process user with object-like args
-      println!("📞 Test 4: Calling processUser function");
-      let call_script = format!(
-        "CALL_FUNCTION:{}|processUser|[\"Alice\", 30, \"alice@example.com\"]",
-        module_path
-      );
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
-      }
-
-      // Test 5: Async function with delay
-      println!("📞 Test 5: Calling delayedGreeting async function");
-      let call_script = format!(
-        "CALL_FUNCTION:{}|delayedGreeting|[\"Bob\", 1000]",
-        module_path
-      );
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
-      }
-
-      // Test 6: Array processing
-      println!("📞 Test 6: Calling sumArray function");
-      let call_script = format!(
-        "CALL_FUNCTION:{}|sumArray|[[1, 2, 3, 4, 5, 10]]",
-        module_path
-      );
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
-      }
-
-      // Test 7: Text analysis
-      println!("📞 Test 7: Calling analyzeText function");
-      let call_script = format!(
-        "CALL_FUNCTION:{}|analyzeText|[\"Hello TypeScript from Rust!\"]",
-        module_path
-      );
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
-      }
-
-      // Test 8: Division (success case)
-      println!("📞 Test 8: Calling divide function (success)");
-      let call_script = format!("CALL_FUNCTION:{}|divide|[100, 5]", module_path);
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Error: {}\n", err),
-      }
-
-      // Test 9: Division (error case - divide by zero)
-      println!("📞 Test 9: Calling divide function (error - divide by zero)");
-      let call_script = format!("CALL_FUNCTION:{}|divide|[100, 0]", module_path);
-      match handle.execute(call_script).await {
-        Ok(result) => println!("   ✅ Result: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Expected error: {}\n", err),
-      }
-
-      println!("🧪 Verifying runtime responsiveness after error...");
-      let follow_up_script = r#"
-        globalThis.__runtimeHeartbeatCount =
-          (globalThis.__runtimeHeartbeatCount ?? 0) + 1;
-        console.log(
-          `[ts heartbeat] invocation #${globalThis.__runtimeHeartbeatCount}`,
+    delete(name, value) {
+      const key = String(name);
+      if (arguments.length >= 2) {
+        const expected = String(value);
+        this._entries = this._entries.filter(
+          ([entryName, entryValue]) => !(entryName === key && entryValue === expected),
         );
-        const sumCheck = 40 + 2;
-        const nowIso = new Date().toISOString();
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        return {
-          status: "runtime_alive",
-          heartbeatCount: globalThis.__runtimeHeartbeatCount,
-          sumCheck,
-          now: nowIso,
-        };
-      "#
-      .to_string();
-      match handle.execute(follow_up_script).await {
-        Ok(result) => println!("   ✅ Runtime response: {}\n", format_json_output(&result)),
-        Err(err) => eprintln!("   ❌ Runtime follow-up failed: {}\n", err),
+      } else {
+        this._entries = this._entries.filter(([entryName]) => entryName !== key);
       }
-
-      println!("🔁 Re-running greet() to confirm RPC pipeline is healthy...");
-      let recovery_call = format!("CALL_FUNCTION:{}|greet|[\"Runtime\"]", module_path);
-      match handle.execute(recovery_call).await {
-        Ok(result) => println!(
-          "   ✅ Post-error RPC result: {}\n",
-          format_json_output(&result)
-        ),
-        Err(err) => eprintln!("   ❌ Post-error RPC failed: {}\n", err),
-      }
-
-      println!("═══════════════════════════════════════════════════════════");
-      println!("✨ All CALL_FUNCTION tests completed!\n");
-
-      // Keep running until interrupted
-      tokio::signal::ctrl_c().await.ok();
-    };
-
-    // Run both the daemon and script execution concurrently
-    tokio::select! {
-      _ = daemon_future => {},
-      _ = script_execution => {},
     }
 
-    Ok(0)
-  };
-
-  let result = create_and_run_current_thread_with_maybe_metrics(future);
-
-  #[cfg(feature = "dhat-heap")]
-  drop(profiler);
-
-  match result {
-    Ok(exit_code) => {
-      // The daemon mode is now handled inside run_with_daemon_mode
-      // So we just exit with the code
-      deno_runtime::exit(exit_code);
+    get(name) {
+      const key = String(name);
+      const found = this._entries.find(([entryName]) => entryName === key);
+      return found ? found[1] : null;
     }
-    Err(err) => exit_for_error(err),
+
+    getAll(name) {
+      const key = String(name);
+      return this._entries
+        .filter(([entryName]) => entryName === key)
+        .map(([, value]) => value);
+    }
+
+    has(name, value) {
+      const key = String(name);
+      if (arguments.length >= 2) {
+        const expected = String(value);
+        return this._entries.some(
+          ([entryName, entryValue]) => entryName === key && entryValue === expected,
+        );
+      }
+      return this._entries.some(([entryName]) => entryName === key);
+    }
+
+    set(name, value) {
+      const key = String(name);
+      const nextValue = String(value);
+      let replaced = false;
+      const nextEntries = [];
+      for (const [entryName, entryValue] of this._entries) {
+        if (entryName === key) {
+          if (!replaced) {
+            nextEntries.push([key, nextValue]);
+            replaced = true;
+          }
+        } else {
+          nextEntries.push([entryName, entryValue]);
+        }
+      }
+      if (!replaced) {
+        nextEntries.push([key, nextValue]);
+      }
+      this._entries = nextEntries;
+    }
+
+    sort() {
+      this._entries.sort(([left], [right]) => left.localeCompare(right));
+    }
+
+    forEach(callback, thisArg = undefined) {
+      for (const [name, value] of this._entries) {
+        callback.call(thisArg, value, name, this);
+      }
+    }
+
+    keys() {
+      return this._entries.map(([name]) => name)[Symbol.iterator]();
+    }
+
+    values() {
+      return this._entries.map(([, value]) => value)[Symbol.iterator]();
+    }
+
+    entries() {
+      return this._entries.map(([name, value]) => [name, value])[Symbol.iterator]();
+    }
+
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+
+    toString() {
+      return this._entries
+        .map(([name, value]) => `${encode(name)}=${encode(value)}`)
+        .join("&");
+    }
+
+    get [Symbol.toStringTag]() {
+      return "URLSearchParams";
+    }
   }
+
+  globalThis.URLSearchParams = URLSearchParams;
 }
 
-async fn resolve_flags_and_init(args: Vec<std::ffi::OsString>) -> Result<Flags, AnyError> {
-  let mut flags = match flags_from_vec(args) {
-    Ok(flags) => flags,
-    Err(err @ clap::Error { .. }) if err.kind() == clap::error::ErrorKind::DisplayVersion => {
-      // Ignore results to avoid BrokenPipe errors.
-      let _ = err.print();
-      deno_runtime::exit(0);
+if (!globalThis.Blob) {
+  function partToUint8Array(part) {
+    if (part instanceof Uint8Array) {
+      return new Uint8Array(part);
     }
-    Err(err) => exit_for_error(AnyError::from(err)),
+    if (typeof ArrayBuffer !== "undefined" && part instanceof ArrayBuffer) {
+      return new Uint8Array(part.slice(0));
+    }
+    if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(part)) {
+      return new Uint8Array(
+        part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength),
+      );
+    }
+    if (part instanceof Blob) {
+      return part._bytes();
+    }
+    if (typeof part === "string") {
+      return new TextEncoder().encode(part);
+    }
+    return new TextEncoder().encode(String(part));
+  }
+
+  class Blob {
+    constructor(blobParts = [], options = {}) {
+      this.type = options?.type ? String(options.type).toLowerCase() : "";
+      this._chunks = [];
+      this.size = 0;
+
+      for (const part of blobParts) {
+        const chunk = partToUint8Array(part);
+        this._chunks.push(chunk);
+        this.size += chunk.byteLength;
+      }
+    }
+
+    _bytes() {
+      const result = new Uint8Array(this.size);
+      let offset = 0;
+      for (const chunk of this._chunks) {
+        result.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return result;
+    }
+
+    async arrayBuffer() {
+      const bytes = this._bytes();
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    }
+
+    async text() {
+      return new TextDecoder().decode(this._bytes());
+    }
+
+    slice(start = 0, end = this.size, contentType = "") {
+      const bytes = this._bytes();
+      const normalizedStart = Math.max(0, Math.min(this.size, Number(start) || 0));
+      const normalizedEnd = Math.max(normalizedStart, Math.min(this.size, Number(end) || 0));
+      return new Blob([bytes.slice(normalizedStart, normalizedEnd)], {
+        type: contentType,
+      });
+    }
+
+    stream() {
+      const bytes = this._bytes();
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      });
+    }
+
+    get [Symbol.toStringTag]() {
+      return "Blob";
+    }
+  }
+
+  globalThis.Blob = Blob;
+}
+
+if (!globalThis.File) {
+  class File extends Blob {
+    constructor(fileBits, fileName, options = {}) {
+      super(fileBits, options);
+      this.name = String(fileName);
+      this.lastModified = Number(options?.lastModified) || Date.now();
+    }
+
+    get [Symbol.toStringTag]() {
+      return "File";
+    }
+  }
+
+  globalThis.File = File;
+}
+
+if (!globalThis.Deno.env) {
+  const envStore = new Map(Object.entries(Deno.core.ops.op_env_snapshot()));
+
+  function ensureEnvKey(key) {
+    if (typeof key !== "string") {
+      throw new TypeError("Environment variable key must be a string");
+    }
+    if (key.length === 0) {
+      throw new TypeError("Environment variable key must not be empty");
+    }
+  }
+
+  globalThis.Deno.env = {
+    get(key) {
+      ensureEnvKey(key);
+      return envStore.get(key);
+    },
+    set(key, value) {
+      ensureEnvKey(key);
+      envStore.set(key, String(value));
+    },
+    has(key) {
+      ensureEnvKey(key);
+      return envStore.has(key);
+    },
+    delete(key) {
+      ensureEnvKey(key);
+      envStore.delete(key);
+    },
+    toObject() {
+      return Object.fromEntries(envStore);
+    },
   };
+}
 
-  // Set default permissions for embedded Deno runtime if no explicit permissions were provided
-  if !flags.permissions.allow_all
-    && flags.permissions.allow_read.is_none()
-    && flags.permissions.allow_write.is_none()
-    && flags.permissions.allow_net.is_none()
-    && flags.permissions.allow_env.is_none()
-    && flags.permissions.allow_run.is_none()
-  {
-    flags.permissions.allow_all = true;
-    flags.permissions.allow_read = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_write = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_net = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_env = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_run = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_ffi = Some(vec![]); // Empty vec means allow all
-    flags.permissions.allow_sys = Some(vec![]); // Empty vec means allow all
-  }
-  // preserve already loaded env variables
-  if flags.subcommand.watch_flags().is_some() {
-    WatchEnvTracker::snapshot();
-  }
-  let env_file_paths: Option<Vec<std::path::PathBuf>> = flags
-    .env_file
-    .as_ref()
-    .map(|files| files.iter().map(PathBuf::from).collect());
-  load_env_variables_from_env_files(env_file_paths.as_ref(), flags.log_level);
+if (!globalThis.Deno.readTextFileSync) {
+  if (!globalThis.Deno.errors) {
+    class NotFound extends Error {
+      constructor(message = "Not found") {
+        super(message);
+        this.name = "NotFound";
+      }
+    }
 
-  flags.unstable_config.fill_with_env();
-  if std::env::var("DENO_COMPAT").is_ok() {
-    flags.unstable_config.enable_node_compat();
-  }
-  if flags.node_conditions.is_empty()
-    && let Ok(conditions) = std::env::var("DENO_CONDITIONS")
-  {
-    flags.node_conditions = conditions
-      .split(",")
-      .map(|c| c.trim().to_string())
-      .collect();
+    class PermissionDenied extends Error {
+      constructor(message = "Permission denied") {
+        super(message);
+        this.name = "PermissionDenied";
+      }
+    }
+
+    globalThis.Deno.errors = {
+      NotFound,
+      PermissionDenied,
+    };
   }
 
-  let otel_config = flags.otel_config();
-  init_logging(flags.log_level, Some(otel_config.clone()));
-  deno_telemetry::init(
-    deno_lib::version::otel_runtime_config(),
-    otel_config.clone(),
+  function resolveReadPath(path) {
+    if (typeof URL !== "undefined" && path instanceof URL) {
+      if (path.protocol !== "file:") {
+        throw new TypeError("Only file: URLs are supported");
+      }
+      return path.pathname;
+    }
+    return String(path);
+  }
+
+  globalThis.Deno.readTextFileSync = (path) => {
+    const result = Deno.core.ops.op_read_text_file_sync_result(resolveReadPath(path));
+    if (result.ok) {
+      return result.text;
+    }
+
+    if (result.errorKind === "NotFound") {
+      throw new Deno.errors.NotFound(result.errorMessage || "Not found");
+    }
+    if (result.errorKind === "PermissionDenied") {
+      throw new Deno.errors.PermissionDenied(
+        result.errorMessage || "Permission denied",
+      );
+    }
+
+    throw new Error(result.errorMessage || "Failed to read file");
+  };
+}
+
+if (!globalThis.fetch) {
+  class Headers {
+    constructor(init = {}) {
+      this._map = new Map();
+
+      if (init instanceof Headers) {
+        for (const [name, value] of init.entries()) {
+          this.append(name, value);
+        }
+      } else if (Array.isArray(init)) {
+        for (const pair of init) {
+          if (!pair || pair.length < 2) {
+            continue;
+          }
+          this.append(pair[0], pair[1]);
+        }
+      } else if (init && typeof init === "object") {
+        for (const key of Object.keys(init)) {
+          this.append(key, init[key]);
+        }
+      }
+    }
+
+    _normalizeName(name) {
+      return String(name).toLowerCase();
+    }
+
+    append(name, value) {
+      const key = this._normalizeName(name);
+      const existing = this._map.get(key);
+      const nextValue = String(value);
+      this._map.set(key, existing ? `${existing}, ${nextValue}` : nextValue);
+    }
+
+    set(name, value) {
+      this._map.set(this._normalizeName(name), String(value));
+    }
+
+    get(name) {
+      const value = this._map.get(this._normalizeName(name));
+      return value === undefined ? null : value;
+    }
+
+    has(name) {
+      return this._map.has(this._normalizeName(name));
+    }
+
+    delete(name) {
+      this._map.delete(this._normalizeName(name));
+    }
+
+    entries() {
+      return this._map.entries();
+    }
+
+    keys() {
+      return this._map.keys();
+    }
+
+    values() {
+      return this._map.values();
+    }
+
+    [Symbol.iterator]() {
+      return this.entries();
+    }
+
+    forEach(callback, thisArg = undefined) {
+      for (const [name, value] of this._map) {
+        callback.call(thisArg, value, name, this);
+      }
+    }
+  }
+
+  class Response {
+    constructor(body = "", init = {}) {
+      this._body = String(body ?? "");
+      this.status = Number(init.status ?? 200);
+      this.statusText = String(init.statusText ?? "");
+      this.headers = init.headers instanceof Headers ? init.headers : new Headers(init.headers);
+      this.ok = this.status >= 200 && this.status < 300;
+      this.redirected = false;
+      this.type = "basic";
+      this.url = init.url ?? "";
+      this.bodyUsed = false;
+    }
+
+    async text() {
+      this.bodyUsed = true;
+      return this._body;
+    }
+
+    async json() {
+      this.bodyUsed = true;
+      return JSON.parse(this._body);
+    }
+  }
+
+  globalThis.Headers = globalThis.Headers || Headers;
+  globalThis.Response = globalThis.Response || Response;
+
+  globalThis.fetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : String(input?.url ?? input);
+    const method = String(init.method ?? "GET").toUpperCase();
+
+    const headers = new Headers(init.headers ?? {});
+    const headerObject = Object.fromEntries(headers.entries());
+
+    let body = null;
+    if (init.body != null) {
+      if (typeof init.body === "string") {
+        body = init.body;
+      } else if (init.body instanceof Uint8Array) {
+        body = new TextDecoder().decode(init.body);
+      } else {
+        body = String(init.body);
+      }
+    }
+
+    const result = Deno.core.ops.op_fetch_http(url, method, headerObject, body);
+    if (result.error) {
+      throw new Error(result.error);
+    }
+
+    return new Response(result.body, {
+      status: result.status,
+      statusText: result.statusText,
+      headers,
+      url,
+    });
+  };
+}
+"#,
   )?;
 
-  Ok(flags)
-}
+  let main_specifier = loader.resolve(&main_module_arg, ".", ResolutionKind::MainModule)?;
 
-fn init_v8(flags: &Flags) {
-  let default_v8_flags = get_default_v8_flags();
-  let env_v8_flags = get_v8_flags_from_env();
-  let is_single_threaded = env_v8_flags
-    .iter()
-    .chain(&flags.v8_flags)
-    .any(|flag| flag == "--single-threaded");
-  init_v8_flags(&default_v8_flags, &flags.v8_flags, env_v8_flags);
-  let v8_platform = if is_single_threaded {
-    Some(::deno_core::v8::Platform::new_single_threaded(true).make_shared())
-  } else {
-    None
-  };
+  let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .map_err(|error| AnyError::msg(error.to_string()))?;
 
-  // TODO(bartlomieju): remove last argument once Deploy no longer needs it
-  deno_core::JsRuntime::init_platform(v8_platform);
-}
+  tokio_runtime.block_on(async move {
+    let module_id = runtime.load_main_es_module(&main_specifier).await?;
+    let result_receiver = runtime.mod_evaluate(module_id);
+    runtime.run_event_loop(Default::default()).await?;
+    result_receiver.await?;
+    Ok::<(), AnyError>(())
+  })?;
 
-fn init_logging(maybe_level: Option<log::Level>, otel_config: Option<OtelConfig>) {
-  deno_lib::util::logger::init(deno_lib::util::logger::InitLoggingOptions {
-    maybe_level,
-    otel_config,
-    on_log_start: DrawThread::hide,
-    on_log_end: DrawThread::show,
-  })
-}
-
-#[cfg(unix)]
-#[allow(clippy::type_complexity)]
-fn wait_for_start(
-  args: &[std::ffi::OsString],
-  roots: LibWorkerFactoryRoots,
-) -> Option<
-  impl std::future::Future<
-    Output = Result<Option<(UnconfiguredRuntime, Vec<std::ffi::OsString>)>, AnyError>,
-  > + use<>,
-> {
-  let startup_snapshot = deno_snapshots::CLI_SNAPSHOT?;
-  let addr = std::env::var("DENO_UNSTABLE_CONTROL_SOCK").ok()?;
-
-  #[allow(clippy::undocumented_unsafe_blocks)]
-  unsafe {
-    std::env::remove_var("DENO_UNSTABLE_CONTROL_SOCK")
-  };
-
-  let argv0 = args[0].clone();
-
-  Some(async move {
-    use tokio::{
-      io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
-      net::{TcpListener, UnixSocket},
-    };
-    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
-    use tokio_vsock::VsockAddr;
-    #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
-    use tokio_vsock::VsockListener;
-
-    init_v8(&Flags::default());
-
-    let unconfigured = deno_runtime::UnconfiguredRuntime::new::<
-      deno_resolver::npm::DenoInNpmPackageChecker,
-      crate::npm::CliNpmResolver,
-      crate::sys::CliSys,
-    >(deno_runtime::UnconfiguredRuntimeOptions {
-      startup_snapshot,
-      create_params: deno_lib::worker::create_isolate_create_params(&crate::sys::CliSys::default()),
-      shared_array_buffer_store: Some(roots.shared_array_buffer_store.clone()),
-      compiled_wasm_module_store: Some(roots.compiled_wasm_module_store.clone()),
-      additional_extensions: vec![],
-    });
-
-    let (rx, mut tx): (
-      Box<dyn AsyncRead + Unpin>,
-      Box<dyn AsyncWrite + Send + Unpin>,
-    ) = match addr.split_once(':') {
-      Some(("tcp", addr)) => {
-        let listener = TcpListener::bind(addr).await?;
-        let (stream, _) = listener.accept().await?;
-        let (rx, tx) = stream.into_split();
-        (Box::new(rx), Box::new(tx))
-      }
-      Some(("unix", path)) => {
-        let socket = UnixSocket::new_stream()?;
-        socket.bind(path)?;
-        let listener = socket.listen(1)?;
-        let (stream, _) = listener.accept().await?;
-        let (rx, tx) = stream.into_split();
-        (Box::new(rx), Box::new(tx))
-      }
-      #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
-      Some(("vsock", addr)) => {
-        let Some((cid, port)) = addr.split_once(':') else {
-          deno_core::anyhow::bail!("invalid vsock addr");
-        };
-        let cid = if cid == "-1" { u32::MAX } else { cid.parse()? };
-        let port = port.parse()?;
-        let addr = VsockAddr::new(cid, port);
-        let listener = VsockListener::bind(addr)?;
-        let (stream, _) = listener.accept().await?;
-        let (rx, tx) = stream.into_split();
-        (Box::new(rx), Box::new(tx))
-      }
-      _ => {
-        deno_core::anyhow::bail!("invalid control sock");
-      }
-    };
-
-    let mut buf = Vec::with_capacity(1024);
-    BufReader::new(rx).read_until(b'\n', &mut buf).await?;
-
-    tokio::spawn(async move {
-      deno_runtime::deno_http::SERVE_NOTIFIER.notified().await;
-
-      #[derive(deno_core::serde::Serialize)]
-      enum Event {
-        Serving,
-      }
-
-      let mut buf = deno_core::serde_json::to_vec(&Event::Serving).unwrap();
-      buf.push(b'\n');
-      let _ = tx.write_all(&buf).await;
-    });
-
-    #[derive(deno_core::serde::Deserialize)]
-    struct Start {
-      cwd: String,
-      args: Vec<String>,
-      env: Vec<(String, String)>,
-    }
-
-    let cmd: Start = deno_core::serde_json::from_slice(&buf)?;
-
-    std::env::set_current_dir(cmd.cwd)?;
-
-    for (k, v) in cmd.env {
-      // SAFETY: We're doing this before any threads are created.
-      unsafe { std::env::set_var(k, v) };
-    }
-
-    let args = [argv0]
-      .into_iter()
-      .chain(cmd.args.into_iter().map(Into::into))
-      .collect();
-
-    Ok(Some((unconfigured, args)))
-  })
+  Ok(())
 }

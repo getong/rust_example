@@ -43,4 +43,3 @@ async function main() {
 // Await main() - Rust wrapper will capture the return value
 let result = await main();
 console.log(result);
-return result;
