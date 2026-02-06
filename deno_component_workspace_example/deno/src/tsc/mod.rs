@@ -815,7 +815,8 @@ impl CompressedSource {
 pub(crate) static MAIN_COMPILER_SOURCE: StaticAssetSource =
   maybe_compressed_source!("src/tsc/99_main_compiler.js");
 pub(crate) static LSP_SOURCE: StaticAssetSource = maybe_compressed_source!("src/tsc/98_lsp.js");
-pub(crate) static TS_HOST_SOURCE: StaticAssetSource = maybe_compressed_source!("src/tsc/97_ts_host.js");
+pub(crate) static TS_HOST_SOURCE: StaticAssetSource =
+  maybe_compressed_source!("src/tsc/97_ts_host.js");
 pub(crate) static TYPESCRIPT_SOURCE: StaticAssetSource =
   maybe_compressed_source!("src/tsc/00_typescript.js");
 

@@ -84,7 +84,7 @@ deno_runtime = { version = "0.238.0", features = [
 deno_semver = "=0.9.1"
 deno_signals = "0.21.0"
 deno_snapshots = "0.45.0"
-deno_task_shell = "=0.26.0"
+deno_task_shell = "=0.28.0"
 deno_telemetry = "0.52.0"
 deno_terminal = "=0.2.3"
 deno_typescript_go_client_rust = "0.12.0"
@@ -172,7 +172,7 @@ unicode-width = "0.2.2"
 uuid = { version = "1.20.0", features = ["serde"] }
 walkdir = "=2.5.0"
 weak-table = "0.3.2"
-zip = { version = "7.4.0", features = ["deflate-flate2"] }
+zip = { version = "2.4.1", default-features = false, features = ["flate2"] }
 zstd = "=0.13.3"
 
 [target.'cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))'.dependencies]
