@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{borrow::Cow, collections::HashSet, path::PathBuf, rc::Rc, sync::Arc};
 
@@ -22,10 +22,7 @@ use deno_npm_installer::{
 };
 use deno_resolver::npm::{ByonmNpmResolverCreateOptions, ManagedNpmResolverRc};
 use deno_runtime::deno_io::FromRawIoHandle;
-use deno_semver::{
-  VersionReq,
-  package::{PackageNv, PackageReq},
-};
+use deno_semver::package::{PackageNv, PackageReq};
 use deno_task_shell::KillSignal;
 
 use crate::{
@@ -42,7 +39,7 @@ pub type CliNpmInstaller = deno_npm_installer::NpmInstaller<CliNpmCacheHttpClien
 pub type CliNpmCache = deno_npm_cache::NpmCache<CliSys>;
 pub type CliNpmRegistryInfoProvider =
   deno_npm_cache::RegistryInfoProvider<CliNpmCacheHttpClient, CliSys>;
-pub type CliNpmResolver = deno_resolver::npm::NpmResolver<CliSys>;
+pub type CliNpmResolver<TSys = CliSys> = deno_resolver::npm::NpmResolver<TSys>;
 pub type CliManagedNpmResolver = deno_resolver::npm::ManagedNpmResolver<CliSys>;
 pub type CliNpmResolverCreateOptions = deno_resolver::npm::NpmResolverCreateOptions<CliSys>;
 pub type CliByonmNpmResolverCreateOptions = ByonmNpmResolverCreateOptions<CliSys>;
@@ -535,10 +532,4 @@ impl DenoTaskLifeCycleScriptsExecutor {
       )
       .await
   }
-}
-
-pub fn get_types_node_version_req() -> VersionReq {
-  // WARNING: When bumping this version, check if anything needs to be
-  // updated in the `setNodeOnlyGlobalNames` call in 99_main_compiler.js
-  VersionReq::parse_from_npm("24.0.4 - 24.2.0").unwrap()
 }

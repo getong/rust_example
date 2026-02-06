@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   borrow::Cow,
@@ -18,13 +18,18 @@ use deno_semver::{Version, jsr::JsrPackageReqReference, npm::NpmPackageReqRefere
 use crate::{
   factory::CliFactory,
   graph_container::{ModuleGraphContainer, ModuleGraphUpdatePermit},
-  graph_util::{BuildGraphRequest, BuildGraphWithNpmOptions},
+  graph_util::BuildGraphWithNpmOptions,
 };
+
+pub struct CacheTopLevelDepsOptions {
+  pub lockfile_only: bool,
+}
 
 pub async fn cache_top_level_deps(
   // todo(dsherret): don't pass the factory into this function. Instead use ctor deps
   factory: &CliFactory,
   jsr_resolver: Option<Arc<crate::jsr::JsrFetchResolver>>,
+  options: CacheTopLevelDepsOptions,
 ) -> Result<(), AnyError> {
   let _clear_guard = factory
     .text_only_progress_bar()
@@ -192,10 +197,10 @@ pub async fn cache_top_level_deps(
 
     let graph_builder = factory.module_graph_builder().await?;
     graph_builder
-      .build_graph_with_npm_resolution(
+      .build_graph_roots_with_npm_resolution(
         graph,
+        roots.clone(),
         BuildGraphWithNpmOptions {
-          request: BuildGraphRequest::Roots(roots.clone()),
           loader: None,
           is_dynamic: false,
           npm_caching: NpmCachingStrategy::Manual,
@@ -205,7 +210,13 @@ pub async fn cache_top_level_deps(
     maybe_graph_error = graph_builder.graph_roots_valid(graph, &roots, true, true);
   }
 
-  npm_installer.cache_packages(PackageCaching::All).await?;
+  if options.lockfile_only {
+    // do a resolution install if the npm snapshot is in a
+    // pending state due to a config file change
+    npm_installer.install_resolution_if_pending().await?;
+  } else {
+    npm_installer.cache_packages(PackageCaching::All).await?;
+  }
 
   maybe_graph_error?;
 

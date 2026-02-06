@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{collections::BTreeSet, fmt::Write as _, sync::Arc};
 
@@ -330,7 +330,9 @@ impl Visit for ExportCollector {
             self.named_exports.insert(ident.sym.clone());
           }
           ast::TsModuleName::Str(s) => {
-            self.named_exports.insert(s.value.clone());
+            self
+              .named_exports
+              .insert(s.value.to_atom_lossy().into_owned());
           }
         }
       }
@@ -372,7 +374,7 @@ impl Visit for ExportCollector {
     fn get_atom(export_name: &ast::ModuleExportName) -> Atom {
       match export_name {
         ast::ModuleExportName::Ident(ident) => ident.sym.clone(),
-        ast::ModuleExportName::Str(s) => s.value.clone(),
+        ast::ModuleExportName::Str(s) => s.value.to_atom_lossy().into_owned(),
       }
     }
 
@@ -760,7 +762,7 @@ fn wrap_in_deno_test(stmts: Vec<ast::Stmt>, test_name: Atom) -> ast::Stmt {
           spread: None,
           expr: Box::new(ast::Expr::Lit(ast::Lit::Str(ast::Str {
             span: DUMMY_SP,
-            value: test_name,
+            value: test_name.into(),
             raw: None,
           }))),
         },

@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
@@ -182,7 +182,7 @@ pub async fn doc(flags: Arc<Flags>, doc_flags: DocFlags) -> Result<(), AnyError>
 
     let mut main_entrypoint = None;
 
-    let rewrite_map = if let Some(config_file) = cli_options.start_dir.maybe_deno_json() {
+    let rewrite_map = if let Some(config_file) = cli_options.start_dir.member_or_root_deno_json() {
       let config = config_file.to_exports_config()?;
 
       main_entrypoint = config.get_resolved(".").ok().flatten();

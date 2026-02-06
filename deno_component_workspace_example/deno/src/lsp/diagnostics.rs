@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{collections::HashMap, str::FromStr, sync::Arc, thread};
 
@@ -8,6 +8,7 @@ use deno_core::{
   ModuleSpecifier, anyhow::anyhow, error::AnyError, futures::StreamExt, parking_lot::RwLock,
   resolve_url, serde::Deserialize, serde_json, serde_json::json, url::Url,
 };
+use deno_error::JsErrorClass;
 use deno_graph::{Resolution, ResolutionError, SpecifierError, source::ResolveError};
 use deno_resolver::{
   deno_json::CompilerOptionsKey, graph::enhanced_resolution_error_message,
@@ -863,18 +864,20 @@ fn maybe_ambient_specifier_resolution_err(err: &ResolutionError) -> Option<Strin
         SpecifierError::InvalidUrl(..) => None,
         SpecifierError::ImportPrefixMissing { specifier, .. } => Some(specifier.to_string()),
       },
-      ResolveError::ImportMap(import_map_error) => match import_map_error.as_kind() {
-        ImportMapErrorKind::UnmappedBareSpecifier(spec, _) => Some(spec.clone()),
-        ImportMapErrorKind::JsonParse(_)
-        | ImportMapErrorKind::ImportMapNotObject
-        | ImportMapErrorKind::ImportsFieldNotObject
-        | ImportMapErrorKind::ScopesFieldNotObject
-        | ImportMapErrorKind::ScopePrefixNotObject(_)
-        | ImportMapErrorKind::BlockedByNullEntry(_)
-        | ImportMapErrorKind::SpecifierResolutionFailure { .. }
-        | ImportMapErrorKind::SpecifierBacktracksAbovePrefix { .. } => None,
-      },
-      ResolveError::Other(..) => None,
+      ResolveError::Other(err) => {
+        let import_map_error = err.get_ref().downcast_ref::<import_map::ImportMapError>()?;
+        match import_map_error.as_kind() {
+          ImportMapErrorKind::UnmappedBareSpecifier(spec, _) => Some(spec.clone()),
+          ImportMapErrorKind::JsonParse(_)
+          | ImportMapErrorKind::ImportMapNotObject
+          | ImportMapErrorKind::ImportsFieldNotObject
+          | ImportMapErrorKind::ScopesFieldNotObject
+          | ImportMapErrorKind::ScopePrefixNotObject(_)
+          | ImportMapErrorKind::BlockedByNullEntry(_)
+          | ImportMapErrorKind::SpecifierResolutionFailure { .. }
+          | ImportMapErrorKind::SpecifierBacktracksAbovePrefix { .. } => None,
+        }
+      }
     },
   }
 }
@@ -982,15 +985,6 @@ fn diagnose_resolution(
                       if !is_mapped {
                         diagnostics
                           .push(DenoDiagnostic::BareNodeSpecifier(module_name.to_string()));
-                      }
-                    } else if let Some(npm_resolver) = managed_npm_resolver {
-                      // check that a @types/node package exists in the resolver
-                      let types_node_req = PackageReq::from_str("@types/node").unwrap();
-                      if !npm_resolver.is_pkg_req_folder_cached(&types_node_req) {
-                        diagnostics.push(DenoDiagnostic::NotInstalledNpm(
-                          types_node_req,
-                          ModuleSpecifier::parse("npm:@types/node").unwrap(),
-                        ));
                       }
                     }
                   } else {

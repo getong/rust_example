@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
 
@@ -106,7 +106,7 @@ impl DenoTestCollector {
             {
               match key_value_prop.value.as_ref() {
                 ast::Expr::Lit(ast::Lit::Str(lit_str)) => {
-                  let name = lit_str.value.to_string();
+                  let name = lit_str.value.to_string_lossy().to_string();
                   self.add_code_lenses(name, range);
                 }
                 ast::Expr::Tpl(tpl) if tpl.quasis.len() == 1 => {
@@ -125,7 +125,7 @@ impl DenoTestCollector {
           }
         }
         ast::Expr::Lit(ast::Lit::Str(lit_str)) => {
-          let name = lit_str.value.to_string();
+          let name = lit_str.value.to_string_lossy().to_string();
           self.add_code_lenses(name, range);
         }
         ast::Expr::Tpl(tpl) if tpl.quasis.len() == 1 => {

@@ -1,9 +1,9 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use deno_ast::{
   MediaType, ModuleSpecifier, ParseDiagnostic, SourceRange, SourceTextInfo, SourceTextProvider,
 };
-use deno_core::{OpState, op2};
+use deno_core::{FromV8, OpState, convert::Uint8Array, op2};
 use deno_lint::diagnostic::{
   LintDiagnostic, LintDiagnosticDetails, LintDiagnosticRange, LintDocsUrl, LintFix, LintFixChange,
 };
@@ -186,12 +186,11 @@ pub enum LintError {
 }
 
 #[op2]
-#[buffer]
 #[allow(clippy::result_large_err)]
 fn op_lint_create_serialized_ast(
   #[string] file_name: &str,
   #[string] source: String,
-) -> Result<Vec<u8>, LintError> {
+) -> Result<Uint8Array, LintError> {
   let file_text = deno_ast::strip_bom(source);
   let path = std::env::current_dir()?.join(file_name);
   let specifier = ModuleSpecifier::from_file_path(&path).map_err(|_| LintError::PathParse(path))?;
@@ -205,10 +204,10 @@ fn op_lint_create_serialized_ast(
     maybe_syntax: None,
   })?;
   let utf16_map = Utf16Map::new(parsed_source.text().as_ref());
-  Ok(lint::serialize_ast_to_buffer(&parsed_source, &utf16_map))
+  Ok(lint::serialize_ast_to_buffer(&parsed_source, &utf16_map).into())
 }
 
-#[derive(serde::Deserialize)]
+#[derive(FromV8)]
 struct LintReportFix {
   text: String,
   range: (usize, usize),
@@ -233,7 +232,7 @@ fn op_lint_report(
   #[string] hint: Option<String>,
   #[smi] start_utf16: usize,
   #[smi] end_utf16: usize,
-  #[serde] fix: Vec<LintReportFix>,
+  #[scoped] fix: Vec<LintReportFix>,
 ) -> Result<(), LintReportError> {
   let container = state.borrow_mut::<LintPluginContainer>();
   container.report(id, message, hint, start_utf16, end_utf16, fix)?;

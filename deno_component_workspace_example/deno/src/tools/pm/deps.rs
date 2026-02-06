@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{borrow::Cow, collections::HashMap, path::PathBuf, sync::Arc};
 
@@ -329,8 +329,7 @@ fn add_deps_from_package_json(
         }
       };
       match v {
-        deno_package_json::PackageJsonDepValue::File(_)
-        | deno_package_json::PackageJsonDepValue::JsrReq(_) => {
+        deno_package_json::PackageJsonDepValue::File(_) => {
           // ignore
         }
         deno_package_json::PackageJsonDepValue::Req(req) => {
@@ -503,7 +502,7 @@ impl DepManager {
     args: DepManagerArgs,
   ) -> Result<Self, AnyError> {
     let mut deps = Vec::with_capacity(256);
-    if let Some(deno_json) = workspace_dir.maybe_deno_json() {
+    if let Some(deno_json) = workspace_dir.member_deno_json() {
       if deno_json.specifier.scheme() != "file" {
         bail!("remote deno.json files are not supported");
       }
@@ -512,7 +511,7 @@ impl DepManager {
         add_deps_from_deno_json(deno_json, dep_filter, &mut deps);
       }
     }
-    if let Some(package_json) = workspace_dir.maybe_pkg_json() {
+    if let Some(package_json) = workspace_dir.member_pkg_json() {
       add_deps_from_package_json(package_json, dep_filter, &mut deps);
     }
 

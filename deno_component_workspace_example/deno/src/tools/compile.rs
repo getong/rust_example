@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{
   collections::{HashSet, VecDeque},
@@ -20,7 +20,7 @@ use rand::Rng;
 
 use super::installer::BinNameResolver;
 use crate::{
-  args::{CompileFlags, Flags},
+  args::{CliOptions, CompileFlags, Flags},
   factory::CliFactory,
   standalone::binary::{WriteBinOptions, is_standalone_binary},
 };
@@ -39,7 +39,7 @@ pub async fn compile(flags: Arc<Flags>, compile_flags: CompileFlags) -> Result<(
   )
   .await?;
   let (module_roots, include_paths) =
-    get_module_roots_and_include_paths(entrypoint, &compile_flags, cli_options.initial_cwd())?;
+    get_module_roots_and_include_paths(entrypoint, &compile_flags, cli_options)?;
 
   let graph = Arc::try_unwrap(
     module_graph_creator
@@ -58,11 +58,19 @@ pub async fn compile(flags: Arc<Flags>, compile_flags: CompileFlags) -> Result<(
     graph
   };
 
+  let initial_cwd = deno_path_util::url_from_directory_path(cli_options.initial_cwd())?;
+
   log::info!(
     "{} {} to {}",
     colors::green("Compile"),
-    entrypoint,
-    output_path.display(),
+    crate::util::path::relative_specifier_path_for_display(&initial_cwd, entrypoint),
+    {
+      if let Ok(output_path) = deno_path_util::url_from_file_path(&output_path) {
+        crate::util::path::relative_specifier_path_for_display(&initial_cwd, &output_path)
+      } else {
+        output_path.display().to_string()
+      }
+    }
   );
   validate_output_path(&output_path)?;
 
@@ -152,7 +160,7 @@ pub async fn compile_eszip(flags: Arc<Flags>, compile_flags: CompileFlags) -> Re
 
   let maybe_import_map_specifier = cli_options.resolve_specified_import_map_specifier()?;
   let (module_roots, _include_paths) =
-    get_module_roots_and_include_paths(entrypoint, &compile_flags, cli_options.initial_cwd())?;
+    get_module_roots_and_include_paths(entrypoint, &compile_flags, cli_options)?;
 
   let graph = Arc::try_unwrap(
     module_graph_creator
@@ -189,6 +197,7 @@ pub async fn compile_eszip(flags: Arc<Flags>, compile_flags: CompileFlags) -> Re
     relative_file_base: Some(relative_file_base),
     npm_packages: None,
     module_kind_resolver: Default::default(),
+    npm_snapshot: Default::default(),
   })?;
 
   if let Some(import_map_specifier) = maybe_import_map_specifier {
@@ -289,8 +298,10 @@ fn validate_output_path(output_path: &Path) -> Result<(), AnyError> {
 fn get_module_roots_and_include_paths(
   entrypoint: &ModuleSpecifier,
   compile_flags: &CompileFlags,
-  initial_cwd: &Path,
+  cli_options: &Arc<CliOptions>,
 ) -> Result<(Vec<ModuleSpecifier>, Vec<ModuleSpecifier>), AnyError> {
+  let initial_cwd = cli_options.initial_cwd();
+
   fn is_module_graph_module(url: &ModuleSpecifier) -> bool {
     if url.scheme() != "file" {
       return true;
@@ -315,6 +326,8 @@ fn get_module_roots_and_include_paths(
       | MediaType::Wasm => true,
       MediaType::Css
       | MediaType::Html
+      | MediaType::Jsonc
+      | MediaType::Json5
       | MediaType::SourceMap
       | MediaType::Sql
       | MediaType::Unknown => false,
@@ -380,6 +393,15 @@ fn get_module_roots_and_include_paths(
       include_paths.push(url);
     }
   }
+
+  for preload_module in cli_options.preload_modules()? {
+    module_roots.push(preload_module);
+  }
+
+  for require_module in cli_options.require_modules()? {
+    module_roots.push(require_module);
+  }
+
   Ok((module_roots, include_paths))
 }
 

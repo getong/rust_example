@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use deno_core::{ModuleSpecifier, error::AnyError};
 use deno_lib::util::checksum;

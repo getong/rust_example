@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 mod interactive;
 
@@ -12,7 +12,10 @@ use deno_semver::{
 };
 use deno_terminal::colors;
 
-use super::deps::{Dep, DepId, DepKind, DepManager, DepManagerArgs, PackageLatestVersion};
+use super::{
+  CacheTopLevelDepsOptions,
+  deps::{Dep, DepId, DepKind, DepManager, DepManagerArgs, PackageLatestVersion},
+};
 use crate::{
   args::{Flags, OutdatedFlags},
   factory::CliFactory,
@@ -193,7 +196,7 @@ pub async fn outdated(flags: Arc<Flags>, update_flags: OutdatedFlags) -> Result<
     factory.jsr_version_resolver()?.clone(),
   ));
 
-  if !cli_options.start_dir.has_deno_json() && !cli_options.start_dir.has_pkg_json() {
+  if !cli_options.start_dir.has_deno_or_pkg_json() {
     bail!(
       "No deno.json or package.json in \"{}\".",
       cli_options.initial_cwd().display(),
@@ -229,8 +232,17 @@ pub async fn outdated(flags: Arc<Flags>, update_flags: OutdatedFlags) -> Result<
     crate::args::OutdatedKind::Update {
       latest,
       interactive,
+      lockfile_only,
     } => {
-      update(deps, latest, &filter_set, interactive, flags).await?;
+      update(
+        deps,
+        latest,
+        &filter_set,
+        interactive,
+        flags,
+        CacheTopLevelDepsOptions { lockfile_only },
+      )
+      .await?;
     }
     crate::args::OutdatedKind::PrintOutdated { compatible } => {
       print_outdated(&mut deps, compatible)?;
@@ -327,6 +339,7 @@ async fn update(
   filter_set: &filter::FilterSet,
   interactive: bool,
   flags: Arc<Flags>,
+  cache_options: CacheTopLevelDepsOptions,
 ) -> Result<(), AnyError> {
   let mut to_update = Vec::new();
 
@@ -396,9 +409,12 @@ async fn update(
 
     deps.commit_changes()?;
 
-    let factory =
-      super::npm_install_after_modification(flags.clone(), Some(deps.jsr_fetch_resolver.clone()))
-        .await?;
+    let factory = super::npm_install_after_modification(
+      flags.clone(),
+      Some(deps.jsr_fetch_resolver.clone()),
+      cache_options,
+    )
+    .await?;
 
     let mut updated_to_versions = HashSet::new();
     let args = dep_manager_args(

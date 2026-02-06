@@ -1,4 +1,4 @@
-// Copyright 2018-2025 the Deno authors. MIT license.
+// Copyright 2018-2026 the Deno authors. MIT license.
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -24,6 +24,8 @@ fn esbuild_platform() -> &'static str {
     ("aarch64", "macos" | "apple") => "darwin-arm64",
     ("x86_64", "windows") => "win32-x64",
     ("aarch64", "windows") => "win32-arm64",
+    ("x86_64", "android") => "android-x64",
+    ("aarch64", "android") => "android-arm64",
     _ => panic!(
       "Unsupported platform: {} {}",
       std::env::consts::ARCH,
@@ -102,8 +104,13 @@ pub async fn ensure_esbuild(
     })?;
 
     if !existed {
-      std::fs::remove_dir_all(&package_folder)
-        .with_context(|| format!("failed to remove directory {}", package_folder.display()))?;
+      let _ = std::fs::remove_dir_all(&package_folder).inspect_err(|e| {
+        log::warn!(
+          "failed to remove directory {}: {}",
+          package_folder.display(),
+          e
+        );
+      });
     }
     Ok(esbuild_path)
   } else {
