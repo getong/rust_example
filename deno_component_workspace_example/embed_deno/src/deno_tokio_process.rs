@@ -149,7 +149,7 @@ impl DenoRuntimeManager {
 
     // Create the worker with empty side module list and convert to MainWorker
     let cli_worker = worker_factory
-      .create_main_worker(WorkerExecutionMode::Run, module_specifier, vec![])
+      .create_main_worker(WorkerExecutionMode::Run, module_specifier, vec![], vec![])
       .await?;
 
     // Convert CliMainWorker to MainWorker
@@ -618,7 +618,7 @@ impl DenoRuntimeManager {
       None
     };
 
-    JsRuntime::init_platform(v8_platform, false);
+    JsRuntime::init_platform(v8_platform);
   }
 
   /// Initialize logging

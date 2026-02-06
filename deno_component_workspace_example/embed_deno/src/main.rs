@@ -119,7 +119,7 @@ fn exit_with_message(message: &str, code: i32) -> ! {
 
 fn exit_for_error(error: AnyError) -> ! {
   let error_string = match js_error_downcast_ref(&error) {
-    Some(e) => format_js_error(e),
+    Some(e) => format_js_error(e, None),
     None => format!("{error:?}"),
   };
 
@@ -544,7 +544,7 @@ fn init_v8(flags: &Flags) {
   };
 
   // TODO(bartlomieju): remove last argument once Deploy no longer needs it
-  deno_core::JsRuntime::init_platform(v8_platform, /* import assertions enabled */ false);
+  deno_core::JsRuntime::init_platform(v8_platform);
 }
 
 fn init_logging(maybe_level: Option<log::Level>, otel_config: Option<OtelConfig>) {
