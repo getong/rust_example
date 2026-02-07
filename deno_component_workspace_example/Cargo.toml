@@ -36,6 +36,7 @@ members = [
   "deno_cache_dir_example",
   "deno_core_call_js_example",
   "deno_core_call_js_function_example",
+  "deno_fetch_example",
   "denort",
   "deno",
   "embed_deno",

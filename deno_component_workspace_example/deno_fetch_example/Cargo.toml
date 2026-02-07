@@ -1,0 +1,17 @@
+[package]
+name = "deno_fetch_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+deno_core = "0.383.0"
+deno_features = "0.27.0"
+deno_fetch = "0.254.0"
+deno_net = "0.222.0"
+deno_permissions = "0.89.0"
+deno_web = "0.261.0"
+deno_webidl = "0.230.0"
+reqwest = "0.13.2"
+rustls = "0.23.28"
+sys_traits = { version = "0.1.22", features = ["real", "libc"] }
+tokio = { version = "1.49.0", features = ["full"] }
