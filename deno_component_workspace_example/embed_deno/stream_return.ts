@@ -29,4 +29,4 @@ const payload = {
 
 console.log("stream token generated for", userId);
 globalThis.embedDeno?.setResult(payload);
-
+globalThis.embedDeno?.setExitData({ ok: true, kind: "stream_token" });

@@ -1000,10 +1000,12 @@ impl CliFactory {
     let workspace_factory = self.workspace_factory()?;
     Ok(LibMainWorkerOptions {
       argv: cli_options.argv().clone(),
-      // This optimization is only available for "run" subcommand
-      // because we need to register new ops for testing and jupyter
-      // integration.
-      skip_op_registration: cli_options.sub_command().is_run(),
+      // Deno's CLI enables this optimization for `deno run` (because the
+      // snapshot already contains all built-in ops).
+      //
+      // However, `embed_deno` injects custom ops at runtime (for structured
+      // embedding results), so we must always register ops.
+      skip_op_registration: false,
       log_level: cli_options.log_level().unwrap_or(log::Level::Info).into(),
       enable_op_summary_metrics: cli_options.enable_op_summary_metrics(),
       enable_testing_features: cli_options.enable_testing_features(),
