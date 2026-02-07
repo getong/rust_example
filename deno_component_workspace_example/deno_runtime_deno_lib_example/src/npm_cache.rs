@@ -239,4 +239,16 @@ impl NpmCache {
 
     Ok(packages)
   }
+
+  pub fn stats(&self) -> Result<CacheStats> {
+    let packages = self.list_packages()?;
+    let total_packages = packages.len();
+    let total_size = packages.iter().map(|p| p.size).sum();
+
+    Ok(CacheStats {
+      total_packages,
+      total_size,
+      cache_dir: self.cache_dir.clone(),
+    })
+  }
 }

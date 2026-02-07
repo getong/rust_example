@@ -10,6 +10,7 @@ pub struct NodeImportsResolver {
 
 impl NodeImportsResolver {
   pub fn new(cache_dir: std::path::PathBuf) -> Self {
+    tracing::debug!("NodeImportsResolver cache_dir: {}", cache_dir.display());
     Self { cache_dir }
   }
 
@@ -19,6 +20,11 @@ impl NodeImportsResolver {
     import_specifier: &str,
     referrer: &ModuleSpecifier,
   ) -> Result<ModuleSpecifier, JsErrorBox> {
+    tracing::debug!(
+      "Resolving package import with NodeImportsResolver cache_dir={}",
+      self.cache_dir.display()
+    );
+
     if !import_specifier.starts_with('#') {
       return Err(JsErrorBox::generic("Not a package import"));
     }

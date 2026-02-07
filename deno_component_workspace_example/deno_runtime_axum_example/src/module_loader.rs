@@ -1,12 +1,10 @@
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
 use deno_ast::{MediaType, ModuleSpecifier, ParseParams, SourceMapOption};
-use deno_resolver::npm::ByonmNpmResolver;
 use deno_runtime::deno_core::{
   ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
   ModuleSourceCode, ModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
 };
-use sys_traits::impls::RealSys;
 
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 
@@ -16,20 +14,14 @@ pub struct TypescriptModuleLoader {
 
 pub struct NpmAwareModuleLoader {
   pub source_maps: SourceMapStore,
-  pub npm_resolver: Option<Arc<ByonmNpmResolver<RealSys>>>,
 }
 
 impl NpmAwareModuleLoader {
   pub fn new() -> Self {
     let source_map_store = Rc::new(RefCell::new(HashMap::new()));
 
-    // For now, we'll keep this simple and not use the complex npm resolver setup
-    // The main goal is to handle npm: imports by resolving them to esm.sh
-    let npm_resolver = None;
-
     Self {
       source_maps: source_map_store,
-      npm_resolver,
     }
   }
 }

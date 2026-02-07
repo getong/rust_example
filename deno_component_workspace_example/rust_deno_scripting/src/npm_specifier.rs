@@ -4,7 +4,6 @@ use anyhow::{Result, anyhow};
 pub struct NpmSpecifier {
   pub name: String,
   pub version: String,
-  pub sub_path: Option<String>,
 }
 
 impl NpmSpecifier {
@@ -14,13 +13,9 @@ impl NpmSpecifier {
     }
 
     let npm_part = specifier.strip_prefix("npm:").unwrap();
-    let (name, version, sub_path) = parse_npm_specifier(npm_part);
+    let (name, version, _sub_path) = parse_npm_specifier(npm_part);
 
-    Ok(Self {
-      name,
-      version,
-      sub_path,
-    })
+    Ok(Self { name, version })
   }
 }
 

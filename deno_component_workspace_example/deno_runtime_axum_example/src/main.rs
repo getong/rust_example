@@ -17,7 +17,6 @@ use deno_runtime::{
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
   deno_tls::rustls::crypto::{CryptoProvider, ring},
-  deno_web::InMemoryBroadcastChannel,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };

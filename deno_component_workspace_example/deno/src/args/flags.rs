@@ -1571,7 +1571,7 @@ static DENO_HELP: &str = cstr!(
 
 <p(245)>Usage:</> <g>{usage}</>
 
-<y>Commands:</><y>Execution:</>\
+<y>Commands:</><y>Execution:</>
      
     <g>run</>          Run a JavaScript or TypeScript program, or a task
                   <p(245)>deno \
@@ -1637,7 +1637,7 @@ static DENO_HELP: &str = cstr!(
      upgrade  |  deno upgrade 1.45.0  |  deno upgrade canary</>
 {after-help}
 
-<y>Docs:</> https://docs.deno.com\
+<y>Docs:</> https://docs.deno.com
      
 <y>Standard Library:</> https://jsr.io/@std
 <y>Bugs:</> https://github.com/denoland/deno/issues<y>Discord:</> \
@@ -2547,7 +2547,8 @@ Download and compile a module with all of its static dependencies \
   <p(245)>deno cache jsr:@std/http/file-server</>\
        
 
-Future runs of this module will trigger no downloads or compilation unless --reload is specified\
+Future runs of this module will trigger no downloads or compilation unless --reload \
+       is specified
        
 
 <y>Read more:</> <c>https://docs.deno.com/go/cache</>"
@@ -2813,21 +2814,26 @@ Print a report to stdout:
   <p(245)>deno coverage cov_profile</>\
        
 
-Include urls that start with the file schema and exclude files ending with <c>test.ts</> and \
-       <c>test.js</>,
-for an url to match it must match the include pattern and not match the exclude \
-       pattern:
-  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" cov_profile</>\
+
+Include urls that start with the file schema and exclude files ending with <c>test.ts</>\
        
+       and <c>test.js</>,
+for an url to match it must match the include pattern and not match \
+       the exclude pattern:
+  <p(245)>deno coverage --include=\"^file:\" --exclude=\"test\\.(ts|js)\" \
+       cov_profile</>
 
 Write a report using the lcov format:
-  <p(245)>deno coverage --lcov --output=cov.lcov cov_profile/</>\
+  <p(245)>deno coverage --lcov \
+       --output=cov.lcov cov_profile/</>
        
 
 Generate html reports from lcov:
-  <p(245)>genhtml -o html_cov cov.lcov</>
+  <p(245)>genhtml -o \
+       html_cov cov.lcov</>
 
-<y>Read more:</> <c>https://docs.deno.com/go/coverage</>\
+
+<y>Read more:</> <c>https://docs.deno.com/go/coverage</>
        "
     ),
     UnstableArgsConfig::None,

@@ -2,15 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, anyhow};
 
-use crate::{
-  npm_downloader::{NpmConfig, NpmDownloader},
-  npm_registry::NpmRegistry,
-  npm_specifier::NpmSpecifier,
-};
+use crate::{npm_downloader::NpmConfig, npm_registry::NpmRegistry, npm_specifier::NpmSpecifier};
 
 /// Analyzes npm package dependencies and creates a dependency tree
 pub struct NpmDependencyAnalyzer {
-  downloader: NpmDownloader,
   registry: NpmRegistry,
 }
 
@@ -26,13 +21,9 @@ pub struct DependencyNode {
 impl NpmDependencyAnalyzer {
   pub fn new() -> Result<Self> {
     let config = NpmConfig::default();
-    let downloader = NpmDownloader::new(config.clone())?;
     let registry = NpmRegistry::new(&config)?;
 
-    Ok(Self {
-      downloader,
-      registry,
-    })
+    Ok(Self { registry })
   }
 
   /// Analyze dependencies for a package without downloading

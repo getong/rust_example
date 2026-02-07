@@ -64,6 +64,14 @@ impl ModuleLoader for TypescriptModuleLoader {
       let package_name = specifier.strip_prefix("npm:").unwrap_or(specifier);
       let (name, version, sub_path) = parse_npm_specifier(package_name);
 
+      if let Some(sub_path) = &sub_path {
+        tracing::debug!(
+          "Resolving npm subpath import: {} sub_path={}",
+          specifier,
+          sub_path
+        );
+      }
+
       // Check if package is already cached
       let versions_to_check = if version == "latest" {
         if let Ok(packages) = self.npm_downloader.cache.list_packages() {

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use deno_core::{Extension, JsRuntime, RuntimeOptions};
-use deno_permissions::PermissionsContainer;
 use deno_web::InMemoryBroadcastChannel;
 use node_resolver::{
   InNpmPackageChecker, NpmPackageFolderResolver, errors::PackageFolderResolveError,

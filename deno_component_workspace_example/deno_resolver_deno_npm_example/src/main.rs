@@ -13,10 +13,7 @@ use deno_ast::{
 };
 use deno_core::{ModuleSpecifier, error::AnyError, op2, serde_json};
 use deno_permissions::prompter::{PermissionPrompter, PromptResponse, set_prompter};
-use deno_resolver::npm::{
-  ByonmNpmResolver, ByonmNpmResolverCreateOptions, CreateInNpmPkgCheckerOptions,
-  DenoInNpmPackageChecker,
-};
+use deno_resolver::npm::{ByonmNpmResolver, DenoInNpmPackageChecker};
 use deno_runtime::{
   deno_core::{
     self, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
@@ -473,7 +470,7 @@ async fn main() -> Result<(), AnyError> {
   let snapshot_options = SnapshotOptions::default();
 
   // Create the necessary components for npm resolution - keep them simple for now
-  let _sys = RealSys;
+  let _sys = cli::CliSys::default();
   let _node_sys = NodeResolutionSys::new(RealSys, None);
   let _pkg_json_resolver = Arc::new(PackageJsonResolver::new(RealSys, None));
 

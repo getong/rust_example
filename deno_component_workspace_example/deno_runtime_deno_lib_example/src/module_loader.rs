@@ -35,48 +35,46 @@ impl CustomModuleLoader {
       npm_downloader,
     }
   }
+}
 
-  pub async fn resolve_and_ensure_npm_module(
-    &self,
-    specifier: &str,
-    _referrer: &ModuleSpecifier,
-  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    // Download the package if not already cached
-    let cached_package = self
-      .npm_downloader
-      .download_package(specifier)
-      .await
-      .map_err(|e| {
-        ModuleLoaderError::generic(format!(
-          "Failed to download npm package {}: {}",
-          specifier, e
-        ))
-      })?;
+async fn resolve_and_ensure_npm_module(
+  downloader: &Arc<NpmDownloader>,
+  specifier: &str,
+) -> Result<ModuleSpecifier, ModuleLoaderError> {
+  // Download the package if not already cached
+  let cached_package = downloader
+    .download_package(specifier)
+    .await
+    .map_err(|e| ModuleLoaderError::generic(e.to_string()))?;
 
-    let package_name = specifier.strip_prefix("npm:").unwrap_or(specifier);
-    let (_, _, sub_path) = parse_npm_specifier(package_name);
+  let package_name = specifier.strip_prefix("npm:").unwrap_or(specifier);
+  let (_, _, sub_path) = parse_npm_specifier(package_name);
 
-    // Resolve the main entry point or subpath
-    let file_path = if let Some(sub_path) = sub_path {
-      cached_package.path.join("package").join(sub_path)
-    } else {
-      // Use the main entry point from cached package or default to index.js
-      if let Some(main_path) = self
-        .npm_downloader
-        .cache
-        .get_main_entry_path(&cached_package)
-      {
-        main_path
-      } else {
-        cached_package.path.join("package").join("index.js")
-      }
-    };
+  // Resolve the main entry point or subpath
+  let file_path = if let Some(sub_path) = sub_path {
+    cached_package.path.join("package").join(sub_path)
+  } else if let Some(main_path) = downloader.cache.get_main_entry_path(&cached_package) {
+    main_path
+  } else {
+    cached_package.path.join("package").join("index.js")
+  };
 
-    // Convert to file URL
-    let file_url = Url::from_file_path(&file_path)
-      .map_err(|_| ModuleLoaderError::generic("Failed to convert path to URL"))?;
+  // Convert to file URL
+  let file_url = Url::from_file_path(&file_path)
+    .map_err(|_| ModuleLoaderError::generic("Failed to convert path to URL"))?;
 
-    Ok(ModuleSpecifier::from(file_url))
+  Ok(ModuleSpecifier::from(file_url))
+}
+
+#[cfg(test)]
+mod tests {
+  use deno_runtime::deno_fs::RealFs;
+
+  use super::*;
+
+  #[test]
+  fn custom_module_loader_compiles() {
+    let _loader = CustomModuleLoader::new(Arc::new(RealFs));
   }
 }
 
@@ -176,41 +174,14 @@ impl ModuleLoader for CustomModuleLoader {
           "📥 Downloading npm package with dependencies: {}",
           npm_specifier
         );
-        // Download and resolve the npm package with all its dependencies
-        let cached_package = downloader
-          .download_package_with_dependencies(&npm_specifier)
+        let actual_module_specifier = resolve_and_ensure_npm_module(&downloader, &npm_specifier)
           .await
           .map_err(|e| {
             ModuleLoaderError::generic(format!(
-              "Failed to download npm package {}: {}",
+              "Failed to resolve npm package {}: {}",
               npm_specifier, e
             ))
           })?;
-
-        println!(
-          "✅ Successfully downloaded and cached: {} v{}",
-          cached_package.name, cached_package.version
-        );
-
-        let package_name = npm_specifier.strip_prefix("npm:").unwrap_or(&npm_specifier);
-        let (_, _, sub_path) = parse_npm_specifier(package_name);
-
-        // Resolve the main entry point or subpath
-        let file_path = if let Some(sub_path) = sub_path {
-          cached_package.path.join("package").join(sub_path)
-        } else {
-          // Use the main entry point from cached package or default to index.js
-          if let Some(main_path) = downloader.cache.get_main_entry_path(&cached_package) {
-            main_path
-          } else {
-            cached_package.path.join("package").join("index.js")
-          }
-        };
-
-        // Now load the actual file
-        let actual_specifier = Url::from_file_path(&file_path)
-          .map_err(|_| ModuleLoaderError::generic("Failed to convert path to URL"))?;
-        let actual_module_specifier = ModuleSpecifier::from(actual_specifier);
 
         load_module(actual_module_specifier, source_maps, fs)
       }));

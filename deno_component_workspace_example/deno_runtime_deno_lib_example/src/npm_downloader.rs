@@ -34,26 +34,36 @@ impl Default for NpmConfig {
 
 /// Main NPM package downloader
 pub struct NpmDownloader {
-  pub config: NpmConfig,
   registry: NpmRegistry,
   pub cache: NpmCache,
 }
 
 impl NpmDownloader {
   pub fn new(config: NpmConfig) -> Result<Self> {
+    tracing::debug!(
+      "NpmDownloader config: registry_url={} cache_dir={} user_agent={}",
+      config.registry_url,
+      config.cache_dir.display(),
+      config.user_agent
+    );
     let registry = NpmRegistry::new(&config)?;
     let cache = NpmCache::new(&config.cache_dir)?;
 
-    Ok(Self {
-      config,
-      registry,
-      cache,
-    })
+    Ok(Self { registry, cache })
   }
 
   /// Download and cache a package from npm: specifier
   pub async fn download_package(&self, specifier: &str) -> Result<CachedPackage> {
     tracing::info!("🚀 Starting download for: {}", specifier);
+
+    if let Ok(stats) = self.cache.stats() {
+      tracing::debug!(
+        "NPM cache stats: total_packages={} total_size={}B cache_dir={}",
+        stats.total_packages,
+        stats.total_size,
+        stats.cache_dir.display()
+      );
+    }
 
     // Parse the npm: specifier
     let npm_spec = NpmSpecifier::parse(specifier)?;

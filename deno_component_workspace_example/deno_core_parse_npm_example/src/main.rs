@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use anyhow::Result;
-use deno_core::{JsRuntime, ModuleSpecifier, RuntimeOptions};
+use deno_core::{JsRuntime, RuntimeOptions};
 use deno_semver::npm::NpmPackageReqReference;
 
 #[tokio::main]
