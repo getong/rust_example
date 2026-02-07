@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_core = "0.355.0"
-deno_error = "0.7.0"
-deno_fs = "0.123.0"
-deno_node = "0.151.0"
-deno_permissions = "0.72.0"
-node_resolver = "0.51.0"
-sys_traits = { version = "0.1.17", features = ["real"] }
-tokio = { version = "1.47.1", features = ["full"] }
+deno_core = "0.383.0"
+deno_error = "0.7.1"
+deno_fs = "0.140.0"
+deno_node = "0.168.0"
+deno_permissions = "0.89.0"
+deno_semver = "0.9.1"
+node_resolver = "0.68.0"
+sys_traits = { version = "0.1.22", features = ["real"] }
+tokio = { version = "1.49.0", features = ["full"] }

@@ -18,15 +18,14 @@ impl deno_core::ModuleLoader for TsModuleLoader {
     referrer: &str,
     _kind: deno_core::ResolutionKind,
   ) -> Result<deno_core::ModuleSpecifier, ModuleLoaderError> {
-    deno_core::resolve_import(specifier, referrer).map_err(Into::into)
+    deno_core::resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
     &self,
     module_specifier: &deno_core::ModuleSpecifier,
-    _maybe_referrer: Option<&reqwest::Url>,
-    _is_dyn_import: bool,
-    _requested_module_type: deno_core::RequestedModuleType,
+    _maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
+    _options: deno_core::ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
 
@@ -50,7 +49,7 @@ impl deno_core::ModuleLoader for TsModuleLoader {
         _ => panic!("Unknown extension {:?}", path.extension()),
       };
 
-      let code = std::fs::read_to_string(&path)?;
+      let code = std::fs::read_to_string(&path).map_err(JsErrorBox::from_err)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.clone(),
@@ -86,13 +85,13 @@ impl deno_core::ModuleLoader for TsModuleLoader {
   }
 }
 
-#[op2(async)]
+#[op2]
 #[string]
 async fn op_read_file(#[string] path: String) -> Result<String, std::io::Error> {
   tokio::fs::read_to_string(path).await
 }
 
-#[op2(async)]
+#[op2]
 async fn op_write_file(
   #[string] path: String,
   #[string] contents: String,
@@ -105,7 +104,7 @@ fn op_remove_file(#[string] path: String) -> Result<(), std::io::Error> {
   std::fs::remove_file(path)
 }
 
-#[op2(async)]
+#[op2]
 #[string]
 async fn op_fetch(#[string] url: String) -> Result<String, JsErrorBox> {
   reqwest::get(url)
@@ -131,7 +130,7 @@ async fn run_js(file_path: &str) -> Result<(), AnyError> {
   let main_module = deno_core::resolve_path(file_path, &std::env::current_dir()?)?;
   let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
     module_loader: Some(Rc::new(TsModuleLoader)),
-    extensions: vec![runjs::init_ops_and_esm()],
+    extensions: vec![runjs::init()],
     ..Default::default()
   });
 

@@ -20,7 +20,7 @@ fn main() {
       cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
       startup_snapshot: None,
       skip_op_registration: false,
-      extensions: vec![runjs::init_ops_and_esm()],
+      extensions: vec![runjs::init()],
       with_runtime_cb: None,
       extension_transpiler: None,
     },

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, rc::Rc};
+use std::path::PathBuf;
 
 use deno_resolver::npm::{ByonmNpmResolver, ByonmNpmResolverCreateOptions};
 use node_resolver::cache::NodeResolutionSys;
@@ -12,7 +12,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // Create a package.json resolver
   // For this example, we'll create a simple one
-  let pkg_json_resolver = Rc::new(node_resolver::PackageJsonResolver::new(sys.clone(), None));
+  let pkg_json_resolver =
+    deno_maybe_sync::new_rc(node_resolver::PackageJsonResolver::new(sys.clone(), None));
 
   // Create options for ByonmNpmResolver
   let options = ByonmNpmResolverCreateOptions {

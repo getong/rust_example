@@ -287,8 +287,8 @@ async fn run_resolver_and_get_snapshot(
       api,
       AddPkgReqsOptions {
         package_reqs: &reqs,
-        types_node_version_req: None,
-        link_packages: &Default::default(),
+        version_resolver: &Default::default(),
+        should_dedup: true,
       },
       None,
     )

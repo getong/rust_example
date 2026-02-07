@@ -2,8 +2,8 @@ use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc};
 
 use deno_ast::{MediaType, ModuleSpecifier, ParseParams, SourceMapOption};
 use deno_runtime::deno_core::{
-  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
-  RequestedModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
+  ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+  ModuleSourceCode, ModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
 };
 
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
@@ -118,7 +118,7 @@ fn load(
       .transpile(
         &deno_ast::TranspileOptions {
           imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-          use_decorators_proposal: true,
+          decorators: deno_ast::DecoratorsTranspileOption::Ecma,
           ..Default::default()
         },
         &deno_ast::TranspileModuleOptions::default(),
@@ -159,9 +159,8 @@ impl ModuleLoader for TypescriptModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
 

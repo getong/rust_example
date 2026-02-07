@@ -2,9 +2,9 @@
 use std::{borrow::Cow, cell::RefCell, collections::HashSet, path::Path, pin::Pin, rc::Rc};
 
 use deno_core::{
-  FastString, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier,
-  ModuleType, RequestedModuleType, ResolutionKind, error::ModuleLoaderError, futures::FutureExt,
-  resolve_url,
+  FastString, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader,
+  ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
+  error::ModuleLoaderError, futures::FutureExt, resolve_url,
 };
 use deno_error::JsErrorBox;
 use deno_lib::worker::{CreateModuleLoaderResult, ModuleLoaderFactory};
@@ -136,16 +136,17 @@ impl ModuleLoader for CliInspiredModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     // Track loaded files
     self.loaded_files.borrow_mut().insert(specifier.clone());
 
     let specifier = specifier.clone();
-    let maybe_referrer = maybe_referrer.cloned();
+    let maybe_referrer = maybe_referrer.map(|r| r.specifier.clone());
     let loader = self.clone();
+    let is_dynamic = options.is_dynamic_import;
+    let requested_module_type = options.requested_module_type;
 
     ModuleLoadResponse::Async(
       async move {
@@ -191,12 +192,11 @@ impl ModuleLoader for CliInspiredModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> Pin<Box<dyn std::future::Future<Output = Result<(), ModuleLoaderError>>>> {
     println!(
       "[CliInspiredModuleLoader] Preparing load for: {} (dynamic: {}, type: {:?})",
-      specifier, is_dynamic, requested_module_type
+      specifier, options.is_dynamic_import, options.requested_module_type
     );
 
     // For this example, we don't need to do any preparation
@@ -312,7 +312,7 @@ struct SimpleNodeRequireLoader;
 impl NodeRequireLoader for SimpleNodeRequireLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn deno_runtime::deno_node::NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: Cow<'a, Path>,
   ) -> Result<Cow<'a, Path>, JsErrorBox> {
     // For this example, allow all reads

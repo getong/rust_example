@@ -6,13 +6,12 @@ mod module_loader;
 use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, sync::Arc};
 
 use colored::*;
+use deno_permissions::prompter::{PermissionPrompter, PromptResponse, set_prompter};
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
   deno_core::{self, ModuleSpecifier, error::AnyError, op2},
   deno_fs::RealFs,
-  deno_permissions::{
-    PermissionPrompter, Permissions, PermissionsContainer, PromptResponse, set_prompter,
-  },
+  deno_permissions::{Permissions, PermissionsContainer},
   ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
@@ -53,7 +52,7 @@ impl PermissionPrompter for CustomPrompter {
     name: &str,
     api_name: Option<&str>,
     is_unary: bool,
-    _choices: Option<Box<dyn FnOnce() -> Vec<String> + Send + Sync>>,
+    _get_stack: Option<deno_permissions::prompter::GetFormattedStackFn>,
   ) -> PromptResponse {
     println!(
       "{}\n{} {}\n{} {}\n{} {:?}\n{} {}",
@@ -127,6 +126,7 @@ async fn main() -> Result<(), AnyError> {
       fs: fs.clone(),
       deno_rt_native_addon_loader: Default::default(),
       fetch_dns_resolver: Default::default(),
+      bundle_provider: None,
     },
     WorkerOptions {
       extensions: vec![

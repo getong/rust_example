@@ -1,8 +1,8 @@
 use std::{rc::Rc, sync::Arc};
 
 use deno_core::{
-  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
-  RequestedModuleType, ResolutionKind, error::ModuleLoaderError,
+  ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+  ModuleSourceCode, ModuleType, ResolutionKind, error::ModuleLoaderError,
 };
 use deno_error::JsErrorBox;
 use deno_lib::{
@@ -105,9 +105,8 @@ impl ModuleLoader for NpmModuleLoader {
   fn load(
     &self,
     module_specifier: &Url,
-    _maybe_referrer: Option<&Url>,
-    _is_dynamic: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     // Check if this is an npm module
     if self.in_npm_pkg_checker.in_npm_package(module_specifier)
@@ -179,7 +178,7 @@ export default {{}};
 impl NodeRequireLoader for NpmModuleLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn deno_runtime::deno_node::NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: std::borrow::Cow<'a, std::path::Path>,
   ) -> Result<std::borrow::Cow<'a, std::path::Path>, JsErrorBox> {
     Ok(path)
@@ -371,7 +370,7 @@ console.log("🎉 TypeScript execution completed!");
     has_node_modules_dir: true, // Enable node_modules support
     inspect_brk: false,
     inspect_wait: false,
-    strace_ops: None,
+    trace_ops: None,
     is_inspecting: false,
     is_standalone: false,
     auto_serve: false,
@@ -382,13 +381,14 @@ console.log("🎉 TypeScript execution completed!");
     origin_data_folder_path: None,
     seed: None,
     unsafely_ignore_certificate_errors: None,
-    node_ipc: None,
+    node_ipc_init: None,
     serve_port: None,
     serve_host: None,
     otel_config: Default::default(),
     no_legacy_abort: false,
     startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
     enable_raw_imports: false,
+    maybe_initial_cwd: None,
   };
 
   // Create permissions
@@ -415,6 +415,7 @@ console.log("🎉 TypeScript execution completed!");
     RealSys,
     worker_options,
     Default::default(), // roots
+    None,               // bundle_provider
   );
 
   println!("✅ LibMainWorkerFactory created successfully!");
@@ -427,6 +428,7 @@ console.log("🎉 TypeScript execution completed!");
     permissions_container,
     main_module_url.clone(),
     vec![], // preload_modules
+    vec![], // require_modules
   )?;
 
   println!("✅ Main worker created!");

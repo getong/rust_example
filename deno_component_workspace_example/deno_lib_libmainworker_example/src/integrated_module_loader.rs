@@ -9,8 +9,7 @@ use deno_error::JsErrorBox;
 use deno_lib::worker::{CreateModuleLoaderResult, ModuleLoaderFactory};
 use deno_resolver::npm::{CreateInNpmPkgCheckerOptions, DenoInNpmPackageChecker};
 use deno_runtime::{
-  deno_node::NodePermissions, deno_permissions::PermissionsContainer,
-  permissions::RuntimePermissionDescriptorParser,
+  deno_permissions::PermissionsContainer, permissions::RuntimePermissionDescriptorParser,
 };
 use node_resolver::{InNpmPackageChecker, errors::PackageJsonLoadError};
 use sys_traits::impls::RealSys;
@@ -134,9 +133,8 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
+    options: deno_core::ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     // Track loaded files
     self.loaded_files.borrow_mut().insert(specifier.clone());
@@ -149,12 +147,12 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader
       async move {
         println!("[IntegratedModuleLoader] Loading: {}", specifier);
         if let Some(referrer) = maybe_referrer.as_ref() {
-          println!("  Referrer: {}", referrer);
+          println!("  Referrer: {}", referrer.specifier);
         }
-        println!("  Is dynamic: {}", is_dynamic);
+        println!("  Is dynamic: {}", options.is_dynamic_import);
 
         loader
-          .load_module_source(&specifier, &requested_module_type)
+          .load_module_source(&specifier, &options.requested_module_type)
           .await
       }
       .boxed_local(),
@@ -239,7 +237,7 @@ struct BasicNodeRequireLoader;
 impl deno_runtime::deno_node::NodeRequireLoader for BasicNodeRequireLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: std::borrow::Cow<'a, std::path::Path>,
   ) -> Result<std::borrow::Cow<'a, std::path::Path>, JsErrorBox> {
     Ok(path)

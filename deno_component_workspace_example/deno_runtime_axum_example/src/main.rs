@@ -12,12 +12,12 @@ use axum::{
 use deno_resolver::npm::{ByonmInNpmPackageChecker, ByonmNpmResolver};
 use deno_runtime::{
   BootstrapOptions, WorkerExecutionMode,
-  deno_broadcast_channel::InMemoryBroadcastChannel,
   deno_core::{self, FastString, FsModuleLoader, ModuleSpecifier},
   deno_fs::RealFs,
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
   deno_tls::rustls::crypto::{CryptoProvider, ring},
+  deno_web::InMemoryBroadcastChannel,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
@@ -116,7 +116,7 @@ async fn execute_script(script: String) -> Result<String, String> {
       has_node_modules_dir: false,
       argv0: None,
       node_debug: None,
-      node_ipc_fd: None,
+      node_ipc_init: None,
       mode: WorkerExecutionMode::Run,
       no_legacy_abort: false,
       serve_port: None,
@@ -134,10 +134,9 @@ async fn execute_script(script: String) -> Result<String, String> {
       unreachable!("Web workers are not supported in this example")
     }),
     format_js_error_fn: None,
-    maybe_inspector_server: None,
     should_break_on_first_statement: false,
     should_wait_for_inspector_session: false,
-    strace_ops: None,
+    trace_ops: None,
     cache_storage_dir: None,
     origin_storage_dir: None,
     stdio,
@@ -154,7 +153,7 @@ async fn execute_script(script: String) -> Result<String, String> {
       module_loader: Rc::new(FsModuleLoader),
       permissions,
       blob_store: Default::default(),
-      broadcast_channel: InMemoryBroadcastChannel::default(),
+      broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       node_services: Default::default(),
       npm_process_state_provider: None,
@@ -163,6 +162,7 @@ async fn execute_script(script: String) -> Result<String, String> {
       shared_array_buffer_store: None,
       compiled_wasm_module_store: None,
       v8_code_cache: None,
+      bundle_provider: None,
       fs,
     };
 
@@ -180,7 +180,7 @@ async fn execute_script(script: String) -> Result<String, String> {
     .map_err(|e| format!("Event loop error: {}", e))?;
 
   // Convert the V8 value to a string representation
-  let scope = &mut worker.js_runtime.handle_scope();
+  deno_core::scope!(scope, &mut worker.js_runtime);
   let local_result = deno_core::v8::Local::new(scope, result);
   let result_str = local_result.to_rust_string_lossy(scope);
 
@@ -226,7 +226,7 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
       has_node_modules_dir: true, // Enable node_modules for stream-token
       argv0: None,
       node_debug: None,
-      node_ipc_fd: None,
+      node_ipc_init: None,
       mode: WorkerExecutionMode::Run,
       no_legacy_abort: false,
       serve_port: None,
@@ -244,10 +244,9 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
       unreachable!("Web workers are not supported in this example")
     }),
     format_js_error_fn: None,
-    maybe_inspector_server: None,
     should_break_on_first_statement: false,
     should_wait_for_inspector_session: false,
-    strace_ops: None,
+    trace_ops: None,
     cache_storage_dir: None,
     origin_storage_dir: None,
     stdio,
@@ -264,7 +263,7 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
       module_loader: Rc::new(NpmAwareModuleLoader::new()),
       permissions,
       blob_store: Default::default(),
-      broadcast_channel: InMemoryBroadcastChannel::default(),
+      broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       node_services: Default::default(),
       npm_process_state_provider: None,
@@ -273,6 +272,7 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
       shared_array_buffer_store: None,
       compiled_wasm_module_store: None,
       v8_code_cache: None,
+      bundle_provider: None,
       fs,
     };
 
@@ -355,7 +355,7 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     .execute_script("<get-result>", FastString::from(get_result_script))
     .map_err(|e| format!("Get result error: {}", e))?;
 
-  let scope = &mut worker.js_runtime.handle_scope();
+  deno_core::scope!(scope, &mut worker.js_runtime);
   let local_result = deno_core::v8::Local::new(scope, result);
   let result_str = local_result.to_rust_string_lossy(scope);
 
@@ -406,7 +406,7 @@ async fn execute_node_https_test() -> Result<String, String> {
       has_node_modules_dir: true,
       argv0: None,
       node_debug: None,
-      node_ipc_fd: None,
+      node_ipc_init: None,
       mode: WorkerExecutionMode::Run,
       no_legacy_abort: false,
       serve_port: None,
@@ -424,10 +424,9 @@ async fn execute_node_https_test() -> Result<String, String> {
       unreachable!("Web workers are not supported in this example")
     }),
     format_js_error_fn: None,
-    maybe_inspector_server: None,
     should_break_on_first_statement: false,
     should_wait_for_inspector_session: false,
-    strace_ops: None,
+    trace_ops: None,
     cache_storage_dir: None,
     origin_storage_dir: None,
     stdio,
@@ -444,7 +443,7 @@ async fn execute_node_https_test() -> Result<String, String> {
       module_loader: Rc::new(FsModuleLoader),
       permissions,
       blob_store: Default::default(),
-      broadcast_channel: InMemoryBroadcastChannel::default(),
+      broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       node_services: Default::default(),
       npm_process_state_provider: None,
@@ -453,6 +452,7 @@ async fn execute_node_https_test() -> Result<String, String> {
       shared_array_buffer_store: None,
       compiled_wasm_module_store: None,
       v8_code_cache: None,
+      bundle_provider: None,
       fs,
     };
 
@@ -493,7 +493,7 @@ async fn execute_node_https_test() -> Result<String, String> {
     )
     .map_err(|e| format!("Get result error: {}", e))?;
 
-  let scope = &mut worker.js_runtime.handle_scope();
+  deno_core::scope!(scope, &mut worker.js_runtime);
   let local_result = deno_core::v8::Local::new(scope, result);
   let result_str = local_result.to_rust_string_lossy(scope);
 

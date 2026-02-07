@@ -65,6 +65,7 @@ async fn main() -> Result<(), AnyError> {
       compiled_wasm_module_store: Default::default(),
       v8_code_cache: Default::default(),
       deno_rt_native_addon_loader: Default::default(),
+      bundle_provider: None,
     };
 
   let snapshot_options = SnapshotOptions::default();

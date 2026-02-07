@@ -5,8 +5,8 @@ use std::{collections::HashMap, rc::Rc};
 
 use anyhow::{Result, anyhow};
 use deno_core::{
-  FastString, JsRuntime, ModuleLoader, ModuleSource, ModuleSpecifier, ModuleType,
-  RequestedModuleType, ResolutionKind, RuntimeOptions, error::JsErrorBox,
+  FastString, JsRuntime, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoader, ModuleSource,
+  ModuleSpecifier, ModuleType, ResolutionKind, RuntimeOptions, error::JsErrorBox,
 };
 use deno_semver::npm::NpmPackageReqReference;
 
@@ -112,9 +112,8 @@ impl ModuleLoader for SimpleNpmModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> deno_core::ModuleLoadResponse {
     let specifier_str = module_specifier.as_str();
 
@@ -217,7 +216,7 @@ async fn main() -> Result<()> {
   let result = runtime.execute_script("advanced_example.js", js_code)?;
 
   let result_str = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, &mut runtime);
     let result_local = deno_core::v8::Local::new(scope, result);
     result_local.to_rust_string_lossy(scope)
   };

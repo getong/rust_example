@@ -1,7 +1,8 @@
 use data_url::DataUrl;
 use deno_core::{
-  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-  RequestedModuleType, ResolutionKind, anyhow::bail, futures::FutureExt, resolve_import,
+  ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+  ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind, anyhow::bail,
+  futures::FutureExt, resolve_import,
 };
 use deno_error::JsErrorBox;
 
@@ -20,9 +21,8 @@ impl ModuleLoader for SimpleModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
 
@@ -63,6 +63,7 @@ impl ModuleLoader for SimpleModuleLoader {
       };
 
       // TODO: The MIME types should probably be checked.
+      let requested_module_type = options.requested_module_type;
       let module_type = match requested_module_type {
         RequestedModuleType::None => ModuleType::JavaScript,
         RequestedModuleType::Json => ModuleType::Json,

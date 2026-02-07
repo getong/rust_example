@@ -26,7 +26,7 @@ fn main() -> Result<()> {
       .await?;
 
     let global = js_runtime.get_module_namespace(mod_id).unwrap();
-    let scope = &mut js_runtime.handle_scope();
+    deno_core::scope!(scope, &mut js_runtime);
 
     let func_key = v8::String::new(scope, "sum").unwrap();
     let global_obj = v8::Local::new(scope, global);

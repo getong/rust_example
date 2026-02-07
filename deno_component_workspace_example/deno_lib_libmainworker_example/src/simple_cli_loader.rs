@@ -2,9 +2,9 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
 
 use deno_core::{
-  FastString, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier,
-  ModuleType, RequestedModuleType, ResolutionKind, error::ModuleLoaderError, futures::FutureExt,
-  resolve_url,
+  FastString, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader,
+  ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
+  error::ModuleLoaderError, futures::FutureExt, resolve_url,
 };
 use deno_error::JsErrorBox;
 use deno_lib::worker::{CreateModuleLoaderResult, ModuleLoaderFactory};
@@ -100,14 +100,14 @@ impl ModuleLoader for SimpleCliModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     self.loaded_files.borrow_mut().insert(specifier.clone());
 
     let specifier = specifier.clone();
     let loader = self.clone();
+    let requested_module_type = options.requested_module_type;
 
     ModuleLoadResponse::Async(
       async move {
@@ -197,7 +197,7 @@ struct SimpleNodeRequireLoader;
 impl deno_runtime::deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn deno_runtime::deno_node::NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: std::borrow::Cow<'a, std::path::Path>,
   ) -> Result<std::borrow::Cow<'a, std::path::Path>, JsErrorBox> {
     Ok(path)

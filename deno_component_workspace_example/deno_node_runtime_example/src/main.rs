@@ -4,7 +4,6 @@ use anyhow::Result;
 use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::{
   BootstrapOptions, WorkerExecutionMode,
-  deno_broadcast_channel::InMemoryBroadcastChannel,
   deno_core::{FsModuleLoader, ModuleSpecifier},
   deno_fs::RealFs,
   deno_io::Stdio,
@@ -66,7 +65,7 @@ fn main() -> Result<()> {
         has_node_modules_dir: false,
         argv0: None,
         node_debug: None,
-        node_ipc_fd: None,
+        node_ipc_init: None,
         mode: WorkerExecutionMode::Run,
         no_legacy_abort: false,
         serve_port: None,
@@ -84,10 +83,9 @@ fn main() -> Result<()> {
         unreachable!("Web workers are not supported in this example")
       }),
       format_js_error_fn: None,
-      maybe_inspector_server: None,
       should_break_on_first_statement: false,
       should_wait_for_inspector_session: false,
-      strace_ops: None,
+      trace_ops: None,
       cache_storage_dir: None,
       origin_storage_dir: None,
       stdio,
@@ -109,7 +107,7 @@ fn main() -> Result<()> {
       module_loader: Rc::new(FsModuleLoader),
       permissions,
       blob_store: Default::default(),
-      broadcast_channel: InMemoryBroadcastChannel::default(),
+      broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       node_services: Default::default(),
       npm_process_state_provider: None,
@@ -118,6 +116,7 @@ fn main() -> Result<()> {
       shared_array_buffer_store: None,
       compiled_wasm_module_store: None,
       v8_code_cache: None,
+      bundle_provider: None,
       fs,
     };
 

@@ -12,19 +12,18 @@ use deno_ast::{
   EmitOptions, MediaType, ParseParams, SourceMapOption, TranspileModuleOptions, TranspileOptions,
 };
 use deno_core::{ModuleSpecifier, error::AnyError, op2, serde_json};
+use deno_permissions::prompter::{PermissionPrompter, PromptResponse, set_prompter};
 use deno_resolver::npm::{
   ByonmNpmResolver, ByonmNpmResolverCreateOptions, CreateInNpmPkgCheckerOptions,
   DenoInNpmPackageChecker,
 };
 use deno_runtime::{
   deno_core::{
-    self, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
-    RequestedModuleType, ResolutionKind, resolve_import,
+    self, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+    ModuleSourceCode, ModuleType, ResolutionKind, resolve_import,
   },
   deno_fs::RealFs,
-  deno_permissions::{
-    PermissionPrompter, Permissions, PermissionsContainer, PromptResponse, set_prompter,
-  },
+  deno_permissions::{Permissions, PermissionsContainer},
   ops::bootstrap::SnapshotOptions,
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
@@ -66,7 +65,7 @@ impl PermissionPrompter for CustomPrompter {
     name: &str,
     api_name: Option<&str>,
     is_unary: bool,
-    _choices: Option<Box<dyn FnOnce() -> Vec<String> + Send + Sync>>,
+    _get_stack: Option<deno_permissions::prompter::GetFormattedStackFn>,
   ) -> PromptResponse {
     println!(
       "{}\n{} {}\n{} {}\n{} {:?}\n{} {}",
@@ -351,9 +350,8 @@ impl ModuleLoader for NpmSchemeModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     println!("📥 Loading: {}", module_specifier);
 
@@ -503,6 +501,7 @@ async fn main() -> Result<(), AnyError> {
       fs,
       deno_rt_native_addon_loader: Default::default(),
       fetch_dns_resolver: Default::default(),
+      bundle_provider: None,
     },
     WorkerOptions {
       extensions: vec![

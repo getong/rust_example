@@ -5,13 +5,12 @@ edition = "2024"
 
 [dependencies]
 data-url = "0.3.1"
-deno_core = "0.355.0"
-deno_error = "0.7.0"
-reqwest = "0.12.23"
-tokio = { version = "1.47.1", features = ["fs"] }
+deno_core = "0.383.0"
+deno_error = "0.7.1"
+reqwest = "0.12.5"
+tokio = { version = "1.49.0", features = ["fs"] }
 
 [dev-dependencies]
-http = "1.3.1"
+http = "1.4.0"
 lazy_static = "1.5.0"
-tokio = { version = "1.47.1", features = ["rt", "macros"] }
-warp = { version = "0.4.1", features = ["server"] }
+tokio = { version = "1.49.0", features = ["rt", "macros"] }

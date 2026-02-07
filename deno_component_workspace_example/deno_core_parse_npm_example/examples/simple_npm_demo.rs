@@ -131,7 +131,7 @@ async fn main() -> Result<()> {
   let result = runtime.execute_script("npm_demo.js", js_code)?;
 
   let result_str = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, &mut runtime);
     let result_local = deno_core::v8::Local::new(scope, result);
     result_local.to_rust_string_lossy(scope)
   };

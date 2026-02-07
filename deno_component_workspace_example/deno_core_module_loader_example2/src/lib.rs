@@ -1,7 +1,7 @@
 use deno_ast::{MediaType, ParseParams, TranspileOptions};
 use deno_core::{
-  FastString, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier,
-  ModuleType, RequestedModuleType, ResolutionKind,
+  FastString, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader,
+  ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
   anyhow::{anyhow, bail},
   futures::{FutureExt, TryFutureExt},
   resolve_import,
@@ -39,12 +39,12 @@ impl ModuleLoader for TypescriptModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
     let http = self.http.clone();
+    let requested_module_type = options.requested_module_type;
     let future = async move {
       let (code, module_type, media_type, should_transpile) = match module_specifier.to_file_path()
       {

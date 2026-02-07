@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_core = "0.356.0"
+deno_core = "0.383.0"

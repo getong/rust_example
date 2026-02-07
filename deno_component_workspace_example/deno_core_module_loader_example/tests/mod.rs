@@ -104,7 +104,7 @@ fn get_output(runtime: &mut JsRuntime) -> Result<String, Error> {
     "<output>",
     FastString::from_static("globalThis.getOutput();"),
   )?;
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, &mut runtime);
   let local_value = v8::Local::new(scope, value);
   Ok(serde_v8::from_v8(scope, local_value)?)
 }

@@ -1,20 +1,18 @@
 use std::{fs, path::Path};
 
 use futures::executor::block_on;
-use v8::V8;
 
 fn main() {
   let platform = v8::new_default_platform(0, false).make_shared();
-  V8::initialize_platform(platform);
-  V8::initialize();
+  v8::V8::initialize_platform(platform);
+  v8::V8::initialize();
 
   {
-    let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
+    let mut isolate = v8::Isolate::new(v8::CreateParams::default());
 
-    let handle_scope = &mut v8::HandleScope::new(isolate);
-
-    let context = v8::Context::new(handle_scope, v8::ContextOptions::default());
-    let scope = &mut v8::ContextScope::new(handle_scope, context);
+    v8::scope!(let scope, &mut isolate);
+    let context = v8::Context::new(&scope, v8::ContextOptions::default());
+    let scope = &mut v8::ContextScope::new(scope, context);
 
     let file_path = Path::new("src/index.js");
     let code = fs::read_to_string(file_path).expect("Unable to read JavaScript file.");
@@ -44,11 +42,10 @@ fn main() {
 
     let result_str = result.result(scope).to_string(scope).unwrap();
     println!("Result: {}", result_str.to_rust_string_lossy(scope));
-    // => Result: 32
   }
 
   unsafe {
-    V8::dispose();
+    v8::V8::dispose();
   }
-  V8::dispose_platform();
+  v8::V8::dispose_platform();
 }

@@ -22,7 +22,7 @@ struct SimpleNodeRequireLoader;
 impl deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn deno_node::NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: std::borrow::Cow<'a, std::path::Path>,
   ) -> Result<std::borrow::Cow<'a, std::path::Path>, deno_error::JsErrorBox> {
     Ok(path)
@@ -40,7 +40,7 @@ impl deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
   fn is_maybe_cjs(
     &self,
     _url: &deno_core::url::Url,
-  ) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(false)
   }
 }
@@ -109,6 +109,7 @@ pub async fn run_js(
     root_cert_store_provider: Default::default(),
     shared_array_buffer_store: Default::default(),
     v8_code_cache: Default::default(),
+    bundle_provider: None,
     deno_rt_native_addon_loader: Default::default(),
     fetch_dns_resolver: Default::default(),
   };
@@ -189,19 +190,19 @@ fn get_export_function_global(
 ) -> Result<v8::Global<v8::Function>> {
   // The module namespace holds all exports of the evaluated module.
   let exports_handle = worker.js_runtime.get_module_namespace(module_id)?;
-  let mut scope = worker.js_runtime.handle_scope();
+  deno_core::scope!(scope, &mut worker.js_runtime);
 
   let export_name_v8 =
-    v8::String::new(&mut scope, export_name).context("creation of v8 string failed")?;
-  let exports = exports_handle.open(&mut scope);
+    v8::String::new(scope, export_name).context("creation of v8 string failed")?;
+  let exports = exports_handle.open(scope);
   let binding = exports
-    .get(&mut scope, export_name_v8.into())
+    .get(scope, export_name_v8.into())
     .context(format!("no export named '{export_name}'"))?;
 
   let function: v8::Local<v8::Function> = binding.try_into()?;
   // By converting the function into a v8 global, we can decouple it from the lifetime of the
   // runtime's handle scope.
-  let global = v8::Global::new(&mut scope, function);
+  let global = v8::Global::new(scope, function);
 
   Ok(global)
 }

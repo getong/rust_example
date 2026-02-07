@@ -73,7 +73,7 @@ use eszip::EszipV2;
 use node_resolver::InNpmPackageChecker;
 use node_resolver::NodeResolutionKind;
 use node_resolver::ResolutionMode;
-use node_resolver::errors::ClosestPkgJsonError;
+use node_resolver::errors::PackageJsonLoadError;
 use sys_traits::FsMetadata;
 use sys_traits::FsMetadataValue;
 use sys_traits::FsRead;
@@ -999,9 +999,8 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
+    options: deno_core::ModuleLoadOptions,
   ) -> deno_core::ModuleLoadResponse {
     let inner = self.0.clone();
 
@@ -1012,14 +1011,14 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader
     self.0.loaded_files.borrow_mut().insert(specifier.clone());
 
     let specifier = specifier.clone();
-    let maybe_referrer = maybe_referrer.cloned();
+    let maybe_referrer = maybe_referrer.map(|r| r.specifier.clone());
     deno_core::ModuleLoadResponse::Async(
       async move {
         inner
           .load_inner(
             &specifier,
             maybe_referrer.as_ref(),
-            &requested_module_type,
+            &options.requested_module_type,
           )
           .await
       }
@@ -1031,15 +1030,14 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    options: deno_core::ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     // always call this first unconditionally because it will be
     // decremented unconditionally in "finish_load"
     self.0.shared.in_flight_loads_tracker.increase();
 
     if matches!(
-      requested_module_type,
+      options.requested_module_type,
       RequestedModuleType::Text | RequestedModuleType::Bytes
     ) {
       return Box::pin(deno_core::futures::future::ready(Ok(())));
@@ -1055,6 +1053,7 @@ impl<TGraphContainer: ModuleGraphContainer> ModuleLoader
 
     let specifier = specifier.clone();
     let inner = self.0.clone();
+    let is_dynamic = options.is_dynamic_import;
 
     async move {
       let graph_container = &inner.graph_container;
@@ -1284,7 +1283,7 @@ impl<TGraphContainer: ModuleGraphContainer> NodeRequireLoader
 {
   fn ensure_read_permission<'a>(
     &self,
-    permissions: &mut dyn deno_runtime::deno_node::NodePermissions,
+    permissions: &mut deno_permissions::PermissionsContainer,
     path: Cow<'a, Path>,
   ) -> Result<Cow<'a, Path>, JsErrorBox> {
     if let Ok(url) = deno_path_util::url_from_file_path(&path) {
@@ -1341,7 +1340,7 @@ impl<TGraphContainer: ModuleGraphContainer> NodeRequireLoader
   fn is_maybe_cjs(
     &self,
     specifier: &ModuleSpecifier,
-  ) -> Result<bool, ClosestPkgJsonError> {
+  ) -> Result<bool, PackageJsonLoadError> {
     let media_type = MediaType::from_specifier(specifier);
     self.cjs_tracker.is_maybe_cjs(specifier, media_type)
   }

@@ -3,13 +3,13 @@ use std::rc::Rc;
 
 use deno_core::{error::AnyError, extension, op2};
 
-#[op2(async)]
+#[op2]
 #[string]
 async fn op_read_file(#[string] path: String) -> Result<String, std::io::Error> {
   tokio::fs::read_to_string(path).await
 }
 
-#[op2(async)]
+#[op2]
 async fn op_write_file(
   #[string] path: String,
   #[string] contents: String,
@@ -35,7 +35,7 @@ async fn run_js(file_path: &str) -> Result<(), AnyError> {
   let main_module = deno_core::resolve_path(file_path, &std::env::current_dir()?)?;
   let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
     module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-    extensions: vec![runjs::init_ops_and_esm()],
+    extensions: vec![runjs::init()],
     ..Default::default()
   });
 

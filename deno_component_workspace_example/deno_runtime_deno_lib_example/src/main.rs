@@ -127,6 +127,7 @@ async fn create_main_worker(main_module: &ModuleSpecifier) -> Result<MainWorker,
     compiled_wasm_module_store: Default::default(),
     v8_code_cache: Default::default(),
     deno_rt_native_addon_loader: Default::default(),
+    bundle_provider: None,
   };
 
   // Set up worker options with our extension

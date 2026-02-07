@@ -1,13 +1,14 @@
 // Example demonstrating how deno_node crate loads and uses https.ts module
 
-use std::{borrow::Cow, path::Path, rc::Rc};
+use std::{path::Path, rc::Rc};
 
 // Using deno_core types
 use deno_core::FastString;
 // Removed deno_fs imports as we'll handle dependencies differently"
 use deno_node::NodeExtInitServices;
-use node_resolver::{DenoIsBuiltInNodeModuleChecker, UrlOrPath, cache::NodeResolutionSys};
-use sys_traits::boxed::BoxedFsMetadataValue;
+use deno_permissions::PermissionsContainer;
+use node_resolver::{DenoIsBuiltInNodeModuleChecker, UrlOrPath};
+use sys_traits::impls::RealSys;
 
 // Example implementation of required traits and types
 struct ExampleInNpmPackageChecker;
@@ -34,48 +35,19 @@ impl node_resolver::NpmPackageFolderResolver for ExampleNpmPackageFolderResolver
       ),
     )))
   }
-}
 
-// Example file system implementation
-#[derive(Clone)]
-struct ExampleSys;
-
-// Implement required traits for ExtNodeSys
-impl sys_traits::BaseFsCanonicalize for ExampleSys {
-  fn base_fs_canonicalize(&self, _path: &Path) -> std::io::Result<std::path::PathBuf> {
-    Ok(std::path::PathBuf::new())
+  fn resolve_types_package_folder(
+    &self,
+    _types_package_name: &str,
+    _maybe_package_version: Option<&deno_semver::Version>,
+    _maybe_referrer: Option<&node_resolver::UrlOrPathRef<'_>>,
+  ) -> Option<std::path::PathBuf> {
+    None
   }
 }
 
-impl sys_traits::BaseFsMetadata for ExampleSys {
-  type Metadata = BoxedFsMetadataValue;
-
-  fn base_fs_metadata(&self, _path: &Path) -> std::io::Result<Self::Metadata> {
-    Err(std::io::Error::new(
-      std::io::ErrorKind::NotFound,
-      "Not implemented",
-    ))
-  }
-
-  fn base_fs_symlink_metadata(&self, _path: &Path) -> std::io::Result<Self::Metadata> {
-    Err(std::io::Error::new(
-      std::io::ErrorKind::NotFound,
-      "Not implemented",
-    ))
-  }
-}
-
-impl sys_traits::BaseFsRead for ExampleSys {
-  fn base_fs_read(&self, _path: &Path) -> std::io::Result<Cow<'static, [u8]>> {
-    Ok(Cow::Owned(Vec::new()))
-  }
-}
-
-impl sys_traits::EnvCurrentDir for ExampleSys {
-  fn env_current_dir(&self) -> std::io::Result<std::path::PathBuf> {
-    std::env::current_dir()
-  }
-}
+// For simplicity use the real system implementation.
+// Keeping a custom sys impl in sync with node_resolver traits is noisy.
 
 // Example NodeRequireLoader implementation
 struct ExampleNodeRequireLoader;
@@ -83,7 +55,7 @@ struct ExampleNodeRequireLoader;
 impl deno_node::NodeRequireLoader for ExampleNodeRequireLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn deno_node::NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: std::borrow::Cow<'a, Path>,
   ) -> Result<std::borrow::Cow<'a, Path>, deno_error::JsErrorBox> {
     Ok(path)
@@ -96,16 +68,18 @@ impl deno_node::NodeRequireLoader for ExampleNodeRequireLoader {
   fn is_maybe_cjs(
     &self,
     _specifier: &deno_core::url::Url,
-  ) -> Result<bool, node_resolver::errors::ClosestPkgJsonError> {
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(false)
   }
 }
 
 // Example permissions implementation
+#[cfg(any())]
 struct ExamplePermissions;
 
 // Removed FsPermissions implementation as we're simplifying the approach"
 
+#[cfg(any())]
 impl deno_node::NodePermissions for ExamplePermissions {
   fn check_net_url(
     &mut self,
@@ -148,7 +122,7 @@ impl deno_node::NodePermissions for ExamplePermissions {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Set up node extension services
-  let sys = ExampleSys;
+  let sys = RealSys;
   let node_require_loader = Rc::new(ExampleNodeRequireLoader) as deno_node::NodeRequireLoaderRc;
 
   // Create package.json resolver
@@ -156,11 +130,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     deno_fs::sync::MaybeArc::new(node_resolver::PackageJsonResolver::new(sys.clone(), None));
 
   // Create node resolver
-  let node_resolution_sys = NodeResolutionSys::new(sys.clone(), None);
+  let node_resolution_sys = node_resolver::cache::NodeResolutionSys::new(sys.clone(), None);
   let node_resolver = deno_fs::sync::MaybeArc::new(deno_node::NodeResolver::<
     ExampleInNpmPackageChecker,
     ExampleNpmPackageFolderResolver,
-    ExampleSys,
+    RealSys,
   >::new(
     ExampleInNpmPackageChecker,
     DenoIsBuiltInNodeModuleChecker,
@@ -176,6 +150,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pkg_json_resolver,
     sys,
   };
+
+  // silence unused variable warning for this illustrative example
+  let _ = init_services;
 
   // Create a simpler runtime without full extensions for now
   // This is a demonstration of how the node:https module would work

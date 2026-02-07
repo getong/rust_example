@@ -3,8 +3,9 @@ use std::{cell::RefCell, collections::HashMap, env, rc::Rc, sync::Arc};
 use anyhow::{Result, anyhow, bail};
 use deno_ast::{MediaType, ParseParams};
 use deno_core::{
-  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-  RequestedModuleType, ResolutionKind, resolve_import, resolve_path, url::Url,
+  ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+  ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType, ResolutionKind,
+  resolve_import, resolve_path, url::Url,
 };
 use deno_error::JsErrorBox;
 
@@ -118,12 +119,12 @@ impl ModuleLoader for TypescriptModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&deno_core::url::Url>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
     let source_maps = self.source_maps.clone();
+    let requested_module_type = options.requested_module_type;
 
     // Check if this is an npm-resolve: specifier that needs async resolution
     if module_specifier.scheme() == "npm-resolve" {
@@ -214,12 +215,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     // Regular module loading (sync)
     ModuleLoadResponse::Sync(
       self
-        .load_sync(
-          &module_specifier,
-          maybe_referrer,
-          is_dyn_import,
-          requested_module_type,
-        )
+        .load_sync(&module_specifier, requested_module_type)
         .map_err(|e| JsErrorBox::generic(e.to_string())),
     )
   }
@@ -229,8 +225,6 @@ impl TypescriptModuleLoader {
   fn load_sync(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&deno_core::url::Url>,
-    _is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
   ) -> Result<ModuleSource> {
     let module_code = if module_specifier.scheme() == "builtin" {

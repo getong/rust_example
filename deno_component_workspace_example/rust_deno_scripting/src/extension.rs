@@ -22,7 +22,7 @@ pub struct HostState {
 // first be converted to Rust's expected string encoding UTF-8.
 // More information about ops performance and type conversions can be found at:
 //   https://docs.rs/deno_core/latest/deno_core/attr.op2.html
-#[op2(async)]
+#[op2]
 async fn op_scripting_demo(state: Rc<RefCell<OpState>>, n: i32) -> i32 {
   let lock = state.borrow().borrow::<Arc<RwLock<HostState>>>().clone();
   let mut host_state = lock.write().await;

@@ -59,6 +59,7 @@ async fn main() -> Result<(), AnyError> {
       shared_array_buffer_store: Default::default(),
       compiled_wasm_module_store: Default::default(),
       v8_code_cache: Default::default(),
+      bundle_provider: None,
       fs,
     },
     WorkerOptions {

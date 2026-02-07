@@ -3,8 +3,8 @@ use std::{rc::Rc, sync::Arc};
 mod npm_helpers;
 
 use deno_core::{
-  ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
-  error::ModuleLoaderError,
+  ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+  ModuleSourceCode, ModuleType, error::ModuleLoaderError,
 };
 use deno_error::JsErrorBox;
 use deno_lib::{
@@ -58,9 +58,8 @@ impl ModuleLoader for SimpleModuleLoader {
   fn load(
     &self,
     module_specifier: &Url,
-    _maybe_referrer: Option<&Url>,
-    _is_dynamic: bool,
-    _requested_module_type: deno_core::RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     if module_specifier == &self.main_module_url {
       let module_source = ModuleSource::new(
@@ -82,7 +81,7 @@ impl ModuleLoader for SimpleModuleLoader {
 impl NodeRequireLoader for SimpleModuleLoader {
   fn ensure_read_permission<'a>(
     &self,
-    _permissions: &mut dyn deno_runtime::deno_node::NodePermissions,
+    _permissions: &mut PermissionsContainer,
     path: std::borrow::Cow<'a, std::path::Path>,
   ) -> Result<std::borrow::Cow<'a, std::path::Path>, JsErrorBox> {
     Ok(path)
@@ -203,7 +202,7 @@ console.log("Deno version:", Deno.version);
     has_node_modules_dir: false,
     inspect_brk: false,
     inspect_wait: false,
-    strace_ops: None,
+    trace_ops: None,
     is_inspecting: false,
     is_standalone: false,
     auto_serve: false,
@@ -214,13 +213,14 @@ console.log("Deno version:", Deno.version);
     origin_data_folder_path: None,
     seed: None,
     unsafely_ignore_certificate_errors: None,
-    node_ipc: None,
+    node_ipc_init: None,
     serve_port: None,
     serve_host: None,
     otel_config: Default::default(),
     no_legacy_abort: false,
     startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
     enable_raw_imports: false,
+    maybe_initial_cwd: None,
   };
 
   // Create permissions
@@ -245,6 +245,7 @@ console.log("Deno version:", Deno.version);
     RealSys,
     worker_options,
     Default::default(), // roots
+    None,               // bundle_provider
   );
 
   // THIS IS THE ACTUAL CALL TO create_main_worker()!
@@ -253,6 +254,7 @@ console.log("Deno version:", Deno.version);
     permissions_container,
     main_module_url,
     vec![], // preload_modules
+    vec![], // require_modules
   )?;
 
   println!("✅ create_main_worker() called successfully!");

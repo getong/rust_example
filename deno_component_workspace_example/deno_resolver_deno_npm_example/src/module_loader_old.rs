@@ -3,8 +3,8 @@ use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 use deno_ast::{MediaType, ModuleSpecifier, ParseParams, SourceMapOption};
 use deno_runtime::{
   deno_core::{
-    ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleType,
-    RequestedModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import, url::Url,
+    ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+    ModuleSourceCode, ModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import, url::Url,
   },
   deno_fs::FileSystem,
 };
@@ -154,7 +154,7 @@ async fn load_module_with_npm_resolution(
       .transpile(
         &deno_ast::TranspileOptions {
           imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-          use_decorators_proposal: true,
+          decorators: deno_ast::DecoratorsTranspileOption::Ecma,
           ..Default::default()
         },
         &deno_ast::TranspileModuleOptions::default(),
@@ -335,7 +335,7 @@ fn load(
       .transpile(
         &deno_ast::TranspileOptions {
           imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-          use_decorators_proposal: true,
+          decorators: deno_ast::DecoratorsTranspileOption::Ecma,
           ..Default::default()
         },
         &deno_ast::TranspileModuleOptions::default(),
@@ -402,9 +402,8 @@ impl ModuleLoader for TypescriptModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
 
@@ -414,8 +413,8 @@ impl ModuleLoader for TypescriptModuleLoader {
       return match self.resolve_npm_to_file(module_specifier) {
         Ok(file_specifier) => {
           println!("RESOLVED npm: {} -> {}", module_specifier, file_specifier);
-          // Recursively load the resolved file: URL
-          self.load(&file_specifier, _maybe_referrer, _is_dyn_import, _requested_module_type)
+          // Load the resolved file: URL
+          ModuleLoadResponse::Sync(load(source_maps, &file_specifier))
         }
         Err(e) => ModuleLoadResponse::Sync(Err(e))
       };

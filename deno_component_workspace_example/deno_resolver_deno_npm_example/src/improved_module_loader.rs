@@ -2,8 +2,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deno_core::{
-    ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier,
-    ModuleType, RequestedModuleType, ResolutionKind, resolve_import,
+    ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
+    ModuleSourceCode, ModuleSpecifier, ModuleType, ResolutionKind, resolve_import,
     error::AnyError,
 };
 use deno_ast::{
@@ -105,9 +105,8 @@ impl ModuleLoader for ImprovedModuleLoader {
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        _maybe_referrer: Option<&ModuleSpecifier>,
-        _is_dyn_import: bool,
-        _requested_module_type: RequestedModuleType,
+        _maybe_referrer: Option<&ModuleLoadReferrer>,
+        _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
         println!("📥 Enhanced loading: {}", module_specifier);
 
