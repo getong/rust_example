@@ -12,13 +12,9 @@ pub mod fmt;
 pub mod info;
 pub mod init;
 pub mod installer;
-#[cfg(feature = "lsp")]
-pub mod jupyter;
 pub mod lint;
 pub mod pm;
 pub mod publish;
-#[cfg(feature = "lsp")]
-pub mod repl;
 pub mod run;
 pub mod serve;
 pub mod task;

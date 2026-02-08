@@ -630,7 +630,8 @@ async fn configure_main_worker(
   permissions_container: PermissionsContainer,
   worker_sender: TestEventWorkerSender,
   options: &TestSpecifierOptions,
-  #[cfg(feature = "lsp")] sender: UnboundedSender<jupyter_protocol::messaging::StreamContent>,
+  #[cfg(feature = "lsp")]
+  sender: UnboundedSender<jupyter_protocol::messaging::StreamContent>,
 ) -> Result<(Option<CoverageCollector>, MainWorker), CreateCustomWorkerError> {
   let mut worker = worker_factory
     .create_custom_worker(
@@ -643,7 +644,10 @@ async fn configure_main_worker(
         ops::testing::deno_test::init(worker_sender.sender),
         ops::lint::deno_lint_ext_for_test::init(),
         #[cfg(feature = "lsp")]
-        ops::jupyter::deno_jupyter_for_test::init(sender),
+        {
+          let _ = sender;
+          unreachable!("feature 'lsp' is no longer supported in this fork")
+        },
       ],
       Stdio {
         stdin: StdioPipe::inherit(),

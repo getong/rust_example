@@ -12,8 +12,9 @@ mod graph_container;
 mod graph_util;
 mod http_util;
 mod jsr;
-#[cfg(feature = "lsp")]
-mod lsp;
+// NOTE: `src/lsp` was intentionally removed from this fork.
+// Keep it commented out to avoid accidentally pulling LSP code into builds.
+// mod lsp;
 mod module_loader;
 mod node;
 mod npm;
