@@ -43,3 +43,10 @@ async function main() {
 // Await main() - Rust wrapper will capture the return value
 let result = await main();
 console.log(result);
+
+try {
+  globalThis.embedDeno?.setExitData({ ok: true, kind: "fetch_api_example" });
+  globalThis.embedDeno?.setResult(JSON.parse(result));
+} catch {
+  globalThis.embedDeno?.setResult({ ok: false, kind: "fetch_api_example", raw: result });
+}

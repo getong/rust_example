@@ -35,10 +35,9 @@ pub async fn serve(
   let deno_dir = factory.deno_dir()?;
   let http_client = factory.http_client_provider();
 
-  // Run a background task that checks for available upgrades or output
-  // if an earlier run of this background task found a new version of Deno.
-  #[cfg(feature = "upgrade")]
-  super::upgrade::check_for_upgrades(http_client.clone(), deno_dir.upgrade_check_file_path());
+  // Upgrade checks are not used in this embedding-focused fork.
+  let _ = http_client;
+  let _ = deno_dir;
 
   let workspace_resolver = factory.workspace_resolver().await?.clone();
   let node_resolver = factory.node_resolver().await?.clone();

@@ -3,6 +3,9 @@
 
 console.log("Function caller module loaded!");
 
+globalThis.embedDeno?.setExitData({ ok: true, kind: "function_caller_loaded" });
+globalThis.embedDeno?.setResult({ ok: true, kind: "function_caller" });
+
 /**
  * Simple greeting function
  */

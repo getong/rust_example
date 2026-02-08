@@ -8,3 +8,6 @@ globalThis.handleRequest = (req: string) => {
 };
 
 console.log("✅ Simple main.ts loaded successfully!");
+
+globalThis.embedDeno?.setExitData({ ok: true, kind: "simple_main_loaded" });
+globalThis.embedDeno?.setResult({ ok: true, kind: "simple_main" });

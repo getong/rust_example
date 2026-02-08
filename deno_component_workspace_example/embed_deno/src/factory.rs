@@ -73,7 +73,7 @@ use crate::{
   resolver::{CliCjsTracker, CliNpmReqResolver, CliResolver, on_resolve_diagnostic},
   standalone::binary::DenoCompileBinaryWriter,
   sys::CliSys,
-  tools::{installer::BinNameResolver, lint::LintRuleProvider, run::hmr::HmrRunnerState},
+  tools::{installer::BinNameResolver, run::hmr::HmrRunnerState},
   tsc::TypeCheckingCjsTracker,
   type_checker::TypeChecker,
   util::{
@@ -646,12 +646,6 @@ impl CliFactory {
     self.resolver_factory()?.emitter()
   }
 
-  pub async fn lint_rule_provider(&self) -> Result<LintRuleProvider, AnyError> {
-    Ok(LintRuleProvider::new(Some(
-      self.workspace_resolver().await?.clone(),
-    )))
-  }
-
   pub async fn node_resolver(&self) -> Result<&Arc<CliNodeResolver>, AnyError> {
     self.initialize_npm_resolution_if_managed().await?;
     self.resolver_factory()?.node_resolver()
@@ -977,9 +971,7 @@ impl CliFactory {
       self.sys(),
       self.create_lib_main_worker_options()?,
       roots,
-      Some(Arc::new(crate::tools::bundle::CliBundleProvider::new(
-        self.flags.clone(),
-      ))),
+      None,
     );
 
     Ok(CliMainWorkerFactory::new(

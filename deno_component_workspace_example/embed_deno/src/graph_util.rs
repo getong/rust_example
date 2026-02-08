@@ -981,6 +981,7 @@ impl ModuleGraphBuilder {
 
 /// Gets if any of the specified root's "file:" dependents are in the
 /// provided changed set.
+#[allow(dead_code)]
 pub fn has_graph_root_local_dependent_changed(
   graph: &ModuleGraph,
   root: &ModuleSpecifier,

@@ -386,6 +386,7 @@ where
   Ok(s.into())
 }
 
+#[allow(dead_code)]
 pub async fn body_to_json<B, D>(body: B) -> Result<D, AnyError>
 where
   B: http_body::Body,

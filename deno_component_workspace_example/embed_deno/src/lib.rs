@@ -19,7 +19,7 @@ mod module_loader;
 mod node;
 mod npm;
 mod ops;
-mod registry;
+// mod registry;
 mod resolver;
 mod standalone;
 mod task_runner;

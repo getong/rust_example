@@ -72,8 +72,8 @@ pub async fn run_script(
   let node_resolver = factory.node_resolver().await?;
   // Run a background task that checks for available upgrades or output
   // if an earlier run of this background task found a new version of Deno.
-  #[cfg(feature = "upgrade")]
-  super::upgrade::check_for_upgrades(http_client.clone(), deno_dir.upgrade_check_file_path());
+  let _ = http_client;
+  let _ = deno_dir;
 
   let main_module = cli_options.resolve_main_module_with_resolver(Some(
     &crate::args::WorkspaceMainModuleResolver::new(
@@ -134,8 +134,8 @@ pub async fn run_script_with_extension(
   let workspace_resolver = factory.workspace_resolver().await?;
   let node_resolver = factory.node_resolver().await?;
 
-  #[cfg(feature = "upgrade")]
-  super::upgrade::check_for_upgrades(http_client.clone(), deno_dir.upgrade_check_file_path());
+  let _ = http_client;
+  let _ = deno_dir;
 
   let main_module = cli_options.resolve_main_module_with_resolver(Some(
     &crate::args::WorkspaceMainModuleResolver::new(

@@ -1332,7 +1332,7 @@ impl Flags {
   }
 }
 
-/// Usage text used by `tools::upgrade` help output.
+/// Usage text used by the (vendored) upgrade help output.
 pub static UPGRADE_USAGE: &str = r#"<g>Latest</>
   <bold>deno upgrade</>
 

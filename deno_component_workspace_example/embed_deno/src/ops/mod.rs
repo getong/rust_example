@@ -1,6 +1,4 @@
 // Copyright 2018-2026 the Deno authors. MIT license.
 
-pub mod bench;
-pub mod deploy;
-pub mod lint;
-pub mod testing;
+// NOTE: `embed_deno` is embedding-focused and does not expose additional
+// tool-specific ops like the full Deno CLI.

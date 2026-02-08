@@ -16,10 +16,7 @@ pub use cache_db::CacheDBHash;
 pub use caches::Caches;
 pub use check::TypeCheckCache;
 pub use code_cache::CodeCache;
-/// Permissions used to save a file in the disk caches.
-pub use deno_cache_dir::CACHE_PERM;
 pub use fast_check::FastCheckCache;
-pub use incremental::IncrementalCache;
 pub use module_info::ModuleInfoCache;
 pub use node::SqliteNodeAnalysisCache;
 

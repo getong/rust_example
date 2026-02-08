@@ -52,6 +52,7 @@ pub use self::{
   go::ensure_tsgo,
 };
 
+#[allow(dead_code)]
 pub fn get_types_declaration_file_text() -> String {
   let lib_names = vec![
     "deno.ns",

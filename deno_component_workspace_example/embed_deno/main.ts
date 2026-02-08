@@ -168,3 +168,6 @@ console.log(`🆔 Generated unique ID: ${generateUniqueId()}`);
 console.log(`⏰ Current formatted time: ${formatCurrentTime()}`);
 
 console.log("\n✨ Main TypeScript module initialization complete with NPM packages!");
+
+globalThis.embedDeno?.setExitData({ ok: true, kind: "main_loaded" });
+globalThis.embedDeno?.setResult({ ok: true, kind: "main" });

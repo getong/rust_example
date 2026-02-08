@@ -56,3 +56,9 @@ EMBED_DENO_RESULT={"userId":"john","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
 ➜  embed_deno git:(main) ✗ STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ../target/debug/embed_deno stream_return.ts
 stream token generated for john
 EMBED_DENO_RESULT={"userId":"john","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiam9obiJ9.fiFekyvfOXDuymCTnX_iNx_YHTKXAWOHHqLBjQIt9H4"}
+
+support
+- [ ] support ts extension
+- [ ] support npm: source file
+- [ ] support jsr: source file
+- [ ] support fetch api
