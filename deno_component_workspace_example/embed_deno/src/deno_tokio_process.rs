@@ -6,7 +6,11 @@ use deno_core::{
   resolve_url_or_path, scope, serde_v8,
   v8::{self, Local, Platform},
 };
-use deno_lib::version;
+use deno_lib::{
+  npm::create_npm_process_state_provider,
+  version,
+  worker::{LibMainWorkerFactory, LibWorkerFactoryRoots},
+};
 use deno_runtime::{WorkerExecutionMode, worker::MainWorker};
 use deno_telemetry::OtelConfig;
 use deno_terminal::colors;
@@ -134,11 +138,8 @@ impl DenoRuntimeManager {
 
   /// Create a MainWorker instance using CliFactory (proper way with all extensions)
   async fn create_main_worker(flags: Arc<Flags>) -> Result<MainWorker, AnyError> {
-    // Create CliFactory
     let cli_factory = CliFactory::from_flags(flags.clone());
-
-    // Create worker factory with proper extensions
-    let worker_factory = cli_factory.create_cli_main_worker_factory().await?;
+    let cli_options = cli_factory.cli_options()?;
 
     // Get the module specifier
     let module_specifier = if let DenoSubcommand::Run(run_flags) = &flags.subcommand {
@@ -147,13 +148,47 @@ impl DenoRuntimeManager {
       return Err(AnyError::msg("No script specified"));
     };
 
-    // Create the worker with empty side module list and convert to MainWorker
-    let cli_worker = worker_factory
-      .create_main_worker(WorkerExecutionMode::Run, module_specifier, vec![], vec![])
-      .await?;
+    let module_loader_factory = cli_factory.create_module_loader_factory().await?;
+    cli_factory.maybe_start_inspector_server()?;
+    let node_resolver = cli_factory.node_resolver().await?.clone();
+    let npm_resolver = cli_factory.npm_resolver().await?;
+    let pkg_json_resolver = cli_factory.pkg_json_resolver()?.clone();
+    let fs = cli_factory.fs().clone();
 
-    // Convert CliMainWorker to MainWorker
-    Ok(cli_worker.into_main_worker())
+    let lib_main_worker_factory = LibMainWorkerFactory::new(
+      cli_factory.blob_store().clone(),
+      if cli_options.code_cache_enabled() {
+        Some(cli_factory.code_cache()?.clone())
+      } else {
+        None
+      },
+      None, // DenoRtNativeAddonLoader
+      cli_factory.feature_checker()?.clone(),
+      fs,
+      cli_options.coverage_dir(),
+      Box::new(module_loader_factory),
+      node_resolver,
+      create_npm_process_state_provider(npm_resolver),
+      pkg_json_resolver,
+      cli_factory.root_cert_store_provider().clone(),
+      cli_options.resolve_storage_key_resolver(),
+      cli_factory.sys(),
+      cli_factory.create_lib_main_worker_options()?,
+      LibWorkerFactoryRoots::default(),
+      None,
+    );
+
+    Ok(
+      lib_main_worker_factory
+        .create_main_worker(
+          WorkerExecutionMode::Run,
+          cli_factory.root_permissions_container()?.clone(),
+          module_specifier,
+          cli_options.preload_modules()?,
+          cli_options.require_modules()?,
+        )?
+        .into_main_worker(),
+    )
   }
 
   /// Initialize the Deno engine by executing the main module

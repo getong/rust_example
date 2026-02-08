@@ -16,7 +16,10 @@ use deno_core::{
   scope, serde_v8,
   v8::{self, Local},
 };
-use deno_lib::worker::LibWorkerFactoryRoots;
+use deno_lib::{
+  npm::create_npm_process_state_provider,
+  worker::{LibMainWorkerFactory, LibWorkerFactoryRoots},
+};
 use deno_path_util::resolve_url_or_path;
 use deno_runtime::{WorkerExecutionMode, worker::MainWorker};
 use serde_json::Value as JsonValue;
@@ -276,8 +279,14 @@ struct DenoRuntimeManager {
 
 impl DenoRuntimeManager {
   async fn new(options: DenoRuntimeOptions) -> Result<Self, AnyError> {
-    let initial_cwd = options
-      .initial_cwd
+    let DenoRuntimeOptions {
+      initial_cwd: maybe_initial_cwd,
+      argv,
+      roots,
+      embed_result,
+    } = options;
+
+    let initial_cwd = maybe_initial_cwd
       .clone()
       .or_else(|| std::env::current_dir().ok())
       .unwrap_or_else(|| PathBuf::from("/"));
@@ -286,7 +295,7 @@ impl DenoRuntimeManager {
 
     let mut flags = Flags::default();
     flags.initial_cwd = Some(initial_cwd.clone());
-    flags.argv = options.argv;
+    flags.argv = argv;
     flags.permissions.allow_all = true;
     flags.subcommand = DenoSubcommand::Run(RunFlags {
       script: bootstrap_module.to_string(),
@@ -301,22 +310,47 @@ impl DenoRuntimeManager {
     let preload_modules = cli_options.preload_modules()?;
     let require_modules = cli_options.require_modules()?;
 
-    let worker_factory = factory
-      .create_cli_main_worker_factory_with_roots(options.roots)
-      .await?;
+    let module_loader_factory = factory.create_module_loader_factory().await?;
+    factory.maybe_start_inspector_server()?;
+    let node_resolver = factory.node_resolver().await?.clone();
+    let npm_resolver = factory.npm_resolver().await?.clone();
+    let pkg_json_resolver = factory.pkg_json_resolver()?.clone();
+    let fs = factory.fs().clone();
 
-    let mut cli_worker = worker_factory
+    let lib_main_worker_factory = LibMainWorkerFactory::new(
+      factory.blob_store().clone(),
+      if cli_options.code_cache_enabled() {
+        Some(factory.code_cache()?.clone())
+      } else {
+        None
+      },
+      None, // DenoRtNativeAddonLoader
+      factory.feature_checker()?.clone(),
+      fs,
+      cli_options.coverage_dir(),
+      Box::new(module_loader_factory),
+      node_resolver,
+      create_npm_process_state_provider(&npm_resolver),
+      pkg_json_resolver,
+      factory.root_cert_store_provider().clone(),
+      cli_options.resolve_storage_key_resolver(),
+      factory.sys(),
+      factory.create_lib_main_worker_options()?,
+      roots,
+      None,
+    );
+
+    let mut cli_worker = lib_main_worker_factory
       .create_custom_worker(
         WorkerExecutionMode::Run,
         main_module.clone(),
         preload_modules,
         require_modules,
         factory.root_permissions_container()?.clone(),
-        vec![embed_extension(options.embed_result.clone())],
+        vec![embed_extension(embed_result.clone())],
         Default::default(),
         None,
-      )
-      .await?
+      )?
       .into_main_worker();
 
     // Execute the bootstrap module.
@@ -329,7 +363,7 @@ impl DenoRuntimeManager {
 
     Ok(Self {
       worker: cli_worker,
-      embed_result: options.embed_result,
+      embed_result,
       initial_cwd,
     })
   }
