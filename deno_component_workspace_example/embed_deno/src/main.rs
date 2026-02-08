@@ -44,13 +44,13 @@ fn run_inner() -> Result<i32, AnyError> {
   // We don't set a default here because the vendored Deno resolver already
   // defaults to `https://jsr.io/`.
 
-  // We want `embed_deno <script.ts>` to behave like `deno run <script.ts>`.
-  // Additionally, for a smoother embedding experience, default to allowing
-  // all permissions (matching `--allow-all`). This avoids interactive
-  // permission prompts when running embedded scripts.
+  // Minimal, embed-friendly argument parsing.
   //
-  // Users can still explicitly override permissions by passing any
-  // `--allow-*`, `--deny-*`, or `--no-prompt` flags.
+  // Supported format:
+  //   `embed_deno <entry.ts|entry.js|jsr:pkg|npm:pkg> [-- <script args...>]`
+  //
+  // We intentionally do not expose the full Deno CLI flag surface. This keeps
+  // `embed_deno` stable as an embedding target.
   let mut args: Vec<OsString> = env::args_os().collect();
   if args.len() < 2 {
     return Err(AnyError::msg(
@@ -58,28 +58,26 @@ fn run_inner() -> Result<i32, AnyError> {
     ));
   }
 
-  let mut deno_style_args = Vec::with_capacity(args.len() + 2);
-  deno_style_args.push(args.remove(0));
-  deno_style_args.push(OsString::from("run"));
+  let _exe = args.remove(0);
+  let script = args.remove(0);
+  let script = script.to_string_lossy().to_string();
 
-  // Only treat arguments before the script specifier as Deno flags.
-  // This avoids mis-detecting script arguments like `-- --allow-net`.
-  let script_index = args
-    .iter()
-    .position(|arg| {
-      let s = arg.to_string_lossy();
-      s == "--" || !s.starts_with('-')
-    })
-    .unwrap_or(args.len());
-  let has_permission_flag = args[.. script_index].iter().any(|arg| {
-    let arg = arg.to_string_lossy();
-    arg == "-A" || arg.starts_with("--allow-") || arg.starts_with("--deny-") || arg == "--no-prompt"
-  });
-  if !has_permission_flag {
-    deno_style_args.push(OsString::from("--allow-all"));
+  // We don't support `deno run --allow-* <script>` style flags in this binary.
+  // If the user accidentally passes a flag where the script should be, show a
+  // helpful error instead of trying to parse it.
+  if script == "--" || script.starts_with('-') {
+    return Err(AnyError::msg(
+      "embed_deno does not parse deno CLI flags. Usage: embed_deno <script> [-- <script args...>]",
+    ));
   }
 
-  deno_style_args.extend(args);
+  // Script arguments are everything after the script; an optional leading `--`
+  // is stripped (matching common CLI conventions).
+  let script_args = if args.first().is_some_and(|a| a.to_string_lossy() == "--") {
+    args.into_iter().skip(1).collect::<Vec<_>>()
+  } else {
+    args
+  };
 
   // Collect structured data from inside the runtime.
   let embed_result = Arc::new(std::sync::Mutex::new(EmbedResult::default()));
@@ -92,15 +90,30 @@ fn run_inner() -> Result<i32, AnyError> {
   //
   // Note: we inject `embed_deno::embed` as a custom extension so scripts can
   // send structured results back to this process.
+  //
+  // Important: to use JSR / NPM (network downloads), the runtime requires
+  // outbound network access. In the current sandbox this may fail even with
+  // `--allow-all`.
   let roots = LibWorkerFactoryRoots::default();
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()?;
   let exit_code = runtime.block_on(async move {
-    let flags = embed_deno::args::flags_from_vec_with_initial_cwd(
-      deno_style_args,
-      std::env::current_dir().ok(),
-    )?;
+    let argv = script_args
+      .into_iter()
+      .map(|arg| arg.to_string_lossy().to_string())
+      .collect::<Vec<_>>();
+
+    let mut flags = embed_deno::args::Flags::default();
+    flags.initial_cwd = std::env::current_dir().ok();
+    flags.argv = argv;
+    flags.subcommand = embed_deno::args::DenoSubcommand::Run(embed_deno::args::RunFlags {
+      script,
+      ..Default::default()
+    });
+
+    // For a smoother embedding experience, default to allowing everything.
+    flags.permissions.allow_all = true;
 
     // HACK: For now we inject the extension globally, so the normal `run_script`
     // worker creation path picks it up without requiring changes throughout the

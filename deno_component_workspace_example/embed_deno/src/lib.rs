@@ -6,13 +6,13 @@
 pub mod args;
 mod cache;
 mod cdp;
-mod deno_tokio_process;
 mod factory;
 mod file_fetcher;
 mod graph_container;
 mod graph_util;
 mod http_util;
 mod jsr;
+#[cfg(feature = "lsp")]
 mod lsp;
 mod module_loader;
 mod node;

@@ -1,6 +1,8 @@
 // Copyright 2018-2026 the Deno authors. MIT license.
 
+#[path = "flags_impl.rs"]
 mod flags;
+#[path = "flags_net_impl.rs"]
 mod flags_net;
 
 use std::{

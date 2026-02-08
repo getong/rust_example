@@ -35,6 +35,21 @@ STREAM_API_KEY=test_key STREAM_API_SECRET=test_secret CC=clang cargo run -- stre
 EMBED_DENO_RESULT={"userId":"john","token":"..."}
 #+end_src
 
+** 运行本目录示例（jsr / npm）注意事项
+
+- `embed_deno` 二进制的命令行格式固定为：
+  #+begin_src text
+  embed_deno <script> [-- <script args...>]
+  #+end_src
+  目前不支持透传/解析 `deno run` 的大量 CLI flags（对应 `src/args/flags.rs` / `src/args/flags_net.rs` 的 clap 参数）。
+- `embed_deno` 运行时默认等价于 `--allow-all`（避免交互式权限提示）。
+- `embed_deno` 会把脚本输出的结果通过 `globalThis.embedDeno.setResult(value)` 回传到 Rust，最终在 stdout 打印 `EMBED_DENO_RESULT=...`。
+- `jsr:` 与 `npm:` 依赖网络下载（首次运行会拉取并缓存依赖）。即使默认 `--allow-all`，如果运行环境禁用了出网（例如沙箱/CI），`jsr_test.ts` / `dotenv_test.ts` / `main.ts` 等示例仍会失败。
+- 本项目在 macOS 上建议使用 clang 编译：
+  #+begin_src shell
+  CC=clang cargo build -p embed_deno
+  #+end_src
+
 ➜  embed_deno git:(main) ✗ STREAM_API_KEY=test_key3 STREAM_API_SECRET=test_secret ../target/debug/embed_deno stream_return.ts
 stream token generated for john
 EMBED_DENO_RESULT={"userId":"john","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiam9obiJ9.fiFekyvfOXDuymCTnX_iNx_YHTKXAWOHHqLBjQIt9H4"}

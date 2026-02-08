@@ -2,7 +2,7 @@
 
 use std::{net::IpAddr, str::FromStr};
 
-use deno_core::url::Url;
+use deno_core::{error::AnyError, url::Url};
 use deno_runtime::deno_permissions::NetDescriptor;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,7 +42,7 @@ pub fn validator(host_and_port: &str) -> Result<String, String> {
 /// Expands "bare port" paths (eg. ":8080") into full paths with hosts. It
 /// expands to such paths into 3 paths with following hosts: `0.0.0.0:port`,
 /// `127.0.0.1:port` and `localhost:port`.
-pub fn parse(paths: Vec<String>) -> clap::error::Result<Vec<String>> {
+pub fn parse(paths: Vec<String>) -> Result<Vec<String>, AnyError> {
   let mut out: Vec<String> = vec![];
   for host_and_port in paths.into_iter() {
     if let Ok(port) = host_and_port.parse::<BarePort>() {
@@ -51,8 +51,7 @@ pub fn parse(paths: Vec<String>) -> clap::error::Result<Vec<String>> {
         out.push(format!("{}:{}", host, port.0));
       }
     } else {
-      NetDescriptor::parse_for_list(&host_and_port)
-        .map_err(|e| clap::Error::raw(clap::error::ErrorKind::InvalidValue, e.to_string()))?;
+      NetDescriptor::parse_for_list(&host_and_port).map_err(|e| AnyError::msg(e.to_string()))?;
       out.push(host_and_port)
     }
   }

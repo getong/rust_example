@@ -19,7 +19,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-  args::{DenoSubcommand, Flags, flags_from_vec, get_default_v8_flags},
+  args::{DenoSubcommand, Flags, get_default_v8_flags},
   factory::CliFactory,
   util::{
     v8::{get_v8_flags_from_env, init_v8_flags},
@@ -537,40 +537,11 @@ impl DenoRuntimeManager {
 
   /// Parse and resolve command line flags
   async fn resolve_flags(args: Vec<OsString>) -> Result<Flags, AnyError> {
-    let mut flags = match flags_from_vec(args) {
-      Ok(flags) => flags,
-      Err(err @ clap::Error { .. }) if err.kind() == clap::error::ErrorKind::DisplayVersion => {
-        let _ = err.print();
-        std::process::exit(0);
-      }
-      Err(err) => {
-        let error_string = format!("{err:?}");
-        error!(
-          "{}: {}",
-          colors::red_bold("error"),
-          error_string.trim_start_matches("error: ")
-        );
-        return Err(AnyError::from(err));
-      }
-    };
+    let _ = args;
+    let mut flags = Flags::default();
 
-    // Set default permissions
-    if !flags.permissions.allow_all
-      && flags.permissions.allow_read.is_none()
-      && flags.permissions.allow_write.is_none()
-      && flags.permissions.allow_net.is_none()
-      && flags.permissions.allow_env.is_none()
-      && flags.permissions.allow_run.is_none()
-    {
-      flags.permissions.allow_all = true;
-      flags.permissions.allow_read = Some(vec![]);
-      flags.permissions.allow_write = Some(vec![]);
-      flags.permissions.allow_net = Some(vec![]);
-      flags.permissions.allow_env = Some(vec![]);
-      flags.permissions.allow_run = Some(vec![]);
-      flags.permissions.allow_ffi = Some(vec![]);
-      flags.permissions.allow_sys = Some(vec![]);
-    }
+    // Default to allowing everything for embedding.
+    flags.permissions.allow_all = true;
 
     // Handle environment variables
     if flags.subcommand.watch_flags().is_some() {

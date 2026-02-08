@@ -639,6 +639,7 @@ async fn configure_main_worker(
       vec![
         ops::testing::deno_test::init(worker_sender.sender),
         ops::lint::deno_lint_ext_for_test::init(),
+        #[cfg(feature = "lsp")]
         ops::jupyter::deno_jupyter_for_test::init(sender),
       ],
       Stdio {
