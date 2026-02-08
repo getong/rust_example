@@ -1,5 +1,7 @@
 // Copyright 2018-2026 the Deno authors. MIT license.
 
+#![allow(dead_code)]
+
 use std::{collections::HashSet, io};
 
 use console_static_text::TextItem;

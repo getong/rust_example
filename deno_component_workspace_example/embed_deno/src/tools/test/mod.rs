@@ -48,6 +48,7 @@ use log::Level;
 use rand::{SeedableRng, rngs::SmallRng, seq::SliceRandom};
 use regex::Regex;
 use serde::Deserialize;
+#[cfg(feature = "lsp")]
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -83,6 +84,8 @@ use reporters::{
   CompoundTestReporter, DotTestReporter, JunitTestReporter, PrettyTestReporter, TapTestReporter,
   TestReporter,
 };
+#[cfg(not(feature = "lsp"))]
+use tokio::sync::mpsc;
 
 use crate::tools::{
   coverage::{cover_files, reporter},
@@ -627,7 +630,7 @@ async fn configure_main_worker(
   permissions_container: PermissionsContainer,
   worker_sender: TestEventWorkerSender,
   options: &TestSpecifierOptions,
-  sender: UnboundedSender<jupyter_protocol::messaging::StreamContent>,
+  #[cfg(feature = "lsp")] sender: UnboundedSender<jupyter_protocol::messaging::StreamContent>,
 ) -> Result<(Option<CoverageCollector>, MainWorker), CreateCustomWorkerError> {
   let mut worker = worker_factory
     .create_custom_worker(
@@ -694,7 +697,10 @@ pub async fn test_specifier(
   if fail_fast_tracker.should_stop() {
     return Ok(());
   }
+  #[cfg(feature = "lsp")]
   let jupyter_channel = tokio::sync::mpsc::unbounded_channel();
+  #[cfg(not(feature = "lsp"))]
+  let _jupyter_channel = mpsc::unbounded_channel::<()>();
   let (coverage_collector, mut worker) = configure_main_worker(
     worker_factory,
     &specifier,
@@ -703,6 +709,7 @@ pub async fn test_specifier(
     permissions_container,
     worker_sender,
     &options,
+    #[cfg(feature = "lsp")]
     jupyter_channel.0,
   )
   .await?;
@@ -1889,6 +1896,7 @@ impl TestEventTracker {
     ))
   }
 
+  #[allow(dead_code)]
   pub(crate) fn force_end_report(&self) -> Result<(), ChannelClosedError> {
     self.send_event(TestEvent::ForceEndReport)
   }

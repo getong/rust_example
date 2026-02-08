@@ -26,5 +26,7 @@ pub use node::SqliteNodeAnalysisCache;
 use crate::sys::CliSys;
 
 pub type GlobalHttpCache = deno_cache_dir::GlobalHttpCache<CliSys>;
+#[cfg(feature = "lsp")]
 pub type LocalLspHttpCache = deno_cache_dir::LocalLspHttpCache<CliSys>;
+#[cfg(feature = "lsp")]
 pub use deno_cache_dir::HttpCache;

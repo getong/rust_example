@@ -4,12 +4,11 @@ use std::{
   borrow::Cow,
   collections::HashSet,
   env,
-  ffi::OsString,
-  net::{IpAddr, SocketAddr},
+  net::SocketAddr,
   num::{NonZeroU8, NonZeroU32, NonZeroUsize},
   path::{Path, PathBuf},
   str::FromStr,
-  sync::{Arc, LazyLock},
+  sync::Arc,
 };
 
 use deno_bundle_runtime::{BundleFormat, BundlePlatform, PackageHandling, SourceMapType};
@@ -17,23 +16,13 @@ use deno_config::{
   deno_json::{NewestDependencyDate, NodeModulesDirMode},
   glob::{FilePatterns, PathOrPatternSet},
 };
-use deno_core::{
-  anyhow::{Context, bail},
-  error::AnyError,
-  serde_json,
-  url::Url,
-};
+use deno_core::{anyhow::Context, error::AnyError, url::Url};
 use deno_graph::GraphKind;
-use deno_lib::{
-  args::{CaData, UnstableConfig},
-  version::DENO_VERSION_INFO,
-};
+use deno_lib::args::{CaData, UnstableConfig};
 use deno_npm::NpmSystemInfo;
 use deno_npm_installer::PackagesAllowedScripts;
 use deno_path_util::{normalize_path, resolve_url_or_path, url_to_file_path};
 pub use deno_runtime::deno_inspector_server::InspectPublishUid;
-use deno_runtime::{UnstableFeatureKind, deno_permissions::SysDescriptor};
-use deno_semver::{jsr::JsrDepPackageReq, package::PackageKind};
 use deno_telemetry::{OtelConfig, OtelConsoleConfig, OtelPropagators};
 use log::Level;
 use serde::{Deserialize, Serialize};
@@ -757,17 +746,6 @@ impl TypeCheckMode {
   }
 }
 
-fn parse_packages_allowed_scripts(s: &str) -> Result<String, AnyError> {
-  if !s.starts_with("npm:") {
-    bail!(
-      "Invalid package for --allow-scripts: '{}'. An 'npm:' specifier is required",
-      s
-    );
-  } else {
-    Ok(s.into())
-  }
-}
-
 /// Parse --inspect-publish-uid from a comma-separated string like "stderr,http".
 pub fn parse_inspect_publish_uid(s: &str) -> Result<InspectPublishUid, String> {
   let mut result = InspectPublishUid {
@@ -1333,19 +1311,6 @@ impl Flags {
         || arg.starts_with("--allow-write")
         || arg.starts_with("--deny-write")
     })
-  }
-
-  #[inline(always)]
-  fn allow_all(&mut self) {
-    self.permissions.allow_all = true;
-    self.permissions.allow_read = None;
-    self.permissions.allow_env = None;
-    self.permissions.allow_net = None;
-    self.permissions.allow_run = None;
-    self.permissions.allow_write = None;
-    self.permissions.allow_sys = None;
-    self.permissions.allow_ffi = None;
-    self.permissions.allow_import = None;
   }
 
   pub fn resolve_watch_exclude_set(&self) -> Result<PathOrPatternSet, AnyError> {

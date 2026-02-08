@@ -45,10 +45,11 @@ use crate::{
 
 mod diagnostics;
 
+#[cfg(feature = "lsp")]
+pub use self::js::TscConstants;
 pub use self::{
   diagnostics::{Diagnostic, DiagnosticCategory, Diagnostics, Position},
   go::ensure_tsgo,
-  js::TscConstants,
 };
 
 pub fn get_types_declaration_file_text() -> String {
