@@ -21,6 +21,7 @@ mod npm;
 mod ops;
 // mod registry;
 mod resolver;
+pub mod runtime;
 mod standalone;
 mod task_runner;
 pub mod tools;

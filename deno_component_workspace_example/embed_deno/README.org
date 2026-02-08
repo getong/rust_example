@@ -50,6 +50,77 @@ EMBED_DENO_RESULT={"userId":"john","token":"..."}
   CC=clang cargo build -p embed_deno
   #+end_src
 
+** 后台常驻模式（mpsc + module.fun(args) + module_id 复用）
+
+`embed_deno` 支持一个“常驻后台 runtime”的 daemon 模式：启动后不会因为执行一次 TS 就退出，而是从 stdin 持续接收请求（每行一个 JSON），并在 stdout 输出一行 JSON 响应。
+
+启动：
+
+#+begin_src shell
+cd embed_deno
+CC=clang cargo run -p embed_deno -- --daemon
+#+end_src
+
+启动（带预加载模块，会立刻输出该模块的 console.log，并缓存 module_id）：
+
+#+begin_src shell
+cd embed_deno
+CC=clang cargo run -p embed_deno -- --daemon ./simple_main.ts
+#+end_src
+
+只预加载并拿到 `globalThis.embedDeno.setResult(...)` 结果（stdout 会输出 JSON 的 preload 响应）：
+
+#+begin_src shell
+cd embed_deno
+STREAM_API_KEY=test_key STREAM_API_SECRET=test_secret \
+  CC=clang cargo run -q -p embed_deno -- --daemon ./stream_return.ts \
+  <<<'{"op":"shutdown"}'
+#+end_src
+
+你会看到类似（token 省略）：
+
+#+begin_src text
+{"ok":true,"op":"preload","module_id":1,"embed_result":{"userId":"john","token":"..."},"embed_exit_data":{"ok":true,"kind":"stream_token"}}
+#+end_src
+
+最小调用示例（stdin 喂请求，stdout 得到结果；stderr 会看到 daemon 状态与 preload module_id）：
+
+#+begin_src shell
+cd embed_deno
+printf '%s\n' \
+  '{"op":"call","module":"./simple_main.ts","function":"handleRequest","args":["ping"]}' \
+  '{"op":"shutdown"}' \
+| CC=clang cargo run -q -p embed_deno -- --daemon ./simple_main.ts
+#+end_src
+
+请求协议（每行一个 JSON）：
+
+- `call`：三元参数 `(module, function, args)`，返回 `module_id`，并且会把 module 缓存起来。
+  #+begin_src json
+  {"op":"call","module":"./function_caller.ts","function":"greet","args":["Bob"]}
+  #+end_src
+- `call_id`：使用 `module_id` 复用已加载 module（避免重复 import/解析）。
+  #+begin_src json
+  {"op":"call_id","module_id":1,"function":"add","args":[1,2]}
+  #+end_src
+- `load`：只加载 module 并返回 `module_id`。
+  #+begin_src json
+  {"op":"load","module":"./function_caller.ts"}
+  #+end_src
+- `shutdown`：关闭后台 runtime。
+  #+begin_src json
+  {"op":"shutdown"}
+  #+end_src
+
+输出响应（stdout 每行一条）：
+
+- `call` / `call_id`：
+  - `module_id`：可复用的 module id
+  - `result`：函数返回值（可序列化为 JSON 的值）
+  - `embed_result` / `embed_exit_data`：来自 TypeScript 的 `globalThis.embedDeno.setResult(...)` / `setExitData(...)`
+
+注意：`module` 支持 `./local.ts`、`file:///...`、以及 `jsr:` / `npm:` specifier（首次运行需要网络下载并写入 DENO_DIR 缓存）。
+
 ➜  embed_deno git:(main) ✗ STREAM_API_KEY=test_key3 STREAM_API_SECRET=test_secret ../target/debug/embed_deno stream_return.ts
 stream token generated for john
 EMBED_DENO_RESULT={"userId":"john","token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiam9obiJ9.fiFekyvfOXDuymCTnX_iNx_YHTKXAWOHHqLBjQIt9H4"}
