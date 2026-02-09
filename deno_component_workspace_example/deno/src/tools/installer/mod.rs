@@ -418,7 +418,7 @@ fn remove_file_if_exists(file_path: &Path) -> Result<bool, AnyError> {
   Ok(true)
 }
 
-pub(crate) async fn install_from_entrypoints(
+pub async fn install_from_entrypoints(
   flags: Arc<Flags>,
   entrypoints_flags: InstallEntrypointsFlags,
 ) -> Result<(), AnyError> {

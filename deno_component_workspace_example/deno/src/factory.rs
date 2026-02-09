@@ -998,12 +998,16 @@ impl CliFactory {
   pub fn create_lib_main_worker_options(&self) -> Result<LibMainWorkerOptions, AnyError> {
     let cli_options = self.cli_options()?;
     let workspace_factory = self.workspace_factory()?;
+    let force_register_ops = std::env::var_os("DENO_FORCE_OP_REGISTRATION").is_some();
     Ok(LibMainWorkerOptions {
       argv: cli_options.argv().clone(),
       // This optimization is only available for "run" subcommand
       // because we need to register new ops for testing and jupyter
       // integration.
-      skip_op_registration: cli_options.sub_command().is_run(),
+      //
+      // However, embedders may inject custom ops at runtime, so allow
+      // opting out of this optimization.
+      skip_op_registration: cli_options.sub_command().is_run() && !force_register_ops,
       log_level: cli_options.log_level().unwrap_or(log::Level::Info).into(),
       enable_op_summary_metrics: cli_options.enable_op_summary_metrics(),
       enable_testing_features: cli_options.enable_testing_features(),

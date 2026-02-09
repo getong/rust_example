@@ -111,6 +111,73 @@ pub async fn run_script(
   Ok(exit_code)
 }
 
+/// Run a script, but inject an additional extension into the worker.
+///
+/// This is useful for embedding Deno's CLI stack while adding custom ops.
+pub async fn run_script_with_extension(
+  mode: WorkerExecutionMode,
+  flags: Arc<Flags>,
+  watch: Option<WatchFlagsWithPaths>,
+  unconfigured_runtime: Option<deno_runtime::UnconfiguredRuntime>,
+  roots: LibWorkerFactoryRoots,
+  extension: deno_core::Extension,
+) -> Result<i32, AnyError> {
+  check_permission_before_script(&flags);
+
+  if watch.is_some() {
+    // Keep watch behavior aligned with the existing `run_script`.
+    return run_script(mode, flags, watch, unconfigured_runtime, roots).await;
+  }
+
+  let factory = CliFactory::from_flags(flags);
+  let cli_options = factory.cli_options()?;
+  let deno_dir = factory.deno_dir()?;
+  let http_client = factory.http_client_provider();
+  let workspace_resolver = factory.workspace_resolver().await?;
+  let node_resolver = factory.node_resolver().await?;
+
+  let _ = http_client;
+  let _ = deno_dir;
+
+  let main_module = cli_options.resolve_main_module_with_resolver(Some(
+    &crate::args::WorkspaceMainModuleResolver::new(
+      workspace_resolver.clone(),
+      node_resolver.clone(),
+    ),
+  ))?;
+  let preload_modules = cli_options.preload_modules()?;
+  let require_modules = cli_options.require_modules()?;
+
+  if main_module.scheme() == "npm" {
+    set_npm_user_agent();
+  }
+
+  maybe_npm_install(&factory).await?;
+
+  let worker_factory = factory
+    .create_cli_main_worker_factory_with_roots(roots)
+    .await?;
+  let mut worker = worker_factory
+    .create_custom_worker(
+      mode,
+      main_module.clone(),
+      preload_modules,
+      require_modules,
+      factory.root_permissions_container()?.clone(),
+      vec![extension],
+      Default::default(),
+      unconfigured_runtime,
+    )
+    .await
+    .inspect_err(|e| deno_telemetry::report_event("boot_failure", e))?;
+
+  let exit_code = worker
+    .run()
+    .await
+    .inspect_err(|e| deno_telemetry::report_event("uncaught_exception", e))?;
+  Ok(exit_code)
+}
+
 pub async fn run_from_stdin(
   flags: Arc<Flags>,
   unconfigured_runtime: Option<deno_runtime::UnconfiguredRuntime>,

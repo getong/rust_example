@@ -1,6 +1,6 @@
 [workspace]
 
-resolver = "2"
+resolver = "3"
 
 members = [
   "rusty_v8_example",
@@ -40,6 +40,7 @@ members = [
   "denort",
   "deno",
   "embed_deno",
+  "libmainworker_example",
 ]
 
 # Required for V8 compatibility - rusty-v8 needs at least -O1 to not miscompile

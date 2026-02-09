@@ -6792,6 +6792,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
+name = "libmainworker_example"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "deno",
+ "deno_core",
+ "deno_lib",
+ "deno_path_util",
+ "deno_runtime",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

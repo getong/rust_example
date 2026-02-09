@@ -3,6 +3,9 @@ name = "deno"
 version = "2.6.8"
 edition = "2024"
 
+[lib]
+path = "src/lib.rs"
+
 [features]
 default = ["upgrade", "__vendored_zlib_ng"]
 # A feature that enables heap profiling with dhat on Linux.
