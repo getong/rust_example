@@ -30,7 +30,7 @@ openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0
 ] }
 openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d" }
 podman-api = "0.10"
-reqwest = { version = "0.13.1", default-features = false, features = ["json"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
 # clap_complete = "4"
 # clap_mangen = "0.2"
 serde = { version = "1", features = ["derive"] }

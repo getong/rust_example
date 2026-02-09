@@ -11,7 +11,7 @@ use openraft::{
   storage::{EntryResponder, RaftStateMachine, Snapshot},
   type_config::TypeConfigExt,
 };
-use rand::Rng;
+use rand::RngExt;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 

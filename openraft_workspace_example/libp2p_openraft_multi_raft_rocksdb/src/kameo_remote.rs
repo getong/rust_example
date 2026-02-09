@@ -18,7 +18,7 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 

@@ -6,12 +6,12 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.101"
 async-trait = "0.1.89"
 byteorder = "1.5.0"
 # chitchat = { git = "https://github.com/quickwit-oss/chitchat" }
 chitchat = "0.10"
-clap = { version = "4.5.56", features = ["derive", "env"] }
+clap = { version = "4.5.57", features = ["derive", "env"] }
 console-subscriber = "0.5.0"
 cool-id-generator = "1.0.1"
 env_logger = "0.11.8"
