@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rand::{self, Rng, RngCore, SeedableRng};
+use rand::{self, RngExt, SeedableRng, TryRng};
 use rand_chacha::ChaChaRng;
 use rand_xorshift::XorShiftRng;
 
@@ -24,45 +24,47 @@ enum TestRngImpl {
   },
 }
 
-impl RngCore for TestRng {
-  fn next_u32(&mut self) -> u32 {
+impl TryRng for TestRng {
+  type Error = rand::rand_core::Infallible;
+
+  fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
     match &mut self.rng {
-      TestRngImpl::XorShift(rng) => rng.next_u32(),
-      TestRngImpl::ChaCha(rng) => rng.next_u32(),
+      TestRngImpl::XorShift(rng) => Ok(rng.try_next_u32()?),
+      TestRngImpl::ChaCha(rng) => Ok(rng.try_next_u32()?),
       TestRngImpl::PassThrough { .. } => {
         let mut buf = [0; 4];
-        self.fill_bytes(&mut buf[..]);
-        u32::from_le_bytes(buf)
+        self.try_fill_bytes(&mut buf[..])?;
+        Ok(u32::from_le_bytes(buf))
       }
       TestRngImpl::Recorder { rng, record } => {
-        let read = rng.next_u32();
+        let read = rng.try_next_u32()?;
         record.extend_from_slice(&read.to_le_bytes());
-        read
+        Ok(read)
       }
     }
   }
 
-  fn next_u64(&mut self) -> u64 {
+  fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
     match &mut self.rng {
-      TestRngImpl::XorShift(rng) => rng.next_u64(),
-      TestRngImpl::ChaCha(rng) => rng.next_u64(),
+      TestRngImpl::XorShift(rng) => Ok(rng.try_next_u64()?),
+      TestRngImpl::ChaCha(rng) => Ok(rng.try_next_u64()?),
       TestRngImpl::PassThrough { .. } => {
         let mut buf = [0; 8];
-        self.fill_bytes(&mut buf[..]);
-        u64::from_le_bytes(buf)
+        self.try_fill_bytes(&mut buf[..])?;
+        Ok(u64::from_le_bytes(buf))
       }
       TestRngImpl::Recorder { rng, record } => {
-        let read = rng.next_u64();
+        let read = rng.try_next_u64()?;
         record.extend_from_slice(&read.to_le_bytes());
-        read
+        Ok(read)
       }
     }
   }
 
-  fn fill_bytes(&mut self, dest: &mut [u8]) {
+  fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
     match &mut self.rng {
-      TestRngImpl::XorShift(rng) => rng.fill_bytes(dest),
-      TestRngImpl::ChaCha(rng) => rng.fill_bytes(dest),
+      TestRngImpl::XorShift(rng) => rng.try_fill_bytes(dest)?,
+      TestRngImpl::ChaCha(rng) => rng.try_fill_bytes(dest)?,
       TestRngImpl::PassThrough { off, end, data } => {
         let bytes_to_copy = dest.len().min(*end - *off);
         dest[.. bytes_to_copy].copy_from_slice(&data[*off .. *off + bytes_to_copy]);
@@ -72,10 +74,12 @@ impl RngCore for TestRng {
         }
       }
       TestRngImpl::Recorder { rng, record } => {
-        rng.fill_bytes(dest);
+        rng.try_fill_bytes(dest)?;
         record.extend_from_slice(dest);
       }
     }
+
+    Ok(())
   }
 }
 

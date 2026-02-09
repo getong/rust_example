@@ -1,4 +1,4 @@
-use rand::{Rng, SeedableRng, seq::SliceRandom};
+use rand::{RngExt, SeedableRng, seq::SliceRandom};
 use sha3::{Digest, Keccak256};
 
 /// 计算 Keccak256 哈希

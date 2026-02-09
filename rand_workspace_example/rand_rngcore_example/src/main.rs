@@ -1,66 +1,60 @@
-use rand_core::{
-  CryptoRng, RngCore,
-  block::{BlockRng, BlockRngCore},
-};
+use std::convert::Infallible;
 
-struct SeedRng([u32; 8]);
+use rand_core::{Rng, TryRng};
+use rand_core::block::{BlockRng, Generator};
 
-impl CryptoRng for SeedRng {}
+#[derive(Clone, Debug)]
+struct SeedGenerator {
+  state: [u32; 8],
+}
 
-impl RngCore for SeedRng {
-  fn next_u32(&mut self) -> u32 {
-    self.0.iter_mut().next().copied().unwrap()
-  }
+impl Generator for SeedGenerator {
+  type Output = [u32; 8];
 
-  fn next_u64(&mut self) -> u64 {
-    self.0.iter_mut().next().copied().unwrap() as u64
-  }
-
-  fn fill_bytes(&mut self, dest: &mut [u8]) {
-    for chunk in dest.chunks_mut(4) {
-      chunk.copy_from_slice(&self.next_u32().to_be_bytes());
-    }
+  fn generate(&mut self, output: &mut Self::Output) {
+    // Extremely simple, deterministic output (not cryptographically secure).
+    *output = self.state;
+    self.state.rotate_left(1);
+    self.state[0] = self.state[0].wrapping_add(0x9E37_79B9);
   }
 }
 
-impl BlockRngCore for SeedRng {
-  type Item = u32;
-  type Results = [u32; 8];
+// rand_core 0.10 moved the real APIs to `TryRng`/`Rng`.
+// `RngCore` remains only as a deprecated stub trait.
+#[derive(Clone, Debug)]
+struct SeedRng(BlockRng<SeedGenerator>);
 
-  fn generate(&mut self, results: &mut Self::Results) {
-    *results = self.0;
+impl SeedRng {
+  fn new(state: [u32; 8]) -> Self {
+    Self(BlockRng::new(SeedGenerator { state }))
   }
 }
 
-// ✅ Define a new struct that wraps `BlockRng<SeedRng>`
-struct CryptoBlockRng(BlockRng<SeedRng>);
+impl TryRng for SeedRng {
+  type Error = Infallible;
 
-// ✅ Implement `CryptoRng` for the wrapper struct
-impl CryptoRng for CryptoBlockRng {}
-
-// ✅ Implement `RngCore` by delegating to `BlockRng<SeedRng>`
-impl RngCore for CryptoBlockRng {
-  fn next_u32(&mut self) -> u32 {
-    self.0.next_u32()
+  fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+    Ok(self.0.next_word())
   }
 
-  fn next_u64(&mut self) -> u64 {
-    self.0.next_u64()
+  fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+    Ok(self.0.next_u64_from_u32())
   }
 
-  fn fill_bytes(&mut self, dest: &mut [u8]) {
-    self.0.fill_bytes(dest);
+  fn try_fill_bytes(&mut self, bytes: &mut [u8]) -> Result<(), Self::Error> {
+    self.0.fill_bytes(bytes);
+    Ok(())
   }
 }
 
-fn random(mut rng: impl RngCore + CryptoRng) {
+fn random(mut rng: impl Rng) {
   let mut bytes = [0u8; 8];
   rng.fill_bytes(&mut bytes);
   println!("bytes: {:?}", bytes);
 }
 
 fn main() {
-  let backing = [0; 8];
-  let rng = CryptoBlockRng(BlockRng::new(SeedRng(backing))); // Wrap BlockRng in CryptoBlockRng
+  let backing = [1, 2, 3, 4, 5, 6, 7, 8];
+  let rng = SeedRng::new(backing);
   random(rng);
 }

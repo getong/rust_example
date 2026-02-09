@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 /// Define an enum with some variants.
 #[derive(Debug, Clone, Copy)]
