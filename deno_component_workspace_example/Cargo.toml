@@ -41,6 +41,7 @@ members = [
   "deno",
   "embed_deno",
   "libmainworker_example",
+  "eszip_example",
 ]
 
 # Required for V8 compatibility - rusty-v8 needs at least -O1 to not miscompile

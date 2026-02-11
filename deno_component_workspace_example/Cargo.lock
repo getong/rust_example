@@ -1705,7 +1705,7 @@ dependencies = [
  "deno_core",
  "deno_doc",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lib",
  "deno_lint",
  "deno_lockfile",
@@ -1736,7 +1736,7 @@ dependencies = [
  "dprint-plugin-markdown",
  "dprint-plugin-typescript",
  "esbuild_client",
- "eszip",
+ "eszip 0.108.0",
  "fancy-regex",
  "faster-hex",
  "flate2",
@@ -2320,7 +2320,7 @@ dependencies = [
  "cfg-if",
  "comrak",
  "deno_ast 0.52.0",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_path_util",
  "deno_terminal",
  "handlebars",
@@ -2520,10 +2520,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "deno_graph"
+version = "0.107.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8a89f45d0d890dc0b1230ffefed23e2b3b6d93873494839256aaa8d4711c1fc"
+dependencies = [
+ "async-trait",
+ "boxed_error",
+ "capacity_builder",
+ "chrono",
+ "data-url",
+ "deno_ast 0.53.0",
+ "deno_error",
+ "deno_media_type 0.4.0",
+ "deno_path_util",
+ "deno_semver",
+ "deno_unsync",
+ "futures",
+ "indexmap 2.13.0",
+ "log",
+ "monch",
+ "once_cell",
+ "parking_lot",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sys_traits",
+ "thiserror 2.0.18",
+ "url",
+ "wasm_dep_analyzer",
+]
+
+[[package]]
 name = "deno_graph_basic_example"
 version = "0.1.0"
 dependencies = [
- "deno_graph",
+ "deno_graph 0.106.0",
  "futures",
 ]
 
@@ -2725,7 +2758,7 @@ dependencies = [
  "deno_ast 0.52.0",
  "deno_core",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lib",
  "deno_npm",
  "deno_path_util",
@@ -2742,7 +2775,7 @@ dependencies = [
  "dprint-plugin-typescript",
  "env_logger",
  "esbuild_client",
- "eszip",
+ "eszip 0.108.0",
  "faster-hex",
  "flate2",
  "http 1.4.0",
@@ -2860,6 +2893,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "debab24ecd9f4fd64aa42fb18a02dff20a97d5830b2b85b98ce70b509f790763"
 dependencies = [
  "data-url",
+ "encoding_rs",
  "serde",
  "url",
 ]
@@ -3176,7 +3210,7 @@ dependencies = [
  "chrono",
  "deno_config",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lockfile",
  "deno_npm",
  "deno_npm_cache",
@@ -3373,7 +3407,7 @@ dependencies = [
  "deno_cache_dir 0.26.3",
  "deno_config",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lockfile",
  "deno_maybe_sync",
  "deno_media_type 0.3.0",
@@ -3415,7 +3449,7 @@ dependencies = [
  "deno_ast 0.52.0",
  "deno_core",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lib",
  "deno_napi",
  "deno_node",
@@ -3429,7 +3463,7 @@ dependencies = [
  "deno_semver",
  "deno_task_shell",
  "dirs 6.0.0",
- "eszip",
+ "eszip 0.108.0",
  "flate2",
  "futures",
  "hex",
@@ -3572,7 +3606,7 @@ dependencies = [
  "base64 0.22.1",
  "deno_ast 0.52.0",
  "deno_core",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lib",
  "deno_npm",
  "deno_npm_cache",
@@ -4645,7 +4679,7 @@ dependencies = [
  "deno_core",
  "deno_doc",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_lib",
  "deno_lint",
  "deno_lockfile",
@@ -4676,7 +4710,7 @@ dependencies = [
  "dprint-plugin-markdown",
  "dprint-plugin-typescript",
  "esbuild_client",
- "eszip",
+ "eszip 0.108.0",
  "fancy-regex",
  "faster-hex",
  "flate2",
@@ -4892,7 +4926,7 @@ dependencies = [
  "base64 0.21.7",
  "deno_ast 0.52.0",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_npm",
  "deno_semver",
  "futures",
@@ -4903,6 +4937,40 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "url",
+]
+
+[[package]]
+name = "eszip"
+version = "0.109.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d91f77b1a4e1402505b12fcc7507a144070e84920a849074a4d3ba5dda17c6fb"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "deno_ast 0.53.0",
+ "deno_error",
+ "deno_graph 0.107.0",
+ "deno_npm",
+ "deno_semver",
+ "futures",
+ "hashlink 0.8.4",
+ "indexmap 2.13.0",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "url",
+]
+
+[[package]]
+name = "eszip_example"
+version = "0.1.0"
+dependencies = [
+ "deno_core",
+ "deno_error",
+ "eszip 0.109.0",
+ "tokio",
 ]
 
 [[package]]
@@ -7307,7 +7375,7 @@ dependencies = [
  "capacity_builder",
  "dashmap 5.5.3",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_maybe_sync",
  "deno_media_type 0.3.0",
  "deno_package_json",
@@ -8989,7 +9057,7 @@ dependencies = [
  "deno_ast 0.52.0",
  "deno_core",
  "deno_error",
- "deno_graph",
+ "deno_graph 0.106.0",
  "deno_node",
  "deno_resolver",
  "deno_runtime",

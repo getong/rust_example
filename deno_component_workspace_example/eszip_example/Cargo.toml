@@ -1,0 +1,10 @@
+[package]
+name = "eszip_example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+deno_core = "0.383.0"
+deno_error = "0.7"
+eszip = "0.109.0"
+tokio = { version = "1.49.0", features = ["full"] }
