@@ -40,8 +40,9 @@ members = [
   "denort",
   "deno",
   "embed_deno",
-  "libmainworker_example",
+  # "libmainworker_example",
   "eszip_example",
+  "libmainworker_duplex_stream_example",
 ]
 
 # Required for V8 compatibility - rusty-v8 needs at least -O1 to not miscompile

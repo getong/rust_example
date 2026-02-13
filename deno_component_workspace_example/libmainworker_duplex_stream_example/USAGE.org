@@ -1,0 +1,113 @@
+#+TITLE: libmainworker_duplex_stream_example 使用说明
+#+AUTHOR: gerald
+
+* 1. 目标
+本示例基于 ~mainworker~，实现了 Rust 与 TypeScript 的双工通信，并支持直接运行 ~embed_deno/*.ts~ 文件（包括含 ~jsr:~ / ~npm:~ 依赖的脚本）。
+
+* 2. 前置条件
+- 推荐使用：
+ ~CC=clang~
+
+说明：
+在当前环境下，默认 ~gcc-15~ 可能触发 ~aws-lc-sys~ 编译错误，因此示例命令都建议带上 ~CC=clang~。
+
+* 3. 快速开始
+** 3.1 编译检查
+#+begin_src bash
+CC=clang cargo check -p libmainworker_duplex_stream_example
+#+end_src
+
+** 3.2 运行（默认脚本）
+不传参数时，默认执行：
+~embed_deno/simple_main.ts~
+
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example
+#+end_src
+
+** 3.3 运行指定 TS 文件
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/simple_test.ts
+#+end_src
+
+* 4. 与 TS 文件配合使用
+** 4.1 支持的脚本路径参数
+- 本地相对路径：~embed_deno/simple_main.ts~
+- 本地绝对路径：~/Users/.../embed_deno/simple_main.ts~
+- ~file://~ URL
+- ~jsr:~ / ~npm:~ specifier（由脚本内部 import 使用）
+
+** 4.2 已验证可运行文件
+- ~embed_deno/simple_test.ts~
+- ~embed_deno/simple_main.ts~
+- ~embed_deno/jsr_test.ts~
+- ~embed_deno/main.ts~ （含 ~npm:nanoid~ / ~npm:date-fns~ / ~npm:lodash-es~ / ~npm:zod~）
+
+示例：
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/jsr_test.ts
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/main.ts
+#+end_src
+
+** 4.3 需要环境变量的脚本
+- ~embed_deno/stream.ts~
+- ~embed_deno/stream_return.ts~
+
+它们依赖以下环境变量：
+- ~STREAM_API_KEY~
+- ~STREAM_API_SECRET~
+
+结果输出说明：
+- ~stream_return.ts~ 会调用 ~globalThis.embedDeno.setResult(...)~，因此 Rust 侧会打印：
+  ~EMBED_DENO_RESULT=...~
+- ~stream.ts~ 默认只 ~console.log(token)~，不会打印 ~EMBED_DENO_RESULT=...~
+
+示例（临时注入环境变量）：
+#+begin_src bash
+STREAM_API_KEY=xxx STREAM_API_SECRET=yyy \
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/stream.ts
+#+end_src
+
+* 5. 双工通信机制说明
+** 5.1 通信顺序
+1. Rust 创建 ~tokio::io::duplex~ 成对流。
+2. 一端注入到 mainworker 自定义 extension（TS 侧通过 ~globalThis.libmainworkerDuplex~ 使用）。
+3. 另一端由 Rust 任务驱动。
+4. 启动 bootstrap：
+   - TS 先与 Rust 完成双工握手（ping/pong）。
+   - 握手成功后 ~import~ 目标 TS 文件并执行。
+
+** 5.2 典型日志
+- ~[ts] received: rust->ts: ping-1~
+- ~[rust] received: ts->rust: pong-1~
+- ~worker exit code: 0~
+- ~EMBED_DENO_RESULT={...}~ （当 TS 调用了 ~embedDeno.setResult~）
+
+* 6. 常见问题
+** 6.1 为什么要用 #[tokio::main] 但内部还是 current-thread runtime？
+外层入口使用 ~#[tokio::main]~，满足统一入口要求；
+内部在独立线程里创建 ~current_thread + LocalSet~，避免 ~deno_unsync~ 对 runtime flavor 的限制导致 panic。
+
+** 6.2 远程依赖下载失败怎么办？
+如果运行含 ~jsr:~ / ~npm:~ 的脚本失败，优先检查：
+- 网络可达性
+- 代理配置
+- 是否首次下载依赖（首次会慢）
+
+* 7. 常用命令清单
+#+begin_src bash
+# 编译检查
+CC=clang cargo check -p libmainworker_duplex_stream_example
+
+# 默认运行（simple_main.ts）
+CC=clang cargo run -p libmainworker_duplex_stream_example
+
+# 运行本地 TS
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/simple_test.ts
+
+# 运行含 jsr 依赖的 TS
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/jsr_test.ts
+
+# 运行含 npm 依赖的 TS
+CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/main.ts
+#+end_src
