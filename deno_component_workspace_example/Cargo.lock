@@ -6931,6 +6931,7 @@ dependencies = [
  "regex",
  "runtimelib",
  "rustc-hash 2.1.1",
+ "rustls",
  "rustyline",
  "rustyline-derive",
  "serde",

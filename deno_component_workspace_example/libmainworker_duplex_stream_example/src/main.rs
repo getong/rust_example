@@ -9,7 +9,10 @@ use std::{
 use deno_core::{OpState, Resource, ResourceId, error::AnyError, op2};
 use deno_error::JsErrorBox;
 use deno_runtime::WorkerExecutionMode;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+use tokio::{
+  io::{AsyncReadExt, AsyncWriteExt, DuplexStream},
+  time::{Duration, MissedTickBehavior},
+};
 use url::Url;
 use uuid::Uuid;
 
@@ -167,13 +170,108 @@ async fn write_line(stream: &mut DuplexStream, line: &str) -> Result<(), AnyErro
   Ok(())
 }
 
+async fn write_json_line(
+  stream: &mut DuplexStream,
+  value: &serde_json::Value,
+) -> Result<(), AnyError> {
+  let line = serde_json::to_string(value).map_err(|err| AnyError::msg(err.to_string()))?;
+  write_line(stream, &line).await
+}
+
 async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
-  for i in 1 ..= 2 {
-    let outbound = format!("rust->ts: ping-{i}");
-    write_line(&mut stream, &outbound).await?;
-    let inbound = read_line(&mut stream).await?;
-    println!("[rust] received: {inbound}");
+  let mut interval = tokio::time::interval(Duration::from_millis(300));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+  interval.tick().await;
+
+  let mut ping_seq = 0_u64;
+  let mut pong_count = 0_u64;
+  let mut is_ready = false;
+  let mut sent_demo_message = false;
+  let mut sent_shutdown = false;
+
+  loop {
+    tokio::select! {
+      _ = interval.tick(), if !sent_shutdown => {
+        ping_seq += 1;
+        write_json_line(
+          &mut stream,
+          &serde_json::json!({
+            "type": "ping",
+            "seq": ping_seq,
+            "from": "rust",
+          }),
+        )
+        .await?;
+
+        if is_ready && !sent_demo_message {
+          write_json_line(
+            &mut stream,
+            &serde_json::json!({
+              "type": "message",
+              "id": "demo-1",
+              "payload": {
+                "text": "hello from rust",
+                "seq": ping_seq,
+              }
+            }),
+          )
+          .await?;
+          sent_demo_message = true;
+        }
+
+        if is_ready && pong_count >= 3 {
+          write_json_line(
+            &mut stream,
+            &serde_json::json!({
+              "type": "shutdown",
+              "reason": "demo_completed",
+            }),
+          )
+          .await?;
+          sent_shutdown = true;
+        } else if ping_seq >= 10 {
+          write_json_line(
+            &mut stream,
+            &serde_json::json!({
+              "type": "shutdown",
+              "reason": "timeout",
+            }),
+          )
+          .await?;
+          sent_shutdown = true;
+        }
+      }
+      inbound = read_line(&mut stream) => {
+        let inbound = inbound?;
+        println!("[rust] received: {inbound}");
+        let Ok(message) = serde_json::from_str::<serde_json::Value>(&inbound) else {
+          continue;
+        };
+
+        match message.get("type").and_then(|v| v.as_str()) {
+          Some("ready") => {
+            is_ready = true;
+          }
+          Some("pong") => {
+            pong_count += 1;
+          }
+          Some("message_result") => {
+            if let Some(result) = message.get("result") {
+              println!("[rust] message result: {result}");
+            }
+          }
+          Some("shutdown_ack") => {
+            break;
+          }
+          Some("error") => {
+            return Err(AnyError::msg(format!("ts message error: {message}")));
+          }
+          _ => {}
+        }
+      }
+    }
   }
+
   Ok(())
 }
 
@@ -225,15 +323,103 @@ if (!duplex) {{
   throw new Error("libmainworkerDuplex API is not available");
 }}
 
-const rid = duplex.open();
-for (let i = 1; i <= 2; i++) {{
-  const fromRust = await duplex.readLine(rid);
-  console.log(`[ts] received: ${{fromRust}}`);
-  await duplex.writeLine(rid, `ts->rust: pong-${{i}}`);
-}}
-console.log("[ts] duplex exchange completed");
+const targetModule = await import(targetSpecifier);
+const exportedHandler =
+  typeof targetModule?.handleDuplexMessage === "function"
+    ? targetModule.handleDuplexMessage.bind(targetModule)
+    : null;
+const globalHandler =
+  typeof globalThis.handleDuplexMessage === "function"
+    ? globalThis.handleDuplexMessage
+    : null;
 
-await import(targetSpecifier);
+const rid = duplex.open();
+await duplex.writeLine(
+  rid,
+  JSON.stringify({{
+    type: "ready",
+    targetSpecifier,
+    hasExportedHandler: !!exportedHandler,
+    hasGlobalHandler: !!globalHandler,
+  }}),
+);
+
+await duplex.serve(rid, async (line) => {{
+  let message;
+  try {{
+    message = JSON.parse(line);
+  }} catch {{
+    message = {{ type: "text", raw: line }};
+  }}
+
+  switch (message?.type) {{
+    case "ping":
+      await duplex.writeLine(
+        rid,
+        JSON.stringify({{
+          type: "pong",
+          seq: message.seq ?? null,
+          at: Date.now(),
+        }}),
+      );
+      return true;
+
+    case "message": {{
+      try {{
+        const handler = exportedHandler ?? globalHandler;
+        let result = null;
+        if (handler) {{
+          result = await handler(message.payload, message);
+        }} else if (typeof globalThis.handleRequest === "function") {{
+          result = await globalThis.handleRequest(
+            typeof message.payload === "string"
+              ? message.payload
+              : JSON.stringify(message.payload ?? null),
+          );
+        }}
+        await duplex.writeLine(
+          rid,
+          JSON.stringify({{
+            type: "message_result",
+            id: message.id ?? null,
+            result,
+          }}),
+        );
+      }} catch (error) {{
+        await duplex.writeLine(
+          rid,
+          JSON.stringify({{
+            type: "error",
+            id: message.id ?? null,
+            error: String(error?.message ?? error),
+          }}),
+        );
+      }}
+      return true;
+    }}
+
+    case "shutdown":
+      await duplex.writeLine(
+        rid,
+        JSON.stringify({{
+          type: "shutdown_ack",
+          reason: message.reason ?? "requested",
+        }}),
+      );
+      return false;
+
+    default:
+      await duplex.writeLine(
+        rid,
+        JSON.stringify({{
+          type: "unknown",
+          receivedType: message?.type ?? null,
+        }}),
+      );
+      return true;
+  }}
+}});
+console.log("[ts] duplex loop stopped");
 "#
   ))
 }
@@ -280,6 +466,9 @@ async fn main() -> Result<(), AnyError> {
 }
 
 async fn run_inner() -> Result<(), AnyError> {
+  // Required by rustls 0.23+ when TLS-backed APIs (for example fetch) are used.
+  let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
   #[allow(clippy::undocumented_unsafe_blocks)]
   unsafe {
     std::env::set_var("DENO_FORCE_OP_REGISTRATION", "1");
@@ -296,7 +485,6 @@ async fn run_inner() -> Result<(), AnyError> {
   println!("target specifier: {target_specifier}");
 
   let (rust_stream, js_stream) = tokio::io::duplex(16 * 1024);
-  let rust_driver_handle = tokio::spawn(rust_duplex_driver(rust_stream));
   let embed_result = Arc::new(Mutex::new(EmbedResult::default()));
   let embed_result_for_worker = embed_result.clone();
 
@@ -341,12 +529,34 @@ async fn run_inner() -> Result<(), AnyError> {
     .await?;
 
   println!("mainworker created with CLI factory + duplex extension");
-  let exit_code = worker.run().await?;
+  let mut worker_future = std::pin::pin!(worker.run());
+  let mut driver_future = std::pin::pin!(rust_duplex_driver(rust_stream));
+  let mut maybe_exit_code: Option<i32> = None;
+  let mut driver_completed = false;
 
-  let rust_driver_result = rust_driver_handle
-    .await
-    .map_err(|err| AnyError::msg(format!("rust duplex task failed to join: {err}")))?;
-  rust_driver_result?;
+  loop {
+    tokio::select! {
+      worker_result = &mut worker_future, if maybe_exit_code.is_none() => {
+        maybe_exit_code = Some(worker_result?);
+        if driver_completed {
+          break;
+        }
+      }
+      driver_result = &mut driver_future, if !driver_completed => {
+        driver_result?;
+        driver_completed = true;
+        if maybe_exit_code.is_some() {
+          break;
+        }
+      }
+    }
+  }
+
+  let exit_code =
+    maybe_exit_code.ok_or_else(|| AnyError::msg("worker finished without exit code"))?;
+  if !driver_completed {
+    return Err(AnyError::msg("rust duplex driver did not complete"));
+  }
 
   println!("worker exit code: {exit_code}");
   println!("rust <-> ts duplex communication completed");

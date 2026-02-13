@@ -30,6 +30,21 @@ export function registerLibmainworkerDuplex() {
       }
       return await opDuplexWriteLine(rid, String(line));
     },
+    async pump(rid, onMessage) {
+      if (typeof onMessage !== "function") {
+        throw new TypeError("pump requires a message handler function");
+      }
+      while (true) {
+        const line = await this.readLine(rid);
+        const shouldContinue = await onMessage(line);
+        if (shouldContinue === false) {
+          break;
+        }
+      }
+    },
+    async serve(rid, onMessage) {
+      await this.pump(rid, onMessage);
+    },
   };
 }
 
