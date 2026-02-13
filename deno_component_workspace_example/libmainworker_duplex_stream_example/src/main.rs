@@ -14,7 +14,6 @@ use tokio::{
   time::{Duration, MissedTickBehavior},
 };
 use url::Url;
-use uuid::Uuid;
 
 #[derive(Clone)]
 struct DuplexStreamSlot {
@@ -178,6 +177,47 @@ async fn write_json_line(
   write_line(stream, &line).await
 }
 
+fn execute_ts_initiated_rust_call(
+  payload: &serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
+  let op = payload.get("op").and_then(|v| v.as_str()).unwrap_or("echo");
+
+  match op {
+    "uppercase" => {
+      let text = payload
+        .get("text")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AnyError::msg("rust_call.uppercase requires string field `text`"))?;
+      Ok(serde_json::json!({
+        "op": "uppercase",
+        "output": text.to_uppercase(),
+      }))
+    }
+    "sum" => {
+      let values = payload
+        .get("values")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| AnyError::msg("rust_call.sum requires array field `values`"))?;
+      let mut sum = 0.0_f64;
+      for value in values {
+        let number = value
+          .as_f64()
+          .ok_or_else(|| AnyError::msg("rust_call.sum expects numbers only"))?;
+        sum += number;
+      }
+      Ok(serde_json::json!({
+        "op": "sum",
+        "output": sum,
+      }))
+    }
+    "echo" => Ok(serde_json::json!({
+      "op": "echo",
+      "output": payload,
+    })),
+    _ => Err(AnyError::msg(format!("unsupported rust_call op: {op}"))),
+  }
+}
+
 async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
   let mut interval = tokio::time::interval(Duration::from_millis(300));
   interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -260,6 +300,38 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
               println!("[rust] message result: {result}");
             }
           }
+          Some("rust_call") => {
+            let id = message.get("id").cloned().unwrap_or(serde_json::Value::Null);
+            let payload = message
+              .get("payload")
+              .cloned()
+              .unwrap_or(serde_json::Value::Null);
+
+            match execute_ts_initiated_rust_call(&payload) {
+              Ok(result) => {
+                write_json_line(
+                  &mut stream,
+                  &serde_json::json!({
+                    "type": "rust_call_result",
+                    "id": id,
+                    "result": result,
+                  }),
+                )
+                .await?;
+              }
+              Err(err) => {
+                write_json_line(
+                  &mut stream,
+                  &serde_json::json!({
+                    "type": "rust_call_error",
+                    "id": id,
+                    "error": err.to_string(),
+                  }),
+                )
+                .await?;
+              }
+            }
+          }
           Some("shutdown_ack") => {
             break;
           }
@@ -273,14 +345,6 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
   }
 
   Ok(())
-}
-
-struct TempFileGuard(PathBuf);
-
-impl Drop for TempFileGuard {
-  fn drop(&mut self) {
-    let _ = std::fs::remove_file(&self.0);
-  }
 }
 
 fn resolve_target_specifier(arg: &str) -> Result<String, AnyError> {
@@ -311,127 +375,17 @@ fn resolve_target_specifier(arg: &str) -> Result<String, AnyError> {
     })
 }
 
-fn build_bootstrap_source(target_specifier: &str) -> Result<String, AnyError> {
-  let target_literal = serde_json::to_string(target_specifier)?;
-  Ok(format!(
-    r#"
-console.log("[ts] duplex bootstrap started");
-const targetSpecifier = {target_literal};
-
-const duplex = globalThis.libmainworkerDuplex;
-if (!duplex) {{
-  throw new Error("libmainworkerDuplex API is not available");
-}}
-
-const targetModule = await import(targetSpecifier);
-const exportedHandler =
-  typeof targetModule?.handleDuplexMessage === "function"
-    ? targetModule.handleDuplexMessage.bind(targetModule)
-    : null;
-const globalHandler =
-  typeof globalThis.handleDuplexMessage === "function"
-    ? globalThis.handleDuplexMessage
-    : null;
-
-const rid = duplex.open();
-await duplex.writeLine(
-  rid,
-  JSON.stringify({{
-    type: "ready",
-    targetSpecifier,
-    hasExportedHandler: !!exportedHandler,
-    hasGlobalHandler: !!globalHandler,
-  }}),
-);
-
-await duplex.serve(rid, async (line) => {{
-  let message;
-  try {{
-    message = JSON.parse(line);
-  }} catch {{
-    message = {{ type: "text", raw: line }};
-  }}
-
-  switch (message?.type) {{
-    case "ping":
-      await duplex.writeLine(
-        rid,
-        JSON.stringify({{
-          type: "pong",
-          seq: message.seq ?? null,
-          at: Date.now(),
-        }}),
-      );
-      return true;
-
-    case "message": {{
-      try {{
-        const handler = exportedHandler ?? globalHandler;
-        let result = null;
-        if (handler) {{
-          result = await handler(message.payload, message);
-        }} else if (typeof globalThis.handleRequest === "function") {{
-          result = await globalThis.handleRequest(
-            typeof message.payload === "string"
-              ? message.payload
-              : JSON.stringify(message.payload ?? null),
-          );
-        }}
-        await duplex.writeLine(
-          rid,
-          JSON.stringify({{
-            type: "message_result",
-            id: message.id ?? null,
-            result,
-          }}),
-        );
-      }} catch (error) {{
-        await duplex.writeLine(
-          rid,
-          JSON.stringify({{
-            type: "error",
-            id: message.id ?? null,
-            error: String(error?.message ?? error),
-          }}),
-        );
-      }}
-      return true;
-    }}
-
-    case "shutdown":
-      await duplex.writeLine(
-        rid,
-        JSON.stringify({{
-          type: "shutdown_ack",
-          reason: message.reason ?? "requested",
-        }}),
-      );
-      return false;
-
-    default:
-      await duplex.writeLine(
-        rid,
-        JSON.stringify({{
-          type: "unknown",
-          receivedType: message?.type ?? null,
-        }}),
-      );
-      return true;
-  }}
-}});
-console.log("[ts] duplex loop stopped");
-"#
-  ))
-}
-
-fn write_bootstrap_file(target_specifier: &str) -> Result<PathBuf, AnyError> {
-  let bootstrap = build_bootstrap_source(target_specifier)?;
-  let file_path = std::env::temp_dir().join(format!(
-    "libmainworker_duplex_bootstrap_{}.ts",
-    Uuid::new_v4()
-  ));
-  std::fs::write(&file_path, bootstrap)?;
-  Ok(file_path)
+fn bootstrap_script_path() -> Result<PathBuf, AnyError> {
+  let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    .join("src")
+    .join("duplex_bootstrap.ts");
+  if !path.exists() {
+    return Err(AnyError::msg(format!(
+      "duplex bootstrap script not found: {}",
+      path.display()
+    )));
+  }
+  Ok(path)
 }
 
 #[tokio::main]
@@ -478,8 +432,12 @@ async fn run_inner() -> Result<(), AnyError> {
     .nth(1)
     .unwrap_or_else(|| "embed_deno/simple_main.ts".to_string());
   let target_specifier = resolve_target_specifier(&target_arg)?;
-  let bootstrap_path = write_bootstrap_file(&target_specifier)?;
-  let _bootstrap_guard = TempFileGuard(bootstrap_path.clone());
+  let bootstrap_path = bootstrap_script_path()?;
+
+  #[allow(clippy::undocumented_unsafe_blocks)]
+  unsafe {
+    std::env::set_var("LIBMAINWORKER_TARGET_SPECIFIER", &target_specifier);
+  }
 
   println!("target script: {target_arg}");
   println!("target specifier: {target_specifier}");
