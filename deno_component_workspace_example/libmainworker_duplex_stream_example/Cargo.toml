@@ -20,6 +20,7 @@ console_static_text = "0.8.3"
 crossterm = "0.29.0"
 dashmap = "6.1.0"
 deno = { path = "../deno" }
+deno_ast = "0.52.0"
 deno_core = "0.383.0"
 deno_error = "0.7.1"
 deno_graph = "=0.106.0"

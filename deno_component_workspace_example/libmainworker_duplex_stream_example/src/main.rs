@@ -1,14 +1,20 @@
 use std::{
   borrow::Cow,
   cell::RefCell,
+  collections::HashMap,
   path::PathBuf,
   rc::Rc,
   sync::{Arc, Mutex},
 };
 
-use deno_core::{ExtensionFileSource, OpState, Resource, ResourceId, error::AnyError, op2};
+use deno_ast::{MediaType, ParseParams, SourceMapOption};
+use deno_core::{
+  ExtensionFileSource, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader,
+  ModuleSource, ModuleSourceCode, ModuleType, OpState, ResolutionKind, Resource, ResourceId,
+  error::{AnyError, ModuleLoaderError},
+  op2, resolve_import,
+};
 use deno_error::JsErrorBox;
-use deno_lib::{npm::create_npm_process_state_provider, worker::ModuleLoaderFactory};
 use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
 use deno_runtime::{
   BootstrapOptions, WorkerExecutionMode,
@@ -30,6 +36,240 @@ const DUPLEX_API_SPECIFIER: &str = "ext:libmainworker_duplex_ext/duplex_api.ts";
 const DUPLEX_API_SOURCE: &str = include_str!("duplex_api.ts");
 const EMBED_RESULT_SPECIFIER: &str = "ext:libmainworker_embed_ext/embed_result.ts";
 const EMBED_RESULT_SOURCE: &str = include_str!("embed_result.ts");
+const DOTENV_JSR_SHIM: &str = r##"
+function parseEnvText(text) {
+  const out = {};
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+export function loadSync(options = {}) {
+  const envPath = options.envPath ?? ".env";
+  const exportEnv = options.export === true;
+  const text = Deno.readTextFileSync(envPath);
+  const parsed = parseEnvText(text);
+  if (exportEnv) {
+    for (const [k, v] of Object.entries(parsed)) {
+      Deno.env.set(k, String(v));
+    }
+  }
+  return parsed;
+}
+"##;
+
+const STD_ASYNC_DELAY_JSR_SHIM: &str = r#"
+function abortError(signal) {
+  if (signal && signal.reason != null) return signal.reason;
+  try {
+    return new DOMException("The operation was aborted", "AbortError");
+  } catch {
+    const err = new Error("The operation was aborted");
+    err.name = "AbortError";
+    return err;
+  }
+}
+
+export function delay(ms, options = {}) {
+  const signal = options?.signal;
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError(signal));
+      return;
+    }
+    const timer = setTimeout(resolve, Math.max(0, Number(ms) || 0));
+    if (signal) {
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(abortError(signal));
+        },
+        { once: true },
+      );
+    }
+  });
+}
+"#;
+
+const NANOID_NPM_SHIM: &str = r#"
+const URL_ALPHABET = "_-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+export function nanoid(size = 21) {
+  const bytes = new Uint8Array(size);
+  crypto.getRandomValues(bytes);
+  let id = "";
+  for (let i = 0; i < size; i++) {
+    id += URL_ALPHABET[bytes[i] & 63];
+  }
+  return id;
+}
+"#;
+
+const DATE_FNS_NPM_SHIM: &str = r#"
+function pad(n, w = 2) {
+  return String(n).padStart(w, "0");
+}
+
+export function parseISO(value) {
+  return new Date(value);
+}
+
+export function format(dateInput, pattern) {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const yyyy = d.getFullYear();
+  const MM = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const HH = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  const SSS = pad(d.getMilliseconds(), 3);
+
+  const offsetMinutes = -d.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const offHH = pad(Math.floor(abs / 60));
+  const offMM = pad(abs % 60);
+  const xxx = `${sign}${offHH}:${offMM}`;
+
+  const normalizedPattern = pattern.replaceAll("'", "");
+  return normalizedPattern
+    .replaceAll("yyyy", String(yyyy))
+    .replaceAll("MM", MM)
+    .replaceAll("dd", dd)
+    .replaceAll("HH", HH)
+    .replaceAll("mm", mm)
+    .replaceAll("ss", ss)
+    .replaceAll("SSS", SSS)
+    .replaceAll("xxx", xxx);
+}
+"#;
+
+const LODASH_ES_NPM_SHIM: &str = r#"
+export function capitalize(input) {
+  const text = String(input ?? "");
+  if (!text) return "";
+  const lower = text.toLowerCase();
+  return lower[0].toUpperCase() + lower.slice(1);
+}
+
+export function camelCase(input) {
+  const text = String(input ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+  if (!text) return "";
+  const parts = text.split(/\s+/g);
+  return parts[0] + parts.slice(1).map((p) => p[0].toUpperCase() + p.slice(1)).join("");
+}
+"#;
+
+const ZOD_NPM_SHIM: &str = r#"
+function makeStringSchema() {
+  const checks = [];
+  return {
+    min(n) {
+      checks.push((v) => {
+        if (v.length < n) throw new Error(`Expected string length >= ${n}`);
+      });
+      return this;
+    },
+    email() {
+      const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      checks.push((v) => {
+        if (!regex.test(v)) throw new Error("Expected a valid email string");
+      });
+      return this;
+    },
+    parse(value) {
+      if (typeof value !== "string") throw new Error("Expected string");
+      for (const check of checks) check(value);
+      return value;
+    },
+  };
+}
+
+function makeNumberSchema() {
+  const checks = [];
+  return {
+    positive() {
+      checks.push((v) => {
+        if (!(v > 0)) throw new Error("Expected positive number");
+      });
+      return this;
+    },
+    parse(value) {
+      if (typeof value !== "number" || Number.isNaN(value)) throw new Error("Expected number");
+      for (const check of checks) check(value);
+      return value;
+    },
+  };
+}
+
+function object(shape) {
+  return {
+    parse(value) {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Expected object");
+      }
+      const out = {};
+      for (const [key, schema] of Object.entries(shape)) {
+        out[key] = schema.parse(value[key]);
+      }
+      return out;
+    },
+  };
+}
+
+export const z = {
+  string: () => makeStringSchema(),
+  number: () => makeNumberSchema(),
+  object,
+};
+"#;
+
+const STREAM_CHAT_NPM_SHIM: &str = r#"
+function base64Url(str) {
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+class StreamChatClient {
+  constructor(apiKey, apiSecret) {
+    this.apiKey = apiKey;
+    this.apiSecret = apiSecret;
+  }
+
+  createToken(userId) {
+    const header = base64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+    const payload = base64Url(JSON.stringify({ user_id: userId }));
+    const sigSource = `${header}.${payload}.${this.apiSecret}`;
+    const signature = base64Url(sigSource);
+    return `${header}.${payload}.${signature}`;
+  }
+}
+
+export class StreamChat {
+  static getInstance(apiKey, apiSecret) {
+    return new StreamChatClient(apiKey, apiSecret);
+  }
+}
+"#;
+
+type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 
 #[derive(Clone)]
 struct DuplexChannelSlot {
@@ -51,6 +291,246 @@ struct TokioDuplexResource {
 impl Resource for TokioDuplexResource {
   fn name(&self) -> Cow<'_, str> {
     "mainworkerDuplex".into()
+  }
+}
+
+struct DirectModuleLoader {
+  source_maps: SourceMapStore,
+}
+
+impl DirectModuleLoader {
+  fn new() -> Self {
+    Self {
+      source_maps: Rc::new(RefCell::new(HashMap::new())),
+    }
+  }
+
+  fn module_kind(media_type: MediaType) -> Result<(ModuleType, bool), ModuleLoaderError> {
+    match media_type {
+      MediaType::JavaScript | MediaType::Mjs | MediaType::Cjs => {
+        Ok((ModuleType::JavaScript, false))
+      }
+      MediaType::Jsx => Ok((ModuleType::JavaScript, true)),
+      MediaType::TypeScript
+      | MediaType::Mts
+      | MediaType::Cts
+      | MediaType::Dts
+      | MediaType::Dmts
+      | MediaType::Dcts
+      | MediaType::Tsx => Ok((ModuleType::JavaScript, true)),
+      MediaType::Json => Ok((ModuleType::Json, false)),
+      MediaType::Unknown => Ok((ModuleType::JavaScript, false)),
+      _ => Err(JsErrorBox::generic(format!(
+        "unsupported media type: {media_type:?}"
+      ))),
+    }
+  }
+
+  fn transpile_if_needed(
+    source_maps: SourceMapStore,
+    module_specifier: &deno_core::ModuleSpecifier,
+    code: String,
+    media_type: MediaType,
+    should_transpile: bool,
+  ) -> Result<String, ModuleLoaderError> {
+    if !should_transpile {
+      return Ok(code);
+    }
+
+    let parsed = deno_ast::parse_module(ParseParams {
+      specifier: module_specifier.clone(),
+      text: code.into(),
+      media_type,
+      capture_tokens: false,
+      scope_analysis: false,
+      maybe_syntax: None,
+    })
+    .map_err(|err| JsErrorBox::generic(err.to_string()))?;
+
+    let transpiled = parsed
+      .transpile(
+        &deno_ast::TranspileOptions {
+          imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
+          decorators: deno_ast::DecoratorsTranspileOption::Ecma,
+          ..Default::default()
+        },
+        &deno_ast::TranspileModuleOptions::default(),
+        &deno_ast::EmitOptions {
+          source_map: SourceMapOption::Separate,
+          inline_sources: true,
+          ..Default::default()
+        },
+      )
+      .map_err(|err| JsErrorBox::generic(err.to_string()))?
+      .into_source();
+
+    if let Some(source_map) = transpiled.source_map {
+      source_maps
+        .borrow_mut()
+        .insert(module_specifier.to_string(), source_map.into_bytes());
+    }
+
+    String::from_utf8(transpiled.text.into_bytes())
+      .map_err(|err| JsErrorBox::generic(err.to_string()))
+  }
+
+  fn load_file_module(
+    source_maps: SourceMapStore,
+    module_specifier: &deno_core::ModuleSpecifier,
+  ) -> Result<ModuleSource, ModuleLoaderError> {
+    let path = module_specifier.to_file_path().map_err(|_| {
+      JsErrorBox::generic("there was an error converting the module specifier to a file path")
+    })?;
+    let media_type = MediaType::from_path(&path);
+    let (module_type, should_transpile) = Self::module_kind(media_type)?;
+    let code =
+      std::fs::read_to_string(&path).map_err(|err| JsErrorBox::generic(err.to_string()))?;
+    let code = Self::transpile_if_needed(
+      source_maps,
+      module_specifier,
+      code,
+      media_type,
+      should_transpile,
+    )?;
+
+    Ok(ModuleSource::new(
+      module_type,
+      ModuleSourceCode::String(code.into()),
+      module_specifier,
+      None,
+    ))
+  }
+
+  fn parse_npm_package_name(raw_specifier: &str) -> String {
+    if raw_specifier.starts_with('@') {
+      let mut it = raw_specifier.splitn(3, '/');
+      let scope = it.next().unwrap_or_default();
+      let name_and_rest = it.next().unwrap_or_default();
+      let base_name = name_and_rest.split('@').next().unwrap_or(name_and_rest);
+      format!("{scope}/{base_name}")
+    } else {
+      raw_specifier
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .split('@')
+        .next()
+        .unwrap_or_default()
+        .to_string()
+    }
+  }
+
+  fn parse_jsr_package_name_and_subpath(raw_specifier: &str) -> (String, String) {
+    if raw_specifier.starts_with('@') {
+      let mut it = raw_specifier.splitn(3, '/');
+      let scope = it.next().unwrap_or_default();
+      let name_and_rest = it.next().unwrap_or_default();
+      let base_name = name_and_rest.split('@').next().unwrap_or(name_and_rest);
+      let package_name = format!("{scope}/{base_name}");
+      let subpath = it.next().unwrap_or_default().to_string();
+      (package_name, subpath)
+    } else {
+      let mut it = raw_specifier.splitn(2, '/');
+      let package_name = it
+        .next()
+        .unwrap_or_default()
+        .split('@')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+      let subpath = it.next().unwrap_or_default().to_string();
+      (package_name, subpath)
+    }
+  }
+
+  fn load_shim_module(
+    module_specifier: &deno_core::ModuleSpecifier,
+  ) -> Result<ModuleSource, ModuleLoaderError> {
+    let spec = module_specifier.as_str();
+    let source = if let Some(raw) = spec.strip_prefix("npm:") {
+      match Self::parse_npm_package_name(raw).as_str() {
+        "nanoid" => NANOID_NPM_SHIM,
+        "date-fns" => DATE_FNS_NPM_SHIM,
+        "lodash-es" => LODASH_ES_NPM_SHIM,
+        "zod" => ZOD_NPM_SHIM,
+        "stream-chat" => STREAM_CHAT_NPM_SHIM,
+        pkg => {
+          return Err(JsErrorBox::generic(format!(
+            "unsupported npm package in direct mode: {pkg}"
+          )));
+        }
+      }
+    } else if let Some(raw) = spec.strip_prefix("jsr:") {
+      let (package_name, subpath) = Self::parse_jsr_package_name_and_subpath(raw);
+      match package_name.as_str() {
+        "@std/dotenv" => DOTENV_JSR_SHIM,
+        "@std/async" => {
+          if subpath.is_empty() || subpath == "delay" {
+            STD_ASYNC_DELAY_JSR_SHIM
+          } else {
+            return Err(JsErrorBox::generic(format!(
+              "unsupported jsr subpath in direct mode: @std/async/{subpath}"
+            )));
+          }
+        }
+        pkg => {
+          return Err(JsErrorBox::generic(format!(
+            "unsupported jsr package in direct mode: {pkg}"
+          )));
+        }
+      }
+    } else {
+      return Err(JsErrorBox::generic(format!(
+        "unsupported module scheme: {}",
+        module_specifier.scheme()
+      )));
+    };
+
+    Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(source.to_string().into()),
+      module_specifier,
+      None,
+    ))
+  }
+}
+
+impl ModuleLoader for DirectModuleLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    _kind: ResolutionKind,
+  ) -> Result<deno_core::ModuleSpecifier, ModuleLoaderError> {
+    if specifier.starts_with("npm:") || specifier.starts_with("jsr:") {
+      return deno_core::ModuleSpecifier::parse(specifier).map_err(JsErrorBox::from_err);
+    }
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
+  }
+
+  fn load(
+    &self,
+    module_specifier: &deno_core::ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
+  ) -> ModuleLoadResponse {
+    let result = match module_specifier.scheme() {
+      "file" => Self::load_file_module(self.source_maps.clone(), module_specifier),
+      "npm" | "jsr" => Self::load_shim_module(module_specifier),
+      scheme => Err(JsErrorBox::generic(format!(
+        "unsupported module scheme: {scheme}"
+      ))),
+    };
+
+    ModuleLoadResponse::Sync(result)
+  }
+
+  fn get_source_map(&self, specifier: &str) -> Option<Cow<'_, [u8]>> {
+    self
+      .source_maps
+      .borrow()
+      .get(specifier)
+      .map(|source_map| Cow::Owned(source_map.clone()))
   }
 }
 
@@ -501,30 +981,10 @@ async fn run_inner() -> Result<(), AnyError> {
   let embed_result = Arc::new(Mutex::new(EmbedResult::default()));
   let embed_result_for_worker = embed_result.clone();
 
-  let mut flags = deno::args::Flags::default();
-  flags.initial_cwd = std::env::current_dir().ok();
-  flags.permissions.allow_all = true;
-  flags.cached_only = false;
-  flags.no_remote = false;
-  flags.subcommand = deno::args::DenoSubcommand::Run(deno::args::RunFlags {
-    script: bootstrap_path.to_string_lossy().to_string(),
-    ..Default::default()
-  });
-
-  let flags = Arc::new(flags);
-  let factory = deno::CliFactory::from_flags(flags.clone());
-  deno::tools::run::maybe_npm_install(&factory).await?;
-
-  let root_permissions = factory.root_permissions_container()?.clone();
-  let module_loader_factory = factory.create_module_loader_factory().await?;
-  let module_loader_result = module_loader_factory.create_for_main(root_permissions.clone());
-  let node_services = deno_runtime::deno_node::NodeExtInitServices {
-    node_require_loader: module_loader_result.node_require_loader,
-    node_resolver: factory.node_resolver().await?.clone(),
-    pkg_json_resolver: factory.pkg_json_resolver()?.clone(),
-    sys: factory.sys(),
-  };
-  let npm_process_state_provider = create_npm_process_state_provider(factory.npm_resolver().await?);
+  let root_permissions = deno_runtime::deno_permissions::PermissionsContainer::allow_all(Arc::new(
+    deno_runtime::permissions::RuntimePermissionDescriptorParser::new(deno::sys::CliSys::default()),
+  ));
+  let module_loader = Rc::new(DirectModuleLoader::new());
 
   let main_module = Url::from_file_path(&bootstrap_path)
     .map(deno_core::ModuleSpecifier::from)
@@ -540,20 +1000,20 @@ async fn run_inner() -> Result<(), AnyError> {
     deno::sys::CliSys,
   > {
     deno_rt_native_addon_loader: None,
-    module_loader: module_loader_result.module_loader,
+    module_loader,
     permissions: root_permissions,
-    blob_store: factory.blob_store().clone(),
+    blob_store: Arc::new(deno_runtime::deno_web::BlobStore::default()),
     broadcast_channel: Default::default(),
-    feature_checker: factory.feature_checker()?.clone(),
-    node_services: Some(node_services),
-    npm_process_state_provider: Some(npm_process_state_provider),
-    root_cert_store_provider: Some(factory.root_cert_store_provider().clone()),
+    feature_checker: Arc::new(deno_runtime::FeatureChecker::default()),
+    node_services: None,
+    npm_process_state_provider: None,
+    root_cert_store_provider: None,
     fetch_dns_resolver: Default::default(),
     shared_array_buffer_store: None,
     compiled_wasm_module_store: None,
     v8_code_cache: None,
     bundle_provider: None,
-    fs: factory.fs().clone(),
+    fs: Arc::new(deno_runtime::deno_fs::RealFs),
   };
   let options = WorkerOptions {
     startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
