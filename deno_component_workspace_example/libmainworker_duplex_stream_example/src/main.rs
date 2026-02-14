@@ -13,6 +13,7 @@ use deno_core::{
   ModuleSource, ModuleSourceCode, ModuleType, OpState, ResolutionKind, Resource, ResourceId,
   error::{AnyError, ModuleLoaderError},
   op2, resolve_import,
+  url::Url,
 };
 use deno_error::JsErrorBox;
 use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
@@ -25,7 +26,6 @@ use tokio::{
   sync::mpsc,
   time::{Duration, MissedTickBehavior},
 };
-use url::Url;
 
 struct DuplexChannelPair {
   inbound_rx: mpsc::Receiver<String>,
