@@ -30,6 +30,30 @@ CC=clang cargo run -p libmainworker_duplex_stream_example
 CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/simple_test.ts
 #+end_src
 
+** 3.4 传入 TypeScript 运行参数（module / mfa / argv）
+支持以下参数：
+- ~--target <script>~：显式指定入口脚本
+- ~--module <specifier>~：启动时预加载模块（可重复）
+- ~--mfa <value>~：注入 mfa 运行参数（可重复）
+- ~-- <argv...>~：透传到 ~Deno.args~
+- ~--persistent~：保持常驻，等待外部消息（不会自动 one-shot 退出）
+- ~--oneshot~：强制 one-shot 模式（默认是 persistent 常驻）
+
+示例：
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example -- \
+  --target embed_deno/main.ts \
+  --module jsr:@std/dotenv/load \
+  --mfa sms --mfa totp \
+  -- --profile prod --region us-east-1
+#+end_src
+
+常驻示例：
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example -- \
+  --persistent --target embed_deno/simple_main.ts
+#+end_src
+
 * 4. 与 TS 文件配合使用
 ** 4.1 支持的脚本路径参数
 - 本地相对路径：~embed_deno/simple_main.ts~
@@ -82,6 +106,16 @@ CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/stream.t
 - ~[rust] received: ts->rust: pong-1~
 - ~worker exit code: 0~
 - ~EMBED_DENO_RESULT={...}~ （当 TS 调用了 ~embedDeno.setResult~）
+
+** 5.3 外部进程消息输入（stdin JSON line）
+运行时会持续读取 stdin，每行一个 JSON，转发给 TS 侧处理（~loop + tokio::select!~）。
+
+常用消息：
+- ~{"type":"message","id":"req-1","payload":{"text":"from other process"}}~
+- ~{"type":"module","specifier":"jsr:@std/async/delay"}~
+- ~{"type":"mfa","values":["sms","totp"]}~
+- ~{"type":"runtime_args","args":["--tenant","acme"]}~
+- ~{"type":"shutdown","reason":"external_request"}~
 
 * 6. 常见问题
 ** 6.1 为什么要用 #[tokio::main] 但内部还是 current-thread runtime？

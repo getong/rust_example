@@ -177,9 +177,34 @@ fn execute_ts_initiated_rust_call(
   }
 }
 
+fn normalize_external_process_message(line: &str) -> serde_json::Value {
+  match serde_json::from_str::<serde_json::Value>(line) {
+    Ok(serde_json::Value::Object(map)) => {
+      if map.contains_key("type") {
+        serde_json::Value::Object(map)
+      } else {
+        serde_json::json!({
+          "type": "external_message",
+          "payload": serde_json::Value::Object(map),
+        })
+      }
+    }
+    Ok(value) => serde_json::json!({
+      "type": "external_message",
+      "payload": value,
+    }),
+    Err(_) => serde_json::json!({
+      "type": "external_message",
+      "payload": line,
+    }),
+  }
+}
+
 pub(crate) async fn rust_duplex_driver(
   rust_to_ts_tx: mpsc::Sender<String>,
   mut ts_to_rust_rx: mpsc::Receiver<String>,
+  mut process_message_rx: mpsc::Receiver<String>,
+  persistent: bool,
 ) -> Result<(), AnyError> {
   let mut interval = tokio::time::interval(Duration::from_millis(300));
   interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -190,21 +215,11 @@ pub(crate) async fn rust_duplex_driver(
   let mut is_ready = false;
   let mut sent_demo_message = false;
   let mut sent_shutdown = false;
+  let mut process_input_closed = false;
 
   loop {
     tokio::select! {
       _ = interval.tick(), if !sent_shutdown => {
-        ping_seq += 1;
-        write_json_line(
-          &rust_to_ts_tx,
-          &serde_json::json!({
-            "type": "ping",
-            "seq": ping_seq,
-            "from": "rust",
-          }),
-        )
-        .await?;
-
         if is_ready && !sent_demo_message {
           write_json_line(
             &rust_to_ts_tx,
@@ -221,30 +236,55 @@ pub(crate) async fn rust_duplex_driver(
           sent_demo_message = true;
         }
 
-        if is_ready && pong_count >= 3 {
-          write_json_line(
-            &rust_to_ts_tx,
-            &serde_json::json!({
-              "type": "shutdown",
-              "reason": "demo_completed",
-            }),
-          )
-          .await?;
-          sent_shutdown = true;
-        } else if ping_seq >= 10 {
-          write_json_line(
-            &rust_to_ts_tx,
-            &serde_json::json!({
-              "type": "shutdown",
-              "reason": "timeout",
-            }),
-          )
-          .await?;
-          sent_shutdown = true;
+        if persistent {
+          continue;
+        }
+
+        ping_seq += 1;
+        write_json_line(
+          &rust_to_ts_tx,
+          &serde_json::json!({
+            "type": "ping",
+            "seq": ping_seq,
+            "from": "rust",
+          }),
+        )
+        .await?;
+
+        if !persistent {
+          if is_ready && pong_count >= 3 {
+            write_json_line(
+              &rust_to_ts_tx,
+              &serde_json::json!({
+                "type": "shutdown",
+                "reason": "oneshot_completed",
+              }),
+            )
+            .await?;
+            sent_shutdown = true;
+          } else if ping_seq >= 10 {
+            write_json_line(
+              &rust_to_ts_tx,
+              &serde_json::json!({
+                "type": "shutdown",
+                "reason": "oneshot_timeout",
+              }),
+            )
+            .await?;
+            sent_shutdown = true;
+          }
         }
       }
       inbound = read_line(&mut ts_to_rust_rx) => {
-        let inbound = inbound?;
+        let inbound = match inbound {
+          Ok(line) => line,
+          Err(err) => {
+            if sent_shutdown {
+              break;
+            }
+            return Err(err);
+          }
+        };
         println!("[rust] received: {inbound}");
         let Ok(message) = serde_json::from_str::<serde_json::Value>(&inbound) else {
           continue;
@@ -256,6 +296,7 @@ pub(crate) async fn rust_duplex_driver(
           }
           Some("pong") => {
             pong_count += 1;
+            continue;
           }
           Some("message_result") => {
             if let Some(result) = message.get("result") {
@@ -294,6 +335,20 @@ pub(crate) async fn rust_duplex_driver(
               }
             }
           }
+          Some("module_loaded") => {
+            if let Some(specifier) = message.get("specifier") {
+              println!("[rust] module loaded from ts: {specifier}");
+            }
+          }
+          Some("module_error") => {
+            return Err(AnyError::msg(format!("ts module update failed: {message}")));
+          }
+          Some("mfa_updated") => {
+            println!("[rust] mfa updated in ts: {}", message);
+          }
+          Some("runtime_args_updated") => {
+            println!("[rust] runtime args updated in ts: {}", message);
+          }
           Some("shutdown_ack") => {
             break;
           }
@@ -301,6 +356,35 @@ pub(crate) async fn rust_duplex_driver(
             return Err(AnyError::msg(format!("ts message error: {message}")));
           }
           _ => {}
+        }
+      }
+      external_line = process_message_rx.recv(), if !process_input_closed => {
+        match external_line {
+          Some(line) => {
+            let outbound = normalize_external_process_message(&line);
+            if outbound
+              .get("type")
+              .and_then(|v| v.as_str())
+              .is_some_and(|value| value == "shutdown")
+            {
+              sent_shutdown = true;
+            }
+            write_json_line(&rust_to_ts_tx, &outbound).await?;
+          }
+          None => {
+            process_input_closed = true;
+            if !sent_shutdown && is_ready {
+              write_json_line(
+                &rust_to_ts_tx,
+                &serde_json::json!({
+                  "type": "shutdown",
+                  "reason": "process_input_closed",
+                }),
+              )
+              .await?;
+              sent_shutdown = true;
+            }
+          }
         }
       }
     }

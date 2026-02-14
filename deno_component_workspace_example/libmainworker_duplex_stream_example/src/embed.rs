@@ -9,13 +9,17 @@ const EMBED_RESULT_SOURCE: &str = include_str!("embed_result.ts");
 pub(crate) struct EmbedResult {
   pub(crate) result: Option<String>,
   pub(crate) exit_data: Option<String>,
+  pub(crate) result_printed: bool,
+  pub(crate) exit_data_printed: bool,
 }
 
 #[op2(fast)]
 fn libmainworker_embed_set_result(state: &mut OpState, #[string] value: String) {
   let holder = state.borrow::<Arc<Mutex<EmbedResult>>>();
   if let Ok(mut slot) = holder.lock() {
+    println!("EMBED_DENO_RESULT={value}");
     slot.result = Some(value);
+    slot.result_printed = true;
   }
 }
 
@@ -23,7 +27,9 @@ fn libmainworker_embed_set_result(state: &mut OpState, #[string] value: String) 
 fn libmainworker_embed_set_exit_data(state: &mut OpState, #[string] value: String) {
   let holder = state.borrow::<Arc<Mutex<EmbedResult>>>();
   if let Ok(mut slot) = holder.lock() {
+    println!("EMBED_DENO_EXIT_DATA={value}");
     slot.exit_data = Some(value);
+    slot.exit_data_printed = true;
   }
 }
 
