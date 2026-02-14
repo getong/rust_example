@@ -6950,7 +6950,6 @@ dependencies = [
  "tokio-util",
  "typed-arena",
  "unicode-width 0.2.2",
- "url",
  "uuid",
  "walkdir",
  "zip",
