@@ -6878,7 +6878,6 @@ dependencies = [
  "console_static_text",
  "crossterm",
  "dashmap 6.1.0",
- "deno",
  "deno_ast 0.52.0",
  "deno_core",
  "deno_error",

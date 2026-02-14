@@ -982,7 +982,9 @@ async fn run_inner() -> Result<(), AnyError> {
   let embed_result_for_worker = embed_result.clone();
 
   let root_permissions = deno_runtime::deno_permissions::PermissionsContainer::allow_all(Arc::new(
-    deno_runtime::permissions::RuntimePermissionDescriptorParser::new(deno::sys::CliSys::default()),
+    deno_runtime::permissions::RuntimePermissionDescriptorParser::new(
+      sys_traits::impls::RealSys::default(),
+    ),
   ));
   let module_loader = Rc::new(DirectModuleLoader::new());
 
@@ -996,8 +998,8 @@ async fn run_inner() -> Result<(), AnyError> {
     })?;
   let services = WorkerServiceOptions::<
     DenoInNpmPackageChecker,
-    NpmResolver<deno::sys::CliSys>,
-    deno::sys::CliSys,
+    NpmResolver<sys_traits::impls::RealSys>,
+    sys_traits::impls::RealSys,
   > {
     deno_rt_native_addon_loader: None,
     module_loader,
