@@ -6866,6 +6866,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "aws-lc-rs",
+ "axum 0.8.8",
  "base64 0.22.1",
  "bincode",
  "boxed_error",

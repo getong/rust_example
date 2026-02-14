@@ -1,9 +1,9 @@
 #!/bin/sh
 
-  STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/main.ts
-  STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/stream_return.ts
-  STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/stream.ts
-  STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/main.ts
+STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/main.ts
+STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/stream_return.ts
+STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/stream.ts
+STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/main.ts
   STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/dotenv_test.ts
   STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/fetch_api_example.ts
   STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/function_caller.ts

@@ -16,12 +16,14 @@ use tokio::{
 };
 
 use crate::{
+  axum_server::serve as serve_axum_mainworker_api,
   duplex::{DuplexChannelPair, duplex_extension, rust_duplex_driver},
   embed::{EmbedResult, embed_extension},
   module_loader::DirectModuleLoader,
   runtime_paths::{bootstrap_script_path, resolve_target_specifier},
 };
 
+mod axum_server;
 mod duplex;
 mod embed;
 mod module_loader;
@@ -58,9 +60,9 @@ impl Default for RuntimeLaunchArgs {
   }
 }
 
-fn parse_runtime_launch_args() -> Result<RuntimeLaunchArgs, AnyError> {
+fn parse_runtime_launch_args(args: &[String]) -> Result<RuntimeLaunchArgs, AnyError> {
   let mut parsed = RuntimeLaunchArgs::default();
-  let mut args = std::env::args().skip(1);
+  let mut args = args.iter().cloned();
   let mut target_set = false;
   let mut passthrough_mode = false;
 
@@ -142,6 +144,91 @@ fn parse_runtime_launch_args() -> Result<RuntimeLaunchArgs, AnyError> {
   Ok(parsed)
 }
 
+#[derive(Debug)]
+struct StartupArgs {
+  axum_addr: String,
+  worker_args: Vec<String>,
+  internal_run_once: bool,
+}
+
+fn parse_startup_args(args: Vec<String>) -> Result<StartupArgs, AnyError> {
+  if args.first().is_some_and(|arg| arg == "--internal-run-once") {
+    return Ok(StartupArgs {
+      axum_addr: "127.0.0.1:8787".to_string(),
+      worker_args: args.into_iter().skip(1).collect(),
+      internal_run_once: true,
+    });
+  }
+
+  let mut axum_addr = "127.0.0.1:8787".to_string();
+  let mut worker_args = Vec::new();
+  let mut i = 0_usize;
+  while i < args.len() {
+    let arg = &args[i];
+    if arg == "--axum" {
+      if i + 1 < args.len() {
+        let candidate = args[i + 1].trim();
+        if candidate.is_empty() {
+          return Err(AnyError::msg("--axum requires non-empty listen addr"));
+        }
+        axum_addr = candidate.to_string();
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if let Some(addr) = arg.strip_prefix("--axum=") {
+      let addr = addr.trim();
+      if addr.is_empty() {
+        return Err(AnyError::msg("--axum= requires non-empty listen addr"));
+      }
+      axum_addr = addr.to_string();
+      i += 1;
+      continue;
+    }
+
+    worker_args.push(arg.clone());
+    i += 1;
+  }
+
+  Ok(StartupArgs {
+    axum_addr,
+    worker_args,
+    internal_run_once: false,
+  })
+}
+
+fn spawn_worker_runtime_thread(
+  worker_args: Vec<String>,
+) -> Result<tokio::sync::oneshot::Receiver<Result<(), AnyError>>, AnyError> {
+  let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<(), AnyError>>();
+
+  std::thread::Builder::new()
+    .name("libmainworker_duplex_runtime".to_string())
+    .spawn(move || {
+      let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+      {
+        Ok(runtime) => runtime,
+        Err(err) => {
+          let _ = result_tx.send(Err(AnyError::msg(format!(
+            "failed to create current-thread runtime: {err}"
+          ))));
+          return;
+        }
+      };
+
+      let local = tokio::task::LocalSet::new();
+      let result = local.block_on(&runtime, run_inner(worker_args));
+      let _ = result_tx.send(result);
+    })
+    .map_err(|err| AnyError::msg(format!("failed to spawn runtime thread: {err}")))?;
+
+  Ok(result_rx)
+}
+
 async fn bridge_stdin_messages(tx: mpsc::Sender<String>) -> Result<(), AnyError> {
   let stdin = tokio::io::stdin();
   let mut lines = BufReader::new(stdin).lines();
@@ -168,36 +255,33 @@ async fn bridge_stdin_messages(tx: mpsc::Sender<String>) -> Result<(), AnyError>
 
 #[tokio::main]
 async fn main() -> Result<(), AnyError> {
-  let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<(), AnyError>>();
+  let startup = parse_startup_args(std::env::args().skip(1).collect::<Vec<_>>())?;
 
-  std::thread::Builder::new()
-    .name("libmainworker_duplex_runtime".to_string())
-    .spawn(move || {
-      let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-      {
-        Ok(runtime) => runtime,
-        Err(err) => {
-          let _ = result_tx.send(Err(AnyError::msg(format!(
-            "failed to create current-thread runtime: {err}"
-          ))));
-          return;
-        }
-      };
+  if startup.internal_run_once {
+    return spawn_worker_runtime_thread(startup.worker_args)?
+      .await
+      .map_err(|err| AnyError::msg(format!("runtime thread dropped result: {err}")))?;
+  }
 
-      let local = tokio::task::LocalSet::new();
-      let result = local.block_on(&runtime, run_inner());
-      let _ = result_tx.send(result);
-    })
-    .map_err(|err| AnyError::msg(format!("failed to spawn runtime thread: {err}")))?;
+  let background_worker_result_rx = spawn_worker_runtime_thread(startup.worker_args)?;
+  tokio::spawn(async move {
+    match background_worker_result_rx.await {
+      Ok(Ok(())) => {
+        eprintln!("[main] background mainworker stopped cleanly");
+      }
+      Ok(Err(err)) => {
+        eprintln!("[main] background mainworker exited with error: {err}");
+      }
+      Err(err) => {
+        eprintln!("[main] background mainworker dropped result: {err}");
+      }
+    }
+  });
 
-  result_rx
-    .await
-    .map_err(|err| AnyError::msg(format!("runtime thread dropped result: {err}")))?
+  serve_axum_mainworker_api(&startup.axum_addr).await
 }
 
-async fn run_inner() -> Result<(), AnyError> {
+async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
   // Required by rustls 0.23+ when TLS-backed APIs (for example fetch) are used.
   let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
@@ -206,7 +290,7 @@ async fn run_inner() -> Result<(), AnyError> {
     std::env::set_var("DENO_FORCE_OP_REGISTRATION", "1");
   }
 
-  let launch_args = parse_runtime_launch_args()?;
+  let launch_args = parse_runtime_launch_args(&worker_args)?;
   let target_specifier = resolve_target_specifier(&launch_args.target_arg)?;
   let preload_modules = launch_args
     .preload_modules

@@ -54,6 +54,45 @@ CC=clang cargo run -p libmainworker_duplex_stream_example -- \
   --persistent --target embed_deno/simple_main.ts
 #+end_src
 
+** 3.5 Axum API 模式
+默认直接启动 API 服务（监听 ~127.0.0.1:8787~）：
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example
+#+end_src
+
+或者自定义监听地址：
+#+begin_src bash
+CC=clang cargo run -p libmainworker_duplex_stream_example -- --axum 127.0.0.1:8790
+#+end_src
+
+说明：
+- 程序启动时会同时启动：
+  - axum HTTP 服务
+  - mainworker 后台线程（默认 persistent）
+- 如果你传了 ~target/module/mfa/args~ 等运行参数，这些参数会用于“后台 mainworker”初始化，同时 axum 仍然可用。
+
+接口调用示例：
+#+begin_src bash
+curl -sS http://127.0.0.1:8787/run \
+  -H 'content-type: application/json' \
+  -d '{
+    "target": "embed_deno/stream_return.ts",
+    "modules": ["jsr:@std/dotenv/load"],
+    "mfa": ["sms"],
+    "args": ["--profile", "prod"]
+  }' | jq
+#+end_src
+
+返回 JSON 里会包含：
+- ~ok~
+- ~result~（对应 ~EMBED_DENO_RESULT~）
+- ~exitData~（对应 ~EMBED_DENO_EXIT_DATA~）
+- ~stdoutLines~ / ~stderr~
+
+说明：
+- ~--oneshot~ 主要用于内部一次性执行（例如 axum 的 ~POST /run~）；
+- 日常直接启动服务时，保持默认 ~persistent~ 更合适。
+
 * 4. 与 TS 文件配合使用
 ** 4.1 支持的脚本路径参数
 - 本地相对路径：~embed_deno/simple_main.ts~
