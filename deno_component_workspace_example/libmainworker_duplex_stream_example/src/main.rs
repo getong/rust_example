@@ -6,7 +6,7 @@ use std::{
   sync::{Arc, Mutex},
 };
 
-use deno_core::{OpState, Resource, ResourceId, error::AnyError, op2};
+use deno_core::{ExtensionFileSource, OpState, Resource, ResourceId, error::AnyError, op2};
 use deno_error::JsErrorBox;
 use deno_runtime::WorkerExecutionMode;
 use tokio::{
@@ -19,6 +19,11 @@ struct DuplexChannelPair {
   inbound_rx: mpsc::Receiver<String>,
   outbound_tx: mpsc::Sender<String>,
 }
+
+const DUPLEX_API_SPECIFIER: &str = "ext:libmainworker_duplex_ext/duplex_api.ts";
+const DUPLEX_API_SOURCE: &str = include_str!("duplex_api.ts");
+const EMBED_RESULT_SPECIFIER: &str = "ext:libmainworker_embed_ext/embed_result.ts";
+const EMBED_RESULT_SOURCE: &str = include_str!("embed_result.ts");
 
 #[derive(Clone)]
 struct DuplexChannelSlot {
@@ -99,8 +104,6 @@ async fn op_duplex_write_line(
 deno_core::extension!(
   libmainworker_duplex_ext,
   ops = [op_duplex_open, op_duplex_read_line, op_duplex_write_line],
-  esm_entry_point = "ext:libmainworker_duplex_ext/duplex_api.js",
-  esm = [dir "src", "duplex_api.js"],
   options = {
     channel_slot: DuplexChannelSlot,
   },
@@ -110,9 +113,18 @@ deno_core::extension!(
 );
 
 fn duplex_extension(channels: DuplexChannelPair) -> deno_core::Extension {
-  libmainworker_duplex_ext::init(DuplexChannelSlot {
+  let mut ext = libmainworker_duplex_ext::init(DuplexChannelSlot {
     channels: Arc::new(Mutex::new(Some(channels))),
-  })
+  });
+  ext
+    .esm_files
+    .to_mut()
+    .push(ExtensionFileSource::new_computed(
+      DUPLEX_API_SPECIFIER,
+      Arc::<str>::from(DUPLEX_API_SOURCE),
+    ));
+  ext.esm_entry_point = Some(DUPLEX_API_SPECIFIER);
+  ext
 }
 
 #[op2(fast)]
@@ -134,8 +146,6 @@ fn libmainworker_embed_set_exit_data(state: &mut OpState, #[string] value: Strin
 deno_core::extension!(
   libmainworker_embed_ext,
   ops = [libmainworker_embed_set_result, libmainworker_embed_set_exit_data],
-  esm_entry_point = "ext:libmainworker_embed_ext/embed_result.js",
-  esm = [dir "src", "embed_result.js"],
   options = {
     result_holder: Arc<Mutex<EmbedResult>>,
   },
@@ -145,7 +155,16 @@ deno_core::extension!(
 );
 
 fn embed_extension(result_holder: Arc<Mutex<EmbedResult>>) -> deno_core::Extension {
-  libmainworker_embed_ext::init(result_holder)
+  let mut ext = libmainworker_embed_ext::init(result_holder);
+  ext
+    .esm_files
+    .to_mut()
+    .push(ExtensionFileSource::new_computed(
+      EMBED_RESULT_SPECIFIER,
+      Arc::<str>::from(EMBED_RESULT_SOURCE),
+    ));
+  ext.esm_entry_point = Some(EMBED_RESULT_SPECIFIER);
+  ext
 }
 
 async fn read_line(rx: &mut mpsc::Receiver<String>) -> Result<String, AnyError> {
