@@ -8,7 +8,13 @@ use std::{
 
 use deno_core::{ExtensionFileSource, OpState, Resource, ResourceId, error::AnyError, op2};
 use deno_error::JsErrorBox;
-use deno_runtime::WorkerExecutionMode;
+use deno_lib::{npm::create_npm_process_state_provider, worker::ModuleLoaderFactory};
+use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
+use deno_runtime::{
+  BootstrapOptions, WorkerExecutionMode,
+  ops::bootstrap::SnapshotOptions,
+  worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
+};
 use tokio::{
   sync::mpsc,
   time::{Duration, MissedTickBehavior},
@@ -166,6 +172,16 @@ fn embed_extension(result_holder: Arc<Mutex<EmbedResult>>) -> deno_core::Extensi
   ext.esm_entry_point = Some(EMBED_RESULT_SPECIFIER);
   ext
 }
+
+deno_core::extension!(
+  snapshot_options_extension,
+  options = {
+    snapshot_options: SnapshotOptions,
+  },
+  state = |state, options| {
+    state.put::<SnapshotOptions>(options.snapshot_options);
+  },
+);
 
 async fn read_line(rx: &mut mpsc::Receiver<String>) -> Result<String, AnyError> {
   rx.recv()
@@ -497,47 +513,84 @@ async fn run_inner() -> Result<(), AnyError> {
 
   let flags = Arc::new(flags);
   let factory = deno::CliFactory::from_flags(flags.clone());
-  let cli_options = factory.cli_options()?;
-
-  let main_module = cli_options.resolve_main_module()?;
-  let preload_modules = cli_options.preload_modules()?;
-  let require_modules = cli_options.require_modules()?;
-
   deno::tools::run::maybe_npm_install(&factory).await?;
 
-  let worker_factory = factory
-    .create_cli_main_worker_factory_with_roots(Default::default())
-    .await?;
+  let root_permissions = factory.root_permissions_container()?.clone();
+  let module_loader_factory = factory.create_module_loader_factory().await?;
+  let module_loader_result = module_loader_factory.create_for_main(root_permissions.clone());
+  let node_services = deno_runtime::deno_node::NodeExtInitServices {
+    node_require_loader: module_loader_result.node_require_loader,
+    node_resolver: factory.node_resolver().await?.clone(),
+    pkg_json_resolver: factory.pkg_json_resolver()?.clone(),
+    sys: factory.sys(),
+  };
+  let npm_process_state_provider = create_npm_process_state_provider(factory.npm_resolver().await?);
 
-  let mut worker = worker_factory
-    .create_custom_worker(
-      WorkerExecutionMode::Run,
-      main_module.clone(),
-      preload_modules,
-      require_modules,
-      factory.root_permissions_container()?.clone(),
-      vec![
-        duplex_extension(DuplexChannelPair {
-          inbound_rx: rust_to_ts_rx,
-          outbound_tx: ts_to_rust_tx,
-        }),
-        embed_extension(embed_result_for_worker),
-      ],
-      Default::default(),
-      None,
-    )
-    .await?;
+  let main_module = Url::from_file_path(&bootstrap_path)
+    .map(deno_core::ModuleSpecifier::from)
+    .map_err(|_| {
+      AnyError::msg(format!(
+        "failed to convert bootstrap path to file url: {}",
+        bootstrap_path.display()
+      ))
+    })?;
+  let services = WorkerServiceOptions::<
+    DenoInNpmPackageChecker,
+    NpmResolver<deno::sys::CliSys>,
+    deno::sys::CliSys,
+  > {
+    deno_rt_native_addon_loader: None,
+    module_loader: module_loader_result.module_loader,
+    permissions: root_permissions,
+    blob_store: factory.blob_store().clone(),
+    broadcast_channel: Default::default(),
+    feature_checker: factory.feature_checker()?.clone(),
+    node_services: Some(node_services),
+    npm_process_state_provider: Some(npm_process_state_provider),
+    root_cert_store_provider: Some(factory.root_cert_store_provider().clone()),
+    fetch_dns_resolver: Default::default(),
+    shared_array_buffer_store: None,
+    compiled_wasm_module_store: None,
+    v8_code_cache: None,
+    bundle_provider: None,
+    fs: factory.fs().clone(),
+  };
+  let options = WorkerOptions {
+    startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+    bootstrap: BootstrapOptions {
+      mode: WorkerExecutionMode::Run,
+      enable_testing_features: true,
+      ..Default::default()
+    },
+    extensions: vec![
+      snapshot_options_extension::init(SnapshotOptions::default()),
+      duplex_extension(DuplexChannelPair {
+        inbound_rx: rust_to_ts_rx,
+        outbound_tx: ts_to_rust_tx,
+      }),
+      embed_extension(embed_result_for_worker),
+    ],
+    ..Default::default()
+  };
+  let mut worker = MainWorker::bootstrap_from_options(&main_module.clone(), services, options);
 
-  println!("mainworker created with CLI factory + duplex extension");
-  let mut worker_future = std::pin::pin!(worker.run());
+  println!("mainworker created with direct MainWorker bootstrap + duplex extension");
+  let worker_main_module = main_module.clone();
+  let mut worker_future = std::pin::pin!(async move {
+    let module_id = worker.preload_main_module(&worker_main_module).await?;
+    worker.evaluate_module(module_id).await?;
+    worker.run_event_loop(false).await?;
+    Ok::<(), AnyError>(())
+  });
   let mut driver_future = std::pin::pin!(rust_duplex_driver(rust_to_ts_tx, ts_to_rust_rx));
-  let mut maybe_exit_code: Option<i32> = None;
+  let mut worker_completed = false;
   let mut driver_completed = false;
 
   loop {
     tokio::select! {
-      worker_result = &mut worker_future, if maybe_exit_code.is_none() => {
-        maybe_exit_code = Some(worker_result?);
+      worker_result = &mut worker_future, if !worker_completed => {
+        worker_result?;
+        worker_completed = true;
         if driver_completed {
           break;
         }
@@ -545,20 +598,21 @@ async fn run_inner() -> Result<(), AnyError> {
       driver_result = &mut driver_future, if !driver_completed => {
         driver_result?;
         driver_completed = true;
-        if maybe_exit_code.is_some() {
+        if worker_completed {
           break;
         }
       }
     }
   }
 
-  let exit_code =
-    maybe_exit_code.ok_or_else(|| AnyError::msg("worker finished without exit code"))?;
+  if !worker_completed {
+    return Err(AnyError::msg("worker did not complete"));
+  }
   if !driver_completed {
     return Err(AnyError::msg("rust duplex driver did not complete"));
   }
 
-  println!("worker exit code: {exit_code}");
+  println!("worker completed (direct MainWorker mode, no CLI exit code)");
   println!("rust <-> ts channel communication completed");
 
   if let Ok(mut guard) = embed_result.lock() {
