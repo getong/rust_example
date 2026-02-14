@@ -10,14 +10,19 @@ use deno_core::{OpState, Resource, ResourceId, error::AnyError, op2};
 use deno_error::JsErrorBox;
 use deno_runtime::WorkerExecutionMode;
 use tokio::{
-  io::{AsyncReadExt, AsyncWriteExt, DuplexStream},
+  sync::mpsc,
   time::{Duration, MissedTickBehavior},
 };
 use url::Url;
 
+struct DuplexChannelPair {
+  inbound_rx: mpsc::Receiver<String>,
+  outbound_tx: mpsc::Sender<String>,
+}
+
 #[derive(Clone)]
-struct DuplexStreamSlot {
-  stream: Arc<Mutex<Option<DuplexStream>>>,
+struct DuplexChannelSlot {
+  channels: Arc<Mutex<Option<DuplexChannelPair>>>,
 }
 
 #[derive(Clone, Default)]
@@ -28,7 +33,8 @@ struct EmbedResult {
 
 #[derive(Debug)]
 struct TokioDuplexResource {
-  stream: tokio::sync::Mutex<DuplexStream>,
+  inbound_rx: tokio::sync::Mutex<mpsc::Receiver<String>>,
+  outbound_tx: mpsc::Sender<String>,
 }
 
 impl Resource for TokioDuplexResource {
@@ -40,16 +46,17 @@ impl Resource for TokioDuplexResource {
 #[op2(fast)]
 #[smi]
 fn op_duplex_open(state: &mut OpState) -> Result<ResourceId, JsErrorBox> {
-  let slot = state.borrow::<DuplexStreamSlot>().clone();
+  let slot = state.borrow::<DuplexChannelSlot>().clone();
   let mut guard = slot
-    .stream
+    .channels
     .lock()
-    .map_err(|_| JsErrorBox::generic("failed to lock duplex stream slot"))?;
-  let stream = guard
+    .map_err(|_| JsErrorBox::generic("failed to lock duplex channel slot"))?;
+  let channels = guard
     .take()
-    .ok_or_else(|| JsErrorBox::generic("duplex stream already opened"))?;
+    .ok_or_else(|| JsErrorBox::generic("duplex channel already opened"))?;
   Ok(state.resource_table.add(TokioDuplexResource {
-    stream: tokio::sync::Mutex::new(stream),
+    inbound_rx: tokio::sync::Mutex::new(channels.inbound_rx),
+    outbound_tx: channels.outbound_tx,
   }))
 }
 
@@ -64,8 +71,8 @@ async fn op_duplex_read_line(
     .resource_table
     .get::<TokioDuplexResource>(rid)
     .map_err(|err| JsErrorBox::generic(err.to_string()))?;
-  let mut stream = resource.stream.lock().await;
-  read_line(&mut stream)
+  let mut inbound_rx = resource.inbound_rx.lock().await;
+  read_line(&mut inbound_rx)
     .await
     .map_err(|err| JsErrorBox::generic(err.to_string()))
 }
@@ -82,11 +89,11 @@ async fn op_duplex_write_line(
     .resource_table
     .get::<TokioDuplexResource>(rid)
     .map_err(|err| JsErrorBox::generic(err.to_string()))?;
-  let mut stream = resource.stream.lock().await;
-  write_line(&mut stream, &line)
+  let written = line.len() as u32;
+  write_line(&resource.outbound_tx, line)
     .await
     .map_err(|err| JsErrorBox::generic(err.to_string()))?;
-  Ok(line.len() as u32)
+  Ok(written)
 }
 
 deno_core::extension!(
@@ -95,16 +102,16 @@ deno_core::extension!(
   esm_entry_point = "ext:libmainworker_duplex_ext/duplex_api.js",
   esm = [dir "src", "duplex_api.js"],
   options = {
-    stream_slot: DuplexStreamSlot,
+    channel_slot: DuplexChannelSlot,
   },
   state = |state, options| {
-    state.put(options.stream_slot);
+    state.put(options.channel_slot);
   }
 );
 
-fn duplex_extension(stream: DuplexStream) -> deno_core::Extension {
-  libmainworker_duplex_ext::init(DuplexStreamSlot {
-    stream: Arc::new(Mutex::new(Some(stream))),
+fn duplex_extension(channels: DuplexChannelPair) -> deno_core::Extension {
+  libmainworker_duplex_ext::init(DuplexChannelSlot {
+    channels: Arc::new(Mutex::new(Some(channels))),
   })
 }
 
@@ -141,40 +148,24 @@ fn embed_extension(result_holder: Arc<Mutex<EmbedResult>>) -> deno_core::Extensi
   libmainworker_embed_ext::init(result_holder)
 }
 
-async fn read_line(stream: &mut DuplexStream) -> Result<String, AnyError> {
-  let mut buf = Vec::new();
-  loop {
-    let mut byte = [0_u8; 1];
-    let read = stream.read(&mut byte).await?;
-    if read == 0 {
-      break;
-    }
-    if byte[0] == b'\n' {
-      break;
-    }
-    buf.push(byte[0]);
-  }
-
-  if buf.is_empty() {
-    return Err(AnyError::msg("duplex stream reached EOF"));
-  }
-
-  String::from_utf8(buf).map_err(|err| AnyError::msg(err.to_string()))
+async fn read_line(rx: &mut mpsc::Receiver<String>) -> Result<String, AnyError> {
+  rx.recv()
+    .await
+    .ok_or_else(|| AnyError::msg("duplex channel reached EOF"))
 }
 
-async fn write_line(stream: &mut DuplexStream, line: &str) -> Result<(), AnyError> {
-  stream.write_all(line.as_bytes()).await?;
-  stream.write_all(b"\n").await?;
-  stream.flush().await?;
-  Ok(())
+async fn write_line(tx: &mpsc::Sender<String>, line: String) -> Result<(), AnyError> {
+  tx.send(line)
+    .await
+    .map_err(|err| AnyError::msg(format!("duplex channel send failed: {err}")))
 }
 
 async fn write_json_line(
-  stream: &mut DuplexStream,
+  tx: &mpsc::Sender<String>,
   value: &serde_json::Value,
 ) -> Result<(), AnyError> {
   let line = serde_json::to_string(value).map_err(|err| AnyError::msg(err.to_string()))?;
-  write_line(stream, &line).await
+  write_line(tx, line).await
 }
 
 fn execute_ts_initiated_rust_call(
@@ -218,7 +209,10 @@ fn execute_ts_initiated_rust_call(
   }
 }
 
-async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
+async fn rust_duplex_driver(
+  rust_to_ts_tx: mpsc::Sender<String>,
+  mut ts_to_rust_rx: mpsc::Receiver<String>,
+) -> Result<(), AnyError> {
   let mut interval = tokio::time::interval(Duration::from_millis(300));
   interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
   interval.tick().await;
@@ -234,7 +228,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
       _ = interval.tick(), if !sent_shutdown => {
         ping_seq += 1;
         write_json_line(
-          &mut stream,
+          &rust_to_ts_tx,
           &serde_json::json!({
             "type": "ping",
             "seq": ping_seq,
@@ -245,7 +239,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
 
         if is_ready && !sent_demo_message {
           write_json_line(
-            &mut stream,
+            &rust_to_ts_tx,
             &serde_json::json!({
               "type": "message",
               "id": "demo-1",
@@ -261,7 +255,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
 
         if is_ready && pong_count >= 3 {
           write_json_line(
-            &mut stream,
+            &rust_to_ts_tx,
             &serde_json::json!({
               "type": "shutdown",
               "reason": "demo_completed",
@@ -271,7 +265,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
           sent_shutdown = true;
         } else if ping_seq >= 10 {
           write_json_line(
-            &mut stream,
+            &rust_to_ts_tx,
             &serde_json::json!({
               "type": "shutdown",
               "reason": "timeout",
@@ -281,7 +275,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
           sent_shutdown = true;
         }
       }
-      inbound = read_line(&mut stream) => {
+      inbound = read_line(&mut ts_to_rust_rx) => {
         let inbound = inbound?;
         println!("[rust] received: {inbound}");
         let Ok(message) = serde_json::from_str::<serde_json::Value>(&inbound) else {
@@ -310,7 +304,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
             match execute_ts_initiated_rust_call(&payload) {
               Ok(result) => {
                 write_json_line(
-                  &mut stream,
+                  &rust_to_ts_tx,
                   &serde_json::json!({
                     "type": "rust_call_result",
                     "id": id,
@@ -321,7 +315,7 @@ async fn rust_duplex_driver(mut stream: DuplexStream) -> Result<(), AnyError> {
               }
               Err(err) => {
                 write_json_line(
-                  &mut stream,
+                  &rust_to_ts_tx,
                   &serde_json::json!({
                     "type": "rust_call_error",
                     "id": id,
@@ -362,7 +356,32 @@ fn resolve_target_specifier(arg: &str) -> Result<String, AnyError> {
   let abs_path = if path.is_absolute() {
     path
   } else {
-    std::env::current_dir()?.join(path)
+    let cwd = std::env::current_dir()?;
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+      .parent()
+      .map(PathBuf::from)
+      .unwrap_or_else(|| manifest_dir.clone());
+
+    let mut candidates = Vec::with_capacity(5);
+    candidates.push(cwd.join(&path));
+    candidates.push(manifest_dir.join(&path));
+    candidates.push(workspace_root.join(&path));
+    candidates.push(cwd.join("embed_deno").join(&path));
+    candidates.push(workspace_root.join("embed_deno").join(&path));
+
+    if let Some(found) = candidates.iter().find(|candidate| candidate.is_file()) {
+      found.clone()
+    } else {
+      let tried = candidates
+        .into_iter()
+        .map(|candidate| candidate.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+      return Err(AnyError::msg(format!(
+        "target script not found for `{arg}`; looked in: {tried}"
+      )));
+    }
   };
 
   Url::from_file_path(&abs_path)
@@ -442,7 +461,8 @@ async fn run_inner() -> Result<(), AnyError> {
   println!("target script: {target_arg}");
   println!("target specifier: {target_specifier}");
 
-  let (rust_stream, js_stream) = tokio::io::duplex(16 * 1024);
+  let (rust_to_ts_tx, rust_to_ts_rx) = mpsc::channel::<String>(64);
+  let (ts_to_rust_tx, ts_to_rust_rx) = mpsc::channel::<String>(64);
   let embed_result = Arc::new(Mutex::new(EmbedResult::default()));
   let embed_result_for_worker = embed_result.clone();
 
@@ -478,7 +498,10 @@ async fn run_inner() -> Result<(), AnyError> {
       require_modules,
       factory.root_permissions_container()?.clone(),
       vec![
-        duplex_extension(js_stream),
+        duplex_extension(DuplexChannelPair {
+          inbound_rx: rust_to_ts_rx,
+          outbound_tx: ts_to_rust_tx,
+        }),
         embed_extension(embed_result_for_worker),
       ],
       Default::default(),
@@ -488,7 +511,7 @@ async fn run_inner() -> Result<(), AnyError> {
 
   println!("mainworker created with CLI factory + duplex extension");
   let mut worker_future = std::pin::pin!(worker.run());
-  let mut driver_future = std::pin::pin!(rust_duplex_driver(rust_stream));
+  let mut driver_future = std::pin::pin!(rust_duplex_driver(rust_to_ts_tx, ts_to_rust_rx));
   let mut maybe_exit_code: Option<i32> = None;
   let mut driver_completed = false;
 
@@ -517,7 +540,7 @@ async fn run_inner() -> Result<(), AnyError> {
   }
 
   println!("worker exit code: {exit_code}");
-  println!("rust <-> ts duplex communication completed");
+  println!("rust <-> ts channel communication completed");
 
   if let Ok(mut guard) = embed_result.lock() {
     if let Some(json) = guard.exit_data.take() {

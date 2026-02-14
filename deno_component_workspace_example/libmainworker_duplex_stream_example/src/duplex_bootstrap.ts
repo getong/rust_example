@@ -10,7 +10,42 @@ if (!duplex) {
   throw new Error("libmainworkerDuplex API is not available");
 }
 
-const targetModule = await import(targetSpecifier);
+async function importTargetModule(specifier) {
+  try {
+    return await import(specifier);
+  } catch (firstError) {
+    let fallbackSpecifier = null;
+
+    try {
+      const url = new URL(specifier);
+      if (url.protocol === "file:" && !url.pathname.includes("/embed_deno/")) {
+        const fallbackUrl = new URL(url.href);
+        fallbackUrl.pathname = fallbackUrl.pathname.replace(
+          /\/([^/]+)$/,
+          "/embed_deno/$1",
+        );
+        fallbackSpecifier = fallbackUrl.toString();
+      }
+    } catch {
+      // Keep original error if specifier is not a valid URL.
+    }
+
+    if (!fallbackSpecifier || fallbackSpecifier === specifier) {
+      throw firstError;
+    }
+
+    try {
+      console.warn(
+        `[ts] failed to import target module at ${specifier}; retrying ${fallbackSpecifier}`,
+      );
+      return await import(fallbackSpecifier);
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
+const targetModule = await importTargetModule(targetSpecifier);
 const exportedHandler =
   typeof targetModule?.handleDuplexMessage === "function"
     ? targetModule.handleDuplexMessage.bind(targetModule)
