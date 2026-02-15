@@ -384,10 +384,41 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
     ..Default::default()
   };
   let mut worker = MainWorker::bootstrap_from_options(&main_module.clone(), services, options);
+  let worker_preload_modules = preload_modules
+    .iter()
+    .map(|specifier| {
+      deno_core::ModuleSpecifier::parse(specifier).map_err(|err| {
+        AnyError::msg(format!(
+          "failed to parse preload module specifier `{specifier}`: {err}"
+        ))
+      })
+    })
+    .collect::<Result<Vec<_>, _>>()?;
 
   println!("mainworker created with direct MainWorker bootstrap + duplex extension");
   let worker_main_module = main_module.clone();
   let mut worker_task = tokio::task::spawn_local(async move {
+    for preload_module in &worker_preload_modules {
+      let preload_module_id = worker
+        .preload_side_module(preload_module)
+        .await
+        .map_err(|err| {
+          AnyError::msg(format!(
+            "failed to preload side module `{}`: {err}",
+            preload_module
+          ))
+        })?;
+      worker
+        .evaluate_module(preload_module_id)
+        .await
+        .map_err(|err| {
+          AnyError::msg(format!(
+            "failed to evaluate preloaded side module `{}`: {err}",
+            preload_module
+          ))
+        })?;
+    }
+
     let module_id = worker.preload_main_module(&worker_main_module).await?;
     worker.evaluate_module(module_id).await?;
     worker.run_event_loop(false).await?;
