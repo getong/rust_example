@@ -56,10 +56,7 @@ fn extract_marker_json(output: &str, marker: &str) -> Option<serde_json::Value> 
     .map(parse_json_or_string)
 }
 
-fn api_error(
-  status: StatusCode,
-  message: impl Into<String>,
-) -> (StatusCode, Json<ErrorResponse>) {
+fn api_error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json<ErrorResponse>) {
   (
     status,
     Json(ErrorResponse {
