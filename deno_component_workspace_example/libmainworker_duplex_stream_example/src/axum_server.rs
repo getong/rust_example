@@ -80,9 +80,27 @@ async fn run_mainworker(
   let runtime_args = payload.args.unwrap_or_default();
   let modules = payload.modules.unwrap_or_default();
   let mfa_values = payload.mfa.unwrap_or_default();
-  let env = payload.env.unwrap_or_default();
+  let mut env = payload.env.unwrap_or_default();
   let messages = payload.messages.unwrap_or_default();
   let has_messages = !messages.is_empty();
+
+  if !env.contains_key("DENO_DIR") {
+    if let Ok(deno_dir) = std::env::var("DENO_DIR") {
+      let trimmed = deno_dir.trim();
+      if !trimmed.is_empty() {
+        env.insert("DENO_DIR".to_string(), trimmed.to_string());
+      }
+    }
+  }
+  if !env.contains_key("DENO_DIR") {
+    if let Ok(cwd) = std::env::current_dir() {
+      let deno_dir = cwd.join(".libmainworker_deno_dir");
+      env.insert(
+        "DENO_DIR".to_string(),
+        deno_dir.to_string_lossy().to_string(),
+      );
+    }
+  }
 
   let mut command = tokio::process::Command::new(&state.executable);
   command.arg("--internal-run-once");

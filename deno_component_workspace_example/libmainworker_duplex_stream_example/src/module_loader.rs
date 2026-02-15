@@ -2,6 +2,7 @@ use std::{
   borrow::Cow,
   cell::RefCell,
   collections::{BTreeSet, HashMap, HashSet},
+  fmt::Write as _,
   path::{Path, PathBuf},
   rc::Rc,
   sync::{Arc, Mutex},
@@ -33,6 +34,7 @@ use deno_semver::{
 };
 use once_cell::sync::Lazy;
 use regex::Regex;
+use sha2::{Digest, Sha256};
 use sys_traits::impls::RealSys;
 
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
@@ -75,6 +77,65 @@ fn configured_ureq_agent() -> ureq::Agent {
     }
   }
   ureq::Agent::new_with_config(builder.build())
+}
+
+fn deno_dir_root() -> Option<PathBuf> {
+  if let Some(deno_dir) = std::env::var_os("DENO_DIR") {
+    return Some(PathBuf::from(deno_dir));
+  }
+  std::env::current_dir()
+    .ok()
+    .map(|cwd| cwd.join(".libmainworker_deno_dir"))
+}
+
+fn sha256_hex(input: &str) -> String {
+  let digest = Sha256::digest(input.as_bytes());
+  let mut out = String::with_capacity(digest.len() * 2);
+  for byte in digest {
+    let _ = write!(&mut out, "{byte:02x}");
+  }
+  out
+}
+
+fn cache_file_path(namespace: &str, url: &str, ext: &str) -> Option<PathBuf> {
+  let root = deno_dir_root()?;
+  let hash = sha256_hex(url);
+  Some(root.join(namespace).join(format!("{hash}.{ext}")))
+}
+
+fn read_cached_text(namespace: &str, url: &str) -> Option<String> {
+  let path = cache_file_path(namespace, url, "txt")?;
+  let bytes = std::fs::read(path).ok()?;
+  String::from_utf8(bytes).ok()
+}
+
+fn write_cached_text(namespace: &str, url: &str, text: &str) {
+  let Some(path) = cache_file_path(namespace, url, "txt") else {
+    return;
+  };
+  if let Some(parent) = path.parent() {
+    if std::fs::create_dir_all(parent).is_err() {
+      return;
+    }
+  }
+  let _ = std::fs::write(path, text.as_bytes());
+}
+
+fn read_cached_bytes(namespace: &str, url: &str) -> Option<Vec<u8>> {
+  let path = cache_file_path(namespace, url, "json")?;
+  std::fs::read(path).ok()
+}
+
+fn write_cached_bytes(namespace: &str, url: &str, bytes: &[u8]) {
+  let Some(path) = cache_file_path(namespace, url, "json") else {
+    return;
+  };
+  if let Some(parent) = path.parent() {
+    if std::fs::create_dir_all(parent).is_err() {
+      return;
+    }
+  }
+  let _ = std::fs::write(path, bytes);
 }
 
 fn to_double_quote_string(text: &str) -> String {
@@ -787,6 +848,12 @@ impl JsrPackageResolver {
     url: &str,
     resource_name: &str,
   ) -> Result<T, ModuleLoaderError> {
+    if let Some(cached) = read_cached_bytes("jsr_meta", url) {
+      if let Ok(parsed) = serde_json::from_slice::<T>(&cached) {
+        return Ok(parsed);
+      }
+    }
+
     let agent = Self::create_http_agent();
     let mut retried = false;
 
@@ -834,13 +901,15 @@ impl JsrPackageResolver {
       }
     };
 
-    serde_json::from_slice::<T>(&bytes).map_err(|err| {
+    let parsed = serde_json::from_slice::<T>(&bytes).map_err(|err| {
       let snippet = String::from_utf8_lossy(&bytes[.. bytes.len().min(120)]);
       JsErrorBox::generic(format!(
         "failed to parse jsr metadata `{resource_name}` from {url}: {err}; body starts with: \
          {snippet}"
       ))
-    })
+    })?;
+    write_cached_bytes("jsr_meta", url, &bytes);
+    Ok(parsed)
   }
 
   fn package_info(&self, package_name: &str) -> Result<Arc<JsrPackageInfo>, ModuleLoaderError> {
@@ -1404,6 +1473,25 @@ impl DirectModuleLoader {
     module_specifier: &deno_core::ModuleSpecifier,
   ) -> Result<ModuleSource, ModuleLoaderError> {
     let url = module_specifier.to_string();
+    if let Some(cached_body) = read_cached_text("remote_modules", &url) {
+      let media_type = MediaType::from_path(Path::new(module_specifier.path()));
+      let (module_type, should_transpile) = Self::module_kind(media_type)?;
+      let cached_body = Self::transpile_if_needed(
+        source_maps,
+        module_specifier,
+        cached_body,
+        media_type,
+        should_transpile,
+      )?;
+
+      return Ok(ModuleSource::new(
+        module_type,
+        ModuleSourceCode::String(cached_body.into()),
+        module_specifier,
+        None,
+      ));
+    }
+
     let agent = configured_ureq_agent();
     let mut retried = false;
     let body = loop {
@@ -1413,8 +1501,6 @@ impl DirectModuleLoader {
           "user-agent",
           "libmainworker_duplex_stream_example/module-loader",
         )
-        .header("cache-control", "no-cache")
-        .header("pragma", "no-cache")
         .call()
       {
         Ok(response) => response,
@@ -1445,6 +1531,7 @@ impl DirectModuleLoader {
         }
       }
     };
+    write_cached_text("remote_modules", &url, &body);
 
     let media_type = MediaType::from_path(Path::new(module_specifier.path()));
     let (module_type, should_transpile) = Self::module_kind(media_type)?;
