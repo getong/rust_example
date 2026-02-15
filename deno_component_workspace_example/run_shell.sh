@@ -9,3 +9,4 @@ STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainwor
 STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/jsr_test.ts
 STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/simple_main.ts
 STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/simple_test.ts
+STREAM_API_KEY=test_key4 STREAM_API_SECRET=test_secret ./target/debug/libmainworker_duplex_stream_example embed_deno/npm_other_test.ts
