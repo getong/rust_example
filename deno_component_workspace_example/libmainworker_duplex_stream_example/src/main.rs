@@ -1,15 +1,22 @@
 use std::{
+  borrow::Cow,
+  path::Path,
   rc::Rc,
   sync::{Arc, Mutex},
 };
 
-use deno_core::{error::AnyError, url::Url};
-use deno_resolver::npm::{DenoInNpmPackageChecker, NpmResolver};
+use deno_core::{FastString, error::AnyError, url::Url};
+use deno_resolver::npm::{
+  ByonmNpmResolverCreateOptions, CreateInNpmPkgCheckerOptions, DenoInNpmPackageChecker,
+  NpmResolver, NpmResolverCreateOptions,
+};
 use deno_runtime::{
   BootstrapOptions, WorkerExecutionMode,
+  deno_node::{NodeExtInitServices, NodeRequireLoader, NodeRequireLoaderRc},
   ops::bootstrap::SnapshotOptions,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
+use node_resolver::{DenoIsBuiltInNodeModuleChecker, errors::PackageJsonLoadError};
 use tokio::{
   io::{AsyncBufReadExt, BufReader},
   sync::mpsc,
@@ -149,6 +156,36 @@ struct StartupArgs {
   axum_addr: String,
   worker_args: Vec<String>,
   internal_run_once: bool,
+}
+
+#[derive(Debug, Default)]
+struct DirectNodeRequireLoader;
+
+impl NodeRequireLoader for DirectNodeRequireLoader {
+  fn ensure_read_permission<'a>(
+    &self,
+    _permissions: &mut deno_runtime::deno_permissions::PermissionsContainer,
+    path: Cow<'a, Path>,
+  ) -> Result<Cow<'a, Path>, deno_error::JsErrorBox> {
+    Ok(path)
+  }
+
+  fn load_text_file_lossy(&self, path: &Path) -> Result<FastString, deno_error::JsErrorBox> {
+    std::fs::read_to_string(path)
+      .map(FastString::from)
+      .map_err(deno_error::JsErrorBox::from_err)
+  }
+
+  fn is_maybe_cjs(&self, specifier: &Url) -> Result<bool, PackageJsonLoadError> {
+    let media_type = deno_ast::MediaType::from_specifier(specifier);
+    Ok(matches!(
+      media_type,
+      deno_ast::MediaType::JavaScript
+        | deno_ast::MediaType::Cjs
+        | deno_ast::MediaType::Cts
+        | deno_ast::MediaType::Unknown
+    ))
+  }
 }
 
 fn parse_startup_args(args: Vec<String>) -> Result<StartupArgs, AnyError> {
@@ -335,6 +372,36 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
     ),
   ));
   let module_loader = Rc::new(DirectModuleLoader::new());
+  let pkg_json_resolver = Arc::new(node_resolver::PackageJsonResolver::new(
+    sys_traits::impls::RealSys::default(),
+    None,
+  ));
+  let in_npm_pkg_checker = DenoInNpmPackageChecker::new(CreateInNpmPkgCheckerOptions::Byonm);
+  let npm_resolver = NpmResolver::<sys_traits::impls::RealSys>::new(
+    NpmResolverCreateOptions::Byonm(ByonmNpmResolverCreateOptions {
+      sys: node_resolver::cache::NodeResolutionSys::new(
+        sys_traits::impls::RealSys::default(),
+        None,
+      ),
+      pkg_json_resolver: pkg_json_resolver.clone(),
+      root_node_modules_dir: None,
+    }),
+  );
+  let node_resolver = Arc::new(deno_runtime::deno_node::NodeResolver::new(
+    in_npm_pkg_checker.clone(),
+    DenoIsBuiltInNodeModuleChecker,
+    npm_resolver.clone(),
+    pkg_json_resolver.clone(),
+    node_resolver::cache::NodeResolutionSys::new(sys_traits::impls::RealSys::default(), None),
+    Default::default(),
+  ));
+  let node_require_loader: NodeRequireLoaderRc = Rc::new(DirectNodeRequireLoader);
+  let node_services = NodeExtInitServices {
+    node_require_loader,
+    node_resolver,
+    pkg_json_resolver,
+    sys: sys_traits::impls::RealSys::default(),
+  };
 
   let main_module = Url::from_file_path(&bootstrap_path)
     .map(deno_core::ModuleSpecifier::from)
@@ -355,8 +422,8 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
     blob_store: Arc::new(deno_runtime::deno_web::BlobStore::default()),
     broadcast_channel: Default::default(),
     feature_checker: Arc::new(deno_runtime::FeatureChecker::default()),
-    node_services: None,
-    npm_process_state_provider: None,
+    node_services: Some(node_services),
+    npm_process_state_provider: Default::default(),
     root_cert_store_provider: None,
     fetch_dns_resolver: Default::default(),
     shared_array_buffer_store: None,
@@ -384,6 +451,16 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
     ..Default::default()
   };
   let mut worker = MainWorker::bootstrap_from_options(&main_module.clone(), services, options);
+  {
+    let op_state_rc = worker.js_runtime.op_state();
+    let mut op_state = op_state_rc.borrow_mut();
+    op_state.put(sys_traits::impls::RealSys::default());
+    if let Ok(initial_cwd) = std::env::current_dir()
+      .and_then(|cwd| deno_path_util::url_from_directory_path(&cwd).map_err(std::io::Error::other))
+    {
+      op_state.put(deno_core::error::InitialCwd(Arc::new(initial_cwd)));
+    }
+  }
   let worker_preload_modules = preload_modules
     .iter()
     .map(|specifier| {
@@ -438,20 +515,32 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
   let mut worker_completed = false;
   let mut driver_completed = false;
   let mut stdin_bridge_completed = false;
+  let mut worker_error: Option<AnyError> = None;
+  let mut driver_error: Option<AnyError> = None;
 
   loop {
     tokio::select! {
       worker_result = &mut worker_task, if !worker_completed => {
-        worker_result
-          .map_err(|err| AnyError::msg(format!("mainworker task join error: {err}")))??;
+        match worker_result {
+          Ok(Ok(())) => {}
+          Ok(Err(err)) => worker_error = Some(err),
+          Err(err) => {
+            worker_error = Some(AnyError::msg(format!("mainworker task join error: {err}")));
+          }
+        }
         worker_completed = true;
         if driver_completed && (stdin_bridge_completed || stdin_bridge_task.is_finished()) {
           break;
         }
       }
       driver_result = &mut driver_task, if !driver_completed => {
-        driver_result
-          .map_err(|err| AnyError::msg(format!("duplex driver task join error: {err}")))??;
+        match driver_result {
+          Ok(Ok(())) => {}
+          Ok(Err(err)) => driver_error = Some(err),
+          Err(err) => {
+            driver_error = Some(AnyError::msg(format!("duplex driver task join error: {err}")));
+          }
+        }
         driver_completed = true;
         if worker_completed && (stdin_bridge_completed || stdin_bridge_task.is_finished()) {
           break;
@@ -479,6 +568,12 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
   }
   if !driver_completed {
     return Err(AnyError::msg("rust duplex driver did not complete"));
+  }
+  if let Some(err) = worker_error {
+    return Err(err);
+  }
+  if let Some(err) = driver_error {
+    return Err(err);
   }
 
   println!("worker completed (direct MainWorker mode, no CLI exit code)");

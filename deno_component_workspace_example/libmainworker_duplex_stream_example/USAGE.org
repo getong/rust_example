@@ -3,10 +3,15 @@
 
 * 1. 目标
 本示例基于 ~mainworker~，实现了 Rust 与 TypeScript 的双工通信，并支持直接运行 ~embed_deno/*.ts~ 文件（包括含 ~jsr:~ / ~npm:~ 依赖的脚本）。
+当前已切换为“仅远程下载模式”：
+- ~npm:~ 依赖通过 ~deno_npm + deno_npm_cache~ 从 ~registry.npmjs.org~ 下载并缓存（不再使用本地 shim）
+- ~jsr:~ 依赖通过 ~jsr.io~ 元数据（~meta.json~ / ~_meta.json~）解析后远程下载（不再使用本地 shim）
+- 不使用 ~https://esm.sh/~ 作为 npm 依赖来源
 
 * 2. 前置条件
 - 推荐使用：
  ~CC=clang~
+- 运行含 ~jsr:~ / ~npm:~ 依赖的脚本时，需要可访问外网（以及可用代理配置）
 
 说明：
 在当前环境下，默认 ~gcc-15~ 可能触发 ~aws-lc-sys~ 编译错误，因此示例命令都建议带上 ~CC=clang~。
@@ -33,7 +38,7 @@ CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/simple_t
 ** 3.4 传入 TypeScript 运行参数（module / mfa / argv）
 支持以下参数：
 - ~--target <script>~：显式指定入口脚本
-- ~--module <specifier>~：启动时预加载模块（可重复）
+- ~--module <specifier>~：启动时预加载模块（可重复，~jsr:~ / ~npm:~ 会走远程下载）
 - ~--mfa <value>~：注入 mfa 运行参数（可重复）
 - ~-- <argv...>~：透传到 ~Deno.args~
 - ~--persistent~：保持常驻，等待外部消息（不会自动 one-shot 退出）
@@ -44,6 +49,7 @@ CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/simple_t
 CC=clang cargo run -p libmainworker_duplex_stream_example -- \
   --target embed_deno/main.ts \
   --module jsr:@std/dotenv/load \
+  --module npm:stream-chat \
   --mfa sms --mfa totp \
   -- --profile prod --region us-east-1
 #+end_src
@@ -98,7 +104,7 @@ curl -sS http://127.0.0.1:8787/run \
 - 本地相对路径：~embed_deno/simple_main.ts~
 - 本地绝对路径：~/Users/.../embed_deno/simple_main.ts~
 - ~file://~ URL
-- ~jsr:~ / ~npm:~ specifier（由脚本内部 import 使用）
+- ~jsr:~ / ~npm:~ specifier（由脚本内部 import 使用，且通过远程下载）
 
 ** 4.2 已验证可运行文件
 - ~embed_deno/simple_test.ts~
@@ -165,7 +171,12 @@ CC=clang cargo run -p libmainworker_duplex_stream_example -- embed_deno/stream.t
 如果运行含 ~jsr:~ / ~npm:~ 的脚本失败，优先检查：
 - 网络可达性
 - 代理配置
-- 是否首次下载依赖（首次会慢）
+- 当前环境是否允许进程访问外网（若被沙箱/防火墙限制会直接失败）
+
+补充说明：
+- 当前是“仅远程下载模式”，不再提供本地 shim 兜底。
+- npm 远程下载实现基于 ~deno_npm + deno_npm_cache~，不是 ~esm.sh~ 转译分发模式。
+- 因此在离线环境下，包含 ~jsr:~ / ~npm:~ 依赖的脚本将无法运行。
 
 * 7. 常用命令清单
 #+begin_src bash
