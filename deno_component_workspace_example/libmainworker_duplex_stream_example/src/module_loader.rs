@@ -128,8 +128,15 @@ fn write_cached_text(namespace: &str, url: &str, text: &str) {
   let _ = std::fs::write(path, text.as_bytes());
 }
 
-fn read_cached_bytes(namespace: &str, url: &str) -> Option<Vec<u8>> {
+/// Like `read_cached_bytes` but returns `None` when the cached file is older
+/// than `max_age`.  Useful for metadata that should be periodically refreshed.
+fn read_cached_bytes_with_ttl(namespace: &str, url: &str, max_age: Duration) -> Option<Vec<u8>> {
   let path = cache_file_path(namespace, url, "json")?;
+  let meta = std::fs::metadata(&path).ok()?;
+  let modified = meta.modified().ok()?;
+  if modified.elapsed().ok()? > max_age {
+    return None; // stale
+  }
   std::fs::read(path).ok()
 }
 
@@ -143,6 +150,44 @@ fn write_cached_bytes(namespace: &str, url: &str, bytes: &[u8]) {
     }
   }
   let _ = std::fs::write(path, bytes);
+}
+
+/// Sidecar metadata stored alongside a cached remote module source.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct RemoteCacheMeta {
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  etag: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  content_type: Option<String>,
+}
+
+fn read_remote_cache_meta(url: &str) -> Option<RemoteCacheMeta> {
+  let path = cache_file_path("remote_modules", url, "meta.json")?;
+  let bytes = std::fs::read(path).ok()?;
+  serde_json::from_slice(&bytes).ok()
+}
+
+fn write_remote_cache_meta(url: &str, meta: &RemoteCacheMeta) {
+  let Some(path) = cache_file_path("remote_modules", url, "meta.json") else {
+    return;
+  };
+  if let Some(parent) = path.parent() {
+    let _ = std::fs::create_dir_all(parent);
+  }
+  if let Ok(bytes) = serde_json::to_vec(meta) {
+    let _ = std::fs::write(path, bytes);
+  }
+}
+
+/// Default TTL for JSR metadata cache (24 hours).  Override with
+/// `LIBMAINWORKER_JSR_CACHE_TTL_SECS`.
+fn jsr_meta_cache_ttl() -> Duration {
+  if let Ok(val) = std::env::var("LIBMAINWORKER_JSR_CACHE_TTL_SECS") {
+    if let Ok(secs) = val.parse::<u64>() {
+      return Duration::from_secs(secs);
+    }
+  }
+  Duration::from_secs(24 * 60 * 60)
 }
 
 fn to_double_quote_string(text: &str) -> String {
@@ -867,7 +912,9 @@ impl JsrPackageResolver {
     url: &str,
     resource_name: &str,
   ) -> Result<T, ModuleLoaderError> {
-    if let Some(cached) = read_cached_bytes("jsr_meta", url) {
+    // Use TTL-aware cache read so stale metadata is periodically refreshed.
+    let ttl = jsr_meta_cache_ttl();
+    if let Some(cached) = read_cached_bytes_with_ttl("jsr_meta", url, ttl) {
       if let Ok(parsed) = serde_json::from_slice::<T>(&cached) {
         return Ok(parsed);
       }
@@ -1547,8 +1594,27 @@ impl DirectModuleLoader {
     module_specifier: &deno_core::ModuleSpecifier,
   ) -> Result<ModuleSource, ModuleLoaderError> {
     let url = module_specifier.to_string();
+
+    // --- Try disk cache first ---------------------------------------------------
     if let Some(cached_body) = read_cached_text("remote_modules", &url) {
-      let media_type = MediaType::from_path(Path::new(module_specifier.path()));
+      // Use content-type from sidecar when available; fall back to URL extension.
+      let meta = read_remote_cache_meta(&url);
+      let media_type = meta
+        .as_ref()
+        .and_then(|m| m.content_type.as_deref())
+        .and_then(|ct| {
+          // Map MIME to MediaType when the URL extension is ambiguous.
+          match ct.split(';').next().unwrap_or(ct).trim() {
+            "application/typescript" | "text/typescript" => Some(MediaType::TypeScript),
+            "application/javascript" | "text/javascript" => Some(MediaType::JavaScript),
+            "application/json" | "text/json" => Some(MediaType::Json),
+            "text/jsx" => Some(MediaType::Jsx),
+            "text/tsx" => Some(MediaType::Tsx),
+            _ => None,
+          }
+        })
+        .unwrap_or_else(|| MediaType::from_path(Path::new(module_specifier.path())));
+
       let (module_type, should_transpile) = Self::module_kind(media_type)?;
       let cached_body = Self::transpile_if_needed(
         source_maps,
@@ -1567,17 +1633,25 @@ impl DirectModuleLoader {
       ));
     }
 
+    // --- Fetch from network (with optional ETag conditional request) -----------
     let agent = shared_ureq_agent();
+    let existing_meta = read_remote_cache_meta(&url);
     let mut retried = false;
-    let body = loop {
-      let response = match agent
-        .get(&url)
-        .header(
-          "user-agent",
-          "libmainworker_duplex_stream_example/module-loader",
-        )
-        .call()
-      {
+
+    let (body, resp_etag, resp_content_type) = loop {
+      let mut req = agent.get(&url).header(
+        "user-agent",
+        "libmainworker_duplex_stream_example/module-loader",
+      );
+
+      // Conditional request – avoids re-downloading if ETag matches.
+      if let Some(ref meta) = existing_meta {
+        if let Some(ref etag) = meta.etag {
+          req = req.header("If-None-Match", etag);
+        }
+      }
+
+      let response = match req.call() {
         Ok(response) => response,
         Err(err) if !retried => {
           retried = true;
@@ -1592,8 +1666,33 @@ impl DirectModuleLoader {
         }
       };
 
+      // 304 Not Modified – the cached copy is still valid.
+      if response.status() == 304 {
+        if let Some(cached_body) = read_cached_text("remote_modules", &url) {
+          let ct = existing_meta.as_ref().and_then(|m| m.content_type.clone());
+          break (
+            cached_body,
+            existing_meta.as_ref().and_then(|m| m.etag.clone()),
+            ct,
+          );
+        }
+        // Cache file disappeared between meta-read and body-read; fall through
+        // to a full fetch without If-None-Match.
+      }
+
+      let etag = response
+        .headers()
+        .get("etag")
+        .and_then(|s| s.to_str().ok())
+        .map(|s| s.to_owned());
+      let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|s| s.to_str().ok())
+        .map(|s| s.to_owned());
+
       match response.into_body().read_to_string() {
-        Ok(body) => break body,
+        Ok(body) => break (body, etag, content_type),
         Err(err) if !retried => {
           retried = true;
           std::thread::sleep(Duration::from_millis(50));
@@ -1606,9 +1705,31 @@ impl DirectModuleLoader {
         }
       }
     };
-    write_cached_text("remote_modules", &url, &body);
 
-    let media_type = MediaType::from_path(Path::new(module_specifier.path()));
+    // Persist source + sidecar metadata.
+    write_cached_text("remote_modules", &url, &body);
+    write_remote_cache_meta(
+      &url,
+      &RemoteCacheMeta {
+        etag: resp_etag,
+        content_type: resp_content_type.clone(),
+      },
+    );
+
+    // Determine media type from response content-type header, falling back to
+    // URL extension.
+    let media_type = resp_content_type
+      .as_deref()
+      .and_then(|ct| match ct.split(';').next().unwrap_or(ct).trim() {
+        "application/typescript" | "text/typescript" => Some(MediaType::TypeScript),
+        "application/javascript" | "text/javascript" => Some(MediaType::JavaScript),
+        "application/json" | "text/json" => Some(MediaType::Json),
+        "text/jsx" => Some(MediaType::Jsx),
+        "text/tsx" => Some(MediaType::Tsx),
+        _ => None,
+      })
+      .unwrap_or_else(|| MediaType::from_path(Path::new(module_specifier.path())));
+
     let (module_type, should_transpile) = Self::module_kind(media_type)?;
     let body = Self::transpile_if_needed(
       source_maps,
@@ -1758,9 +1879,17 @@ impl ModuleLoader for DirectModuleLoader {
       "jsr" => {
         let jsr_resolver = self.jsr_resolver.clone();
         let source_maps = self.source_maps.clone();
-        let result = jsr_resolver
-          .resolve_jsr_specifier_to_https(module_specifier.as_str())
-          .and_then(|remote_specifier| Self::load_https_module(source_maps, tc, &remote_specifier));
+        let resolved = jsr_resolver.resolve_jsr_specifier_to_https(module_specifier.as_str());
+        let result = resolved.and_then(|remote_specifier| {
+          let loaded = Self::load_https_module(source_maps, tc, &remote_specifier)?;
+          Ok(ModuleSource::new_with_redirect(
+            loaded.module_type,
+            loaded.code,
+            &module_specifier,
+            &remote_specifier,
+            loaded.code_cache,
+          ))
+        });
         ModuleLoadResponse::Sync(result)
       }
       "npm" => {
