@@ -362,8 +362,8 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
   println!("mfa values: {:?}", launch_args.mfa_values);
   println!("persistent mode: {}", launch_args.persistent);
 
-  let (rust_to_ts_tx, rust_to_ts_rx) = mpsc::channel::<String>(64);
-  let (ts_to_rust_tx, ts_to_rust_rx) = mpsc::channel::<String>(64);
+  let (rust_to_ts_tx, rust_to_ts_rx) = mpsc::channel::<serde_json::Value>(64);
+  let (ts_to_rust_tx, ts_to_rust_rx) = mpsc::channel::<serde_json::Value>(64);
   let (process_msg_tx, process_msg_rx) = mpsc::channel::<String>(256);
   let embed_result = Arc::new(Mutex::new(EmbedResult::default()));
   let embed_result_for_worker = embed_result.clone();

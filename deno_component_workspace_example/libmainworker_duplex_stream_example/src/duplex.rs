@@ -15,9 +15,12 @@ use tokio::{
 const DUPLEX_API_SPECIFIER: &str = "ext:libmainworker_duplex_ext/duplex_api.ts";
 const DUPLEX_API_SOURCE: &str = include_str!("duplex_api.ts");
 
+/// Channel pair handed from main.rs into the deno_core extension.
+/// Uses `serde_json::Value` instead of `String` to avoid an extra
+/// serialize → deserialize round-trip on the Rust side (P0).
 pub(crate) struct DuplexChannelPair {
-  pub(crate) inbound_rx: mpsc::Receiver<String>,
-  pub(crate) outbound_tx: mpsc::Sender<String>,
+  pub(crate) inbound_rx: mpsc::Receiver<serde_json::Value>,
+  pub(crate) outbound_tx: mpsc::Sender<serde_json::Value>,
 }
 
 #[derive(Clone)]
@@ -25,10 +28,15 @@ struct DuplexChannelSlot {
   channels: Arc<Mutex<Option<DuplexChannelPair>>>,
 }
 
+/// The resource exposed to JS ops.
+///
+/// P2: `inbound_rx` uses a plain `RefCell` instead of `tokio::sync::Mutex`
+/// because all deno_core ops run on the same single-threaded `LocalSet` —
+/// there is never any cross-thread contention.
 #[derive(Debug)]
 struct TokioDuplexResource {
-  inbound_rx: tokio::sync::Mutex<mpsc::Receiver<String>>,
-  outbound_tx: mpsc::Sender<String>,
+  inbound_rx: RefCell<mpsc::Receiver<serde_json::Value>>,
+  outbound_tx: mpsc::Sender<serde_json::Value>,
 }
 
 impl Resource for TokioDuplexResource {
@@ -49,7 +57,7 @@ fn op_duplex_open(state: &mut OpState) -> Result<ResourceId, JsErrorBox> {
     .take()
     .ok_or_else(|| JsErrorBox::generic("duplex channel already opened"))?;
   Ok(state.resource_table.add(TokioDuplexResource {
-    inbound_rx: tokio::sync::Mutex::new(channels.inbound_rx),
+    inbound_rx: RefCell::new(channels.inbound_rx),
     outbound_tx: channels.outbound_tx,
   }))
 }
@@ -65,10 +73,15 @@ async fn op_duplex_read_line(
     .resource_table
     .get::<TokioDuplexResource>(rid)
     .map_err(|err| JsErrorBox::generic(err.to_string()))?;
-  let mut inbound_rx = resource.inbound_rx.lock().await;
-  read_line(&mut inbound_rx)
-    .await
-    .map_err(|err| JsErrorBox::generic(err.to_string()))
+  // P2: RefCell borrow instead of tokio::sync::Mutex::lock().await
+  let value = {
+    let mut rx = resource.inbound_rx.borrow_mut();
+    rx.recv()
+      .await
+      .ok_or_else(|| JsErrorBox::generic("duplex channel reached EOF"))?
+  };
+  // Serialize Value → String for JS consumption.
+  serde_json::to_string(&value).map_err(|err| JsErrorBox::generic(err.to_string()))
 }
 
 #[op2]
@@ -84,9 +97,15 @@ async fn op_duplex_write_line(
     .get::<TokioDuplexResource>(rid)
     .map_err(|err| JsErrorBox::generic(err.to_string()))?;
   let written = line.len() as u32;
-  write_line(&resource.outbound_tx, line)
+  // Parse incoming JSON string from JS into a Value so the Rust
+  // receiver works with structured data directly (P0).
+  let value: serde_json::Value =
+    serde_json::from_str(&line).map_err(|err| JsErrorBox::generic(err.to_string()))?;
+  resource
+    .outbound_tx
+    .send(value)
     .await
-    .map_err(|err| JsErrorBox::generic(err.to_string()))?;
+    .map_err(|err| JsErrorBox::generic(format!("duplex channel send failed: {err}")))?;
   Ok(written)
 }
 
@@ -116,27 +135,38 @@ pub(crate) fn duplex_extension(channels: DuplexChannelPair) -> deno_core::Extens
   ext
 }
 
-async fn read_line(rx: &mut mpsc::Receiver<String>) -> Result<String, AnyError> {
+// ─── Value-based helpers ────────────────────────────────────────────
+// With `mpsc<serde_json::Value>` we avoid repeated to_string() / from_str()
+// round-trips on the Rust side.
+
+async fn send_value(
+  tx: &mpsc::Sender<serde_json::Value>,
+  value: serde_json::Value,
+) -> Result<(), AnyError> {
+  tx.send(value)
+    .await
+    .map_err(|err| AnyError::msg(format!("duplex channel send failed: {err}")))
+}
+
+async fn recv_value(
+  rx: &mut mpsc::Receiver<serde_json::Value>,
+) -> Result<serde_json::Value, AnyError> {
   rx.recv()
     .await
     .ok_or_else(|| AnyError::msg("duplex channel reached EOF"))
 }
 
-async fn write_line(tx: &mpsc::Sender<String>, line: String) -> Result<(), AnyError> {
-  tx.send(line)
-    .await
-    .map_err(|err| AnyError::msg(format!("duplex channel send failed: {err}")))
+/// P3: Guard verbose debug output behind an env var so release builds
+/// don't pay for formatting + I/O in the hot loop.
+fn trace_duplex_enabled() -> bool {
+  std::env::var("LIBMAINWORKER_DUPLEX_TRACE")
+    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    .unwrap_or(false)
 }
 
-async fn write_json_line(
-  tx: &mpsc::Sender<String>,
-  value: &serde_json::Value,
-) -> Result<(), AnyError> {
-  let line = serde_json::to_string(value).map_err(|err| AnyError::msg(err.to_string()))?;
-  write_line(tx, line).await
-}
-
-fn execute_ts_initiated_rust_call(
+/// P1: Made async so future implementations can call async Rust services
+/// (database queries, HTTP calls, etc.) without blocking the event loop.
+async fn execute_ts_initiated_rust_call(
   payload: &serde_json::Value,
 ) -> Result<serde_json::Value, AnyError> {
   let op = payload.get("op").and_then(|v| v.as_str()).unwrap_or("echo");
@@ -157,13 +187,12 @@ fn execute_ts_initiated_rust_call(
         .get("values")
         .and_then(|v| v.as_array())
         .ok_or_else(|| AnyError::msg("rust_call.sum requires array field `values`"))?;
-      let mut sum = 0.0_f64;
-      for value in values {
-        let number = value
-          .as_f64()
-          .ok_or_else(|| AnyError::msg("rust_call.sum expects numbers only"))?;
-        sum += number;
-      }
+      let sum: f64 = values
+        .iter()
+        .map(|v| v.as_f64().ok_or_else(|| AnyError::msg("rust_call.sum expects numbers only")))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .sum();
       Ok(serde_json::json!({
         "op": "sum",
         "output": sum,
@@ -200,50 +229,56 @@ fn normalize_external_process_message(line: &str) -> serde_json::Value {
   }
 }
 
+/// The Rust-side event loop that bridges Rust ↔ TS via the duplex channels.
+///
+/// **P0 – persistent mode no longer wastes a 300 ms interval timer.**
+/// In persistent mode the interval branch is disabled entirely via
+/// `std::future::pending()`, yielding zero wakeups until a real message
+/// arrives on one of the two remaining branches.
+///
+/// **P0 – channels carry `serde_json::Value` instead of `String`.**
+/// **P1 – `execute_ts_initiated_rust_call` is async.**
+/// **P3 – demo message removed; trace output gated behind env var.**
 pub(crate) async fn rust_duplex_driver(
-  rust_to_ts_tx: mpsc::Sender<String>,
-  mut ts_to_rust_rx: mpsc::Receiver<String>,
+  rust_to_ts_tx: mpsc::Sender<serde_json::Value>,
+  mut ts_to_rust_rx: mpsc::Receiver<serde_json::Value>,
   mut process_message_rx: mpsc::Receiver<String>,
   persistent: bool,
 ) -> Result<(), AnyError> {
-  let mut interval = tokio::time::interval(Duration::from_millis(300));
-  interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-  interval.tick().await;
+  // P0: In persistent mode we never need the interval timer at all.
+  // Using `Option<Interval>` prevents any 300 ms wakeup overhead.
+  let mut maybe_interval = if persistent {
+    None
+  } else {
+    let mut iv = tokio::time::interval(Duration::from_millis(300));
+    iv.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    iv.tick().await; // consume the first immediate tick
+    Some(iv)
+  };
+
+  let trace = trace_duplex_enabled();
 
   let mut ping_seq = 0_u64;
   let mut pong_count = 0_u64;
   let mut is_ready = false;
-  let mut sent_demo_message = false;
   let mut sent_shutdown = false;
   let mut process_input_closed = false;
 
   loop {
     tokio::select! {
-      _ = interval.tick(), if !sent_shutdown => {
-        if is_ready && !sent_demo_message {
-          write_json_line(
-            &rust_to_ts_tx,
-            &serde_json::json!({
-              "type": "message",
-              "id": "demo-1",
-              "payload": {
-                "text": "hello from rust",
-                "seq": ping_seq,
-              }
-            }),
-          )
-          .await?;
-          sent_demo_message = true;
+      // In persistent mode `maybe_interval` is None, so we await
+      // `pending()` — which never resolves — effectively disabling
+      // this branch at zero cost.
+      _ = async {
+        match maybe_interval.as_mut() {
+          Some(iv) => iv.tick().await,
+          None => { std::future::pending::<tokio::time::Instant>().await }
         }
-
-        if persistent {
-          continue;
-        }
-
+      }, if !sent_shutdown => {
         ping_seq += 1;
-        write_json_line(
+        send_value(
           &rust_to_ts_tx,
-          &serde_json::json!({
+          serde_json::json!({
             "type": "ping",
             "seq": ping_seq,
             "from": "rust",
@@ -251,33 +286,31 @@ pub(crate) async fn rust_duplex_driver(
         )
         .await?;
 
-        if !persistent {
-          if is_ready && pong_count >= 3 {
-            write_json_line(
-              &rust_to_ts_tx,
-              &serde_json::json!({
-                "type": "shutdown",
-                "reason": "oneshot_completed",
-              }),
-            )
-            .await?;
-            sent_shutdown = true;
-          } else if ping_seq >= 10 {
-            write_json_line(
-              &rust_to_ts_tx,
-              &serde_json::json!({
-                "type": "shutdown",
-                "reason": "oneshot_timeout",
-              }),
-            )
-            .await?;
-            sent_shutdown = true;
-          }
+        if is_ready && pong_count >= 3 {
+          send_value(
+            &rust_to_ts_tx,
+            serde_json::json!({
+              "type": "shutdown",
+              "reason": "oneshot_completed",
+            }),
+          )
+          .await?;
+          sent_shutdown = true;
+        } else if ping_seq >= 10 {
+          send_value(
+            &rust_to_ts_tx,
+            serde_json::json!({
+              "type": "shutdown",
+              "reason": "oneshot_timeout",
+            }),
+          )
+          .await?;
+          sent_shutdown = true;
         }
       }
-      inbound = read_line(&mut ts_to_rust_rx) => {
-        let inbound = match inbound {
-          Ok(line) => line,
+      inbound = recv_value(&mut ts_to_rust_rx) => {
+        let message = match inbound {
+          Ok(v) => v,
           Err(err) => {
             if sent_shutdown {
               break;
@@ -285,10 +318,9 @@ pub(crate) async fn rust_duplex_driver(
             return Err(err);
           }
         };
-        println!("[rust] received: {inbound}");
-        let Ok(message) = serde_json::from_str::<serde_json::Value>(&inbound) else {
-          continue;
-        };
+        if trace {
+          println!("[rust] received: {message}");
+        }
 
         match message.get("type").and_then(|v| v.as_str()) {
           Some("ready") => {
@@ -299,8 +331,10 @@ pub(crate) async fn rust_duplex_driver(
             continue;
           }
           Some("message_result") => {
-            if let Some(result) = message.get("result") {
-              println!("[rust] message result: {result}");
+            if trace {
+              if let Some(result) = message.get("result") {
+                println!("[rust] message result: {result}");
+              }
             }
           }
           Some("rust_call") => {
@@ -310,11 +344,12 @@ pub(crate) async fn rust_duplex_driver(
               .cloned()
               .unwrap_or(serde_json::Value::Null);
 
-            match execute_ts_initiated_rust_call(&payload) {
+            // P1: async rust_call — can now call async services
+            match execute_ts_initiated_rust_call(&payload).await {
               Ok(result) => {
-                write_json_line(
+                send_value(
                   &rust_to_ts_tx,
-                  &serde_json::json!({
+                  serde_json::json!({
                     "type": "rust_call_result",
                     "id": id,
                     "result": result,
@@ -323,9 +358,9 @@ pub(crate) async fn rust_duplex_driver(
                 .await?;
               }
               Err(err) => {
-                write_json_line(
+                send_value(
                   &rust_to_ts_tx,
-                  &serde_json::json!({
+                  serde_json::json!({
                     "type": "rust_call_error",
                     "id": id,
                     "error": err.to_string(),
@@ -336,18 +371,24 @@ pub(crate) async fn rust_duplex_driver(
             }
           }
           Some("module_loaded") => {
-            if let Some(specifier) = message.get("specifier") {
-              println!("[rust] module loaded from ts: {specifier}");
+            if trace {
+              if let Some(specifier) = message.get("specifier") {
+                println!("[rust] module loaded from ts: {specifier}");
+              }
             }
           }
           Some("module_error") => {
             return Err(AnyError::msg(format!("ts module update failed: {message}")));
           }
           Some("mfa_updated") => {
-            println!("[rust] mfa updated in ts: {}", message);
+            if trace {
+              println!("[rust] mfa updated in ts: {}", message);
+            }
           }
           Some("runtime_args_updated") => {
-            println!("[rust] runtime args updated in ts: {}", message);
+            if trace {
+              println!("[rust] runtime args updated in ts: {}", message);
+            }
           }
           Some("shutdown_ack") => {
             break;
@@ -369,14 +410,14 @@ pub(crate) async fn rust_duplex_driver(
             {
               sent_shutdown = true;
             }
-            write_json_line(&rust_to_ts_tx, &outbound).await?;
+            send_value(&rust_to_ts_tx, outbound).await?;
           }
           None => {
             process_input_closed = true;
             if !sent_shutdown && is_ready {
-              write_json_line(
+              send_value(
                 &rust_to_ts_tx,
-                &serde_json::json!({
+                serde_json::json!({
                   "type": "shutdown",
                   "reason": "process_input_closed",
                 }),

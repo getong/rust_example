@@ -135,24 +135,18 @@ async function handleScriptMessage(message, rid) {
 }
 
 const rid = duplex.open();
-let sentRustCall = false;
 
+// P3: Slimmed-down ready message — the boolean capability flags were never
+// consumed by the Rust driver, only `targetSpecifier` matters for routing.
 await duplex.writeLine(
   rid,
   JSON.stringify({
     type: "ready",
     targetSpecifier,
-    hasExportedHandler: !!exportedHandler,
-    hasGlobalHandler: !!globalHandler,
-    hasRustResultHandler: !!rustResultHandler,
-    hasMfaUpdateHandler: !!mfaUpdateHandler,
-    modules: runtimeState.modules,
-    mfa: runtimeState.mfa,
-    args: runtimeState.args,
   }),
 );
 
-await duplex.serve(rid, async (line) => {
+await duplex.pump(rid, async (line) => {
   let message;
   try {
     message = JSON.parse(line);
@@ -170,22 +164,6 @@ await duplex.serve(rid, async (line) => {
           at: Date.now(),
         }),
       );
-
-      if (!sentRustCall) {
-        const callId = `ts-rust-${message.seq ?? Date.now()}`;
-        await duplex.writeLine(
-          rid,
-          JSON.stringify({
-            type: "rust_call",
-            id: callId,
-            payload: {
-              op: "uppercase",
-              text: `hello from ts (seq=${message.seq ?? "n/a"})`,
-            },
-          }),
-        );
-        sentRustCall = true;
-      }
       return true;
 
     case "message":
