@@ -3,6 +3,7 @@ use std::{
   cell::RefCell,
   collections::{BTreeSet, HashMap, HashSet},
   fmt::Write as _,
+  hash::Hash,
   path::{Path, PathBuf},
   rc::Rc,
   sync::{Arc, Mutex},
@@ -14,12 +15,11 @@ use deno_ast::{MediaType, ParseParams, SourceMapOption};
 use deno_cache_dir::npm::NpmCacheDir;
 use deno_core::{
   ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader, ModuleSource,
-  ModuleSourceCode, ModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import, url::Url,
+  ModuleSourceCode, ModuleType, ResolutionKind, error::ModuleLoaderError, resolve_import,
 };
 use deno_error::JsErrorBox;
 use deno_graph::packages::{JsrPackageInfo, JsrPackageVersionInfo, JsrVersionResolver};
 use deno_npm::{
-  npm_rc::ResolvedNpmRc,
   registry::{NpmPackageVersionDistInfo, NpmRegistryApi},
   resolution::NpmVersionResolver,
 };
@@ -36,6 +36,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use sys_traits::impls::RealSys;
+
+use crate::{cache::TranspileCache, npm_helpers::create_default_npmrc};
 
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
 
@@ -62,7 +64,8 @@ fn first_non_empty_env_var(keys: &[&str]) -> Option<String> {
   None
 }
 
-fn configured_ureq_agent() -> ureq::Agent {
+/// Shared HTTP agent – enables connection pooling across all requests.
+static SHARED_UREQ_AGENT: Lazy<ureq::Agent> = Lazy::new(|| {
   let mut builder = ureq::Agent::config_builder();
   if let Some(proxy_value) = first_non_empty_env_var(&[
     "https_proxy",
@@ -77,9 +80,13 @@ fn configured_ureq_agent() -> ureq::Agent {
     }
   }
   ureq::Agent::new_with_config(builder.build())
+});
+
+fn shared_ureq_agent() -> &'static ureq::Agent {
+  &SHARED_UREQ_AGENT
 }
 
-fn deno_dir_root() -> Option<PathBuf> {
+pub(crate) fn deno_dir_root() -> Option<PathBuf> {
   if let Some(deno_dir) = std::env::var_os("DENO_DIR") {
     return Some(PathBuf::from(deno_dir));
   }
@@ -227,17 +234,6 @@ static FORM_DATA_IMPORT_RE: Lazy<Regex> = Lazy::new(|| {
     .expect("valid form-data import regex")
 });
 
-fn create_default_npmrc() -> Arc<ResolvedNpmRc> {
-  Arc::new(ResolvedNpmRc {
-    default_config: deno_npm::npm_rc::RegistryConfigWithUrl {
-      registry_url: Url::parse("https://registry.npmjs.org").unwrap(),
-      config: Default::default(),
-    },
-    scopes: Default::default(),
-    registry_configs: Default::default(),
-  })
-}
-
 #[derive(Debug, Default)]
 struct DirectNpmCacheHttpClient;
 
@@ -249,85 +245,95 @@ impl NpmCacheHttpClient for DirectNpmCacheHttpClient {
     maybe_auth: Option<String>,
     maybe_etag: Option<String>,
   ) -> Result<NpmCacheHttpClientResponse, DownloadError> {
-    let mut retries = 0_u8;
+    // Move the blocking ureq call off the async runtime thread.
+    let result = tokio::task::spawn_blocking(move || {
+      let mut retries = 0_u8;
 
-    loop {
-      let agent = configured_ureq_agent();
-      let mut request = agent.get(url.as_str()).header(
-        "user-agent",
-        "libmainworker_duplex_stream_example/npm-cache",
-      );
+      loop {
+        let agent = shared_ureq_agent();
+        let mut request = agent.get(url.as_str()).header(
+          "user-agent",
+          "libmainworker_duplex_stream_example/npm-cache",
+        );
 
-      if let Some(auth) = maybe_auth.as_ref() {
-        request = request.header("authorization", auth);
-      }
-      if let Some(etag) = maybe_etag.as_ref() {
-        request = request.header("if-none-match", etag);
-      }
+        if let Some(auth) = maybe_auth.as_ref() {
+          request = request.header("authorization", auth);
+        }
+        if let Some(etag) = maybe_etag.as_ref() {
+          request = request.header("if-none-match", etag);
+        }
 
-      let response = request.call();
+        let response = request.call();
 
-      match response {
-        Ok(response) => {
-          let status = response.status().as_u16();
-          if status == 304 {
+        match response {
+          Ok(response) => {
+            let status = response.status().as_u16();
+            if status == 304 {
+              return Ok(NpmCacheHttpClientResponse::NotModified);
+            }
+            if status == 404 {
+              return Ok(NpmCacheHttpClientResponse::NotFound);
+            }
+
+            let etag = response
+              .headers()
+              .get("etag")
+              .and_then(|value| value.to_str().ok())
+              .map(|value| value.to_string());
+
+            let bytes = response
+              .into_body()
+              .with_config()
+              .limit(1024 * 1024 * 256)
+              .read_to_vec()
+              .map_err(|err| DownloadError {
+                status_code: Some(status),
+                error: JsErrorBox::generic(format!(
+                  "failed reading npm response body {}: {err}",
+                  url
+                )),
+              })?;
+
+            return Ok(NpmCacheHttpClientResponse::Bytes(
+              NpmCacheHttpClientBytesResponse { bytes, etag },
+            ));
+          }
+          Err(ureq::Error::StatusCode(304)) => {
             return Ok(NpmCacheHttpClientResponse::NotModified);
           }
-          if status == 404 {
+          Err(ureq::Error::StatusCode(404)) => {
             return Ok(NpmCacheHttpClientResponse::NotFound);
           }
-
-          let etag = response
-            .headers()
-            .get("etag")
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.to_string());
-
-          let bytes = response
-            .into_body()
-            .with_config()
-            .limit(1024 * 1024 * 256)
-            .read_to_vec()
-            .map_err(|err| DownloadError {
-              status_code: Some(status),
-              error: JsErrorBox::generic(format!(
-                "failed reading npm response body {}: {err}",
-                url
-              )),
-            })?;
-
-          return Ok(NpmCacheHttpClientResponse::Bytes(
-            NpmCacheHttpClientBytesResponse { bytes, etag },
-          ));
-        }
-        Err(ureq::Error::StatusCode(304)) => {
-          return Ok(NpmCacheHttpClientResponse::NotModified);
-        }
-        Err(ureq::Error::StatusCode(404)) => {
-          return Ok(NpmCacheHttpClientResponse::NotFound);
-        }
-        Err(ureq::Error::StatusCode(status_code)) => {
-          return Err(DownloadError {
-            status_code: Some(status_code),
-            error: JsErrorBox::generic(format!("npm http status {} for {}", status_code, url)),
-          });
-        }
-        Err(err) if retries < 1 => {
-          retries += 1;
-          std::thread::sleep(Duration::from_millis(50));
-          eprintln!(
-            "retrying npm cache download for {} after error: {}",
-            url, err
-          );
-        }
-        Err(err) => {
-          return Err(DownloadError {
-            status_code: None,
-            error: JsErrorBox::generic(format!("npm download failed for {}: {}", url, err)),
-          });
+          Err(ureq::Error::StatusCode(status_code)) => {
+            return Err(DownloadError {
+              status_code: Some(status_code),
+              error: JsErrorBox::generic(format!("npm http status {} for {}", status_code, url)),
+            });
+          }
+          Err(err) if retries < 1 => {
+            retries += 1;
+            std::thread::sleep(Duration::from_millis(50));
+            eprintln!(
+              "retrying npm cache download for {} after error: {}",
+              url, err
+            );
+          }
+          Err(err) => {
+            return Err(DownloadError {
+              status_code: None,
+              error: JsErrorBox::generic(format!("npm download failed for {}: {}", url, err)),
+            });
+          }
         }
       }
-    }
+    })
+    .await
+    .map_err(|err| DownloadError {
+      status_code: None,
+      error: JsErrorBox::generic(format!("spawn_blocking join error: {err}")),
+    })?;
+
+    result
   }
 }
 
@@ -703,7 +709,7 @@ impl NpmPackageResolver {
   fn ensure_req_and_dependencies<'a>(
     &'a self,
     req: PackageReq,
-    visited: &'a mut HashSet<PackageNv>,
+    visited: &'a Arc<Mutex<HashSet<PackageNv>>>,
   ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<PackageNv, ModuleLoaderError>> + 'a>>
   {
     Box::pin(async move {
@@ -735,8 +741,13 @@ impl NpmPackageResolver {
         version: version_info.version.clone(),
       };
 
-      if !visited.insert(package_nv.clone()) {
-        return Ok(package_nv);
+      {
+        let mut visited_guard = visited
+          .lock()
+          .map_err(|_| JsErrorBox::generic("failed to lock visited set"))?;
+        if !visited_guard.insert(package_nv.clone()) {
+          return Ok(package_nv);
+        }
       }
 
       let dist: NpmPackageVersionDistInfo = version_info.dist.clone().ok_or_else(|| {
@@ -771,15 +782,27 @@ impl NpmPackageResolver {
           ))
         })?;
 
-      let mut resolved_dependencies = HashMap::new();
-      for dep_entry in dep_entries {
-        let dep_req = PackageReq {
-          name: dep_entry.name.clone(),
-          version_req: dep_entry.version_req,
-        };
+      // Resolve sibling dependencies concurrently instead of sequentially.
+      let dep_futures: Vec<_> = dep_entries
+        .into_iter()
+        .map(|dep_entry| {
+          let dep_req = PackageReq {
+            name: dep_entry.name.clone(),
+            version_req: dep_entry.version_req,
+          };
+          let dep_name = dep_entry.name.to_string();
+          async move {
+            let dep_nv = self.ensure_req_and_dependencies(dep_req, visited).await?;
+            Ok::<_, ModuleLoaderError>((dep_name, dep_nv))
+          }
+        })
+        .collect();
 
-        let dep_nv = self.ensure_req_and_dependencies(dep_req, visited).await?;
-        resolved_dependencies.insert(dep_entry.name.to_string(), dep_nv);
+      let dep_results = futures::future::join_all(dep_futures).await;
+      let mut resolved_dependencies = HashMap::new();
+      for result in dep_results {
+        let (dep_name, dep_nv) = result?;
+        resolved_dependencies.insert(dep_name, dep_nv);
       }
 
       if let Ok(mut map) = self.dependency_nv_by_parent.lock() {
@@ -804,9 +827,9 @@ impl NpmPackageResolver {
       JsErrorBox::generic(format!("invalid npm specifier `{npm_specifier}`: {err}"))
     })?;
 
-    let mut visited = HashSet::new();
+    let visited = Arc::new(Mutex::new(HashSet::new()));
     let package_nv = self
-      .ensure_req_and_dependencies(req_ref.req().clone(), &mut visited)
+      .ensure_req_and_dependencies(req_ref.req().clone(), &visited)
       .await?;
 
     let entry_path = self.resolve_package_entry_path(&package_nv, req_ref.sub_path())?;
@@ -839,10 +862,6 @@ impl JsrPackageResolver {
     Self::default()
   }
 
-  fn create_http_agent() -> ureq::Agent {
-    configured_ureq_agent()
-  }
-
   fn fetch_json<T: serde::de::DeserializeOwned>(
     &self,
     url: &str,
@@ -854,7 +873,7 @@ impl JsrPackageResolver {
       }
     }
 
-    let agent = Self::create_http_agent();
+    let agent = shared_ureq_agent();
     let mut retried = false;
 
     let bytes = loop {
@@ -1039,6 +1058,7 @@ pub(crate) struct DirectModuleLoader {
   source_maps: SourceMapStore,
   npm_resolver: Arc<NpmPackageResolver>,
   jsr_resolver: Arc<JsrPackageResolver>,
+  transpile_cache: Option<Arc<TranspileCache>>,
 }
 
 impl DirectModuleLoader {
@@ -1048,10 +1068,24 @@ impl DirectModuleLoader {
     });
     let jsr_resolver = JsrPackageResolver::new();
 
+    // Initialize transpile cache alongside code cache — stored in DENO_DIR.
+    let transpile_cache = deno_dir_root()
+      .map(|root| root.join("transpile_cache.db"))
+      .and_then(|path| {
+        TranspileCache::new(&path)
+          .map_err(|err| {
+            eprintln!("[warn] failed to open transpile cache: {err}");
+            err
+          })
+          .ok()
+      })
+      .map(Arc::new);
+
     Self {
       source_maps: Rc::new(RefCell::new(HashMap::new())),
       npm_resolver: Arc::new(npm_resolver),
       jsr_resolver: Arc::new(jsr_resolver),
+      transpile_cache,
     }
   }
 
@@ -1078,6 +1112,7 @@ impl DirectModuleLoader {
 
   fn transpile_if_needed(
     source_maps: SourceMapStore,
+    transpile_cache: Option<&TranspileCache>,
     module_specifier: &deno_core::ModuleSpecifier,
     code: String,
     media_type: MediaType,
@@ -1085,6 +1120,26 @@ impl DirectModuleLoader {
   ) -> Result<String, ModuleLoaderError> {
     if !should_transpile {
       return Ok(code);
+    }
+
+    // Compute a content hash for cache lookup.
+    let source_hash = {
+      let mut hasher = std::collections::hash_map::DefaultHasher::new();
+      code.hash(&mut hasher);
+      std::hash::Hasher::finish(&hasher)
+    };
+    let specifier_str = module_specifier.as_str();
+
+    // Try returning a cached transpile result.
+    if let Some(tc) = transpile_cache {
+      if let Some((cached_code, cached_map)) = tc.get(specifier_str, source_hash) {
+        if let Some(map) = cached_map {
+          source_maps
+            .borrow_mut()
+            .insert(specifier_str.to_string(), map);
+        }
+        return Ok(cached_code);
+      }
     }
 
     let parsed = deno_ast::parse_module(ParseParams {
@@ -1114,14 +1169,28 @@ impl DirectModuleLoader {
       .map_err(|err| JsErrorBox::generic(err.to_string()))?
       .into_source();
 
-    if let Some(source_map) = transpiled.source_map {
-      source_maps
-        .borrow_mut()
-        .insert(module_specifier.to_string(), source_map.into_bytes());
+    let source_map_bytes = transpiled.source_map.map(|sm| sm.into_bytes());
+
+    let transpiled_code = String::from_utf8(transpiled.text.into_bytes())
+      .map_err(|err| JsErrorBox::generic(err.to_string()))?;
+
+    // Store in transpile cache.
+    if let Some(tc) = transpile_cache {
+      tc.set(
+        specifier_str,
+        source_hash,
+        &transpiled_code,
+        source_map_bytes.as_deref(),
+      );
     }
 
-    String::from_utf8(transpiled.text.into_bytes())
-      .map_err(|err| JsErrorBox::generic(err.to_string()))
+    if let Some(source_map) = source_map_bytes {
+      source_maps
+        .borrow_mut()
+        .insert(module_specifier.to_string(), source_map);
+    }
+
+    Ok(transpiled_code)
   }
 
   fn is_valid_export_ident(name: &str) -> bool {
@@ -1224,58 +1293,48 @@ impl DirectModuleLoader {
     out
   }
 
-  fn analyze_commonjs_export_names(
-    module_specifier: &deno_core::ModuleSpecifier,
-    media_type: MediaType,
-    code: &str,
-  ) -> Result<BTreeSet<String>, ModuleLoaderError> {
-    let parse_media_type = if matches!(media_type, MediaType::Cjs) {
-      MediaType::Cjs
-    } else {
-      MediaType::JavaScript
-    };
-    let parsed = deno_ast::parse_program(ParseParams {
-      specifier: module_specifier.clone(),
-      text: code.to_string().into(),
-      media_type: parse_media_type,
-      capture_tokens: false,
-      scope_analysis: false,
-      maybe_syntax: None,
-    })
-    .map_err(|err| JsErrorBox::generic(err.to_string()))?;
-
-    let analysis = parsed.analyze_cjs();
-    Ok(analysis.exports.into_iter().collect())
-  }
-
-  fn should_wrap_as_commonjs(
+  /// Combined CJS detection + export analysis in a single AST parse.
+  /// Returns `Some(export_names)` if the module should be wrapped as CJS,
+  /// or `None` if it should be loaded as ESM.
+  fn detect_cjs_and_analyze(
     npm_resolver: &NpmPackageResolver,
     module_specifier: &deno_core::ModuleSpecifier,
     path: &Path,
     media_type: MediaType,
     code: &str,
-  ) -> Result<bool, ModuleLoaderError> {
+  ) -> Result<Option<BTreeSet<String>>, ModuleLoaderError> {
     if !npm_resolver.is_in_npm_cache_path(path) {
-      return Ok(false);
+      return Ok(None);
     }
     if matches!(media_type, MediaType::Mjs | MediaType::Mts) {
-      return Ok(false);
+      return Ok(None);
     }
+
+    // For explicit .cjs files, we know it's CJS – parse once for exports.
     if matches!(media_type, MediaType::Cjs) {
-      return Ok(true);
+      let parsed = deno_ast::parse_program(ParseParams {
+        specifier: module_specifier.clone(),
+        text: code.to_string().into(),
+        media_type: MediaType::Cjs,
+        capture_tokens: false,
+        scope_analysis: false,
+        maybe_syntax: None,
+      })
+      .map_err(|err| JsErrorBox::generic(err.to_string()))?;
+      let analysis = parsed.analyze_cjs();
+      return Ok(Some(analysis.exports.into_iter().collect()));
     }
+
     if !matches!(media_type, MediaType::JavaScript | MediaType::Unknown) {
-      return Ok(false);
+      return Ok(None);
     }
 
     let package_type = npm_resolver.package_type_for_module_path(path);
     if matches!(package_type.as_deref(), Some("module")) {
-      return Ok(false);
-    }
-    if matches!(package_type.as_deref(), Some("commonjs")) {
-      return Ok(true);
+      return Ok(None);
     }
 
+    // Single parse: determine is_script AND extract CJS exports in one pass.
     let parsed = deno_ast::parse_program(ParseParams {
       specifier: module_specifier.clone(),
       text: code.to_string().into(),
@@ -1285,11 +1344,21 @@ impl DirectModuleLoader {
       maybe_syntax: None,
     })
     .map_err(|err| JsErrorBox::generic(err.to_string()))?;
-    Ok(parsed.program_ref().compute_is_script())
+
+    let is_cjs = matches!(package_type.as_deref(), Some("commonjs"))
+      || parsed.program_ref().compute_is_script();
+
+    if !is_cjs {
+      return Ok(None);
+    }
+
+    let analysis = parsed.analyze_cjs();
+    Ok(Some(analysis.exports.into_iter().collect()))
   }
 
   fn load_file_module(
     source_maps: SourceMapStore,
+    transpile_cache: Option<&TranspileCache>,
     module_specifier: &deno_core::ModuleSpecifier,
     npm_resolver: Option<&NpmPackageResolver>,
   ) -> Result<ModuleSource, ModuleLoaderError> {
@@ -1297,14 +1366,14 @@ impl DirectModuleLoader {
       JsErrorBox::generic("there was an error converting the module specifier to a file path")
     })?;
     let media_type = MediaType::from_path(&path);
-    let mut code =
+    let raw_code =
       std::fs::read_to_string(&path).map_err(|err| JsErrorBox::generic(err.to_string()))?;
-    code = Self::rewrite_disabled_commonjs_stubs(module_specifier, &code);
+    let code = Self::rewrite_disabled_commonjs_stubs(module_specifier, &raw_code);
 
     if let Some(npm_resolver) = npm_resolver {
-      if Self::should_wrap_as_commonjs(npm_resolver, module_specifier, &path, media_type, &code)? {
-        let export_names =
-          Self::analyze_commonjs_export_names(module_specifier, media_type, &code)?;
+      if let Some(export_names) =
+        Self::detect_cjs_and_analyze(npm_resolver, module_specifier, &path, media_type, &code)?
+      {
         let wrapper = Self::build_commonjs_wrapper(&path, &code, &export_names);
         return Ok(ModuleSource::new(
           ModuleType::JavaScript,
@@ -1318,8 +1387,9 @@ impl DirectModuleLoader {
     let (module_type, should_transpile) = Self::module_kind(media_type)?;
     let code = Self::transpile_if_needed(
       source_maps,
+      transpile_cache,
       module_specifier,
-      code,
+      code.into_owned(),
       media_type,
       should_transpile,
     )?;
@@ -1332,20 +1402,20 @@ impl DirectModuleLoader {
     ))
   }
 
-  fn rewrite_disabled_commonjs_stubs(
+  fn rewrite_disabled_commonjs_stubs<'c>(
     module_specifier: &deno_core::ModuleSpecifier,
-    code: &str,
-  ) -> String {
+    code: &'c str,
+  ) -> Cow<'c, str> {
     if module_specifier.scheme() != "file" {
-      return code.to_string();
+      return Cow::Borrowed(code);
     }
 
     let Ok(path) = module_specifier.to_file_path() else {
-      return code.to_string();
+      return Cow::Borrowed(code);
     };
     let path_text = path.to_string_lossy().to_string();
     if !path_text.contains("/npm/registry.npmjs.org/") {
-      return code.to_string();
+      return Cow::Borrowed(code);
     }
 
     let mut working_code = code.to_string();
@@ -1359,7 +1429,10 @@ impl DirectModuleLoader {
     }
 
     if !working_code.contains("(disabled):") {
-      return working_code;
+      if changed {
+        return Cow::Owned(working_code);
+      }
+      return Cow::Borrowed(code);
     }
 
     let mut imports = Vec::<&'static str>::new();
@@ -1437,7 +1510,7 @@ impl DirectModuleLoader {
       });
 
     if !changed {
-      return working_code;
+      return Cow::Owned(working_code);
     }
 
     let mut out = String::new();
@@ -1465,11 +1538,12 @@ impl DirectModuleLoader {
       );
     }
     out.push_str(rewritten.as_ref());
-    out
+    Cow::Owned(out)
   }
 
   fn load_https_module(
     source_maps: SourceMapStore,
+    transpile_cache: Option<&TranspileCache>,
     module_specifier: &deno_core::ModuleSpecifier,
   ) -> Result<ModuleSource, ModuleLoaderError> {
     let url = module_specifier.to_string();
@@ -1478,6 +1552,7 @@ impl DirectModuleLoader {
       let (module_type, should_transpile) = Self::module_kind(media_type)?;
       let cached_body = Self::transpile_if_needed(
         source_maps,
+        transpile_cache,
         module_specifier,
         cached_body,
         media_type,
@@ -1492,7 +1567,7 @@ impl DirectModuleLoader {
       ));
     }
 
-    let agent = configured_ureq_agent();
+    let agent = shared_ureq_agent();
     let mut retried = false;
     let body = loop {
       let response = match agent
@@ -1537,6 +1612,7 @@ impl DirectModuleLoader {
     let (module_type, should_transpile) = Self::module_kind(media_type)?;
     let body = Self::transpile_if_needed(
       source_maps,
+      transpile_cache,
       module_specifier,
       body,
       media_type,
@@ -1665,14 +1741,17 @@ impl ModuleLoader for DirectModuleLoader {
     let module_specifier = module_specifier.clone();
     let module_specifier_text = module_specifier.to_string();
 
+    let tc = self.transpile_cache.as_deref();
     let result = match module_specifier.scheme() {
       "file" => ModuleLoadResponse::Sync(Self::load_file_module(
         self.source_maps.clone(),
+        tc,
         &module_specifier,
         Some(self.npm_resolver.as_ref()),
       )),
       "https" => ModuleLoadResponse::Sync(Self::load_https_module(
         self.source_maps.clone(),
+        tc,
         &module_specifier,
       )),
       "data" => ModuleLoadResponse::Sync(Self::load_data_module(&module_specifier)),
@@ -1681,12 +1760,13 @@ impl ModuleLoader for DirectModuleLoader {
         let source_maps = self.source_maps.clone();
         let result = jsr_resolver
           .resolve_jsr_specifier_to_https(module_specifier.as_str())
-          .and_then(|remote_specifier| Self::load_https_module(source_maps, &remote_specifier));
+          .and_then(|remote_specifier| Self::load_https_module(source_maps, tc, &remote_specifier));
         ModuleLoadResponse::Sync(result)
       }
       "npm" => {
         let source_maps = self.source_maps.clone();
         let npm_resolver = self.npm_resolver.clone();
+        let transpile_cache = self.transpile_cache.clone();
 
         ModuleLoadResponse::Async(Box::pin(async move {
           let npm_specifier = module_specifier.to_string();
@@ -1696,6 +1776,7 @@ impl ModuleLoader for DirectModuleLoader {
             .await?;
           let loaded = Self::load_file_module(
             source_maps,
+            transpile_cache.as_deref(),
             &resolved_specifier,
             Some(npm_resolver.as_ref()),
           )?;

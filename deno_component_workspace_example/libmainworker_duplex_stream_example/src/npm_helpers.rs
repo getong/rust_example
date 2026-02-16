@@ -1,11 +1,10 @@
-// Helper functions copied from deno cli/rt/run.rs
+// Helper functions for npm resolution
 use std::sync::Arc;
 
-use url::Url;
+use deno_core::url::Url;
 
-// Create a default npmrc configuration
-#[allow(dead_code)]
-pub fn create_default_npmrc() -> Arc<deno_npm::npm_rc::ResolvedNpmRc> {
+/// Create a default npmrc configuration pointing to the public npm registry.
+pub(crate) fn create_default_npmrc() -> Arc<deno_npm::npm_rc::ResolvedNpmRc> {
   Arc::new(deno_npm::npm_rc::ResolvedNpmRc {
     default_config: deno_npm::npm_rc::RegistryConfigWithUrl {
       registry_url: Url::parse("https://registry.npmjs.org").unwrap(),

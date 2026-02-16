@@ -6904,6 +6904,7 @@ dependencies = [
  "eszip 0.108.0",
  "faster-hex",
  "flate2",
+ "futures",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",

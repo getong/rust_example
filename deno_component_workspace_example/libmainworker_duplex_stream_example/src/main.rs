@@ -31,9 +31,11 @@ use crate::{
 };
 
 mod axum_server;
+mod cache;
 mod duplex;
 mod embed;
 mod module_loader;
+mod npm_helpers;
 mod runtime_paths;
 
 deno_core::extension!(
@@ -428,7 +430,23 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
     fetch_dns_resolver: Default::default(),
     shared_array_buffer_store: None,
     compiled_wasm_module_store: None,
-    v8_code_cache: None,
+    v8_code_cache: {
+      let code_cache_path =
+        crate::module_loader::deno_dir_root().map(|root| root.join("code_cache.db"));
+      match code_cache_path {
+        Some(path) => match crate::cache::CodeCache::new(&path) {
+          Ok(cc) => {
+            println!("V8 code cache enabled: {}", path.display());
+            Some(Arc::new(cc) as Arc<dyn deno_runtime::code_cache::CodeCache>)
+          }
+          Err(err) => {
+            eprintln!("[warn] failed to open V8 code cache: {err}");
+            None
+          }
+        },
+        None => None,
+      }
+    },
     bundle_provider: None,
     fs: Arc::new(deno_runtime::deno_fs::RealFs),
   };
