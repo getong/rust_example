@@ -39,7 +39,10 @@ export function registerLibmainworkerDuplex() {
      * callback should return `false` (or throw an `Error` whose
      * `.message` is `"FATAL"`).
      */
-    async pump(rid: number, onMessage: (line: string) => Promise<boolean | void> | boolean | void) {
+    async pump(
+      rid: number,
+      onMessage: (line: string) => Promise<boolean | void> | boolean | void,
+    ) {
       if (typeof onMessage !== "function") {
         throw new TypeError("pump requires a message handler function");
       }
