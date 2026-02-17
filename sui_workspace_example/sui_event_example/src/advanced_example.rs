@@ -101,8 +101,8 @@ impl AdvancedEventListener {
       module: Identifier::new(module_name)?,
     };
 
-    let mut event_stream = self
-      .client
+    let stream_client = self.client.clone();
+    let mut event_stream = stream_client
       .event_api()
       .subscribe_event(package_filter)
       .await?;
