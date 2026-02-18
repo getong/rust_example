@@ -1,0 +1,15 @@
+[package]
+name = "counter_program_client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+solana-client = "3.1.8"
+solana-commitment-config = "3.1.0"
+solana-instruction = "3.1.0"
+solana-keypair = "3.1.0"
+solana-pubkey = "4"
+solana-sdk = "4"
+solana-signer = "3.0.0"
+solana-transaction = "3.1.0"

@@ -28,4 +28,5 @@ members = [
   "solana_compute_budget_instruction_example",
   "create_system_account_example",
   "solana_transaction_pool_example",
+  "counter_program_client",
 ]
