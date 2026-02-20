@@ -19,7 +19,7 @@ all-features = true
 default = []
 
 [dependencies]
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = [
   "serde",
   "type-alias",
 ] }

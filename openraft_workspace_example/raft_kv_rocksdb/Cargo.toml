@@ -9,16 +9,16 @@ edition = "2024"
 [dependencies]
 actix-web = "4.12.1"
 byteorder = "1.5.0"
-clap = { version = "4.5.57", features = ["derive", "env"] }
+clap = { version = "4.5.58", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
-futures = "0.3.31"
+futures = "0.3.32"
 network-v1-http = { path = "../network-v1-http" }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = [
   "serde",
   "type-alias",
   "serde_json",
 ] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d" }
+openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e" }
 openraft-rocksstore = { path = "../rocksstore" }
 reqwest = { version = "0.13", features = ["json"] }
 rocksdb = "0.24.0"
@@ -31,4 +31,4 @@ types-kv = { path = "../types-kv" }
 
 [dev-dependencies]
 maplit = "1.0.2"
-tempfile = { version = "3.24.0" }
+tempfile = { version = "3.25.0" }

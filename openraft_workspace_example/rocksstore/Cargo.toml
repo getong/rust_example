@@ -20,8 +20,8 @@ bt = ["openraft/bt"]
 
 [dependencies]
 byteorder = "1.5.0"
-futures = "0.3.31"
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d", features = ["serde", "type-alias"] }
+futures = "0.3.32"
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = ["serde", "type-alias"] }
 rand = "0.10"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -30,4 +30,4 @@ tracing = { version = "0.1.44" }
 types-kv = { path = "../types-kv" }
 
 [dev-dependencies]
-tempfile = { version = "3.24.0" }
+tempfile = { version = "3.25.0" }

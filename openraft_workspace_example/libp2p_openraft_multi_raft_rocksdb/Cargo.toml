@@ -7,8 +7,8 @@ edition = "2024"
 anyhow = "1.0.101"
 async-trait = "0.1.89"
 axum = { version = "0.8.8", features = ["json"] }
-clap = { version = "4.5.57", features = ["derive"] }
-futures = "0.3.31"
+clap = { version = "4.5.58", features = ["derive"] }
+futures = "0.3.32"
 kameo = { version = "0.19.2", features = ["remote"] }
 libp2p = { version = "0.56", features = [
   "cbor",
@@ -30,11 +30,11 @@ libp2p = { version = "0.56", features = [
   "websocket",
   "yamux",
 ] }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d", features = [
+openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = [
   "serde",
   "type-alias",
 ] }
-# openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "548a4496a0a2201548dbd36b95049147c793bf4d" }
+# openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e" }
 openraft-rocksstore-crud = { path = "../rocksstore_crud" }
 prost = "0.14.3"
 rand = "0.10"
