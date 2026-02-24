@@ -8,32 +8,26 @@ const COUNTER_SEED: &[u8] = b"counter";
 pub mod counter_program {
   use super::*;
 
-  pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-    let counter = &mut ctx.accounts.counter;
-
-    // Keep initialize idempotent: only set defaults on first creation.
-    if !counter.initialized {
-      counter.count = 0;
-      counter.initialized = true;
-    }
-
-    Ok(())
-  }
-
   pub fn increment(ctx: Context<CounterOperation>) -> Result<()> {
     let counter = &mut ctx.accounts.counter;
-    counter.count += 1;
+    ensure_initialized(counter);
+    counter.count = counter.count.checked_add(1).ok_or(ErrorCode::OverflowError)?;
     Ok(())
   }
 
   pub fn decrement(ctx: Context<CounterOperation>) -> Result<()> {
     let counter = &mut ctx.accounts.counter;
+    // If this is the first touch, initialize and treat decrement as a no-op.
+    if ensure_initialized(counter) {
+      return Ok(());
+    }
     counter.count = counter.count.checked_sub(1).ok_or(ErrorCode::UnderflowError)?;
     Ok(())
   }
 }
+
 #[derive(Accounts)]
-pub struct Initialize<'info> {
+pub struct CounterOperation<'info> {
   #[account(
     init_if_needed,
     payer = user,
@@ -47,13 +41,6 @@ pub struct Initialize<'info> {
   pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct CounterOperation<'info> {
-  #[account(mut, seeds = [COUNTER_SEED], bump)]
-  pub counter: Account<'info, Counter>,
-  pub user: Signer<'info>,
-}
-
 #[account]
 pub struct Counter {
   pub count: u64,
@@ -62,6 +49,18 @@ pub struct Counter {
 
 #[error_code]
 pub enum ErrorCode {
+  #[msg("Counter would overflow")]
+  OverflowError,
   #[msg("Counter would underflow")]
   UnderflowError,
+}
+
+fn ensure_initialized(counter: &mut Account<Counter>) -> bool {
+  if !counter.initialized {
+    counter.count = 0;
+    counter.initialized = true;
+    return true;
+  }
+
+  false
 }
