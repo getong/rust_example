@@ -5,7 +5,7 @@ declare_id!("Df95mfc4tfPChpmk5kGPFTyynNZk4RmtiXpDufCTuQ6m");
 const COUNTER_SEED: &[u8] = b"counter";
 
 #[program]
-pub mod counter_program {
+pub mod single_counter_program {
   use super::*;
 
   pub fn increment(ctx: Context<CounterOperation>) -> Result<()> {
