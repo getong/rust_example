@@ -19,4 +19,5 @@ members = [
   "alloy_abi_rpc_example",
   "alloy_compound_example",
   "counter_example",
+  "weth9_example",
 ]
