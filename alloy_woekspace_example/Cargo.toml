@@ -18,4 +18,5 @@ members = [
   "alloy_string_to_u256_example",
   "alloy_abi_rpc_example",
   "alloy_compound_example",
+  "counter_example",
 ]
