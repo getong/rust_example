@@ -20,4 +20,5 @@ members = [
   "alloy_compound_example",
   "counter_example",
   "weth9_example",
+  "interface_abstract_example",
 ]
