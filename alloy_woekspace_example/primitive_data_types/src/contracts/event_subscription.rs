@@ -1,4 +1,9 @@
-use alloy::{primitives::Address, providers::Provider, sol};
+use alloy::{
+  network::ReceiptResponse,
+  primitives::{Address, U256},
+  providers::Provider,
+  sol,
+};
 use eyre::Result;
 
 sol!(
@@ -11,6 +16,20 @@ sol!(
 pub async fn run(provider: &impl Provider) -> Result<()> {
   let contract = EventSubscription::deploy(provider).await?;
   println!("[EventSubscription] deployed: {}", contract.address());
+
+  // Call transfer(address,uint256) from src/EventsAdvanced.sol first.
+  let transfer_pending = contract
+    .transfer(Address::repeat_byte(0x22), U256::from(7_u64))
+    .send()
+    .await?;
+  let transfer_receipt = transfer_pending.get_receipt().await?;
+  transfer_receipt.ensure_success()?;
+  println!(
+    "[EventSubscription] transfer tx={}, status={}, gas_used={}",
+    transfer_receipt.transaction_hash(),
+    transfer_receipt.status(),
+    transfer_receipt.gas_used()
+  );
 
   contract.subscribe().send().await?.watch().await?;
   let caller = provider
