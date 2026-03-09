@@ -21,4 +21,5 @@ members = [
   "counter_example",
   "weth9_example",
   "interface_abstract_example",
+  "primitive_data_types",
 ]
