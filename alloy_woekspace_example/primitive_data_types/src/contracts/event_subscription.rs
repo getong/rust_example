@@ -1,4 +1,4 @@
-use alloy::{primitives::U256, providers::Provider, sol};
+use alloy::{primitives::Address, providers::Provider, sol};
 use eyre::Result;
 
 sol!(
@@ -13,15 +13,14 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   println!("[EventSubscription] deployed: {}", contract.address());
 
   contract.subscribe().send().await?.watch().await?;
-  contract
-    .transfer(*contract.address(), U256::from(7_u64))
-    .send()
+  let caller = provider
+    .get_accounts()
     .await?
-    .watch()
-    .await?;
-  contract.unsubscribe().send().await?.watch().await?;
+    .first()
+    .copied()
+    .unwrap_or(Address::ZERO);
 
-  let subscribed = contract.subscribers(*contract.address()).call().await?;
-  println!("[EventSubscription] subscribers[self] = {subscribed}");
+  let subscribed = contract.subscribers(caller).call().await?;
+  println!("[EventSubscription] subscribers[{caller}] = {subscribed}");
   Ok(())
 }

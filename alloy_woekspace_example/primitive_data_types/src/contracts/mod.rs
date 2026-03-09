@@ -1,5 +1,6 @@
 use alloy::providers::Provider;
 use eyre::Result;
+use tokio::time::{Duration, timeout};
 
 pub mod account;
 pub mod account_error;
@@ -41,43 +42,88 @@ pub mod view_and_pure;
 pub mod xyz;
 
 pub async fn run_all(provider: &impl Provider) -> Result<()> {
-  account_error::run(provider).await?;
-  array::run(provider).await?;
-  array_remove_by_shifting::run(provider).await?;
-  array_replace_from_end::run(provider).await?;
-  constants::run(provider).await?;
-  counter::run(provider).await?;
-  data_locations::run(provider).await?;
-  primitives::run(provider).await?;
-  enum_basic::run(provider).await?;
-  enum_declaration_example::run(provider).await?;
-  enum_import::run(provider).await?;
-  account::run(provider).await?;
-  ether_units::run(provider).await?;
-  event_basic::run(provider).await?;
-  event_driven_architecture::run(provider).await?;
-  event_subscription::run(provider).await?;
-  function_contract::run(provider).await?;
-  xyz::run(provider).await?;
-  function_modifier::run(provider).await?;
-  gas::run(provider).await?;
-  if_else::run(provider).await?;
-  immutable::run(provider).await?;
-  loop_contract::run(provider).await?;
-  mapping::run(provider).await?;
-  nested_mapping::run(provider).await?;
-  simple_storage::run(provider).await?;
-  variables::run(provider).await?;
-  todos_struct_declaration::run(provider).await?;
-  struct_import_example::run(provider).await?;
-  todos_structs::run(provider).await?;
-  callback::run(provider).await?;
-  test_storage::run(provider).await?;
-  test_transient_storage::run(provider).await?;
-  malicious_callback::run(provider).await?;
-  reentrancy_guard::run(provider).await?;
-  reentrancy_guard_transient::run(provider).await?;
-  examples::run(provider).await?;
-  view_and_pure::run(provider).await?;
-  Ok(())
+  let mut failures = Vec::new();
+
+  macro_rules! run_step {
+    ($name:literal, $step:expr) => {
+      match timeout(Duration::from_secs(30), $step).await {
+        Ok(Ok(())) => println!("[ok] {}", $name),
+        Ok(Err(err)) => {
+          eprintln!("[failed] {}: {err:#}", $name);
+          failures.push($name);
+        }
+        Err(_) => {
+          eprintln!("[failed] {}: timed out after 30s", $name);
+          failures.push($name);
+        }
+      }
+    };
+  }
+
+  run_step!("Account.sol::Error", account_error::run(provider));
+  run_step!("Array", array::run(provider));
+  run_step!(
+    "ArrayRemoveByShifting",
+    array_remove_by_shifting::run(provider)
+  );
+  run_step!("ArrayReplaceFromEnd", array_replace_from_end::run(provider));
+  run_step!("Constants", constants::run(provider));
+  run_step!("Counter", counter::run(provider));
+  run_step!("DataLocations", data_locations::run(provider));
+  run_step!("Primitives", primitives::run(provider));
+  run_step!("Enum.sol::Enum", enum_basic::run(provider));
+  run_step!(
+    "EnumDeclarationExample",
+    enum_declaration_example::run(provider)
+  );
+  run_step!("EnumImport.sol::Enum", enum_import::run(provider));
+  run_step!("Error.sol::Account", account::run(provider));
+  run_step!("EtherUnits", ether_units::run(provider));
+  run_step!("Events.sol::Event", event_basic::run(provider));
+  run_step!(
+    "EventDrivenArchitecture",
+    event_driven_architecture::run(provider)
+  );
+  run_step!("EventSubscription", event_subscription::run(provider));
+  run_step!("Function", function_contract::run(provider));
+  run_step!("XYZ", xyz::run(provider));
+  run_step!("FunctionModifier", function_modifier::run(provider));
+  run_step!("Gas", gas::run(provider));
+  run_step!("IfElse", if_else::run(provider));
+  run_step!("Immutable", immutable::run(provider));
+  run_step!("Loop", loop_contract::run(provider));
+  run_step!("Mapping", mapping::run(provider));
+  run_step!("NestedMapping", nested_mapping::run(provider));
+  run_step!("SimpleStorage", simple_storage::run(provider));
+  run_step!("Variables", variables::run(provider));
+  run_step!(
+    "StructDeclaration.sol::Todos",
+    todos_struct_declaration::run(provider)
+  );
+  run_step!("StructImportExample", struct_import_example::run(provider));
+  run_step!("Structs.sol::Todos", todos_structs::run(provider));
+  run_step!("Callback", callback::run(provider));
+  run_step!("TestStorage", test_storage::run(provider));
+  run_step!(
+    "TestTransientStorage",
+    test_transient_storage::run(provider)
+  );
+  run_step!("MaliciousCallback", malicious_callback::run(provider));
+  run_step!("ReentrancyGuard", reentrancy_guard::run(provider));
+  run_step!(
+    "ReentrancyGuardTransient",
+    reentrancy_guard_transient::run(provider)
+  );
+  run_step!("Examples", examples::run(provider));
+  run_step!("ViewAndPure", view_and_pure::run(provider));
+
+  if failures.is_empty() {
+    Ok(())
+  } else {
+    eyre::bail!(
+      "{} module(s) failed: {}",
+      failures.len(),
+      failures.join(", ")
+    );
+  }
 }

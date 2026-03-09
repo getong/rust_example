@@ -1,4 +1,4 @@
-use alloy::{primitives::U256, providers::Provider, sol};
+use alloy::{providers::Provider, sol};
 use eyre::Result;
 
 sol!(
@@ -13,7 +13,9 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   println!("[ArrayRemoveByShifting] deployed: {}", contract.address());
 
   contract.test().send().await?.watch().await?;
-  let len = contract.arr(U256::ZERO).call().await;
-  println!("[ArrayRemoveByShifting] test() executed, arr(0) call result = {len:?}");
+  println!(
+    "[ArrayRemoveByShifting] test() executed (arr is empty after test, skip arr(0) to avoid \
+     bounds revert)"
+  );
   Ok(())
 }
