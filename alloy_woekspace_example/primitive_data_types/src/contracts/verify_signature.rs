@@ -13,8 +13,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = VerifySignature::deploy(provider).await?;
-  println!("[VerifySignature] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    VerifySignature,
+    "VerifySignature",
+    "VerifySignature"
+  ) else {
+    return Ok(());
+  };
 
   let signer = address!("0xB273216C05A8c0D4F0a4Dd0d7Bae1D2EfFE636dd");
   let to = address!("0x14723A09ACff6D2A60DcdF7aA4AFf308FDDC160C");

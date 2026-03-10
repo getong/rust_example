@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = FunctionSelector::deploy(provider).await?;
-  println!("[FunctionSelector] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    FunctionSelector,
+    "FunctionSelector",
+    "FunctionSelector"
+  ) else {
+    return Ok(());
+  };
 
   let selector = contract
     .getSelector("transfer(address,uint256)".to_string())

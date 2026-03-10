@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Payable::deploy(provider).await?;
-  println!("[Payable] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Payable, "Payable", "Payable") else {
+    return Ok(());
+  };
 
   contract
     .deposit()

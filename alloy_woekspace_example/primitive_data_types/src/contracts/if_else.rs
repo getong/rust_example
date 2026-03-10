@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = IfElse::deploy(provider).await?;
-  println!("[IfElse] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, IfElse, "IfElse", "IfElse") else {
+    return Ok(());
+  };
 
   let foo = contract.foo(U256::from(15_u64)).call().await?;
   let ternary = contract.ternary(U256::from(9_u64)).call().await?;

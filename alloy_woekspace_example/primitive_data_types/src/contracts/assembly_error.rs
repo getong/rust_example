@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = AssemblyError::deploy(provider).await?;
-  println!("[AssemblyError] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, AssemblyError, "AssemblyError", "AssemblyError")
+  else {
+    return Ok(());
+  };
 
   contract.yul_revert(U256::from(7_u64)).call().await?;
   println!("[AssemblyError] yul_revert(7) completed without revert");

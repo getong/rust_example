@@ -9,7 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Constants::deploy(provider).await?;
-  println!("[Constants] deployed: {}", contract.address());
+  let Some(_contract) = super::deployed_contract!(provider, Constants, "Constants", "Constants")
+  else {
+    return Ok(());
+  };
   Ok(())
 }

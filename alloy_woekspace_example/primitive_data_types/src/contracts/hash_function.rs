@@ -20,8 +20,22 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let hash_contract = HashFunction::deploy(provider).await?;
-  let guess_contract = GuessTheMagicWord::deploy(provider).await?;
+  let Some(hash_contract) = super::deployed_contract!(
+    provider,
+    HashFunction,
+    "HashFunction",
+    "Keccak256::HashFunction"
+  ) else {
+    return Ok(());
+  };
+  let Some(guess_contract) = super::deployed_contract!(
+    provider,
+    GuessTheMagicWord,
+    "GuessTheMagicWord",
+    "Keccak256::GuessTheMagicWord"
+  ) else {
+    return Ok(());
+  };
   println!(
     "[Keccak256] HashFunction: {}, GuessTheMagicWord: {}",
     hash_contract.address(),

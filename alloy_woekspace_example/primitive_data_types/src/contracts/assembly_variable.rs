@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = AssemblyVariable::deploy(provider).await?;
-  println!("[AssemblyVariable] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    AssemblyVariable,
+    "AssemblyVariable",
+    "AssemblyVariable"
+  ) else {
+    return Ok(());
+  };
 
   let result = contract.yul_let().call().await?;
   println!("[AssemblyVariable] yul_let()={result}");

@@ -13,8 +13,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = FunctionModifier::deploy(provider).await?;
-  println!("[FunctionModifier] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    FunctionModifier,
+    "FunctionModifier",
+    "FunctionModifier"
+  ) else {
+    return Ok(());
+  };
 
   contract
     .changeOwner(Address::repeat_byte(0x11))

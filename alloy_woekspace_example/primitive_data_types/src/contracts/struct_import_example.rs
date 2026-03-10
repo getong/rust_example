@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = StructImportExample::deploy(provider).await?;
-  println!("[StructImportExample] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    StructImportExample,
+    "StructImportExample",
+    "StructImportExample"
+  ) else {
+    return Ok(());
+  };
 
   contract
     .set("read book".to_string(), true)

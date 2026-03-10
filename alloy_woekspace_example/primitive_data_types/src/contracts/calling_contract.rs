@@ -16,8 +16,19 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let callee = Callee::deploy(provider).await?;
-  let caller = CallingContractCaller::deploy(provider).await?;
+  let Some(callee) =
+    super::deployed_contract!(provider, Callee, "Callee", "CallingContract::Callee")
+  else {
+    return Ok(());
+  };
+  let Some(caller) = super::deployed_contract!(
+    provider,
+    CallingContractCaller,
+    "CallingContractCaller",
+    "CallingContract::Caller"
+  ) else {
+    return Ok(());
+  };
   println!(
     "[CallingContract] caller: {}, callee: {}",
     caller.address(),

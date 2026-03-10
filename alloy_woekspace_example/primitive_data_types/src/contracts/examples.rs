@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Examples::deploy(provider).await?;
-  println!("[Examples] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Examples, "Examples", "Examples") else {
+    return Ok(());
+  };
 
   contract.exampleNoUvdt().call().await?;
   contract.exampleUvdt().call().await?;

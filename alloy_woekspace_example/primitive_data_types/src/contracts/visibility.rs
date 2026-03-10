@@ -16,8 +16,12 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let base = Base::deploy(provider).await?;
-  let child = Child::deploy(provider).await?;
+  let Some(base) = super::deployed_contract!(provider, Base, "Base", "Visibility::Base") else {
+    return Ok(());
+  };
+  let Some(child) = super::deployed_contract!(provider, Child, "Child", "Visibility::Child") else {
+    return Ok(());
+  };
   println!(
     "[Visibility] base: {}, child: {}",
     base.address(),

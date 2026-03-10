@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = GasGolf::deploy(provider).await?;
-  println!("[GasGolf] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, GasGolf, "GasGolf", "GasGolf") else {
+    return Ok(());
+  };
 
   contract
     .sumIfEvenAndLessThan99(vec![

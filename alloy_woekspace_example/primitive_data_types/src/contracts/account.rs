@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Account::deploy(provider).await?;
-  println!("[Error.sol::Account] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, Account, "Account", "Error.sol::Account")
+  else {
+    return Ok(());
+  };
 
   contract
     .deposit(U256::from(200_u64))

@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = MaliciousCallback::deploy(provider).await?;
-  println!("[MaliciousCallback] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    MaliciousCallback,
+    "MaliciousCallback",
+    "MaliciousCallback"
+  ) else {
+    return Ok(());
+  };
 
   let count = contract.count().call().await?;
   println!("[MaliciousCallback] count={count} (attack() intentionally skipped)");

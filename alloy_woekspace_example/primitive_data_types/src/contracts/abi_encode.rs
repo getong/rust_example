@@ -20,8 +20,13 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let token = Token::deploy(provider).await?;
-  let contract = AbiEncode::deploy(provider).await?;
+  let Some(token) = super::deployed_contract!(provider, Token, "Token", "AbiEncode::Token") else {
+    return Ok(());
+  };
+  let Some(contract) = super::deployed_contract!(provider, AbiEncode, "AbiEncode", "AbiEncode")
+  else {
+    return Ok(());
+  };
   println!(
     "[AbiEncode] deployed: {}, helper Token: {}",
     contract.address(),

@@ -20,8 +20,14 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
     .copied()
     .ok_or_else(|| eyre::eyre!("no unlocked account available from provider"))?;
 
-  let contract = CarFactory::deploy(provider).await?;
-  println!("[NewContract] CarFactory deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    CarFactory,
+    "CarFactory",
+    "NewContract::CarFactory"
+  ) else {
+    return Ok(());
+  };
 
   contract
     .create(owner, "Tesla".to_string())

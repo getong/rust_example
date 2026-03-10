@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = NestedMapping::deploy(provider).await?;
-  println!("[NestedMapping] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, NestedMapping, "NestedMapping", "NestedMapping")
+  else {
+    return Ok(());
+  };
 
   let who = *contract.address();
   let key = U256::from(1_u64);

@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = ViewAndPure::deploy(provider).await?;
-  println!("[ViewAndPure] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, ViewAndPure, "ViewAndPure", "ViewAndPure")
+  else {
+    return Ok(());
+  };
 
   let x = contract.x().call().await?;
   let add = contract

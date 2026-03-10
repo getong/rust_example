@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Gas::deploy(provider).await?;
-  println!("[Gas] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Gas, "Gas", "Gas") else {
+    return Ok(());
+  };
 
   let i = contract.i().call().await?;
   println!("[Gas] i = {i} (forever() is intentionally skipped)");

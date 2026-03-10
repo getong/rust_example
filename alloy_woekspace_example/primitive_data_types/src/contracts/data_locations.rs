@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = DataLocations::deploy(provider).await?;
-  println!("[DataLocations] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, DataLocations, "DataLocations", "DataLocations")
+  else {
+    return Ok(());
+  };
 
   contract.f().send().await?.watch().await?;
   contract

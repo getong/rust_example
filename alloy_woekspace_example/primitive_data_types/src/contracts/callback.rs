@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Callback::deploy(provider).await?;
-  println!("[Callback] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Callback, "Callback", "Callback") else {
+    return Ok(());
+  };
 
   let val = contract.val().call().await?;
   println!("[Callback] val = {val}");

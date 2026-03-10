@@ -13,8 +13,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = TestMerkleProof::deploy(provider).await?;
-  println!("[TestMerkleProof] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    TestMerkleProof,
+    "TestMerkleProof",
+    "TestMerkleProof"
+  ) else {
+    return Ok(());
+  };
 
   let root = contract.getRoot().call().await?;
   let leaf = b256!("0xdca3326ad7e8121bf9cf9c12333e6b2271abe823ec9edfe42f813b1e768fa57b");

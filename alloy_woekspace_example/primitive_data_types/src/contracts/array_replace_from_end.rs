@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = ArrayReplaceFromEnd::deploy(provider).await?;
-  println!("[ArrayReplaceFromEnd] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    ArrayReplaceFromEnd,
+    "ArrayReplaceFromEnd",
+    "ArrayReplaceFromEnd"
+  ) else {
+    return Ok(());
+  };
 
   contract.test().send().await?.watch().await?;
   let first = contract.arr(U256::ZERO).call().await?;

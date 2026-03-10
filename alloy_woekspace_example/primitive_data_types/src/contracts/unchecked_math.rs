@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = UncheckedMath::deploy(provider).await?;
-  println!("[UncheckedMath] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, UncheckedMath, "UncheckedMath", "UncheckedMath")
+  else {
+    return Ok(());
+  };
 
   let add_result = contract
     .add(U256::from(5_u64), U256::from(7_u64))

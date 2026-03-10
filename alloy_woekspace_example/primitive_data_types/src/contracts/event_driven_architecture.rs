@@ -13,8 +13,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = EventDrivenArchitecture::deploy(provider).await?;
-  println!("[EventDrivenArchitecture] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    EventDrivenArchitecture,
+    "EventDrivenArchitecture",
+    "EventDrivenArchitecture"
+  ) else {
+    return Ok(());
+  };
 
   contract
     .initiateTransfer(*contract.address(), U256::from(123_u64))

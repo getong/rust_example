@@ -16,8 +16,17 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let fallback = Fallback::deploy(provider).await?;
-  let sender = SendToFallback::deploy(provider).await?;
+  let Some(fallback) = super::deployed_contract!(provider, Fallback, "Fallback", "Fallback") else {
+    return Ok(());
+  };
+  let Some(sender) = super::deployed_contract!(
+    provider,
+    SendToFallback,
+    "SendToFallback",
+    "Fallback::SendToFallback"
+  ) else {
+    return Ok(());
+  };
   println!(
     "[Fallback] receiver: {}, sender: {}",
     fallback.address(),

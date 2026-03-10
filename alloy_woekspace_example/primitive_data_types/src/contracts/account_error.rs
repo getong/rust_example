@@ -9,8 +9,10 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Error::deploy(provider).await?;
-  println!("[Account.sol::Error] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Error, "Error", "Account.sol::Error")
+  else {
+    return Ok(());
+  };
 
   contract.testRequire(U256::from(11_u64)).call().await?;
   contract.testRevert(U256::from(11_u64)).call().await?;

@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = EtherWallet::deploy(provider).await?;
-  println!("[EtherWallet] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, EtherWallet, "EtherWallet", "EtherWallet")
+  else {
+    return Ok(());
+  };
 
   provider
     .send_transaction(

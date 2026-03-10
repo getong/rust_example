@@ -13,8 +13,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = XYZ::deploy(provider).await?;
-  println!("[XYZ] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, XYZ, "XYZ", "XYZ") else {
+    return Ok(());
+  };
 
   let call1 = contract.callFunc().call().await?;
   let call2 = contract.callFuncWithKeyValue().call().await?;

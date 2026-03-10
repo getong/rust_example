@@ -9,11 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = ReentrancyGuardTransient::deploy(provider).await?;
-  println!(
-    "[ReentrancyGuardTransient] deployed: {}",
-    contract.address()
-  );
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    ReentrancyGuardTransient,
+    "ReentrancyGuardTransient",
+    "ReentrancyGuardTransient"
+  ) else {
+    return Ok(());
+  };
 
   contract.test().send().await?.watch().await?;
   println!("[ReentrancyGuardTransient] test() called successfully");

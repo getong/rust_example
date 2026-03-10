@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Counter::deploy(provider).await?;
-  println!("[Counter] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Counter, "Counter", "Counter") else {
+    return Ok(());
+  };
 
   contract
     .setNumber(U256::from(5_u64))

@@ -9,8 +9,10 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = EtherUnits::deploy(provider).await?;
-  println!("[EtherUnits] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, EtherUnits, "EtherUnits", "EtherUnits")
+  else {
+    return Ok(());
+  };
 
   let one_ether = contract.oneEther().call().await?;
   let is_one_ether = contract.isOneEther().call().await?;

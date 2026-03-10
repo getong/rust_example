@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = AssemblyLoop::deploy(provider).await?;
-  println!("[AssemblyLoop] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, AssemblyLoop, "AssemblyLoop", "AssemblyLoop")
+  else {
+    return Ok(());
+  };
 
   let for_count = contract.yul_for_loop().call().await?;
   let while_count = contract.yul_while_loop().call().await?;

@@ -9,8 +9,10 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Primitives::deploy(provider).await?;
-  println!("[Primitives] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Primitives, "Primitives", "Primitives")
+  else {
+    return Ok(());
+  };
 
   let boo = contract.boo().call().await?;
   let u256_val = contract.u256().call().await?;

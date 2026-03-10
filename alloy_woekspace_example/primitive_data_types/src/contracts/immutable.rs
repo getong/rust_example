@@ -1,4 +1,4 @@
-use alloy::{primitives::U256, providers::Provider, sol};
+use alloy::{providers::Provider, sol};
 use eyre::Result;
 
 sol!(
@@ -9,7 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Immutable::deploy(provider, U256::from(123_u64)).await?;
-  println!("[Immutable] deployed: {}", contract.address());
+  let Some(_contract) = super::deployed_contract!(provider, Immutable, "Immutable", "Immutable")
+  else {
+    return Ok(());
+  };
   Ok(())
 }

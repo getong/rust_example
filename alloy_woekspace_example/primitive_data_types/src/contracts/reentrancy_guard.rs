@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = ReentrancyGuard::deploy(provider).await?;
-  println!("[ReentrancyGuard] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    ReentrancyGuard,
+    "ReentrancyGuard",
+    "ReentrancyGuard"
+  ) else {
+    return Ok(());
+  };
 
   contract.test().send().await?.watch().await?;
   println!("[ReentrancyGuard] test() called successfully");

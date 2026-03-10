@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Array::deploy(provider).await?;
-  println!("[Array] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Array, "Array", "Array") else {
+    return Ok(());
+  };
 
   contract
     .push(U256::from(10_u64))

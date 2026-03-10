@@ -16,8 +16,22 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let callback = Callback::deploy(provider).await?;
-  let transient = TestTransientStorage::deploy(provider).await?;
+  let Some(callback) = super::deployed_contract!(
+    provider,
+    Callback,
+    "Callback",
+    "TestTransientStorage::Callback"
+  ) else {
+    return Ok(());
+  };
+  let Some(transient) = super::deployed_contract!(
+    provider,
+    TestTransientStorage,
+    "TestTransientStorage",
+    "TestTransientStorage"
+  ) else {
+    return Ok(());
+  };
   println!(
     "[TestTransientStorage] callback={}, test_transient_storage={}",
     callback.address(),

@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Mapping::deploy(provider).await?;
-  println!("[Mapping] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Mapping, "Mapping", "Mapping") else {
+    return Ok(());
+  };
 
   let who = *contract.address();
   contract

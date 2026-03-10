@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Todos::deploy(provider).await?;
-  println!("[Structs.sol::Todos] deployed: {}", contract.address());
+  let Some(_contract) =
+    super::deployed_contract!(provider, Todos, "TodosStructs", "Structs.sol::Todos")
+  else {
+    return Ok(());
+  };
   println!("[Structs.sol::Todos] this example only deploys (no mutating methods exposed)");
   Ok(())
 }

@@ -16,15 +16,19 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let owner = provider
-    .get_accounts()
-    .await?
-    .first()
-    .copied()
-    .ok_or_else(|| eyre::eyre!("no unlocked account available from provider"))?;
-
-  let test_contract = TestContract::deploy(provider).await?;
-  let wallet = MultiSigWallet::deploy(provider, vec![owner], U256::from(1_u64)).await?;
+  let Some(test_contract) = super::deployed_contract!(
+    provider,
+    TestContract,
+    "TestContract",
+    "MultiSigWallet::TestContract"
+  ) else {
+    return Ok(());
+  };
+  let Some(wallet) =
+    super::deployed_contract!(provider, MultiSigWallet, "MultiSigWallet", "MultiSigWallet")
+  else {
+    return Ok(());
+  };
   println!(
     "[MultiSigWallet] deployed: {}, helper TestContract: {}",
     wallet.address(),

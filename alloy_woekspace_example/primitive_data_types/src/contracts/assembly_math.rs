@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = AssemblyMath::deploy(provider).await?;
-  println!("[AssemblyMath] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, AssemblyMath, "AssemblyMath", "AssemblyMath")
+  else {
+    return Ok(());
+  };
 
   let add_result = contract
     .yul_add(U256::from(11_u64), U256::from(31_u64))

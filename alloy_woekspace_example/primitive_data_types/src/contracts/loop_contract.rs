@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Loop::deploy(provider).await?;
-  println!("[Loop] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Loop, "Loop", "Loop") else {
+    return Ok(());
+  };
 
   contract.r#loop().call().await?;
   println!("[Loop] loop() call succeeded");

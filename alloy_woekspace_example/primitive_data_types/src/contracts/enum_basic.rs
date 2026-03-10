@@ -9,8 +9,10 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Enum::deploy(provider).await?;
-  println!("[Enum.sol::Enum] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Enum, "EnumBasic", "Enum.sol::Enum")
+  else {
+    return Ok(());
+  };
 
   contract.set(1_u8).send().await?.watch().await?;
   let status = contract.get().call().await?;

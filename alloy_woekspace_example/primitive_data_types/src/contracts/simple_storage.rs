@@ -9,8 +9,11 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = SimpleStorage::deploy(provider).await?;
-  println!("[SimpleStorage] deployed: {}", contract.address());
+  let Some(contract) =
+    super::deployed_contract!(provider, SimpleStorage, "SimpleStorage", "SimpleStorage")
+  else {
+    return Ok(());
+  };
 
   contract
     .set(U256::from(66_u64))

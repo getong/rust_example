@@ -9,8 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = ArrayRemoveByShifting::deploy(provider).await?;
-  println!("[ArrayRemoveByShifting] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    ArrayRemoveByShifting,
+    "ArrayRemoveByShifting",
+    "ArrayRemoveByShifting"
+  ) else {
+    return Ok(());
+  };
 
   contract.test().send().await?.watch().await?;
   println!(

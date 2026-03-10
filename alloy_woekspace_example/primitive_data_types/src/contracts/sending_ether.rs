@@ -16,8 +16,19 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let receiver = ReceiveEther::deploy(provider).await?;
-  let sender = SendEther::deploy(provider).await?;
+  let Some(receiver) = super::deployed_contract!(
+    provider,
+    ReceiveEther,
+    "ReceiveEther",
+    "SendingEther::ReceiveEther"
+  ) else {
+    return Ok(());
+  };
+  let Some(sender) =
+    super::deployed_contract!(provider, SendEther, "SendEther", "SendingEther::SendEther")
+  else {
+    return Ok(());
+  };
   println!(
     "[SendingEther] receiver: {}, sender: {}",
     receiver.address(),

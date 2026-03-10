@@ -9,8 +9,10 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Event::deploy(provider).await?;
-  println!("[Events.sol::Event] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Event, "Event", "Events.sol::Event")
+  else {
+    return Ok(());
+  };
 
   contract.test().send().await?.watch().await?;
   println!("[Events.sol::Event] emitted logs via test()");

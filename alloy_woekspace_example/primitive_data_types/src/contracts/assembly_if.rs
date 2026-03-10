@@ -9,8 +9,10 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = AssemblyIf::deploy(provider).await?;
-  println!("[AssemblyIf] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, AssemblyIf, "AssemblyIf", "AssemblyIf")
+  else {
+    return Ok(());
+  };
 
   let if_result = contract.yul_if(U256::from(5_u64)).call().await?;
   let switch_result = contract.yul_switch(U256::from(2_u64)).call().await?;

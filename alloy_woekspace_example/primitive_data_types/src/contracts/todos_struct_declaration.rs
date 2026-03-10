@@ -9,11 +9,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Todos::deploy(provider).await?;
-  println!(
-    "[StructDeclaration.sol::Todos] deployed: {}",
-    contract.address()
-  );
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    Todos,
+    "TodosStructDeclaration",
+    "StructDeclaration.sol::Todos"
+  ) else {
+    return Ok(());
+  };
 
   contract
     .create("buy milk".to_string())

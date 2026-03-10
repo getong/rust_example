@@ -14,8 +14,14 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = EventSubscription::deploy(provider).await?;
-  println!("[EventSubscription] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    EventSubscription,
+    "EventSubscription",
+    "EventSubscription"
+  ) else {
+    return Ok(());
+  };
 
   // Call transfer(address,uint256) from src/EventsAdvanced.sol first.
   let transfer_pending = contract

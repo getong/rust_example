@@ -9,8 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let contract = Function::deploy(provider).await?;
-  println!("[Function] deployed: {}", contract.address());
+  let Some(contract) = super::deployed_contract!(provider, Function, "Function", "Function") else {
+    return Ok(());
+  };
 
   contract.returnMany().call().await?;
   contract.named().call().await?;
