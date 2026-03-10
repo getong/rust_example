@@ -1,0 +1,45 @@
+use alloy::{primitives::U256, providers::Provider, sol};
+use eyre::Result;
+
+sol!(
+  #[allow(missing_docs)]
+  #[sol(rpc)]
+  Fallback,
+  "abi/Fallback.json"
+);
+
+sol!(
+  #[allow(missing_docs)]
+  #[sol(rpc)]
+  SendToFallback,
+  "abi/SendToFallback.json"
+);
+
+pub async fn run(provider: &impl Provider) -> Result<()> {
+  let fallback = Fallback::deploy(provider).await?;
+  let sender = SendToFallback::deploy(provider).await?;
+  println!(
+    "[Fallback] receiver: {}, sender: {}",
+    fallback.address(),
+    sender.address()
+  );
+
+  sender
+    .callFallback(*fallback.address())
+    .value(U256::from(1_u64))
+    .send()
+    .await?
+    .watch()
+    .await?;
+  sender
+    .transferToFallback(*fallback.address())
+    .value(U256::from(1_u64))
+    .send()
+    .await?
+    .watch()
+    .await?;
+
+  let balance = fallback.getBalance().call().await?;
+  println!("[Fallback] balance={balance}");
+  Ok(())
+}

@@ -2,12 +2,20 @@ use alloy::providers::Provider;
 use eyre::Result;
 use tokio::time::{Duration, timeout};
 
+pub mod abi_encode;
 pub mod account;
 pub mod account_error;
 pub mod array;
 pub mod array_remove_by_shifting;
 pub mod array_replace_from_end;
+pub mod assembly_error;
+pub mod assembly_if;
+pub mod assembly_loop;
+pub mod assembly_math;
+pub mod assembly_variable;
+pub mod bitwise_ops;
 pub mod callback;
+pub mod calling_contract;
 pub mod constants;
 pub mod counter;
 pub mod data_locations;
@@ -15,30 +23,45 @@ pub mod enum_basic;
 pub mod enum_declaration_example;
 pub mod enum_import;
 pub mod ether_units;
+pub mod ether_wallet;
 pub mod event_basic;
 pub mod event_driven_architecture;
 pub mod event_subscription;
 pub mod examples;
+pub mod fallback_contract;
 pub mod function_contract;
 pub mod function_modifier;
+pub mod function_selector;
 pub mod gas;
+pub mod gas_golf;
+pub mod hash_function;
 pub mod if_else;
 pub mod immutable;
+pub mod iterable_mapping;
 pub mod loop_contract;
 pub mod malicious_callback;
 pub mod mapping;
+pub mod multi_sig_wallet;
 pub mod nested_mapping;
+pub mod new_contract;
+pub mod payable_contract;
 pub mod primitives;
 pub mod reentrancy_guard;
 pub mod reentrancy_guard_transient;
+pub mod sending_ether;
 pub mod simple_storage;
 pub mod struct_import_example;
+pub mod test_contract;
+pub mod test_merkle_proof;
 pub mod test_storage;
 pub mod test_transient_storage;
 pub mod todos_struct_declaration;
 pub mod todos_structs;
+pub mod unchecked_math;
 pub mod variables;
+pub mod verify_signature;
 pub mod view_and_pure;
+pub mod visibility;
 pub mod xyz;
 
 pub async fn run_all(provider: &impl Provider) -> Result<()> {
@@ -60,6 +83,7 @@ pub async fn run_all(provider: &impl Provider) -> Result<()> {
     };
   }
 
+  run_step!("AbiEncode", abi_encode::run(provider));
   run_step!("Account.sol::Error", account_error::run(provider));
   run_step!("Array", array::run(provider));
   run_step!(
@@ -67,9 +91,17 @@ pub async fn run_all(provider: &impl Provider) -> Result<()> {
     array_remove_by_shifting::run(provider)
   );
   run_step!("ArrayReplaceFromEnd", array_replace_from_end::run(provider));
+  run_step!("AssemblyError", assembly_error::run(provider));
+  run_step!("AssemblyIf", assembly_if::run(provider));
+  run_step!("AssemblyLoop", assembly_loop::run(provider));
+  run_step!("AssemblyMath", assembly_math::run(provider));
+  run_step!("AssemblyVariable", assembly_variable::run(provider));
+  run_step!("BitwiseOps", bitwise_ops::run(provider));
+  run_step!("CallingContract", calling_contract::run(provider));
   run_step!("Constants", constants::run(provider));
   run_step!("Counter", counter::run(provider));
   run_step!("DataLocations", data_locations::run(provider));
+  run_step!("EtherWallet", ether_wallet::run(provider));
   run_step!("Primitives", primitives::run(provider));
   run_step!("Enum.sol::Enum", enum_basic::run(provider));
   run_step!(
@@ -85,16 +117,25 @@ pub async fn run_all(provider: &impl Provider) -> Result<()> {
     event_driven_architecture::run(provider)
   );
   run_step!("EventSubscription", event_subscription::run(provider));
+  run_step!("Fallback", fallback_contract::run(provider));
   run_step!("Function", function_contract::run(provider));
   run_step!("XYZ", xyz::run(provider));
   run_step!("FunctionModifier", function_modifier::run(provider));
+  run_step!("FunctionSelector", function_selector::run(provider));
   run_step!("Gas", gas::run(provider));
+  run_step!("GasGolf", gas_golf::run(provider));
+  run_step!("Keccak256", hash_function::run(provider));
   run_step!("IfElse", if_else::run(provider));
   run_step!("Immutable", immutable::run(provider));
+  run_step!("IterableMapping", iterable_mapping::run(provider));
   run_step!("Loop", loop_contract::run(provider));
   run_step!("Mapping", mapping::run(provider));
+  run_step!("MultiSigWallet", multi_sig_wallet::run(provider));
+  run_step!("NewContract", new_contract::run(provider));
   run_step!("NestedMapping", nested_mapping::run(provider));
+  run_step!("Payable", payable_contract::run(provider));
   run_step!("SimpleStorage", simple_storage::run(provider));
+  run_step!("SendingEther", sending_ether::run(provider));
   run_step!("Variables", variables::run(provider));
   run_step!(
     "StructDeclaration.sol::Todos",
@@ -104,6 +145,8 @@ pub async fn run_all(provider: &impl Provider) -> Result<()> {
   run_step!("Structs.sol::Todos", todos_structs::run(provider));
   run_step!("Callback", callback::run(provider));
   run_step!("TestStorage", test_storage::run(provider));
+  run_step!("TestContract", test_contract::run(provider));
+  run_step!("TestMerkleProof", test_merkle_proof::run(provider));
   run_step!(
     "TestTransientStorage",
     test_transient_storage::run(provider)
@@ -115,6 +158,9 @@ pub async fn run_all(provider: &impl Provider) -> Result<()> {
     reentrancy_guard_transient::run(provider)
   );
   run_step!("Examples", examples::run(provider));
+  run_step!("UncheckedMath", unchecked_math::run(provider));
+  run_step!("VerifySignature", verify_signature::run(provider));
+  run_step!("Visibility", visibility::run(provider));
   run_step!("ViewAndPure", view_and_pure::run(provider));
 
   if failures.is_empty() {
