@@ -9,7 +9,8 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(_contract) = super::deployed_contract!(provider, Immutable, "Immutable", "Immutable")
+  let Some(_contract) =
+    super::deployed_contract!(provider, Immutable, "Immutable.Immutable", "Immutable")
   else {
     return Ok(());
   };

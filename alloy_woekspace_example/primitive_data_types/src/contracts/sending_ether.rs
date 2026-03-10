@@ -19,14 +19,17 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(receiver) = super::deployed_contract!(
     provider,
     ReceiveEther,
-    "ReceiveEther",
+    "SendingEther.ReceiveEther",
     "SendingEther::ReceiveEther"
   ) else {
     return Ok(());
   };
-  let Some(sender) =
-    super::deployed_contract!(provider, SendEther, "SendEther", "SendingEther::SendEther")
-  else {
+  let Some(sender) = super::deployed_contract!(
+    provider,
+    SendEther,
+    "SendingEther.SendEther",
+    "SendingEther::SendEther"
+  ) else {
     return Ok(());
   };
   println!(

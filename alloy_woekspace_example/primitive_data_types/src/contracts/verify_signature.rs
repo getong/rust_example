@@ -16,7 +16,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) = super::deployed_contract!(
     provider,
     VerifySignature,
-    "VerifySignature",
+    "Signature.VerifySignature",
     "VerifySignature"
   ) else {
     return Ok(());

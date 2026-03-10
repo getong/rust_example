@@ -23,7 +23,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(hash_contract) = super::deployed_contract!(
     provider,
     HashFunction,
-    "HashFunction",
+    "Keccak256.HashFunction",
     "Keccak256::HashFunction"
   ) else {
     return Ok(());
@@ -31,7 +31,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(guess_contract) = super::deployed_contract!(
     provider,
     GuessTheMagicWord,
-    "GuessTheMagicWord",
+    "Keccak256.GuessTheMagicWord",
     "Keccak256::GuessTheMagicWord"
   ) else {
     return Ok(());

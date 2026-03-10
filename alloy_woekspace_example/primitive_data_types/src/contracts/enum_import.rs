@@ -10,7 +10,7 @@ sol!(
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) =
-    super::deployed_contract!(provider, Enum, "EnumImport", "EnumImport.sol::Enum")
+    super::deployed_contract!(provider, Enum, "EnumImport.Enum", "EnumImport.sol::Enum")
   else {
     return Ok(());
   };

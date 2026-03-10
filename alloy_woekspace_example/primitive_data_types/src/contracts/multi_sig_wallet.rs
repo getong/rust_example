@@ -19,14 +19,17 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(test_contract) = super::deployed_contract!(
     provider,
     TestContract,
-    "TestContract",
+    "TestContract.TestContract",
     "MultiSigWallet::TestContract"
   ) else {
     return Ok(());
   };
-  let Some(wallet) =
-    super::deployed_contract!(provider, MultiSigWallet, "MultiSigWallet", "MultiSigWallet")
-  else {
+  let Some(wallet) = super::deployed_contract!(
+    provider,
+    MultiSigWallet,
+    "MultiSigWallet.MultiSigWallet",
+    "MultiSigWallet"
+  ) else {
     return Ok(());
   };
   println!(

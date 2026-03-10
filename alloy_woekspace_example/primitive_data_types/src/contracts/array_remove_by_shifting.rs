@@ -12,7 +12,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) = super::deployed_contract!(
     provider,
     ArrayRemoveByShifting,
-    "ArrayRemoveByShifting",
+    "ArrayRemoveByShifting.ArrayRemoveByShifting",
     "ArrayRemoveByShifting"
   ) else {
     return Ok(());

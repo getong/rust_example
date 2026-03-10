@@ -16,14 +16,20 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(callback) =
-    super::deployed_contract!(provider, Callback, "Callback", "TestStorage::Callback")
-  else {
+  let Some(callback) = super::deployed_contract!(
+    provider,
+    Callback,
+    "TransientStorage.Callback",
+    "TestStorage::Callback"
+  ) else {
     return Ok(());
   };
-  let Some(storage) =
-    super::deployed_contract!(provider, TestStorage, "TestStorage", "TestStorage")
-  else {
+  let Some(storage) = super::deployed_contract!(
+    provider,
+    TestStorage,
+    "TransientStorage.TestStorage",
+    "TestStorage"
+  ) else {
     return Ok(());
   };
   println!(

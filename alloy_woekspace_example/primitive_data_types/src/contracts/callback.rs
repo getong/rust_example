@@ -9,7 +9,9 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(contract) = super::deployed_contract!(provider, Callback, "Callback", "Callback") else {
+  let Some(contract) =
+    super::deployed_contract!(provider, Callback, "TransientStorage.Callback", "Callback")
+  else {
     return Ok(());
   };
 

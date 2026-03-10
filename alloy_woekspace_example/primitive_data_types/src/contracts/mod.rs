@@ -7,7 +7,7 @@ use std::{
 
 use alloy::{primitives::Address, providers::Provider};
 use eyre::Result;
-use serde_json::Value;
+use serde::Deserialize;
 use tokio::time::{Duration, timeout};
 
 pub mod abi_encode;
@@ -76,6 +76,11 @@ type DeploymentMap = HashMap<String, Vec<Address>>;
 
 static DEPLOYMENTS: OnceLock<Result<DeploymentMap, String>> = OnceLock::new();
 
+#[derive(Deserialize)]
+struct DeploymentManifest {
+  contracts: HashMap<String, String>,
+}
+
 macro_rules! deployed_contract {
   ($provider:expr, $ty:ident, $key:expr, $label:literal) => {{
     match crate::contracts::deployed_address_or_skip($key, $label)? {
@@ -91,18 +96,18 @@ macro_rules! deployed_contract {
 
 pub(crate) use deployed_contract;
 
-pub(crate) fn deployed_address_or_skip(key: &str, label: &str) -> Result<Option<Address>> {
-  match deployed_address(key)? {
+pub(crate) fn deployed_address_or_skip(contract_id: &str, label: &str) -> Result<Option<Address>> {
+  match deployed_address(contract_id)? {
     Some(address) => Ok(Some(address)),
     None => {
-      println!("[skip] {label}: no deployed address found for key `{key}`");
+      println!("[skip] {label}: no deployed address found for contract id `{contract_id}`");
       Ok(None)
     }
   }
 }
 
-fn deployed_address(key: &str) -> Result<Option<Address>> {
-  let env_key = deployment_env_key(key);
+fn deployed_address(contract_id: &str) -> Result<Option<Address>> {
+  let env_key = deployment_env_key(contract_id);
   if let Ok(raw) = env::var(&env_key) {
     return Ok(Some(raw.parse()?));
   }
@@ -112,43 +117,16 @@ fn deployed_address(key: &str) -> Result<Option<Address>> {
     .as_ref()
     .map_err(|err| eyre::eyre!(err.clone()))?;
 
-  let resolved = match key {
-    "CallingContractCaller" => unique_address(deployments, "Caller")?,
-    "EnumBasic" => nth_address(deployments, "Enum", 0),
-    "EnumImport" => nth_address(deployments, "Enum", 1),
-    "TodosStructDeclaration" => nth_address(deployments, "Todos", 0),
-    "TodosStructs" => nth_address(deployments, "Todos", 1),
-    other => unique_address(deployments, other)?,
-  };
-
-  Ok(resolved)
+  Ok(
+    deployments
+      .get(contract_id)
+      .and_then(|items| items.first())
+      .copied(),
+  )
 }
 
-fn nth_address(deployments: &DeploymentMap, contract_name: &str, index: usize) -> Option<Address> {
-  deployments
-    .get(contract_name)
-    .and_then(|items| items.get(index))
-    .copied()
-}
-
-fn unique_address(deployments: &DeploymentMap, contract_name: &str) -> Result<Option<Address>> {
-  match deployments.get(contract_name) {
-    None => Ok(None),
-    Some(items) if items.len() == 1 => Ok(Some(items[0])),
-    Some(items) => eyre::bail!(
-      "multiple deployed addresses found for `{contract_name}`: {}. Set {} to disambiguate",
-      items
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", "),
-      deployment_env_key(contract_name)
-    ),
-  }
-}
-
-fn deployment_env_key(key: &str) -> String {
-  let sanitized = key
+fn deployment_env_key(contract_id: &str) -> String {
+  let sanitized = contract_id
     .chars()
     .map(|ch| {
       if ch.is_ascii_alphanumeric() {
@@ -162,37 +140,18 @@ fn deployment_env_key(key: &str) -> String {
 }
 
 fn load_deployments() -> Result<DeploymentMap> {
-  let path = deployment_file_path();
+  let path = deployments_manifest_path();
   if !path.exists() {
     return Ok(HashMap::new());
   }
 
   let content = fs::read_to_string(&path)?;
-  let json: Value = serde_json::from_str(&content)?;
-  let transactions = json
-    .get("transactions")
-    .and_then(Value::as_array)
-    .ok_or_else(|| eyre::eyre!("missing `transactions` in {}", path.display()))?;
+  let manifest: DeploymentManifest = serde_yaml::from_str(&content)?;
 
   let mut deployments = HashMap::new();
-  for tx in transactions {
-    let is_create = tx
-      .get("transactionType")
-      .and_then(Value::as_str)
-      .is_some_and(|kind| kind == "CREATE");
-    if !is_create {
-      continue;
-    }
-
-    let Some(contract_name) = tx.get("contractName").and_then(Value::as_str) else {
-      continue;
-    };
-    let Some(contract_address) = tx.get("contractAddress").and_then(Value::as_str) else {
-      continue;
-    };
-
+  for (contract_id, contract_address) in manifest.contracts {
     deployments
-      .entry(contract_name.to_string())
+      .entry(contract_id)
       .or_insert_with(Vec::new)
       .push(contract_address.parse()?);
   }
@@ -200,15 +159,16 @@ fn load_deployments() -> Result<DeploymentMap> {
   Ok(deployments)
 }
 
-fn deployment_file_path() -> PathBuf {
+fn deployments_manifest_path() -> PathBuf {
+  if let Ok(path) = env::var("DEPLOYMENTS_YAML_PATH") {
+    return PathBuf::from(path);
+  }
+
   if let Ok(path) = env::var("DEPLOY_BROADCAST_PATH") {
     return PathBuf::from(path);
   }
 
-  Path::new(env!("CARGO_MANIFEST_DIR")).join(
-    "../../../solidity_workspace_example/primitive_data_types/broadcast/DeployAll.s.sol/31337/\
-     run-latest.json",
-  )
+  Path::new(env!("CARGO_MANIFEST_DIR")).join("deployments-latest.yaml")
 }
 
 fn fail_on_module_error() -> bool {

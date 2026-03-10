@@ -9,9 +9,12 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(contract) =
-    super::deployed_contract!(provider, NestedMapping, "NestedMapping", "NestedMapping")
-  else {
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    NestedMapping,
+    "Mapping.NestedMapping",
+    "NestedMapping"
+  ) else {
     return Ok(());
   };
 

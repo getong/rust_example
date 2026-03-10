@@ -16,13 +16,15 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(fallback) = super::deployed_contract!(provider, Fallback, "Fallback", "Fallback") else {
+  let Some(fallback) =
+    super::deployed_contract!(provider, Fallback, "Fallback.Fallback", "Fallback")
+  else {
     return Ok(());
   };
   let Some(sender) = super::deployed_contract!(
     provider,
     SendToFallback,
-    "SendToFallback",
+    "Fallback.SendToFallback",
     "Fallback::SendToFallback"
   ) else {
     return Ok(());

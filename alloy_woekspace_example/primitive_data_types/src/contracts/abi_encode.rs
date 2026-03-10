@@ -20,10 +20,13 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(token) = super::deployed_contract!(provider, Token, "Token", "AbiEncode::Token") else {
+  let Some(token) =
+    super::deployed_contract!(provider, Token, "AbiEncode.Token", "AbiEncode::Token")
+  else {
     return Ok(());
   };
-  let Some(contract) = super::deployed_contract!(provider, AbiEncode, "AbiEncode", "AbiEncode")
+  let Some(contract) =
+    super::deployed_contract!(provider, AbiEncode, "AbiEncode.AbiEncode", "AbiEncode")
   else {
     return Ok(());
   };

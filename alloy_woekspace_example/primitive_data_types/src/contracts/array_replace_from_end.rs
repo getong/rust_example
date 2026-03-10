@@ -12,7 +12,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) = super::deployed_contract!(
     provider,
     ArrayReplaceFromEnd,
-    "ArrayReplaceFromEnd",
+    "ArrayReplaceFromEnd.ArrayReplaceFromEnd",
     "ArrayReplaceFromEnd"
   ) else {
     return Ok(());

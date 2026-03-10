@@ -16,7 +16,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) = super::deployed_contract!(
     provider,
     EventDrivenArchitecture,
-    "EventDrivenArchitecture",
+    "EventsAdvanced.EventDrivenArchitecture",
     "EventDrivenArchitecture"
   ) else {
     return Ok(());

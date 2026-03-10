@@ -16,10 +16,13 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(base) = super::deployed_contract!(provider, Base, "Base", "Visibility::Base") else {
+  let Some(base) = super::deployed_contract!(provider, Base, "Visibility.Base", "Visibility::Base")
+  else {
     return Ok(());
   };
-  let Some(child) = super::deployed_contract!(provider, Child, "Child", "Visibility::Child") else {
+  let Some(child) =
+    super::deployed_contract!(provider, Child, "Visibility.Child", "Visibility::Child")
+  else {
     return Ok(());
   };
   println!(

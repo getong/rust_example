@@ -16,15 +16,18 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(callee) =
-    super::deployed_contract!(provider, Callee, "Callee", "CallingContract::Callee")
-  else {
+  let Some(callee) = super::deployed_contract!(
+    provider,
+    Callee,
+    "CallingContract.Callee",
+    "CallingContract::Callee"
+  ) else {
     return Ok(());
   };
   let Some(caller) = super::deployed_contract!(
     provider,
     CallingContractCaller,
-    "CallingContractCaller",
+    "CallingContract.Caller",
     "CallingContract::Caller"
   ) else {
     return Ok(());

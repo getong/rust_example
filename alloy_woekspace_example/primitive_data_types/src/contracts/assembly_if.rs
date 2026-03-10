@@ -9,7 +9,8 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(contract) = super::deployed_contract!(provider, AssemblyIf, "AssemblyIf", "AssemblyIf")
+  let Some(contract) =
+    super::deployed_contract!(provider, AssemblyIf, "AssemblyIf.AssemblyIf", "AssemblyIf")
   else {
     return Ok(());
   };

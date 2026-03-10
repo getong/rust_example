@@ -10,7 +10,7 @@ sol!(
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) =
-    super::deployed_contract!(provider, Account, "Account", "Error.sol::Account")
+    super::deployed_contract!(provider, Account, "Error.Account", "Error.sol::Account")
   else {
     return Ok(());
   };

@@ -12,7 +12,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) = super::deployed_contract!(
     provider,
     EnumDeclarationExample,
-    "EnumDeclarationExample",
+    "EnumDeclaration.EnumDeclarationExample",
     "EnumDeclarationExample"
   ) else {
     return Ok(());

@@ -19,7 +19,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(contract) = super::deployed_contract!(
     provider,
     TestIterableMap,
-    "TestIterableMap",
+    "IterableMapping.TestIterableMap",
     "IterableMapping::TestIterableMap"
   ) else {
     return Ok(());

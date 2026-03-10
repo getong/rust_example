@@ -19,7 +19,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(callback) = super::deployed_contract!(
     provider,
     Callback,
-    "Callback",
+    "TransientStorage.Callback",
     "TestTransientStorage::Callback"
   ) else {
     return Ok(());
@@ -27,7 +27,7 @@ pub async fn run(provider: &impl Provider) -> Result<()> {
   let Some(transient) = super::deployed_contract!(
     provider,
     TestTransientStorage,
-    "TestTransientStorage",
+    "TransientStorage.TestTransientStorage",
     "TestTransientStorage"
   ) else {
     return Ok(());

@@ -9,9 +9,12 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(contract) =
-    super::deployed_contract!(provider, AssemblyLoop, "AssemblyLoop", "AssemblyLoop")
-  else {
+  let Some(contract) = super::deployed_contract!(
+    provider,
+    AssemblyLoop,
+    "AssemblyLoop.AssemblyLoop",
+    "AssemblyLoop"
+  ) else {
     return Ok(());
   };
 

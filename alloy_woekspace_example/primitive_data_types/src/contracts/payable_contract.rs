@@ -9,7 +9,8 @@ sol!(
 );
 
 pub async fn run(provider: &impl Provider) -> Result<()> {
-  let Some(contract) = super::deployed_contract!(provider, Payable, "Payable", "Payable") else {
+  let Some(contract) = super::deployed_contract!(provider, Payable, "Payable.Payable", "Payable")
+  else {
     return Ok(());
   };
 
