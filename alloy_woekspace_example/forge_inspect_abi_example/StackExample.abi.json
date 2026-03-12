@@ -1,0 +1,45 @@
+[
+  {
+    "type": "function",
+    "name": "computeSum",
+    "inputs": [
+      {
+        "name": "a",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "b",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "processLargeArray",
+    "inputs": [
+      {
+        "name": "input",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  }
+]

@@ -22,4 +22,5 @@ members = [
   "weth9_example",
   "interface_abstract_example",
   "primitive_data_types",
+  "forge_inspect_abi_example",
 ]
