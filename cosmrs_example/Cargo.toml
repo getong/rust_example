@@ -1,0 +1,8 @@
+[package]
+name = "cosmrs_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cosmrs = { version = "0.22.0", features = ["cosmwasm", "grpc", "tokio"] }
+tokio = { version = "1.50.0", features = ["full"] }
