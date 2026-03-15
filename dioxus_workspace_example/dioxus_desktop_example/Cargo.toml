@@ -9,6 +9,6 @@ dioxus = { version = "0.7.3", features = ["launch", "fullstack"] }
 serde = "1.0.228"
 
 [features]
-default = []
+default = ["desktop"]
 server = ["dioxus/server"]
 desktop = ["dioxus/desktop"]
