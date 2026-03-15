@@ -3,10 +3,12 @@ name = "dioxus_liveview_example"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.8.1"
+axum = { version = "0.7.9", features = ["ws"] }
 dioxus = "0.6.3"
 dioxus-liveview = { version = "0.6.2", features = ["axum"] }
 tokio = { version = "1.44.1", features = ["full"] }
