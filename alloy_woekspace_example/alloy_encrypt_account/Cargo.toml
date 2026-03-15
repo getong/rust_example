@@ -1,0 +1,15 @@
+[package]
+name = "alloy_encrypt_account"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes-gcm = "0.10.3"
+alloy = { version = "1.7.3", features = ["full"] }
+base64 = "0.22.1"
+dotenv = "0.15.0"
+eyre = "0.6.12"
+pbkdf2 = "0.12.2"
+rand = "0.10.0"
+rpassword = "7.4.0"
+sha2 = "0.10.9"
