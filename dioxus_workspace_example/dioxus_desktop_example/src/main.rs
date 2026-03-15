@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 fn main() {
   // Set the url of the server where server functions are hosted.
   #[cfg(not(feature = "server"))]
-  dioxus::fullstack::prelude::server_fn::client::set_server_url("http://127.0.0.1:8080");
+  dioxus::fullstack::set_server_url("http://127.0.0.1:8080");
   dioxus::launch(app);
 }
 
@@ -30,14 +30,14 @@ pub fn app() -> Element {
   }
 }
 
-#[server(PostServerData)]
+#[server]
 async fn post_server_data(data: String) -> Result<(), ServerFnError> {
   println!("Server received: {}", data);
 
   Ok(())
 }
 
-#[server(GetServerData)]
+#[server]
 async fn get_server_data() -> Result<String, ServerFnError> {
   Ok("Hello from the server!".to_string())
 }

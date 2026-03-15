@@ -5,7 +5,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.7.0", features = ["launch", "fullstack"] }
+dioxus = { version = "0.7.3", features = ["launch", "fullstack"] }
 serde = "1.0.228"
 
 [features]
