@@ -5,7 +5,7 @@ const ECHO_CSS: Asset = asset!("/assets/styling/echo.css");
 /// Echo component that demonstrates fullstack server functions.
 #[component]
 pub fn Echo() -> Element {
-  let mut response = use_signal(|| String::new());
+  let mut status = use_signal(|| String::new());
 
   rsx! {
       document::Link { rel: "stylesheet", href: ECHO_CSS }
@@ -15,15 +15,16 @@ pub fn Echo() -> Element {
           input {
               placeholder: "Type here to echo...",
               oninput:  move |event| async move {
-                  let data = echo_server(event.value()).await.unwrap();
-                  response.set(data);
+                  match echo_server(event.value()).await {
+                      Ok(data) => status.set(format!("Server echoed: {data}")),
+                      Err(error) => status.set(format!("Server unavailable: {error}")),
+                  }
               },
           }
 
-          if !response().is_empty() {
+          if !status().is_empty() {
               p {
-                  "Server echoed: "
-                  i { "{response}" }
+                  i { "{status}" }
               }
           }
       }
