@@ -6,10 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = "0.6.3"
-dioxus-router = "0.6.3"
-dioxus-web = "0.6.3"
+dioxus = { version = "0.7.3", default-features = false, features = ["minimal", "router"] }
+dioxus-router = "0.7.3"
+dioxus-web = "0.7.3"
 fermi = "0.4.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dioxus-desktop = { version = "0.7.3", default-features = false, features = ["tokio_runtime"] }
 
 [features]
 default = []

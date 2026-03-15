@@ -1,14 +1,18 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
-use dioxus_router::Router;
-use fermi::use_init_atom_root;
-use crate::page;
+use dioxus_router::{Routable, Router};
+
+use crate::page::Register;
+
+#[derive(Clone, Debug, PartialEq, Routable)]
+enum Route {
+  #[route("/")]
+  Register {},
+}
 
 pub fn App() -> Element {
   rsx! {
-      Router{
-          Router { to: page::ACCOUNT_REGISTER, page::Register{} }
-      }
+      Router::<Route> {}
   }
 }

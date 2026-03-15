@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 
-
 pub const ROOT_API_URL: &str = "http://127.0.0.1:8080/";
 
 fn main() {
