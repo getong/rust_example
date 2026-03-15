@@ -1,4 +1,7 @@
 #![allow(non_snake_case)]
+#[cfg(feature = "server")]
+use std::{io, net::SocketAddr, path::PathBuf};
+
 use dioxus::prelude::*;
 
 // The entry point for the server
@@ -10,15 +13,25 @@ async fn main() {
   let address = dioxus::cli_config::fullstack_address_or_localhost();
 
   // Set up the axum router
-  let router = axum::Router::new()
-    // You can add a dioxus application to the router with the `serve_dioxus_application` method
-    // This will add a fallback route to the router that will serve your component and server
-    // functions
-    .serve_dioxus_application(ServeConfig::new(), App);
+  let serve_config = ServeConfig::new();
+  let router = if resolved_public_path().is_some_and(|path| path.is_dir()) {
+    axum::Router::new()
+      // Serve the fullstack app when dx-generated static assets are available.
+      .serve_dioxus_application(serve_config, App)
+  } else {
+    eprintln!(
+      "No generated public directory found; serving SSR + server functions only. Use `dx serve` \
+       for hydrated web assets."
+    );
+    axum::Router::new().serve_api_application(serve_config, App)
+  };
 
   // Finally, we can launch the server
   let router = router.into_make_service();
-  let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+  let listener = bind_listener(address).await.unwrap_or_else(|error| {
+    panic!("failed to bind server listener on {address}: {error}");
+  });
+  eprintln!("Listening on http://{}", listener.local_addr().unwrap());
   axum::serve(listener, router).await.unwrap();
 }
 
@@ -26,6 +39,38 @@ async fn main() {
 #[cfg(not(feature = "server"))]
 fn main() {
   dioxus::launch(App);
+}
+
+#[cfg(feature = "server")]
+fn resolved_public_path() -> Option<PathBuf> {
+  std::env::var("DIOXUS_PUBLIC_PATH")
+    .ok()
+    .map(PathBuf::from)
+    .or_else(|| {
+      std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|parent| parent.join("public")))
+    })
+}
+
+#[cfg(feature = "server")]
+async fn bind_listener(address: SocketAddr) -> io::Result<tokio::net::TcpListener> {
+  match tokio::net::TcpListener::bind(address).await {
+    Ok(listener) => Ok(listener),
+    Err(error) if error.kind() == io::ErrorKind::AddrInUse && !has_explicit_bind_address() => {
+      eprintln!(
+        "Address {address} is already in use; falling back to an available port for plain `cargo \
+         run`."
+      );
+      tokio::net::TcpListener::bind(SocketAddr::new(address.ip(), 0)).await
+    }
+    Err(error) => Err(error),
+  }
+}
+
+#[cfg(feature = "server")]
+fn has_explicit_bind_address() -> bool {
+  std::env::var_os("IP").is_some() || std::env::var_os("PORT").is_some()
 }
 
 #[component]
