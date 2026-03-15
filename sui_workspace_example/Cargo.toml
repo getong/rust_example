@@ -6,4 +6,5 @@ members = [
   "address_convert",
   "sui_event_example",
   "sui_api_version_example",
+  "wormhole_sui_sdk_example",
 ]

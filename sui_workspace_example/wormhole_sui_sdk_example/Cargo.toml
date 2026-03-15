@@ -1,0 +1,12 @@
+[package]
+name = "wormhole_sui_sdk_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+hex = "0.4.3"
+sha3 = "0.10.8"
+sui_sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
+tokio = { version = "1", features = ["full"] }
+wormhole-sui-sdk = "0.16.0"
