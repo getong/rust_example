@@ -6,7 +6,7 @@ use_js!("js-utils/src/example.ts", "assets/example.js"::{sleep, callbackAndDrop,
 #[component]
 pub(crate) fn Dropping() -> Element {
   let mut switch = use_signal(|| true);
-  let value = use_resource(move || async move {
+  let _value = use_resource(move || async move {
     sleep(5000.0).await.unwrap();
     switch.toggle();
   });

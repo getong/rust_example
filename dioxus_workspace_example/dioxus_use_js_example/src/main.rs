@@ -1,12 +1,16 @@
 use dioxus::{logger::tracing::Level, prelude::*};
+#[cfg(target_arch = "wasm32")]
 use dioxus_use_js::{JsError, use_js};
 
+#[cfg(target_arch = "wasm32")]
 use crate::dropping_component::Dropping;
 
+#[cfg(target_arch = "wasm32")]
 mod dropping_component;
 
 // Use typescript to generate the following functions at compile time
 // with the correct Rust types determined from the source:
+#[cfg(target_arch = "wasm32")]
 use_js!("js-utils/src/example.ts", "assets/example.js"::{
     greeting,
     throws,
@@ -24,14 +28,17 @@ use_js!("js-utils/src/example.ts", "assets/example.js"::{
 });
 // Since we are generating source maps through bun, we don't have to specify the typescript source
 // file it will automatically look for a linked source map to determine the types
+#[cfg(target_arch = "wasm32")]
 use_js!("assets/example.js"::{ createJsObjectPromiseNullable, useJsObjectNullable });
 // Use pure js, no source additional type introspection used
+#[cfg(target_arch = "wasm32")]
 use_js!("assets/other.js"::*);
 
 // Use js with sourcemap.
 // Note: putting it in its own module is not necessary.
 // In this case it's to avoid errors due to clashing names from the previous use_js! call with this
 // file
+#[cfg(target_arch = "wasm32")]
 mod sourcemap {
   use dioxus::prelude::*;
   super::use_js!("assets/example.js"::*);
@@ -39,10 +46,14 @@ mod sourcemap {
 
 fn main() {
   dioxus::logger::init(Level::TRACE).unwrap();
+  #[cfg(target_arch = "wasm32")]
   launch(App);
+  #[cfg(not(target_arch = "wasm32"))]
+  dioxus_desktop::launch::launch(App, Vec::new(), Vec::new());
 }
 
 #[component]
+#[cfg(target_arch = "wasm32")]
 fn App() -> Element {
   let do_nothing: Resource<Result<String, JsError>> = use_resource(|| async move {
     let _: () = do_nothing().await?;
@@ -107,7 +118,7 @@ fn App() -> Element {
   });
 
   let mut callback2_signal = use_signal(|| "Callback2 not yet called :(".to_owned());
-  let cb2 = use_callback(move |value: ()| async move {
+  let cb2 = use_callback(move |_value: ()| async move {
     callback2_signal
       .write()
       .replace_range(.., "Callback2 called! Sleeping for 3 seconds...");
@@ -123,7 +134,7 @@ fn App() -> Element {
   });
 
   let mut callback3_signal = use_signal(|| "Callback3 not yet called :(".to_owned());
-  let cb3 = use_callback(move |value: f64| async move {
+  let cb3 = use_callback(move |_value: f64| async move {
     callback3_signal
       .write()
       .replace_range(.., "Callback3 called! Sleeping for 3 seconds...");
@@ -139,7 +150,7 @@ fn App() -> Element {
   });
 
   let mut callback4_signal = use_signal(|| "Callback4 not yet called :(".to_owned());
-  let cb4 = use_callback(move |value: ()| async move {
+  let cb4 = use_callback(move |_value: ()| async move {
     callback4_signal
       .write()
       .replace_range(.., "Callback4 called! Sleeping for 3 seconds...");
@@ -321,6 +332,26 @@ fn App() -> Element {
   )
 }
 
+#[component]
+#[cfg(not(target_arch = "wasm32"))]
+fn App() -> Element {
+  rsx!(
+      main { style: "padding: 2rem; font-family: sans-serif; line-height: 1.6;",
+          h1 { "Dioxus `use_js!` Macro Example" }
+          p {
+              "This example calls browser JavaScript through `dioxus-use-js`."
+          }
+          p {
+              "Running it with native `cargo run` on a non-wasm target is unsupported, so the JS demo is disabled here."
+          }
+          p {
+              "Use a wasm32/web build to exercise the generated bindings."
+          }
+      }
+  )
+}
+
+#[cfg(target_arch = "wasm32")]
 fn example_result(
   result: &Option<Result<impl std::fmt::Display, impl std::fmt::Display>>,
 ) -> Element {
