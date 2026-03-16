@@ -13,3 +13,5 @@ fn main() -> PyResult<()> {
     Ok(())
   })
 }
+
+// PYO3_PYTHON=/opt/homebrew/bin/python3 cargo run
