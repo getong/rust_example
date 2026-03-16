@@ -1,0 +1,224 @@
+export { createJsObjectPromiseNullable, useJsObjectNullable } from "./exports";
+
+/// This is a reserved marker type that tells the `use_js!` macro to not do serialization and
+/// deserialization, but instead create a shim and return an opaque proxy object that can be used to
+/// reference the internal js object, so it can be passed around on the rust side. 
+type JsValue<T = any> = T;
+
+// input of void means takes no arguments
+// output of void means it returns no arguments
+type RustCallback<A, R> = (arg: A) => Promise<R>;
+
+type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
+
+/** 
+ * Creates a greeting
+*/
+export function greeting(from, to: string): string {
+    return `Hello ${to}, this is ${from} speaking from JavaScript!`;
+}
+
+export async function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+type MyObject = {
+    name: string;
+    method: (value: number) => number;
+};
+
+export function throws(): void {
+    throw Error("This error should show up in the console");
+}
+
+/// Creates a js value that is not serialized
+export function createJsObject(): JsValue<MyObject> {
+    return {
+        name: "example",
+        method: function (value) {
+            return value + 25;
+        },
+    };
+}
+
+/// Uses a js value
+export function useJsObject(input: number, value: JsValue<MyObject>): number {
+    let result = value.method(input);
+    return result;
+}
+
+export async function createJsObjectPromise(): Promise<JsValue<MyObject>> {
+    return Promise.resolve(createJsObject());
+}
+
+export async function callback1(startingValue: number, callback: RustCallback<number, number>): Promise<number> {
+    let doubledValue = startingValue * 2;
+    let quadrupledValue = await callback(doubledValue);
+    if (quadrupledValue != doubledValue * 2) {
+        throw new Error("Callback example 1 did not double value");
+    }
+    let finalValue = quadrupledValue * 2;
+    return finalValue;
+}
+
+export async function callback2(callback: RustCallback<void, number>): Promise<number> {
+    let value = await callback();
+    if (value != 30) {
+        throw new Error("Callback example 2 did not send value of 30");
+    }
+    let finalValue = value * 2;
+    return finalValue;
+}
+
+export async function callback3(startingValue: number, callback: RustCallback<number, void>): Promise<number> {
+    let value = await callback(startingValue + 8);
+    if (value != null) {
+        throw new Error("Callback example 3 did not send back correct value for void");
+    }
+    return startingValue + 4;
+}
+
+export async function callback4(startingValue: number, callback: RustCallback<void, void>): Promise<number> {
+    let value = await callback();
+    if (value != null) {
+        throw new Error("Callback example 4 did not send back correct value for void");
+    }
+    return startingValue + 10;
+}
+
+export async function callback5(callback: RustCallback<Json, void>) {
+    callback([1, 2]);
+}
+
+export async function callback6(callback: RustCallback<void, void>): Promise<string> {
+    try {
+        await callback();
+    } catch (e) {
+        return `The number ${e} was thrown in js`;
+    }
+    throw new Error("Expected callback to throw an error");
+}
+
+//************************************************************************//
+
+type Drop = Promise<void>;
+
+export async function callbackAndDrop(callback: RustCallback<number[], void>, drop: Drop): Promise<number> {
+    let handler = async (e) => {
+        await callback([e.pageX, e.pageY]);
+    };
+
+    document.addEventListener('click', handler);
+    drop.then(() => {
+        document.removeEventListener('click', handler);
+        console.info("Removed click handler");
+    });
+    return 44;
+}
+
+export async function dropOnly(drop: Drop): Promise<number> {
+    drop.then(() => {
+        console.info("Dropped");
+    });
+    return 11;
+}
+
+//************************************************************************//
+
+/**
+ * Class test
+ */
+export class Counter {
+    private count: number;
+    private log: RustCallback<string, void>;
+
+    constructor(initialValue: number) {
+        this.count = initialValue;
+        this.log = async (value) => console.info(value);
+    }
+
+    /**
+     * Static factory method
+     */
+    static createDefault(): JsValue<Counter> {
+        return new Counter(0);
+    }
+
+    /**
+     * Static method to add two numbers
+     */
+    static add(a: number, b: number): number {
+        return a + b;
+    }
+
+    /**
+     * Get the current count
+     */
+    getCount(): number {
+        return this.count;
+    }
+
+    /**
+     * Increment the counter by a value
+     */
+    increment(value: number): number {
+        this.count += value;
+        this.log(`Incremented by ${value}`);
+        this.log(`New count is ${this.count}`);
+        return this.count;
+    }
+
+    /**
+     * If set logs every increment on the rust side
+     */
+    setLog(log: RustCallback<string, void>): void {
+        this.log = log;
+    }
+
+    /**
+     * Async method to double the count
+     */
+    async doubleAsync(): Promise<number> {
+        await sleep(10);
+        this.count *= 2;
+        return this.count;
+    }
+}
+
+// Functions not used in example but still generated through `*`
+//************************************************************************//
+
+export async function untyped(input) {
+    return null;
+}
+
+export function json(input: Json): Json[] {
+    return [input];
+}
+
+// Compile errors
+//************************************************************************//
+
+// export function nestedVoid(): void[] {
+//     return [];
+// }
+
+// export function inputVoid(input: void) {}
+
+// Functions that return promise must be async
+// export function createJsObjectPromise(): Promise<number> {
+//     return 1;
+// }
+
+// export async function callback(callback: RustCallback<[number, number], void>) {
+//     callback([1,2]);
+// }
+
+// type Pair = [number, number];
+// export async function callback(callback: RustCallback<Pair, void>) {
+//     callback([1,2]);
+// }
+
+// export async function callback(callback: RustCallback<JsValue, void>) {
+//     callback(1);
+// }

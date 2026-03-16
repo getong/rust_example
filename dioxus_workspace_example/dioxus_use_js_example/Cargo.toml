@@ -1,0 +1,30 @@
+[package]
+name = "dioxus_use_js_example"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["dioxus/web"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+
+[dependencies]
+dioxus = "0.7.3"
+dioxus-use-js = "0.4.7"
+serde_json = "1.0.149"
+
+[build-dependencies]
+dioxus-use-js = { version = "0.4.7", features = ["build"] }
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"

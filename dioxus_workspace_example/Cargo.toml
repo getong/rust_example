@@ -15,6 +15,7 @@ members = [
   "axum_dioxus_ssr_example",
   "dioxus_web_sys_example",
   "axum_dioxus_fullstack_example",
+  "dioxus_use_js_example",
 ]
 
 default-members = [
