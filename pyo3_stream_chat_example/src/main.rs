@@ -4,7 +4,7 @@ use tokio::task;
 async fn create_token_for_user(user_id: &str) -> PyResult<String> {
   let user_id = user_id.to_string();
   task::spawn_blocking(move || {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       // Import the stream_chat module
       let stream_chat = py.import("stream_chat")?;
       // Create StreamChat client
@@ -26,6 +26,8 @@ async fn create_token_for_user(user_id: &str) -> PyResult<String> {
 
 #[tokio::main]
 async fn main() -> PyResult<()> {
+  Python::initialize();
+
   let users = vec!["john", "alice", "bob", "charlie"];
   let mut handles = Vec::new();
 
