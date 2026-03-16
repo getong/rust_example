@@ -108,7 +108,7 @@ impl Libp2pNetworkFactory {
     req: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable> {
     let (peer, addr) = self.peer_addr_for(node_id).await?;
-    self.client.dial(addr).await;
+    self.client.connect(peer, addr).await?;
     self.client.request(peer, req).await
   }
 

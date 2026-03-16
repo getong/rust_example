@@ -8,7 +8,7 @@ use libp2p::{
   core::upgrade::Version,
   dns, gossipsub, identity,
   kad::{self, store::MemoryStore},
-  mdns, noise, ping,
+  mdns, noise,
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
@@ -117,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
         gossipsub_config,
       )
       .map_err(|e| anyhow::anyhow!("gossipsub init error: {e}"))?;
-      let ping = ping::Behaviour::new(ping::Config::new());
+      let ping = app::build_ping_behaviour();
       let kameo = remote::Behaviour::new(
         peer_id,
         remote::messaging::Config::default()
@@ -161,8 +161,7 @@ async fn main() -> anyhow::Result<()> {
     shutdown.shutdown_rx(),
   ));
 
-  client.dial(maddr.clone()).await;
-  tokio::time::sleep(Duration::from_millis(200)).await;
+  client.connect(peer, maddr.clone()).await?;
 
   let req = match opt.cmd {
     Command::Get { key } => RaftKvRequest {

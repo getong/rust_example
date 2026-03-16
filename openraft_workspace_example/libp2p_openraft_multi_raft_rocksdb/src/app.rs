@@ -129,6 +129,13 @@ pub fn uses_wss(addr: &Multiaddr) -> bool {
   false
 }
 
+pub fn build_ping_behaviour() -> ping::Behaviour {
+  let config = ping::Config::new()
+    .with_interval(Duration::from_secs(3))
+    .with_timeout(Duration::from_secs(6));
+  ping::Behaviour::new(config)
+}
+
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 pub struct Opt {
@@ -393,7 +400,7 @@ fn build_swarm(
         gossipsub_config,
       )
       .map_err(|e| anyhow!("gossipsub init error: {e}"))?;
-      let ping = ping::Behaviour::new(ping::Config::new());
+      let ping = build_ping_behaviour();
       let kameo = remote::Behaviour::new(
         peer_id,
         remote::messaging::Config::default()

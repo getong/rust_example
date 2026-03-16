@@ -489,7 +489,11 @@ async fn send_kv_request(
       peer,
       addr,
     } => {
-      state.kv_client.dial(addr).await;
+      state
+        .kv_client
+        .connect(peer, addr)
+        .await
+        .map_err(|err| format!("libp2p connect error: {err}"))?;
       let resp = state
         .kv_client
         .request(peer, request)
