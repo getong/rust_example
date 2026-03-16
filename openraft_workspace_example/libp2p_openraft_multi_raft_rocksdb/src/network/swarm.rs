@@ -419,20 +419,13 @@ async fn handle_raft_event(
           return;
         };
 
-        match request.op {
-          RaftRpcOp::ClientWrite(req) => {
-            let raft = group.raft.clone();
-            let tx = cmd_tx.clone();
-            tokio::spawn(async move {
-              let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
-              let _ = tx.send(Command::RaftRespond { channel, resp }).await;
-            });
-          }
-          other => {
-            let resp = handle_inbound_rpc(group.raft.clone(), other).await;
-            let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
-          }
-        }
+        let raft = group.raft.clone();
+        let tx = cmd_tx.clone();
+        let op = request.op;
+        tokio::spawn(async move {
+          let resp = handle_inbound_rpc(raft, op).await;
+          let _ = tx.send(Command::RaftRespond { channel, resp }).await;
+        });
       }
       request_response::Message::Response {
         request_id,
@@ -492,7 +485,7 @@ fn handle_kv_event(
         let kv_client = kv_client.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
-          let resp = handle_inbound_kv(raft, kv_data, kv_client, request).await;
+          let resp = process_kv_request(raft, kv_data, kv_client, request).await;
           let _ = tx.send(Command::KvRespond { channel, resp }).await;
         });
       }
@@ -673,34 +666,7 @@ pub async fn run_swarm_client_with_shutdown(
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
-        match cmd {
-          Command::Dial { addr } => {
-            let dial_addr = addr.clone();
-            let _ = Swarm::dial(&mut swarm, dial_addr);
-            add_kad_address_from_p2p(&mut swarm, &addr);
-            kick_kad_queries(&mut swarm);
-          }
-          Command::GossipsubPublish { topic, data } => {
-            let topic = gossipsub::IdentTopic::new(topic);
-            if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
-              tracing::warn!("gossipsub publish failed: {err}");
-            }
-          }
-          Command::RaftRequest { peer, req, resp } => {
-            let id = swarm.behaviour_mut().raft.send_request(&peer, req);
-            pending_raft.insert(id, resp);
-          }
-          Command::RaftRespond { channel, resp } => {
-            let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
-          }
-          Command::KvRequest { peer, req, resp } => {
-            let id = swarm.behaviour_mut().kv.send_request(&peer, req);
-            pending_kv.insert(id, resp);
-          }
-          Command::KvRespond { channel, resp } => {
-            let _ = swarm.behaviour_mut().kv.send_response(channel, resp);
-          }
-        }
+        handle_command(&mut swarm, cmd, &mut pending_raft, &mut pending_kv);
       }
 
       ev = swarm.select_next_some() => {
@@ -776,48 +742,12 @@ pub async fn run_swarm_client_with_shutdown(
             }
           },
 
-          SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => match event {
-            gossipsub::Event::Message {
-              propagation_source,
-              message_id,
-              message,
-            } => {
-              match ChatMessage::decode(message.data.as_slice()) {
-                Ok(chat) => {
-                  tracing::info!(
-                    peer = %propagation_source,
-                    message_id = %message_id,
-                    from = %chat.from,
-                    text = %chat.text,
-                    ts = chat.ts_unix_ms,
-                    "chat message"
-                  );
-                }
-                Err(err) => {
-                  tracing::info!(
-                    peer = %propagation_source,
-                    message_id = %message_id,
-                    len = message.data.len(),
-                    error = %err,
-                    "gossipsub message (decode failed)"
-                  );
-                }
-              }
-            }
-            other => {
-              tracing::debug!("gossipsub event: {:?}", other);
-            }
-          },
+          SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
+            handle_gossipsub_event(event);
+          }
 
           SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-            match event {
-              ping::Event { peer, result: Ok(rtt), .. } => {
-                tracing::debug!(peer = %peer, rtt = ?rtt, "ping ok");
-              }
-              ping::Event { peer, result: Err(err), .. } => {
-                tracing::warn!(peer = %peer, error = ?err, "ping failed");
-              }
-            }
+            handle_ping_event(event);
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
@@ -936,7 +866,7 @@ fn handle_kad_event(
   }
 }
 
-async fn handle_inbound_kv(
+pub async fn process_kv_request(
   raft: Raft,
   kv_data: KvData,
   kv_client: KvClient,

@@ -45,11 +45,19 @@ impl Libp2pNetworkFactory {
 
   pub async fn register_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {
     let (peer, maddr) = parse_p2p_addr(addr)?;
-    {
+    let should_dial = {
       let mut map = self.node_peers.write().await;
-      map.insert(node_id, (peer, maddr.clone()));
+      match map.get(&node_id) {
+        Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == maddr => false,
+        _ => {
+          map.insert(node_id, (peer, maddr.clone()));
+          true
+        }
+      }
+    };
+    if should_dial {
+      self.client.dial(maddr).await;
     }
-    self.client.dial(maddr).await;
     Ok(())
   }
 
@@ -111,14 +119,6 @@ impl Libp2pNetworkFactory {
       .map(|(peer, addr)| (*peer, addr.clone()))
       .ok_or_else(|| Unreachable::new(&NetErr(format!("unknown target node_id={node_id}"))))
   }
-
-  async fn peer_for(&self, node_id: NodeId) -> Result<PeerId, Unreachable> {
-    let map = self.node_peers.read().await;
-    map
-      .get(&node_id)
-      .map(|(peer, _)| *peer)
-      .ok_or_else(|| Unreachable::new(&NetErr(format!("unknown target node_id={node_id}"))))
-  }
 }
 
 pub struct Libp2pConnection {
@@ -151,12 +151,10 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     req: AppendEntriesRequest,
     _option: RPCOption,
   ) -> Result<AppendEntriesResponse, RPCError> {
-    let peer = self.factory.peer_for(self.target).await?;
     let resp = self
       .factory
-      .client
       .request(
-        peer,
+        self.target,
         RaftRpcRequest {
           group_id: self.group_id.clone(),
           op: RaftRpcOp::AppendEntries(req),
@@ -175,12 +173,10 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
   }
 
   async fn vote(&mut self, req: VoteRequest, _option: RPCOption) -> Result<VoteResponse, RPCError> {
-    let peer = self.factory.peer_for(self.target).await?;
     let resp = self
       .factory
-      .client
       .request(
-        peer,
+        self.target,
         RaftRpcRequest {
           group_id: self.group_id.clone(),
           op: RaftRpcOp::Vote(req),
@@ -203,19 +199,12 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     _cancel: impl Future<Output = openraft::error::ReplicationClosed> + openraft::OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<SnapshotResponse, StreamingError> {
-    let peer = self
-      .factory
-      .peer_for(self.target)
-      .await
-      .map_err(StreamingError::Unreachable)?;
-
     let data: Vec<u8> = snapshot.snapshot.into_inner();
 
     let resp = self
       .factory
-      .client
       .request(
-        peer,
+        self.target,
         RaftRpcRequest {
           group_id: self.group_id.clone(),
           op: RaftRpcOp::FullSnapshot {

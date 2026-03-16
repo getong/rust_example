@@ -19,7 +19,7 @@ use crate::{
   GroupHandleMap, GroupId, NodeId,
   kameo_remote::{self, KameoState},
   network::{
-    swarm::{GOSSIP_TOPIC, KvClient},
+    swarm::{GOSSIP_TOPIC, KvClient, process_kv_request},
     transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{
@@ -469,20 +469,46 @@ async fn send_kv_request(
   target_node_id: Option<NodeId>,
   request: RaftKvRequest,
 ) -> Result<(NodeId, RaftKvResponse), String> {
-  let target = resolve_kv_target(state, group_id, target_node_id).await?;
-  state.kv_client.dial(target.addr.clone()).await;
-  let resp = state
-    .kv_client
-    .request(target.peer, request)
-    .await
-    .map_err(|err| format!("libp2p error: {err}"))?;
-  Ok((target.node_id, resp))
+  match resolve_kv_target(state, group_id, target_node_id).await? {
+    KvTarget::Local { node_id } => {
+      let group = state
+        .groups
+        .get(group_id)
+        .ok_or_else(|| format!("unknown group_id={group_id}"))?;
+      let resp = process_kv_request(
+        group.raft.clone(),
+        group.kv_data.clone(),
+        state.kv_client.clone(),
+        request,
+      )
+      .await;
+      Ok((node_id, resp))
+    }
+    KvTarget::Remote {
+      node_id,
+      peer,
+      addr,
+    } => {
+      state.kv_client.dial(addr).await;
+      let resp = state
+        .kv_client
+        .request(peer, request)
+        .await
+        .map_err(|err| format!("libp2p error: {err}"))?;
+      Ok((node_id, resp))
+    }
+  }
 }
 
-struct KvTarget {
-  node_id: NodeId,
-  peer: PeerId,
-  addr: Multiaddr,
+enum KvTarget {
+  Local {
+    node_id: NodeId,
+  },
+  Remote {
+    node_id: NodeId,
+    peer: PeerId,
+    addr: Multiaddr,
+  },
 }
 
 fn resolve_group_id(state: &AppState, group_id: Option<String>) -> Result<GroupId, String> {
@@ -503,40 +529,41 @@ async fn resolve_kv_target(
   group_id: &str,
   target_node_id: Option<NodeId>,
 ) -> Result<KvTarget, String> {
-  let nodes = state.network.known_nodes().await;
-  if nodes.is_empty() {
-    return Err("no known nodes".to_string());
-  }
-
   let group = state
     .groups
     .get(group_id)
     .ok_or_else(|| format!("unknown group_id={group_id}"))?;
   let metrics = group.raft.metrics().borrow_watched().clone();
-  let mut candidate = target_node_id.or_else(|| {
-    if metrics.state.is_leader() {
-      Some(state.node_id)
-    } else {
-      metrics.current_leader
-    }
-  });
+  let candidate = target_node_id.or(metrics.current_leader);
 
-  if candidate.is_none() || candidate == Some(state.node_id) {
-    if let Some((id, _, _)) = nodes.iter().find(|(id, _, _)| *id != state.node_id) {
-      candidate = Some(*id);
-    }
+  if metrics.state.is_leader() || candidate == Some(state.node_id) {
+    return Ok(KvTarget::Local {
+      node_id: state.node_id,
+    });
   }
 
-  let candidate = candidate.or_else(|| nodes.first().map(|(id, _, _)| *id));
+  let nodes = state.network.known_nodes().await;
+  if nodes.is_empty() {
+    return Ok(KvTarget::Local {
+      node_id: state.node_id,
+    });
+  }
 
-  let Some(node_id) = candidate else {
-    return Err("no leader available".to_string());
-  };
+  let node_id = candidate
+    .filter(|id| *id != state.node_id)
+    .or_else(|| {
+      nodes
+        .iter()
+        .find(|(id, _, _)| *id != state.node_id)
+        .map(|(id, _, _)| *id)
+    })
+    .or_else(|| nodes.first().map(|(id, _, _)| *id))
+    .ok_or_else(|| "no leader available".to_string())?;
 
   nodes
     .into_iter()
     .find(|(id, _, _)| *id == node_id)
-    .map(|(id, peer, addr)| KvTarget {
+    .map(|(id, peer, addr)| KvTarget::Remote {
       node_id: id,
       peer,
       addr,
