@@ -1,0 +1,10 @@
+[package]
+name = "ark_ec_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-ec = "0.5.0"
+ark-ff = "0.5.0"
+ark-std = "0.5.0"
+ark-test-curves = { version = "0.5.0", features = ["bls12_381_scalar_field", "bls12_381_curve"] }

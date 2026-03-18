@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "ark_ec_example",
+]
