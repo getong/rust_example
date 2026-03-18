@@ -1,0 +1,9 @@
+[package]
+name = "ark_serialize_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-serialize = { version = "0.5.0", features = ["derive"] }
+ark-std = "0.5.0"
+ark-test-curves = { version = "0.5.0", features = ["bls12_381_scalar_field", "bls12_381_curve"] }
