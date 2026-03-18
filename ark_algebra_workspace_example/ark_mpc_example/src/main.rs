@@ -9,6 +9,10 @@ type Curve = Curve25519Projective;
 
 #[tokio::main]
 async fn main() {
+  rustls::crypto::ring::default_provider()
+    .install_default()
+    .expect("Failed to install rustls crypto provider");
+
   let local_addr = "127.0.0.1:8000".parse().unwrap();
   let peer_addr = "127.0.0.1:9000".parse().unwrap();
   let mut network = QuicTwoPartyNet::new(PARTY0, local_addr, peer_addr);

@@ -10,4 +10,5 @@ ark-mpc = { git = "https://github.com/getong/ark-mpc", branch = "update-ark", de
   "test_helpers",
 ] }
 rand = "0.10"
+rustls = { version = "0.23.37", features = ["ring"] }
 tokio = { version = "1.50.0", features = ["full"] }
