@@ -7,5 +7,5 @@ members = [
   "csv_load",
   "fwd-max",
   "plotters_example",
-  "scatter-plot",
+  "scatter-plot", "convolve2d",
 ]
