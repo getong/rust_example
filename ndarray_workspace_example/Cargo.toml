@@ -4,4 +4,5 @@ resolver = "3"
 
 members = [
   "inf_exmpl",
+  "csv_load",
 ]
