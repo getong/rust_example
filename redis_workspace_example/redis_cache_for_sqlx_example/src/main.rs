@@ -53,12 +53,12 @@ async fn write_user(
   let user_json = serde_json::to_string(user)?;
 
   // Insert user into PostgreSQL
-  sqlx::query!(
+  sqlx::query(
     "INSERT INTO users (id, name, email) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
-    user.id,
-    user.name,
-    user.email
   )
+  .bind(user.id)
+  .bind(&user.name)
+  .bind(&user.email)
   .execute(pg_pool)
   .await?;
 
@@ -89,31 +89,28 @@ async fn sync_redis_to_postgres(
     let user: User = serde_json::from_str(&user_json)?;
 
     // Check if the user exists in PostgreSQL
-    let result = sqlx::query!("SELECT * FROM users WHERE id = $1", user.id)
-      .fetch_optional(pg_pool)
+    let existing_user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = $1")
+      .bind(user.id)
+      .fetch_one(pg_pool)
       .await?;
 
-    if result.is_some() {
+    if existing_user_count > 0 {
       // User exists in PostgreSQL, update the user
-      sqlx::query!(
-        "UPDATE users SET name = $1, email = $2 WHERE id = $3",
-        user.name,
-        user.email,
-        user.id
-      )
-      .execute(pg_pool)
-      .await?;
+      sqlx::query("UPDATE users SET name = $1, email = $2 WHERE id = $3")
+        .bind(&user.name)
+        .bind(&user.email)
+        .bind(user.id)
+        .execute(pg_pool)
+        .await?;
       println!("User with id {} updated in PostgreSQL.", user.id);
     } else {
       // User does not exist in PostgreSQL, insert the user
-      sqlx::query!(
-        "INSERT INTO users (id, name, email) VALUES ($1, $2, $3)",
-        user.id,
-        user.name,
-        user.email
-      )
-      .execute(pg_pool)
-      .await?;
+      sqlx::query("INSERT INTO users (id, name, email) VALUES ($1, $2, $3)")
+        .bind(user.id)
+        .bind(&user.name)
+        .bind(&user.email)
+        .execute(pg_pool)
+        .await?;
       println!("User with id {} inserted into PostgreSQL.", user.id);
     }
 

@@ -55,7 +55,7 @@ async fn connect_with_retry(
 ) -> Result<ClusterConnection, RedisError> {
   let mut last_err: Option<RedisError> = None;
 
-  for attempt in 1..=max_attempts {
+  for attempt in 1 ..= max_attempts {
     match client.get_async_connection().await {
       Ok(conn) => return Ok(conn),
       Err(err) => {
@@ -71,9 +71,7 @@ async fn connect_with_retry(
     }
   }
 
-  Err(last_err.unwrap_or_else(|| {
-    RedisError::from((redis::ErrorKind::IoError, "No connections found"))
-  }))
+  Err(last_err.unwrap_or_else(|| RedisError::from((redis::ErrorKind::Io, "No connections found"))))
 }
 
 async fn wait_for_cluster_ready(
@@ -81,7 +79,7 @@ async fn wait_for_cluster_ready(
   max_attempts: usize,
   delay_ms: u64,
 ) -> RedisResult<()> {
-  for attempt in 1..=max_attempts {
+  for attempt in 1 ..= max_attempts {
     let info: RedisResult<String> = redis::cmd("CLUSTER").arg("INFO").query_async(conn).await;
     match info {
       Ok(text) if text.contains("cluster_state:ok") => {
@@ -107,7 +105,7 @@ async fn wait_for_cluster_ready(
   }
 
   Err(RedisError::from((
-    redis::ErrorKind::IoError,
+    redis::ErrorKind::Io,
     "Cluster not ready after retries",
   )))
 }
