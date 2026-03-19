@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rslock = { version = "0.7.3", features = [
+rslock = { version = "0.7.4", features = [
   "tokio-comp",
 ], default-feature = false }
-tokio = { version = "1.47.1", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
