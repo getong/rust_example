@@ -6,4 +6,5 @@ members = [
   "inf_exmpl",
   "csv_load",
   "fwd-max",
+  "plotters_example",
 ]

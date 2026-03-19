@@ -19,7 +19,9 @@ fn forward_pass(
   b2: Array1<f64>,
 ) -> f64 {
   let hidden = relu_layer(w1.dot(&x) + &b1); // Hidden layer
+  println!("the sorted hidden list is {:?}", hidden);
   let output = w2.dot(&hidden) + &b2; // Output layer (no activation)
+  println!("the sorted output list is {:?}", output);
   output[0]
 }
 
