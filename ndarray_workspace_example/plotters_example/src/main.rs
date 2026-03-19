@@ -1,12 +1,12 @@
 use plotters::{element::PathElement, prelude::*};
-use rand::Rng;
+use rand::RngExt;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut rng = rand::rng();
   let loss_values: Vec<f64> = (0 .. 100)
     .map(|epoch| {
       let base_loss = 1.0 / (epoch as f64 + 1.0);
-      base_loss + rng.gen_range(-0.01 .. 0.01)
+      base_loss + rng.random_range(-0.01 .. 0.01)
     })
     .collect();
 
