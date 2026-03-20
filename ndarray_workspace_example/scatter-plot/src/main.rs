@@ -24,7 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .y_label_area_size(40)
     .build_cartesian_2d(0.0 .. 10.0, 0.0 .. 10.0)?;
 
-  chart.configure_mesh().x_desc("X").y_desc("Y").draw()?;
+  chart.configure_mesh().x_desc("X").draw()?;
+
+  let (_, height) = root.dim_in_pixel();
+  root.draw(&Text::new(
+    "Y",
+    (12, (height / 2) as i32),
+    ("sans-serif", 18).into_font(),
+  ))?;
 
   // Draw red points
   chart
@@ -49,6 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Draw legend
   chart
     .configure_series_labels()
+    .position(SeriesLabelPosition::UpperLeft)
     .border_style(&BLACK)
     .background_style(&WHITE.mix(0.8))
     .draw()?;
