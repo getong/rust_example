@@ -1,5 +1,8 @@
-#!/bin/sh
+#!/usr/bin/env sh
+set -eu
 
-# uv venv --clear
+if [ ! -d ".venv" ]; then
+  uv venv .venv
+fi
 
-uv pip install -r requirements.txt
+uv pip install --python .venv/bin/python -r requirements.txt
