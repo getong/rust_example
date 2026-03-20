@@ -12,4 +12,6 @@ members = [
   "lstm-impl",
   "rnn-impl",
   "attention-complete",
+  "gan-impl",
+  "multi-head-attention",
 ]
