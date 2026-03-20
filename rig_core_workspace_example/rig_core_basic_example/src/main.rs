@@ -1,4 +1,8 @@
-use rig::{completion::Prompt, providers::openai};
+use rig::{
+  client::{CompletionClient, ProviderClient},
+  completion::Prompt,
+  providers::openai,
+};
 
 #[tokio::main]
 async fn main() {
