@@ -9,5 +9,5 @@ members = [
   "plotters_example",
   "scatter-plot",
   "convolve2d",
-  "tch_example",
+  "lstm-impl",
 ]
