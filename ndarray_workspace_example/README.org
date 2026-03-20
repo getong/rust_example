@@ -1,0 +1,4 @@
+* ndarray workspace example
+
+some part code are copied from [[https://github.com/Apress/Deep-Learning-with-Rust][Deep Learning with Rust]]
+modified with AI
