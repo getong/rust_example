@@ -1,0 +1,8 @@
+[package]
+name = "rnn-impl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+tch = "0.23.0"
