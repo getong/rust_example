@@ -11,4 +11,5 @@ members = [
   "convolve2d",
   "lstm-impl",
   "rnn-impl",
+  "attention-complete",
 ]
