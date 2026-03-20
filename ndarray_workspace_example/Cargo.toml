@@ -15,4 +15,5 @@ members = [
   "gan-impl",
   "multi-head-attention",
   "nlp",
+  "plot-dist",
 ]
