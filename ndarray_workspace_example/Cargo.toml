@@ -16,4 +16,5 @@ members = [
   "multi-head-attention",
   "nlp",
   "plot-dist",
+  "transformer-impl",
 ]
