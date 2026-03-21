@@ -29,7 +29,9 @@ use crate::{
   groups, http,
   kameo_remote::KameoState,
   network::{
+    openraft_dispatcher::OpenRaftDispatcher,
     proto_codec::{ProstCodec, ProtoCodec},
+    raft_bridge::P2PNetworkFactoryWrapper,
     swarm::{Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
     transport::Libp2pNetworkFactory,
   },
@@ -335,6 +337,7 @@ async fn start_openraft_groups(
 
   for group_id in group_ids {
     let group_network = network.with_group(group_id.clone());
+    let group_network = P2PNetworkFactoryWrapper::new(group_network);
     let (log_store, state_machine) = store::open_store_for_group(db_dir, group_id).await?;
     let kv_data = store::kv_data(&state_machine);
 
@@ -455,8 +458,10 @@ fn spawn_libp2p_swarm(
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
   let swarm_shutdown = shutdown.shutdown_rx();
   let network_for_swarm = libp2p.network.clone();
-  let groups_for_swarm = openraft.groups.clone();
-  let kv_client_for_swarm = libp2p.kv_client.clone();
+  let dispatcher_for_swarm = Arc::new(OpenRaftDispatcher::new(
+    openraft.groups.clone(),
+    libp2p.kv_client.clone(),
+  ));
   let cmd_tx_for_swarm = libp2p.cmd_tx.clone();
   tokio::spawn(async move {
     run_swarm(
@@ -464,8 +469,7 @@ fn spawn_libp2p_swarm(
       cmd_rx,
       cmd_tx_for_swarm,
       network_for_swarm,
-      groups_for_swarm,
-      kv_client_for_swarm,
+      dispatcher_for_swarm,
       swarm_shutdown,
     )
     .await;

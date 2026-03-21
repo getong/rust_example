@@ -1,21 +1,16 @@
-use std::{collections::HashMap, future::Future, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context;
+use async_trait::async_trait;
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
-use openraft::{
-  BasicNode, RaftNetworkFactory,
-  network::{RPCOption, v2::RaftNetworkV2},
-};
+use openraft::BasicNode;
 
 use crate::{
   GroupId, NodeId, Unreachable,
   network::{
-    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    raft_bridge::{P2PNetworkFactory, P2PRaftNetwork, P2PRaftNetworkWrapper},
+    rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{Libp2pClient, NetErr},
-  },
-  typ::{
-    AppendEntriesRequest, AppendEntriesResponse, RPCError, Snapshot, SnapshotResponse,
-    StreamingError, Vote, VoteRequest, VoteResponse,
   },
 };
 
@@ -121,110 +116,45 @@ impl Libp2pNetworkFactory {
   }
 }
 
-pub struct Libp2pConnection {
+struct Libp2pRaftNetwork {
   target: NodeId,
   factory: Libp2pNetworkFactory,
   group_id: GroupId,
 }
 
-impl RaftNetworkFactory<openraft_rocksstore_crud::TypeConfig> for Libp2pNetworkFactory {
-  type Network = Libp2pConnection;
-
-  async fn new_client(&mut self, target: NodeId, node: &BasicNode) -> Self::Network {
-    let _ = self.register_node(target, &node.addr).await;
+#[async_trait]
+impl P2PNetworkFactory for Libp2pNetworkFactory {
+  async fn new_p2p_client(&self, target: NodeId, target_info: BasicNode) -> P2PRaftNetworkWrapper {
+    let _ = self.register_node(target, &target_info.addr).await;
     let group_id = self
       .group_id
       .clone()
       .expect("group_id required for raft network");
 
-    Libp2pConnection {
+    P2PRaftNetworkWrapper::new(Libp2pRaftNetwork {
       target,
       factory: self.clone(),
       group_id,
-    }
+    })
   }
 }
 
-impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
-  async fn append_entries(
-    &mut self,
-    req: AppendEntriesRequest,
-    _option: RPCOption,
-  ) -> Result<AppendEntriesResponse, RPCError> {
-    let resp = self
-      .factory
-      .request(
-        self.target,
-        RaftRpcRequest {
-          group_id: self.group_id.clone(),
-          op: RaftRpcOp::AppendEntries(req),
-        },
-      )
-      .await?;
-
-    match resp {
-      RaftRpcResponse::AppendEntries(r) => {
-        r.map_err(|e| RPCError::Unreachable(Unreachable::new(&e)))
-      }
-      other => Err(RPCError::Unreachable(Unreachable::new(&NetErr(format!(
-        "unexpected response: {other:?}"
-      ))))),
-    }
+#[async_trait]
+impl P2PRaftNetwork for Libp2pRaftNetwork {
+  fn target(&self) -> NodeId {
+    self.target
   }
 
-  async fn vote(&mut self, req: VoteRequest, _option: RPCOption) -> Result<VoteResponse, RPCError> {
-    let resp = self
-      .factory
-      .request(
-        self.target,
-        RaftRpcRequest {
-          group_id: self.group_id.clone(),
-          op: RaftRpcOp::Vote(req),
-        },
-      )
-      .await?;
-
-    match resp {
-      RaftRpcResponse::Vote(r) => r.map_err(|e| RPCError::Unreachable(Unreachable::new(&e))),
-      other => Err(RPCError::Unreachable(Unreachable::new(&NetErr(format!(
-        "unexpected response: {other:?}"
-      ))))),
-    }
+  fn group_id(&self) -> &GroupId {
+    &self.group_id
   }
 
-  async fn full_snapshot(
-    &mut self,
-    vote: Vote,
-    snapshot: Snapshot,
-    _cancel: impl Future<Output = openraft::error::ReplicationClosed> + openraft::OptionalSend + 'static,
-    _option: RPCOption,
-  ) -> Result<SnapshotResponse, StreamingError> {
-    let data: Vec<u8> = snapshot.snapshot.into_inner();
-
-    let resp = self
-      .factory
-      .request(
-        self.target,
-        RaftRpcRequest {
-          group_id: self.group_id.clone(),
-          op: RaftRpcOp::FullSnapshot {
-            vote,
-            meta: snapshot.meta,
-            data,
-          },
-        },
-      )
-      .await
-      .map_err(StreamingError::Unreachable)?;
-
-    match resp {
-      RaftRpcResponse::FullSnapshot(r) => {
-        r.map_err(|e| StreamingError::Unreachable(Unreachable::new(&e)))
-      }
-      other => Err(StreamingError::Unreachable(Unreachable::new(&NetErr(
-        format!("unexpected response: {other:?}"),
-      )))),
-    }
+  async fn send_request(
+    &self,
+    target: NodeId,
+    request: RaftRpcRequest,
+  ) -> Result<RaftRpcResponse, Unreachable> {
+    self.factory.request(target, request).await
   }
 }
 

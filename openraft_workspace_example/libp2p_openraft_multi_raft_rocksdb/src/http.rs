@@ -19,7 +19,8 @@ use crate::{
   GroupHandleMap, GroupId, NodeId,
   kameo_remote::{self, KameoState},
   network::{
-    swarm::{GOSSIP_TOPIC, KvClient, process_kv_request},
+    openraft_dispatcher::process_kv_request,
+    swarm::{GOSSIP_TOPIC, KvClient},
     transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{

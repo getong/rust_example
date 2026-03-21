@@ -2,6 +2,7 @@ use std::{
   collections::{HashMap, HashSet},
   error::Error,
   fmt,
+  sync::Arc,
   time::Duration,
 };
 
@@ -17,25 +18,21 @@ use libp2p::{
     dial_opts::{DialOpts, PeerCondition},
   },
 };
-use openraft::async_runtime::WatchReceiver;
-use openraft_rocksstore_crud::RocksRequest;
 use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-  GroupHandleMap, Unreachable,
+  Unreachable,
   network::{
+    dispatcher::SwarmRequestDispatcher,
     proto_codec::{ProstCodec, ProtoCodec},
-    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
-    transport::{Libp2pNetworkFactory, parse_p2p_addr},
+    rpc::{RaftRpcRequest, RaftRpcResponse},
+    transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{
-    ChatMessage, ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
-    raft_kv_response::Op as KvResponseOp,
+    ChatMessage, ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_response::Op as KvResponseOp,
   },
   signal::ShutdownRx,
-  store::{KvData, ensure_linearizable_read},
-  typ::{Raft, Snapshot},
 };
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
@@ -285,8 +282,7 @@ pub async fn run_swarm(
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
   network: Libp2pNetworkFactory,
-  groups: GroupHandleMap,
-  kv_client: KvClient,
+  dispatcher: Arc<dyn SwarmRequestDispatcher>,
   mut shutdown_rx: ShutdownRx,
 ) {
   let mut pending_raft: HashMap<
@@ -331,8 +327,7 @@ pub async fn run_swarm(
           &mut swarm,
           ev,
           &network,
-          &groups,
-          &kv_client,
+          dispatcher.clone(),
           &cmd_tx,
           &mut pending_raft,
           &mut pending_kv,
@@ -411,8 +406,7 @@ async fn handle_swarm_event(
   swarm: &mut Swarm<Behaviour>,
   event: SwarmEvent<BehaviourEvent>,
   network: &Libp2pNetworkFactory,
-  groups: &GroupHandleMap,
-  kv_client: &KvClient,
+  dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
@@ -421,10 +415,10 @@ async fn handle_swarm_event(
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
-      handle_raft_event(swarm, groups, cmd_tx, pending_raft, event).await;
+      handle_raft_event(dispatcher.clone(), cmd_tx, pending_raft, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => {
-      handle_kv_event(swarm, groups, kv_client, cmd_tx, pending_kv, event);
+      handle_kv_event(dispatcher.clone(), cmd_tx, pending_kv, event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
       handle_mdns_event(swarm, network, event).await;
@@ -463,8 +457,7 @@ async fn handle_swarm_event(
 }
 
 async fn handle_raft_event(
-  swarm: &mut Swarm<Behaviour>,
-  groups: &GroupHandleMap,
+  dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   event: request_response::Event<RaftRpcRequest, RaftRpcResponse>,
@@ -474,20 +467,10 @@ async fn handle_raft_event(
       request_response::Message::Request {
         request, channel, ..
       } => {
-        let group_id = request.group_id.clone();
-        let Some(group) = groups.get(&group_id) else {
-          let _ = swarm.behaviour_mut().raft.send_response(
-            channel,
-            RaftRpcResponse::Error(format!("unknown group_id={group_id}")),
-          );
-          return;
-        };
-
-        let raft = group.raft.clone();
+        let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
-        let op = request.op;
         tokio::spawn(async move {
-          let resp = handle_inbound_rpc(raft, op).await;
+          let resp = dispatcher.handle_raft(request).await;
           let _ = tx.send(Command::RaftRespond { channel, resp }).await;
         });
       }
@@ -513,9 +496,7 @@ async fn handle_raft_event(
 }
 
 fn handle_kv_event(
-  _swarm: &mut Swarm<Behaviour>,
-  groups: &GroupHandleMap,
-  kv_client: &KvClient,
+  dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
   event: request_response::Event<RaftKvRequest, RaftKvResponse>,
@@ -525,31 +506,10 @@ fn handle_kv_event(
       request_response::Message::Request {
         request, channel, ..
       } => {
-        let group_id = request.group_id.clone();
-        if group_id.is_empty() {
-          let resp = kv_error_response("missing group_id");
-          let tx = cmd_tx.clone();
-          tokio::spawn(async move {
-            let _ = tx.send(Command::KvRespond { channel, resp }).await;
-          });
-          return;
-        }
-
-        let Some(group) = groups.get(&group_id) else {
-          let resp = kv_error_response(format!("unknown group_id={group_id}"));
-          let tx = cmd_tx.clone();
-          tokio::spawn(async move {
-            let _ = tx.send(Command::KvRespond { channel, resp }).await;
-          });
-          return;
-        };
-
-        let raft = group.raft.clone();
-        let kv_data = group.kv_data.clone();
-        let kv_client = kv_client.clone();
+        let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
-          let resp = process_kv_request(raft, kv_data, kv_client, request).await;
+          let resp = dispatcher.handle_kv(request).await;
           let _ = tx.send(Command::KvRespond { channel, resp }).await;
         });
       }
@@ -1046,194 +1006,10 @@ fn handle_kad_event(
   }
 }
 
-pub async fn process_kv_request(
-  raft: Raft,
-  kv_data: KvData,
-  kv_client: KvClient,
-  request: RaftKvRequest,
-) -> RaftKvResponse {
-  if request.group_id.is_empty() {
-    return kv_error_response("missing group_id");
-  }
-
-  let metrics = raft.metrics().borrow_watched().clone();
-  if !metrics.state.is_leader() {
-    let Some(leader_id) = metrics.current_leader else {
-      return kv_error_response("no leader available");
-    };
-    let Some(node) = metrics.membership_config.membership().get_node(&leader_id) else {
-      return kv_error_response("leader node not found in membership");
-    };
-    let Ok((peer, addr)) = parse_p2p_addr(&node.addr) else {
-      return kv_error_response("invalid leader address");
-    };
-    if let Err(err) = kv_client.connect(peer, addr).await {
-      return kv_error_response(format!("connect to leader failed: {err}"));
-    }
-    return match kv_client.request(peer, request).await {
-      Ok(resp) => resp,
-      Err(err) => kv_error_response(format!("forward to leader failed: {err}")),
-    };
-  }
-
-  let Some(op) = request.op else {
-    return kv_error_response("missing request op");
-  };
-
-  match op {
-    KvRequestOp::Get(req) => {
-      if let Err(err) = ensure_linearizable_read(&raft).await {
-        return kv_error_response(format!("{err:?}"));
-      }
-      let kvs = kv_data.read().await;
-      match kvs.get(&req.key) {
-        Some(value) => RaftKvResponse {
-          op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
-            found: true,
-            value: value.clone(),
-          })),
-        },
-        None => RaftKvResponse {
-          op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
-            found: false,
-            value: String::new(),
-          })),
-        },
-      }
-    }
-    KvRequestOp::Set(req) => {
-      let key = req.key;
-      let value = req.value;
-      match raft
-        .client_write(RocksRequest::Set {
-          key,
-          value: value.clone(),
-        })
-        .await
-      {
-        Ok(resp) => RaftKvResponse {
-          op: Some(KvResponseOp::Set(crate::proto::raft_kv::SetValueResponse {
-            ok: true,
-            value: resp.data.value.unwrap_or(value),
-          })),
-        },
-        Err(err) => kv_error_response(format!("{err:?}")),
-      }
-    }
-    KvRequestOp::Update(req) => {
-      let key = req.key;
-      let value = req.value;
-      if let Err(err) = ensure_linearizable_read(&raft).await {
-        return kv_error_response(format!("{err:?}"));
-      }
-      let exists = {
-        let kvs = kv_data.read().await;
-        kvs.contains_key(&key)
-      };
-      if !exists {
-        RaftKvResponse {
-          op: Some(KvResponseOp::Update(
-            crate::proto::raft_kv::UpdateValueResponse {
-              ok: false,
-              value: String::new(),
-            },
-          )),
-        }
-      } else {
-        match raft
-          .client_write(RocksRequest::Update {
-            key,
-            value: value.clone(),
-          })
-          .await
-        {
-          Ok(resp) => RaftKvResponse {
-            op: Some(KvResponseOp::Update(
-              crate::proto::raft_kv::UpdateValueResponse {
-                ok: true,
-                value: resp.data.value.unwrap_or(value),
-              },
-            )),
-          },
-          Err(err) => kv_error_response(format!("{err:?}")),
-        }
-      }
-    }
-    KvRequestOp::Delete(req) => {
-      if let Err(err) = ensure_linearizable_read(&raft).await {
-        return kv_error_response(format!("{err:?}"));
-      }
-      let exists = {
-        let kvs = kv_data.read().await;
-        kvs.contains_key(&req.key)
-      };
-      if !exists {
-        RaftKvResponse {
-          op: Some(KvResponseOp::Delete(
-            crate::proto::raft_kv::DeleteValueResponse { ok: false },
-          )),
-        }
-      } else {
-        match raft
-          .client_write(RocksRequest::Delete { key: req.key })
-          .await
-        {
-          Ok(_) => RaftKvResponse {
-            op: Some(KvResponseOp::Delete(
-              crate::proto::raft_kv::DeleteValueResponse { ok: true },
-            )),
-          },
-          Err(err) => kv_error_response(format!("{err:?}")),
-        }
-      }
-    }
-  }
-}
-
 fn kv_error_response(message: impl Into<String>) -> RaftKvResponse {
   RaftKvResponse {
     op: Some(KvResponseOp::Error(ErrorResponse {
       message: message.into(),
     })),
-  }
-}
-
-async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
-  match request {
-    RaftRpcOp::AppendEntries(req) => {
-      let res = raft.append_entries(req).await;
-      RaftRpcResponse::AppendEntries(res)
-    }
-    RaftRpcOp::Vote(req) => {
-      let res = raft.vote(req).await;
-      RaftRpcResponse::Vote(res)
-    }
-    RaftRpcOp::ClientWrite(req) => {
-      let res = raft.client_write(req).await;
-      RaftRpcResponse::ClientWrite(res)
-    }
-    RaftRpcOp::GetMetrics => {
-      let metrics = raft.metrics().borrow_watched().clone();
-      RaftRpcResponse::GetMetrics(metrics)
-    }
-    RaftRpcOp::FullSnapshot { vote, meta, data } => {
-      let snapshot = Snapshot {
-        meta,
-        snapshot: std::io::Cursor::new(data),
-      };
-
-      // Match the error-mapping pattern used elsewhere in this workspace.
-      let res = raft
-        .install_full_snapshot(vote, snapshot)
-        .await
-        .map_err(|e| {
-          openraft::error::RaftError::<
-            openraft_rocksstore_crud::TypeConfig,
-            openraft::error::Infallible,
-          >::Fatal(e)
-        });
-
-      RaftRpcResponse::FullSnapshot(res)
-    }
   }
 }
