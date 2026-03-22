@@ -19,14 +19,16 @@ pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
   group_id: Option<GroupId>,
+  local_peer_id: PeerId,
 }
 
 impl Libp2pNetworkFactory {
-  pub fn new(client: Libp2pClient) -> Self {
+  pub fn new(client: Libp2pClient, local_peer_id: PeerId) -> Self {
     Self {
       client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       group_id: None,
+      local_peer_id,
     }
   }
 
@@ -35,6 +37,7 @@ impl Libp2pNetworkFactory {
       client: self.client.clone(),
       node_peers: self.node_peers.clone(),
       group_id: Some(group_id),
+      local_peer_id: self.local_peer_id,
     }
   }
 
@@ -50,6 +53,15 @@ impl Libp2pNetworkFactory {
         }
       }
     };
+    if peer == self.local_peer_id {
+      tracing::warn!(
+        node_id,
+        peer = %peer,
+        addr = %maddr,
+        "skip self dial in register_node"
+      );
+      return Ok(());
+    }
     if should_dial {
       self.client.dial(maddr).await;
     }
@@ -103,6 +115,11 @@ impl Libp2pNetworkFactory {
     req: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable> {
     let (peer, addr) = self.peer_addr_for(node_id).await?;
+    if peer == self.local_peer_id {
+      return Err(Unreachable::new(&NetErr(format!(
+        "self dial blocked: node_id={node_id}, peer={peer}"
+      ))));
+    }
     self.client.connect(peer, addr).await?;
     self.client.request(peer, req).await
   }

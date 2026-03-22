@@ -864,6 +864,11 @@ fn ensure_peer_connection(
   addr: Multiaddr,
   resp: oneshot::Sender<Result<(), NetErr>>,
 ) {
+  if peer == *swarm.local_peer_id() {
+    let _ = resp.send(Err(NetErr(format!("self dial blocked: peer={peer}"))));
+    return;
+  }
+
   if swarm.is_connected(&peer) {
     let _ = resp.send(Ok(()));
     return;
@@ -914,6 +919,10 @@ fn dial_peer_addr(swarm: &mut Swarm<Behaviour>, addr: Multiaddr) {
     _ => None,
   });
   if let Some(peer) = peer {
+    if peer == *swarm.local_peer_id() {
+      tracing::debug!(peer = %peer, addr = %addr, "skip self dial");
+      return;
+    }
     dial_known_peer(swarm, peer, addr);
   } else {
     let _ = Swarm::dial(swarm, addr);

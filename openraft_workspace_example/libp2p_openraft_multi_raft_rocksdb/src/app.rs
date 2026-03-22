@@ -320,11 +320,14 @@ fn parse_listen_addr(opt: &Opt) -> anyhow::Result<Multiaddr> {
   Ok(listen_addr)
 }
 
-fn build_libp2p_handles(timeout: Duration) -> (Libp2pHandles, mpsc::Receiver<Command>) {
+fn build_libp2p_handles(
+  timeout: Duration,
+  local_peer_id: PeerId,
+) -> (Libp2pHandles, mpsc::Receiver<Command>) {
   let (cmd_tx, cmd_rx) = mpsc::channel(256);
   let client = Libp2pClient::new(cmd_tx.clone(), timeout);
   let kv_client = KvClient::new(cmd_tx.clone(), timeout);
-  let network = Libp2pNetworkFactory::new(client.clone());
+  let network = Libp2pNetworkFactory::new(client.clone(), local_peer_id);
   (
     Libp2pHandles {
       cmd_tx,
@@ -554,7 +557,7 @@ fn spawn_openraft_shutdown(
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
 ) {
-  // Openraft should shut down after libp2p/http have stopped.
+  // Openraft should shut down after libp2p swarm has stopped.
   let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
   let raft_done = shutdown.push(SERVICE_OPENRAFT);
   tokio::spawn(async move {
@@ -581,7 +584,6 @@ fn spawn_openraft_shutdown(
     let _ = raft_done.send(res);
   });
 
-  let openraft_shutdown_tx = openraft_shutdown_tx.clone();
   tokio::spawn(async move {
     let _ = shutdown_rx_for_ordering.changed().await;
     let _ = swarm_handle.await;
@@ -718,7 +720,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let listen_addr = parse_listen_addr(&opt)?;
 
   let timeout = Duration::from_secs(5);
-  let (libp2p, cmd_rx) = build_libp2p_handles(timeout);
+  let (libp2p, cmd_rx) = build_libp2p_handles(timeout, identity.local_peer_id.clone());
 
   let group_ids = groups::all();
   let openraft =
