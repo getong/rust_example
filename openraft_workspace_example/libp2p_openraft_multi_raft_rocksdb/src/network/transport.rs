@@ -43,10 +43,23 @@ impl Libp2pNetworkFactory {
 
   pub async fn register_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {
     let (peer, maddr) = parse_p2p_addr(addr)?;
+    let new_is_loopback = is_loopback_addr(&maddr);
     let should_dial = {
       let mut map = self.node_peers.write().await;
       match map.get(&node_id) {
         Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == maddr => false,
+        Some((stored_peer, stored_addr))
+          if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
+        {
+          tracing::info!(
+            node_id,
+            peer = %peer,
+            addr = %maddr,
+            stored_addr = %stored_addr,
+            "ignore loopback addr because a non-loopback addr is already known"
+          );
+          false
+        }
         _ => {
           map.insert(node_id, (peer, maddr.clone()));
           true
@@ -82,7 +95,9 @@ impl Libp2pNetworkFactory {
 
       let candidate_loopback = is_loopback_addr(&candidate);
       let stored_loopback = is_loopback_addr(stored_addr);
-      if candidate_loopback != stored_loopback {
+      // Do not downgrade from a usable non-loopback address to loopback.
+      // But allow upgrading from loopback to non-loopback discovered by mDNS.
+      if candidate_loopback && !stored_loopback {
         return;
       }
 
@@ -120,7 +135,16 @@ impl Libp2pNetworkFactory {
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
-    self.client.connect(peer, addr).await?;
+    if let Err(err) = self.client.connect(peer, addr.clone()).await {
+      tracing::warn!(
+        node_id,
+        peer = %peer,
+        addr = %addr,
+        error = %err,
+        "connect with configured address failed, trying any known address"
+      );
+      self.client.connect_any(peer).await?;
+    }
     self.client.request(peer, req).await
   }
 

@@ -36,6 +36,7 @@ use crate::{
 };
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
+const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct NetErr(pub String);
@@ -122,6 +123,10 @@ pub enum Command {
     addr: Multiaddr,
     resp: oneshot::Sender<Result<(), NetErr>>,
   },
+  EnsureConnectionAny {
+    peer: PeerId,
+    resp: oneshot::Sender<Result<(), NetErr>>,
+  },
   GossipsubPublish {
     topic: String,
     data: Vec<u8>,
@@ -168,6 +173,25 @@ impl Libp2pClient {
       .send(Command::EnsureConnection {
         peer,
         addr,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
+      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
+
+    resp.map_err(|e| Unreachable::new(&e))
+  }
+
+  pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::EnsureConnectionAny {
+        peer,
         resp: resp_tx,
       })
       .await
@@ -252,6 +276,25 @@ impl KvClient {
     resp.map_err(|e| Unreachable::new(&e))
   }
 
+  pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::EnsureConnectionAny {
+        peer,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
+      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
+
+    resp.map_err(|e| Unreachable::new(&e))
+  }
+
   pub async fn request(
     &self,
     peer: PeerId,
@@ -293,6 +336,7 @@ pub async fn run_swarm(
     HashMap::new();
   let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
     HashMap::new();
+  let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
   let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
@@ -319,6 +363,7 @@ pub async fn run_swarm(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_connect,
+          &mut dial_backoff_until,
         );
       }
 
@@ -333,6 +378,7 @@ pub async fn run_swarm(
           &mut pending_kv,
           &mut pending_connect,
           &mut connected_peers,
+          &mut dial_backoff_until,
         )
         .await;
       }
@@ -369,6 +415,7 @@ fn handle_command(
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
 ) {
   match cmd {
     Command::Dial { addr } => {
@@ -377,7 +424,17 @@ fn handle_command(
       kick_kad_queries(swarm);
     }
     Command::EnsureConnection { peer, addr, resp } => {
-      ensure_peer_connection(swarm, pending_connect, peer, addr, resp);
+      ensure_peer_connection(
+        swarm,
+        pending_connect,
+        dial_backoff_until,
+        peer,
+        Some(addr),
+        resp,
+      );
+    }
+    Command::EnsureConnectionAny { peer, resp } => {
+      ensure_peer_connection(swarm, pending_connect, dial_backoff_until, peer, None, resp);
     }
     Command::GossipsubPublish { topic, data } => {
       let topic = gossipsub::IdentTopic::new(topic);
@@ -412,6 +469,7 @@ async fn handle_swarm_event(
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   connected_peers: &mut HashSet<PeerId>,
+  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
@@ -436,7 +494,13 @@ async fn handle_swarm_event(
       handle_kameo_event(event);
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-      handle_connection_established(swarm, pending_connect, connected_peers, peer_id);
+      handle_connection_established(
+        swarm,
+        pending_connect,
+        connected_peers,
+        dial_backoff_until,
+        peer_id,
+      );
     }
     SwarmEvent::ConnectionClosed {
       peer_id,
@@ -450,7 +514,7 @@ async fn handle_swarm_event(
       tracing::info!("listening on {address}");
     }
     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-      handle_outgoing_connection_error(swarm, pending_connect, peer_id, error);
+      handle_outgoing_connection_error(swarm, pending_connect, dial_backoff_until, peer_id, error);
     }
     _ => {}
   }
@@ -629,9 +693,11 @@ fn handle_connection_established(
   swarm: &mut Swarm<Behaviour>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   connected_peers: &mut HashSet<PeerId>,
+  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   peer_id: PeerId,
 ) {
   connected_peers.insert(peer_id);
+  dial_backoff_until.remove(&peer_id);
   finish_pending_connect(pending_connect, peer_id, Ok(()));
   swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
   kick_kad_queries(swarm);
@@ -661,6 +727,7 @@ fn handle_connection_closed<E: fmt::Display>(
 fn handle_outgoing_connection_error<E: fmt::Display>(
   swarm: &mut Swarm<Behaviour>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   peer_id: Option<PeerId>,
   error: E,
 ) {
@@ -673,6 +740,7 @@ fn handle_outgoing_connection_error<E: fmt::Display>(
     return;
   }
 
+  dial_backoff_until.insert(peer_id, tokio::time::Instant::now() + DIAL_RETRY_BACKOFF);
   tracing::warn!(peer = %peer_id, error = %error, "outgoing connection failed");
   finish_pending_connect(
     pending_connect,
@@ -703,6 +771,7 @@ pub async fn run_swarm_client_with_shutdown(
     HashMap::new();
   let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
     HashMap::new();
+  let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
   let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
   kad_discovery_tick.tick().await;
@@ -724,6 +793,7 @@ pub async fn run_swarm_client_with_shutdown(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_connect,
+          &mut dial_backoff_until,
         );
       }
 
@@ -818,6 +888,7 @@ pub async fn run_swarm_client_with_shutdown(
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             connected_peers.insert(peer_id);
+            dial_backoff_until.remove(&peer_id);
             finish_pending_connect(&mut pending_connect, peer_id, Ok(()));
             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
             kick_kad_queries(&mut swarm);
@@ -838,6 +909,7 @@ pub async fn run_swarm_client_with_shutdown(
             if connected_peers.contains(&peer_id) || swarm.is_connected(&peer_id) {
               continue;
             }
+            dial_backoff_until.insert(peer_id, tokio::time::Instant::now() + DIAL_RETRY_BACKOFF);
             tracing::warn!(peer = %peer_id, error = %error, "outgoing connection failed");
             finish_pending_connect(
               &mut pending_connect,
@@ -860,8 +932,9 @@ pub async fn run_swarm_client_with_shutdown(
 fn ensure_peer_connection(
   swarm: &mut Swarm<Behaviour>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   peer: PeerId,
-  addr: Multiaddr,
+  addr: Option<Multiaddr>,
   resp: oneshot::Sender<Result<(), NetErr>>,
 ) {
   if peer == *swarm.local_peer_id() {
@@ -872,6 +945,18 @@ fn ensure_peer_connection(
   if swarm.is_connected(&peer) {
     let _ = resp.send(Ok(()));
     return;
+  }
+
+  if let Some(until) = dial_backoff_until.get(&peer).copied() {
+    let now = tokio::time::Instant::now();
+    if now < until {
+      let wait_ms = (until - now).as_millis();
+      let _ = resp.send(Err(NetErr(format!(
+        "dial backoff active: peer={peer}, retry_in_ms={wait_ms}"
+      ))));
+      return;
+    }
+    dial_backoff_until.remove(&peer);
   }
 
   let should_dial = match pending_connect.get_mut(&peer) {
@@ -885,9 +970,15 @@ fn ensure_peer_connection(
     }
   };
 
-  add_kad_address_from_p2p(swarm, &addr);
+  if let Some(addr) = addr.as_ref() {
+    add_kad_address_from_p2p(swarm, addr);
+  }
   if should_dial {
-    dial_known_peer(swarm, peer, addr);
+    if let Some(addr) = addr {
+      dial_known_peer(swarm, peer, addr);
+    } else {
+      dial_known_peer_any_addr(swarm, peer);
+    }
     kick_kad_queries(swarm);
   }
 }
@@ -909,6 +1000,13 @@ fn dial_known_peer(swarm: &mut Swarm<Behaviour>, peer: PeerId, addr: Multiaddr) 
   let dial_opts = DialOpts::peer_id(peer)
     .condition(PeerCondition::DisconnectedAndNotDialing)
     .addresses(vec![addr])
+    .build();
+  let _ = Swarm::dial(swarm, dial_opts);
+}
+
+fn dial_known_peer_any_addr(swarm: &mut Swarm<Behaviour>, peer: PeerId) {
+  let dial_opts = DialOpts::peer_id(peer)
+    .condition(PeerCondition::DisconnectedAndNotDialing)
     .build();
   let _ = Swarm::dial(swarm, dial_opts);
 }
