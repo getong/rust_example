@@ -26,8 +26,8 @@ pub type RocksNodeId = u64;
 openraft::declare_raft_types!(
     /// Declare the type configuration.
     pub TypeConfig:
-        D = RocksRequest,
-        R = RocksResponse,
+        D = types_kv::Request,
+        R = types_kv::Response,
 );
 
 /// Here you will set the types of request that will interact with the raft nodes.

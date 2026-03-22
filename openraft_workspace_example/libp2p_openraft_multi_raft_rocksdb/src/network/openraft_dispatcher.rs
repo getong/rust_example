@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use openraft::async_runtime::WatchReceiver;
 use openraft_rocksstore_crud::RocksRequest;
+use types_kv::Request as KvWriteRequest;
 
 use crate::{
   GroupHandleMap,
@@ -120,18 +121,25 @@ pub async fn process_kv_request(
       let key = req.key;
       let value = req.value;
       match raft
-        .client_write(RocksRequest::Set {
-          key,
+        .client_write(KvWriteRequest::Set {
+          key: key.clone(),
           value: value.clone(),
         })
         .await
       {
-        Ok(resp) => RaftKvResponse {
-          op: Some(KvResponseOp::Set(crate::proto::raft_kv::SetValueResponse {
-            ok: true,
-            value: resp.data.value.unwrap_or(value),
-          })),
-        },
+        Ok(resp) => {
+          let value = resp.data.value.unwrap_or(value);
+          {
+            let mut kvs = kv_data.write().await;
+            kvs.insert(key, value.clone());
+          }
+          RaftKvResponse {
+            op: Some(KvResponseOp::Set(crate::proto::raft_kv::SetValueResponse {
+              ok: true,
+              value,
+            })),
+          }
+        }
         Err(err) => kv_error_response(format!("{err:?}")),
       }
     }
@@ -156,20 +164,24 @@ pub async fn process_kv_request(
         }
       } else {
         match raft
-          .client_write(RocksRequest::Update {
-            key,
+          .client_write(KvWriteRequest::Set {
+            key: key.clone(),
             value: value.clone(),
           })
           .await
         {
-          Ok(resp) => RaftKvResponse {
-            op: Some(KvResponseOp::Update(
-              crate::proto::raft_kv::UpdateValueResponse {
-                ok: true,
-                value: resp.data.value.unwrap_or(value),
-              },
-            )),
-          },
+          Ok(resp) => {
+            let value = resp.data.value.unwrap_or(value);
+            {
+              let mut kvs = kv_data.write().await;
+              kvs.insert(key, value.clone());
+            }
+            RaftKvResponse {
+              op: Some(KvResponseOp::Update(
+                crate::proto::raft_kv::UpdateValueResponse { ok: true, value },
+              )),
+            }
+          }
           Err(err) => kv_error_response(format!("{err:?}")),
         }
       }
@@ -189,17 +201,7 @@ pub async fn process_kv_request(
           )),
         }
       } else {
-        match raft
-          .client_write(RocksRequest::Delete { key: req.key })
-          .await
-        {
-          Ok(_) => RaftKvResponse {
-            op: Some(KvResponseOp::Delete(
-              crate::proto::raft_kv::DeleteValueResponse { ok: true },
-            )),
-          },
-          Err(err) => kv_error_response(format!("{err:?}")),
-        }
+        kv_error_response("delete is not supported by current raft request schema")
       }
     }
   }
@@ -224,7 +226,17 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
       RaftRpcResponse::Vote(res)
     }
     RaftRpcOp::ClientWrite(req) => {
-      let res = raft.client_write(req).await;
+      let request = match req {
+        RocksRequest::Set { key, value } | RocksRequest::Update { key, value } => {
+          KvWriteRequest::Set { key, value }
+        }
+        RocksRequest::Delete { .. } => {
+          return RaftRpcResponse::Error(
+            "delete is not supported by current raft request schema".to_string(),
+          );
+        }
+      };
+      let res = raft.client_write(request).await;
       RaftRpcResponse::ClientWrite(res)
     }
     RaftRpcOp::GetMetrics => {

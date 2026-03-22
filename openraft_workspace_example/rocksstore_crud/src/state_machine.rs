@@ -1,14 +1,21 @@
 //! RocksDB-backed state machine implementation.
 
-use std::{collections::BTreeMap, fmt::Debug, fs, io, io::Cursor, path::PathBuf, sync::Arc};
+use std::{
+  collections::BTreeMap,
+  fmt::Debug,
+  fs,
+  io,
+  io::Cursor,
+  path::PathBuf,
+  sync::Arc,
+};
 
 use futures::{Stream, TryStreamExt};
 use openraft::{
-  EntryPayload, LogId, OptionalSend, RaftSnapshotBuilder, SnapshotMeta, StorageError,
-  StoredMembership,
-  alias::SnapshotDataOf,
+  EntryPayload, OptionalSend, RaftSnapshotBuilder, StorageError,
+  alias::{LogIdOf, SnapshotDataOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf},
   entry::RaftEntry,
-  storage::{EntryResponder, RaftStateMachine, Snapshot},
+  storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
 use rand::RngExt;
@@ -16,7 +23,7 @@ use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::{RocksRequest, RocksResponse, TypeConfig};
+use crate::TypeConfig;
 
 /// State machine backed by RocksDB for full persistence.
 /// All application data is stored directly in the `sm_data` column family.
@@ -83,7 +90,7 @@ impl RocksStateMachine {
   #[allow(clippy::type_complexity)]
   fn get_meta(
     &self,
-  ) -> Result<(Option<LogId<TypeConfig>>, StoredMembership<TypeConfig>), StorageError<TypeConfig>>
+  ) -> Result<(Option<LogIdOf<TypeConfig>>, StoredMembershipOf<TypeConfig>), StorageError<TypeConfig>>
   {
     let cf = self.cf_sm_meta();
 
@@ -117,13 +124,13 @@ fn deserialize<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, StorageE
 /// Snapshot file format: metadata + data stored together
 #[derive(Serialize, Deserialize)]
 struct SnapshotFile {
-  meta: SnapshotMeta<TypeConfig>,
+  meta: SnapshotMetaOf<TypeConfig>,
   data: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, io::Error> {
+  async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
     let (last_applied_log, last_membership) = self.get_meta()?;
 
     // Generate a random snapshot index.
@@ -140,7 +147,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       format!("--{}", snapshot_idx)
     };
 
-    let meta = SnapshotMeta {
+    let meta = SnapshotMetaOf::<TypeConfig> {
       last_log_id: last_applied_log,
       last_membership,
       snapshot_id: snapshot_id.clone(),
@@ -174,21 +181,30 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       data: data.clone(),
     };
     let file_bytes = serialize(&snapshot_file).map_err(|e| {
-      StorageError::write_snapshot(Some(meta.signature()), TypeConfig::err_from_error(&e))
+      StorageError::<TypeConfig>::write_snapshot(
+        Some(meta.signature()),
+        TypeConfig::err_from_error(&e),
+      )
     })?;
 
     // Write complete snapshot to file
     let snapshot_path = self.snapshot_dir.join(&snapshot_id);
     fs::write(&snapshot_path, &file_bytes).map_err(|e| {
-      StorageError::write_snapshot(Some(meta.signature()), TypeConfig::err_from_error(&e))
+      StorageError::<TypeConfig>::write_snapshot(
+        Some(meta.signature()),
+        TypeConfig::err_from_error(&e),
+      )
     })?;
 
     // Return snapshot with data-only for backward compatibility with the data field
     let data_bytes = serialize(&data).map_err(|e| {
-      StorageError::write_snapshot(Some(meta.signature()), TypeConfig::err_from_error(&e))
+      StorageError::<TypeConfig>::write_snapshot(
+        Some(meta.signature()),
+        TypeConfig::err_from_error(&e),
+      )
     })?;
 
-    Ok(Snapshot {
+    Ok(SnapshotOf::<TypeConfig> {
       meta,
       snapshot: Cursor::new(data_bytes),
     })
@@ -200,7 +216,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
   async fn applied_state(
     &mut self,
-  ) -> Result<(Option<LogId<TypeConfig>>, StoredMembership<TypeConfig>), io::Error> {
+  ) -> Result<(Option<LogIdOf<TypeConfig>>, StoredMembershipOf<TypeConfig>), io::Error> {
     self.get_meta().map_err(|e| io::Error::other(e.to_string()))
   }
 
@@ -210,9 +226,8 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
   {
     let mut batch = rocksdb::WriteBatch::default();
     let mut last_applied_log = None;
-    let mut last_membership = None;
+    let mut last_membership: Option<StoredMembershipOf<TypeConfig>> = None;
     let mut responses = Vec::new();
-    let mut updates: Vec<(String, Option<String>)> = Vec::new();
 
     while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
@@ -220,37 +235,21 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       last_applied_log = Some(entry.log_id());
 
       let response = match entry.payload {
-        EntryPayload::Blank => RocksResponse { value: None },
+        EntryPayload::Blank => types_kv::Response::none(),
         EntryPayload::Normal(ref req) => match req {
-          RocksRequest::Set { key, value } => {
+          types_kv::Request::Set { key, value } => {
             let cf_data = self.cf_sm_data();
 
             batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
-            updates.push((key.clone(), Some(value.clone())));
-            RocksResponse {
-              value: Some(value.clone()),
-            }
-          }
-          RocksRequest::Update { key, value } => {
-            let cf_data = self.cf_sm_data();
-
-            batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
-            updates.push((key.clone(), Some(value.clone())));
-            RocksResponse {
-              value: Some(value.clone()),
-            }
-          }
-          RocksRequest::Delete { key } => {
-            let cf_data = self.cf_sm_data();
-
-            batch.delete_cf(cf_data, key.as_bytes());
-            updates.push((key.clone(), None));
-            RocksResponse { value: None }
+            types_kv::Response::new(value.clone())
           }
         },
         EntryPayload::Membership(ref mem) => {
-          last_membership = Some(StoredMembership::new(Some(entry.log_id), mem.clone()));
-          RocksResponse { value: None }
+          last_membership = Some(StoredMembershipOf::<TypeConfig>::new(
+            Some(entry.log_id),
+            mem.clone(),
+          ));
+          types_kv::Response::none()
         }
       };
 
@@ -276,20 +275,6 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       .write(batch)
       .map_err(|e| io::Error::other(e.to_string()))?;
 
-    if !updates.is_empty() {
-      let mut kvs = self.data.write().await;
-      for (key, value) in updates {
-        match value {
-          Some(value) => {
-            kvs.insert(key, value);
-          }
-          None => {
-            kvs.remove(&key);
-          }
-        }
-      }
-    }
-
     // Only send responses after successful write
     for (responder, response) in responses {
       responder.send(response);
@@ -308,7 +293,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
   async fn install_snapshot(
     &mut self,
-    meta: &SnapshotMeta<TypeConfig>,
+    meta: &SnapshotMetaOf<TypeConfig>,
     snapshot: SnapshotDataOf<TypeConfig>,
   ) -> Result<(), io::Error> {
     tracing::info!(
@@ -375,16 +360,6 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     })
     .await??;
 
-    {
-      let mut kvs = self.data.write().await;
-      kvs.clear();
-      for (key, value) in snapshot_data_clone.iter() {
-        let key = String::from_utf8_lossy(key).to_string();
-        let value = String::from_utf8_lossy(value).to_string();
-        kvs.insert(key, value);
-      }
-    }
-
     // Write snapshot file with metadata for get_current_snapshot
     let snapshot_file = SnapshotFile {
       meta: meta.clone(),
@@ -399,7 +374,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     Ok(())
   }
 
-  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, io::Error> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
     // Find the latest snapshot file by comparing filenames lexicographically
     let mut latest_snapshot_id: Option<String> = None;
 
@@ -439,7 +414,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let data_bytes = serialize(&snapshot_file.data)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    Ok(Some(Snapshot {
+    Ok(Some(SnapshotOf::<TypeConfig> {
       meta: snapshot_file.meta,
       snapshot: Cursor::new(data_bytes),
     }))

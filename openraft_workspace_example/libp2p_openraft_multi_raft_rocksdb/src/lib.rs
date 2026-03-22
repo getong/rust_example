@@ -16,11 +16,12 @@ pub mod typ;
 pub type TypeConfig = openraft_rocksstore_crud::TypeConfig;
 pub type NodeId = u64;
 pub type GroupId = String;
+pub type Raft = openraft::Raft<TypeConfig, store::StateMachineStore>;
 pub type Unreachable = openraft::error::Unreachable<TypeConfig>;
 
 #[derive(Clone)]
 pub struct GroupHandle {
-  pub raft: typ::Raft,
+  pub raft: Raft,
   pub kv_data: store::KvData,
 }
 
