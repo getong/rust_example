@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use futures::{AsyncRead, AsyncWrite};
 use kameo::remote;
 use libp2p::{
@@ -176,6 +176,26 @@ pub struct Opt {
   #[arg(long, default_value_t = false)]
   pub kameo_remote: bool,
 
+  /// OpenRaft heartbeat interval in milliseconds (leader keepalive cadence).
+  #[arg(long, default_value_t = 250)]
+  pub raft_keepalive_ms: u64,
+
+  /// OpenRaft election timeout minimum in milliseconds.
+  #[arg(long, default_value_t = 299)]
+  pub raft_election_timeout_min_ms: u64,
+
+  /// OpenRaft election timeout maximum in milliseconds.
+  #[arg(long, default_value_t = 300)]
+  pub raft_election_timeout_max_ms: u64,
+
+  /// Whether OpenRaft leader heartbeats are enabled.
+  #[arg(long, default_value_t = true, action = ArgAction::Set)]
+  pub raft_enable_heartbeat: bool,
+
+  /// Close an idle libp2p connection only after this many seconds.
+  #[arg(long, default_value_t = 30)]
+  pub swarm_idle_connection_timeout_secs: u64,
+
   #[command(flatten)]
   pub websocket: WebsocketOpt,
 }
@@ -317,6 +337,7 @@ fn build_libp2p_handles(timeout: Duration) -> (Libp2pHandles, mpsc::Receiver<Com
 }
 
 async fn start_openraft_groups(
+  opt: &Opt,
   node_id: NodeId,
   db_dir: &Path,
   network: Libp2pNetworkFactory,
@@ -327,8 +348,10 @@ async fn start_openraft_groups(
   }
 
   let config = openraft::Config {
-    heartbeat_interval: 250,
-    election_timeout_min: 299,
+    heartbeat_interval: opt.raft_keepalive_ms,
+    election_timeout_min: opt.raft_election_timeout_min_ms,
+    election_timeout_max: opt.raft_election_timeout_max_ms,
+    enable_heartbeat: opt.raft_enable_heartbeat,
     ..Default::default()
   };
   let config = Arc::new(config.validate().context("validate raft config")?);
@@ -433,6 +456,9 @@ fn build_swarm(
       })
     })
     .context("build behaviour")?
+    .with_swarm_config(|cfg| {
+      cfg.with_idle_connection_timeout(Duration::from_secs(opt.swarm_idle_connection_timeout_secs))
+    })
     .build();
 
   swarm.behaviour_mut().kameo.init_global();
@@ -695,7 +721,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let (libp2p, cmd_rx) = build_libp2p_handles(timeout);
 
   let group_ids = groups::all();
-  let openraft = start_openraft_groups(opt.id, &opt.db, libp2p.network.clone(), &group_ids).await?;
+  let openraft =
+    start_openraft_groups(&opt, opt.id, &opt.db, libp2p.network.clone(), &group_ids).await?;
 
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
   let mut shutdown = crate::signal::spawn_handler();
