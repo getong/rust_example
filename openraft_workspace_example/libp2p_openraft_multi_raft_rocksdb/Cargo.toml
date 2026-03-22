@@ -34,7 +34,7 @@ openraft = { version = "0.10.0-alpha.17", features = [
   "serde",
   "type-alias",
 ] }
-# openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e" }
+# openraft-legacy = { version="0.10.0-alpha.17" }
 openraft-rocksstore-crud = { path = "../rocksstore_crud" }
 prost = "0.14.3"
 rand = "0.10"

@@ -12,7 +12,7 @@ all-features = true
 futures = "0.3.32"
 log-mem = { path = "../log-mem", features = [] }
 mem-log = { path = "../mem-log", features = [] }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = [
+openraft = { version = "0.10.0-alpha.17", features = [
   "serde",
   "type-alias",
 ] }

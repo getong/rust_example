@@ -1,14 +1,6 @@
 //! RocksDB-backed state machine implementation.
 
-use std::{
-  collections::BTreeMap,
-  fmt::Debug,
-  fs,
-  io,
-  io::Cursor,
-  path::PathBuf,
-  sync::Arc,
-};
+use std::{collections::BTreeMap, fmt::Debug, fs, io, io::Cursor, path::PathBuf, sync::Arc};
 
 use futures::{Stream, TryStreamExt};
 use openraft::{

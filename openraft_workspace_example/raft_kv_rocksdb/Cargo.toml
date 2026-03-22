@@ -13,12 +13,12 @@ clap = { version = "4.5.58", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
 futures = "0.3.32"
 network-v1-http = { path = "../network-v1-http" }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = [
+openraft = { version = "0.10.0-alpha.17", features = [
   "serde",
   "type-alias",
   "serde_json",
 ] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e" }
+openraft-legacy = { version = "0.10.0-alpha.17" }
 openraft-rocksstore = { path = "../rocksstore" }
 reqwest = { version = "0.13", features = ["json"] }
 rocksdb = "0.24.0"

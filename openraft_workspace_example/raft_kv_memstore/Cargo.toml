@@ -14,11 +14,11 @@ futures = "0.3.32"
 log-mem = { path = "../log-mem" }
 mem-log = { path = "../mem-log" }
 network-v1-http = { path = "../network-v1-http" }
-openraft = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e", features = [
+openraft = { version = "0.10.0-alpha.17", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { git = "https://github.com/databendlabs/openraft", rev = "5863174045004bb19257c4697de3466bf468117e" }
+openraft-legacy = { version = "0.10.0-alpha.17" }
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

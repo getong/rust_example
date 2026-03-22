@@ -2,8 +2,7 @@
 
 // Reference the containing module's type config and re-export it.
 // Re-export `Raft` from the parent module so `typ::Raft` works.
-pub use super::Raft;
-pub use super::TypeConfig;
+pub use super::{Raft, TypeConfig};
 
 pub type Vote = <TypeConfig as openraft::RaftTypeConfig>::Vote;
 pub type LeaderId = <TypeConfig as openraft::RaftTypeConfig>::LeaderId;
@@ -11,8 +10,8 @@ pub type LogId = openraft::alias::LogIdOf<TypeConfig>;
 pub type Entry = <TypeConfig as openraft::RaftTypeConfig>::Entry;
 pub type EntryPayload = openraft::alias::EntryPayloadOf<TypeConfig>;
 pub type Membership = openraft::membership::Membership<
-    <TypeConfig as openraft::RaftTypeConfig>::NodeId,
-    <TypeConfig as openraft::RaftTypeConfig>::Node,
+  <TypeConfig as openraft::RaftTypeConfig>::NodeId,
+  <TypeConfig as openraft::RaftTypeConfig>::Node,
 >;
 pub type StoredMembership = openraft::alias::StoredMembershipOf<TypeConfig>;
 
