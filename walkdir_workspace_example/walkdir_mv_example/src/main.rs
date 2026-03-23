@@ -6,13 +6,49 @@ use std::{
 use walkdir::WalkDir;
 
 fn main() {
-  let target = std::env::args().nth(1).unwrap_or_else(|| ".".to_string());
+  let target = match resolve_target_dir() {
+    Ok(dir) => dir,
+    Err(err) => {
+      eprintln!("{err}");
+      std::process::exit(2);
+    }
+  };
   let root = Path::new(&target);
 
   if let Err(err) = process_all_dirs(root) {
     eprintln!("Processing failed: {err}");
     std::process::exit(1);
   }
+}
+
+fn resolve_target_dir() -> Result<String, String> {
+  let mut args = std::env::args().skip(1);
+  while let Some(arg) = args.next() {
+    if let Some(value) = arg.strip_prefix("--dir=") {
+      if value.trim().is_empty() {
+        return Err("Invalid `--dir=` value: directory cannot be empty".to_string());
+      }
+      return Ok(value.to_string());
+    }
+
+    if arg == "--dir" {
+      let value = args
+        .next()
+        .ok_or_else(|| "Missing value: use `--dir <path>`".to_string())?;
+      if value.trim().is_empty() {
+        return Err("Invalid `--dir` value: directory cannot be empty".to_string());
+      }
+      return Ok(value);
+    }
+  }
+
+  if let Ok(dir) = std::env::var("WALKDIR_DELETE_TARGET_DIR") {
+    if !dir.trim().is_empty() {
+      return Ok(dir);
+    }
+  }
+
+  Ok(".".to_string())
 }
 
 fn process_all_dirs(root: &Path) -> io::Result<()> {
