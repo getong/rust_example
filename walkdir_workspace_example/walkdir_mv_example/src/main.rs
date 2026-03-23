@@ -52,7 +52,9 @@ fn resolve_target_dir() -> Result<String, String> {
 }
 
 fn process_all_dirs(root: &Path) -> io::Result<()> {
-  let mut dirs: Vec<PathBuf> = WalkDir::new(root)
+  let child_dirs: Vec<PathBuf> = WalkDir::new(root)
+    .min_depth(1)
+    .max_depth(1)
     .follow_links(false)
     .into_iter()
     .filter_map(Result::ok)
@@ -60,16 +62,17 @@ fn process_all_dirs(root: &Path) -> io::Result<()> {
     .map(|e| e.path().to_path_buf())
     .collect();
 
-  dirs.sort_by_key(|p| p.components().count());
-
   let mut changed = 0usize;
-  for dir in dirs {
+  for dir in child_dirs {
     if flatten_if_single_child_dir(&dir)? {
       changed += 1;
     }
   }
 
-  println!("Done. Updated {changed} directories");
+  println!(
+    "Done. Updated {changed} directories (checked only direct children of {})",
+    root.display()
+  );
   Ok(())
 }
 
