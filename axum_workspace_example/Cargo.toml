@@ -65,6 +65,7 @@ members = [
   "axum_serve_wasm_example",
   "axum_tower_otel_http_example",
   # "axum_ssr_react_example",
+  "axum_session_sqlx_example",
 ]
 
 exclude = [
