@@ -3,5 +3,6 @@
 resolver = "2"
 
 members = [
-    "pingora_load_balance_example",
+  "pingora_load_balance_example",
+  "pingora_ws_load_balance_example",
 ]
