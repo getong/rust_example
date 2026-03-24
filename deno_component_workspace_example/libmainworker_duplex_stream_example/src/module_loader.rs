@@ -20,12 +20,14 @@ use deno_core::{
 use deno_error::JsErrorBox;
 use deno_graph::packages::{JsrPackageInfo, JsrPackageVersionInfo, JsrVersionResolver};
 use deno_npm::{
+  npm_rc::RegistryConfig,
   registry::{NpmPackageVersionDistInfo, NpmRegistryApi},
   resolution::NpmVersionResolver,
 };
 use deno_npm_cache::{
   DownloadError, NpmCache, NpmCacheHttpClient, NpmCacheHttpClientBytesResponse,
-  NpmCacheHttpClientResponse, NpmCacheSetting, RegistryInfoProvider, TarballCache,
+  NpmCacheHttpClientResponse, NpmCacheSetting, NpmPackumentFormat, RegistryInfoProvider,
+  TarballCache,
 };
 use deno_semver::{
   jsr::JsrPackageReqReference,
@@ -289,6 +291,7 @@ impl NpmCacheHttpClient for DirectNpmCacheHttpClient {
     url: deno_core::url::Url,
     maybe_auth: Option<String>,
     maybe_etag: Option<String>,
+    _maybe_registry_config: Option<&RegistryConfig>,
   ) -> Result<NpmCacheHttpClientResponse, DownloadError> {
     // Move the blocking ureq call off the async runtime thread.
     let result = tokio::task::spawn_blocking(move || {
@@ -428,6 +431,7 @@ impl NpmPackageResolver {
       npm_cache.clone(),
       http_client.clone(),
       npmrc.clone(),
+      NpmPackumentFormat::Abbreviated,
     ));
     let tarball_cache = Arc::new(TarballCache::new(
       npm_cache.clone(),

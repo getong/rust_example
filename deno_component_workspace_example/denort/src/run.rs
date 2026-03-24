@@ -630,6 +630,7 @@ impl ModuleLoaderFactory for StandaloneModuleLoaderFactory {
 }
 
 struct StandaloneRootCertStoreProvider {
+  sys: DenoRtSys,
   ca_stores: Option<Vec<String>>,
   ca_data: Option<CaData>,
   cell: OnceLock<Result<RootCertStore, RootCertStoreLoadError>>,
@@ -640,7 +641,9 @@ impl RootCertStoreProvider for StandaloneRootCertStoreProvider {
     self
       .cell
       // get_or_try_init was not stable yet when this was written
-      .get_or_init(|| get_root_cert_store(None, self.ca_stores.clone(), self.ca_data.clone()))
+      .get_or_init(|| {
+        get_root_cert_store(&self.sys, None, self.ca_stores.clone(), self.ca_data.clone())
+      })
       .as_ref()
       .map_err(|err| JsErrorBox::from_err(err.clone()))
   }
@@ -660,6 +663,7 @@ pub async fn run(
   } = data;
 
   let root_cert_store_provider = Arc::new(StandaloneRootCertStoreProvider {
+    sys: sys.clone(),
     ca_stores: metadata.ca_stores,
     ca_data: metadata.ca_data.map(CaData::Bytes),
     cell: Default::default(),
@@ -717,7 +721,7 @@ pub async fn run(
         NpmResolverCreateOptions::Managed(ManagedNpmResolverCreateOptions {
           npm_resolution,
           npm_cache_dir,
-          sys: sys.clone(),
+          sys: node_resolution_sys.clone(),
           maybe_node_modules_path,
           npm_system_info: Default::default(),
           npmrc,
@@ -735,6 +739,7 @@ pub async fn run(
           sys: node_resolution_sys.clone(),
           pkg_json_resolver: pkg_json_resolver.clone(),
           root_node_modules_dir,
+          search_stop_dir: None,
         }),
       );
       (in_npm_pkg_checker, npm_resolver)
@@ -758,7 +763,7 @@ pub async fn run(
       let npm_resolver = NpmResolver::<DenoRtSys>::new::<DenoRtSys>(
         NpmResolverCreateOptions::Managed(ManagedNpmResolverCreateOptions {
           npm_resolution,
-          sys: sys.clone(),
+          sys: node_resolution_sys.clone(),
           npm_cache_dir,
           maybe_node_modules_path: None,
           npm_system_info: Default::default(),
@@ -936,7 +941,6 @@ pub async fn run(
   let lib_main_worker_options = LibMainWorkerOptions {
     argv: metadata.argv,
     log_level: WorkerLogLevel::Info,
-    enable_op_summary_metrics: false,
     enable_testing_features: false,
     has_node_modules_dir,
     inspect_brk: false,
@@ -970,6 +974,7 @@ pub async fn run(
     Some(sys.as_deno_rt_native_addon_loader()),
     feature_checker,
     fs,
+    None,
     None,
     Box::new(module_loader_factory),
     node_resolver.clone(),

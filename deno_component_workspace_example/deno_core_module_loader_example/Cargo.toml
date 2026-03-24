@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-data-url = "0.3.1"
-deno_core = "0.383.0"
-deno_error = "0.7.1"
-reqwest = "0.12.5"
-tokio = { version = "1.49.0", features = ["fs"] }
+data-url = "=0.3.1"
+deno_core = "0.393.0"
+deno_error = "=0.7.1"
+reqwest = "0.13.2"
+tokio = { version = "1.50.0", features = ["fs"] }
 
 [dev-dependencies]
 http = "1.4.0"
 lazy_static = "1.5.0"
-tokio = { version = "1.49.0", features = ["rt", "macros"] }
+tokio = { version = "1.50.0", features = ["rt", "macros"] }

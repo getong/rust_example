@@ -387,6 +387,7 @@ async fn run_inner(worker_args: Vec<String>) -> Result<(), AnyError> {
       ),
       pkg_json_resolver: pkg_json_resolver.clone(),
       root_node_modules_dir: None,
+      search_stop_dir: None,
     }),
   );
   let node_resolver = Arc::new(deno_runtime::deno_node::NodeResolver::new(

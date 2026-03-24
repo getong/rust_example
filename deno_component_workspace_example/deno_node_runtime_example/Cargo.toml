@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.101"
-deno_ast = "0.52.0"
-deno_cache_dir = "0.27.0"
-deno_crypto = "0.244.0"
-deno_error = "0.7.1"
-deno_resolver = "0.61.0"
-deno_runtime = { version = "0.238.0", features = ["transpile", "hmr"] }
-deno_terminal = "0.2.3"
+anyhow = "1.0.102"
+deno_ast = "0.53.1"
+deno_cache_dir = "0.32.0"
+deno_crypto = "0.254.0"
+deno_error = "=0.7.1"
+deno_resolver = "0.71.0"
+deno_runtime = { version = "0.248.0", features = ["transpile", "hmr"] }
+deno_terminal = "=0.2.3"
 env_logger = "0.11"
 log = "0.4.29"
 rustls = "0.23"
-sys_traits = { version = "0.1.22", features = ["real"] }
-tokio = { version = "1.49.0", features = ["full"] }
+sys_traits = { version = "=0.1.25", features = ["real"] }
+tokio = { version = "1.50.0", features = ["full"] }
 url = "2.5.8"

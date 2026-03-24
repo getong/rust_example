@@ -69,6 +69,7 @@ pub async fn run_js(
     sys: node_resolver::cache::NodeResolutionSys::new(sys_traits::impls::RealSys, None),
     pkg_json_resolver: pkg_json_resolver.clone(),
     root_node_modules_dir: None,
+    search_stop_dir: None,
   });
 
   let in_npm_pkg_checker = ByonmInNpmPackageChecker;

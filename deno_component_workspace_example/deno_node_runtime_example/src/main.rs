@@ -53,7 +53,6 @@ fn main() -> Result<()> {
           .map(|p| p.get())
           .unwrap_or(1),
         log_level: deno_runtime::WorkerLogLevel::Info,
-        enable_op_summary_metrics: false,
         enable_testing_features: true,
         locale: "en-US".to_string(),
         location: None,

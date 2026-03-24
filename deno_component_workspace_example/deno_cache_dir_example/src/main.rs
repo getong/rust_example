@@ -1,4 +1,4 @@
-use std::{rc::Rc, time::SystemTime};
+use std::time::SystemTime;
 
 use deno_cache_dir::{
   file_fetcher::{
@@ -76,9 +76,9 @@ fn create_file_fetcher<TClient: HttpClient>(
   FileFetcher::new(
     NullBlobStore,
     sys,
-    Rc::new(MemoryHttpCache::default()),
+    deno_maybe_sync::new_rc(MemoryHttpCache::default()),
     client,
-    Rc::new(NullMemoryFiles),
+    deno_maybe_sync::new_rc(NullMemoryFiles),
     FileFetcherOptions {
       allow_remote: true,
       cache_setting: CacheSetting::Use,

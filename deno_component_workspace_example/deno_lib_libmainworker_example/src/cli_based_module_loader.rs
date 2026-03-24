@@ -192,6 +192,7 @@ impl ModuleLoader for CliInspiredModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
+    _maybe_content: Option<String>,
     options: ModuleLoadOptions,
   ) -> Pin<Box<dyn std::future::Future<Output = Result<(), ModuleLoaderError>>>> {
     println!(

@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_maybe_sync = "0.17.0"
-deno_package_json = "0.32.0"
+deno_maybe_sync = "0.27.0"
+deno_package_json = "0.42.0"
 deno_path_util = "0.6.4"
-deno_resolver = "0.61.0"
+deno_resolver = "0.71.0"
 deno_semver = "0.9.1"
-node_resolver = "0.68.0"
-sys_traits = { version = "0.1.22", features = ["real"] }
-tokio = { version = "1.49", features = ["full"] }
+node_resolver = "0.78.0"
+sys_traits = { version = "=0.1.25", features = ["real"] }
+tokio = { version = "1.50", features = ["full"] }
 url = "2.5.8"

@@ -327,6 +327,7 @@ console.log("🎉 TypeScript execution completed!");
       sys: node_resolver::cache::NodeResolutionSys::new(RealSys, None),
       pkg_json_resolver: pkg_json_resolver.clone(),
       root_node_modules_dir: None,
+      search_stop_dir: None,
     }),
   ));
 
@@ -365,7 +366,6 @@ console.log("🎉 TypeScript execution completed!");
   let worker_options = LibMainWorkerOptions {
     argv: vec![],
     log_level: WorkerLogLevel::Info,
-    enable_op_summary_metrics: false,
     enable_testing_features: false,
     has_node_modules_dir: true, // Enable node_modules support
     inspect_brk: false,
@@ -406,6 +406,7 @@ console.log("🎉 TypeScript execution completed!");
     feature_checker,
     fs,
     None, // inspector_server
+    None, // cpu profiler
     module_loader_factory,
     node_resolver,
     create_npm_process_state_provider(&npm_resolver),

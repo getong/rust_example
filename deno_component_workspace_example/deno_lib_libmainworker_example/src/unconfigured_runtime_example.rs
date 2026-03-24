@@ -255,6 +255,7 @@ console.log("🎉 UnconfiguredRuntime example completed!");
       sys: node_resolver::cache::NodeResolutionSys::new(RealSys, None),
       pkg_json_resolver: pkg_json_resolver.clone(),
       root_node_modules_dir: None,
+      search_stop_dir: None,
     }),
   ));
 
@@ -276,7 +277,6 @@ console.log("🎉 UnconfiguredRuntime example completed!");
   let _worker_options = LibMainWorkerOptions {
     argv: vec![],
     log_level: WorkerLogLevel::Info,
-    enable_op_summary_metrics: false,
     enable_testing_features: false,
     has_node_modules_dir: true,
     inspect_brk: false,
@@ -317,6 +317,7 @@ console.log("🎉 UnconfiguredRuntime example completed!");
     feature_checker.clone(),
     fs.clone(),
     None, // inspector_server
+    None, // cpu profiler
     Box::new(SimpleModuleLoaderFactory {
       in_npm_pkg_checker: in_npm_pkg_checker.clone(),
     }),
@@ -329,7 +330,6 @@ console.log("🎉 UnconfiguredRuntime example completed!");
     LibMainWorkerOptions {
       argv: vec![],
       log_level: WorkerLogLevel::Info,
-      enable_op_summary_metrics: false,
       enable_testing_features: false,
       has_node_modules_dir: true,
       inspect_brk: false,
@@ -400,6 +400,7 @@ console.log("🎉 UnconfiguredRuntime example completed!");
     feature_checker,
     fs,
     None, // inspector_server
+    None, // cpu profiler
     Box::new(SimpleModuleLoaderFactory {
       in_npm_pkg_checker: in_npm_pkg_checker.clone(),
     }),
@@ -412,7 +413,6 @@ console.log("🎉 UnconfiguredRuntime example completed!");
     LibMainWorkerOptions {
       argv: vec![],
       log_level: WorkerLogLevel::Info,
-      enable_op_summary_metrics: false,
       enable_testing_features: false,
       has_node_modules_dir: true,
       inspect_brk: false,

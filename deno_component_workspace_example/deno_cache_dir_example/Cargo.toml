@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1.89"
-deno_cache_dir = "0.27.0"
+deno_cache_dir = "0.32.0"
+deno_maybe_sync = "0.27.0"
 http = "1.4.0"
-sys_traits = { version = "0.1.22", features = ["memory", "real"] }
-tokio = { version = "1.49.0", features = ["full"] }
+sys_traits = { version = "=0.1.25", features = ["memory", "real"] }
+tokio = { version = "1.50.0", features = ["full"] }
 url = "2.5.8"

@@ -18,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Create options for ByonmNpmResolver
   let options = ByonmNpmResolverCreateOptions {
     root_node_modules_dir: Some(PathBuf::from("./node_modules")),
+    search_stop_dir: None,
     sys: NodeResolutionSys::new(sys, None),
     pkg_json_resolver,
   };

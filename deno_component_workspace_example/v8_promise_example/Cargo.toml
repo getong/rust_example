@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-futures = "0.3.31"
-v8 = "145.0.0"
+futures = "0.3.32"
+v8 = "146.9.0"

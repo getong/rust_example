@@ -103,7 +103,6 @@ async fn execute_script(script: String) -> Result<String, String> {
         .map(|p| p.get())
         .unwrap_or(1),
       log_level: deno_runtime::WorkerLogLevel::Info,
-      enable_op_summary_metrics: false,
       enable_testing_features: true,
       locale: "en-US".to_string(),
       location: None,
@@ -213,7 +212,6 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
         .map(|p| p.get())
         .unwrap_or(1),
       log_level: deno_runtime::WorkerLogLevel::Info,
-      enable_op_summary_metrics: false,
       enable_testing_features: true,
       locale: "en-US".to_string(),
       location: None,
@@ -393,7 +391,6 @@ async fn execute_node_https_test() -> Result<String, String> {
         .map(|p| p.get())
         .unwrap_or(1),
       log_level: deno_runtime::WorkerLogLevel::Info,
-      enable_op_summary_metrics: false,
       enable_testing_features: true,
       locale: "en-US".to_string(),
       location: None,
@@ -506,22 +503,21 @@ async fn execute_node_https_test() -> Result<String, String> {
 pub async fn handler(
   axum::extract::State(tx): axum::extract::State<mpsc::Sender<DenoCommand>>,
 ) -> Result<String, (StatusCode, String)> {
+  use rand::RngExt;
+
   let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
   // Generate random math expression
   let a = {
-    use rand::Rng;
     let mut rng = rand::rng();
     rng.random_range(1 ..= 100)
   };
   let b = {
-    use rand::Rng;
     let mut rng = rand::rng();
     rng.random_range(1 ..= 100)
   };
   let ops = ["+", "-", "*"];
   let op = {
-    use rand::Rng;
     let mut rng = rand::rng();
     ops[rng.random_range(0 .. ops.len())]
   };

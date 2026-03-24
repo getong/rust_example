@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.101"
+anyhow = "1.0.102"
 async-trait = "0.1.89"
-deno_core = "0.383.0"
+deno_core = "0.393.0"
 deno_semver = "0.9.1"
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full"] }
 url = "2.5.8"
 
 [[example]]

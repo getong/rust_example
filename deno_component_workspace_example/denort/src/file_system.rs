@@ -143,6 +143,15 @@ impl FileSystem for DenoRtSys {
     RealFs.mkdir_async(path, recursive, mode).await
   }
 
+  fn rmdir_sync(&self, path: &CheckedPath) -> FsResult<()> {
+    self.error_if_in_vfs(path)?;
+    RealFs.rmdir_sync(path)
+  }
+  async fn rmdir_async(&self, path: CheckedPathBuf) -> FsResult<()> {
+    self.error_if_in_vfs(&path)?;
+    RealFs.rmdir_async(path).await
+  }
+
   #[cfg(unix)]
   fn chmod_sync(&self, path: &CheckedPath, mode: u32) -> FsResult<()> {
     self.error_if_in_vfs(path)?;
@@ -1241,6 +1250,13 @@ impl deno_io::fs::File for FileBackedVfsFile {
     Err(FsError::NotSupported)
   }
   async fn lock_async(self: Rc<Self>, _exclusive: bool) -> FsResult<()> {
+    Err(FsError::NotSupported)
+  }
+
+  fn try_lock_sync(self: Rc<Self>, _exclusive: bool) -> FsResult<bool> {
+    Err(FsError::NotSupported)
+  }
+  async fn try_lock_async(self: Rc<Self>, _exclusive: bool) -> FsResult<bool> {
     Err(FsError::NotSupported)
   }
 

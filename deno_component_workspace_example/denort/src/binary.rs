@@ -424,6 +424,7 @@ impl<'a> DenoCompileModuleData<'a> {
       | MediaType::Html
       | MediaType::Jsonc
       | MediaType::Json5
+      | MediaType::Markdown
       | MediaType::SourceMap
       | MediaType::Sql
       | MediaType::Unknown => (ModuleType::JavaScript, DenoCompileModuleSource::Bytes(data)),
