@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use surrealdb::{
   engine::any::{connect, Any},
   opt::auth::Root,
+  types::SurrealValue,
   Surreal,
 };
 use tokio::net::TcpListener;
@@ -22,7 +23,7 @@ pub struct User {
   pub permissions: HashSet<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, SurrealValue)]
 pub struct SqlPermissionTokens {
   pub token: String,
 }
@@ -132,7 +133,7 @@ impl User {
   }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, SurrealValue)]
 pub struct SqlUser {
   pub user_id: i32,
   pub anonymous: bool,
