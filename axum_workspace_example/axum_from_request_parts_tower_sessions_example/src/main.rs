@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use axum::{
   extract::FromRequestParts, http::request::Parts, response::Html, routing::get, Extension, Router,
 };
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use time::Duration;
 use tower_sessions::{cookie::Key, Expiry, MemoryStore, Session, SessionManagerLayer};
