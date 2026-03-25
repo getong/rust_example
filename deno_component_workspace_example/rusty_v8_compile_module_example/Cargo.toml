@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-v8 = "146.9.0"
+v8 = "147.0.0"

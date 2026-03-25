@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 futures = "0.3.32"
-v8 = "146.9.0"
+v8 = "147.0.0"

@@ -1656,7 +1656,7 @@ dependencies = [
  "base64 0.22.1",
  "capacity_builder",
  "deno_error",
- "deno_media_type 0.3.0",
+ "deno_media_type 0.3.3",
  "deno_terminal",
  "dprint-swc-ext",
  "percent-encoding",
@@ -1886,7 +1886,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "url",
- "v8",
+ "v8 146.9.0",
  "wasm_dep_analyzer",
 ]
 
@@ -2257,7 +2257,7 @@ dependencies = [
  "data-url",
  "deno_ast 0.52.0",
  "deno_error",
- "deno_media_type 0.3.0",
+ "deno_media_type 0.3.3",
  "deno_path_util",
  "deno_semver",
  "deno_unsync",
@@ -2631,9 +2631,9 @@ dependencies = [
 
 [[package]]
 name = "deno_media_type"
-version = "0.3.0"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac0109d26ff08a089642a79b45c65f91a849404c1ef3ec78c837a412956d8808"
+checksum = "9fd0af4161f90b092feb363864a64d7c74e0efc13a15905d0d09df73bb72a123"
 dependencies = [
  "data-url",
  "encoding_rs",
@@ -5899,14 +5899,15 @@ dependencies = [
 
 [[package]]
 name = "ipconfig"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d72a21f6a71a6c4c3160e095e8925861f5119dd26ef71acee1b9146f74f76c8"
+checksum = "4d40460c0ce33d6ce4b0630ad68ff63d6661961c48b6dba35e5a4d81cfb48222"
 dependencies = [
  "socket2 0.6.3",
  "widestring",
+ "windows-registry",
+ "windows-result",
  "windows-sys 0.61.2",
- "winreg",
 ]
 
 [[package]]
@@ -6434,9 +6435,9 @@ dependencies = [
 
 [[package]]
 name = "libredox"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1744e39d1d6a9948f4f388969627434e31128196de472883b39f148769bfe30a"
+checksum = "7ddbf48fd451246b1f8c2610bd3b4ac0cc6e149d89832867093ab69a17194f08"
 dependencies = [
  "bitflags 2.11.0",
  "libc",
@@ -7006,9 +7007,9 @@ dependencies = [
 
 [[package]]
 name = "num-conv"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf97ec579c3c42f953ef76dbf8d55ac91fb219dde70e49aa4a6b7d74e9919050"
+checksum = "c6673768db2d862beb9b39a78fdcb1a69439615d5794a1be50caa9bc92c81967"
 
 [[package]]
 name = "num-integer"
@@ -8490,14 +8491,14 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 name = "rusty_v8_compile_module_example"
 version = "0.1.0"
 dependencies = [
- "v8",
+ "v8 147.0.0",
 ]
 
 [[package]]
 name = "rusty_v8_example"
 version = "0.1.0"
 dependencies = [
- "v8",
+ "v8 147.0.0",
 ]
 
 [[package]]
@@ -8603,9 +8604,9 @@ dependencies = [
 
 [[package]]
 name = "scc"
-version = "3.6.11"
+version = "3.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6e0fa9801e22430b9ddd8f10b981e42fed14367508a07b5cb713cab979b1d51"
+checksum = "f448f7d881535036452f0cac656a41463807f095eda504890764ca7d11e2a2ea"
 dependencies = [
  "saa",
  "sdd",
@@ -8825,7 +8826,7 @@ dependencies = [
  "serde",
  "smallvec",
  "thiserror 2.0.18",
- "v8",
+ "v8 146.9.0",
 ]
 
 [[package]]
@@ -10332,9 +10333,9 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6ccf251212114b54433ec949fd6a7841275f9ada20dddd2f29e9ceea4501493"
+checksum = "da36089a805484bcccfffe0739803392c8298778a2d2f09febf76fac5ad9025b"
 
 [[package]]
 name = "unicode-width"
@@ -10491,12 +10492,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "v8"
+version = "147.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a98a7a54a2cbb941924658340efeff052840ab2dcb925c34260142ba85310023"
+dependencies = [
+ "bindgen 0.72.1",
+ "bitflags 2.11.0",
+ "fslock",
+ "gzip-header",
+ "home",
+ "miniz_oxide",
+ "paste",
+ "temporal_capi",
+ "which 6.0.3",
+]
+
+[[package]]
 name = "v8_js_example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "thiserror 2.0.18",
- "v8",
+ "v8 147.0.0",
 ]
 
 [[package]]
@@ -10504,7 +10522,7 @@ name = "v8_promise_example"
 version = "0.1.0"
 dependencies = [
  "futures",
- "v8",
+ "v8 147.0.0",
 ]
 
 [[package]]
@@ -11444,16 +11462,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "winreg"
-version = "0.55.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
-dependencies = [
- "cfg-if",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
