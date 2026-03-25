@@ -4,4 +4,5 @@ resolver = "2"
 
 members = [
   "supabase_auth_example",
+  "supabase_rs_example",
 ]
