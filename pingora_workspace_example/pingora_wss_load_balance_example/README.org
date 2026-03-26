@@ -1,0 +1,22 @@
+ How to Use
+1. One-click startup (default: TLS + smoke test)
+./scripts/start-linked-stack.sh
+2. Start only, without running the smoke test
+./scripts/start-linked-stack.sh --no-test
+3. Start in non-TLS mode
+./scripts/start-linked-stack.sh --no-tls
+4. Run connectivity test only
+./scripts/test-wss-client.sh wss://127.0.0.1:6188 certs/localhost-cert.pem ping
+
+
+# 1) Single test (default)
+./scripts/test-wss-client.sh
+
+# 2) Send 5 messages in sequence
+./scripts/test-wss-client.sh --count 5 --message ping-batch --expect upstream-
+
+# 3) Round-robin distribution test (recommended)
+./scripts/test-wss-client.sh --round-robin --count 10 --message rr --expect upstream-
+
+# 4) Legacy positional-argument style (compatible)
+./scripts/test-wss-client.sh wss://127.0.0.1:6188 certs/localhost-cert.pem ping-compat

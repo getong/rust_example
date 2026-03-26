@@ -7,7 +7,10 @@ edition = "2024"
 async-trait = "0.1.89"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11.10"
+futures-util = "0.3.31"
 log = "0.4.29"
 pingora-core = { version = "0.8.0", default-features = false, features = ["openssl"] }
 pingora-load-balancing = { version = "0.8.0", default-features = false, features = ["openssl"] }
 pingora-proxy = { version = "0.8.0", default-features = false, features = ["openssl"] }
+tokio = { version = "1.50.0", features = ["full"] }
+tokio-tungstenite = "0.23.1"
