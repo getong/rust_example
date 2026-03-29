@@ -7,12 +7,12 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.8"
-axum-streams = { version = "0.24.0", features = ["protobuf"] }
-futures = "0.3.31"
+axum-streams = { version = "0.25.0", features = ["protobuf"] }
+futures = "0.3.32"
 hyper = "1.8.1"
 prost = "0.14.3"
 reqwest = "0.13"
-reqwest-streams = { version = "0.14.0", features = ["protobuf"] }
-tokio = { version = "1.49.0", features = ["full"] }
+reqwest-streams = { version = "0.16.0", features = ["protobuf"] }
+tokio = { version = "1.50.0", features = ["full"] }
 tokio-stream = { version = "0.1.18", features = ["full"] }
 tower = "0.5.3"

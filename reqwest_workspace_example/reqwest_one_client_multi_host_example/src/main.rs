@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use once_cell::sync::Lazy;
-use rand::Rng;
+use rand::RngExt;
 use reqwest::Client;
 use tokio::time::sleep;
 
