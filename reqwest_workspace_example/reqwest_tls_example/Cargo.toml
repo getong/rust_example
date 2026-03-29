@@ -1,0 +1,13 @@
+[package]
+name = "reqwest_tls_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.50.0", features = ["full"] }
+# On Linux, use default TLS
+[target.'cfg(target_os = "linux")'.dependencies]
+reqwest = { version = "0.13.2", default-features = false, features = ["default-tls", "gzip", "json", "http2", "charset", "system-proxy", "stream"] }
+# On Mac & Windows, use native TLS
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+reqwest = { version = "0.13.2", default-features = false, features = ["native-tls", "gzip", "json", "http2", "charset", "system-proxy", "stream"] }

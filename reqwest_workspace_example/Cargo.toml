@@ -14,5 +14,5 @@ members = [
   "reqwest_post_data_example",
   "reqwest_read_all_chunks_example",
   "reqwest_one_client_multi_host_example",
-  "reqwest_get_ethereum_height_example",
+  "reqwest_get_ethereum_height_example", "reqwest_tls_example",
 ]
