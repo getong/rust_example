@@ -22,6 +22,8 @@ pub async fn index() -> Json<IndexResponse> {
       "POST /auth/signin",
       "POST /auth/supabase/signup",
       "POST /auth/supabase/signin",
+      "GET /ws",
+      "GET /ws/demo",
     ],
     required_env: ["SUPABASE_URL", "SUPABASE_KEY", "AUTH_TOKEN_SECRET"],
     optional_env: [
@@ -32,6 +34,8 @@ pub async fn index() -> Json<IndexResponse> {
       "SUPABASE_API_KEY",
       "SUPABASE_JWT_SECRET",
       "SUPABASE_AUTH_EMAIL_REDIRECT_TO",
+      "TLS_CERT_PATH",
+      "TLS_KEY_PATH",
     ],
     recommended_sql:
       "create extension if not exists pgcrypto;\ncreate table public.app_users (\n  id uuid \

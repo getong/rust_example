@@ -1,0 +1,350 @@
+#+TITLE: supabase_rs_signup_signin_example
+#+AUTHOR: Codex
+#+OPTIONS: toc:2 num:nil
+
+* Overview
+
+This project is an =axum 0.8= example that combines three concerns in one small Rust service:
+
+- custom signup/signin built on =supabase_rs=
+- native Supabase Auth signup/signin built on =supabase-auth=
+- websocket and optional WSS support built on =axum= websocket APIs
+
+It is useful when you want to compare:
+
+- managing your own user table and password flow
+- delegating auth to Supabase GoTrue
+- running realtime websocket endpoints in the same Axum service
+
+
+* What This Project Includes
+
+** 1. Custom Auth via =supabase_rs=
+
+The routes =/auth/signup= and =/auth/signin= use =supabase_rs= as a PostgREST client.
+
+Flow:
+
+- write user records into your own =app_users= table
+- hash passwords with =Argon2=
+- verify passwords locally
+- issue an application token signed with =HMAC-SHA256=
+
+This is the "bring your own auth logic" path.
+
+
+** 2. Native Auth via =supabase-auth=
+
+The routes =/auth/supabase/signup= and =/auth/supabase/signin= use =supabase-auth=, which talks to Supabase GoTrue.
+
+Flow:
+
+- create users through Supabase Auth
+- let Supabase handle password hashing
+- let Supabase issue access and refresh tokens
+- optionally support email confirmation redirects
+
+This is the "use Supabase Auth as designed" path.
+
+
+** 3. WebSocket and WSS
+
+The service also exposes:
+
+- =/ws= for websocket upgrade
+- =/ws/demo= for a browser demo page
+
+If both =TLS_CERT_PATH= and =TLS_KEY_PATH= are provided, the same app starts with HTTPS and WSS support.
+
+
+* Why =supabase_rs= and =supabase-auth= Are Not Duplicates
+
+These two crates target different Supabase backends:
+
+| Crate | Backend API | Purpose |
+|-------+-------------+---------|
+| =supabase_rs= | =/rest/v1/= | database CRUD through PostgREST |
+| =supabase-auth= | =/auth/v1/= | authentication through GoTrue |
+
+In this project:
+
+- =supabase_rs= is the data client for your own user table
+- =supabase-auth= is the native auth client for Supabase Auth
+
+So the distinction is simple:
+
+- =supabase_rs= does not implement auth for you
+- =supabase-auth= does not manage your app table schema for you
+
+
+* Routes
+
+| Method | Path | Description |
+|--------+------+-------------|
+| =GET= | =/= | service overview and setup hints |
+| =GET= | =/health= | health check |
+| =POST= | =/auth/signup= | custom signup using =supabase_rs= |
+| =POST= | =/auth/signin= | custom signin using =supabase_rs= |
+| =POST= | =/auth/supabase/signup= | native Supabase signup |
+| =POST= | =/auth/supabase/signin= | native Supabase signin |
+| =GET= | =/ws= | websocket endpoint |
+| =GET= | =/ws/demo= | browser websocket demo |
+
+
+* Project Structure
+
+#+begin_src text
+supabase_rs_signup_signin_example/
+├── assets/
+│   ├── ws-demo.html
+│   └── ws-demo.js
+├── scripts/
+│   └── gen-dev-cert.sh
+└── src/
+    ├── auth.rs
+    ├── config.rs
+    ├── error.rs
+    ├── handlers.rs
+    ├── main.rs
+    ├── models.rs
+    └── websocket.rs
+#+end_src
+
+Key modules:
+
+- =src/auth.rs=: custom credential validation, password hashing, local token issuing
+- =src/handlers.rs=: HTTP handlers for both auth strategies
+- =src/websocket.rs=: websocket upgrade and demo event flow
+- =src/config.rs=: environment-based runtime configuration
+- =src/main.rs=: route wiring, static assets, TLS/WSS startup
+
+
+* Environment Variables
+
+** Required
+
+| Variable | Description |
+|----------+-------------|
+| =SUPABASE_URL= | your Supabase project URL |
+| =SUPABASE_KEY= | key for =supabase_rs= database access |
+| =AUTH_TOKEN_SECRET= | local token signing secret for custom auth |
+
+** Optional for Custom Auth
+
+| Variable | Description |
+|----------+-------------|
+| =APP_ADDR= | bind address, default =127.0.0.1:3000= |
+| =SUPABASE_SCHEMA= | target schema, default =public= |
+| =SUPABASE_AUTH_TABLE= | target table, default =app_users= |
+| =AUTH_PASSWORD_PEPPER= | extra pepper appended before password hashing |
+| =AUTH_TOKEN_TTL_SECONDS= | custom auth token TTL |
+
+** Optional for =supabase-auth=
+
+| Variable | Description |
+|----------+-------------|
+| =SUPABASE_API_KEY= | API key for GoTrue; falls back to =SUPABASE_KEY= |
+| =SUPABASE_JWT_SECRET= | enables =supabase-auth= handlers |
+| =SUPABASE_AUTH_EMAIL_REDIRECT_TO= | redirect URL for email confirmation flow |
+
+** Optional for TLS / WSS
+
+| Variable | Description |
+|----------+-------------|
+| =TLS_CERT_PATH= | PEM certificate path |
+| =TLS_KEY_PATH= | PEM private key path |
+
+
+* Recommended Table for Custom Auth
+
+If you want the =/auth/signup= and =/auth/signin= routes to work, create a table like this:
+
+#+begin_src sql
+create extension if not exists pgcrypto;
+
+create table public.app_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  created_at timestamptz not null default now()
+);
+#+end_src
+
+
+* Run Locally
+
+** 1. Set Environment Variables
+
+Example:
+
+#+begin_src bash
+export SUPABASE_URL="https://your-project.supabase.co"
+export SUPABASE_KEY="your-service-role-or-anon-key"
+export AUTH_TOKEN_SECRET="replace-this-with-a-long-random-secret-at-least-32-bytes"
+
+# Optional for native Supabase Auth handlers
+export SUPABASE_API_KEY="$SUPABASE_KEY"
+export SUPABASE_JWT_SECRET="your-jwt-secret"
+#+end_src
+
+** 2. Start the App
+
+#+begin_src bash
+cargo run -p supabase_rs_signup_signin_example
+#+end_src
+
+Default address:
+
+#+begin_src text
+http://127.0.0.1:3000
+#+end_src
+
+
+* Example Requests
+
+** Custom Signup
+
+#+begin_src bash
+curl -X POST http://127.0.0.1:3000/auth/signup \
+  -H 'content-type: application/json' \
+  -d '{
+    "email": "demo@example.com",
+    "password": "super-secret-password"
+  }'
+#+end_src
+
+** Custom Signin
+
+#+begin_src bash
+curl -X POST http://127.0.0.1:3000/auth/signin \
+  -H 'content-type: application/json' \
+  -d '{
+    "email": "demo@example.com",
+    "password": "super-secret-password"
+  }'
+#+end_src
+
+** Native Supabase Signup
+
+#+begin_src bash
+curl -X POST http://127.0.0.1:3000/auth/supabase/signup \
+  -H 'content-type: application/json' \
+  -d '{
+    "email": "demo@example.com",
+    "password": "super-secret-password"
+  }'
+#+end_src
+
+** Native Supabase Signin
+
+#+begin_src bash
+curl -X POST http://127.0.0.1:3000/auth/supabase/signin \
+  -H 'content-type: application/json' \
+  -d '{
+    "email": "demo@example.com",
+    "password": "super-secret-password"
+  }'
+#+end_src
+
+
+* WebSocket Demo
+
+Open:
+
+#+begin_src text
+http://127.0.0.1:3000/ws/demo
+#+end_src
+
+The page will:
+
+- connect to =/ws=
+- choose =ws://= or =wss://= based on the current page protocol
+- send initial JSON data
+- print server events
+- allow manual JSON and blob messages
+
+
+* Enable WSS Locally
+
+Generate a local development certificate:
+
+#+begin_src bash
+./supabase_rs_signup_signin_example/scripts/gen-dev-cert.sh
+#+end_src
+
+Then run:
+
+#+begin_src bash
+TLS_CERT_PATH="supabase_rs_signup_signin_example/certs/localhost.crt" \
+TLS_KEY_PATH="supabase_rs_signup_signin_example/certs/localhost.key" \
+cargo run -p supabase_rs_signup_signin_example
+#+end_src
+
+Then open:
+
+#+begin_src text
+https://127.0.0.1:3000/ws/demo
+#+end_src
+
+Your browser may ask you to trust the local certificate first.
+
+
+* Architecture Notes
+
+** Custom Auth Path
+
+- client sends email and password
+- app validates input
+- app hashes password with Argon2
+- app writes or reads from =app_users= using =supabase_rs=
+- app signs a local token with =HMAC-SHA256=
+
+** Supabase Auth Path
+
+- client sends email and password
+- app forwards the request through =supabase-auth=
+- Supabase GoTrue handles hashing, sessions, and token issuance
+- app returns Supabase session data back to the caller
+
+** WebSocket Path
+
+- browser or client upgrades on =/ws=
+- server sends a connection event and greeting events
+- server and client can exchange JSON or binary messages
+- if TLS is enabled, websocket becomes =wss://=
+
+
+* Good Defaults
+
+If you are choosing between the two auth modes:
+
+- use custom auth if you need full control over schema, token format, and auth logic
+- use =supabase-auth= if you want the standard Supabase Auth flow with less custom security code
+
+If you are adding realtime behavior:
+
+- use =/ws= for quick local testing
+- use WSS in any browser-facing or production-like environment
+
+
+* Development Notes
+
+- The service is written for =axum 0.8=
+- Static demo assets are served from =/assets=
+- WSS is optional, not required for local HTTP development
+- Both auth strategies are intentionally kept in one app so the differences are easy to compare
+
+
+* Summary
+
+This example is not just a signup/signin demo.
+
+It is a compact reference project showing how to combine:
+
+- =axum 0.8=
+- =supabase_rs=
+- =supabase-auth=
+- websocket / WSS
+- custom auth and native Supabase auth in the same service
+
+If you want one project to compare both auth models and also test realtime transport, this repository is that project.

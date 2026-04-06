@@ -35,9 +35,9 @@ pub struct ApiMessage {
 #[derive(Debug, Serialize)]
 pub struct IndexResponse {
   pub service: &'static str,
-  pub endpoints: [&'static str; 5],
+  pub endpoints: [&'static str; 7],
   pub required_env: [&'static str; 3],
-  pub optional_env: [&'static str; 7],
+  pub optional_env: [&'static str; 9],
   pub recommended_sql: &'static str,
 }
 
