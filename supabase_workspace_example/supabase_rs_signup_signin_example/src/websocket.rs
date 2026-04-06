@@ -4,7 +4,7 @@ use axum::{
   body::Bytes,
   extract::{
     ConnectInfo,
-    ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+    ws::{Message, WebSocket, WebSocketUpgrade},
   },
   http::{HeaderMap, header},
   response::{Html, IntoResponse},
@@ -97,8 +97,8 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, user_agent: Strin
   let (mut sender, mut receiver) = socket.split();
 
   let mut send_task = tokio::spawn(async move {
-    let total = 20;
-    for index in 0 .. total {
+    let mut index = 0usize;
+    loop {
       let tick_event = ServerEvent {
         event: "server_tick",
         payload: json!({ "index": index }),
@@ -110,16 +110,19 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, user_agent: Strin
         }
       }
 
-      tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    }
+      if index > 0 && index % 10 == 0 {
+        if sender
+          .send(Message::Ping(Bytes::from_static(b"keepalive")))
+          .await
+          .is_err()
+        {
+          return index;
+        }
+      }
 
-    let _ = sender
-      .send(Message::Close(Some(CloseFrame {
-        code: axum::extract::ws::close_code::NORMAL,
-        reason: Utf8Bytes::from_static("Goodbye"),
-      })))
-      .await;
-    total
+      index += 1;
+      tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
   });
 
   let mut recv_task = tokio::spawn(async move {
