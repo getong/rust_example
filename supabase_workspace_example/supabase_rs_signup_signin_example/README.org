@@ -100,6 +100,7 @@ supabase_rs_signup_signin_example/
 │   └── ws-demo.js
 ├── scripts/
 │   └── gen-dev-cert.sh
+│   └── verify-axum.sh
 └── src/
     ├── auth.rs
     ├── config.rs
@@ -225,6 +226,45 @@ Default address:
 
 #+begin_src text
 http://127.0.0.1:3000
+#+end_src
+
+** 3. Verify Axum Endpoints
+
+Run the verification script after the Axum app is up:
+
+#+begin_src bash
+./scripts/verify-axum.sh
+#+end_src
+
+It checks:
+
+- =GET /health=
+- =GET /=
+- =GET /ws/demo=
+- custom =/auth/signup= and =/auth/signin=
+
+By default it skips native Supabase email auth checks because your self-hosted setup can return =500 Error sending confirmation email= unless the mail service is present. In your Supabase project, =supabase-mail= is defined in:
+
+#+begin_src text
+/Users/gerald/test/flutter/supabase-project/dev/docker-compose.dev.yml
+#+end_src
+
+To include native Supabase signup:
+
+#+begin_src bash
+VERIFY_SUPABASE_SIGNUP=1 ./scripts/verify-axum.sh
+#+end_src
+
+To include native Supabase signin after signup succeeds:
+
+#+begin_src bash
+VERIFY_SUPABASE_SIGNIN=1 ./scripts/verify-axum.sh
+#+end_src
+
+You can also override the base URL:
+
+#+begin_src bash
+BASE_URL=http://127.0.0.1:3001 ./scripts/verify-axum.sh
 #+end_src
 
 
