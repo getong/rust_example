@@ -10,7 +10,7 @@ use axum::{
   Router,
   routing::{get, post},
 };
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use supabase_rs::SupabaseClient;
 use tokio::net::TcpListener;
 
