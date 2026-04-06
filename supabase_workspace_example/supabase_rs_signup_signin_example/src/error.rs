@@ -51,6 +51,13 @@ impl AppError {
       message: message.into(),
     }
   }
+
+  pub fn service_unavailable(message: impl Into<String>) -> Self {
+    Self {
+      status: StatusCode::SERVICE_UNAVAILABLE,
+      message: message.into(),
+    }
+  }
 }
 
 impl IntoResponse for AppError {

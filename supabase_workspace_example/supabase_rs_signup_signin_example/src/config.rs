@@ -10,6 +10,7 @@ pub struct AppConfig {
   pub token_secret: Vec<u8>,
   pub token_ttl_seconds: u64,
   pub password_pepper: String,
+  pub supabase_auth_email_redirect_to: Option<String>,
 }
 
 impl AppConfig {
@@ -35,12 +36,20 @@ impl AppConfig {
       token_secret,
       token_ttl_seconds: read_env_u64_or("AUTH_TOKEN_TTL_SECONDS", 60 * 60 * 24),
       password_pepper: env::var("AUTH_PASSWORD_PEPPER").unwrap_or_default(),
+      supabase_auth_email_redirect_to: read_env_optional("SUPABASE_AUTH_EMAIL_REDIRECT_TO"),
     })
   }
 }
 
 pub fn read_env_or(key: &str, default: &str) -> String {
   env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+pub fn read_env_optional(key: &str) -> Option<String> {
+  env::var(key)
+    .ok()
+    .map(|value| value.trim().to_owned())
+    .filter(|value| !value.is_empty())
 }
 
 fn read_env_u64_or(key: &str, default: u64) -> u64 {

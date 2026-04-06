@@ -1,5 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use supabase_auth::models::AuthClient;
 use supabase_rs::SupabaseClient;
 
 use crate::config::AppConfig;
@@ -7,6 +8,7 @@ use crate::config::AppConfig;
 #[derive(Clone)]
 pub struct AppState {
   pub client: SupabaseClient,
+  pub supabase_auth_client: Option<AuthClient>,
   pub config: AppConfig,
 }
 
@@ -33,9 +35,9 @@ pub struct ApiMessage {
 #[derive(Debug, Serialize)]
 pub struct IndexResponse {
   pub service: &'static str,
-  pub endpoints: [&'static str; 3],
+  pub endpoints: [&'static str; 5],
   pub required_env: [&'static str; 3],
-  pub optional_env: [&'static str; 4],
+  pub optional_env: [&'static str; 7],
   pub recommended_sql: &'static str,
 }
 
@@ -53,6 +55,20 @@ pub struct SessionClaims<'a> {
   pub email: &'a str,
   pub iat: u64,
   pub exp: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SupabaseAuthResponse {
+  pub provider: &'static str,
+  pub user_id: String,
+  pub email: Option<String>,
+  pub access_token: Option<String>,
+  pub refresh_token: Option<String>,
+  pub token_type: Option<String>,
+  pub expires_in: Option<i64>,
+  pub expires_at: Option<u64>,
+  pub message: String,
+  pub confirmation_sent_at: Option<String>,
 }
 
 fn deserialize_stringish<'de, D>(deserializer: D) -> Result<String, D::Error>

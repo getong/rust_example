@@ -1,22 +1,37 @@
 use axum::{Json, extract::State, http::StatusCode};
 use serde_json::json;
+use supabase_auth::{
+  error::Error as SupabaseAuthError,
+  models::{EmailSignUpResult, Session, SignUpWithPasswordOptions},
+};
 
 use crate::{
   auth::{hash_password, issue_token, validate_credentials, verify_password},
   error::{AppError, AppResult},
-  models::{ApiMessage, AppState, AuthResponse, IndexResponse, StoredUserRow},
+  models::{
+    ApiMessage, AppState, AuthResponse, IndexResponse, StoredUserRow, SupabaseAuthResponse,
+  },
 };
 
 pub async fn index() -> Json<IndexResponse> {
   Json(IndexResponse {
-    service: "supabase_rs signup/signin example",
-    endpoints: ["GET /health", "POST /auth/signup", "POST /auth/signin"],
+    service: "supabase_rs and supabase_auth signup/signin example",
+    endpoints: [
+      "GET /health",
+      "POST /auth/signup",
+      "POST /auth/signin",
+      "POST /auth/supabase/signup",
+      "POST /auth/supabase/signin",
+    ],
     required_env: ["SUPABASE_URL", "SUPABASE_KEY", "AUTH_TOKEN_SECRET"],
     optional_env: [
       "APP_ADDR",
       "SUPABASE_SCHEMA",
       "SUPABASE_AUTH_TABLE",
       "AUTH_PASSWORD_PEPPER",
+      "SUPABASE_API_KEY",
+      "SUPABASE_JWT_SECRET",
+      "SUPABASE_AUTH_EMAIL_REDIRECT_TO",
     ],
     recommended_sql:
       "create extension if not exists pgcrypto;\ncreate table public.app_users (\n  id uuid \
@@ -111,6 +126,75 @@ pub async fn signin(
   }))
 }
 
+pub async fn supabase_auth_signup(
+  State(state): State<AppState>,
+  Json(payload): Json<crate::models::AuthRequest>,
+) -> AppResult<(StatusCode, Json<SupabaseAuthResponse>)> {
+  let credentials = validate_credentials(payload)?;
+  let auth_client = state.supabase_auth_client.as_ref().ok_or_else(|| {
+    AppError::service_unavailable(
+      "supabase_auth is not configured; set SUPABASE_JWT_SECRET to enable these handlers",
+    )
+  })?;
+
+  let options = state
+    .config
+    .supabase_auth_email_redirect_to
+    .as_ref()
+    .map(|redirect_to| SignUpWithPasswordOptions {
+      email_redirect_to: Some(redirect_to.clone()),
+      ..Default::default()
+    });
+
+  let result = auth_client
+    .sign_up_with_email_and_password(&credentials.email, &credentials.password, options)
+    .await
+    .map_err(map_supabase_auth_error)?;
+
+  let response = match result {
+    EmailSignUpResult::SessionResult(session) => {
+      response_from_supabase_session(session, "signed up with supabase_auth".to_owned(), None)
+    }
+    EmailSignUpResult::ConfirmationResult(confirmation) => SupabaseAuthResponse {
+      provider: "supabase_auth",
+      user_id: confirmation.id.to_string(),
+      email: confirmation.email,
+      access_token: None,
+      refresh_token: None,
+      token_type: None,
+      expires_in: None,
+      expires_at: None,
+      message: "confirmation email sent by supabase_auth".to_owned(),
+      confirmation_sent_at: Some(confirmation.confirmation_sent_at),
+    },
+  };
+
+  Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub async fn supabase_auth_signin(
+  State(state): State<AppState>,
+  Json(payload): Json<crate::models::AuthRequest>,
+) -> AppResult<Json<SupabaseAuthResponse>> {
+  let credentials = validate_credentials(payload)?;
+  let auth_client = state.supabase_auth_client.as_ref().ok_or_else(|| {
+    AppError::service_unavailable(
+      "supabase_auth is not configured; set SUPABASE_JWT_SECRET to enable these handlers",
+    )
+  })?;
+
+  let session = auth_client
+    .login_with_email(&credentials.email, &credentials.password)
+    .await
+    .map_err(map_supabase_auth_error)?;
+
+  Ok(Json(response_from_supabase_session(
+    session,
+    "signed in with supabase_auth".to_owned(),
+    None,
+  )))
+}
+
 async fn find_user_by_email(state: &AppState, email: &str) -> AppResult<Option<StoredUserRow>> {
   let row = state
     .client
@@ -137,5 +221,41 @@ fn map_insert_error(err: String) -> AppError {
     AppError::conflict("email already exists")
   } else {
     AppError::internal(format!("supabase insert failed: {err}"))
+  }
+}
+
+fn response_from_supabase_session(
+  session: Session,
+  message: String,
+  confirmation_sent_at: Option<String>,
+) -> SupabaseAuthResponse {
+  SupabaseAuthResponse {
+    provider: "supabase_auth",
+    user_id: session.user.id.to_string(),
+    email: Some(session.user.email),
+    access_token: Some(session.access_token),
+    refresh_token: Some(session.refresh_token),
+    token_type: Some(session.token_type),
+    expires_in: Some(session.expires_in),
+    expires_at: Some(session.expires_at),
+    message,
+    confirmation_sent_at,
+  }
+}
+
+fn map_supabase_auth_error(err: SupabaseAuthError) -> AppError {
+  match err {
+    SupabaseAuthError::AlreadySignedUp => AppError::conflict("user already exists"),
+    SupabaseAuthError::WrongCredentials | SupabaseAuthError::UserNotFound => {
+      AppError::unauthorized("invalid email or password")
+    }
+    SupabaseAuthError::AuthError { status, message } => {
+      let status_code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+      AppError {
+        status: status_code,
+        message,
+      }
+    }
+    other => AppError::internal(format!("supabase_auth request failed: {other}")),
   }
 }
