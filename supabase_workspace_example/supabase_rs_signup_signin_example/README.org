@@ -100,6 +100,7 @@ supabase_rs_signup_signin_example/
 │   └── ws-demo.js
 ├── scripts/
 │   └── gen-dev-cert.sh
+│   └── verify-auth.sh
 │   └── verify-axum.sh
 └── src/
     ├── auth.rs
@@ -265,6 +266,29 @@ You can also override the base URL:
 
 #+begin_src bash
 BASE_URL=http://127.0.0.1:3001 ./scripts/verify-axum.sh
+#+end_src
+
+** 4. Verify Auth Handlers
+
+Use the dedicated auth script to exercise the auth endpoints more thoroughly:
+
+#+begin_src bash
+./scripts/verify-auth.sh
+#+end_src
+
+It checks the custom Axum auth flow for:
+
+- successful =/auth/signup=
+- duplicate signup conflict
+- successful =/auth/signin=
+- wrong-password rejection
+- missing-user rejection
+
+Native Supabase email auth remains opt-in because a self-hosted setup without the dev mail service can fail during confirmation-email delivery:
+
+#+begin_src bash
+VERIFY_SUPABASE_SIGNUP=1 ./scripts/verify-auth.sh
+VERIFY_SUPABASE_SIGNIN=1 ./scripts/verify-auth.sh
 #+end_src
 
 
