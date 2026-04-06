@@ -187,6 +187,34 @@ export SUPABASE_API_KEY="$SUPABASE_KEY"
 export SUPABASE_JWT_SECRET="your-jwt-secret"
 #+end_src
 
+** Self-Hosted Supabase Local Stack
+
+This repository now includes a local =.env= configured for a Supabase stack running at:
+
+#+begin_src text
+http://127.0.0.1:8000
+#+end_src
+
+It uses:
+
+- =SUPABASE_KEY= as the local =SERVICE_ROLE_KEY= for PostgREST access
+- =SUPABASE_API_KEY= as the local =ANON_KEY= for GoTrue signup/signin
+- =SUPABASE_JWT_SECRET= and =AUTH_TOKEN_SECRET= from the local =JWT_SECRET=
+
+If the custom auth table does not exist yet, initialize it with:
+
+#+begin_src bash
+/opt/homebrew/opt/postgresql@18/bin/psql \
+  postgresql://postgres:$POSTGRES_PASSWORD@127.0.0.1:5432/postgres \
+  -f scripts/init-local-supabase.sql
+#+end_src
+
+The app also accepts standard self-hosted Supabase variable names as fallbacks:
+
+- =SUPABASE_PUBLIC_URL= or =API_EXTERNAL_URL= for =SUPABASE_URL=
+- =SERVICE_ROLE_KEY= or =ANON_KEY= for =SUPABASE_KEY=
+- =JWT_SECRET= for =SUPABASE_JWT_SECRET= and =AUTH_TOKEN_SECRET=
+
 ** 2. Start the App
 
 #+begin_src bash

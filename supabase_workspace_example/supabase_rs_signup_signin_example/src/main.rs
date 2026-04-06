@@ -5,7 +5,7 @@ mod handlers;
 mod models;
 mod websocket;
 
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use axum::{
   Router,
@@ -18,7 +18,10 @@ use supabase_rs::SupabaseClient;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
-use crate::{config::AppConfig, models::AppState};
+use crate::{
+  config::{AppConfig, read_env_first, read_env_required},
+  models::AppState,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,13 +35,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   dotenv().ok();
 
   let config = AppConfig::from_env()?;
-  let supabase_url = env::var("SUPABASE_URL")?;
-  let supabase_key = env::var("SUPABASE_KEY")?;
+  let supabase_url = read_env_required(
+    &["SUPABASE_URL", "SUPABASE_PUBLIC_URL", "API_EXTERNAL_URL"],
+    "SUPABASE_URL or SUPABASE_PUBLIC_URL or API_EXTERNAL_URL",
+  )?;
+  let supabase_key = read_env_required(
+    &["SUPABASE_KEY", "SERVICE_ROLE_KEY", "ANON_KEY"],
+    "SUPABASE_KEY or SERVICE_ROLE_KEY or ANON_KEY",
+  )?;
   let client =
     SupabaseClient::new(supabase_url.clone(), supabase_key.clone())?.schema(&config.schema);
-  let supabase_auth_api_key = env::var("SUPABASE_API_KEY").unwrap_or_else(|_| supabase_key.clone());
-  let supabase_auth_client = env::var("SUPABASE_JWT_SECRET")
-    .ok()
+  let supabase_auth_api_key = read_env_first(&[
+    "SUPABASE_API_KEY",
+    "ANON_KEY",
+    "SUPABASE_KEY",
+    "SERVICE_ROLE_KEY",
+  ])
+  .unwrap_or_else(|| supabase_key.clone());
+  let supabase_auth_client = read_env_first(&["SUPABASE_JWT_SECRET", "JWT_SECRET"])
     .map(|jwt_secret| AuthClient::new(supabase_url.clone(), supabase_auth_api_key, jwt_secret));
   let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 

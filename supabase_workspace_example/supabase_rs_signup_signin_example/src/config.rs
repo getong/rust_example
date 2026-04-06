@@ -21,9 +21,11 @@ impl AppConfig {
       .parse()
       .map_err(|err| AppError::internal(format!("invalid APP_ADDR: {err}")))?;
 
-    let token_secret = env::var("AUTH_TOKEN_SECRET")
-      .map_err(|_| AppError::internal("AUTH_TOKEN_SECRET must be set".to_owned()))?
-      .into_bytes();
+    let token_secret = read_env_required(
+      &["AUTH_TOKEN_SECRET", "JWT_SECRET"],
+      "AUTH_TOKEN_SECRET or JWT_SECRET",
+    )?
+    .into_bytes();
 
     if token_secret.len() < 32 {
       return Err(AppError::internal(
@@ -38,7 +40,8 @@ impl AppConfig {
       token_secret,
       token_ttl_seconds: read_env_u64_or("AUTH_TOKEN_TTL_SECONDS", 60 * 60 * 24),
       password_pepper: env::var("AUTH_PASSWORD_PEPPER").unwrap_or_default(),
-      supabase_auth_email_redirect_to: read_env_optional("SUPABASE_AUTH_EMAIL_REDIRECT_TO"),
+      supabase_auth_email_redirect_to: read_env_optional("SUPABASE_AUTH_EMAIL_REDIRECT_TO")
+        .or_else(|| read_env_optional("SITE_URL")),
       tls_cert_path: read_env_optional("TLS_CERT_PATH"),
       tls_key_path: read_env_optional("TLS_KEY_PATH"),
     })
@@ -54,6 +57,14 @@ pub fn read_env_optional(key: &str) -> Option<String> {
     .ok()
     .map(|value| value.trim().to_owned())
     .filter(|value| !value.is_empty())
+}
+
+pub fn read_env_first(keys: &[&str]) -> Option<String> {
+  keys.iter().find_map(|key| read_env_optional(key))
+}
+
+pub fn read_env_required(keys: &[&str], missing_message: &str) -> AppResult<String> {
+  read_env_first(keys).ok_or_else(|| AppError::internal(format!("{missing_message} must be set")))
 }
 
 fn read_env_u64_or(key: &str, default: u64) -> u64 {
