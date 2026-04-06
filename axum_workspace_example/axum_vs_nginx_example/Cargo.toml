@@ -10,13 +10,13 @@ axum-extra = "0.12"
 axum-server = "0.8.0"
 futures = "0.3.32"
 futures-lite = "2.6.1"
-hyper = { version = "1.8.1", features = ["client", "http2"] }
+hyper = { version = "1.9.0", features = ["client", "http2"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy"] }
 log = "0.4.29"
 pin-project = "1.1.11"
 pretty_env_logger = "0.5.0"
 rustls-acme = { version = "0.15.1", features = ["axum"] }
-tokio = { version = "1.50.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.51.0", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.18"
 tower = "0.5.3"
 tower-http = { version = "0.6.8", features = ["auth", "fs"] }
