@@ -1,4 +1,5 @@
 use std::{
+  ffi::OsStr,
   fs, io,
   path::{Path, PathBuf},
 };
@@ -52,6 +53,8 @@ fn resolve_target_dir() -> Result<String, String> {
 }
 
 fn process_all_dirs(root: &Path) -> io::Result<()> {
+  let deleted_ds_store = delete_ds_store_files(root)?;
+
   let child_dirs: Vec<PathBuf> = WalkDir::new(root)
     .min_depth(1)
     .max_depth(1)
@@ -69,11 +72,56 @@ fn process_all_dirs(root: &Path) -> io::Result<()> {
     }
   }
 
+  let deleted_empty_dirs = delete_empty_dirs(root)?;
+
   println!(
-    "Done. Updated {changed} directories (checked only direct children of {})",
-    root.display()
+    "Done. Removed {deleted_ds_store} .DS_Store files, updated {changed} directories (checked \
+     only direct children of {}), deleted {deleted_empty_dirs} empty directories",
+    root.display(),
   );
   Ok(())
+}
+
+fn delete_ds_store_files(root: &Path) -> io::Result<usize> {
+  let ds_store_paths: Vec<PathBuf> = WalkDir::new(root)
+    .follow_links(false)
+    .into_iter()
+    .filter_map(Result::ok)
+    .filter(|entry| entry.file_type().is_file() && entry.file_name() == OsStr::new(".DS_Store"))
+    .map(|entry| entry.into_path())
+    .collect();
+
+  let mut deleted = 0usize;
+  for path in ds_store_paths {
+    fs::remove_file(&path)?;
+    deleted += 1;
+    println!("Deleted .DS_Store: {}", path.display());
+  }
+
+  Ok(deleted)
+}
+
+fn delete_empty_dirs(root: &Path) -> io::Result<usize> {
+  let dirs: Vec<PathBuf> = WalkDir::new(root)
+    .min_depth(1)
+    .contents_first(true)
+    .follow_links(false)
+    .into_iter()
+    .filter_map(Result::ok)
+    .filter(|entry| entry.file_type().is_dir())
+    .map(|entry| entry.into_path())
+    .collect();
+
+  let mut deleted = 0usize;
+  for dir in dirs {
+    if fs::read_dir(&dir)?.next().is_none() {
+      fs::remove_dir(&dir)?;
+      deleted += 1;
+      println!("Deleted empty directory: {}", dir.display());
+    }
+  }
+
+  Ok(deleted)
 }
 
 fn flatten_if_single_child_dir(dir: &Path) -> io::Result<bool> {
