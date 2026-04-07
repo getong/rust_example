@@ -202,14 +202,23 @@ It uses:
 - =SUPABASE_KEY= as the local =SERVICE_ROLE_KEY= for PostgREST access
 - =SUPABASE_API_KEY= as the local =ANON_KEY= for GoTrue signup/signin
 - =SUPABASE_JWT_SECRET= and =AUTH_TOKEN_SECRET= from the local =JWT_SECRET=
+- =POSTGRES_HOST=127.0.0.1=, =POSTGRES_PORT=5432=, =POSTGRES_DB=postgres=, and =POSTGRES_USER=postgres= for host-side SQL access
+- =POSTGRES_PASSWORD= copied from your local Supabase stack so helper scripts can run =psql=
+- =POOLER_TENANT_ID=your-tenant-id= for Supavisor access on the default host-side port mapping
 
 If the custom auth table does not exist yet, initialize it with:
 
 #+begin_src bash
-/opt/homebrew/opt/postgresql@18/bin/psql \
-  postgresql://postgres:$POSTGRES_PASSWORD@127.0.0.1:5432/postgres \
-  -f scripts/init-local-supabase.sql
+./scripts/exec-supabase-sql.sh
 #+end_src
+
+To execute a different SQL file:
+
+#+begin_src bash
+./scripts/exec-supabase-sql.sh path/to/file.sql
+#+end_src
+
+When the default self-hosted Supabase Docker setup exposes Supavisor on host port =5432=, the helper script will retry automatically with the tenant-qualified username form documented by Supabase, for example =postgres.your-tenant-id=.
 
 The app also accepts standard self-hosted Supabase variable names as fallbacks:
 
