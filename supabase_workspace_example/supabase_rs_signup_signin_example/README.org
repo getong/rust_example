@@ -8,7 +8,7 @@ This project is an =axum 0.8= example that combines three concerns in one small 
 
 - custom signup/signin built on =supabase_rs=
 - native Supabase Auth signup/signin built on =supabase-auth=
-- websocket and optional WSS support built on =axum= websocket APIs
+- websocket and authenticated WSS support built on =axum= websocket APIs
 
 It is useful when you want to compare:
 
@@ -54,7 +54,7 @@ The service also exposes:
 - =/ws= for websocket upgrade
 - =/ws/demo= for a browser demo page
 
-If both =TLS_CERT_PATH= and =TLS_KEY_PATH= are provided, the same app starts with HTTPS and WSS support.
+If =TLS_CERT_PATH= and =TLS_KEY_PATH= are unset, the app now looks for repo-local dev certs at =certs/localhost.crt= and =certs/localhost.key=. When those files exist, the same app starts with HTTPS and WSS support automatically.
 
 
 * Why =supabase_rs= and =supabase-auth= Are Not Duplicates
@@ -87,7 +87,7 @@ So the distinction is simple:
 | =POST= | =/auth/signin= | custom signin using =supabase_rs= |
 | =POST= | =/auth/supabase/signup= | native Supabase signup |
 | =POST= | =/auth/supabase/signin= | native Supabase signin |
-| =GET= | =/ws= | websocket endpoint |
+| =GET= | =/ws= | websocket endpoint; requires a Supabase Auth access token |
 | =GET= | =/ws/demo= | browser websocket demo |
 
 
@@ -217,6 +217,12 @@ The app also accepts standard self-hosted Supabase variable names as fallbacks:
 - =SERVICE_ROLE_KEY= or =ANON_KEY= for =SUPABASE_KEY=
 - =JWT_SECRET= for =SUPABASE_JWT_SECRET= and =AUTH_TOKEN_SECRET=
 
+If you need a confirmed local Supabase Auth user for =/auth/supabase/signin= and =/ws= testing without mail confirmation flow, create one directly with:
+
+#+begin_src bash
+./scripts/create-local-supabase-auth-user.sh a1@163.com abc123456
+#+end_src
+
 ** 2. Start the App
 
 #+begin_src bash
@@ -226,7 +232,7 @@ cargo run -p supabase_rs_signup_signin_example
 Default address:
 
 #+begin_src text
-http://127.0.0.1:3000
+https://127.0.0.1:3000
 #+end_src
 
 ** 3. Verify Axum Endpoints
@@ -265,8 +271,18 @@ VERIFY_SUPABASE_SIGNIN=1 ./scripts/verify-axum.sh
 You can also override the base URL:
 
 #+begin_src bash
-BASE_URL=http://127.0.0.1:3001 ./scripts/verify-axum.sh
+BASE_URL=https://127.0.0.1:3001 ./scripts/verify-axum.sh
 #+end_src
+
+** 3a. Generate Local Dev Certificates
+
+If =certs/localhost.crt= and =certs/localhost.key= are missing, create them once with:
+
+#+begin_src bash
+./scripts/generate-certs.sh
+#+end_src
+
+After that, =cargo run= will start the server in HTTPS mode automatically unless you explicitly override the TLS paths.
 
 ** 4. Verify Auth Handlers
 
@@ -297,7 +313,7 @@ VERIFY_SUPABASE_SIGNIN=1 ./scripts/verify-auth.sh
 ** Custom Signup
 
 #+begin_src bash
-curl -X POST http://127.0.0.1:3000/auth/signup \
+curl -k -X POST https://127.0.0.1:3000/auth/signup \
   -H 'content-type: application/json' \
   -d '{
     "email": "demo@example.com",
@@ -308,7 +324,7 @@ curl -X POST http://127.0.0.1:3000/auth/signup \
 ** Custom Signin
 
 #+begin_src bash
-curl -X POST http://127.0.0.1:3000/auth/signin \
+curl -k -X POST https://127.0.0.1:3000/auth/signin \
   -H 'content-type: application/json' \
   -d '{
     "email": "demo@example.com",
@@ -319,7 +335,7 @@ curl -X POST http://127.0.0.1:3000/auth/signin \
 ** Native Supabase Signup
 
 #+begin_src bash
-curl -X POST http://127.0.0.1:3000/auth/supabase/signup \
+curl -k -X POST https://127.0.0.1:3000/auth/supabase/signup \
   -H 'content-type: application/json' \
   -d '{
     "email": "demo@example.com",
@@ -330,12 +346,31 @@ curl -X POST http://127.0.0.1:3000/auth/supabase/signup \
 ** Native Supabase Signin
 
 #+begin_src bash
-curl -X POST http://127.0.0.1:3000/auth/supabase/signin \
+curl -k -X POST https://127.0.0.1:3000/auth/supabase/signin \
   -H 'content-type: application/json' \
   -d '{
     "email": "demo@example.com",
     "password": "super-secret-password"
   }'
+#+end_src
+
+** Authenticated WebSocket
+
+The websocket endpoint now rejects unauthenticated upgrades. For browsers, pass the Supabase access token as a query parameter. For non-browser clients, you can also send =Authorization: Bearer <token>= during the upgrade request.
+
+Use =/auth/supabase/signin= first, then connect:
+
+#+begin_src bash
+SUPABASE_TOKEN="$(curl -k -sS https://127.0.0.1:3000/auth/supabase/signin \
+  -H 'content-type: application/json' \
+  -d '{"email":"demo@example.com","password":"super-secret-password"}' \
+  | jq -r '.access_token')"
+#+end_src
+
+Then open:
+
+#+begin_src text
+wss://127.0.0.1:3000/ws?access_token=${SUPABASE_TOKEN}
 #+end_src
 
 
@@ -344,12 +379,13 @@ curl -X POST http://127.0.0.1:3000/auth/supabase/signin \
 Open:
 
 #+begin_src text
-http://127.0.0.1:3000/ws/demo
+https://127.0.0.1:3000/ws/demo
 #+end_src
 
 The page will:
 
-- connect to =/ws=
+- sign in through =/auth/supabase/signin= or accept a pasted Supabase access token
+- connect to =/ws= only after a valid token is present
 - choose =ws://= or =wss://= based on the current page protocol
 - send initial JSON data
 - print server events
@@ -361,14 +397,12 @@ The page will:
 Generate a local development certificate:
 
 #+begin_src bash
-./supabase_rs_signup_signin_example/scripts/gen-dev-cert.sh
+./scripts/generate-certs.sh
 #+end_src
 
 Then run:
 
 #+begin_src bash
-TLS_CERT_PATH="supabase_rs_signup_signin_example/certs/localhost.crt" \
-TLS_KEY_PATH="supabase_rs_signup_signin_example/certs/localhost.key" \
 cargo run -p supabase_rs_signup_signin_example
 #+end_src
 

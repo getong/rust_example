@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
+BASE_URL="${BASE_URL:-https://127.0.0.1:3000}"
 TIMESTAMP="${TIMESTAMP:-$(date +%s)}"
 CUSTOM_EMAIL="${CUSTOM_EMAIL:-auth-custom-${TIMESTAMP}@example.com}"
 SUPABASE_EMAIL="${SUPABASE_EMAIL:-auth-supabase-${TIMESTAMP}@example.com}"
@@ -27,7 +27,7 @@ request() {
   echo "==> ${method} ${BASE_URL}${path}"
 
   if [[ -n "$body" ]]; then
-    status="$(curl --noproxy '*' -sS \
+    status="$(curl --noproxy '*' -k -sS \
       -o "$response_file" \
       -w "%{http_code}" \
       -X "$method" \
@@ -35,7 +35,7 @@ request() {
       "${BASE_URL}${path}" \
       -d "$body")"
   else
-    status="$(curl --noproxy '*' -sS \
+    status="$(curl --noproxy '*' -k -sS \
       -o "$response_file" \
       -w "%{http_code}" \
       -X "$method" \

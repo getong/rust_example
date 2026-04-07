@@ -75,6 +75,34 @@
         margin-bottom: 18px;
       }
 
+      .auth-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      input {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        font: inherit;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .token-row {
+        margin-bottom: 18px;
+      }
+
       button {
         border: 0;
         border-radius: 999px;
@@ -89,6 +117,12 @@
         background: var(--accent-2);
       }
 
+      button.ghost {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--border);
+      }
+
       pre {
         margin: 0;
         padding: 18px;
@@ -101,21 +135,48 @@
         font-size: 0.9rem;
         line-height: 1.45;
       }
+
+      @media (max-width: 700px) {
+        .auth-grid {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Axum WebSocket / WSS Demo</h1>
       <p>
-        This page talks to <code>/ws</code>. If the server starts with
-        <code>TLS_CERT_PATH</code> and <code>TLS_KEY_PATH</code>, the browser will upgrade to
-        <code>wss://</code> automatically.
+        This page talks to <code>/ws</code>. The socket now requires a Supabase Auth access token,
+        and the local app prefers HTTPS/WSS automatically when repo-local dev certs exist.
       </p>
       <div class="meta">
         <div class="pill" id="protocol-pill">Protocol: pending</div>
         <div class="pill" id="status-pill">Socket: disconnected</div>
+        <div class="pill" id="auth-pill">Auth: waiting for token</div>
+      </div>
+      <div class="auth-grid">
+        <label>
+          Supabase Email
+          <input id="email" type="email" autocomplete="username" placeholder="demo@example.com" />
+        </label>
+        <label>
+          Supabase Password
+          <input id="password" type="password" autocomplete="current-password" placeholder="super-secret-password" />
+        </label>
       </div>
       <div class="controls">
+        <button id="signin">Sign In for Token</button>
+      </div>
+      <div class="token-row">
+        <label>
+          Supabase Access Token
+          <input id="token" type="text" spellcheck="false" placeholder="Paste an access token or use Sign In for Token" />
+        </label>
+      </div>
+      <div class="controls">
+        <button id="connect">Connect Socket</button>
+        <button id="disconnect" class="ghost">Disconnect</button>
         <button id="send-json">Send JSON</button>
         <button id="send-binary" class="secondary">Send JSON Blob</button>
       </div>

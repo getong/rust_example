@@ -4,9 +4,11 @@ use argon2::{
   Argon2,
   password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash},
 };
+use axum::http::StatusCode;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
+use supabase_auth::error::Error as SupabaseAuthError;
 
 use crate::{
   error::{AppError, AppResult},
@@ -79,6 +81,38 @@ pub fn issue_token(
   let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
 
   Ok(format!("{payload}.{signature}"))
+}
+
+pub fn map_supabase_auth_error(err: SupabaseAuthError) -> AppError {
+  match err {
+    SupabaseAuthError::AlreadySignedUp => AppError::conflict("user already exists"),
+    SupabaseAuthError::WrongCredentials | SupabaseAuthError::UserNotFound => {
+      AppError::unauthorized("invalid email or password")
+    }
+    SupabaseAuthError::WrongToken | SupabaseAuthError::NotAuthenticated => {
+      AppError::unauthorized("invalid or expired supabase access token")
+    }
+    SupabaseAuthError::AuthError { status, message } => {
+      let status_code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+      let normalized_message = message.to_ascii_lowercase();
+
+      if normalized_message.contains("invalid login credentials") {
+        return AppError::unauthorized(
+          "invalid email or password, or the Supabase Auth user does not exist yet",
+        );
+      }
+
+      if normalized_message.contains("email not confirmed") {
+        return AppError::unauthorized("email is not confirmed for this Supabase Auth user");
+      }
+
+      AppError {
+        status: status_code,
+        message,
+      }
+    }
+    other => AppError::internal(format!("supabase_auth request failed: {other}")),
+  }
 }
 
 fn password_with_pepper(password: &str, pepper: &str) -> String {

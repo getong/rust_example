@@ -3,15 +3,22 @@ use std::{net::SocketAddr, ops::ControlFlow};
 use axum::{
   body::Bytes,
   extract::{
-    ConnectInfo,
+    ConnectInfo, Query, State,
     ws::{Message, WebSocket, WebSocketUpgrade},
   },
   http::{HeaderMap, header},
-  response::{Html, IntoResponse},
+  response::{Html, IntoResponse, Response},
 };
 use futures_util::{sink::SinkExt, stream::StreamExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use supabase_auth::error::Error as SupabaseAuthError;
+
+use crate::{
+  auth::map_supabase_auth_error,
+  error::{AppError, AppResult},
+  models::AppState,
+};
 
 #[derive(Debug, Serialize)]
 struct ServerEvent {
@@ -19,26 +26,68 @@ struct ServerEvent {
   payload: Value,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub(crate) struct WsAuthQuery {
+  access_token: Option<String>,
+  token: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct SocketUser {
+  id: String,
+  email: String,
+}
+
 pub async fn ws_demo_page() -> Html<&'static str> {
   Html(include_str!("../assets/ws-demo.html"))
 }
 
 pub async fn ws_handler(
+  State(state): State<AppState>,
   ws: WebSocketUpgrade,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  Query(query): Query<WsAuthQuery>,
   headers: HeaderMap,
-) -> impl IntoResponse {
+) -> AppResult<Response> {
   let user_agent = headers
     .get(header::USER_AGENT)
     .and_then(|value| value.to_str().ok())
     .unwrap_or("Unknown browser")
     .to_owned();
+  let access_token = extract_access_token(&headers, &query)?;
+  let auth_client = state.supabase_auth_client.as_ref().ok_or_else(|| {
+    AppError::service_unavailable(
+      "supabase_auth is not configured; set SUPABASE_JWT_SECRET to enable websocket auth",
+    )
+  })?;
+  let user = auth_client
+    .get_user(&access_token)
+    .await
+    .map_err(map_websocket_auth_error)?;
+  let socket_user = SocketUser {
+    id: user.id.to_string(),
+    email: user.email,
+  };
 
-  tracing::info!("websocket connect user_agent={user_agent} addr={addr}");
-  ws.on_upgrade(move |socket| handle_socket(socket, addr, user_agent))
+  tracing::info!(
+    "websocket authenticated user_id={} email={} user_agent={} addr={addr}",
+    socket_user.id,
+    socket_user.email,
+    user_agent
+  );
+
+  Ok(
+    ws.on_upgrade(move |socket| handle_socket(socket, addr, user_agent, socket_user))
+      .into_response(),
+  )
 }
 
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr, user_agent: String) {
+async fn handle_socket(
+  mut socket: WebSocket,
+  who: SocketAddr,
+  user_agent: String,
+  user: SocketUser,
+) {
   if socket
     .send(Message::Ping(Bytes::from_static(&[1, 2, 3])))
     .await
@@ -54,6 +103,10 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, user_agent: Strin
       "message": "websocket connected",
       "client_addr": who,
       "user_agent": user_agent,
+      "user": {
+        "id": user.id,
+        "email": user.email,
+      },
     }),
   };
 
@@ -78,7 +131,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, user_agent: Strin
     }
   }
 
-  for index in 1 ..= 3 {
+  for index in 1..=3 {
     let greeting = ServerEvent {
       event: "greeting",
       payload: json!({ "times": index }),
@@ -154,6 +207,46 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, user_agent: Strin
   }
 
   tracing::info!("websocket context destroyed addr={who}");
+}
+
+fn extract_access_token(headers: &HeaderMap, query: &WsAuthQuery) -> AppResult<String> {
+  bearer_token_from_header(headers)
+    .or_else(|| sanitize_token(query.access_token.as_deref()))
+    .or_else(|| sanitize_token(query.token.as_deref()))
+    .ok_or_else(|| {
+      AppError::unauthorized(
+        "missing supabase access token; use Authorization: Bearer <token> or ?access_token=<token>",
+      )
+    })
+}
+
+fn bearer_token_from_header(headers: &HeaderMap) -> Option<String> {
+  let header_value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+  let trimmed = header_value.trim();
+
+  trimmed
+    .strip_prefix("Bearer ")
+    .or_else(|| trimmed.strip_prefix("bearer "))
+    .and_then(|token| sanitize_token(Some(token)))
+}
+
+fn sanitize_token(token: Option<&str>) -> Option<String> {
+  token
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(ToOwned::to_owned)
+}
+
+fn map_websocket_auth_error(err: SupabaseAuthError) -> AppError {
+  match err {
+    SupabaseAuthError::WrongToken | SupabaseAuthError::NotAuthenticated => {
+      AppError::unauthorized("invalid or expired supabase access token")
+    }
+    SupabaseAuthError::AuthError { status, .. } if status.as_u16() == 401 => {
+      AppError::unauthorized("invalid or expired supabase access token")
+    }
+    other => map_supabase_auth_error(other),
+  }
 }
 
 fn to_json_ws_message<T: Serialize>(value: &T) -> Option<Message> {

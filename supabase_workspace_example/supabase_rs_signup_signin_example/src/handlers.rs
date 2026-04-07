@@ -1,12 +1,11 @@
 use axum::{Json, extract::State, http::StatusCode};
 use serde_json::json;
-use supabase_auth::{
-  error::Error as SupabaseAuthError,
-  models::{EmailSignUpResult, Session, SignUpWithPasswordOptions},
-};
+use supabase_auth::models::{EmailSignUpResult, Session, SignUpWithPasswordOptions};
 
 use crate::{
-  auth::{hash_password, issue_token, validate_credentials, verify_password},
+  auth::{
+    hash_password, issue_token, map_supabase_auth_error, validate_credentials, verify_password,
+  },
   error::{AppError, AppResult},
   models::{
     ApiMessage, AppState, AuthResponse, IndexResponse, StoredUserRow, SupabaseAuthResponse,
@@ -37,8 +36,7 @@ pub async fn index() -> Json<IndexResponse> {
       "TLS_CERT_PATH",
       "TLS_KEY_PATH",
     ],
-    recommended_sql:
-      "create extension if not exists pgcrypto;\ncreate table public.app_users (\n  id uuid \
+    recommended_sql: "create extension if not exists pgcrypto;\ncreate table public.app_users (\n  id uuid \
        primary key default gen_random_uuid(),\n  email text not null unique,\n  password_hash text \
        not null,\n  created_at timestamptz not null default now()\n);",
   })
@@ -244,22 +242,5 @@ fn response_from_supabase_session(
     expires_at: Some(session.expires_at),
     message,
     confirmation_sent_at,
-  }
-}
-
-fn map_supabase_auth_error(err: SupabaseAuthError) -> AppError {
-  match err {
-    SupabaseAuthError::AlreadySignedUp => AppError::conflict("user already exists"),
-    SupabaseAuthError::WrongCredentials | SupabaseAuthError::UserNotFound => {
-      AppError::unauthorized("invalid email or password")
-    }
-    SupabaseAuthError::AuthError { status, message } => {
-      let status_code = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-      AppError {
-        status: status_code,
-        message,
-      }
-    }
-    other => AppError::internal(format!("supabase_auth request failed: {other}")),
   }
 }

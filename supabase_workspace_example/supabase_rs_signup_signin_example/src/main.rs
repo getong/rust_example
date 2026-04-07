@@ -32,6 +32,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .init();
 
+  rustls::crypto::ring::default_provider()
+    .install_default()
+    .map_err(|_| "failed to install rustls crypto provider")?;
+
   dotenv().ok();
 
   let config = AppConfig::from_env()?;

@@ -1,6 +1,9 @@
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, path::PathBuf};
 
 use crate::error::{AppError, AppResult};
+
+const DEFAULT_TLS_CERT_PATH: &str = "certs/localhost.crt";
+const DEFAULT_TLS_KEY_PATH: &str = "certs/localhost.key";
 
 #[derive(Clone)]
 pub struct AppConfig {
@@ -42,8 +45,8 @@ impl AppConfig {
       password_pepper: env::var("AUTH_PASSWORD_PEPPER").unwrap_or_default(),
       supabase_auth_email_redirect_to: read_env_optional("SUPABASE_AUTH_EMAIL_REDIRECT_TO")
         .or_else(|| read_env_optional("SITE_URL")),
-      tls_cert_path: read_env_optional("TLS_CERT_PATH"),
-      tls_key_path: read_env_optional("TLS_KEY_PATH"),
+      tls_cert_path: resolve_tls_path("TLS_CERT_PATH", DEFAULT_TLS_CERT_PATH),
+      tls_key_path: resolve_tls_path("TLS_KEY_PATH", DEFAULT_TLS_KEY_PATH),
     })
   }
 }
@@ -72,4 +75,11 @@ fn read_env_u64_or(key: &str, default: u64) -> u64 {
     .ok()
     .and_then(|value| value.parse::<u64>().ok())
     .unwrap_or(default)
+}
+
+fn resolve_tls_path(env_key: &str, default_relative_path: &str) -> Option<String> {
+  read_env_optional(env_key).or_else(|| {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(default_relative_path);
+    path.is_file().then(|| path.to_string_lossy().into_owned())
+  })
 }
