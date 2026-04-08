@@ -1,0 +1,9 @@
+[package]
+name = "supabase_client_sdk_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dotenvy = "0.15.7"
+supabase-client-sdk = { version = "0.2.2", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }

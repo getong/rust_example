@@ -6,4 +6,5 @@ members = [
   "supabase_auth_example",
   "supabase_rs_example",
   "supabase_rs_signup_signin_example",
+  "supabase_client_sdk_example",
 ]
