@@ -1,7 +1,8 @@
 use std::{
   fs,
+  io::ErrorKind,
   path::{Path, PathBuf},
-  process::{Command, ExitStatus},
+  process::{Command, ExitStatus, Stdio},
 };
 
 use anyhow::{Context, Result, bail, ensure};
@@ -20,6 +21,7 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<()> {
   let cli = Cli::parse();
+  ensure_ffmpeg_available()?;
   ensure!(cli.first != cli.second, "expected two different files");
 
   let (larger_file, smaller_file) = order_by_size(&cli.first, &cli.second)?;
@@ -37,6 +39,21 @@ async fn main() -> Result<()> {
 
   println!("{}", larger_file.display());
   Ok(())
+}
+
+fn ensure_ffmpeg_available() -> Result<()> {
+  match Command::new("ffmpeg")
+    .arg("-version")
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status()
+  {
+    Ok(_) => Ok(()),
+    Err(err) if err.kind() == ErrorKind::NotFound => {
+      bail!("`ffmpeg` was not found in PATH. Please install ffmpeg first and try again.")
+    }
+    Err(err) => Err(err).context("failed to check whether ffmpeg is installed"),
+  }
 }
 
 fn order_by_size(first: &Path, second: &Path) -> Result<(PathBuf, PathBuf)> {
