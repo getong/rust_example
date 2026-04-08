@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "command_example",
+  "command_pipe_example",
+]
