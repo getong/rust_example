@@ -13,6 +13,7 @@ use futures_util::{sink::SinkExt, stream::StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use supabase_auth::error::Error as SupabaseAuthError;
+use tokio::sync::mpsc;
 
 use crate::{
   auth::map_supabase_auth_error,
@@ -120,7 +121,15 @@ async fn handle_socket(
   if let Some(msg) = socket.recv().await {
     match msg {
       Ok(msg) => {
-        if process_message(msg, who).is_break() {
+        let (control_flow, reply) = process_message(msg, who);
+        if let Some(reply) = reply {
+          if socket.send(reply).await.is_err() {
+            tracing::warn!("failed to send websocket echo during handshake addr={who}");
+            return;
+          }
+        }
+
+        if control_flow.is_break() {
           return;
         }
       }
@@ -148,33 +157,48 @@ async fn handle_socket(
   }
 
   let (mut sender, mut receiver) = socket.split();
+  let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<Message>();
 
   let mut send_task = tokio::spawn(async move {
     let mut index = 0usize;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
-      let tick_event = ServerEvent {
-        event: "server_tick",
-        payload: json!({ "index": index }),
-      };
+      tokio::select! {
+        maybe_msg = outbound_rx.recv() => {
+          match maybe_msg {
+            Some(msg) => {
+              if sender.send(msg).await.is_err() {
+                return index;
+              }
+            }
+            None => return index,
+          }
+        }
+        _ = interval.tick() => {
+          let tick_event = ServerEvent {
+            event: "server_tick",
+            payload: json!({ "index": index }),
+          };
 
-      if let Some(msg) = to_json_ws_message(&tick_event) {
-        if sender.send(msg).await.is_err() {
-          return index;
+          if let Some(msg) = to_json_ws_message(&tick_event) {
+            if sender.send(msg).await.is_err() {
+              return index;
+            }
+          }
+
+          if index > 0 && index % 10 == 0 {
+            if sender
+              .send(Message::Ping(Bytes::from_static(b"keepalive")))
+              .await
+              .is_err()
+            {
+              return index;
+            }
+          }
+
+          index += 1;
         }
       }
-
-      if index > 0 && index % 10 == 0 {
-        if sender
-          .send(Message::Ping(Bytes::from_static(b"keepalive")))
-          .await
-          .is_err()
-        {
-          return index;
-        }
-      }
-
-      index += 1;
-      tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
   });
 
@@ -182,7 +206,14 @@ async fn handle_socket(
     let mut count = 0;
     while let Some(Ok(msg)) = receiver.next().await {
       count += 1;
-      if process_message(msg, who).is_break() {
+      let (control_flow, reply) = process_message(msg, who);
+      if let Some(reply) = reply {
+        if outbound_tx.send(reply).is_err() {
+          break;
+        }
+      }
+
+      if control_flow.is_break() {
         break;
       }
     }
@@ -259,25 +290,53 @@ fn to_json_ws_message<T: Serialize>(value: &T) -> Option<Message> {
   }
 }
 
-fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
+fn process_message(msg: Message, who: SocketAddr) -> (ControlFlow<(), ()>, Option<Message>) {
   match msg {
     Message::Text(text) => {
-      if let Ok(json_value) = serde_json::from_str::<Value>(&text) {
+      let text = text.to_string();
+      let payload = if let Ok(json_value) = serde_json::from_str::<Value>(&text) {
         tracing::info!("ws text json addr={who} payload={json_value}");
+        json!({
+          "message_type": "text_json",
+          "body": json_value,
+        })
       } else {
         tracing::info!("ws text addr={who} payload={text}");
-      }
+        json!({
+          "message_type": "text",
+          "body": text,
+        })
+      };
+
+      return (ControlFlow::Continue(()), echo_message(payload));
     }
     Message::Binary(data) => {
-      if let Ok(text) = std::str::from_utf8(&data) {
+      let payload = if let Ok(text) = std::str::from_utf8(&data) {
         if let Ok(json_value) = serde_json::from_str::<Value>(text) {
           tracing::info!("ws binary json addr={who} payload={json_value}");
+          json!({
+            "message_type": "binary_json",
+            "body": json_value,
+            "byte_len": data.len(),
+          })
         } else {
           tracing::info!("ws binary utf8 addr={who} payload={text}");
+          json!({
+            "message_type": "binary_utf8",
+            "body": text,
+            "byte_len": data.len(),
+          })
         }
       } else {
         tracing::info!("ws binary raw addr={who} bytes={}", data.len());
-      }
+        json!({
+          "message_type": "binary_raw",
+          "body": format!("<{} binary bytes>", data.len()),
+          "byte_len": data.len(),
+        })
+      };
+
+      return (ControlFlow::Continue(()), echo_message(payload));
     }
     Message::Close(close_frame) => {
       if let Some(frame) = close_frame {
@@ -289,7 +348,7 @@ fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
       } else {
         tracing::info!("ws close addr={who} without frame");
       }
-      return ControlFlow::Break(());
+      return (ControlFlow::Break(()), None);
     }
     Message::Pong(value) => {
       tracing::info!("ws pong addr={who} payload={value:?}");
@@ -299,5 +358,14 @@ fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
     }
   }
 
-  ControlFlow::Continue(())
+  (ControlFlow::Continue(()), None)
+}
+
+fn echo_message(payload: Value) -> Option<Message> {
+  let event = ServerEvent {
+    event: "client_message",
+    payload,
+  };
+
+  to_json_ws_message(&event)
 }
