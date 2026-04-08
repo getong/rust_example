@@ -17,7 +17,8 @@ struct Cli {
   second: PathBuf,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
   let cli = Cli::parse();
   ensure!(cli.first != cli.second, "expected two different files");
 
