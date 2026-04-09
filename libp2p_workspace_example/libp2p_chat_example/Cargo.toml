@@ -5,10 +5,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.100"
-bytes = "1.11.0"
-futures = "0.3.31"
+anyhow = "1.0.102"
+bytes = "1.11.1"
+futures = "0.3.32"
 libp2p = { version = "0.56", features = ["full"] }
 rocket = { version = "0.5.1", features = ["json"] }
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.51.1", features = ["full"] }
 tokio-util = { version = "0.7.18", features = ["codec"] }

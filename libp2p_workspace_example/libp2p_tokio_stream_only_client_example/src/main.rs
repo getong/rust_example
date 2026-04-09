@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
 use libp2p::{identity, multiaddr::Protocol, Multiaddr, PeerId, Stream, StreamProtocol};
 use libp2p_stream as stream;
-use rand::RngCore;
+use rand::Rng;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
