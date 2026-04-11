@@ -1,0 +1,12 @@
+* rust2go workspace example
+
+#+begin_src shell
+# modify go library
+cd streamchat_go_example
+cd go
+go mod tidy
+
+# compile
+cd ../
+cargo build
+#+end_src
