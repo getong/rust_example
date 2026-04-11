@@ -1,0 +1,11 @@
+[package]
+name = "example-tokio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rust2go = "0.4.3"
+tokio = { version = "1.51.1", features = ["full"] }
+
+[build-dependencies]
+rust2go = { version = "0.4.3", features = ["build"] }
