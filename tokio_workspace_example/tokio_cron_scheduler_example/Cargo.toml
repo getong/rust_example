@@ -3,6 +3,9 @@ name = "tokio_cron_scheduler_example"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+signal = ["tokio/signal"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -15,6 +18,3 @@ tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
 tracing = "0.1.43"
 tracing-subscriber = "0.3.22"
 uuid = "1.19.0"
-
-[features]
-signal = ["tokio/signal"]
