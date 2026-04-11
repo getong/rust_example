@@ -18,6 +18,13 @@ typedef struct StringRef {
   uintptr_t len;
 } StringRef;
 
+typedef struct StreamChatExpiringTokenRequestRef {
+  struct StringRef api_key;
+  struct StringRef api_secret;
+  struct StringRef user_id;
+  uint64_t expiration_seconds;
+} StreamChatExpiringTokenRequestRef;
+
 typedef struct StreamChatTokenRequestRef {
   struct StringRef api_key;
   struct StringRef api_secret;
@@ -42,12 +49,24 @@ var StreamChatCallImpl StreamChatCall
 
 type StreamChatCall interface {
 	create_token(req *StreamChatTokenRequest) StreamChatTokenResponse
+	create_token_with_expiration(req *StreamChatExpiringTokenRequest) StreamChatTokenResponse
 }
 
 //export CStreamChatCall_create_token
 func CStreamChatCall_create_token(req C.StreamChatTokenRequestRef, slot *C.void, cb *C.void) {
 	_new_req := newStreamChatTokenRequest(req)
 	resp := StreamChatCallImpl.create_token(&_new_req)
+	resp_ref, buffer := cvt_ref(cntStreamChatTokenResponse, refStreamChatTokenResponse)(&resp)
+	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
+	runtime.KeepAlive(resp_ref)
+	runtime.KeepAlive(resp)
+	runtime.KeepAlive(buffer)
+}
+
+//export CStreamChatCall_create_token_with_expiration
+func CStreamChatCall_create_token_with_expiration(req C.StreamChatExpiringTokenRequestRef, slot *C.void, cb *C.void) {
+	_new_req := newStreamChatExpiringTokenRequest(req)
+	resp := StreamChatCallImpl.create_token_with_expiration(&_new_req)
 	resp_ref, buffer := cvt_ref(cntStreamChatTokenResponse, refStreamChatTokenResponse)(&resp)
 	asmcall.CallFuncG0P2(unsafe.Pointer(cb), unsafe.Pointer(&resp_ref), unsafe.Pointer(slot))
 	runtime.KeepAlive(resp_ref)
@@ -249,6 +268,43 @@ func refStreamChatTokenRequest(p *StreamChatTokenRequest, buffer *[]byte) C.Stre
 		api_key:    refString(&p.api_key, buffer),
 		api_secret: refString(&p.api_secret, buffer),
 		user_id:    refString(&p.user_id, buffer),
+	}
+}
+
+type StreamChatExpiringTokenRequest struct {
+	api_key            string
+	api_secret         string
+	user_id            string
+	expiration_seconds uint64
+}
+
+func newStreamChatExpiringTokenRequest(p C.StreamChatExpiringTokenRequestRef) StreamChatExpiringTokenRequest {
+	return StreamChatExpiringTokenRequest{
+		api_key:            newString(p.api_key),
+		api_secret:         newString(p.api_secret),
+		user_id:            newString(p.user_id),
+		expiration_seconds: newC_uint64_t(p.expiration_seconds),
+	}
+}
+func ownStreamChatExpiringTokenRequest(p C.StreamChatExpiringTokenRequestRef) StreamChatExpiringTokenRequest {
+	return StreamChatExpiringTokenRequest{
+		api_key:            ownString(p.api_key),
+		api_secret:         ownString(p.api_secret),
+		user_id:            ownString(p.user_id),
+		expiration_seconds: newC_uint64_t(p.expiration_seconds),
+	}
+}
+func cntStreamChatExpiringTokenRequest(s *StreamChatExpiringTokenRequest, cnt *uint) [0]C.StreamChatExpiringTokenRequestRef {
+	_ = s
+	_ = cnt
+	return [0]C.StreamChatExpiringTokenRequestRef{}
+}
+func refStreamChatExpiringTokenRequest(p *StreamChatExpiringTokenRequest, buffer *[]byte) C.StreamChatExpiringTokenRequestRef {
+	return C.StreamChatExpiringTokenRequestRef{
+		api_key:            refString(&p.api_key, buffer),
+		api_secret:         refString(&p.api_secret, buffer),
+		user_id:            refString(&p.user_id, buffer),
+		expiration_seconds: refC_uint64_t(&p.expiration_seconds, buffer),
 	}
 }
 

@@ -1,4 +1,12 @@
 github.com/GetStream/getstream-go/v4 v4.0.4 h1:nkD/s42M+06eOpa4m8n38ukumqxX4LlCAEzrRU27kmw=
 github.com/GetStream/getstream-go/v4 v4.0.4/go.mod h1:A5hd7TxT8nSZBWazr4403j05dqP0F8pt7vi8YAJj+9M=
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/golang-jwt/jwt/v5 v5.2.1 h1:OuVbFODueb089Lh128TAcimifWaLhJwVflnrgM17wHk=
 github.com/golang-jwt/jwt/v5 v5.2.1/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/ihciah/rust2go v0.0.0-20260314034108-6f06b0697c1b h1:5t8wONjmMs2KNn8E4LAIu0XeYRjv/k7UJ37NZrI62rU=
+github.com/ihciah/rust2go v0.0.0-20260314034108-6f06b0697c1b/go.mod h1:SpcZZoVYDXYhx373JZ1onR8dnEcalKA0H61x/FJ9O0s=
+github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
