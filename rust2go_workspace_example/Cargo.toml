@@ -5,4 +5,5 @@ resolver = "3"
 members = [
   "example-tokio",
   "streamchat_go_example",
+  "http_example",
 ]
