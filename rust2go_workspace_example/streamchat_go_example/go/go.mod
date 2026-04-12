@@ -1,6 +1,6 @@
 module streamchat_go_example
 
-go 1.18
+go 1.26.2
 
 require (
 	github.com/GetStream/getstream-go/v4 v4.0.4
