@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let client = Client::with_options(client_options)?;
   // Print the databases in our MongoDB cluster:
   println!("Databases:");
-  for name in client.list_database_names(None, None).await? {
+  for name in client.list_database_names().await? {
     println!("- {}", name);
   }
   Ok(())

@@ -7,6 +7,20 @@
 :CUSTOM_ID: run-command
 :END:
 #+begin_src shell
-docker run --privileged --restart=always -d -p 27017:27017 -e MONGO_INITDB_ROOT_USERNAME=user -e MONGO_INITDB_ROOT_PASSWORD=123456 mongo:4.2.8
+docker run \
+  --privileged \
+  --restart=always \
+  -d \
+  -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=mongoadmin \
+  -e MONGO_INITDB_ROOT_PASSWORD=secret \
+  mongo:8.2.6-noble
 cargo run
+#+end_src
+
+If your MongoDB container is published on a different host port, set =MONGODB_URI=
+before running the example.
+
+#+begin_src shell
+MONGODB_URI=mongodb://mongoadmin:secret@localhost:27010 cargo run
 #+end_src
