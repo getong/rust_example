@@ -8,6 +8,14 @@ socket.addEventListener('message', function (event) {
     console.log('Message from server ', event.data);
 });
 
+socket.addEventListener('close', function (event) {
+    console.log('WebSocket closed', event.code, event.reason);
+});
+
+socket.addEventListener('error', function (event) {
+    console.log('WebSocket error', event);
+});
+
 
 setTimeout(() => {
     const obj = { hello: "world" };
@@ -17,9 +25,3 @@ setTimeout(() => {
     console.log("Sending blob over websocket");
     socket.send(blob);
 }, 1000);
-
-setTimeout(() => {
-    socket.send('About done here...');
-    console.log("Sending close over websocket");
-    socket.close(3000, "Crash and Burn!");
-}, 3000);
