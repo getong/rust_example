@@ -67,6 +67,7 @@ members = [
   # "axum_ssr_react_example",
   "axum_session_sqlx_example",
   "axum_wss_example",
+  "axum_socketioxide_echo_tls",
 ]
 
 exclude = [
