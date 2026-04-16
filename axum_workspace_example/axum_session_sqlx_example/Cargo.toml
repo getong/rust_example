@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 async-trait = "0.1.89"
-axum = { version = "0.8.8" }
+axum = { version = "0.8.9" }
 axum_session = "0.19.0"
 axum_session_auth = "0.19.0"
 axum_session_sqlx = { version = "0.8.0", features = ["sqlite"] }
@@ -20,4 +20,4 @@ sqlx = { version = "0.8.6", features = [
     "tls-rustls",
     "runtime-tokio",
 ] }
-tokio = { version = "1.51.0", features = ["full", "tracing"] }
+tokio = { version = "1.52.0", features = ["full", "tracing"] }

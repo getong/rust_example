@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.8"
+axum = "0.8.9"
 hyper = { version = "1.9.0", features = ["full"] }
 hyper-util = { version = "0.1.20", features = ["full"] }
-tokio = { version = "1.51.0", features = ["full"] }
+tokio = { version = "1.52.0", features = ["full"] }
 tower = { version = "0.5.3", features = ["full"] }

@@ -11,9 +11,9 @@ aide = { version = "=0.16.0-alpha.2", features = [
   "axum-json",
   "macros",
 ] }
-axum = { version = "0.8.8", features = ["macros"] }
+axum = { version = "0.8.9", features = ["macros"] }
 schemars = { version = "1", features = ["uuid1"] }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
-tokio = { version = "1.51.0", features = ["full"] }
+tokio = { version = "1.52.0", features = ["full"] }
 uuid = { version = "1.23.0", features = ["serde", "v4"] }
