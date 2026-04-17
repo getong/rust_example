@@ -2,7 +2,7 @@ use std::env;
 
 use chrono::{Duration, NaiveDateTime, Utc};
 use dotenv::dotenv;
-use rand::{distr::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, RngExt};
 use sqlx::{postgres::PgPoolOptions, query, query_as, FromRow};
 
 #[derive(Debug, FromRow)]

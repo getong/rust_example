@@ -13,4 +13,4 @@ sqlx = { version = "0.8", features = [
   "any",
   "bigdecimal",
 ] }
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.52.1", features = ["full"] }

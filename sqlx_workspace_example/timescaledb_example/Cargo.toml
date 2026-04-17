@@ -12,4 +12,4 @@ sqlx = { version = "0.8", default-features = false, features = [
   "postgres",
   "runtime-tokio-rustls",
 ] }
-tokio = { version = "1.49", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
