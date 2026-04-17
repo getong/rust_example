@@ -1,0 +1,8 @@
+[package]
+name = "generate_pem"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aws-lc-rs = "1.16.3"
+aws-lc-sys = "0.40.0"
