@@ -2,7 +2,7 @@ use std::env;
 
 use chrono::{NaiveDateTime, Utc};
 use dotenv::dotenv;
-use rand::{distr::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, RngExt};
 use sqlx::{postgres::PgPoolOptions, query_as, FromRow, PgConnection};
 
 #[derive(Debug, FromRow)]
@@ -26,9 +26,10 @@ pub struct MyDataValue {
   pub value: String,
 }
 
+#[derive(Debug)]
 // Define a struct to hold the result
 pub struct SumResult {
-  pub sum: Option<i64>,
+  pub sum: i64,
 }
 
 #[tokio::main]
@@ -156,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 
   // Define the query
-  let row: (i64,) = sqlx::query_as("SELECT SUM(id) FROM daily_data where id > $1")
+  let row: (i64,) = sqlx::query_as("SELECT COALESCE(SUM(id), 0) FROM daily_data where id > $1")
     .bind(1)
     .fetch_one(&mut *conn)
     .await?;
@@ -167,9 +168,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   println!("Sum of queries: {}", sum_of_queries);
 
   // Execute the query and map the result to the struct
-  let result = query_as!(SumResult, "SELECT SUM(id) FROM daily_data where id > $1", 1)
-    .fetch_one(&mut *conn)
-    .await?;
+  let result = query_as!(
+    SumResult,
+    "SELECT COALESCE(SUM(id), 0) as \"sum!\" FROM daily_data where id > $1",
+    1
+  )
+  .fetch_one(&mut *conn)
+  .await?;
 
   // Extract the sum
   let sum_of_queries = result.sum;
