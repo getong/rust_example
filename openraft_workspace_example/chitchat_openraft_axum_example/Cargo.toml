@@ -21,20 +21,20 @@ bincode = "=2"
 # chitchat = { git = "https://github.com/quickwit-oss/chitchat", rev = "c6f7809cd782173e8dbddf79e25d9cb40c9c14a4" }
 chitchat = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 cool-id-generator = "1"
 futures = "0.3"
 itertools = "0.14"
 mem-log = { path = "../mem-log", features = [] }
-openraft = { version = "0.10.0-alpha.17", features = [
+openraft = { version = "0.10.0-alpha.18", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.17" }
+openraft-legacy = { version = "0.10.0-alpha.18" }
 schemars = { version = "1", features = ["uuid1"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-tokio = { version = "1.49.0", features = [
+tokio = { version = "1.52.1", features = [
   "net",
   "sync",
   "rt-multi-thread",
@@ -45,8 +45,8 @@ tokio = { version = "1.49.0", features = [
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-uuid = { version = "1.21", features = ["serde", "v4"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.23", features = ["serde", "v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"

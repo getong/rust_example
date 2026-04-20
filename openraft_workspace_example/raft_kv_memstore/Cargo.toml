@@ -6,25 +6,25 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.12.1"
-clap = { version = "4.5.58", features = ["derive", "env"] }
+actix-web = "4.13.0"
+clap = { version = "4.6.1", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
-env_logger = "0.11.9"
+env_logger = "0.11.10"
 futures = "0.3.32"
 log-mem = { path = "../log-mem" }
 mem-log = { path = "../mem-log" }
 network-v1-http = { path = "../network-v1-http" }
-openraft = { version = "0.10.0-alpha.17", features = [
+openraft = { version = "0.10.0-alpha.18", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.17" }
+openraft-legacy = { version = "0.10.0-alpha.18" }
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sm-mem = { path = "../sm-mem" }
-tokio = { version = "1.49.0", default-features = false, features = ["sync"] }
+tokio = { version = "1.52.1", default-features = false, features = ["sync"] }
 tracing = "0.1.44"
 tracing-futures = "0.2.5"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 types-kv = { path = "../types-kv" }

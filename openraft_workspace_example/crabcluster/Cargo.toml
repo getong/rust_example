@@ -24,11 +24,11 @@ clap = { version = "4", features = [
 ] }
 directories = "6"
 futures = "0.3"
-openraft = { version = "0.10.0-alpha.17", features = [
+openraft = { version = "0.10.0-alpha.18", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.17" }
+openraft-legacy = { version = "0.10.0-alpha.18" }
 podman-api = "0.11"
 reqwest = { version = "0.13.2", default-features = false, features = ["json"] }
 # clap_complete = "4"
@@ -45,4 +45,4 @@ tracing = "0.1.44"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-tree = "0.4.1"
-uuid = { version = "1.21", features = ["v4", "serde"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
