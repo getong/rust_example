@@ -9,7 +9,7 @@ futures-util = { version = "0.3.32", features = ["sink", "std"] }
 hyper = { version = "1.9.0", features = ["full"] }
 serde = "1.0.228"
 serde_json = "1.0.149"
-tokio = { version = "1.52.0", features = ["full"] }
+tokio = { version = "1.52.1", features = ["full"] }
 utoipa = "5.4.0"
 utoipa-axum = "0.2"
 utoipa-rapidoc = { version = "6", features = ["axum"] }

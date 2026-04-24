@@ -23,7 +23,7 @@ use axum::{
   body::Bytes,
   extract::{
     connect_info::ConnectInfo,
-    ws::{CloseFrame, Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
+    ws::{Message, WebSocket, WebSocketUpgrade},
   },
   response::IntoResponse,
   routing::any,
@@ -190,10 +190,10 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
   // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
   let (mut sender, mut receiver) = socket.split();
 
-  // Spawn a task that will push several messages to the client (does not matter what client does)
+  // Spawn a task that keeps pushing messages until the connection breaks or the peer closes.
   let mut send_task = tokio::spawn(async move {
-    let n_msg = 20;
-    for i in 0 .. n_msg {
+    let mut i = 0_u64;
+    loop {
       let tick_event = ServerEvent {
         event: "server_tick",
         payload: json!({ "index": i }),
@@ -206,20 +206,9 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         }
       }
 
+      i += 1;
       tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
-
-    println!("Sending close to {who}...");
-    if let Err(e) = sender
-      .send(Message::Close(Some(CloseFrame {
-        code: axum::extract::ws::close_code::NORMAL,
-        reason: Utf8Bytes::from_static("Goodbye"),
-      })))
-      .await
-    {
-      println!("Could not send Close due to {e}, probably it is ok?");
-    }
-    n_msg
   });
 
   // This second task will receive messages from client and print them on server console

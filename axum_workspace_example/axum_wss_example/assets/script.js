@@ -29,14 +29,3 @@ setTimeout(() => {
     console.log("Sending JSON blob over websocket");
     socket.send(blob);
 }, 1000);
-
-setTimeout(() => {
-    socket.send(JSON.stringify({
-        event: "done",
-        payload: {
-            message: "About done here...",
-        },
-    }));
-    console.log("Sending close over websocket");
-    socket.close(3000, "Crash and Burn!");
-}, 3000);
