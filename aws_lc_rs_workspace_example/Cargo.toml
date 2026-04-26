@@ -5,4 +5,5 @@ resolver = "3"
 members = [
   "aws_lc_rs_example",
   "generate_pem",
+  "oaep_example",
 ]
