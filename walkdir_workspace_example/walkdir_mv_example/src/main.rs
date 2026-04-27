@@ -130,15 +130,21 @@ fn flatten_if_single_child_dir(dir: &Path) -> io::Result<bool> {
   }
 
   let entries = fs::read_dir(dir)?.collect::<Result<Vec<_>, io::Error>>()?;
-  let child_dirs: Vec<PathBuf> = entries
-    .into_iter()
-    .filter_map(|entry| match entry.file_type() {
-      Ok(ft) if ft.is_dir() => Some(entry.path()),
-      _ => None,
-    })
-    .collect();
+  let mut child_dirs = Vec::new();
+  let mut visible_non_dir_count = 0usize;
 
-  if child_dirs.len() != 1 {
+  for entry in entries {
+    if is_hidden_name(entry.file_name().as_os_str()) {
+      continue;
+    }
+
+    match entry.file_type()? {
+      ft if ft.is_dir() => child_dirs.push(entry.path()),
+      _ => visible_non_dir_count += 1,
+    }
+  }
+
+  if child_dirs.len() != 1 || visible_non_dir_count != 0 {
     return Ok(false);
   }
 
@@ -194,4 +200,8 @@ fn flatten_if_single_child_dir(dir: &Path) -> io::Result<bool> {
   }
 
   Ok(touched)
+}
+
+fn is_hidden_name(name: &OsStr) -> bool {
+  name.to_string_lossy().starts_with('.')
 }
