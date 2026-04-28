@@ -52,6 +52,11 @@ public key, and the server reverses that process before hashing the password.
   verifies the submitted password with =Argon2id=. On failure, it returns
   =401 Unauthorized= with =invalid_credentials=.
 
+- =GET /ws/{room}=
+  Upgrades the HTTPS connection to WSS for a room-scoped chat channel. Every
+  client connected to the same =room= receives =chat_message= broadcasts and
+  =presence= updates when peers join or leave.
+
 ** Run
 
 Project layout now looks like this:
@@ -139,6 +144,30 @@ Fetch the public key:
 #+begin_src bash
 curl -k https://localhost:3030/public-key
 #+end_src
+
+Open a websocket room:
+
+#+begin_src text
+wss://localhost:3030/ws/general
+#+end_src
+
+Client messages must be JSON like:
+
+#+begin_src json
+{
+  "event": "chat_message",
+  "payload": {
+    "user": "alice",
+    "msg": "hello room"
+  }
+}
+#+end_src
+
+The server sends:
+
+- =welcome= when the socket is accepted
+- =presence= when a peer joins or leaves the room
+- =chat_message= when a room message is broadcast
 
 Typical response shape:
 

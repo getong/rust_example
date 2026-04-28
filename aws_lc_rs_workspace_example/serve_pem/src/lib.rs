@@ -7,6 +7,7 @@ use axum::{
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
+mod chat;
 mod crypto;
 mod db;
 mod error;
@@ -32,12 +33,16 @@ pub const PASSWORD_HASH_LENGTH: usize = 32;
 pub const MIN_PASSWORD_PEPPER_BYTES: usize = 16;
 pub const PUB_KEY_FILE: &str = "public_key.der";
 pub const PRIV_KEY_FILE: &str = "private_key.pk8";
+pub const MAX_CHAT_ROOM_NAME_BYTES: usize = 64;
+pub const MAX_CHAT_USER_NAME_BYTES: usize = 64;
+pub const MAX_CHAT_MESSAGE_BYTES: usize = 2048;
 
 #[derive(Clone)]
 pub struct AppState {
   pub(crate) crypto: Arc<CryptoState>,
   pub(crate) db_pool: PgPool,
   pub(crate) password_pepper: Option<Arc<Vec<u8>>>,
+  pub(crate) chat: Arc<chat::ChatState>,
 }
 
 impl AppState {
@@ -50,6 +55,7 @@ impl AppState {
       crypto: Arc::new(crypto),
       db_pool,
       password_pepper: password_pepper.map(Arc::new),
+      chat: Arc::new(chat::ChatState::new()),
     }
   }
 }
@@ -59,6 +65,7 @@ pub fn build_router(state: AppState) -> Router {
     .route("/public-key", get(handlers::get_public_key_handler))
     .route("/register", post(handlers::register_handler))
     .route("/login", post(handlers::login_handler))
+    .route("/ws/{room}", get(handlers::ws_handler))
     .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY_BYTES))
     .with_state(state)
 }
@@ -90,7 +97,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
 
   println!("Listening on https://{addr}");
   axum_server::bind_rustls(addr, tls_config)
-    .serve(build_router(state).into_make_service())
+    .serve(build_router(state).into_make_service_with_connect_info::<SocketAddr>())
     .await?;
   Ok(())
 }

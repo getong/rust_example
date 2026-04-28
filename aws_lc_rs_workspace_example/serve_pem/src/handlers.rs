@@ -1,12 +1,15 @@
+use std::{net::SocketAddr, sync::Arc};
+
 use aws_lc_rs::aead::NONCE_LEN;
 use axum::{
   Json,
-  extract::{State, rejection::JsonRejection},
+  extract::{ConnectInfo, Path, State, rejection::JsonRejection, ws::WebSocketUpgrade},
+  response::IntoResponse,
 };
 use zeroize::Zeroize;
 
 use crate::{
-  AppState,
+  AppState, chat,
   db::{find_user_credentials, insert_registered_user},
   error::ApiError,
   models::{LoginResponse, PublicKeyResponse, RegisterRequest, RegisterResponse},
@@ -48,6 +51,21 @@ pub(crate) async fn get_public_key_handler(
     nonce_bytes: NONCE_LEN,
     max_wrapped_key_plaintext_bytes: state.crypto.max_wrapped_key_plaintext_bytes,
   })
+}
+
+pub(crate) async fn ws_handler(
+  State(state): State<AppState>,
+  Path(room): Path<String>,
+  ConnectInfo(addr): ConnectInfo<SocketAddr>,
+  ws: WebSocketUpgrade,
+) -> Result<impl IntoResponse, ApiError> {
+  let room = chat::normalize_room_name(&room).ok_or(ApiError::bad_request(
+    "invalid_chat_room",
+    "room name must be non-empty and contain only ASCII letters, digits, '.', '_' or '-'",
+  ))?;
+  let state = Arc::new(state);
+
+  Ok(ws.on_upgrade(move |socket| chat::run_socket(state, room, addr, socket)))
 }
 
 pub(crate) async fn register_handler(
