@@ -1,0 +1,188 @@
+* serve_pem
+
+Small Axum service that exposes an RSA public key and accepts an RSA-OAEP
+encrypted registration payload.
+
+The current code does *not* use Ed25519 anymore. It uses an RSA-2048 keypair so
+clients can encrypt registration data with the public key and the server can
+decrypt it with the private key.
+
+** What The Service Does
+
+- =GET /public-key=
+  Returns the server public key in PEM form, the same key in base64 DER, a
+  SHA-256 hash of the DER bytes, and the maximum plaintext size supported by the
+  RSA-OAEP configuration.
+
+- =POST /register=
+  Accepts JSON in this format:
+
+#+begin_src json
+{
+  "ciphertext_base64": "..."
+}
+#+end_src
+
+  The =ciphertext_base64= field must be the base64 encoding of an RSA-OAEP
+  ciphertext generated with:
+
+- RSA public key from =/public-key=
+- OAEP hash = SHA-256
+- MGF1 hash = SHA-256
+- No OAEP label
+
+  After decryption, the plaintext must be JSON like this:
+
+#+begin_src json
+{
+  "client_public_key": "client-public-key",
+  "password": "super-secret-password"
+}
+#+end_src
+
+** Run
+
+Default port is =3030=.
+
+#+begin_src bash
+cargo run
+#+end_src
+
+Use a custom port:
+
+#+begin_src bash
+PORT=4040 cargo run
+#+end_src
+
+When the service starts, it will create or reuse:
+
+- =private_key.pk8= for the RSA private key
+- =public_key.der= for the RSA public key
+
+If an old non-RSA =private_key.pk8= exists, the service will back it up as:
+
+#+begin_src text
+private_key.pk8.legacy.<timestamp>
+#+end_src
+
+and then generate a fresh RSA keypair.
+
+** Quick API Check
+
+Fetch the public key:
+
+#+begin_src bash
+curl http://localhost:3030/public-key
+#+end_src
+
+Typical response shape:
+
+#+begin_src json
+{
+  "algorithm": "RSA-OAEP-256",
+  "key_format": "X.509 SubjectPublicKeyInfo PEM",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+  "public_key_der_base64": "...",
+  "sha256_hash": "...",
+  "max_plaintext_bytes": 190
+}
+#+end_src
+
+** End-To-End CLI Use Case
+
+This example shows a registration flow using =curl=, =jq=, and =openssl=.
+
+Requirements:
+
+- =curl=
+- =jq=
+- =openssl=
+
+*** 1. Start The Server
+
+#+begin_src bash
+cargo run
+#+end_src
+
+Leave that terminal running.
+
+*** 2. Fetch The Server Public Key
+
+#+begin_src bash
+curl -s http://localhost:3030/public-key > public-key-response.json
+jq -r '.public_key_pem' public-key-response.json > server_public_key.pem
+#+end_src
+
+Inspect the metadata if needed:
+
+#+begin_src bash
+jq . public-key-response.json
+#+end_src
+
+*** 3. Build The Registration Plaintext
+
+Create the JSON that the server expects *after* decryption:
+
+#+begin_src bash
+cat > register_payload.json <<'EOF'
+{
+  "client_public_key": "client-abc-123",
+  "password": "correct-horse-battery-staple"
+}
+EOF
+#+end_src
+
+*** 4. Encrypt The Payload With RSA-OAEP-SHA256
+
+The service expects OAEP with SHA-256 for both the OAEP digest and MGF1 digest.
+
+#+begin_src bash
+openssl pkeyutl \
+  -encrypt \
+  -pubin \
+  -inkey server_public_key.pem \
+  -in register_payload.json \
+  -out register_payload.bin \
+  -pkeyopt rsa_padding_mode:oaep \
+  -pkeyopt rsa_oaep_md:sha256 \
+  -pkeyopt rsa_mgf1_md:sha256
+#+end_src
+
+Convert the ciphertext to one-line base64:
+
+#+begin_src bash
+openssl base64 -A -in register_payload.bin -out register_payload.b64
+#+end_src
+
+*** 5. Submit =/register=
+
+#+begin_src bash
+CIPHERTEXT_BASE64="$(cat register_payload.b64)"
+
+curl -s http://localhost:3030/register \
+  -H 'content-type: application/json' \
+  --data "$(jq -n --arg ciphertext_base64 "$CIPHERTEXT_BASE64" '{ciphertext_base64: $ciphertext_base64}')"
+#+end_src
+
+Typical response:
+
+#+begin_src json
+{
+  "status": "registered",
+  "client_public_key_sha256": "...",
+  "password_sha256": "..."
+}
+#+end_src
+
+The server currently returns SHA-256 hashes of the decrypted fields instead of
+echoing the plaintext back.
+
+** Notes
+
+- The plaintext JSON sent into RSA encryption must fit inside
+  =max_plaintext_bytes= from =/public-key=. With RSA-2048 and OAEP-SHA256, that
+  is typically =190= bytes.
+- If the client encrypts with the wrong padding or hash settings, =/register=
+  will return an error like =ciphertext could not be decrypted=.
+- This project is a demo transport flow. The current =/register= handler does
+  not persist users or implement production password handling.

@@ -6,4 +6,5 @@ members = [
   "aws_lc_rs_example",
   "generate_pem",
   "oaep_example",
+  "serve_pem",
 ]
