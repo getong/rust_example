@@ -1,35 +1,37 @@
 * serve_pem
 
-Small Axum service that exposes an RSA public key and accepts an RSA-OAEP
-encrypted registration payload.
+Small Axum service that exposes an RSA public key and accepts a hybrid-encrypted
+registration payload, then persists registered users into PostgreSQL.
 
-The current code does *not* use Ed25519 anymore. It uses an RSA-2048 keypair so
-clients can encrypt registration data with the public key and the server can
-decrypt it with the private key.
+The current code does *not* use Ed25519 anymore. It uses an RSA-2048 keypair to
+wrap a per-request AES-256-GCM content-encryption key. Clients encrypt the
+registration JSON with AES-256-GCM, encrypt that AES key with the server RSA
+public key, and the server reverses that process before hashing the password.
 
 ** What The Service Does
 
 - =GET /public-key=
   Returns the server public key in PEM form, the same key in base64 DER, a
-  SHA-256 hash of the DER bytes, and the maximum plaintext size supported by the
-  RSA-OAEP configuration.
+  SHA-256 hash of the DER bytes, and the transport metadata clients need for
+  RSA-OAEP-256 key wrapping plus AES-256-GCM payload encryption.
 
 - =POST /register=
   Accepts JSON in this format:
 
 #+begin_src json
 {
+  "wrapped_key_base64": "...",
+  "nonce_base64": "...",
   "ciphertext_base64": "..."
 }
 #+end_src
 
-  The =ciphertext_base64= field must be the base64 encoding of an RSA-OAEP
-  ciphertext generated with:
+  The request fields are:
 
-- RSA public key from =/public-key=
-- OAEP hash = SHA-256
-- MGF1 hash = SHA-256
-- No OAEP label
+- =wrapped_key_base64=: RSA-OAEP-SHA256 encryption of a random 32-byte AES key
+- =nonce_base64=: random 12-byte AES-GCM nonce
+- =ciphertext_base64=: AES-256-GCM ciphertext of the registration JSON, with the
+  authentication tag appended
 
   After decryption, the plaintext must be JSON like this:
 
@@ -40,12 +42,73 @@ decrypt it with the private key.
 }
 #+end_src
 
+  The server hashes =password= with =Argon2id= before storage. It stores the
+  PHC-formatted password hash, never the plaintext password.
+
+- =POST /login=
+  Accepts the same hybrid-encrypted request shape as =/register=. After
+  decryption, the payload must contain =client_public_key= and =password=. The
+  server looks up the user by =client_public_key_sha256= in PostgreSQL and
+  verifies the submitted password with =Argon2id=. On failure, it returns
+  =401 Unauthorized= with =invalid_credentials=.
+
 ** Run
+
+Project layout now looks like this:
+
+#+begin_src text
+src/
+  main.rs
+  lib.rs
+  crypto.rs
+  db.rs
+  error.rs
+  handlers.rs
+  models.rs
+  password.rs
+  service.rs
+tests/
+  login_integration.rs
+migrations/
+  20260428051919_create_users_table.sql
+#+end_src
 
 Default port is =3030=.
 
+Set the database connection string first:
+
+#+begin_src bash
+export DATABASE_URL=postgres://postgres:your-password@localhost:5432/serve_pem
+#+end_src
+
+Optional but recommended: configure a server-side pepper that is *not* stored
+in PostgreSQL:
+
+#+begin_src bash
+export PASSWORD_PEPPER='replace-with-a-random-secret-at-least-16-bytes-long'
+#+end_src
+
+Create the database and run migrations with =sqlx-cli=:
+
+#+begin_src bash
+sqlx database create
+sqlx migrate run
+#+end_src
+
 #+begin_src bash
 cargo run
+#+end_src
+
+Run only the integration tests that hit local PostgreSQL:
+
+#+begin_src bash
+cargo test --test login_integration -- --nocapture
+#+end_src
+
+Run only the unit tests in the library crate:
+
+#+begin_src bash
+cargo test --lib
 #+end_src
 
 Use a custom port:
@@ -79,12 +142,16 @@ Typical response shape:
 
 #+begin_src json
 {
-  "algorithm": "RSA-OAEP-256",
+  "transport": "RSA-OAEP-256 + AES-256-GCM",
+  "key_encryption_algorithm": "RSA-OAEP-256",
+  "content_encryption_algorithm": "AES-256-GCM",
   "key_format": "X.509 SubjectPublicKeyInfo PEM",
   "public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
   "public_key_der_base64": "...",
   "sha256_hash": "...",
-  "max_plaintext_bytes": 190
+  "wrapped_key_bytes": 256,
+  "nonce_bytes": 12,
+  "max_wrapped_key_plaintext_bytes": 190
 }
 #+end_src
 
@@ -132,36 +199,38 @@ cat > register_payload.json <<'EOF'
 EOF
 #+end_src
 
-*** 4. Encrypt The Payload With RSA-OAEP-SHA256
+*** 4. Encrypt The Payload With The Hybrid Scheme
 
-The service expects OAEP with SHA-256 for both the OAEP digest and MGF1 digest.
+The transport is now:
 
-#+begin_src bash
-openssl pkeyutl \
-  -encrypt \
-  -pubin \
-  -inkey server_public_key.pem \
-  -in register_payload.json \
-  -out register_payload.bin \
-  -pkeyopt rsa_padding_mode:oaep \
-  -pkeyopt rsa_oaep_md:sha256 \
-  -pkeyopt rsa_mgf1_md:sha256
-#+end_src
+- random 32-byte AES key
+- random 12-byte nonce
+- AES-256-GCM for the JSON payload
+- RSA-OAEP-SHA256 for the AES key
 
-Convert the ciphertext to one-line base64:
+A correct client must:
 
-#+begin_src bash
-openssl base64 -A -in register_payload.bin -out register_payload.b64
-#+end_src
+- fetch =public_key_pem= from =/public-key=
+- generate a random 32-byte AES key
+- generate a random 12-byte nonce
+- encrypt =register_payload.json= with AES-256-GCM
+- encrypt the AES key with RSA-OAEP-SHA256 using the server public key
+- base64-encode the wrapped key, nonce, and ciphertext
 
 *** 5. Submit =/register=
 
 #+begin_src bash
-CIPHERTEXT_BASE64="$(cat register_payload.b64)"
+CIPHERTEXT_BASE64="<aes-gcm-ciphertext-base64>"
+WRAPPED_KEY_BASE64="<rsa-wrapped-aes-key-base64>"
+NONCE_BASE64="<aes-gcm-nonce-base64>"
 
 curl -s http://localhost:3030/register \
   -H 'content-type: application/json' \
-  --data "$(jq -n --arg ciphertext_base64 "$CIPHERTEXT_BASE64" '{ciphertext_base64: $ciphertext_base64}')"
+  --data "$(jq -n \
+    --arg wrapped_key_base64 "$WRAPPED_KEY_BASE64" \
+    --arg nonce_base64 "$NONCE_BASE64" \
+    --arg ciphertext_base64 "$CIPHERTEXT_BASE64" \
+    '{wrapped_key_base64: $wrapped_key_base64, nonce_base64: $nonce_base64, ciphertext_base64: $ciphertext_base64}')"
 #+end_src
 
 Typical response:
@@ -169,20 +238,31 @@ Typical response:
 #+begin_src json
 {
   "status": "registered",
-  "client_public_key_sha256": "...",
-  "password_sha256": "..."
+  "user_id": 1,
+  "client_public_key_sha256": "..."
 }
 #+end_src
 
-The server currently returns SHA-256 hashes of the decrypted fields instead of
-echoing the plaintext back.
+The server persists the user with a unique =client_public_key_sha256= and an
+=Argon2id= password hash string.
+
+Login uses the same request encryption flow and returns:
+
+#+begin_src json
+{
+  "status": "authenticated",
+  "user_id": 1,
+  "client_public_key_sha256": "..."
+}
+#+end_src
 
 ** Notes
 
-- The plaintext JSON sent into RSA encryption must fit inside
-  =max_plaintext_bytes= from =/public-key=. With RSA-2048 and OAEP-SHA256, that
-  is typically =190= bytes.
-- If the client encrypts with the wrong padding or hash settings, =/register=
-  will return an error like =ciphertext could not be decrypted=.
-- This project is a demo transport flow. The current =/register= handler does
-  not persist users or implement production password handling.
+- The AES key wrapped by RSA must fit inside
+  =max_wrapped_key_plaintext_bytes= from =/public-key=. The current service uses
+  a 32-byte AES-256-GCM key, which is well within the RSA-OAEP limit.
+- If the client uses the wrong RSA padding, wrong nonce length, wrong AES key,
+  or tampers with the AES-GCM ciphertext, =/register= will return a decryption
+  error.
+- The server auto-runs migrations on startup, but keeping =sqlx migrate run= in
+  your local setup is still useful for explicit schema management.
