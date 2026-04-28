@@ -23,6 +23,7 @@ use axum::{
   body::Bytes,
   extract::{
     connect_info::ConnectInfo,
+    State,
     ws::{Message, WebSocket, WebSocketUpgrade},
   },
   response::IntoResponse,
@@ -35,16 +36,28 @@ use axum_server::tls_rustls::RustlsConfig;
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Serialize;
 use serde_json::{json, Value};
+use tokio::sync::broadcast;
 use tower_http::{
   services::ServeDir,
   trace::{DefaultMakeSpan, TraceLayer},
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+#[derive(Clone)]
+struct AppState {
+  room_tx: broadcast::Sender<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ServerEvent {
   event: &'static str,
   payload: Value,
+}
+
+#[derive(Debug)]
+struct ChatMessage {
+  user: String,
+  msg: String,
 }
 
 #[tokio::main]
@@ -58,11 +71,14 @@ async fn main() {
     .init();
 
   let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
+  let (room_tx, _room_rx) = broadcast::channel::<String>(100);
+  let app_state = AppState { room_tx };
 
   // build our application with some routes
   let app = Router::new()
     .fallback_service(ServeDir::new(assets_dir).append_index_html_on_directories(true))
     .route("/ws", any(ws_handler))
+    .with_state(app_state)
     // logging so we can see whats going on
     .layer(
       TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default().include_headers(true)),
@@ -120,6 +136,7 @@ async fn main() {
 /// This is the last point where we can extract TCP/IP metadata such as IP address of the client
 /// as well as things from HTTP headers such as user-agent of the browser etc.
 async fn ws_handler(
+  State(state): State<AppState>,
   ws: WebSocketUpgrade,
   user_agent: Option<TypedHeader<headers::UserAgent>>,
   ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -132,11 +149,11 @@ async fn ws_handler(
   println!("`{user_agent}` at {addr} connected.");
   // finalize the upgrade process by returning upgrade callback.
   // we can customize the callback by sending additional info such as address.
-  ws.on_upgrade(move |socket| handle_socket(socket, addr))
+  ws.on_upgrade(move |socket| handle_socket(socket, addr, state.room_tx))
 }
 
 /// Actual websocket statemachine (one will be spawned per connection)
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
+async fn handle_socket(mut socket: WebSocket, who: SocketAddr, room_tx: broadcast::Sender<String>) {
   // send a ping (unsupported by some browsers) just to kick things off and get a response
   if socket
     .send(Message::Ping(Bytes::from_static(&[1, 2, 3])))
@@ -157,7 +174,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
   // connections.
   if let Some(msg) = socket.recv().await {
     if let Ok(msg) = msg {
-      if process_message(msg, who).is_break() {
+      if process_message(msg, who, &room_tx).is_break() {
         return;
       }
     } else {
@@ -189,25 +206,39 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
   // By splitting socket we can send and receive at the same time. In this example we will send
   // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
   let (mut sender, mut receiver) = socket.split();
+  let mut room_rx = room_tx.subscribe();
 
   // Spawn a task that keeps pushing messages until the connection breaks or the peer closes.
   let mut send_task = tokio::spawn(async move {
     let mut i = 0_u64;
     loop {
-      let tick_event = ServerEvent {
-        event: "server_tick",
-        payload: json!({ "index": i }),
-      };
+      tokio::select! {
+        room_message = room_rx.recv() => {
+          match room_message {
+            Ok(message) => {
+              if sender.send(Message::Text(message.into())).await.is_err() {
+                return i;
+              }
+            }
+            Err(_) => return i,
+          }
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_millis(300)) => {
+          let tick_event = ServerEvent {
+            event: "server_tick",
+            payload: json!({ "index": i }),
+          };
 
-      // In case of any websocket error, we exit.
-      if let Some(msg) = to_json_ws_message(&tick_event) {
-        if sender.send(msg).await.is_err() {
-          return i;
+          // In case of any websocket error, we exit.
+          if let Some(msg) = to_json_ws_message(&tick_event) {
+            if sender.send(msg).await.is_err() {
+              return i;
+            }
+          }
+
+          i += 1;
         }
       }
-
-      i += 1;
-      tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     }
   });
 
@@ -217,7 +248,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
     while let Some(Ok(msg)) = receiver.next().await {
       cnt += 1;
       // print message and break if instructed to do so
-      if process_message(msg, who).is_break() {
+      if process_message(msg, who, &room_tx).is_break() {
         break;
       }
     }
@@ -257,9 +288,14 @@ fn to_json_ws_message<T: Serialize>(value: &T) -> Option<Message> {
 }
 
 /// helper to print contents of messages to stdout. Has special treatment for Close.
-fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
+fn process_message(
+  msg: Message,
+  who: SocketAddr,
+  room_tx: &broadcast::Sender<String>,
+) -> ControlFlow<(), ()> {
   match msg {
     Message::Text(t) => {
+      maybe_broadcast_chat_message(&t, who, room_tx);
       if let Ok(json_value) = serde_json::from_str::<Value>(&t) {
         println!(">>> {who} sent json text: {json_value}");
       } else {
@@ -268,6 +304,7 @@ fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
     }
     Message::Binary(d) => {
       if let Ok(text) = std::str::from_utf8(&d) {
+        maybe_broadcast_chat_message(text, who, room_tx);
         if let Ok(json_value) = serde_json::from_str::<Value>(text) {
           println!(">>> {who} sent json binary: {json_value}");
         } else {
@@ -300,4 +337,61 @@ fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
     }
   }
   ControlFlow::Continue(())
+}
+
+fn maybe_broadcast_chat_message(
+  raw: &str,
+  who: SocketAddr,
+  room_tx: &broadcast::Sender<String>,
+) {
+  let Some(chat_message) = parse_chat_message(raw, who) else {
+    return;
+  };
+
+  let room_event = ServerEvent {
+    event: "chat_message",
+    payload: json!({
+      "user": chat_message.user,
+      "msg": chat_message.msg,
+      "from": who.to_string(),
+    }),
+  };
+
+  if let Ok(serialized) = serde_json::to_string(&room_event) {
+    let _ = room_tx.send(serialized);
+  }
+}
+
+fn parse_chat_message(raw: &str, who: SocketAddr) -> Option<ChatMessage> {
+  let json_value = serde_json::from_str::<Value>(raw).ok()?;
+
+  if let Some(payload) = json_value
+    .get("event")
+    .and_then(Value::as_str)
+    .filter(|event| *event == "chat_message")
+    .and_then(|_| json_value.get("payload"))
+  {
+    return chat_message_from_value(payload, who);
+  }
+
+  chat_message_from_value(&json_value, who)
+}
+
+fn chat_message_from_value(value: &Value, who: SocketAddr) -> Option<ChatMessage> {
+  let msg = value.get("msg")?.as_str()?.trim();
+  if msg.is_empty() {
+    return None;
+  }
+
+  let user = value
+    .get("user")
+    .and_then(Value::as_str)
+    .map(str::trim)
+    .filter(|user| !user.is_empty())
+    .unwrap_or("Anonymous");
+
+  Some(ChatMessage {
+    user: format!("{} @ {}", user, who.port()),
+    msg: msg.to_string(),
+  })
 }

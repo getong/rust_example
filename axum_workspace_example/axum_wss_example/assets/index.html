@@ -1,2 +1,156 @@
-<a>Open the console to see stuff, then refresh to initiate exchange.</a>
-<script src='script.js'></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Axum WSS Example</title>
+	<style>
+		:root {
+			color-scheme: light;
+			font-family: "Iowan Old Style", "Palatino Linotype", serif;
+			background:
+				radial-gradient(circle at top, rgba(205, 226, 255, 0.9), transparent 45%),
+				linear-gradient(180deg, #f9f6ef 0%, #efe7dc 100%);
+			color: #1f2430;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			margin: 0;
+			min-height: 100vh;
+			display: grid;
+			place-items: center;
+			padding: 24px;
+		}
+
+		main {
+			width: min(760px, 100%);
+			background: rgba(255, 252, 247, 0.92);
+			border: 1px solid rgba(31, 36, 48, 0.08);
+			border-radius: 24px;
+			box-shadow: 0 24px 80px rgba(67, 52, 32, 0.16);
+			overflow: hidden;
+			backdrop-filter: blur(18px);
+		}
+
+		header {
+			padding: 24px 24px 12px;
+			border-bottom: 1px solid rgba(31, 36, 48, 0.08);
+		}
+
+		h1 {
+			margin: 0;
+			font-size: clamp(2rem, 4vw, 3rem);
+			letter-spacing: -0.04em;
+		}
+
+		p {
+			margin: 12px 0 0;
+			color: rgba(31, 36, 48, 0.72);
+		}
+
+		#status {
+			font-weight: 700;
+		}
+
+		.layout {
+			display: grid;
+			gap: 16px;
+			padding: 24px;
+		}
+
+		.panel {
+			border: 1px solid rgba(31, 36, 48, 0.08);
+			border-radius: 18px;
+			background: rgba(255, 255, 255, 0.75);
+			padding: 18px;
+		}
+
+		.controls {
+			display: grid;
+			gap: 12px;
+			grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		}
+
+		label {
+			display: grid;
+			gap: 8px;
+			font-size: 0.95rem;
+		}
+
+		input, button {
+			border: 1px solid rgba(31, 36, 48, 0.12);
+			border-radius: 999px;
+			padding: 12px 16px;
+			font: inherit;
+		}
+
+		button {
+			background: #1f2430;
+			color: #fff7ed;
+			cursor: pointer;
+		}
+
+		#messages, #events {
+			list-style: none;
+			margin: 0;
+			padding: 0;
+			display: grid;
+			gap: 10px;
+			max-height: 280px;
+			overflow: auto;
+		}
+
+		#messages li, #events li {
+			padding: 12px 14px;
+			border-radius: 16px;
+			background: #f4efe6;
+		}
+
+		#messages li.me {
+			background: #dfe9ff;
+			justify-self: end;
+		}
+
+		#messages li.other {
+			background: #f2eadf;
+		}
+	</style>
+</head>
+<body>
+	<main>
+		<header>
+			<h1>Axum WebSocket Room</h1>
+			<p><span id="status">Connecting</span> to the current websocket server. Greeting and tick events still stream, and chat messages are now broadcast to every open tab.</p>
+		</header>
+
+		<section class="layout">
+			<div class="panel controls">
+				<label>
+					Your name
+					<input id="username" type="text" placeholder="Anonymous">
+				</label>
+				<label>
+					Message
+					<input id="message-input" type="text" placeholder="Type a room message and press Enter">
+				</label>
+				<button id="send-button" type="button">Send</button>
+			</div>
+
+			<div class="panel">
+				<h2>Room Messages</h2>
+				<ul id="messages"></ul>
+			</div>
+
+			<div class="panel">
+				<h2>Server Events</h2>
+				<ul id="events"></ul>
+			</div>
+		</section>
+	</main>
+	<script src="script.js"></script>
+</body>
+</html>
