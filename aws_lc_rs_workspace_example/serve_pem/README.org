@@ -96,6 +96,7 @@ sqlx migrate run
 #+end_src
 
 #+begin_src bash
+cargo run --bin generate_keypair
 cargo run
 #+end_src
 
@@ -117,12 +118,13 @@ Use a custom port:
 PORT=4040 cargo run
 #+end_src
 
-When the service starts, it will create or reuse:
+Generate the RSA transport key files before starting the service:
 
 - =private_key.pk8= for the RSA private key
 - =public_key.der= for the RSA public key
 
-If an old non-RSA =private_key.pk8= exists, the service will back it up as:
+The generator will create missing files. If an old non-RSA =private_key.pk8=
+exists, it will back it up as:
 
 #+begin_src text
 private_key.pk8.legacy.<timestamp>
@@ -135,7 +137,7 @@ and then generate a fresh RSA keypair.
 Fetch the public key:
 
 #+begin_src bash
-curl http://localhost:3030/public-key
+curl -k https://localhost:3030/public-key
 #+end_src
 
 Typical response shape:
@@ -168,6 +170,7 @@ Requirements:
 *** 1. Start The Server
 
 #+begin_src bash
+cargo run --bin generate_keypair
 cargo run
 #+end_src
 
@@ -176,7 +179,7 @@ Leave that terminal running.
 *** 2. Fetch The Server Public Key
 
 #+begin_src bash
-curl -s http://localhost:3030/public-key > public-key-response.json
+curl -ks https://localhost:3030/public-key > public-key-response.json
 jq -r '.public_key_pem' public-key-response.json > server_public_key.pem
 #+end_src
 
@@ -224,7 +227,7 @@ CIPHERTEXT_BASE64="<aes-gcm-ciphertext-base64>"
 WRAPPED_KEY_BASE64="<rsa-wrapped-aes-key-base64>"
 NONCE_BASE64="<aes-gcm-nonce-base64>"
 
-curl -s http://localhost:3030/register \
+curl -ks https://localhost:3030/register \
   -H 'content-type: application/json' \
   --data "$(jq -n \
     --arg wrapped_key_base64 "$WRAPPED_KEY_BASE64" \

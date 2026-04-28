@@ -14,8 +14,9 @@ mod handlers;
 mod models;
 mod password;
 mod service;
+mod tls;
 
-pub use crypto::{CryptoState, crypto_state_from_private_key};
+pub use crypto::{CryptoState, crypto_state_from_private_key, ensure_crypto_files};
 pub use password::hash_password;
 
 pub const MAX_REQUEST_BODY_BYTES: usize = 16 * 1024;
@@ -72,7 +73,7 @@ async fn init_state_from_env() -> Result<AppState, Box<dyn Error>> {
     .await?;
   sqlx::migrate!("./migrations").run(&db_pool).await?;
 
-  let crypto = crypto::load_or_generate_crypto_state().map_err(std::io::Error::other)?;
+  let crypto = crypto::load_crypto_state().map_err(std::io::Error::other)?;
   let password_pepper = password::load_password_pepper().map_err(std::io::Error::other)?;
 
   Ok(AppState::new_for_test(crypto, db_pool, password_pepper))
@@ -85,10 +86,12 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     .and_then(|value| value.parse::<u16>().ok())
     .unwrap_or(3030);
   let addr = SocketAddr::from(([127, 0, 0, 1], port));
+  let tls_config = tls::rustls_config_from_crypto_state(state.crypto.as_ref()).await?;
 
-  println!("Listening on http://{addr}");
-  let listener = tokio::net::TcpListener::bind(&addr).await?;
-  axum::serve(listener, build_router(state)).await?;
+  println!("Listening on https://{addr}");
+  axum_server::bind_rustls(addr, tls_config)
+    .serve(build_router(state).into_make_service())
+    .await?;
   Ok(())
 }
 

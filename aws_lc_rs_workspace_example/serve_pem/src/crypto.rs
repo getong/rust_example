@@ -95,7 +95,7 @@ fn backup_legacy_private_key() -> Result<String, String> {
   Ok(backup_path)
 }
 
-pub(crate) fn load_or_generate_crypto_state() -> Result<CryptoState, String> {
+pub fn ensure_crypto_files() -> Result<CryptoState, String> {
   let private_key = if Path::new(PRIV_KEY_FILE).exists() {
     let private_key_der =
       fs::read(PRIV_KEY_FILE).map_err(|error| format!("failed to read private key: {error}"))?;
@@ -123,6 +123,26 @@ pub(crate) fn load_or_generate_crypto_state() -> Result<CryptoState, String> {
     .map_err(|error| format!("failed to write private key: {error}"))?;
   fs::write(PUB_KEY_FILE, state.public_key_der.as_ref())
     .map_err(|error| format!("failed to write public key: {error}"))?;
+
+  Ok(state)
+}
+
+pub(crate) fn load_crypto_state() -> Result<CryptoState, String> {
+  let private_key_der =
+    fs::read(PRIV_KEY_FILE).map_err(|error| format!("failed to read {PRIV_KEY_FILE}: {error}"))?;
+  let public_key_der =
+    fs::read(PUB_KEY_FILE).map_err(|error| format!("failed to read {PUB_KEY_FILE}: {error}"))?;
+
+  let private_key = PrivateDecryptingKey::from_pkcs8(&private_key_der)
+    .map_err(|_| format!("{PRIV_KEY_FILE} is not a valid RSA PKCS#8 private key"))?;
+  let state = crypto_state_from_private_key(private_key)?;
+
+  if state.public_key_der.as_ref().as_slice() != public_key_der.as_slice() {
+    return Err(format!(
+      "{PUB_KEY_FILE} does not match {PRIV_KEY_FILE}; run `cargo run --bin generate_keypair` to \
+       regenerate the key files"
+    ));
+  }
 
   Ok(state)
 }
