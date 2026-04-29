@@ -1,0 +1,13 @@
+[package]
+name = "wasmtime_tokio"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+path = "src/tokio-wasi.rs"
+name = "tokio-wasi"
+
+[dependencies]
+tokio = { version = "1.52.1", features = ["full"] }
+wasmtime = "44.0.0"
+wasmtime-wasi = "44.0.0"
