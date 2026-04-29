@@ -1,11 +1,19 @@
-use std::sync::Arc;
+use std::{
+  path::{Path, PathBuf},
+  process::Command,
+  sync::Arc,
+};
 
+use anyhow::{Context, Result, bail};
 use tokio::time::Duration;
-use wasmtime::{Config, Engine, Error, Linker, Module, Store};
+use wasmtime::{Config, Engine, Linker, Module, Store};
 use wasmtime_wasi::{WasiCtx, p1::WasiP1Ctx};
 
+const GUEST_TARGET: &str = "wasm32-wasip1";
+const GUEST_BIN: &str = "tokio-wasi";
+
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
   // Create an environment shared by all wasm execution. This contains
   // the `Engine` and the `Module` we are executing.
   let env = Environment::new()?;
@@ -43,14 +51,14 @@ struct Environment {
 }
 
 impl Environment {
-  pub fn new() -> Result<Self, Error> {
+  pub fn new() -> Result<Self> {
     let mut config = Config::new();
     // Consume fuel for guests so that they can co-operatively yield during
     // execution.
     config.consume_fuel(true);
 
     let engine = Engine::new(&config)?;
-    let module = Module::from_file(&engine, "target/wasm32-wasip1/debug/tokio-wasi.wasm")?;
+    let module = Module::from_file(&engine, ensure_guest_wasm()?)?;
 
     // A `Linker` is shared in the environment amongst all stores, and this
     // linker is used to instantiate the `module` above. This example only
@@ -81,7 +89,7 @@ impl Inputs {
   }
 }
 
-async fn run_wasm(inputs: Inputs) -> Result<(), Error> {
+async fn run_wasm(inputs: Inputs) -> Result<()> {
   let wasi = WasiCtx::builder()
     // Let wasi print to this process's stdout.
     .inherit_stdout()
@@ -109,4 +117,57 @@ async fn run_wasm(inputs: Inputs) -> Result<(), Error> {
     .await?;
 
   Ok(())
+}
+
+fn ensure_guest_wasm() -> Result<PathBuf> {
+  let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+  let workspace_dir = package_dir
+    .parent()
+    .context("failed to determine workspace root for wasmtime_tokio")?;
+  let guest_wasm = workspace_dir
+    .join("target")
+    .join(GUEST_TARGET)
+    .join("debug")
+    .join(format!("{GUEST_BIN}.wasm"));
+
+  let output = Command::new("cargo")
+    .current_dir(package_dir)
+    .arg("build")
+    .arg("--target")
+    .arg(GUEST_TARGET)
+    .arg("--target-dir")
+    .arg(workspace_dir.join("target"))
+    .arg("--bin")
+    .arg(GUEST_BIN)
+    .output()
+    .context("failed to invoke cargo to build the guest wasm module")?;
+
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    if stderr.contains("the `wasm32-wasip1` target may not be installed") {
+      bail!(
+        "failed to build `{GUEST_BIN}.wasm` for `{GUEST_TARGET}`.\ninstall the target first with \
+         `rustup target add {GUEST_TARGET}` and rerun `cargo run --bin wasmtime_tokio`.\n\ncargo \
+         stderr:\n{stderr}"
+      );
+    }
+
+    bail!(
+      "failed to build `{GUEST_BIN}.wasm` before launching the host example.\npackage dir: \
+       {}\nexpected output: {}\n\ncargo stdout:\n{stdout}\n\ncargo stderr:\n{stderr}",
+      package_dir.display(),
+      guest_wasm.display(),
+    );
+  }
+
+  if !guest_wasm.is_file() {
+    bail!(
+      "cargo reported success, but the guest wasm module was not produced at {}",
+      guest_wasm.display(),
+    );
+  }
+
+  Ok(guest_wasm)
 }
