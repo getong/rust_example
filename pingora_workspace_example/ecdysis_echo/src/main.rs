@@ -1,6 +1,8 @@
 use std::{
-  env, io,
+  env, fs, io,
   net::{IpAddr, SocketAddr},
+  os::unix::{fs::FileTypeExt, net::UnixStream as StdUnixStream},
+  path::Path,
   str::FromStr,
   time::{Duration, Instant},
 };
@@ -55,6 +57,58 @@ fn set_process_env_var(key: &str, value: impl AsRef<std::ffi::OsStr>) {
   unsafe { env::set_var(key, value) };
 }
 
+fn prepare_control_socket(path: impl AsRef<Path>) -> io::Result<()> {
+  let path = path.as_ref();
+
+  let metadata = match fs::symlink_metadata(path) {
+    Ok(metadata) => metadata,
+    Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(err) => return Err(err),
+  };
+
+  if !metadata.file_type().is_socket() {
+    return Err(io::Error::new(
+      io::ErrorKind::AlreadyExists,
+      format!(
+        "control socket path {} exists and is not a socket",
+        path.display()
+      ),
+    ));
+  }
+
+  match StdUnixStream::connect(path) {
+    Ok(_) => Err(io::Error::new(
+      io::ErrorKind::AddrInUse,
+      format!(
+        "control socket {} is already in use by a running process",
+        path.display()
+      ),
+    )),
+    Err(err)
+      if matches!(
+        err.kind(),
+        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+      ) =>
+    {
+      fs::remove_file(path)?;
+      log::info!("Removed stale control socket {}", path.display());
+      Ok(())
+    }
+    Err(err) => Err(io::Error::new(
+      err.kind(),
+      format!("failed to probe control socket {}: {err}", path.display()),
+    )),
+  }
+}
+
+#[cfg(feature = "systemd_sockets")]
+fn should_try_systemd_sockets(reload_count: u32) -> bool {
+  reload_count > 0
+    || env::var_os("LISTEN_PID").is_some()
+    || env::var_os("LISTEN_FDNAMES").is_some()
+    || env::var_os("LISTEN_FDS").is_some()
+}
+
 // single thread needed for set_listen_pid
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -83,6 +137,9 @@ async fn main() {
   }
 
   let mut ecdysis_builder = TokioEcdysisBuilder::new(SignalKind::hangup()).unwrap();
+  prepare_control_socket("/tmp/ecdysis_upgrade.sock").unwrap();
+  prepare_control_socket("/tmp/ecdysis_exit.sock").unwrap();
+  prepare_control_socket("/tmp/ecdysis_partial_exit.sock").unwrap();
   ecdysis_builder
     .stop_on_signal(SignalKind::user_defined1())
     .unwrap();
@@ -105,8 +162,13 @@ async fn main() {
   }
 
   #[cfg(feature = "systemd_sockets")]
-  if let Err(err) = ecdysis_builder.read_systemd_sockets() {
-    log::error!("Failed to read systemd sockets: {err:?}");
+  let should_try_systemd = should_try_systemd_sockets(reload_count);
+
+  #[cfg(feature = "systemd_sockets")]
+  if should_try_systemd {
+    if let Err(err) = ecdysis_builder.read_systemd_sockets() {
+      log::info!("Systemd sockets unavailable, skipping systemd listeners: {err:?}");
+    }
   }
 
   let ip_addr = match IpAddr::from_str("[::1]") {
@@ -131,16 +193,23 @@ async fn main() {
   let server_handle = tokio::spawn(echo_server(stream));
 
   #[cfg(feature = "systemd_sockets")]
-  let systemd_server_handle = {
-    let sd_unix_stream = ecdysis_builder
+  let systemd_server_handle = if should_try_systemd {
+    match ecdysis_builder
       .systemd_listen_unix(
         StopOnShutdown::Yes,
         "ecdysis_test_unix".to_string(),
         "/tmp/ecdysis_int_test.sock".to_string(),
       )
       .await
-      .unwrap();
-    tokio::spawn(echo_server(sd_unix_stream))
+    {
+      Ok(sd_unix_stream) => Some(tokio::spawn(echo_server(sd_unix_stream))),
+      Err(err) => {
+        log::info!("Systemd unix socket unavailable, skipping listener: {err:?}");
+        None
+      }
+    }
+  } else {
+    None
   };
 
   let (_tokio_ecdysis, ecdysis_fut) = ecdysis_builder.ready().unwrap();
@@ -164,7 +233,9 @@ async fn main() {
 
   server_handle.await.unwrap();
   #[cfg(feature = "systemd_sockets")]
-  systemd_server_handle.await.unwrap();
+  if let Some(systemd_server_handle) = systemd_server_handle {
+    systemd_server_handle.await.unwrap();
+  }
   log::info!(
     "Graceful exit {:?} after ecdysis stop (reason: {exit:?})",
     exit_start_time.elapsed()
