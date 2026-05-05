@@ -1,0 +1,246 @@
+* axum_ecdysis
+
+一个最小但可用的 =axum + ecdysis= 示例项目。
+
+这个项目演示了如何把 =axum= HTTP 服务接到 =ecdysis= 的优雅升级模型上，实现：
+
+- 新进程先启动并完成初始化
+- 监听 socket 无缝移交给新进程
+- 旧进程停止接收新连接
+- 已建立连接继续处理直到自然结束
+
+需要注意的是，这里实现的是 *graceful restart / seamless reload*，不是 Erlang/BEAM 那种保留 task 内存状态并热替换代码的软更新。
+
+* 运行要求
+
+- macOS / Linux / 其他类 Unix 环境
+- Rust toolchain
+- 支持 Unix signal 和 Unix domain socket
+
+* 启动服务
+
+默认监听地址是 =127.0.0.1:3000=。
+
+#+begin_src bash
+cargo run -p axum_ecdysis
+#+end_src
+
+也可以通过环境变量覆盖监听地址：
+
+#+begin_src bash
+APP_ADDR=127.0.0.1:4000 cargo run -p axum_ecdysis
+#+end_src
+
+启动后会生成：
+
+- =./pidfile=
+- =/tmp/axum_ecdysis_upgrade.sock=
+- =/tmp/axum_ecdysis_exit.sock=
+- =/tmp/axum_ecdysis_partial_exit.sock=
+
+* HTTP 接口
+
+项目内置了几个便于验证升级行为的接口。
+
+** =GET /=
+
+返回当前进程信息：
+
+- 当前 PID
+- reload 次数
+- uptime
+- remote address
+
+示例：
+
+#+begin_src bash
+curl http://127.0.0.1:3000/
+#+end_src
+
+** =GET /healthz=
+
+健康检查接口。
+
+#+begin_src bash
+curl http://127.0.0.1:3000/healthz
+#+end_src
+
+** =GET /slow/{secs}=
+
+用于模拟慢请求，方便观察升级时旧连接是否继续完成。
+
+=secs= 最大会被限制到 =30= 秒。
+
+#+begin_src bash
+curl http://127.0.0.1:3000/slow/10
+#+end_src
+
+* CLI 使用方式
+
+这里的“CLI”主要是指通过 shell 命令来驱动进程升级和停机。
+
+** 1. 通过 Unix signal 控制
+
+项目启动后会把当前 PID 写到 =pidfile=，所以可以直接用 =kill= 操作。
+
+*** 触发无缝升级
+
+=SIGHUP= 会触发 =ecdysis= 升级流程：
+
+#+begin_src bash
+kill -HUP $(cat pidfile)
+#+end_src
+
+含义：
+
+- 父进程 fork/exec 新进程
+- 新进程完成初始化后调用 =ready=
+- 新进程开始接收新连接
+- 父进程停止监听并等待旧连接 drain
+
+*** 优雅停机
+
+=SIGUSR1= 会触发 graceful stop：
+
+#+begin_src bash
+kill -USR1 $(cat pidfile)
+#+end_src
+
+含义：
+
+- 当前进程停止接收新连接
+- 等待已有连接自然完成
+- 进程退出
+
+*** partial stop
+
+=SIGUSR2= 会触发 partial stop：
+
+#+begin_src bash
+kill -USR2 $(cat pidfile)
+#+end_src
+
+这个模式保留给更细粒度的生命周期控制。当前示例里主要是把它接到 =ecdysis= 的 partial shutdown 机制上。
+
+** 2. 通过 Unix socket 控制
+
+除了 signal，也可以通过 Unix domain socket 触发控制动作。
+
+*** 升级
+
+#+begin_src bash
+nc -U /tmp/axum_ecdysis_upgrade.sock
+#+end_src
+
+*** 优雅停机
+
+#+begin_src bash
+nc -U /tmp/axum_ecdysis_exit.sock
+#+end_src
+
+*** partial stop
+
+#+begin_src bash
+nc -U /tmp/axum_ecdysis_partial_exit.sock
+#+end_src
+
+说明：
+
+- 建立连接本身就会触发动作
+- 对 upgrade / stop socket，连接会保持到动作完成
+- 如果本机没有 =nc -U=，也可以换成别的 Unix socket 客户端工具
+
+* 验证无缝重启
+
+一个简单的验证流程如下。
+
+** 终端 1：启动服务
+
+#+begin_src bash
+cargo run -p axum_ecdysis
+#+end_src
+
+** 终端 2：发一个慢请求
+
+#+begin_src bash
+curl http://127.0.0.1:3000/slow/15
+#+end_src
+
+** 终端 3：在慢请求执行期间触发升级
+
+#+begin_src bash
+kill -HUP $(cat pidfile)
+#+end_src
+
+预期现象：
+
+- 慢请求仍由旧进程完成
+- 新进程接管监听 socket
+- 新发起的请求由新进程处理
+- =GET /= 返回的 =pid= 会变化
+- =reload_count= 会递增
+
+可以在升级前后分别请求：
+
+#+begin_src bash
+curl http://127.0.0.1:3000/
+#+end_src
+
+对比返回的 =pid= 和 =reload_count=。
+
+* 实现说明
+
+这个项目没有直接使用最普通的：
+
+#+begin_src rust
+axum::serve(listener, app)
+#+end_src
+
+原因是 =ecdysis= 提供的是“可停止的连接流”，而不是只给一个普通 =tokio::net::TcpListener=。
+
+因此这里采用的是：
+
+- =ecdysis= 管理监听 socket 和升级流程
+- 每个 accept 到的 TCP 连接交给 =hyper= 的底层 =serve_connection_with_upgrades=
+- =axum Router= 作为 tower service 处理请求
+
+这样升级时可以做到：
+
+- 停止 accept 新连接
+- 旧连接继续跑完
+- 新进程接管新连接
+
+* 与 Erlang 软更新的区别
+
+这个示例不能做到：
+
+- 保留 Tokio task 的 suspend point
+- 保留 future 内部状态机
+- 让旧 task 在新代码里继续执行
+
+它能做到的是：
+
+- 保留监听 socket
+- 保留连接切换时的服务可用性
+- 如有需要，由你自己显式迁移业务状态
+
+* 日志
+
+默认使用 =env_logger=。
+
+如果想看更详细日志，可以这样启动：
+
+#+begin_src bash
+RUST_LOG=info cargo run -p axum_ecdysis
+#+end_src
+
+或者：
+
+#+begin_src bash
+RUST_LOG=debug cargo run -p axum_ecdysis
+#+end_src
+
+* 相关文件
+
+- [Cargo.toml](/Users/gerald/personal_infos/rust_example/axum_workspace_example/axum_ecdysis/Cargo.toml)
+- [src/main.rs](/Users/gerald/personal_infos/rust_example/axum_workspace_example/axum_ecdysis/src/main.rs)
