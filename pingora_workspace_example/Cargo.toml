@@ -6,4 +6,5 @@ members = [
   "pingora_load_balance_example",
   "pingora_ws_load_balance_example",
   "pingora_wss_load_balance_example",
+  "ecdysis_echo",
 ]
