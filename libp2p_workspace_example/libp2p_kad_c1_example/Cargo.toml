@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = "1.8.3"
+alloy = "2.0.4"
 anyhow = "1.0.102"
 futures = "0.3.32"
 hex = "0.4.3"
@@ -16,4 +16,4 @@ secp256k1 = { version = "0.31.1", features = [
   "rand",
   "serde",
 ] }
-tokio = { version = "1.51.1", features = ["full"] }
+tokio = { version = "1.52.2", features = ["full"] }
