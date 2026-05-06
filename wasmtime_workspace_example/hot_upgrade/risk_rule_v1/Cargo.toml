@@ -1,0 +1,12 @@
+[package]
+name = "risk_rule_v1"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+# Build with:
+#   cargo build --package risk_rule_v1 --release --target wasm32-unknown-unknown
+# Then copy the artifact:
+#   cp target/wasm32-unknown-unknown/release/risk_rule_v1.wasm rules/current/risk_rule.wasm

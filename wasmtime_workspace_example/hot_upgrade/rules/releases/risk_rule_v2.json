@@ -1,0 +1,6 @@
+{
+  "version": "risk_rule_v2",
+  "required_state_schema": 2,
+  "review_threshold": 5000,
+  "even_user_fast_lane_max_amount": 4000
+}

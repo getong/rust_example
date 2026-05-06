@@ -1,0 +1,5 @@
+{
+  "version": "risk_rule_v1",
+  "required_state_schema": 1,
+  "review_threshold": 10000
+}

@@ -1,0 +1,8 @@
+https://mp.weixin.qq.com/s/qgt72EK5QPsSnAuQ_xAjnw
+
+rustup target add wasm32-unknown-unknown
+cargo build --package risk_rule_v1 --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/risk_rule_v1.wasm rules/current/risk_rule.wasm
+cargo build --package risk_rule_v2 --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/risk_rule_v2.wasm rules/releases/risk_rule_v2.wasm
+cargo run --bin wasm_demo
