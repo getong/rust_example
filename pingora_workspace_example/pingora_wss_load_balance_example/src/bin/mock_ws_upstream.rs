@@ -49,7 +49,7 @@ async fn handle_connection(
     match msg {
       Message::Text(text) => {
         let reply = format!("[{}] {}", name, text);
-        ws_stream.send(Message::Text(reply)).await?;
+        ws_stream.send(Message::Text(reply.into())).await?;
       }
       Message::Binary(data) => {
         ws_stream.send(Message::Binary(data)).await?;
