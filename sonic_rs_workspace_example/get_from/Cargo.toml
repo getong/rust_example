@@ -1,5 +1,5 @@
 [package]
-name = "sonic_rs_example"
+name = "get_from"
 version = "0.1.0"
 edition = "2024"
 
