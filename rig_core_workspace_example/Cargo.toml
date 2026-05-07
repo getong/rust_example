@@ -2,6 +2,6 @@
 
 resolver = "2"
 
-members = [
+members = ["deepseek_chat",
   "rig_core_basic_example",
 ]
