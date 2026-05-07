@@ -13,10 +13,10 @@ futures-lite = "2.6.1"
 hyper = { version = "1.9.0", features = ["client", "http2"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy"] }
 log = "0.4.29"
-pin-project = "1.1.11"
+pin-project = "1.1.12"
 pretty_env_logger = "0.5.0"
 rustls-acme = { version = "0.15.1", features = ["axum"] }
-tokio = { version = "1.52.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.52.2", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.18"
 tower = "0.5.3"
-tower-http = { version = "0.6.8", features = ["auth", "fs"] }
+tower-http = { version = "0.6.10", features = ["auth", "fs"] }
