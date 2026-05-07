@@ -1,4 +1,4 @@
-use sonic_rs::{get, get_unchecked, pointer, JsonValueTrait};
+use sonic_rs::{JsonValueTrait, get, get_unchecked, pointer};
 
 fn main() {
   let path = pointer!["a", "b", "c", 1];
