@@ -9,6 +9,7 @@ use opencode_rs::{
 };
 use tokio::time::{Duration, Instant};
 
+// opencode serve --hostname 127.0.0.1 --port 15665
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   // Initialize tracing for debug output
