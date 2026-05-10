@@ -1,0 +1,9 @@
+[package]
+name = "opencode_rs_streaming_events"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+opencode_rs = { version = "0.10.0", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
+tracing-subscriber = "0.3.23"
