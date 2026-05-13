@@ -16,18 +16,21 @@ pub trait World {
 }
 
 /// Initializes an OpenTelemetry tracing subscriber with a OTLP backend.
-pub fn init_tracing(service_name: &'static str) -> anyhow::Result<()> {
-  let tracer_provider = opentelemetry_otlp::new_pipeline()
-    .tracing()
-    .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
-      opentelemetry_sdk::Resource::new([opentelemetry::KeyValue::new(
-        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-        service_name,
-      )]),
-    ))
-    .with_batch_config(opentelemetry_sdk::trace::BatchConfig::default())
-    .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-    .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+pub fn init_tracing(
+  service_name: &'static str,
+) -> anyhow::Result<opentelemetry_sdk::trace::SdkTracerProvider> {
+  let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+    .with_resource(
+      opentelemetry_sdk::Resource::builder()
+        .with_service_name(service_name)
+        .build(),
+    )
+    .with_batch_exporter(
+      opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()?,
+    )
+    .build();
   opentelemetry::global::set_tracer_provider(tracer_provider.clone());
   let tracer = tracer_provider.tracer(service_name);
 
@@ -37,7 +40,7 @@ pub fn init_tracing(service_name: &'static str) -> anyhow::Result<()> {
     .with(tracing_opentelemetry::layer().with_tracer(tracer))
     .try_init()?;
 
-  Ok(())
+  Ok(tracer_provider)
 }
 
 #[derive(Parser)]
@@ -53,7 +56,7 @@ struct Flags {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let flags = Flags::parse();
-  init_tracing("Tarpc Example Client")?;
+  let _tracer_provider = init_tracing("Tarpc Example Client")?;
 
   let mut transport = tarpc::serde_transport::tcp::connect(flags.server_addr, Json::default);
   transport.config_mut().max_frame_length(usize::MAX);
@@ -82,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
 
   // Let the background span processor finish.
   sleep(Duration::from_micros(1)).await;
-  opentelemetry::global::shutdown_tracer_provider();
+  _tracer_provider.shutdown()?;
 
   Ok(())
 }
