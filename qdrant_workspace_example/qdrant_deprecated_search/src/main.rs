@@ -1,9 +1,10 @@
 use anyhow::Result;
 #[allow(deprecated)]
 use qdrant_client::{
-  prelude::*,
+  Payload, Qdrant,
   qdrant::{
-    Condition, CreateCollection, Filter, SearchPoints, VectorParams, VectorsConfig,
+    Condition, CreateCollection, Distance, Filter, PointStruct, SearchPoints, UpsertPointsBuilder,
+    VectorParams, VectorsConfig,
     vectors_config::Config,
   },
 };
@@ -14,8 +15,7 @@ use serde_json::json;
 async fn main() -> Result<()> {
   // Example of top level client
   // You may also use tonic-generated client from `src/qdrant.rs`
-  let config = QdrantClientConfig::from_url("http://localhost:6334");
-  let client = QdrantClient::new(Some(config))?;
+  let client = Qdrant::from_url("http://localhost:6334").build()?;
 
   let collections_list = client.list_collections().await?;
   dbg!(collections_list);
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
   client.delete_collection(collection_name).await?;
 
   client
-    .create_collection(&CreateCollection {
+    .create_collection(CreateCollection {
       collection_name: collection_name.into(),
       vectors_config: Some(VectorsConfig {
         config: Some(Config::Params(VectorParams {
@@ -62,11 +62,11 @@ async fn main() -> Result<()> {
 
   let points = vec![PointStruct::new(0, vec![12.; 10], payload)];
   client
-    .upsert_points_blocking(collection_name, None, points, None)
+    .upsert_points(UpsertPointsBuilder::new(collection_name, points).wait(true))
     .await?;
 
   let search_result = client
-    .search_points(&SearchPoints {
+    .search_points(SearchPoints {
       collection_name: collection_name.into(),
       vector: vec![11.; 10],
       filter: Some(Filter::all([Condition::matches("bar", 12)])),
