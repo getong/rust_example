@@ -14,7 +14,6 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
 };
 use openraft::async_runtime::WatchReceiver;
-use openraft_rocksstore_crud::RocksRequest;
 use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 
@@ -405,7 +404,7 @@ async fn handle_raft_event(
           let raft = raft.clone();
           let tx = cmd_tx.clone();
           tokio::spawn(async move {
-            let resp = RaftRpcResponse::ClientWrite(raft.client_write(req).await);
+            let resp = RaftRpcResponse::ClientWrite(raft.client_write(types_kv::Request::from(req)).await);
             let _ = tx.send(Command::RaftRespond { channel, resp }).await;
           });
         }
@@ -936,7 +935,7 @@ async fn handle_inbound_kv(
       let key = req.key;
       let value = req.value;
       match raft
-        .client_write(RocksRequest::Set {
+        .client_write(types_kv::Request::Set {
           key,
           value: value.clone(),
         })
@@ -972,7 +971,7 @@ async fn handle_inbound_kv(
         }
       } else {
         match raft
-          .client_write(RocksRequest::Update {
+          .client_write(types_kv::Request::Set {
             key,
             value: value.clone(),
           })
@@ -1006,7 +1005,7 @@ async fn handle_inbound_kv(
         }
       } else {
         match raft
-          .client_write(RocksRequest::Delete { key: req.key })
+          .client_write(types_kv::Request::Set { key: req.key, value: String::new() })
           .await
         {
           Ok(_) => RaftKvResponse {
@@ -1040,7 +1039,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcRespo
       RaftRpcResponse::Vote(res)
     }
     RaftRpcRequest::ClientWrite(req) => {
-      let res = raft.client_write(req).await;
+      let res = raft.client_write(types_kv::Request::from(req)).await;
       RaftRpcResponse::ClientWrite(res)
     }
     RaftRpcRequest::GetMetrics => {

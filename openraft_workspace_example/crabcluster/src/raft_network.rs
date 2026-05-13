@@ -1,7 +1,9 @@
 use std::{future::Future, time::Duration};
 
 use openraft::{
-  AnyError, BasicNode, OptionalSend, RaftNetworkFactory, Snapshot, Vote,
+  AnyError, BasicNode, OptionalSend, RaftNetworkFactory,
+  alias::SnapshotMetaOf,
+  alias::SnapshotOf,
   error::{NetworkError, RPCError, RemoteError, ReplicationClosed, StreamingError},
   network::{Backoff, RPCOption, v2::RaftNetworkV2},
   raft::{
@@ -15,8 +17,8 @@ use crate::node::{NodeId, RaftTypeConfig};
 // Helper struct for sending snapshot data
 #[derive(Serialize)]
 pub struct SnapshotRequest {
-  pub vote: Vote<RaftTypeConfig>,
-  pub meta: openraft::SnapshotMeta<RaftTypeConfig>,
+  pub vote: <RaftTypeConfig as openraft::RaftTypeConfig>::Vote,
+  pub meta: SnapshotMetaOf<RaftTypeConfig>,
   pub data: Vec<u8>,
 }
 
@@ -100,8 +102,8 @@ impl RaftNetworkV2<RaftTypeConfig> for RaftNetworkConnection {
 
   async fn full_snapshot(
     &mut self,
-    vote: Vote<RaftTypeConfig>,
-    snapshot: Snapshot<RaftTypeConfig>,
+    vote: <RaftTypeConfig as openraft::RaftTypeConfig>::Vote,
+    snapshot: SnapshotOf<RaftTypeConfig>,
     _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<SnapshotResponse<RaftTypeConfig>, StreamingError<RaftTypeConfig>> {
@@ -140,12 +142,12 @@ impl RaftNetworkV2<RaftTypeConfig> for RaftNetworkConnection {
     }
   }
 
-  fn backoff(&self) -> Backoff {
+  fn backoff(&self) -> Option<Backoff> {
     // Return a backoff strategy - exponential backoff starting at 100ms, max 5 seconds
     let backoff_iter = (0 .. 10)
       .map(|i| Duration::from_millis(100 * 2_u64.pow(i.min(6))))
       .chain(std::iter::repeat(Duration::from_secs(5)));
 
-    Backoff::new(backoff_iter)
+    Some(Backoff::new(backoff_iter))
   }
 }

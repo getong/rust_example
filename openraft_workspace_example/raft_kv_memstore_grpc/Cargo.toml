@@ -10,7 +10,7 @@ dashmap = "6.1.0"
 futures = "0.3.32"
 log-mem = { path = "../log-mem", features = [] }
 mem-log = { path = "../mem-log" }
-openraft = { version = "0.10.0-alpha.18", default-features = false, features = [
+openraft = { version = "0.10.0-alpha.20", default-features = false, features = [
   "type-alias",
 ] }
 prost = "0.14.3"

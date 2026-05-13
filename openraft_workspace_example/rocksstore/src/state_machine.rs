@@ -10,7 +10,7 @@ use openraft::{
   storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
-use rand::Rng;
+use rand::RngExt;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 

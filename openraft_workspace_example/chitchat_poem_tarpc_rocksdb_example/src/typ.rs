@@ -7,18 +7,21 @@ pub type Raft = openraft::Raft<TypeConfig>;
 
 pub type Vote = <TypeConfig as openraft::RaftTypeConfig>::Vote;
 pub type LeaderId = <TypeConfig as openraft::RaftTypeConfig>::LeaderId;
-pub type LogId = openraft::LogId<TypeConfig>;
+pub type LogId = openraft::alias::LogIdOf<TypeConfig>;
 pub type Entry = <TypeConfig as openraft::RaftTypeConfig>::Entry;
-pub type EntryPayload = openraft::EntryPayload<TypeConfig>;
-pub type Membership = openraft::membership::Membership<TypeConfig>;
-pub type StoredMembership = openraft::StoredMembership<TypeConfig>;
+pub type EntryPayload = openraft::alias::EntryPayloadOf<TypeConfig>;
+pub type Membership = openraft::membership::Membership<
+  <TypeConfig as openraft::RaftTypeConfig>::NodeId,
+  <TypeConfig as openraft::RaftTypeConfig>::Node,
+>;
+pub type StoredMembership = openraft::alias::StoredMembershipOf<TypeConfig>;
 
 pub type Node = <TypeConfig as openraft::RaftTypeConfig>::Node;
 
 pub type LogState = openraft::storage::LogState<TypeConfig>;
 
-pub type SnapshotMeta = openraft::SnapshotMeta<TypeConfig>;
-pub type Snapshot = openraft::Snapshot<TypeConfig>;
+pub type SnapshotMeta = openraft::alias::SnapshotMetaOf<TypeConfig>;
+pub type Snapshot = openraft::alias::SnapshotOf<TypeConfig>;
 pub type SnapshotData = <TypeConfig as openraft::RaftTypeConfig>::SnapshotData;
 
 pub type IOFlushed = openraft::storage::IOFlushed<TypeConfig>;

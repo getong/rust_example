@@ -43,7 +43,7 @@ pub struct Cluster {
   // dropping the handle leaves the cluster
   _chitchat_handle: ChitchatHandle,
   // OpenRAFT integration
-  raft: Arc<RwLock<Option<Raft<TypeConfig>>>>,
+  raft: Arc<RwLock<Option<Raft<TypeConfig, Arc<StateMachineStore>>>>>,
   raft_store: Arc<RwLock<Option<Arc<StateMachineStore>>>>,
 }
 
@@ -339,7 +339,7 @@ impl Cluster {
   }
 
   /// Get reference to the Raft instance if enabled
-  pub async fn raft(&self) -> Option<Raft<TypeConfig>> {
+  pub async fn raft(&self) -> Option<Raft<TypeConfig, Arc<StateMachineStore>>> {
     self.raft.read().await.clone()
   }
 

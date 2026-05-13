@@ -25,7 +25,7 @@ openraft::declare_raft_types!(
     pub RaftTypeConfig: D = RaftRequest, R = RaftResponse, NodeId = NodeId, Node = BasicNode
 );
 
-pub type RaftConfig = Raft<RaftTypeConfig>;
+pub type RaftConfig = Raft<RaftTypeConfig, Arc<RaftStore>>;
 
 // Representation of an application state. This struct can be shared around to share
 // instances of raft, store and more.

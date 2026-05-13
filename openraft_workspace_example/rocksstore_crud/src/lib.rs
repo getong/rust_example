@@ -77,6 +77,19 @@ impl From<types_kv::Response> for RocksResponse {
   }
 }
 
+impl From<RocksRequest> for types_kv::Request {
+  fn from(req: RocksRequest) -> Self {
+    match req {
+      RocksRequest::Set { key, value } | RocksRequest::Update { key, value } => {
+        types_kv::Request::Set { key, value }
+      }
+      RocksRequest::Delete { key } => {
+        types_kv::Request::Set { key, value: String::new() }
+      }
+    }
+  }
+}
+
 /// Create a pair of `RocksLogStore` and `RocksStateMachine` that are backed by a same rocks db
 /// instance.
 pub async fn new<C, P: AsRef<Path>>(

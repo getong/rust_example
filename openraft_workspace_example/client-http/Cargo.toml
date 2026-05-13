@@ -19,7 +19,7 @@ all-features = true
 default = []
 
 [dependencies]
-openraft = { version = "0.10.0-alpha.18", features = [
+openraft = { version = "0.10.0-alpha.20", features = [
   "serde",
   "type-alias",
 ] }

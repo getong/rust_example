@@ -2,13 +2,13 @@ use std::future::Future;
 
 use openraft::{
   OptionalSend,
+  alias::SnapshotOf,
   error::{RPCError, ReplicationClosed, StreamingError},
   network::{Backoff, RPCOption, RaftNetworkFactory},
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, TransferLeaderRequest,
     VoteRequest, VoteResponse,
   },
-  storage::Snapshot,
 };
 use openraft_multi::{GroupNetworkAdapter, GroupNetworkFactory, GroupRouter};
 
@@ -46,7 +46,7 @@ impl GroupRouter<TypeConfig, GroupId> for Router {
     target: NodeId,
     group_id: GroupId,
     vote: typ::Vote,
-    snapshot: Snapshot<TypeConfig>,
+    snapshot: SnapshotOf<TypeConfig>,
     _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<SnapshotResponse<TypeConfig>, StreamingError<TypeConfig>> {
@@ -76,8 +76,8 @@ impl GroupRouter<TypeConfig, GroupId> for Router {
       .map_err(RPCError::Unreachable)
   }
 
-  fn backoff(&self) -> Backoff {
-    Backoff::new(std::iter::repeat(std::time::Duration::from_millis(500)))
+  fn backoff(&self) -> Option<Backoff> {
+    Some(Backoff::new(std::iter::repeat(std::time::Duration::from_millis(500))))
   }
 }
 

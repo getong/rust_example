@@ -1,12 +1,12 @@
 use std::fmt;
 
 use openraft::{
-  EntryPayload, Membership,
+  EntryPayload,
   alias::LogIdOf,
   entry::{RaftEntry, RaftPayload},
 };
 
-use crate::{TypeConfig, protobuf as pb};
+use crate::{TypeConfig, protobuf as pb, typ};
 
 impl fmt::Display for pb::Entry {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -14,14 +14,19 @@ impl fmt::Display for pb::Entry {
   }
 }
 
-impl RaftPayload<TypeConfig> for pb::Entry {
-  fn get_membership(&self) -> Option<Membership<TypeConfig>> {
+impl RaftPayload<crate::NodeId, pb::Node> for pb::Entry {
+  fn get_membership(&self) -> Option<typ::Membership> {
     self.membership.clone().map(Into::into)
   }
 }
 
-impl RaftEntry<TypeConfig> for pb::Entry {
-  fn new(log_id: LogIdOf<TypeConfig>, payload: EntryPayload<TypeConfig>) -> Self {
+impl RaftEntry for pb::Entry {
+  type CommittedLeaderId = u64;
+  type D = pb::SetRequest;
+  type NodeId = u64;
+  type Node = pb::Node;
+
+  fn new(log_id: LogIdOf<TypeConfig>, payload: EntryPayload<pb::SetRequest, u64, pb::Node>) -> Self {
     let mut app_data = None;
     let mut membership = None;
     match payload {

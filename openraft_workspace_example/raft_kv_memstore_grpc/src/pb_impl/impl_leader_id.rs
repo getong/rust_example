@@ -4,7 +4,7 @@ use std::{cmp::Ordering, fmt};
 
 use openraft::vote::{LeaderIdCompare, RaftLeaderId};
 
-use crate::{TypeConfig, protobuf as pb};
+use crate::protobuf as pb;
 
 /// Implements PartialOrd for LeaderId to enforce the standard Raft behavior of at most one leader
 /// per term.
@@ -39,7 +39,9 @@ impl fmt::Display for pb::LeaderId {
   }
 }
 
-impl RaftLeaderId<TypeConfig> for pb::LeaderId {
+impl RaftLeaderId for pb::LeaderId {
+  type Term = u64;
+  type NodeId = u64;
   type Committed = u64;
 
   fn new(term: u64, node_id: u64) -> Self {

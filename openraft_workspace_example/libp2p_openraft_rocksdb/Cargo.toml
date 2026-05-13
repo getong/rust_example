@@ -30,7 +30,7 @@ libp2p = { version = "0.56", features = [
   "websocket",
   "yamux",
 ] }
-openraft = { version = "0.10.0-alpha.18", features = [
+openraft = { version = "0.10.0-alpha.20", features = [
   "serde",
   "type-alias",
 ] }
@@ -53,6 +53,18 @@ tokio = { version = "1.52", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 types-kv = { path = "../types-kv" }
+
+[[bin]]
+name = "lpr-kv"
+path = "src/bin/kv.rs"
+
+[[bin]]
+name = "lpr-peer-id"
+path = "src/bin/peer_id.rs"
+
+[[bin]]
+name = "lpr-status"
+path = "src/bin/status.rs"
 
 [build-dependencies]
 prost-build = "0.14.3"

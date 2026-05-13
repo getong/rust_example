@@ -1,10 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use openraft::Membership;
+use crate::{pb, typ};
 
-use crate::{TypeConfig, pb};
-
-impl From<pb::Membership> for Membership<TypeConfig> {
+impl From<pb::Membership> for typ::Membership {
   fn from(value: pb::Membership) -> Self {
     let mut configs = vec![];
     for c in value.configs {
@@ -13,12 +11,12 @@ impl From<pb::Membership> for Membership<TypeConfig> {
     }
     let nodes = value.nodes;
     // TODO: do not unwrap()
-    Membership::new(configs, nodes).unwrap()
+    typ::Membership::new(configs, nodes).unwrap()
   }
 }
 
-impl From<Membership<TypeConfig>> for pb::Membership {
-  fn from(value: Membership<TypeConfig>) -> Self {
+impl From<typ::Membership> for pb::Membership {
+  fn from(value: typ::Membership) -> Self {
     let mut configs = vec![];
     for c in value.get_joint_config() {
       let mut node_ids = BTreeMap::new();

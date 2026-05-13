@@ -8,7 +8,8 @@ use futures::{Stream, TryStreamExt};
 use openraft::{
   EntryPayload, OptionalSend, RaftSnapshotBuilder, StorageError,
   alias::SnapshotDataOf,
-  storage::{EntryResponder, RaftStateMachine, Snapshot},
+  alias::SnapshotOf,
+  storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
 
@@ -156,7 +157,7 @@ pub struct StateMachineStore {
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<Snapshot<TypeConfig>, io::Error> {
+  async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
     let data;
     let last_applied_log;
     let last_membership;
@@ -205,7 +206,7 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
     let snapshot_data =
       serde_json::to_vec(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    Ok(Snapshot {
+    Ok(SnapshotOf::<TypeConfig> {
       meta,
       snapshot: std::io::Cursor::new(snapshot_data),
     })
@@ -316,7 +317,7 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     // Deserialize the snapshot data
     let mut snapshot_data: StateMachineData =
       serde_json::from_slice(snapshot.get_ref()).map_err(|e| {
-        StorageError::read_snapshot(Some(meta.signature()), TypeConfig::err_from_error(&e))
+        StorageError::<TypeConfig>::read_snapshot(Some(meta.signature()), TypeConfig::err_from_error(&e))
       })?;
     snapshot_data.last_applied = meta.last_log_id;
     snapshot_data.last_membership = meta.last_membership.clone();
@@ -338,16 +339,16 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
     Ok(())
   }
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn get_current_snapshot(&mut self) -> Result<Option<Snapshot<TypeConfig>>, io::Error> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
     match &*self.current_snapshot.lock().unwrap() {
       Some(snapshot) => {
         let data = serde_json::to_vec(&snapshot.data).map_err(|e| {
-          StorageError::read_snapshot(
+          StorageError::<TypeConfig>::read_snapshot(
             Some(snapshot.meta.signature()),
             TypeConfig::err_from_error(&e),
           )
         })?;
-        Ok(Some(Snapshot {
+        Ok(Some(SnapshotOf::<TypeConfig> {
           meta: snapshot.meta.clone(),
           snapshot: std::io::Cursor::new(data),
         }))

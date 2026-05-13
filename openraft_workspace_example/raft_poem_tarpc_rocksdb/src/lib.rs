@@ -59,7 +59,7 @@ openraft::declare_raft_types!(
         Node = Node,
 );
 
-pub type ExampleRaft = openraft::Raft<TypeConfig>;
+pub type ExampleRaft = openraft::Raft<TypeConfig, store::StateMachineStore>;
 
 pub async fn start_example_raft_node<P>(
   node_id: NodeId,

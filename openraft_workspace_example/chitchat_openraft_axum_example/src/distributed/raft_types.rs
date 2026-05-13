@@ -15,12 +15,12 @@ openraft::declare_raft_types!(
 );
 
 // Import commonly used types
-pub type LogId = openraft::LogId<TypeConfig>;
-pub type StoredMembership = openraft::StoredMembership<TypeConfig>;
-pub type SnapshotMeta = openraft::SnapshotMeta<TypeConfig>;
-pub type Snapshot = openraft::Snapshot<TypeConfig>;
+pub type LogId = openraft::alias::LogIdOf<TypeConfig>;
+pub type StoredMembership = openraft::alias::StoredMembershipOf<TypeConfig>;
+pub type SnapshotMeta = openraft::alias::SnapshotMetaOf<TypeConfig>;
+pub type Snapshot = openraft::alias::SnapshotOf<TypeConfig>;
 pub type Entry = <TypeConfig as openraft::RaftTypeConfig>::Entry;
-pub type EntryPayload = openraft::EntryPayload<TypeConfig>;
+pub type EntryPayload = openraft::alias::EntryPayloadOf<TypeConfig>;
 pub type StorageError = openraft::StorageError<TypeConfig>;
 
 // Request types for the distributed store
