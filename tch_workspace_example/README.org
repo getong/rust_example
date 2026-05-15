@@ -1,6 +1,6 @@
 #+TITLE: tch-rs 项目编译指南
 #+AUTHOR:
-#+DATE: 2026-01-29
+#+DATE: 2026-05-15
 
 * 项目简介
 
@@ -11,25 +11,11 @@
 - Rust (推荐使用最新稳定版)
 - Python 3.x
 - uv (Python 包管理器)
-- PyTorch
+- 项目根目录 =.venv=
 
 * 编译步骤
 
-** 1. 修正 Cargo.toml
-
-确保 =Cargo.toml= 中的 =edition= 字段设置为有效值（如 =2021= ）：
-
-#+BEGIN_SRC toml
-[package]
-name = "tch_basic"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-tch = "0.23.0"
-#+END_SRC
-
-** 2. 安装 uv 和 PyTorch
+** 1. 创建虚拟环境并安装 Python 依赖
 
 首先安装 uv（如果尚未安装）：
 
@@ -40,57 +26,51 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 使用 uv 创建虚拟环境并安装 PyTorch：
 
 #+BEGIN_SRC bash
-cd tch_basic
-uv venv
+uv venv .venv
 source .venv/bin/activate
-uv pip install torch
+uv pip install -r requirements.txt
 #+END_SRC
 
 验证安装：
 
 #+BEGIN_SRC bash
-python -c "import torch; print(torch.__version__)"
+python -W ignore -c "import torch; print(torch.__version__.split('+')[0])"
 #+END_SRC
 
-** 3. 设置编译环境变量
+预期输出：
+
+#+BEGIN_EXAMPLE
+2.11.0
+#+END_EXAMPLE
+
+** 2. 设置编译环境变量
 
 确保激活虚拟环境，并设置 =LIBTORCH_USE_PYTORCH= 环境变量：
 
 #+BEGIN_SRC bash
 source .venv/bin/activate
 export LIBTORCH_USE_PYTORCH=1
-export PATH="/opt/homebrew/bin:$PATH"
 #+END_SRC
 
-** 4. 编译项目
-
-返回项目根目录并编译：
-
-#+BEGIN_SRC bash
-cd ..
-cargo build --bin tch_basic
-#+END_SRC
-
-** 5. 设置运行时库路径
+** 3. 设置运行时库路径
 
 设置 =DYLD_LIBRARY_PATH= 环境变量以便运行时能找到 PyTorch 动态库：
 
 #+BEGIN_SRC bash
-# 自动获取 torch 库路径
-TORCH_LIB=$(python -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+TORCH_LIB=$(python -W ignore -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
 export DYLD_LIBRARY_PATH=$TORCH_LIB:$DYLD_LIBRARY_PATH
 #+END_SRC
 
-或者直接设置（需根据实际路径调整）：
+** 4. 编译项目
 
 #+BEGIN_SRC bash
-export DYLD_LIBRARY_PATH=$PWD/tch_basic/.venv/lib/python3.14/site-packages/torch/lib:$DYLD_LIBRARY_PATH
+cargo build --bin tch_basic --release
 #+END_SRC
 
-** 6. 运行程序
+** 5. 运行程序
 
 #+BEGIN_SRC bash
-cargo run --bin tch_basic
+cargo run --bin tch_basic --release
 #+END_SRC
 
 预期输出：
@@ -106,7 +86,7 @@ cargo run --bin tch_basic
 
 * 一键编译和运行脚本
 
-可以创建一个脚本来简化完整流程：
+脚本只负责激活现有虚拟环境、设置变量并执行 cargo：
 
 #+BEGIN_SRC bash
 #!/bin/bash
@@ -114,14 +94,11 @@ cargo run --bin tch_basic
 # 在项目根目录执行此脚本
 
 # 激活虚拟环境
-source tch_basic/.venv/bin/activate
-
-# 设置编译环境变量
+source .venv/bin/activate
 export LIBTORCH_USE_PYTORCH=1
-export PATH="/opt/homebrew/bin:$PATH"
 
 # 设置运行时库路径
-TORCH_LIB=$(python -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+TORCH_LIB=$(python -W ignore -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
 export DYLD_LIBRARY_PATH=$TORCH_LIB:$DYLD_LIBRARY_PATH
 
 # 编译并运行
@@ -143,28 +120,26 @@ chmod +x build_and_run.sh
 *原因*：未找到 libtorch 安装。
 
 *解决方案*：
-1. 使用 uv 安装 PyTorch：=uv pip install torch=
-2. 激活虚拟环境：=source .venv/bin/activate=
+1. 创建并激活虚拟环境：=uv venv .venv && source .venv/bin/activate=
+2. 安装 Python 依赖：=uv pip install -r requirements.txt=
 3. 设置环境变量：=export LIBTORCH_USE_PYTORCH=1=
 
 ** 错误：ModuleNotFoundError: No module named 'torch'
 
-*原因*：构建脚本使用的 Python 环境中未安装 PyTorch，或虚拟环境未激活。
+*原因*：当前 =.venv= 中未安装 PyTorch，或虚拟环境未激活。
 
 *解决方案*：
 - 确保已激活虚拟环境：=source .venv/bin/activate=
-- 确保虚拟环境中已安装 torch：=uv pip install torch=
-- 验证安装：=python -c "import torch; print(torch.__version__)"=
-- 可能需要调整 PATH，确保 =/opt/homebrew/bin= 在前面：
-  #+BEGIN_SRC bash
-  export PATH="/opt/homebrew/bin:$PATH"
-  #+END_SRC
+- 确保虚拟环境中已安装依赖：=uv pip install -r requirements.txt=
+- 验证安装：=python -W ignore -c "import torch; print(torch.__version__.split('+')[0])"=
 
-** 错误：edition = "2024" is not valid
+** 错误：PyTorch 版本不匹配
 
-*原因*：Rust 不支持 2024 edition。
+*原因*：=tch 0.24.0= 需要 PyTorch =2.11.0=。
 
-*解决方案*：修改 =Cargo.toml= 中的 =edition= 为 ="2021"= 或 ="2018"=。
+*解决方案*：
+- 使用 =requirements.txt= 中锁定的版本：=uv pip install -r requirements.txt=
+- 验证版本：=python -W ignore -c "import torch; print(torch.__version__.split('+')[0])"=
 
 ** 错误：Library not loaded: @rpath/libtorch_cpu.dylib
 
@@ -174,35 +149,10 @@ chmod +x build_and_run.sh
 1. 确保已激活虚拟环境：=source .venv/bin/activate=
 2. 设置运行时库路径：
    #+BEGIN_SRC bash
-   TORCH_LIB=$(python -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
+   TORCH_LIB=$(python -W ignore -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")
    export DYLD_LIBRARY_PATH=$TORCH_LIB:$DYLD_LIBRARY_PATH
    #+END_SRC
-3. 然后运行程序：=cargo run --bin tch_basic=
-
-* 其他安装方式
-
-** 方式一：手动下载 libtorch
-
-1. 下载 libtorch（macOS ARM64）：
-   #+BEGIN_SRC bash
-   curl -LO https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.5.1.zip
-   unzip libtorch-macos-arm64-2.5.1.zip
-   #+END_SRC
-
-2. 设置环境变量：
-   #+BEGIN_SRC bash
-   export LIBTORCH=/path/to/libtorch
-   export DYLD_LIBRARY_PATH=$LIBTORCH/lib:$DYLD_LIBRARY_PATH
-   #+END_SRC
-
-3. 编译项目：
-   #+BEGIN_SRC bash
-   cargo build
-   #+END_SRC
-
-** 方式二：系统级安装
-
-将 libtorch 安装到 =/usr/lib/libtorch.so= （需要管理员权限）。
+3. 然后运行程序：=cargo run --bin tch_basic --release=
 
 * 参考链接
 
