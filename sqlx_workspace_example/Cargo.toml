@@ -12,5 +12,5 @@ members = [
   "sqlx_multi_sql_acquire_example",
   "bigdecimal_serde_json_example",
   "sqlx_track_caller_example",
-  "timescaledb_example",
+  "timescaledb_example", "doris_example",
 ]
