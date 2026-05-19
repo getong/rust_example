@@ -3,7 +3,7 @@ mod raft_counter;
 use std::{future::Future, net::SocketAddr, time::Duration};
 
 use anyhow::{Context as _, anyhow};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use futures::{StreamExt, future};
 use kameo::{prelude::*, remote};
 use libp2p::{
@@ -47,6 +47,8 @@ enum Command {
   RpcClient {
     #[arg(long, default_value = "127.0.0.1:7000")]
     server_addr: SocketAddr,
+    #[arg(long, value_enum, default_value = "add")]
+    operation: CounterOperation,
     #[arg(long)]
     amount: u32,
     #[arg(long, default_value = "demo-client")]
@@ -74,6 +76,21 @@ struct RpcServerArgs {
   rpc_listen_addr: SocketAddr,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CounterOperation {
+  Add,
+  Subtract,
+}
+
+impl CounterOperation {
+  fn as_str(self) -> &'static str {
+    match self {
+      Self::Add => "add",
+      Self::Subtract => "subtract",
+    }
+  }
+}
+
 #[derive(Actor, RemoteActor)]
 struct CounterActor {
   raft: SharedCounterRaft,
@@ -81,6 +98,13 @@ struct CounterActor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Add {
+  amount: u32,
+  caller: String,
+  origin_peer: PeerId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Subtract {
   amount: u32,
   caller: String,
   origin_peer: PeerId,
@@ -99,27 +123,56 @@ impl Message<Add> for CounterActor {
   type Reply = CounterSnapshot;
 
   async fn handle(&mut self, msg: Add, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-    let command_caller = msg.caller.clone();
+    self
+      .handle_counter_operation(CounterOperation::Add, msg.amount, msg.caller, ctx)
+      .await
+  }
+}
+
+#[remote_message]
+impl Message<Subtract> for CounterActor {
+  type Reply = CounterSnapshot;
+
+  async fn handle(&mut self, msg: Subtract, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    self
+      .handle_counter_operation(CounterOperation::Subtract, msg.amount, msg.caller, ctx)
+      .await
+  }
+}
+
+impl CounterActor {
+  async fn handle_counter_operation(
+    &mut self,
+    operation: CounterOperation,
+    amount: u32,
+    caller: String,
+    ctx: &mut Context<Self, CounterSnapshot>,
+  ) -> CounterSnapshot {
     let raft = self.raft.lock().await;
     let previous_total = raft.current_total().await.unwrap_or(0);
-    let applied = raft
-      .add_and_get_total(msg.amount, command_caller.clone())
-      .await
-      .unwrap_or_else(|err| {
-        warn!(
-          "raft apply failed caller={} amount={} error={err}",
-          command_caller, msg.amount
-        );
-        crate::raft_counter::CounterReply {
-          total: previous_total,
-          caller: command_caller.clone(),
-        }
-      });
+    let applied = match operation {
+      CounterOperation::Add => raft.add_and_get_total(amount, caller.clone()).await,
+      CounterOperation::Subtract => raft.subtract_and_get_total(amount, caller.clone()).await,
+    }
+    .unwrap_or_else(|err| {
+      warn!(
+        "raft apply failed operation={} caller={} amount={} error={err}",
+        operation.as_str(),
+        caller,
+        amount
+      );
+      crate::raft_counter::CounterReply {
+        total: previous_total,
+        caller: caller.clone(),
+      }
+    });
     let new_total = applied.total;
     info!(
-      "counter actor handled caller={} amount={} previous_total={} new_total={} actor_id={}",
-      command_caller,
-      msg.amount,
+      "counter actor handled operation={} caller={} amount={} previous_total={} new_total={} \
+       actor_id={}",
+      operation.as_str(),
+      caller,
+      amount,
       previous_total,
       new_total,
       ctx.actor_ref().id()
@@ -140,11 +193,12 @@ impl Message<Add> for CounterActor {
 
 #[tarpc::service]
 trait CounterRpc {
-  async fn add(amount: u32, caller: String) -> Result<RpcAddResponse, RpcError>;
+  async fn add(amount: u32, caller: String) -> Result<RpcCounterResponse, RpcError>;
+  async fn subtract(amount: u32, caller: String) -> Result<RpcCounterResponse, RpcError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RpcAddResponse {
+struct RpcCounterResponse {
   actor_registration: String,
   actor_id: String,
   actor_peer: String,
@@ -169,27 +223,57 @@ struct CounterRpcServer {
   local_peer_id: PeerId,
 }
 
-impl CounterRpc for CounterRpcServer {
-  async fn add(
-    self,
-    _: context::Context,
+impl CounterRpcServer {
+  async fn apply_counter_operation(
+    &self,
+    operation: CounterOperation,
     amount: u32,
     caller: String,
-  ) -> Result<RpcAddResponse, RpcError> {
-    let snapshot = forward_to_counter(&self.actor_name, self.local_peer_id, amount, caller.clone())
-      .await
-      .map_err(|err| RpcError::RemoteActorUnavailable {
-        message: err.to_string(),
-      })?;
+  ) -> Result<RpcCounterResponse, RpcError> {
+    let snapshot = forward_to_counter(
+      &self.actor_name,
+      self.local_peer_id,
+      operation,
+      amount,
+      caller.clone(),
+    )
+    .await
+    .map_err(|err| RpcError::RemoteActorUnavailable {
+      message: err.to_string(),
+    })?;
 
-    Ok(RpcAddResponse {
-      actor_registration: self.actor_name,
+    Ok(RpcCounterResponse {
+      actor_registration: self.actor_name.clone(),
       actor_id: snapshot.actor_id,
       actor_peer: snapshot.handled_by_peer,
       rpc_server_peer: self.local_peer_id.to_string(),
       total: snapshot.total,
       caller: snapshot.acknowledged_caller,
     })
+  }
+}
+
+impl CounterRpc for CounterRpcServer {
+  async fn add(
+    self,
+    _: context::Context,
+    amount: u32,
+    caller: String,
+  ) -> Result<RpcCounterResponse, RpcError> {
+    self
+      .apply_counter_operation(CounterOperation::Add, amount, caller)
+      .await
+  }
+
+  async fn subtract(
+    self,
+    _: context::Context,
+    amount: u32,
+    caller: String,
+  ) -> Result<RpcCounterResponse, RpcError> {
+    self
+      .apply_counter_operation(CounterOperation::Subtract, amount, caller)
+      .await
   }
 }
 
@@ -202,9 +286,10 @@ async fn main() -> anyhow::Result<()> {
     Command::RpcServer(args) => run_rpc_server(args).await,
     Command::RpcClient {
       server_addr,
+      operation,
       amount,
       caller,
-    } => run_rpc_client(server_addr, amount, caller).await,
+    } => run_rpc_client(server_addr, operation, amount, caller).await,
   }
 }
 
@@ -274,6 +359,7 @@ async fn run_rpc_server(args: RpcServerArgs) -> anyhow::Result<()> {
 
 async fn run_rpc_client(
   server_addr: SocketAddr,
+  operation: CounterOperation,
   amount: u32,
   caller: String,
 ) -> anyhow::Result<()> {
@@ -288,15 +374,22 @@ async fn run_rpc_client(
   )
   .spawn();
 
-  let reply = client
-    .add(context::current(), amount, caller.clone())
-    .await
-    .context("tarpc add rpc failed")?
-    .map_err(|err| anyhow!("rpc server returned error: {err:?}"))?;
+  let rpc_result = match operation {
+    CounterOperation::Add => client
+      .add(context::current(), amount, caller.clone())
+      .await
+      .context("tarpc add rpc failed")?,
+    CounterOperation::Subtract => client
+      .subtract(context::current(), amount, caller.clone())
+      .await
+      .context("tarpc subtract rpc failed")?,
+  };
+  let reply = rpc_result.map_err(|err| anyhow!("rpc server returned error: {err:?}"))?;
 
   println!(
-    "rpc_client caller={} amount={} total={} actor_registration={} actor_id={} actor_peer={} \
-     rpc_server_peer={}",
+    "rpc_client operation={} caller={} amount={} total={} actor_registration={} actor_id={} \
+     actor_peer={} rpc_server_peer={}",
+    operation.as_str(),
     reply.caller,
     amount,
     reply.total,
@@ -418,22 +511,40 @@ async fn wait_for_ctrl_c() -> anyhow::Result<()> {
 async fn forward_to_counter(
   actor_name: &str,
   local_peer_id: PeerId,
+  operation: CounterOperation,
   amount: u32,
   caller: String,
 ) -> anyhow::Result<CounterSnapshot> {
   let remote_actor = lookup_counter(actor_name, local_peer_id).await?;
   let target_actor_id = remote_actor.id();
-  info!("forwarding rpc to actor_name={actor_name} actor_id={target_actor_id}");
+  info!(
+    "forwarding rpc operation={} to actor_name={actor_name} actor_id={target_actor_id}",
+    operation.as_str()
+  );
 
-  remote_actor
-    .ask(&Add {
-      amount,
-      caller,
-      origin_peer: local_peer_id,
-    })
-    .send()
-    .await
-    .map_err(|err| anyhow!("remote actor call failed: {err}"))
+  match operation {
+    CounterOperation::Add => {
+      remote_actor
+        .ask(&Add {
+          amount,
+          caller,
+          origin_peer: local_peer_id,
+        })
+        .send()
+        .await
+    }
+    CounterOperation::Subtract => {
+      remote_actor
+        .ask(&Subtract {
+          amount,
+          caller,
+          origin_peer: local_peer_id,
+        })
+        .send()
+        .await
+    }
+  }
+  .map_err(|err| anyhow!("remote actor call failed: {err}"))
 }
 
 async fn lookup_counter(

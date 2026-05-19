@@ -67,9 +67,36 @@ impl CounterRaftHandle {
     amount: u32,
     caller: String,
   ) -> anyhow::Result<CounterReply> {
+    self
+      .apply_delta_and_get_total(i64::from(amount), amount, caller, "add")
+      .await
+  }
+
+  pub async fn subtract_and_get_total(
+    &self,
+    amount: u32,
+    caller: String,
+  ) -> anyhow::Result<CounterReply> {
+    self
+      .apply_delta_and_get_total(-i64::from(amount), amount, caller, "subtract")
+      .await
+  }
+
+  async fn apply_delta_and_get_total(
+    &self,
+    delta: i64,
+    amount: u32,
+    caller: String,
+    operation: &'static str,
+  ) -> anyhow::Result<CounterReply> {
     let key = COUNTER_KEY.to_string();
     let previous_total = self.current_total().await?;
-    let new_total = previous_total + i64::from(amount);
+    let new_total = previous_total.checked_add(delta).ok_or_else(|| {
+      anyhow!(
+        "counter overflow applying operation={operation} amount={amount} \
+         previous_total={previous_total}"
+      )
+    })?;
 
     let response = self
       .raft
@@ -86,8 +113,8 @@ impl CounterRaftHandle {
       .map_err(|err| anyhow!("failed to parse persisted counter value '{persisted}': {err}"))?;
 
     info!(
-      "raft persisted counter key={} caller={} amount={} total={}",
-      key, caller, amount, total
+      "raft persisted counter key={} operation={} caller={} amount={} total={}",
+      key, operation, caller, amount, total
     );
 
     let mut cached_total = self.cached_total.lock().await;

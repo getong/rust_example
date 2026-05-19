@@ -19,6 +19,24 @@ extract_total() {
   sed -nE 's/.* total=([0-9-]+) .*/\1/p' | tail -n1
 }
 
+wait_for_log() {
+  local pattern="$1"
+  local log_file="$2"
+  local description="$3"
+
+  for _ in {1..60}; do
+    if grep -q "${pattern}" "${log_file}" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  echo "timed out waiting for ${description}"
+  echo "log: ${log_file}"
+  tail -n 80 "${log_file}" 2>/dev/null || true
+  exit 1
+}
+
 cleanup() {
   if [[ -n "${RPC_PID:-}" ]]; then
     kill "${RPC_PID}" >/dev/null 2>&1 || true
@@ -42,7 +60,7 @@ cargo build --target-dir "${TARGET_DIR}" >/dev/null
   >"${ACTOR_LOG}" 2>&1 &
 ACTOR_PID=$!
 
-sleep 2
+wait_for_log 'actor node ready peer_id=' "${ACTOR_LOG}" "actor node peer id"
 
 ACTOR_PEER_ID="$(grep -m1 'actor node ready peer_id=' "${ACTOR_LOG}" | sed -E 's/.*peer_id=([^ ]+).*/\1/')"
 if [[ -z "${ACTOR_PEER_ID}" ]]; then
@@ -60,7 +78,7 @@ SEED_ADDR="/ip4/127.0.0.1/tcp/${ACTOR_SWARM_PORT}/p2p/${ACTOR_PEER_ID}"
   >"${RPC_LOG}" 2>&1 &
 RPC_PID=$!
 
-sleep 3
+wait_for_log 'tarpc listening on' "${RPC_LOG}" "rpc server listener"
 
 FIRST_CALL_OUTPUT="$("${TARGET_DIR}/debug/kameo_tarpc" rpc-client \
   --server-addr "127.0.0.1:${RPC_PORT}" \
@@ -74,11 +92,18 @@ SECOND_CALL_OUTPUT="$("${TARGET_DIR}/debug/kameo_tarpc" rpc-client \
   --caller demo-run-2)"
 printf '%s\n' "${SECOND_CALL_OUTPUT}"
 
-FINAL_TOTAL="$(printf '%s\n' "${SECOND_CALL_OUTPUT}" | extract_total)"
+THIRD_CALL_OUTPUT="$("${TARGET_DIR}/debug/kameo_tarpc" rpc-client \
+  --server-addr "127.0.0.1:${RPC_PORT}" \
+  --operation subtract \
+  --amount 3 \
+  --caller demo-run-3)"
+printf '%s\n' "${THIRD_CALL_OUTPUT}"
+
+FINAL_TOTAL="$(printf '%s\n' "${THIRD_CALL_OUTPUT}" | extract_total)"
 FINAL_ACTOR_LINE="$(grep 'counter actor handled' "${ACTOR_LOG}" | tail -n1 || true)"
 
 echo
-echo "final accumulated total: ${FINAL_TOTAL}"
+echo "final counter total: ${FINAL_TOTAL}"
 if [[ -n "${FINAL_ACTOR_LINE}" ]]; then
   echo "actor final state: ${FINAL_ACTOR_LINE}"
 fi

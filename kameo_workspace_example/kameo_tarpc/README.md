@@ -31,16 +31,17 @@ rpc-client -> tarpc rpc-server -> remote kameo actor -> openraft state machine -
 
 1. 启动一个 `actor-node`
 2. 启动一个 `rpc-server`
-3. 由 `rpc-client` 连续发起两次 RPC
-4. 打印最终累加值
+3. 由 `rpc-client` 连续发起两次增加 RPC 和一次减少 RPC
+4. 打印最终计数值
 
 成功时会输出类似结果：
 
 ```text
-rpc_client caller=demo-run-1 amount=7 total=7 ...
-rpc_client caller=demo-run-2 amount=7 total=14 ...
+rpc_client operation=add caller=demo-run-1 amount=7 total=7 ...
+rpc_client operation=add caller=demo-run-2 amount=7 total=14 ...
+rpc_client operation=subtract caller=demo-run-3 amount=3 total=11 ...
 
-final accumulated total: 14
+final counter total: 11
 ```
 
 脚本每次运行前会清空 `./data/actor-node`，保证演示从 0 开始。
@@ -79,6 +80,16 @@ cargo run -- rpc-client \
   --server-addr 127.0.0.1:47013 \
   --amount 7 \
   --caller demo-run
+```
+
+减少计数值：
+
+```bash
+cargo run -- rpc-client \
+  --server-addr 127.0.0.1:47013 \
+  --operation subtract \
+  --amount 3 \
+  --caller demo-run-subtract
 ```
 
 ## 设计说明
