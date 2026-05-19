@@ -1,0 +1,16 @@
+[package]
+name = "kameo_tarpc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+clap = { version = "4.5.51", features = ["derive"] }
+futures = "0.3.31"
+kameo = { version = "0.20.0", features = ["remote"] }
+libp2p = { version = "0.56.0", features = ["macros", "noise", "serde", "tcp", "tokio", "yamux"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tarpc = { version = "0.37.0", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
