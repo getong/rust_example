@@ -1,3 +1,5 @@
+mod raft_counter;
+
 use std::{future::Future, net::SocketAddr, time::Duration};
 
 use anyhow::{Context as _, anyhow};
@@ -20,6 +22,8 @@ use tarpc::{
 use tokio::time::sleep;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+
+use crate::raft_counter::{CounterRaftHandle, SharedCounterRaft};
 
 const DEFAULT_ACTOR_NAME: &str = "distributed-counter";
 
@@ -56,6 +60,8 @@ struct NodeArgs {
   actor_name: String,
   #[arg(long, default_value = "/ip4/127.0.0.1/tcp/4101")]
   swarm_listen_addr: Multiaddr,
+  #[arg(long, default_value = "./data/actor-node")]
+  raft_db_path: String,
   #[arg(long = "seed")]
   seed_addrs: Vec<Multiaddr>,
 }
@@ -70,7 +76,7 @@ struct RpcServerArgs {
 
 #[derive(Actor, RemoteActor)]
 struct CounterActor {
-  total: i64,
+  raft: SharedCounterRaft,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,12 +99,26 @@ impl Message<Add> for CounterActor {
   type Reply = CounterSnapshot;
 
   async fn handle(&mut self, msg: Add, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-    let previous_total = self.total;
-    self.total += i64::from(msg.amount);
-    let new_total = self.total;
+    let command_caller = msg.caller.clone();
+    let raft = self.raft.lock().await;
+    let previous_total = raft.current_total().await.unwrap_or(0);
+    let applied = raft
+      .add_and_get_total(msg.amount, command_caller.clone())
+      .await
+      .unwrap_or_else(|err| {
+        warn!(
+          "raft apply failed caller={} amount={} error={err}",
+          command_caller, msg.amount
+        );
+        crate::raft_counter::CounterReply {
+          total: previous_total,
+          caller: command_caller.clone(),
+        }
+      });
+    let new_total = applied.total;
     info!(
       "counter actor handled caller={} amount={} previous_total={} new_total={} actor_id={}",
-      msg.caller,
+      command_caller,
       msg.amount,
       previous_total,
       new_total,
@@ -113,7 +133,7 @@ impl Message<Add> for CounterActor {
         .map(ToString::to_string)
         .unwrap_or_else(|| "local".to_string()),
       total: new_total,
-      acknowledged_caller: msg.caller,
+      acknowledged_caller: applied.caller,
     }
   }
 }
@@ -195,7 +215,10 @@ async fn run_actor_node(args: NodeArgs) -> anyhow::Result<()> {
     args.actor_name, args.swarm_listen_addr
   );
 
-  let actor_ref = CounterActor::spawn(CounterActor { total: 0 });
+  let raft = CounterRaftHandle::open_single_node(1, &args.raft_db_path).await?;
+  let actor_ref = CounterActor::spawn(CounterActor {
+    raft: std::sync::Arc::new(tokio::sync::Mutex::new(raft)),
+  });
   let actor_id = actor_ref.id();
   actor_ref
     .register(args.actor_name.clone())

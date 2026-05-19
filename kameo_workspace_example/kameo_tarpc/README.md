@@ -6,11 +6,12 @@
 - `rpc-server` 通过 `tarpc` 暴露过程调用
 - `rpc-client` 调用 `rpc-server`
 - `rpc-server` 再把请求转发给远端 `kameo` actor
+- `kameo` actor 内部不再直接维护内存 counter，而是把真实状态写入 `openraft + rocksdb`
 
 调用链是：
 
 ```text
-rpc-client -> tarpc rpc-server -> remote kameo actor
+rpc-client -> tarpc rpc-server -> remote kameo actor -> openraft state machine -> rocksdb
 ```
 
 ## 参考
@@ -30,13 +31,19 @@ rpc-client -> tarpc rpc-server -> remote kameo actor
 
 1. 启动一个 `actor-node`
 2. 启动一个 `rpc-server`
-3. 由 `rpc-client` 发起一次 RPC
+3. 由 `rpc-client` 连续发起两次 RPC
+4. 打印最终累加值
 
 成功时会输出类似结果：
 
 ```text
-rpc_client caller=demo-run amount=7 total=7 actor_registration=distributed-counter actor_id=#0@... actor_peer=12D3... rpc_server_peer=12D3...
+rpc_client caller=demo-run-1 amount=7 total=7 ...
+rpc_client caller=demo-run-2 amount=7 total=14 ...
+
+final accumulated total: 14
 ```
+
+脚本每次运行前会清空 `./data/actor-node`，保证演示从 0 开始。
 
 ## 手动运行
 
@@ -45,7 +52,8 @@ rpc_client caller=demo-run amount=7 total=7 actor_registration=distributed-count
 ```bash
 cargo run -- actor-node \
   --actor-name distributed-counter \
-  --swarm-listen-addr /ip4/127.0.0.1/tcp/47011
+  --swarm-listen-addr /ip4/127.0.0.1/tcp/47011 \
+  --raft-db-path ./data/actor-node
 ```
 
 记下日志中的 `peer_id`，拼出 seed 地址：
@@ -79,5 +87,7 @@ cargo run -- rpc-client \
 - `--seed` 会显式注入 swarm 地址簿，并主动 `dial` 到已知节点
 - 远端 actor 仍使用 `register/lookup` 方式发现
 - `tarpc` 负责对外 RPC 接口，`rpc-server` 本身不承载业务状态
+- `openraft 0.10.0-alpha.20` + `rocksdb` 负责 counter 的真实持久化状态
+- 当前实现是单节点 raft：目的不是演示 raft 复制，而是先把 `kameo counter` 从内存迁到 raft 状态机
 
 这样更接近真实分布式部署，而不是只依赖局域网自动发现

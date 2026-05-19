@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${ROOT_DIR}/.demo-logs"
 TARGET_DIR="${ROOT_DIR}/target-local"
+DATA_DIR="${ROOT_DIR}/data/actor-node"
 ACTOR_SWARM_PORT="${ACTOR_SWARM_PORT:-47011}"
 RPC_SWARM_PORT="${RPC_SWARM_PORT:-47012}"
 RPC_PORT="${RPC_PORT:-47013}"
@@ -31,11 +32,13 @@ trap cleanup EXIT
 
 cd "${ROOT_DIR}"
 
+rm -rf "${DATA_DIR}"
 cargo build --target-dir "${TARGET_DIR}" >/dev/null
 
 "${TARGET_DIR}/debug/kameo_tarpc" actor-node \
   --actor-name distributed-counter \
   --swarm-listen-addr "/ip4/127.0.0.1/tcp/${ACTOR_SWARM_PORT}" \
+  --raft-db-path "${DATA_DIR}" \
   >"${ACTOR_LOG}" 2>&1 &
 ACTOR_PID=$!
 
