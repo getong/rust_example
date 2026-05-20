@@ -12,6 +12,8 @@ kameo = { version = "0.20.0", features = ["remote"] }
 libp2p = { version = "0.56.0", features = ["macros", "noise", "serde", "tcp", "tokio", "yamux"] }
 openraft = { version = "0.10.0-alpha.20", features = ["serde", "type-alias"] }
 openraft-rocksstore-crud = { path = "../../openraft_workspace_example/rocksstore_crud" }
+prost = "0.14.3"
+prost-types = "0.14.3"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
@@ -20,3 +22,6 @@ tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 types-kv = { path = "../../openraft_workspace_example/types-kv" }
+
+[build-dependencies]
+prost-build = "0.14.3"

@@ -13,6 +13,7 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
+use prost::Message as ProstMessage;
 use serde::{Deserialize, Serialize};
 use tarpc::{
   client, context,
@@ -24,6 +25,10 @@ use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::raft_counter::{CounterRaftHandle, SharedCounterRaft};
+
+mod mypackage {
+  include!(concat!(env!("OUT_DIR"), "/mypackage.rs"));
+}
 
 const DEFAULT_ACTOR_NAME: &str = "distributed-counter";
 
@@ -52,6 +57,17 @@ enum Command {
     #[arg(long)]
     amount: u32,
     #[arg(long, default_value = "demo-client")]
+    caller: String,
+  },
+  /// Encodes a protobuf message and forwards it through tarpc to the remote actor.
+  RpcProstClient {
+    #[arg(long, default_value = "127.0.0.1:7000")]
+    server_addr: SocketAddr,
+    #[arg(long, value_enum, default_value = "my-message")]
+    kind: ProstMessageKind,
+    #[arg(long)]
+    payload: String,
+    #[arg(long, default_value = "demo-prost-client")]
     caller: String,
   },
 }
@@ -91,6 +107,28 @@ impl CounterOperation {
   }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum)]
+enum ProstMessageKind {
+  MyMessage,
+  OtherMessage,
+}
+
+impl ProstMessageKind {
+  fn as_str(self) -> &'static str {
+    match self {
+      Self::MyMessage => "my-message",
+      Self::OtherMessage => "other-message",
+    }
+  }
+
+  fn field_name(self) -> &'static str {
+    match self {
+      Self::MyMessage => "content",
+      Self::OtherMessage => "data",
+    }
+  }
+}
+
 #[derive(Actor, RemoteActor)]
 struct CounterActor {
   raft: SharedCounterRaft,
@@ -110,12 +148,52 @@ struct Subtract {
   origin_peer: PeerId,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProstCounterMessage {
+  kind: ProstMessageKind,
+  payload: Vec<u8>,
+  caller: String,
+  origin_peer: PeerId,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Reply)]
 struct CounterSnapshot {
   actor_id: String,
   handled_by_peer: String,
   total: i64,
   acknowledged_caller: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Reply)]
+struct ProstCounterReply {
+  actor_id: String,
+  handled_by_peer: String,
+  message_kind: ProstMessageKind,
+  field_name: String,
+  value: String,
+  acknowledged_caller: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ProstCounterError {
+  DecodeFailed {
+    kind: ProstMessageKind,
+    message: String,
+  },
+}
+
+impl std::fmt::Display for ProstCounterError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::DecodeFailed { kind, message } => {
+        write!(
+          f,
+          "failed to decode protobuf {} payload: {message}",
+          kind.as_str()
+        )
+      }
+    }
+  }
 }
 
 #[remote_message]
@@ -137,6 +215,35 @@ impl Message<Subtract> for CounterActor {
     self
       .handle_counter_operation(CounterOperation::Subtract, msg.amount, msg.caller, ctx)
       .await
+  }
+}
+
+#[remote_message]
+impl Message<ProstCounterMessage> for CounterActor {
+  type Reply = Result<ProstCounterReply, ProstCounterError>;
+
+  async fn handle(
+    &mut self,
+    msg: ProstCounterMessage,
+    ctx: &mut Context<Self, Self::Reply>,
+  ) -> Self::Reply {
+    let ProstCounterMessage {
+      kind,
+      payload,
+      caller,
+      origin_peer,
+    } = msg;
+
+    match kind {
+      ProstMessageKind::MyMessage => {
+        let decoded = decode_prost_payload::<mypackage::MyMessage>(kind, &payload)?;
+        Ok(self.handle_my_message(decoded, caller, origin_peer, ctx))
+      }
+      ProstMessageKind::OtherMessage => {
+        let decoded = decode_prost_payload::<mypackage::OtherMessage>(kind, &payload)?;
+        Ok(self.handle_other_message(decoded, caller, origin_peer, ctx))
+      }
+    }
   }
 }
 
@@ -189,12 +296,85 @@ impl CounterActor {
       acknowledged_caller: applied.caller,
     }
   }
+
+  fn handle_my_message(
+    &mut self,
+    msg: mypackage::MyMessage,
+    caller: String,
+    origin_peer: PeerId,
+    ctx: &mut Context<Self, Result<ProstCounterReply, ProstCounterError>>,
+  ) -> ProstCounterReply {
+    self.handle_decoded_prost_message(
+      ProstMessageKind::MyMessage,
+      msg.content,
+      caller,
+      origin_peer,
+      ctx,
+    )
+  }
+
+  fn handle_other_message(
+    &mut self,
+    msg: mypackage::OtherMessage,
+    caller: String,
+    origin_peer: PeerId,
+    ctx: &mut Context<Self, Result<ProstCounterReply, ProstCounterError>>,
+  ) -> ProstCounterReply {
+    self.handle_decoded_prost_message(
+      ProstMessageKind::OtherMessage,
+      msg.data,
+      caller,
+      origin_peer,
+      ctx,
+    )
+  }
+
+  fn handle_decoded_prost_message(
+    &mut self,
+    kind: ProstMessageKind,
+    value: String,
+    caller: String,
+    origin_peer: PeerId,
+    ctx: &mut Context<Self, Result<ProstCounterReply, ProstCounterError>>,
+  ) -> ProstCounterReply {
+    let actor_id = ctx.actor_ref().id().to_string();
+    let handled_by_peer = ctx
+      .actor_ref()
+      .id()
+      .peer_id()
+      .map(ToString::to_string)
+      .unwrap_or_else(|| "local".to_string());
+    info!(
+      "counter actor handled prost message kind={} caller={} origin_peer={} field={} value={} \
+       actor_id={}",
+      kind.as_str(),
+      caller,
+      origin_peer,
+      kind.field_name(),
+      value,
+      actor_id
+    );
+
+    ProstCounterReply {
+      actor_id,
+      handled_by_peer,
+      message_kind: kind,
+      field_name: kind.field_name().to_string(),
+      value,
+      acknowledged_caller: caller,
+    }
+  }
 }
 
 #[tarpc::service]
 trait CounterRpc {
   async fn add(amount: u32, caller: String) -> Result<RpcCounterResponse, RpcError>;
   async fn subtract(amount: u32, caller: String) -> Result<RpcCounterResponse, RpcError>;
+  async fn process_prost_message(
+    kind: ProstMessageKind,
+    payload: Vec<u8>,
+    caller: String,
+  ) -> Result<RpcProstResponse, RpcError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +384,18 @@ struct RpcCounterResponse {
   actor_peer: String,
   rpc_server_peer: String,
   total: i64,
+  caller: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RpcProstResponse {
+  actor_registration: String,
+  actor_id: String,
+  actor_peer: String,
+  rpc_server_peer: String,
+  message_kind: ProstMessageKind,
+  field_name: String,
+  value: String,
   caller: String,
 }
 
@@ -251,6 +443,36 @@ impl CounterRpcServer {
       caller: snapshot.acknowledged_caller,
     })
   }
+
+  async fn apply_prost_message(
+    &self,
+    kind: ProstMessageKind,
+    payload: Vec<u8>,
+    caller: String,
+  ) -> Result<RpcProstResponse, RpcError> {
+    let reply = forward_prost_to_counter(
+      &self.actor_name,
+      self.local_peer_id,
+      kind,
+      payload,
+      caller.clone(),
+    )
+    .await
+    .map_err(|err| RpcError::RemoteActorUnavailable {
+      message: err.to_string(),
+    })?;
+
+    Ok(RpcProstResponse {
+      actor_registration: self.actor_name.clone(),
+      actor_id: reply.actor_id,
+      actor_peer: reply.handled_by_peer,
+      rpc_server_peer: self.local_peer_id.to_string(),
+      message_kind: reply.message_kind,
+      field_name: reply.field_name,
+      value: reply.value,
+      caller: reply.acknowledged_caller,
+    })
+  }
 }
 
 impl CounterRpc for CounterRpcServer {
@@ -275,6 +497,16 @@ impl CounterRpc for CounterRpcServer {
       .apply_counter_operation(CounterOperation::Subtract, amount, caller)
       .await
   }
+
+  async fn process_prost_message(
+    self,
+    _: context::Context,
+    kind: ProstMessageKind,
+    payload: Vec<u8>,
+    caller: String,
+  ) -> Result<RpcProstResponse, RpcError> {
+    self.apply_prost_message(kind, payload, caller).await
+  }
 }
 
 #[tokio::main]
@@ -290,6 +522,12 @@ async fn main() -> anyhow::Result<()> {
       amount,
       caller,
     } => run_rpc_client(server_addr, operation, amount, caller).await,
+    Command::RpcProstClient {
+      server_addr,
+      kind,
+      payload,
+      caller,
+    } => run_rpc_prost_client(server_addr, kind, payload, caller).await,
   }
 }
 
@@ -393,6 +631,46 @@ async fn run_rpc_client(
     reply.caller,
     amount,
     reply.total,
+    reply.actor_registration,
+    reply.actor_id,
+    reply.actor_peer,
+    reply.rpc_server_peer
+  );
+
+  Ok(())
+}
+
+async fn run_rpc_prost_client(
+  server_addr: SocketAddr,
+  kind: ProstMessageKind,
+  payload: String,
+  caller: String,
+) -> anyhow::Result<()> {
+  let mut transport = tarpc::serde_transport::tcp::connect(server_addr, Json::default);
+  transport.config_mut().max_frame_length(usize::MAX);
+
+  let client = CounterRpcClient::new(
+    client::Config::default(),
+    transport
+      .await
+      .with_context(|| format!("failed to connect tarpc server {server_addr}"))?,
+  )
+  .spawn();
+
+  let encoded_payload = encode_prost_payload(kind, payload);
+  let rpc_result = client
+    .process_prost_message(context::current(), kind, encoded_payload, caller.clone())
+    .await
+    .context("tarpc process_prost_message rpc failed")?;
+  let reply = rpc_result.map_err(|err| anyhow!("rpc server returned error: {err:?}"))?;
+
+  println!(
+    "rpc_prost_client kind={} caller={} field={} value={} actor_registration={} actor_id={} \
+     actor_peer={} rpc_server_peer={}",
+    reply.message_kind.as_str(),
+    reply.caller,
+    reply.field_name,
+    reply.value,
     reply.actor_registration,
     reply.actor_id,
     reply.actor_peer,
@@ -547,6 +825,32 @@ async fn forward_to_counter(
   .map_err(|err| anyhow!("remote actor call failed: {err}"))
 }
 
+async fn forward_prost_to_counter(
+  actor_name: &str,
+  local_peer_id: PeerId,
+  kind: ProstMessageKind,
+  payload: Vec<u8>,
+  caller: String,
+) -> anyhow::Result<ProstCounterReply> {
+  let remote_actor = lookup_counter(actor_name, local_peer_id).await?;
+  let target_actor_id = remote_actor.id();
+  info!(
+    "forwarding protobuf message kind={} to actor_name={actor_name} actor_id={target_actor_id}",
+    kind.as_str()
+  );
+
+  remote_actor
+    .ask(&ProstCounterMessage {
+      kind,
+      payload,
+      caller,
+      origin_peer: local_peer_id,
+    })
+    .send()
+    .await
+    .map_err(|err| anyhow!("remote actor protobuf call failed: {err}"))
+}
+
 async fn lookup_counter(
   actor_name: &str,
   local_peer_id: PeerId,
@@ -585,6 +889,54 @@ fn init_tracing() -> anyhow::Result<()> {
     .map_err(|err| anyhow!("failed to initialize tracing: {err}"))
 }
 
+fn decode_prost_payload<M>(kind: ProstMessageKind, payload: &[u8]) -> Result<M, ProstCounterError>
+where
+  M: ProstMessage + Default,
+{
+  M::decode(payload).map_err(|err| ProstCounterError::DecodeFailed {
+    kind,
+    message: err.to_string(),
+  })
+}
+
+fn encode_prost_payload(kind: ProstMessageKind, payload: String) -> Vec<u8> {
+  match kind {
+    ProstMessageKind::MyMessage => {
+      let msg = mypackage::MyMessage { content: payload };
+      msg.encode_to_vec()
+    }
+    ProstMessageKind::OtherMessage => {
+      let msg = mypackage::OtherMessage { data: payload };
+      msg.encode_to_vec()
+    }
+  }
+}
+
 async fn spawn_task(task: impl Future<Output = ()> + Send + 'static) {
   tokio::spawn(task);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn encodes_and_decodes_my_message_payload() {
+    let encoded = encode_prost_payload(ProstMessageKind::MyMessage, "hello".to_string());
+    let decoded =
+      decode_prost_payload::<mypackage::MyMessage>(ProstMessageKind::MyMessage, &encoded)
+        .expect("my-message payload should decode");
+
+    assert_eq!(decoded.content, "hello");
+  }
+
+  #[test]
+  fn encodes_and_decodes_other_message_payload() {
+    let encoded = encode_prost_payload(ProstMessageKind::OtherMessage, "side".to_string());
+    let decoded =
+      decode_prost_payload::<mypackage::OtherMessage>(ProstMessageKind::OtherMessage, &encoded)
+        .expect("other-message payload should decode");
+
+    assert_eq!(decoded.data, "side");
+  }
 }

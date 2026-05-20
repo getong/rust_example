@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package mypackage;
+
+message MyMessage {
+  string content = 1;
+}
+
+message OtherMessage {
+  string data = 1;
+}
