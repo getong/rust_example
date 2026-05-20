@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { version = "0.4.43", features = ["clock", "serde"] }
+chrono = { version = "0.4.44", features = ["clock", "serde"] }
 prost = "0.14.3"
 prost-wkt = "0.7.1"
 prost-wkt-types = "0.7.1"
