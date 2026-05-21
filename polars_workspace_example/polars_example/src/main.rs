@@ -1,7 +1,7 @@
 use polars::{lazy::prelude::*, prelude::*};
 
 fn main() -> PolarsResult<()> {
-  let df = LazyCsvReader::new(PlPath::new("data.csv"))
+  let df = LazyCsvReader::new("data.csv".into())
     .with_has_header(true)
     .finish()?;
 
