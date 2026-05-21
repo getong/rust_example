@@ -11,4 +11,7 @@ TORCH_LIB=$(.venv/bin/python -c "import os, torch; print(os.path.join(os.path.di
 export DYLD_LIBRARY_PATH="${TORCH_LIB}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
 export LD_LIBRARY_PATH="${TORCH_LIB}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
+export VIRTUAL_ENV="$PWD/.venv"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+
 cargo build "$@"

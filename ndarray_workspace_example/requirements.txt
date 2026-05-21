@@ -1,2 +1,2 @@
 numpy
-torch
+torch==2.11.0
