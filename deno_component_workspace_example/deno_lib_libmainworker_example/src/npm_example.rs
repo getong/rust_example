@@ -378,6 +378,8 @@ console.log("🎉 TypeScript execution completed!");
     location: None,
     argv0: None,
     node_debug: None,
+    node_cluster_unique_id: None,
+    node_cluster_sched_policy: None,
     origin_data_folder_path: None,
     seed: None,
     unsafely_ignore_certificate_errors: None,

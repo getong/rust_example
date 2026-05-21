@@ -64,6 +64,8 @@ fn main() -> Result<()> {
         has_node_modules_dir: false,
         argv0: None,
         node_debug: None,
+        node_cluster_unique_id: None,
+        node_cluster_sched_policy: None,
         node_ipc_init: None,
         mode: WorkerExecutionMode::Run,
         no_legacy_abort: false,

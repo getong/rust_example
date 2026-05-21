@@ -20,7 +20,6 @@ use deno_core::{
 use deno_error::JsErrorBox;
 use deno_graph::packages::{JsrPackageInfo, JsrPackageVersionInfo, JsrVersionResolver};
 use deno_npm::{
-  npm_rc::RegistryConfig,
   registry::{NpmPackageVersionDistInfo, NpmRegistryApi},
   resolution::NpmVersionResolver,
 };
@@ -29,6 +28,7 @@ use deno_npm_cache::{
   NpmCacheHttpClientResponse, NpmCacheSetting, NpmPackumentFormat, RegistryInfoProvider,
   TarballCache,
 };
+use deno_npmrc::RegistryConfig;
 use deno_semver::{
   jsr::JsrPackageReqReference,
   npm::NpmPackageReqReference,

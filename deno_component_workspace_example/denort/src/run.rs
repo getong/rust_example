@@ -40,7 +40,8 @@ use deno_lib::{
   },
 };
 use deno_media_type::MediaType;
-use deno_npm::{npm_rc::ResolvedNpmRc, resolution::NpmResolutionSnapshot};
+use deno_npm::resolution::NpmResolutionSnapshot;
+use deno_npmrc::ResolvedNpmRc;
 use deno_package_json::PackageJsonDepValue;
 use deno_resolver::{
   DenoResolveErrorKind,
@@ -702,7 +703,7 @@ pub async fn run(
     Some(NodeModules::Managed { node_modules_dir }) => {
       // create an npmrc that uses the fake npm_registry_url to resolve packages
       let npmrc = Arc::new(ResolvedNpmRc {
-        default_config: deno_npm::npm_rc::RegistryConfigWithUrl {
+        default_config: deno_npmrc::RegistryConfigWithUrl {
           registry_url: npm_registry_url.clone(),
           config: Default::default(),
         },
@@ -963,6 +964,8 @@ pub async fn run(
       .map(|req_ref| npm_pkg_req_ref_to_binary_command(&req_ref).to_string())
       .or(std::env::args().next()),
     node_debug: std::env::var("NODE_DEBUG").ok(),
+    node_cluster_unique_id: None,
+    node_cluster_sched_policy: None,
     origin_data_folder_path: None,
     seed: metadata.seed,
     unsafely_ignore_certificate_errors: metadata.unsafely_ignore_certificate_errors,
@@ -1040,7 +1043,7 @@ fn create_default_npmrc() -> Arc<ResolvedNpmRc> {
   // this is fine because multiple registries are combined into
   // one when compiling the binary
   Arc::new(ResolvedNpmRc {
-    default_config: deno_npm::npm_rc::RegistryConfigWithUrl {
+    default_config: deno_npmrc::RegistryConfigWithUrl {
       registry_url: Url::parse("https://registry.npmjs.org").unwrap(),
       config: Default::default(),
     },

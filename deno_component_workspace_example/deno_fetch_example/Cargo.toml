@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_core = "0.393.0"
-deno_features = "0.37.0"
-deno_fetch = "0.264.0"
-deno_net = "0.232.0"
-deno_permissions = "0.99.0"
-deno_web = "0.271.0"
-deno_webidl = "0.240.0"
-reqwest = "0.13.2"
+deno_core = "0.400.0"
+deno_features = "0.44.0"
+deno_fetch = "0.271.0"
+deno_net = "0.239.0"
+deno_permissions = "0.106.0"
+deno_web = "0.278.0"
+deno_webidl = "0.247.0"
+reqwest = "0.13.3"
 rustls = "=0.23.28"
-sys_traits = { version = "=0.1.25", features = ["real", "libc"] }
-tokio = { version = "1.50.0", features = ["full"] }
+sys_traits = { version = "=0.1.27", features = ["real", "libc"] }
+tokio = { version = "1.52.3", features = ["full"] }

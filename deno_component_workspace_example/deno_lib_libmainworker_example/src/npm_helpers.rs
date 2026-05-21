@@ -5,9 +5,9 @@ use url::Url;
 
 // Create a default npmrc configuration
 #[allow(dead_code)]
-pub fn create_default_npmrc() -> Arc<deno_npm::npm_rc::ResolvedNpmRc> {
-  Arc::new(deno_npm::npm_rc::ResolvedNpmRc {
-    default_config: deno_npm::npm_rc::RegistryConfigWithUrl {
+pub fn create_default_npmrc() -> Arc<deno_npmrc::ResolvedNpmRc> {
+  Arc::new(deno_npmrc::ResolvedNpmRc {
+    default_config: deno_npmrc::RegistryConfigWithUrl {
       registry_url: Url::parse("https://registry.npmjs.org").unwrap(),
       config: Default::default(),
     },
