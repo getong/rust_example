@@ -46,6 +46,24 @@ final counter total: 11
 
 脚本每次运行前会清空 `./data/actor-node`，保证演示从 0 开始。
 
+### gen_server 风格多消息处理
+
+本项目还包含一个本地 `kameo` 示例，用 `Actor::next` 覆盖 actor 的接收循环，并在里面使用
+`tokio::select!` 同时等待：
+
+- `kameo` mailbox 里的 `call/ask` 和 `cast/tell`
+- 外部 `tokio::sync::mpsc` 事件
+- 定时 heartbeat tick
+
+运行：
+
+```bash
+cargo run -- gen-server-demo
+```
+
+核心代码在 `src/gen_server_actor.rs`。这个结构等价于 Erlang `gen_server` 的单进程消息循环：
+多个来源可以并发到达，但状态修改仍由 actor 串行处理。
+
 ## 手动运行
 
 ### 1. 启动 actor 节点

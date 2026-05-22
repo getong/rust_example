@@ -1,3 +1,4 @@
+mod gen_server_actor;
 mod raft_counter;
 
 use std::{future::Future, net::SocketAddr, time::Duration};
@@ -70,6 +71,8 @@ enum Command {
     #[arg(long, default_value = "demo-prost-client")]
     caller: String,
   },
+  /// Runs a local kameo actor that uses tokio::select! like an Erlang gen_server loop.
+  GenServerDemo,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -528,6 +531,7 @@ async fn main() -> anyhow::Result<()> {
       payload,
       caller,
     } => run_rpc_prost_client(server_addr, kind, payload, caller).await,
+    Command::GenServerDemo => gen_server_actor::run_gen_server_demo().await,
   }
 }
 
