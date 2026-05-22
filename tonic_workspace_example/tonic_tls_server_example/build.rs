@@ -2,9 +2,9 @@ use std::{env, path::PathBuf};
 
 fn main() {
   let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-  tonic_build::configure()
+  tonic_prost_build::configure()
     .file_descriptor_set_path(out_dir.join("helloworld_descriptor.bin"))
-    .compile(&["proto/helloworld.proto"], &["proto"])
+    .compile_protos(&["proto/helloworld.proto"], &["proto"])
     .unwrap();
   build_json_codec_service();
 }
@@ -16,11 +16,11 @@ fn main() {
 //
 // See the client/server examples defined in `src/json-codec` for more information.
 fn build_json_codec_service() {
-  let greeter_service = tonic_build::manual::Service::builder()
+  let greeter_service = tonic_prost_build::manual::Service::builder()
     .name("Greeter")
     .package("json.helloworld")
     .method(
-      tonic_build::manual::Method::builder()
+      tonic_prost_build::manual::Method::builder()
         .name("say_hello")
         .route_name("SayHello")
         .input_type("crate::common::HelloRequest")
@@ -30,5 +30,5 @@ fn build_json_codec_service() {
     )
     .build();
 
-  tonic_build::manual::Builder::new().compile(&[greeter_service]);
+  tonic_prost_build::manual::Builder::new().compile(&[greeter_service]);
 }
