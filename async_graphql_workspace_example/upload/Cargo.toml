@@ -1,0 +1,13 @@
+[package]
+name = "upload"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-graphql = "7.2.1"
+async-graphql-axum = "7.2.1"
+axum = "0.8.9"
+futures = "0.3.32"
+slab = "0.4.12"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tower-http = { version = "0.6.11", features = ["cors"] }

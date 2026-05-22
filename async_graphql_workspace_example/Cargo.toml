@@ -6,4 +6,5 @@ members = [
   "starwars",
   "subscription",
   "token_from_header",
+  "upload",
 ]
