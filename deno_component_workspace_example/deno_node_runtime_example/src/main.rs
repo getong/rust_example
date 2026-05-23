@@ -8,7 +8,7 @@ use deno_runtime::{
   deno_fs::RealFs,
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
-  deno_tls::rustls::crypto::{CryptoProvider, ring},
+  deno_tls::rustls::crypto::{CryptoProvider, aws_lc_rs},
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
@@ -17,7 +17,7 @@ use url::Url;
 
 fn main() -> Result<()> {
   // Install the default crypto provider for rustls (required for HTTPS)
-  CryptoProvider::install_default(ring::default_provider())
+  CryptoProvider::install_default(aws_lc_rs::default_provider())
     .expect("Failed to install default crypto provider");
 
   // Create a current thread runtime as Deno expects
@@ -77,6 +77,8 @@ fn main() -> Result<()> {
       },
       extensions: vec![],
       startup_snapshot: None,
+      residual_lazy_js_sources: &[],
+      residual_lazy_esm_sources: &[],
       create_params: None,
       unsafely_ignore_certificate_errors: None,
       seed: None,

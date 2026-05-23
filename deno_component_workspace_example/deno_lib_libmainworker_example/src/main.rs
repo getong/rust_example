@@ -119,6 +119,7 @@ impl ModuleLoaderFactory for SimpleModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader.clone(),
       node_require_loader: loader,
+      hook_registry: None,
     }
   }
 
@@ -221,6 +222,8 @@ console.log("Deno version:", Deno.version);
     otel_config: Default::default(),
     no_legacy_abort: false,
     startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+    residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+    residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
     enable_raw_imports: false,
     maybe_initial_cwd: None,
   };

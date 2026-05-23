@@ -16,7 +16,7 @@ use deno_runtime::{
   deno_fs::RealFs,
   deno_io::Stdio,
   deno_permissions::{Permissions, PermissionsContainer},
-  deno_tls::rustls::crypto::{CryptoProvider, ring},
+  deno_tls::rustls::crypto::{CryptoProvider, aws_lc_rs},
   permissions::RuntimePermissionDescriptorParser,
   worker::{MainWorker, WorkerOptions, WorkerServiceOptions},
 };
@@ -43,7 +43,7 @@ pub enum DenoCommand {
 
 async fn deno_runtime_task(mut rx: mpsc::Receiver<DenoCommand>) {
   // Install the default crypto provider for rustls (required for HTTPS)
-  if CryptoProvider::install_default(ring::default_provider()).is_err() {
+  if CryptoProvider::install_default(aws_lc_rs::default_provider()).is_err() {
     eprintln!("Warning: Failed to install default crypto provider - may already be set");
   }
 
@@ -127,6 +127,8 @@ async fn execute_script(script: String) -> Result<String, String> {
     },
     extensions: vec![],
     startup_snapshot: None,
+    residual_lazy_js_sources: &[],
+    residual_lazy_esm_sources: &[],
     create_params: None,
     unsafely_ignore_certificate_errors: None,
     seed: None,
@@ -238,6 +240,8 @@ async fn execute_stream_token(auth_header: String) -> Result<String, String> {
     },
     extensions: vec![],
     startup_snapshot: None,
+    residual_lazy_js_sources: &[],
+    residual_lazy_esm_sources: &[],
     create_params: None,
     unsafely_ignore_certificate_errors: None,
     seed: None,
@@ -419,6 +423,8 @@ async fn execute_node_https_test() -> Result<String, String> {
     },
     extensions: vec![],
     startup_snapshot: None,
+    residual_lazy_js_sources: &[],
+    residual_lazy_esm_sources: &[],
     create_params: None,
     unsafely_ignore_certificate_errors: None,
     seed: None,

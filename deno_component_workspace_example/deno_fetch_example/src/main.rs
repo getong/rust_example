@@ -151,6 +151,7 @@ async fn main() -> Result<(), AnyError> {
         let mut ext = deno_web::deno_web::init(
           Default::default(), // BlobStore
           None,               // Base URL
+          false,              // CSS parser features
           Default::default(), // InMemoryBroadcastChannel
         );
         ext.esm_files.to_mut().push(deno_core::ExtensionFileSource::new_computed(

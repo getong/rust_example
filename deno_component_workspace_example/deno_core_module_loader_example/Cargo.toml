@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 data-url = "=0.3.1"
-deno_core = "0.400.0"
+deno_core = "0.401.0"
 deno_error = "=0.7.1"
 reqwest = "0.13.3"
 tokio = { version = "1.52.3", features = ["fs"] }

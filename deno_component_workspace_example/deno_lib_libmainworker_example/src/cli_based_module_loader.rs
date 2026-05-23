@@ -238,6 +238,7 @@ impl ModuleLoaderFactory for CliInspiredModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader.clone(),
       node_require_loader: std::rc::Rc::new(SimpleNodeRequireLoader),
+      hook_registry: None,
     }
   }
 
@@ -255,6 +256,7 @@ impl ModuleLoaderFactory for CliInspiredModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader.clone(),
       node_require_loader: std::rc::Rc::new(SimpleNodeRequireLoader),
+      hook_registry: None,
     }
   }
 }

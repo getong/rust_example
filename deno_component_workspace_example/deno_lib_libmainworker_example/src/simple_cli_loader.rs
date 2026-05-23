@@ -169,6 +169,7 @@ impl ModuleLoaderFactory for SimpleCliModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader,
       node_require_loader,
+      hook_registry: None,
     }
   }
 
@@ -187,6 +188,7 @@ impl ModuleLoaderFactory for SimpleCliModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader,
       node_require_loader,
+      hook_registry: None,
     }
   }
 }

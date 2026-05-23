@@ -176,6 +176,7 @@ impl ModuleLoaderFactory for SimpleModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader.clone(),
       node_require_loader: loader,
+      hook_registry: None,
     }
   }
 
@@ -300,6 +301,8 @@ console.log("🎉 UnconfiguredRuntime example completed!");
     otel_config: Default::default(),
     no_legacy_abort: false,
     startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+    residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+    residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
     enable_raw_imports: false,
     maybe_initial_cwd: None,
   };
@@ -355,6 +358,8 @@ console.log("🎉 UnconfiguredRuntime example completed!");
       otel_config: Default::default(),
       no_legacy_abort: false,
       startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+      residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+      residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
       enable_raw_imports: false,
       maybe_initial_cwd: None,
     },
@@ -389,6 +394,8 @@ console.log("🎉 UnconfiguredRuntime example completed!");
     create_params: deno_lib::worker::create_isolate_create_params(&RealSys::default()),
     shared_array_buffer_store: Some(roots.shared_array_buffer_store.clone()),
     compiled_wasm_module_store: Some(roots.compiled_wasm_module_store.clone()),
+    residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+    residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
     additional_extensions: vec![],
   });
 
@@ -440,6 +447,8 @@ console.log("🎉 UnconfiguredRuntime example completed!");
       otel_config: Default::default(),
       no_legacy_abort: false,
       startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+      residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+      residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
       enable_raw_imports: false,
       maybe_initial_cwd: None,
     },

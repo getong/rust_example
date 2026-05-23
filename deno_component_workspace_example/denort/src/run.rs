@@ -249,6 +249,32 @@ impl ModuleLoader for EmbeddedModuleLoader {
               .and_then(|url_or_path| url_or_path.into_url().map_err(JsErrorBox::from_err))?,
           )
         }
+        PackageJsonDepValue::Catalog(catalog_name) => {
+          match self
+            .shared
+            .workspace_resolver
+            .resolve_catalog_dep(alias, catalog_name)
+          {
+            Some(req) => Ok(
+              self
+                .shared
+                .npm_req_resolver
+                .resolve_req_with_sub_path(
+                  &req,
+                  sub_path.as_deref(),
+                  &referrer,
+                  resolution_mode,
+                  NodeResolutionKind::Execution,
+                )
+                .map_err(JsErrorBox::from_err)
+                .and_then(|url_or_path| url_or_path.into_url().map_err(JsErrorBox::from_err))?,
+            ),
+            None => Err(JsErrorBox::generic(format!(
+              "Package '{}' not found in catalog",
+              alias
+            ))),
+          }
+        }
       },
       Ok(MappedResolution::PackageJsonImport { pkg_json }) => self
         .shared
@@ -614,6 +640,7 @@ impl StandaloneModuleLoaderFactory {
     CreateModuleLoaderResult {
       module_loader: loader.clone(),
       node_require_loader: loader,
+      hook_registry: None,
     }
   }
 }
@@ -709,6 +736,7 @@ pub async fn run(
         },
         scopes: Default::default(),
         registry_configs: Default::default(),
+        min_release_age_days: None,
       });
       let npm_cache_dir = Arc::new(NpmCacheDir::new(
         &sys,
@@ -732,6 +760,7 @@ pub async fn run(
           sys: node_resolution_sys.clone(),
           maybe_node_modules_path,
           npm_system_info: Default::default(),
+          linker_mode: Default::default(),
           npmrc,
         }),
       );
@@ -775,6 +804,7 @@ pub async fn run(
           npm_cache_dir,
           maybe_node_modules_path: None,
           npm_system_info: Default::default(),
+          linker_mode: Default::default(),
           npmrc: create_default_npmrc(),
         }),
       );
@@ -882,6 +912,7 @@ pub async fn run(
       },
       Default::default(),
       sys.clone(),
+      Default::default(),
     )
   };
   let code_cache = match metadata.code_cache_key {
@@ -975,6 +1006,8 @@ pub async fn run(
     otel_config: metadata.otel_config,
     no_legacy_abort: false,
     startup_snapshot: deno_snapshots::CLI_SNAPSHOT,
+    residual_lazy_js_sources: deno_snapshots::RESIDUAL_LAZY_JS,
+    residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
     enable_raw_imports: metadata.unstable_config.raw_imports,
     maybe_initial_cwd: None,
   };
@@ -1049,5 +1082,6 @@ fn create_default_npmrc() -> Arc<ResolvedNpmRc> {
     },
     scopes: Default::default(),
     registry_configs: Default::default(),
+    min_release_age_days: None,
   })
 }

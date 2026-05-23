@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 async-trait = "0.1.89"
-deno_core = "0.400.0"
-deno_semver = "=0.9.1"
+deno_core = "0.401.0"
+deno_semver = "=0.10.0"
 tokio = { version = "1.52.3", features = ["full"] }
 url = "2.5.8"
 

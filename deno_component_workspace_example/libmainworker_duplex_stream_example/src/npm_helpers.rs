@@ -12,5 +12,6 @@ pub(crate) fn create_default_npmrc() -> Arc<deno_npmrc::ResolvedNpmRc> {
     },
     scopes: Default::default(),
     registry_configs: Default::default(),
+    min_release_age_days: None,
   })
 }

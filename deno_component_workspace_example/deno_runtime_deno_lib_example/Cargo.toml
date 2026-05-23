@@ -7,15 +7,15 @@ edition = "2024"
 anyhow = "1.0"
 async-trait = "0.1.89"
 base64 = "0.22.1"
-deno_ast = { version = "=0.53.1", features = ["transpiling"] }
-deno_core = "0.400.0"
-deno_graph = "=0.107.1"
-deno_lib = "0.65.0"
-deno_npm = "0.59.0"
-deno_npm_cache = "0.66.0"
-deno_resolver = "0.78.0"
-deno_runtime = { version = "0.255.0", features = ["transpile"] }
-deno_semver = "=0.9.1"
+deno_ast = { version = "=0.53.2", features = ["transpiling"] }
+deno_core = "0.401.0"
+deno_graph = "=0.108.2"
+deno_lib = "0.66.0"
+deno_npm = "0.60.0"
+deno_npm_cache = "0.67.0"
+deno_resolver = "0.79.0"
+deno_runtime = { version = "0.256.0", features = ["transpile"] }
+deno_semver = "=0.10.0"
 dirs = "6.0.0"
 flate2 = "1.1"
 import_map = "0.25.0"
@@ -26,7 +26,7 @@ semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
-sys_traits = "=0.1.27"
+sys_traits = "0.1.28"
 tar = "0.4"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1"

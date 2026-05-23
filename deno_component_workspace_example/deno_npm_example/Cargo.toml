@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1.89"
-deno_npm = "0.59.0"
-deno_semver = "=0.9.1"
+deno_npm = "0.60.0"
+deno_semver = "=0.10.0"
 hex = "0.4.3"
 reqwest = "0.13.3"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 sha2 = "0.11.0"
 tokio = { version = "1.52.3", features = ["full"] }

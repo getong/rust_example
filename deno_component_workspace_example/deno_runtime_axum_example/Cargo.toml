@@ -7,12 +7,12 @@ edition = "2024"
 anyhow = "1.0.102"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
-deno_ast = { version = "=0.53.1", features = ["transpiling"] }
-deno_cache_dir = "0.39.0"
-deno_crypto = "0.261.0"
+deno_ast = { version = "=0.53.2", features = ["transpiling"] }
+deno_cache_dir = "0.40.0"
+deno_crypto = "0.262.0"
 deno_error = "=0.7.1"
-deno_resolver = "0.78.0"
-deno_runtime = { version = "0.255.0", features = ["transpile", "hmr"] }
+deno_resolver = "0.79.0"
+deno_runtime = { version = "0.256.0", features = ["transpile", "hmr"] }
 deno_terminal = "=0.2.3"
 dotenvy = "0.15.7"
 env_logger = "0.11"
@@ -20,7 +20,7 @@ log = "0.4.29"
 rand = "0.10"
 rustls = "0.23"
 serde_json = "1.0"
-sys_traits = { version = "=0.1.27", features = ["real"] }
+sys_traits = { version = "0.1.28", features = ["real"] }
 tokio = { version = "1.52.3", features = ["full"] }
 ureq = "=3.1.4"
 url = "2.5.8"
