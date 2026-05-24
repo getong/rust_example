@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8.9"
-tokio = { version = "1.52.2", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.10", features = ["fs", "trace"] }
+tower-http = { version = "0.6.11", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

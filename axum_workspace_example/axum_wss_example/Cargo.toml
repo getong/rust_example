@@ -13,8 +13,8 @@ futures-util = { version = "0.3.32", features = ["sink", "std"] }
 headers = "0.4.1"
 rustls = { version = "0.23.40", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-tokio = { version = "1.52.2", features = ["full"] }
-tower-http = { version = "0.6.10", features = ["fs", "trace"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["full"] }
+tower-http = { version = "0.6.11", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

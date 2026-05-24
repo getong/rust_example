@@ -4,8 +4,8 @@
 
 这个 workspace 包含 4 个基于 ~async-graphql~ 和 ~axum~ 的 GraphQL 示例：
 
-| crate               | 说明                                               | HTTP 端点 | WebSocket 端点 |
-|---------------------+----------------------------------------------------+-----------+----------------|
+| crate             | 说明                                               | HTTP 端点 | WebSocket 端点 |
+|-------------------+----------------------------------------------------+----------+----------------|
 | ~starwars~          | Star Wars 查询示例，包含接口、枚举和分页连接           | ~/~        | 无             |
 | ~subscription~      | 图书查询、创建、删除和订阅示例                         | ~/~        | ~/ws~            |
 | ~token_from_header~ | 从 HTTP Header 或 WebSocket init payload 读取 token | ~/~        | ~/ws~            |
