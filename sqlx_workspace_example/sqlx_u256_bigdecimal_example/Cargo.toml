@@ -7,8 +7,8 @@ edition = "2021"
 bigdecimal = "0.4.10"
 dotenv = "0.15.0"
 ethereum-types = "0.16"
-sqlx = { version = "0.8", features = [
-  "runtime-tokio-native-tls",
+sqlx = { version = "0.9", features = [
+  "runtime-tokio",
   "postgres",
   "chrono",
   "any",

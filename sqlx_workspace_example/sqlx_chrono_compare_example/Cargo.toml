@@ -7,11 +7,11 @@ edition = "2021"
 chrono = "0.4.44"
 dotenv = "0.15.0"
 rand = "0.10.1"
-sqlx = { version = "0.8", features = [
-  "runtime-tokio-native-tls",
+sqlx = { version = "0.9", features = [
+  "runtime-tokio",
   "postgres",
   "chrono",
   "any",
   "bigdecimal",
 ] }
-tokio = { version = "1.52.1", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }

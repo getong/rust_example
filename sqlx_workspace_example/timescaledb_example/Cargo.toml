@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock"] }
-sqlx = { version = "0.8", default-features = false, features = [
+sqlx = { version = "0.9", default-features = false, features = [
   "chrono",
   "macros",
   "migrate",
   "postgres",
-  "runtime-tokio-rustls",
+  "runtime-tokio",
 ] }
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
