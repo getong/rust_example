@@ -96,6 +96,7 @@ impl Node {
         // Management API
         "/mng/add-learner" => api::add_learner(group, payload).await,
         "/mng/change-membership" => api::change_membership(group, payload).await,
+        "/mng/change-membership-add" => api::change_membership_add(group, payload).await,
         "/mng/init" => api::init(group).await,
         "/mng/metrics" => api::metrics(group).await,
 

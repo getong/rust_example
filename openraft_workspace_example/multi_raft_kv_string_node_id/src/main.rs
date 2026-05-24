@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  time::Duration,
+};
 
 use multi_raft_kv_string_node_id::{
   GroupId, NodeId, TypeConfig, create_node, groups, random_node_id, router::Router, typ,
@@ -17,7 +20,7 @@ fn main() -> Result<(), String> {
 
 fn init_tracing() {
   let filter = EnvFilter::try_from_default_env()
-    .unwrap_or_else(|_| EnvFilter::new("warn,multi_raft_kv_string_node_id=info"));
+    .unwrap_or_else(|_| EnvFilter::new("error,multi_raft_kv_string_node_id=info"));
 
   let _ = tracing_subscriber::fmt()
     .with_target(true)
@@ -41,7 +44,14 @@ async fn start_cluster(run_forever: bool) -> Result<(), String> {
   let node_rafts = start_nodes(&router, &group_ids, &node_ids).await;
 
   TypeConfig::sleep(Duration::from_millis(200)).await;
-  initialize_groups(&node_rafts[0], &group_ids, &node_ids).await?;
+  initialize_single_node_groups(&node_rafts[0], &group_ids, &node_ids[0]).await?;
+
+  TypeConfig::sleep(Duration::from_millis(500)).await;
+  add_learners(&node_rafts[0], &group_ids, &node_ids[1 ..]).await?;
+
+  TypeConfig::sleep(Duration::from_millis(500)).await;
+  change_membership_to_join_cluster(&node_rafts[0], &group_ids, &node_ids[.. 1], &node_ids[1 ..])
+    .await?;
 
   TypeConfig::sleep(Duration::from_millis(1_000)).await;
   write_startup_records(&node_rafts[0], &group_ids).await?;
@@ -86,31 +96,100 @@ async fn start_nodes(
   node_rafts
 }
 
-async fn initialize_groups(
+async fn initialize_single_node_groups(
   leader_rafts: &[typ::Raft],
   group_ids: &[GroupId],
-  node_ids: &[NodeId],
+  first_node_id: &NodeId,
 ) -> Result<(), String> {
-  let all_nodes = node_ids
-    .iter()
-    .map(|node_id| {
-      (
-        node_id.clone(),
-        BasicNode {
-          addr: String::new(),
-        },
-      )
-    })
-    .collect::<BTreeMap<_, _>>();
+  let mut nodes = BTreeMap::new();
+  nodes.insert(
+    first_node_id.clone(),
+    BasicNode {
+      addr: String::new(),
+    },
+  );
 
   for (group_id, raft) in group_ids.iter().zip(leader_rafts) {
     raft
-      .initialize(all_nodes.clone())
+      .initialize(nodes.clone())
       .await
       .map_err(|e| format!("initialize group {group_id}: {e}"))?;
+    println!("initialized group '{group_id}' with node {first_node_id} as the only voter");
+  }
+
+  Ok(())
+}
+
+async fn add_learners(
+  leader_rafts: &[typ::Raft],
+  group_ids: &[GroupId],
+  learner_ids: &[NodeId],
+) -> Result<(), String> {
+  for (group_id, raft) in group_ids.iter().zip(leader_rafts) {
+    for learner_id in learner_ids {
+      raft
+        .add_learner(
+          learner_id.clone(),
+          BasicNode {
+            addr: String::new(),
+          },
+          true,
+        )
+        .await
+        .map_err(|e| format!("add learner {learner_id} to group {group_id}: {e}"))?;
+
+      println!("added node {learner_id} as learner to group '{group_id}'");
+    }
+  }
+
+  Ok(())
+}
+
+/// Promote learner nodes to voting members using `retain=true`.
+/// This **adds** the given nodes to the existing membership without replacing it.
+async fn change_membership_to_join_cluster(
+  leader_rafts: &[typ::Raft],
+  group_ids: &[GroupId],
+  _current_voter_ids: &[NodeId],
+  joining_node_ids: &[NodeId],
+) -> Result<(), String> {
+  let joining = joining_node_ids.iter().cloned().collect::<BTreeSet<_>>();
+
+  for (group_id, raft) in group_ids.iter().zip(leader_rafts) {
+    raft
+      .change_membership(joining.clone(), true)
+      .await
+      .map_err(|e| format!("join voters for group {group_id}: {e}"))?;
+
     println!(
-      "initialized group '{group_id}' with {} voters",
-      node_ids.len()
+      "joined {} learner nodes into group '{group_id}' (retaining existing members)",
+      joining_node_ids.len(),
+    );
+  }
+
+  Ok(())
+}
+
+/// Remove nodes from the cluster using `retain=false`.
+/// This **replaces** the entire membership with the given set, effectively removing any node not in
+/// the set.
+#[allow(dead_code)]
+async fn change_membership_to_leave_cluster(
+  leader_rafts: &[typ::Raft],
+  group_ids: &[GroupId],
+  remaining_voter_ids: &[NodeId],
+) -> Result<(), String> {
+  let remaining = remaining_voter_ids.iter().cloned().collect::<BTreeSet<_>>();
+
+  for (group_id, raft) in group_ids.iter().zip(leader_rafts) {
+    raft
+      .change_membership(remaining.clone(), false)
+      .await
+      .map_err(|e| format!("remove voters from group {group_id}: {e}"))?;
+
+    println!(
+      "removed nodes from group '{group_id}'; remaining voters are {:?}",
+      remaining
     );
   }
 

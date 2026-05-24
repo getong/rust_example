@@ -91,9 +91,18 @@ pub async fn add_learner(app: &mut GroupApp, req: String) -> String {
 }
 
 /// Changes specified learners to members, or remove members from this group.
+/// `retain=false`: replace the entire membership with the given set (used for leaving/removal).
 pub async fn change_membership(app: &mut GroupApp, req: String) -> String {
   let node_ids: BTreeSet<NodeId> = decode(&req);
   let res = app.raft.change_membership(node_ids, false).await;
+  encode(res)
+}
+
+/// Add nodes as members while retaining existing membership.
+/// `retain=true`: append the given nodes to the current membership (used for joining).
+pub async fn change_membership_add(app: &mut GroupApp, req: String) -> String {
+  let node_ids: BTreeSet<NodeId> = decode(&req);
+  let res = app.raft.change_membership(node_ids, true).await;
   encode(res)
 }
 
