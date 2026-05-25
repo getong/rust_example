@@ -32,7 +32,6 @@ pub type StateMachineStore = sm_mem::StateMachineStore<TypeConfig>;
 pub type Raft = openraft::Raft<TypeConfig, StateMachineStore>;
 
 /// Define all Raft-related type aliases
-#[path = "../../utils/declare_types.rs"]
 pub mod typ;
 
 pub mod groups {
