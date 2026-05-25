@@ -1,3 +1,3 @@
 use crate::typ::*;
 
-pub type LogStore = log_mem::LogStore<TypeConfig>;
+pub type LogStore = crate::log_store::LogStore<TypeConfig>;

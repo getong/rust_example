@@ -8,7 +8,7 @@
 use std::{backtrace::Backtrace, collections::BTreeMap, panic::PanicHookInfo, time::Duration};
 
 use multi_raft_kv_string_node_id::{
-  GroupId, TypeConfig, create_node, groups, random_node_id, router::Router, typ,
+  GroupId, TypeConfig, create_node, groups, kv::Request, random_node_id, router::Router, typ,
 };
 use openraft::{BasicNode, async_runtime::WatchReceiver, type_config::TypeConfigExt};
 use tracing_subscriber::EnvFilter;
@@ -141,33 +141,33 @@ async fn run_test(
 
   // users group
   node1_rafts[0]
-    .client_write(types_kv::Request::set("user:1", "Alice"))
+    .client_write(Request::set("user:1", "Alice"))
     .await
     .unwrap();
   node1_rafts[0]
-    .client_write(types_kv::Request::set("user:2", "Bob"))
+    .client_write(Request::set("user:2", "Bob"))
     .await
     .unwrap();
   println!("  ✓ Group 'users': wrote user:1=Alice, user:2=Bob");
 
   // orders group
   node1_rafts[1]
-    .client_write(types_kv::Request::set("order:1001", "pending"))
+    .client_write(Request::set("order:1001", "pending"))
     .await
     .unwrap();
   node1_rafts[1]
-    .client_write(types_kv::Request::set("order:1002", "shipped"))
+    .client_write(Request::set("order:1002", "shipped"))
     .await
     .unwrap();
   println!("  ✓ Group 'orders': wrote order:1001=pending, order:1002=shipped");
 
   // products group
   node1_rafts[2]
-    .client_write(types_kv::Request::set("product:A", "Widget"))
+    .client_write(Request::set("product:A", "Widget"))
     .await
     .unwrap();
   node1_rafts[2]
-    .client_write(types_kv::Request::set("product:B", "Gadget"))
+    .client_write(Request::set("product:B", "Gadget"))
     .await
     .unwrap();
   println!("  ✓ Group 'products': wrote product:A=Widget, product:B=Gadget");

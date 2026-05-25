@@ -1,20 +1,18 @@
 [package]
-  name = "multi_raft_kv_string_node_id"
+name = "multi_raft_kv_string_node_id"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 futures = "0.3.32"
-log-mem = { path = "../log-mem", features = [] }
 openraft = { version = "0.10.0-alpha.20", default-features = false, features = [
   "serde",
+  "tokio-rt",
   "type-alias",
 ] }
 openraft-multi = { version = "0.10.0-alpha.20" }
 rand = "0.10.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-sm-mem = { path = "../sm-mem" }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-types-kv = { path = "../types-kv" }

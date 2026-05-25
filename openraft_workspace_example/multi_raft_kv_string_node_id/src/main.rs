@@ -4,7 +4,8 @@ use std::{
 };
 
 use multi_raft_kv_string_node_id::{
-  GroupId, NodeId, TypeConfig, create_node, groups, random_node_id, router::Router, typ,
+  GroupId, NodeId, TypeConfig, create_node, groups, kv::Request, random_node_id, router::Router,
+  typ,
 };
 use openraft::{BasicNode, async_runtime::WatchReceiver, type_config::TypeConfigExt};
 use tracing_subscriber::EnvFilter;
@@ -320,10 +321,7 @@ async fn write_records(
 ) -> Result<(), String> {
   for (group_id, raft) in group_ids.iter().zip(leader_rafts) {
     raft
-      .client_write(types_kv::Request::set(
-        format!("cluster:{group_id}:{phase}"),
-        "ok",
-      ))
+      .client_write(Request::set(format!("cluster:{group_id}:{phase}"), "ok"))
       .await
       .map_err(|e| format!("write record for group {group_id}: {e}"))?;
 

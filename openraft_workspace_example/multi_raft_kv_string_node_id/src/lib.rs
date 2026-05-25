@@ -9,7 +9,10 @@ pub mod router;
 
 pub mod api;
 pub mod app;
+pub mod kv;
+pub mod log_store;
 pub mod network;
+pub mod state_machine;
 pub mod store;
 
 /// Node ID type - identifies a node in the cluster
@@ -21,14 +24,14 @@ pub type GroupId = String;
 openraft::declare_raft_types!(
     /// Declare the type configuration for Multi-Raft K/V store.
     pub TypeConfig:
-        D = types_kv::Request,
-        R = types_kv::Response,
+        D = kv::Request,
+        R = kv::Response,
         NodeId = NodeId,
         SnapshotData = Cursor<Vec<u8>>,
 );
 
-pub type LogStore = store::LogStore;
-pub type StateMachineStore = sm_mem::StateMachineStore<TypeConfig>;
+pub type LogStore = log_store::LogStore<TypeConfig>;
+pub type StateMachineStore = state_machine::StateMachineStore<TypeConfig>;
 pub type Raft = openraft::Raft<TypeConfig, StateMachineStore>;
 
 /// Define all Raft-related type aliases
