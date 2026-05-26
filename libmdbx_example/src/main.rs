@@ -9,6 +9,16 @@ fn opt_to_str(v: &Option<Vec<u8>>) -> String {
   }
 }
 
+fn show_compare(write: &str, read: &str, actual: &Option<Vec<u8>>, expected: Option<&[u8]>) {
+  let expected = expected.map(|v| v.to_vec());
+  let status = if actual == &expected { "OK" } else { "FAILED" };
+
+  println!("  write   {write}");
+  println!("  read    {read} = {}", opt_to_str(actual));
+  println!("  expect  {read} = {}", opt_to_str(&expected));
+  println!("  compare {status}");
+}
+
 fn main() -> Result<()> {
   let dir = tempfile::tempdir().map_err(|e| Error::DecodeError(Box::new(e)))?;
   let db = Database::open(&dir)?;
@@ -31,14 +41,8 @@ fn main() -> Result<()> {
     let t = txn.open_table(None)?;
     let val_a: Option<Vec<u8>> = txn.get(&t, b"a")?;
     let val_b: Option<Vec<u8>> = txn.get(&t, b"b")?;
-    println!(
-      "  put(a, \"1\") then abort     → read a = {}",
-      opt_to_str(&val_a)
-    );
-    println!(
-      "  put(b, \"2\") then abort     → read b = {}",
-      opt_to_str(&val_b)
-    );
+    show_compare("put(a, \"1\") then abort", "a", &val_a, None);
+    show_compare("put(b, \"2\") then abort", "b", &val_b, None);
     assert_eq!(val_a, None);
     assert_eq!(val_b, None);
     txn.commit()?;
@@ -56,10 +60,7 @@ fn main() -> Result<()> {
     let txn = db.begin_ro_txn()?;
     let t = txn.open_table(None)?;
     let val_x: Option<Vec<u8>> = txn.get(&t, b"x")?;
-    println!(
-      "  put(x, \"should_not_exist\") then abort → read x = {}",
-      opt_to_str(&val_x)
-    );
+    show_compare("put(x, \"should_not_exist\") then abort", "x", &val_x, None);
     assert_eq!(val_x, None);
     txn.commit()?;
   }
@@ -76,9 +77,11 @@ fn main() -> Result<()> {
     let txn = db.begin_ro_txn()?;
     let t = txn.open_table(None)?;
     let val: Option<Vec<u8>> = txn.get(&t, b"committed")?;
-    println!(
-      "  put(committed, \"visible\") then commit → read  = {}",
-      opt_to_str(&val)
+    show_compare(
+      "put(committed, \"visible\") then commit",
+      "committed",
+      &val,
+      Some(b"visible"),
     );
     assert_eq!(val, Some(b"visible".to_vec()));
     txn.commit()?;
@@ -95,9 +98,24 @@ fn main() -> Result<()> {
     let r1: Option<Vec<u8>> = txn.get(&t, b"c")?;
     let r2: Option<Vec<u8>> = txn.get(&t, b"c")?;
     let r3: Option<Vec<u8>> = txn.get(&t, b"c")?;
-    println!("  第 1 次 read c = {}", opt_to_str(&r1));
-    println!("  第 2 次 read c = {}", opt_to_str(&r2));
-    println!("  第 3 次 read c = {}", opt_to_str(&r3));
+    show_compare(
+      "put(c, \"consistent_value\")",
+      "第 1 次 read c",
+      &r1,
+      Some(b"consistent_value"),
+    );
+    show_compare(
+      "put(c, \"consistent_value\")",
+      "第 2 次 read c",
+      &r2,
+      Some(b"consistent_value"),
+    );
+    show_compare(
+      "put(c, \"consistent_value\")",
+      "第 3 次 read c",
+      &r3,
+      Some(b"consistent_value"),
+    );
     assert_eq!(r1, r2);
     assert_eq!(r2, r3);
     assert_eq!(r1, Some(b"consistent_value".to_vec()));
@@ -122,10 +140,13 @@ fn main() -> Result<()> {
 
     // 步骤3: 旧的读事务仍看到旧状态 (MVCC snapshot isolation)
     let old_read: Option<Vec<u8>> = ro_txn.get(&t_ro, b"iso_key")?;
-    println!(
-      "  旧读事务 (写提交前打开) read iso_key = {}  ← MVCC 快照隔离",
-      opt_to_str(&old_read)
+    show_compare(
+      "put(iso_key, \"after_write\") then commit",
+      "旧读事务 read iso_key",
+      &old_read,
+      None,
     );
+    println!("  → 旧读事务是在写提交前打开的, 所以仍读取 MVCC 快照");
     assert_eq!(old_read, None);
     ro_txn.commit()?;
 
@@ -134,9 +155,11 @@ fn main() -> Result<()> {
       let ro_txn2 = db.begin_ro_txn()?;
       let t_ro2 = ro_txn2.open_table(None)?;
       let new_read: Option<Vec<u8>> = ro_txn2.get(&t_ro2, b"iso_key")?;
-      println!(
-        "  新读事务 (写提交后打开) read iso_key = {}",
-        opt_to_str(&new_read)
+      show_compare(
+        "put(iso_key, \"after_write\") then commit",
+        "新读事务 read iso_key",
+        &new_read,
+        Some(b"after_write"),
       );
       assert_eq!(new_read, Some(b"after_write".to_vec()));
       ro_txn2.commit()?;
@@ -161,7 +184,12 @@ fn main() -> Result<()> {
     let txn = db.begin_ro_txn()?;
     let t = txn.open_table(None)?;
     let val: Option<Vec<u8>> = txn.get(&t, b"durable")?;
-    println!("  重新打开后 read durable = {}", opt_to_str(&val));
+    show_compare(
+      "put(durable, \"still_here\") then commit",
+      "重新打开后 read durable",
+      &val,
+      Some(b"still_here"),
+    );
     assert_eq!(val, Some(b"still_here".to_vec()));
     println!("  → 已提交数据在 close/reopen 后完整保留");
     txn.commit()?;
