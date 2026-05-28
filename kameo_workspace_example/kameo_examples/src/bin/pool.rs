@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use kameo::prelude::*;
+use kameo::{
+  Actor,
+  actor::Spawn,
+  message::{Context, Message},
+};
 use kameo_actors::pool::{ActorPool, Broadcast, Dispatch};
 
 #[derive(Actor, Default)]

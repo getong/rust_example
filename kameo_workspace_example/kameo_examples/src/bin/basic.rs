@@ -1,4 +1,8 @@
-use kameo::prelude::*;
+use kameo::{
+  Actor,
+  actor::Spawn,
+  message::{Context, Message},
+};
 
 #[derive(Actor, Default)]
 pub struct MyActor {

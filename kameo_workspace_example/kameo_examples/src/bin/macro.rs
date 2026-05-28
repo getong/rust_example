@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic)]
 
-use kameo::prelude::*;
+use kameo::{Actor, actor::Spawn, message::Context, messages};
 
 #[derive(Actor)]
 pub struct MyActor {

@@ -1,7 +1,12 @@
 use std::time::Duration;
 
 use futures::TryStreamExt;
-use kameo::prelude::*;
+use kameo::{
+  Actor, RemoteActor,
+  actor::{RemoteActorRef, Spawn},
+  message::{Context, Message},
+  remote, remote_message,
+};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};

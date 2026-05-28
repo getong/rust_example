@@ -1,6 +1,10 @@
 use std::{net::SocketAddr, str::FromStr};
 
-use kameo::prelude::*;
+use kameo::{
+  Actor,
+  actor::Spawn,
+  message::{Context, Message},
+};
 use metrics_exporter_prometheus::PrometheusBuilder;
 
 #[derive(Actor, Default)]

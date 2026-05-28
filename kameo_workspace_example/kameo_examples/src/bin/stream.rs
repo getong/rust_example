@@ -1,7 +1,12 @@
 use std::time::Duration;
 
 use futures::stream;
-use kameo::{error::Infallible, message::StreamMessage, prelude::*};
+use kameo::{
+  Actor,
+  actor::{ActorRef, Spawn},
+  error::Infallible,
+  message::{Context, Message, StreamMessage},
+};
 use tokio_stream::StreamExt;
 
 #[derive(Default)]

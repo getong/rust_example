@@ -1,6 +1,12 @@
 use std::{ops::ControlFlow, time::Duration};
 
-use kameo::{error::Infallible, prelude::*, supervision::SupervisionStrategy};
+use kameo::{
+  Actor,
+  actor::{ActorId, ActorRef, Spawn, WeakActorRef},
+  error::{ActorStopReason, Infallible},
+  message::{Context, Message},
+  supervision::SupervisionStrategy,
+};
 use tracing::{Level, info};
 
 #[derive(Default)]

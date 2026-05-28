@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 async-trait = "0.1.89"
-clap = { version = "4.5.51", features = ["derive"] }
-futures = "0.3.31"
+clap = { version = "4.6.1", features = ["derive"] }
+futures = "0.3.32"
 kameo = { version = "0.20.0", features = ["remote"] }
 libp2p = { version = "0.56.0", features = ["macros", "noise", "serde", "tcp", "tokio", "yamux"] }
 openraft = { version = "0.10.0-alpha.20", features = ["serde", "type-alias"] }
@@ -16,11 +16,11 @@ prost = "0.14.3"
 prost-types = "0.14.3"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+serde_json = "1.0.150"
 tarpc = { version = "0.37.0", features = ["full"] }
 tokio = { version = "1.52.3", features = ["full"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 types-kv = { path = "../../openraft_workspace_example/types-kv" }
 wasmtime = "45.0.0"
 
