@@ -6,8 +6,10 @@ edition = "2021"
 [dependencies]
 either = "1.16.0"
 env_logger = "0.11.10"
-libp2p = { version = "0.56", features = ["full"] }
-libp2p-stream = "0.4.0-alpha"
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = [
+  "full",
+] }
+libp2p-stream = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e" }
 log = "0.4.29"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }

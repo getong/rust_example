@@ -5,4 +5,6 @@ edition = "2021"
 
 [dependencies]
 hex = "0.4.3"
-libp2p = { version = "0.56", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = [
+  "full",
+] }

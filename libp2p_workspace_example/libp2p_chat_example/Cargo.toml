@@ -8,7 +8,9 @@ edition = "2021"
 anyhow = "1.0.102"
 bytes = "1.11.1"
 futures = "0.3.32"
-libp2p = { version = "0.56", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = [
+  "full",
+] }
 rocket = { version = "0.5.1", features = ["json"] }
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = { version = "0.7.18", features = ["codec"] }

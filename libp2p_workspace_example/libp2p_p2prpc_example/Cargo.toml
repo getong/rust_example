@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 async-trait = "0.1.89"
 futures = "0.3.31"
-libp2p = { version = "0.56", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = [
+  "full",
+] }
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.48.0", features = ["full"] }

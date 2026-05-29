@@ -16,8 +16,14 @@ anyhow = "1.0.100"
 byteorder = "1.5.0"
 futures = "0.3.31"
 hex = "0.4.3"
-libp2p = { version = "0.56.0", features = ["full"] }
-openraft = { git = "https://github.com/databendlabs/openraft", features = ["serde", "type-alias", "serde_json"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = [
+  "full",
+] }
+openraft = { git = "https://github.com/databendlabs/openraft", features = [
+  "serde",
+  "type-alias",
+  "serde_json",
+] }
 rand = "0.9"
 reqwest = { version = "0.12.25", features = ["json"] }
 rocksdb = "0.24.0"

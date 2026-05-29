@@ -8,7 +8,9 @@ edition = "2021"
 anyhow = "1.0.102"
 bytes = "1.11.1"
 futures = "0.3.32"
-libp2p = { version = "0.56", features = ["full"] }
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = [
+  "full",
+] }
 # libp2p-mplex = "0.40.0"
 log = "0.4.29"
 once_cell = "1.21.4"
