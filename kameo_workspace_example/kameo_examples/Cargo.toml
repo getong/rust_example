@@ -15,6 +15,7 @@ kameo_actors = "0.5.0"
 libp2p = { version = "0.56.0", features = ["serde"] }
 metrics-exporter-prometheus = "0.18"
 serde = { version = "1.0.228", features = ["derive"] }
+subsecond = "0.7.9"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-stream = { version = "0.1.18", features = ["time"] }
 tracing = "0.1.44"
