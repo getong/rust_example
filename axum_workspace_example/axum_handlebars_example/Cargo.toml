@@ -9,4 +9,4 @@ axum = { version = "0.8.9", features = ["macros"] }
 handlebars = "6.4.1"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
-uuid = { version = "1.23.1", features = ["v4", "serde"] }
+uuid = { version = "1.23.2", features = ["v4", "serde"] }
