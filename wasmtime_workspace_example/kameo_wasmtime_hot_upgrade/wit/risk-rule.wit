@@ -15,6 +15,12 @@ world risk-rule {
             allow-fast-lane,
         }
 
+        record evaluation {
+            decision: decision,
+            risk-score: s32,
+            policy-id: s32,
+        }
+
         record rule-metadata {
             required-schema: u32,
             policy-id: s32,
@@ -24,7 +30,6 @@ world risk-rule {
         }
 
         metadata: func() -> rule-metadata;
-        risk-score: func(request: request) -> s32;
-        decide: func(request: request) -> decision;
+        evaluate: func(request: request) -> evaluation;
     }
 }

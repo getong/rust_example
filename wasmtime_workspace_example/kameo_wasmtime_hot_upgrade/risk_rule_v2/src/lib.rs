@@ -108,6 +108,29 @@ fn risk_score(request: exports::rule::Request) -> i32 {
   score.clamp(0, 100)
 }
 
+fn evaluate(request: exports::rule::Request) -> exports::rule::Evaluation {
+  let tx = Transaction::new(
+    request.user_id,
+    request.amount,
+    request.merchant_risk,
+    request.hour,
+  );
+  let risk_score = risk_score(request);
+  let decision = if tx.qualifies_for_fast_lane() {
+    exports::rule::Decision::AllowFastLane
+  } else if risk_score >= REVIEW_THRESHOLD {
+    exports::rule::Decision::Review
+  } else {
+    exports::rule::Decision::Allow
+  };
+
+  exports::rule::Evaluation {
+    decision,
+    risk_score,
+    policy_id: POLICY_ID,
+  }
+}
+
 impl exports::rule::Guest for RiskRule {
   fn metadata() -> exports::rule::RuleMetadata {
     exports::rule::RuleMetadata {
@@ -119,27 +142,8 @@ impl exports::rule::Guest for RiskRule {
     }
   }
 
-  fn risk_score(request: exports::rule::Request) -> i32 {
-    risk_score(request)
-  }
-
-  fn decide(request: exports::rule::Request) -> exports::rule::Decision {
-    let tx = Transaction::new(
-      request.user_id,
-      request.amount,
-      request.merchant_risk,
-      request.hour,
-    );
-    if tx.qualifies_for_fast_lane() {
-      return exports::rule::Decision::AllowFastLane;
-    }
-
-    let score = risk_score(request);
-    if score >= REVIEW_THRESHOLD {
-      exports::rule::Decision::Review
-    } else {
-      exports::rule::Decision::Allow
-    }
+  fn evaluate(request: exports::rule::Request) -> exports::rule::Evaluation {
+    evaluate(request)
   }
 }
 

@@ -5,7 +5,12 @@ This example combines the two existing examples in this workspace:
 - `hot_upgrade`: Wasmtime loads a risk-rule module, validates it against shadow state, migrates state, and swaps the active rule.
 - `kameo_custom_swarm`: application logic is expressed as a kameo actor receiving typed messages.
 
-The host keeps long-lived service state inside `HotUpgradeActor`. Calls, rule inspection, snapshots, and upgrades are kameo messages. Because kameo processes normal messages for an actor sequentially, a rule upgrade is committed between requests: the actor loads the next `.wasm`, dry-runs it on cloned state, migrates the real state, and only then swaps the active rule.
+The host keeps long-lived service state in `ServiceState`, while the loaded
+WASM component is treated as a replaceable method set. Calls, rule inspection,
+snapshots, and upgrades are kameo messages. Because kameo processes normal
+messages for an actor sequentially, a rule upgrade is committed between
+requests: the actor loads the next `.wasm`, dry-runs it against cloned host
+state, migrates the real state, and only then swaps the active method set.
 
 The WASM rules use the Component Model instead of hand-written exported
 symbols. The ABI contract lives in `wit/risk-rule.wit`; each rule crate uses
@@ -14,11 +19,15 @@ symbols. The ABI contract lives in `wit/risk-rule.wit`; each rule crate uses
 and calls the generated `rule().call_*` methods, so it never looks up raw
 function names and the rule crates do not use `#[no_mangle]`.
 
-The WIT interface exports:
+The WIT interface exports only stateless rule methods:
 
 - `metadata() -> rule-metadata`
-- `risk-score(request) -> s32`
-- `decide(request) -> decision`
+- `evaluate(request) -> evaluation`
+
+`evaluate` returns `decision`, `risk-score`, and `policy-id` together. The host
+then records counters, schema-specific stats, snapshots, and migrations in
+`ServiceState`. This keeps state ownership outside the WASM module and prevents
+split calls from calculating score and decision from different method versions.
 
 `risk_rule_v1` is intentionally conservative and only returns `allow` or `review`. `risk_rule_v2` changes the scoring model, lowers the review threshold, and adds `allow-fast-lane` for trusted even-numbered users with low-risk small transactions.
 

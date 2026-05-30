@@ -1,5 +1,6 @@
-#![no_std]
+#![cfg_attr(target_arch = "wasm32", no_std)]
 
+#[cfg(target_arch = "wasm32")]
 use core::{
   alloc::{GlobalAlloc, Layout},
   cell::UnsafeCell,
@@ -7,16 +8,20 @@ use core::{
   ptr::null_mut,
 };
 
+#[cfg(target_arch = "wasm32")]
 const HEAP_SIZE: usize = 64 * 1024;
 
+#[cfg(target_arch = "wasm32")]
 #[global_allocator]
 static ALLOCATOR: BumpAllocator = BumpAllocator::new();
 
+#[cfg(target_arch = "wasm32")]
 struct BumpAllocator {
   heap: UnsafeCell<[u8; HEAP_SIZE]>,
   next: UnsafeCell<usize>,
 }
 
+#[cfg(target_arch = "wasm32")]
 impl BumpAllocator {
   const fn new() -> Self {
     Self {
@@ -26,8 +31,10 @@ impl BumpAllocator {
   }
 }
 
+#[cfg(target_arch = "wasm32")]
 unsafe impl Sync for BumpAllocator {}
 
+#[cfg(target_arch = "wasm32")]
 unsafe impl GlobalAlloc for BumpAllocator {
   unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
     let align_mask = layout.align().wrapping_sub(1);
@@ -49,6 +56,7 @@ unsafe impl GlobalAlloc for BumpAllocator {
   unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
 }
 
+#[cfg(target_arch = "wasm32")]
 #[panic_handler]
 fn panic(_info: &PanicInfo<'_>) -> ! {
   loop {}

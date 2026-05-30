@@ -11,14 +11,14 @@ use crate::{
   types::{Decision, Request, Response, RuleInspection, RuleMetadata},
 };
 
-pub struct WasmRule {
+pub struct WasmRuleMethods {
   version: String,
   required_schema: u32,
   store: Store<()>,
   instance: bindings::RiskRule,
 }
 
-impl WasmRule {
+impl WasmRuleMethods {
   pub fn load(engine: &Engine, path: impl AsRef<Path>) -> Result<Self> {
     let path = path.as_ref();
     let component = Component::from_file(engine, path)
@@ -77,7 +77,7 @@ impl WasmRule {
   }
 
   pub fn inspect(&mut self, request: Request) -> Result<RuleInspection> {
-    let sample_score = self.score(&request)?;
+    let sample_score = self.evaluate(&request)?.risk_score;
     Ok(RuleInspection {
       metadata: self.metadata()?,
       sample_request: request,
@@ -85,40 +85,35 @@ impl WasmRule {
     })
   }
 
-  fn score(&mut self, request: &Request) -> Result<i32> {
+  fn evaluate(&mut self, request: &Request) -> Result<bindings::exports::rule::Evaluation> {
     self
       .instance
       .rule()
-      .call_risk_score(&mut self.store, request.into())
+      .call_evaluate(&mut self.store, request.into())
       .map_err(Into::into)
   }
 
   pub fn handle(&mut self, request: Request) -> Result<Response> {
-    let risk_score = self.score(&request)?;
-    let decision = match self
-      .instance
-      .rule()
-      .call_decide(&mut self.store, (&request).into())?
-    {
-      bindings::exports::rule::Decision::Allow => Decision::Allow,
-      bindings::exports::rule::Decision::Review => Decision::Review,
-      bindings::exports::rule::Decision::AllowFastLane => Decision::AllowFastLane,
-    };
-
-    let policy_id = self
-      .instance
-      .rule()
-      .call_metadata(&mut self.store)?
-      .policy_id;
-
+    let evaluation = self.evaluate(&request)?;
     Ok(Response {
-      decision,
+      decision: evaluation.decision.into(),
       rule_version: self.version.clone(),
-      policy_id,
-      risk_score,
+      policy_id: evaluation.policy_id,
+      risk_score: evaluation.risk_score,
     })
   }
+}
 
+pub type WasmRule = WasmRuleMethods;
+
+impl From<bindings::exports::rule::Decision> for Decision {
+  fn from(decision: bindings::exports::rule::Decision) -> Self {
+    match decision {
+      bindings::exports::rule::Decision::Allow => Self::Allow,
+      bindings::exports::rule::Decision::Review => Self::Review,
+      bindings::exports::rule::Decision::AllowFastLane => Self::AllowFastLane,
+    }
+  }
 }
 
 impl From<&Request> for bindings::exports::rule::Request {
