@@ -8,5 +8,6 @@ pub use actor::{
   start_hot_upgrade_actor,
 };
 pub use types::{
-  Decision, Request, Response, RuleInspection, RuleMetadata, ServiceSnapshot, State,
+  Decision, Request, Response, RuleInspection, RuleMetadata, ServiceSnapshot, ServiceSnapshotV1,
+  ServiceSnapshotV2, State, StateV2Stats,
 };

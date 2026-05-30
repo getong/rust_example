@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use kameo::prelude::*;
 use kameo_wasmtime_hot_upgrade::{
-  CallRule, HotUpgradeActor, InspectRule, Request, Response, Snapshot, UpgradeRule,
-  start_hot_upgrade_actor,
+  CallRule, HotUpgradeActor, InspectRule, Request, Response, ServiceSnapshot, Snapshot,
+  UpgradeRule, start_hot_upgrade_actor,
 };
 
 struct Scenario {
@@ -124,19 +124,55 @@ fn print_response(scenario: &Scenario, response: &Response) {
 
 async fn print_snapshot(actor_ref: &ActorRef<HotUpgradeActor>, label: &str) -> Result<()> {
   let snapshot = actor_ref.ask(Snapshot).await?;
-  println!(
-    "{}: processed={}, allow={}, review={}, fast_lane={}, schema={}, current_rule={}, \
-     upgrades={}, avg_score={}, last_score={}",
-    label,
-    snapshot.processed,
-    snapshot.allow_count,
-    snapshot.review_count,
-    snapshot.fast_lane_hits,
-    snapshot.schema_version,
-    snapshot.current_rule_version,
-    snapshot.upgrades,
-    snapshot.average_score,
-    snapshot.last_score,
-  );
+  match snapshot {
+    ServiceSnapshot::V1(snapshot) => {
+      println!(
+        "{} v1: processed={}, allow={}, review={}, schema={}, current_rule={}, upgrades={}, \
+         avg_score={}, last_score={}",
+        label,
+        snapshot.processed,
+        snapshot.allow_count,
+        snapshot.review_count,
+        snapshot.schema_version,
+        snapshot.current_rule_version,
+        snapshot.upgrades,
+        snapshot.average_score,
+        snapshot.last_score,
+      );
+    }
+    ServiceSnapshot::V2(snapshot) => {
+      println!(
+        "{} v2 core: processed={}, allow={}, review={}, fast_lane={}, schema={}, current_rule={}, \
+         upgrades={}, avg_score={}, last_score={}",
+        label,
+        snapshot.processed,
+        snapshot.allow_count,
+        snapshot.review_count,
+        snapshot.fast_lane_hits,
+        snapshot.schema_version,
+        snapshot.current_rule_version,
+        snapshot.upgrades,
+        snapshot.average_score,
+        snapshot.last_score,
+      );
+      println!(
+        "{} v2 extended: migration_generation={}, legacy_processed={}, fast_lane_amount={}, \
+         reviewed_amount={}, largest_amount={}, high_risk_requests={}, late_night_reviews={}, \
+         review_rate_bps={}, fast_lane_rate_bps={}, last_decision={}, last_policy={}",
+        label,
+        snapshot.migration_generation,
+        snapshot.legacy_processed_at_migration,
+        snapshot.fast_lane_amount,
+        snapshot.reviewed_amount,
+        snapshot.largest_amount,
+        snapshot.high_risk_requests,
+        snapshot.late_night_reviews,
+        snapshot.review_rate_bps,
+        snapshot.fast_lane_rate_bps,
+        snapshot.last_decision,
+        snapshot.last_policy_id,
+      );
+    }
+  }
   Ok(())
 }

@@ -5,7 +5,9 @@ use kameo::prelude::*;
 use wasmtime::{Config, Engine};
 
 use crate::{
-  types::{Request, Response, RuleInspection, ServiceSnapshot, State},
+  types::{
+    Request, Response, RuleInspection, ServiceSnapshot, ServiceSnapshotV1, ServiceSnapshotV2, State,
+  },
   wasm_rule::WasmRule,
 };
 
@@ -71,21 +73,55 @@ impl HotUpgradeActor {
   }
 
   fn snapshot(&self) -> ServiceSnapshot {
-    ServiceSnapshot {
+    let average_score = if self.state.processed == 0 {
+      0
+    } else {
+      (self.state.total_score / self.state.processed as i64) as i32
+    };
+
+    if let Some(v2) = &self.state.v2 {
+      return ServiceSnapshot::V2(ServiceSnapshotV2 {
+        processed: self.state.processed,
+        schema_version: self.state.schema_version,
+        allow_count: self.state.allow_count,
+        review_count: self.state.review_count,
+        fast_lane_hits: self.state.fast_lane_hits,
+        upgrades: self.state.upgrades,
+        last_score: self.state.last_score,
+        average_score,
+        current_rule_version: self.rule.version().to_owned(),
+        migration_generation: v2.migration_generation,
+        legacy_processed_at_migration: v2.legacy_processed_at_migration,
+        fast_lane_amount: v2.fast_lane_amount,
+        reviewed_amount: v2.reviewed_amount,
+        largest_amount: v2.largest_amount,
+        high_risk_requests: v2.high_risk_requests,
+        late_night_reviews: v2.late_night_reviews,
+        review_rate_bps: rate_bps(self.state.review_count, self.state.processed),
+        fast_lane_rate_bps: rate_bps(self.state.fast_lane_hits, self.state.processed),
+        last_decision: v2.last_decision.clone(),
+        last_policy_id: v2.last_policy_id,
+      });
+    }
+
+    ServiceSnapshot::V1(ServiceSnapshotV1 {
       processed: self.state.processed,
       schema_version: self.state.schema_version,
       allow_count: self.state.allow_count,
       review_count: self.state.review_count,
-      fast_lane_hits: self.state.fast_lane_hits,
       upgrades: self.state.upgrades,
       last_score: self.state.last_score,
-      average_score: if self.state.processed == 0 {
-        0
-      } else {
-        (self.state.total_score / self.state.processed as i64) as i32
-      },
+      average_score,
       current_rule_version: self.rule.version().to_owned(),
-    }
+    })
+  }
+}
+
+fn rate_bps(count: u64, total: u64) -> u32 {
+  if total == 0 {
+    0
+  } else {
+    ((count.saturating_mul(10_000)) / total) as u32
   }
 }
 

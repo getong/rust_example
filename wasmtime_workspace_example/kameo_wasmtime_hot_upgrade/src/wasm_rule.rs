@@ -131,6 +131,29 @@ impl WasmRule {
       .rule()
       .call_metadata(&mut self.store)?
       .policy_id;
+    if let Some(v2) = &mut state.v2 {
+      v2.last_decision = decision.clone();
+      v2.last_policy_id = policy_id;
+      v2.largest_amount = v2.largest_amount.max(request.amount);
+
+      if request.merchant_risk >= 80 {
+        v2.high_risk_requests += 1;
+      }
+
+      match &decision {
+        Decision::AllowFastLane => {
+          v2.fast_lane_amount += request.amount;
+        }
+        Decision::Review => {
+          v2.reviewed_amount += request.amount;
+          if request.hour <= 5 {
+            v2.late_night_reviews += 1;
+          }
+        }
+        Decision::Allow => {}
+      }
+    }
+
     Ok(Response {
       decision,
       rule_version: self.version.clone(),
@@ -147,6 +170,11 @@ impl WasmRule {
         }
         1 => {
           state.fast_lane_hits = 0;
+          state.v2 = Some(crate::types::StateV2Stats {
+            migration_generation: state.upgrades + 1,
+            legacy_processed_at_migration: state.processed,
+            ..Default::default()
+          });
           state.schema_version = 2;
         }
         current => {
