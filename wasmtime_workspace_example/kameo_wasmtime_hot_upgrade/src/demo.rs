@@ -86,7 +86,7 @@ async fn inspect_rule(actor_ref: &ActorRef<HotUpgradeActor>, sample: &Request) -
 
   println!(
     "active_rule={}, schema={}, policy={}, deps_marker={}, threshold={}, fast_lane_limit={}, \
-     sample_score={}",
+     sample_score={}, method_calls={}, metadata_calls={}",
     metadata.version,
     metadata.required_schema,
     metadata.policy_id,
@@ -94,6 +94,8 @@ async fn inspect_rule(actor_ref: &ActorRef<HotUpgradeActor>, sample: &Request) -
     metadata.review_threshold,
     metadata.fast_lane_limit,
     inspection.sample_score,
+    inspection.runtime.evaluate_calls,
+    inspection.runtime.metadata_calls,
   );
 
   Ok(())

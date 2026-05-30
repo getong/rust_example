@@ -9,4 +9,4 @@ pub use actor::{
   start_hot_upgrade_actor,
 };
 pub use state::{ServiceSnapshot, ServiceSnapshotV1, ServiceSnapshotV2, ServiceState};
-pub use types::{Decision, Request, Response, RuleInspection, RuleMetadata};
+pub use types::{Decision, Request, Response, RuleInspection, RuleMetadata, RuleRuntimeSnapshot};

@@ -54,4 +54,16 @@ pub struct RuleInspection {
   pub metadata: RuleMetadata,
   pub sample_request: Request,
   pub sample_score: i32,
+  pub runtime: RuleRuntimeSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleRuntimeSnapshot {
+  pub version: String,
+  pub component_path: String,
+  pub loaded_required_schema: u32,
+  pub metadata_calls: u64,
+  pub evaluate_calls: u64,
+  pub last_request: Option<Request>,
+  pub last_response: Option<Response>,
 }
