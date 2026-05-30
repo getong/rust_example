@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use rand::distributions::{Distribution, Uniform};
+use rand::distr::{Distribution, Uniform};
 use tokio::time;
 
 #[tokio::main]
@@ -26,8 +26,8 @@ async fn main() -> Result<(), std::io::Error> {
 
 async fn run_with_shutdown(mut shutdown: tokio::sync::mpsc::Receiver<i32>) {
   let mut interval = time::interval(time::Duration::from_secs(1));
-  let between = Uniform::from(1 .. 4);
-  let mut rng = rand::thread_rng();
+  let between = Uniform::new(1, 4).unwrap();
+  let mut rng = rand::rng();
 
   loop {
     tokio::select! {

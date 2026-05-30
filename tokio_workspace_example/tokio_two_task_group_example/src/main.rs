@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use tokio::{
   sync::oneshot,
   task,
@@ -54,8 +54,8 @@ async fn main() {
   // Simulate some work
   sleep(Duration::from_secs(3)).await;
 
-  let mut rng = rand::thread_rng();
-  match rng.gen_range(1u64 .. 3u64) {
+  let mut rng = rand::rng();
+  match rng.random_range(1u64 .. 3u64) {
     1 => {
       println!("task 1 stop");
       task1_handle.abort();

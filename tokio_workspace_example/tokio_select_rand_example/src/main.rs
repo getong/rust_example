@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use rand::Rng;
+use rand::RngExt;
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -19,7 +19,7 @@ async fn main() {
 }
 
 async fn generate_random_number() {
-  let mut rng = rand::thread_rng();
-  let number: u32 = rng.gen();
+  let mut rng = rand::rng();
+  let number: u32 = rng.random();
   println!("Generated random number: {}", number);
 }

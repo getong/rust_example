@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Local};
-use rand::Rng;
+use rand::RngExt;
 use tokio::time;
 
 #[tokio::main]
@@ -25,7 +25,7 @@ async fn main() -> Result<(), std::io::Error> {
 async fn run_with_shutdown(mut shutdown: tokio::sync::mpsc::Receiver<()>) {
   let mut interval = time::interval(Duration::from_secs(1));
 
-  let mut rng = rand::thread_rng();
+  let mut rng = rand::rng();
 
   loop {
     tokio::select! {
@@ -36,7 +36,7 @@ async fn run_with_shutdown(mut shutdown: tokio::sync::mpsc::Receiver<()>) {
 
             println!("tick, Current Time: {}", current_time_str);
             // Generate a random integer within a specific range
-            let random_number = rng.gen_range(1..=4);
+            let random_number: u64 = rng.random_range(1..=4);
             interval = time::interval(Duration::from_secs(random_number));
             interval.reset();
         },

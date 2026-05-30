@@ -3,7 +3,7 @@
 #[tokio::main]
 async fn main() -> Result<(), axum::BoxError> {
   // very opinionated init of tracing, look as is source to compose your own
-  _ = init_tracing_opentelemetry::tracing_subscriber_ext::init_subscribers()?;
+  let _guard = init_tracing_opentelemetry::TracingConfig::production().init_subscriber()?;
 
   // ...;
 

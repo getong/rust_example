@@ -6,15 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.100"
-bincode = "2.0.1"
-console = "0.16.1"
-futures = "0.3.31"
-regex = "1.12.2"
+anyhow = "1.0.102"
+bincode_next = { package = "bincode-next", version = "3.0.0-rc.15" }
+console = "0.16.3"
+futures = "0.3.32"
+regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.48.0", features = ["rt-multi-thread", "time", "sync", "net", "macros", "io-util", "io-std"] }
-tokio-stream = "0.1.17"
-tokio-util = { version = "0.7.17", features = ["codec"] }
-tracing = "0.1.43"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-url = "2.5.7"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "time", "sync", "net", "macros", "io-util", "io-std"] }
+tokio-stream = "0.1.18"
+tokio-util = { version = "0.7.18", features = ["codec"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"

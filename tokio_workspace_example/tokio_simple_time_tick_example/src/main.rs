@@ -4,15 +4,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // use tokio::sync::oneshot;
 // use rand::distributions::{Distribution, Uniform};
 // use rand::{thread_rng, Rng};
-use rand::Rng;
-// use std::rc::Rc;
+use rand::RngExt;
 // use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{self, sleep, Duration};
 
 async fn random_number() -> u64 {
-  let mut rng = rand::thread_rng();
-  rng.gen_range(1u64 .. 3u64)
+  let mut rng = rand::rng();
+  rng.random_range(1u64 .. 3u64)
 }
 
 #[tokio::main]
