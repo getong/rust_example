@@ -6,7 +6,8 @@ use wasmtime::{Config, Engine};
 
 use crate::{
   types::{
-    Request, Response, RuleInspection, ServiceSnapshot, ServiceSnapshotV1, ServiceSnapshotV2, State,
+    Decision, Request, Response, RuleInspection, ServiceSnapshot, ServiceSnapshotV1,
+    ServiceSnapshotV2, State, StateV2Stats,
   },
   wasm_rule::WasmRule,
 };
@@ -30,7 +31,7 @@ impl HotUpgradeActor {
     })?;
 
     let mut state = State::default();
-    rule.migrate_state(&mut state)?;
+    migrate_state(rule.required_schema(), &mut state)?;
 
     Ok(Self {
       engine,
@@ -44,7 +45,7 @@ impl HotUpgradeActor {
     let mut next = WasmRule::load(&self.engine, &wasm_path)?;
 
     self.validate(&mut next)?;
-    next.migrate_state(&mut self.state)?;
+    migrate_state(next.required_schema(), &mut self.state)?;
     self.state.upgrades += 1;
     self.rule = next;
 
@@ -53,17 +54,14 @@ impl HotUpgradeActor {
 
   fn validate(&self, next: &mut WasmRule) -> Result<()> {
     let mut shadow = self.state.clone();
-    next.migrate_state(&mut shadow)?;
+    migrate_state(next.required_schema(), &mut shadow)?;
 
-    let response = next.handle(
-      &mut shadow,
-      Request {
-        user_id: 2,
-        amount: 100,
-        merchant_risk: 5,
-        hour: 12,
-      },
-    )?;
+    let response = next.handle(Request {
+      user_id: 2,
+      amount: 100,
+      merchant_risk: 5,
+      hour: 12,
+    })?;
 
     if response.rule_version.trim().is_empty() {
       return Err(anyhow!("new wasm rule returned an empty version"));
@@ -117,6 +115,40 @@ impl HotUpgradeActor {
   }
 }
 
+fn migrate_state(required_schema: u32, state: &mut State) -> Result<()> {
+  while state.schema_version < required_schema {
+    match state.schema_version {
+      0 => {
+        state.schema_version = 1;
+      }
+      1 => {
+        state.fast_lane_hits = 0;
+        state.v2 = Some(StateV2Stats {
+          migration_generation: state.upgrades + 1,
+          legacy_processed_at_migration: state.processed,
+          ..Default::default()
+        });
+        state.schema_version = 2;
+      }
+      current => {
+        return Err(anyhow!(
+          "missing migrator for state schema {current} -> {}",
+          current + 1
+        ));
+      }
+    }
+  }
+
+  if state.schema_version > required_schema {
+    return Err(anyhow!(
+      "rule requires schema {required_schema}, but state is already at schema {}",
+      state.schema_version,
+    ));
+  }
+
+  Ok(())
+}
+
 fn rate_bps(count: u64, total: u64) -> u32 {
   if total == 0 {
     0
@@ -141,7 +173,53 @@ impl Message<CallRule> for HotUpgradeActor {
     msg: CallRule,
     _ctx: &mut kameo::message::Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    self.rule.handle(&mut self.state, msg.0)
+    if self.state.schema_version != self.rule.required_schema() {
+      return Err(anyhow!(
+        "rule {} expects state schema {}, got {}",
+        self.rule.version(),
+        self.rule.required_schema(),
+        self.state.schema_version,
+      ));
+    }
+
+    let request = msg.0;
+    let response = self.rule.handle(request.clone())?;
+
+    self.state.processed += 1;
+    self.state.last_score = response.risk_score;
+    self.state.total_score += i64::from(response.risk_score);
+
+    match &response.decision {
+      Decision::Allow => self.state.allow_count += 1,
+      Decision::AllowFastLane => {
+        self.state.allow_count += 1;
+        self.state.fast_lane_hits += 1;
+      }
+      Decision::Review => self.state.review_count += 1,
+    }
+
+    if let Some(v2) = &mut self.state.v2 {
+      v2.last_decision = response.decision.clone();
+      v2.last_policy_id = response.policy_id;
+      v2.largest_amount = v2.largest_amount.max(request.amount);
+
+      if request.merchant_risk >= 80 {
+        v2.high_risk_requests += 1;
+      }
+
+      match &response.decision {
+        Decision::AllowFastLane => v2.fast_lane_amount += request.amount,
+        Decision::Review => {
+          v2.reviewed_amount += request.amount;
+          if request.hour <= 5 {
+            v2.late_night_reviews += 1;
+          }
+        }
+        Decision::Allow => {}
+      }
+    }
+
+    Ok(response)
   }
 }
 
