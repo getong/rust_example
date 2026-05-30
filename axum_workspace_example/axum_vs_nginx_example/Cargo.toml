@@ -10,7 +10,7 @@ axum-extra = "0.12"
 axum-server = "0.8.0"
 futures = "0.3.32"
 futures-lite = "2.6.1"
-hyper = { version = "1.10.0", features = ["client", "http2"] }
+hyper = { version = "1.10.1", features = ["client", "http2"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy"] }
 log = "0.4.30"
 pin-project = "1.1.13"
