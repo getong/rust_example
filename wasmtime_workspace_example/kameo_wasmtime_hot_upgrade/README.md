@@ -13,11 +13,12 @@ requests: the actor loads the next `.wasm`, dry-runs it against cloned host
 state, migrates the real state, and only then swaps the active method set.
 
 The WASM rules use the Component Model instead of hand-written exported
-symbols. The ABI contract lives in `wit/risk-rule.wit`; each rule crate uses
-`wit_bindgen::generate!` plus `export!(RiskRule)` to implement the generated
-`exports::rule::Guest` trait. The host uses `wasmtime::component::bindgen!`
-and calls the generated `rule().call_*` methods, so it never looks up raw
-function names and the rule crates do not use `#[no_mangle]`.
+symbols. The ABI contract is inlined in the host and rule bindgen macros; each
+rule crate uses `wit_bindgen::generate!` plus `export!(RiskRule)` to implement
+the generated `exports::rule::Guest` trait. The host uses
+`wasmtime::component::bindgen!` and calls the generated `rule().call_*` methods,
+so it never looks up raw function names and the rule crates do not use
+`#[no_mangle]`.
 
 The WIT interface exports only stateless rule methods:
 

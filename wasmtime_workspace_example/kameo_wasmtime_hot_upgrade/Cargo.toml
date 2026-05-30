@@ -11,4 +11,6 @@ members = [".", "risk_rule_support", "risk_rule_v1", "risk_rule_v2"]
 anyhow = "1.0"
 kameo = "0.20"
 tokio = { version = "1.52", features = ["full"] }
-wasmtime = "45"
+wasmparser = "0.251.0" 
+wasmtime = { version = "45.0.0", features = ["component-model"] }
+wasmtime-wasi = "45.0.0"

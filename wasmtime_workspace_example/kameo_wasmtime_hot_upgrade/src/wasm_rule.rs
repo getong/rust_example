@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::{fs, path::Path};
 
 use anyhow::{Result, anyhow};
 use wasmtime::{
   Engine, Store,
   component::{Component, HasSelf, Linker},
 };
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::{
   bindings::{
@@ -14,8 +15,9 @@ use crate::{
   types::{Decision, Request, Response, RuleInspection, RuleMetadata, RuleRuntimeSnapshot},
 };
 
-#[derive(Debug, Clone)]
 pub struct WasmRuleStoreState {
+  table: ResourceTable,
+  wasi: WasiCtx,
   pub version: String,
   pub component_path: String,
   pub loaded_metadata: RuleMetadata,
@@ -40,7 +42,10 @@ pub struct WasmRuleMethods {
 impl WasmRuleMethods {
   pub fn load(engine: &Engine, path: impl AsRef<Path>) -> Result<Self> {
     let path = path.as_ref();
-    let component = Component::from_file(engine, path)
+    let wasm_bytes = fs::read(path)
+      .map_err(|err| anyhow!("failed to read wasm component {}: {err}", path.display()))?;
+    validate_wasm_component(path, &wasm_bytes)?;
+    let component = Component::new(engine, &wasm_bytes)
       .map_err(|err| anyhow!("failed to load wasm component {}: {err}", path.display()))?;
     let version = path
       .file_stem()
@@ -59,6 +64,8 @@ impl WasmRuleMethods {
     let mut store = Store::new(
       engine,
       WasmRuleStoreState {
+        table: ResourceTable::new(),
+        wasi: WasiCtxBuilder::new().build(),
         version: version.clone(),
         component_path: path.display().to_string(),
         loaded_metadata: placeholder_metadata,
@@ -73,6 +80,7 @@ impl WasmRuleMethods {
       },
     );
     let mut linker = Linker::new(engine);
+    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
     host::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
     let instance =
       bindings::RiskRule::instantiate(&mut store, &component, &linker).map_err(|err| {
@@ -190,6 +198,22 @@ impl WasmRuleMethods {
       last_request: state.last_request.clone(),
       last_response: state.last_response.clone(),
       last_score: state.last_score,
+    }
+  }
+}
+
+fn validate_wasm_component(path: &Path, wasm_bytes: &[u8]) -> Result<()> {
+  wasmparser::Validator::new()
+    .validate_all(wasm_bytes)
+    .map(|_| ())
+    .map_err(|err| anyhow!("invalid wasm component {}: {err}", path.display()))
+}
+
+impl WasiView for WasmRuleStoreState {
+  fn ctx(&mut self) -> WasiCtxView<'_> {
+    WasiCtxView {
+      ctx: &mut self.wasi,
+      table: &mut self.table,
     }
   }
 }
