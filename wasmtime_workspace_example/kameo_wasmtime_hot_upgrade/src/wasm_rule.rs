@@ -3,23 +3,31 @@ use std::path::Path;
 use anyhow::{Result, anyhow};
 use wasmtime::{
   Engine, Store,
-  component::{Component, Linker},
+  component::{Component, HasSelf, Linker},
 };
 
 use crate::{
-  bindings,
+  bindings::{
+    self,
+    host::{self, Host},
+  },
   types::{Decision, Request, Response, RuleInspection, RuleMetadata, RuleRuntimeSnapshot},
 };
 
 #[derive(Debug, Clone)]
-struct WasmRuleStoreState {
-  version: String,
-  component_path: String,
-  loaded_metadata: RuleMetadata,
-  metadata_calls: u64,
-  evaluate_calls: u64,
-  last_request: Option<Request>,
-  last_response: Option<Response>,
+pub struct WasmRuleStoreState {
+  pub version: String,
+  pub component_path: String,
+  pub loaded_metadata: RuleMetadata,
+  pub host_method_entries: u64,
+  pub last_host_method: Option<String>,
+  pub last_host_policy_id: Option<i32>,
+  pub metadata_calls: u64,
+  pub evaluate_calls: u64,
+  pub last_request: Option<Request>,
+  pub last_response: Option<Response>,
+  /// Score pushed by the wasm module via `host::record_last_score`.
+  pub last_score: Option<i32>,
 }
 
 pub struct WasmRuleMethods {
@@ -54,13 +62,18 @@ impl WasmRuleMethods {
         version: version.clone(),
         component_path: path.display().to_string(),
         loaded_metadata: placeholder_metadata,
+        host_method_entries: 0,
+        last_host_method: None,
+        last_host_policy_id: None,
         metadata_calls: 0,
         evaluate_calls: 0,
         last_request: None,
         last_response: None,
+        last_score: None,
       },
     );
-    let linker = Linker::new(engine);
+    let mut linker = Linker::new(engine);
+    host::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
     let instance =
       bindings::RiskRule::instantiate(&mut store, &component, &linker).map_err(|err| {
         anyhow!(
@@ -102,6 +115,16 @@ impl WasmRuleMethods {
 
   pub fn required_schema(&self) -> u32 {
     self.required_schema
+  }
+
+  /// Read-only access to the runtime state inside the wasmtime `Store`.
+  pub fn store_state(&self) -> &WasmRuleStoreState {
+    self.store.data()
+  }
+
+  /// Mutable access to the runtime state inside the wasmtime `Store`.
+  pub fn store_state_mut(&mut self) -> &mut WasmRuleStoreState {
+    self.store.data_mut()
   }
 
   pub fn metadata(&mut self) -> Result<RuleMetadata> {
@@ -159,11 +182,35 @@ impl WasmRuleMethods {
       version: state.version.clone(),
       component_path: state.component_path.clone(),
       loaded_required_schema: state.loaded_metadata.required_schema,
+      host_method_entries: state.host_method_entries,
+      last_host_method: state.last_host_method.clone(),
+      last_host_policy_id: state.last_host_policy_id,
       metadata_calls: state.metadata_calls,
       evaluate_calls: state.evaluate_calls,
       last_request: state.last_request.clone(),
       last_response: state.last_response.clone(),
+      last_score: state.last_score,
     }
+  }
+}
+
+impl Host for WasmRuleStoreState {
+  fn method_enter(&mut self, method: String, policy_id: i32) {
+    self.host_method_entries += 1;
+    self.last_host_method = Some(method);
+    self.last_host_policy_id = Some(policy_id);
+  }
+
+  fn loaded_required_schema(&mut self) -> u32 {
+    self.loaded_metadata.required_schema
+  }
+
+  fn evaluate_call_count(&mut self) -> u64 {
+    self.evaluate_calls
+  }
+
+  fn record_last_score(&mut self, score: i32) {
+    self.last_score = Some(score);
   }
 }
 

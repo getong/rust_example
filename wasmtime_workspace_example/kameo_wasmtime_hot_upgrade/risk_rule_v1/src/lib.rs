@@ -96,6 +96,17 @@ fn risk_score(request: exports::rule::Request) -> i32 {
 }
 
 fn evaluate(request: exports::rule::Request) -> exports::rule::Evaluation {
+  host::method_enter("evaluate", POLICY_ID);
+  let required_schema = host::loaded_required_schema();
+  if required_schema != REQUIRED_SCHEMA as u32 {
+    host::record_last_score(100);
+    return exports::rule::Evaluation {
+      decision: exports::rule::Decision::Review,
+      risk_score: 100,
+      policy_id: POLICY_ID,
+    };
+  }
+
   let risk_score = risk_score(request);
   let decision = if risk_score >= REVIEW_THRESHOLD {
     exports::rule::Decision::Review
@@ -103,6 +114,7 @@ fn evaluate(request: exports::rule::Request) -> exports::rule::Evaluation {
     exports::rule::Decision::Allow
   };
 
+  host::record_last_score(risk_score);
   exports::rule::Evaluation {
     decision,
     risk_score,

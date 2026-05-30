@@ -62,8 +62,12 @@ pub struct RuleRuntimeSnapshot {
   pub version: String,
   pub component_path: String,
   pub loaded_required_schema: u32,
+  pub host_method_entries: u64,
+  pub last_host_method: Option<String>,
+  pub last_host_policy_id: Option<i32>,
   pub metadata_calls: u64,
   pub evaluate_calls: u64,
   pub last_request: Option<Request>,
   pub last_response: Option<Response>,
+  pub last_score: Option<i32>,
 }

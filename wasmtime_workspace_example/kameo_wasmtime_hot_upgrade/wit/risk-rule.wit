@@ -1,6 +1,13 @@
 package kameo:risk@0.1.0;
 
 world risk-rule {
+    import host: interface {
+        method-enter: func(method: string, policy-id: s32);
+        loaded-required-schema: func() -> u32;
+        evaluate-call-count: func() -> u64;
+        record-last-score: func(score: s32);
+    }
+
     export rule: interface {
         record request {
             user-id: s64,
