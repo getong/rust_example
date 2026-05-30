@@ -1,9 +1,3 @@
-#![no_std]
-
-extern crate alloc;
-
-use kameo_risk_rule_support as _;
-
 wit_bindgen::generate!({
   inline: r#"
 package kameo:risk@0.1.0;

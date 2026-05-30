@@ -8,8 +8,6 @@ const TARGET: &str = "wasm32-wasip2";
 
 fn main() {
   println!("cargo:rerun-if-env-changed=KAMEO_SKIP_RULE_BUILD");
-  println!("cargo:rerun-if-changed=risk_rule_support/Cargo.toml");
-  println!("cargo:rerun-if-changed=risk_rule_support/src/lib.rs");
   println!("cargo:rerun-if-changed=risk_rule_v1/Cargo.toml");
   println!("cargo:rerun-if-changed=risk_rule_v1/src/lib.rs");
   println!("cargo:rerun-if-changed=risk_rule_v2/Cargo.toml");
