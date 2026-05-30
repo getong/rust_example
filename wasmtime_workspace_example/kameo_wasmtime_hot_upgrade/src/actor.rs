@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as AnyhowContext, Result, anyhow};
 use kameo::prelude::*;
-use wasmtime::Engine;
+use wasmtime::{Config, Engine};
 
 use crate::{
   types::{Request, Response, RuleInspection, ServiceSnapshot, State},
@@ -19,7 +19,7 @@ pub struct HotUpgradeActor {
 impl HotUpgradeActor {
   fn load(initial_rule: impl AsRef<Path>) -> Result<Self> {
     let initial_rule = initial_rule.as_ref();
-    let engine = Engine::default();
+    let engine = component_engine()?;
     let rule = WasmRule::load(&engine, initial_rule).with_context(|| {
       format!(
         "failed to load initial wasm rule {}",
@@ -87,6 +87,12 @@ impl HotUpgradeActor {
       current_rule_version: self.rule.version().to_owned(),
     }
   }
+}
+
+fn component_engine() -> Result<Engine> {
+  let mut config = Config::new();
+  config.wasm_component_model(true);
+  Engine::new(&config).map_err(Into::into)
 }
 
 pub struct CallRule(pub Request);

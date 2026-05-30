@@ -1,0 +1,30 @@
+package kameo:risk@0.1.0;
+
+world risk-rule {
+    export rule: interface {
+        record request {
+            user-id: s64,
+            amount: s64,
+            merchant-risk: s32,
+            hour: s32,
+        }
+
+        enum decision {
+            allow,
+            review,
+            allow-fast-lane,
+        }
+
+        record rule-metadata {
+            required-schema: u32,
+            policy-id: s32,
+            dependency-marker: s32,
+            review-threshold: s32,
+            fast-lane-limit: s64,
+        }
+
+        metadata: func() -> rule-metadata;
+        risk-score: func(request: request) -> s32;
+        decide: func(request: request) -> decision;
+    }
+}

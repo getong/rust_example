@@ -9,4 +9,6 @@ crate-type = ["cdylib"]
 [dependencies]
 crc32fast = { version = "1.5", default-features = false }
 itoa = "1.0"
+kameo_risk_rule_support = { path = "../risk_rule_support" }
 libm = "0.2"
+wit-bindgen = { version = "0.57.1", default-features = false, features = ["macros"] }

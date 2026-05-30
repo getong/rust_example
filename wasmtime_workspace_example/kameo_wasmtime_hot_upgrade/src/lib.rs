@@ -1,4 +1,5 @@
 pub mod actor;
+mod bindings;
 pub mod types;
 pub mod wasm_rule;
 

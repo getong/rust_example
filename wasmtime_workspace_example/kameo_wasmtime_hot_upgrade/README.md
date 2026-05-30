@@ -7,15 +7,18 @@ This example combines the two existing examples in this workspace:
 
 The host keeps long-lived service state inside `HotUpgradeActor`. Calls, rule inspection, snapshots, and upgrades are kameo messages. Because kameo processes normal messages for an actor sequentially, a rule upgrade is committed between requests: the actor loads the next `.wasm`, dry-runs it on cloned state, migrates the real state, and only then swaps the active rule.
 
-The WASM modules export a small ABI:
+The WASM rules use the Component Model instead of hand-written exported
+symbols. The ABI contract lives in `wit/risk-rule.wit`; each rule crate uses
+`wit_bindgen::generate!` plus `export!(RiskRule)` to implement the generated
+`exports::rule::Guest` trait. The host uses `wasmtime::component::bindgen!`
+and calls the generated `rule().call_*` methods, so it never looks up raw
+function names and the rule crates do not use `#[no_mangle]`.
 
-- `required_schema() -> i32`
-- `policy_id() -> i32`
-- `review_threshold() -> i32`
-- `fast_lane_limit() -> i64`
-- `risk_score(user_id, amount, merchant_risk, hour) -> i32`
-- `decide(user_id, amount, merchant_risk, hour) -> i32`
-- `dependency_marker() -> i32`
+The WIT interface exports:
+
+- `metadata() -> rule-metadata`
+- `risk-score(request) -> s32`
+- `decide(request) -> decision`
 
 `risk_rule_v1` is intentionally conservative and only returns `allow` or `review`. `risk_rule_v2` changes the scoring model, lowers the review threshold, and adds `allow-fast-lane` for trusted even-numbered users with low-risk small transactions.
 
@@ -33,16 +36,16 @@ Build the two rule modules first:
 
 ```sh
 cd kameo_wasmtime_hot_upgrade
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32-wasip2
 
-cargo build --package kameo_risk_rule_v1 --release --target wasm32-unknown-unknown
+cargo build --package kameo_risk_rule_v1 --release --target wasm32-wasip2
 mkdir -p rules/current
-cp target/wasm32-unknown-unknown/release/kameo_risk_rule_v1.wasm \
+cp target/wasm32-wasip2/release/kameo_risk_rule_v1.wasm \
   rules/current/risk_rule.wasm
 
-cargo build --package kameo_risk_rule_v2 --release --target wasm32-unknown-unknown
+cargo build --package kameo_risk_rule_v2 --release --target wasm32-wasip2
 mkdir -p rules/releases
-cp target/wasm32-unknown-unknown/release/kameo_risk_rule_v2.wasm \
+cp target/wasm32-wasip2/release/kameo_risk_rule_v2.wasm \
   rules/releases/risk_rule_v2.wasm
 ```
 

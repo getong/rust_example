@@ -11,4 +11,4 @@ wasmtime = "45"
 
 [workspace]
 resolver = "3"
-members = [".", "risk_rule_v1", "risk_rule_v2"]
+members = [".", "risk_rule_support", "risk_rule_v1", "risk_rule_v2"]

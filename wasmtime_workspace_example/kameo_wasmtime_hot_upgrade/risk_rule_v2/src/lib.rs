@@ -1,9 +1,22 @@
+#![no_std]
+
+extern crate alloc;
+
+use kameo_risk_rule_support as _;
+
+wit_bindgen::generate!({
+  path: "../wit/risk-rule.wit",
+  world: "risk-rule",
+});
+
 const POLICY_ID: i32 = 202;
 const REQUIRED_SCHEMA: i32 = 2;
 const REVIEW_THRESHOLD: i32 = 65;
 const FAST_LANE_LIMIT: i64 = 4_000;
 const TRUSTED_MERCHANT_MAX_RISK: i32 = 15;
 const FINGERPRINT_WEIGHT: i32 = 7;
+
+struct RiskRule;
 
 #[derive(Clone, Copy)]
 struct Transaction {
@@ -79,46 +92,55 @@ impl Transaction {
   }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn required_schema() -> i32 {
-  REQUIRED_SCHEMA
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn policy_id() -> i32 {
-  POLICY_ID
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn review_threshold() -> i32 {
-  REVIEW_THRESHOLD
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn fast_lane_limit() -> i64 {
-  FAST_LANE_LIMIT
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn dependency_marker() -> i32 {
+fn dependency_marker() -> i32 {
   Transaction::new(202, 6_000, 20, 14).dependency_adjustment()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn risk_score(user_id: i64, amount: i64, merchant_risk: i32, hour: i32) -> i32 {
-  let tx = Transaction::new(user_id, amount, merchant_risk, hour);
+fn risk_score(request: exports::rule::Request) -> i32 {
+  let tx = Transaction::new(
+    request.user_id,
+    request.amount,
+    request.merchant_risk,
+    request.hour,
+  );
   let score = tx.amount_band() + tx.merchant_band() + tx.hour_band() + tx.dependency_adjustment()
     - tx.trusted_user_discount();
   score.clamp(0, 100)
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn decide(user_id: i64, amount: i64, merchant_risk: i32, hour: i32) -> i32 {
-  let tx = Transaction::new(user_id, amount, merchant_risk, hour);
-  if tx.qualifies_for_fast_lane() {
-    return 2;
+impl exports::rule::Guest for RiskRule {
+  fn metadata() -> exports::rule::RuleMetadata {
+    exports::rule::RuleMetadata {
+      required_schema: REQUIRED_SCHEMA as u32,
+      policy_id: POLICY_ID,
+      dependency_marker: dependency_marker(),
+      review_threshold: REVIEW_THRESHOLD,
+      fast_lane_limit: FAST_LANE_LIMIT,
+    }
   }
 
-  let score = risk_score(user_id, amount, merchant_risk, hour);
-  if score >= REVIEW_THRESHOLD { 1 } else { 0 }
+  fn risk_score(request: exports::rule::Request) -> i32 {
+    risk_score(request)
+  }
+
+  fn decide(request: exports::rule::Request) -> exports::rule::Decision {
+    let tx = Transaction::new(
+      request.user_id,
+      request.amount,
+      request.merchant_risk,
+      request.hour,
+    );
+    if tx.qualifies_for_fast_lane() {
+      return exports::rule::Decision::AllowFastLane;
+    }
+
+    let score = risk_score(request);
+    if score >= REVIEW_THRESHOLD {
+      exports::rule::Decision::Review
+    } else {
+      exports::rule::Decision::Allow
+    }
+  }
 }
+
+export!(RiskRule);
