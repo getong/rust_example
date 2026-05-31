@@ -11,6 +11,8 @@ use wasmtime::{
 
 mod bindings;
 
+use bindings::a::b::temperature_types;
+
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wit_bindgen_example.wasm";
 
@@ -23,24 +25,21 @@ struct HostState {
 }
 
 impl bindings::thermometer::Host for HostState {
-  fn what_temperature_is_it(&mut self) -> bindings::thermometer::Fahrenheit {
+  fn what_temperature_is_it(&mut self) -> temperature_types::Fahrenheit {
     self.temperature_read_count += 1;
 
-    bindings::thermometer::Fahrenheit {
+    temperature_types::Fahrenheit {
       degrees: self.current_fahrenheit,
     }
   }
 
-  fn convert_to_celsius(
-    &mut self,
-    a: bindings::thermometer::Fahrenheit,
-  ) -> bindings::thermometer::Celsius {
+  fn convert_to_celsius(&mut self, a: temperature_types::Fahrenheit) -> temperature_types::Celsius {
     self.conversion_count += 1;
     self.last_fahrenheit = Some(a.degrees);
     let degrees = (a.degrees - 32.0) * 5.0 / 9.0;
     self.last_celsius = Some(degrees);
 
-    bindings::thermometer::Celsius { degrees }
+    temperature_types::Celsius { degrees }
   }
 }
 
@@ -72,7 +71,9 @@ fn main() -> Result<()> {
     },
   );
   let instance = bindings::TheWorld::instantiate(&mut store, &component, &linker)?;
-  let in_celsius = instance.temperature_service().call_run(&mut store)?;
+  let in_celsius = instance
+    .temperature_service()
+    .call_calculate_celsius(&mut store)?;
   let host_state = store.data();
 
   println!("current temp in fahrenheit is {current_fahrenheit}");

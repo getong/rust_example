@@ -1,24 +1,26 @@
 package a:b;
 
+interface temperature-types {
+    record fahrenheit {
+        degrees: f32,
+    }
+
+    record celsius {
+        degrees: f32,
+    }
+}
+
 world the-world {
     import thermometer: interface {
-        record fahrenheit {
-            degrees: f32,
-        }
-
-        record celsius {
-            degrees: f32,
-        }
+        use temperature-types.{fahrenheit, celsius};
 
         what-temperature-is-it: func() -> fahrenheit;
         convert-to-celsius: func(a: fahrenheit) -> celsius;
     }
 
     export temperature-service: interface {
-        record celsius {
-            degrees: f32,
-        }
+        use temperature-types.{celsius};
 
-        run: func() -> celsius;
+        calculate-celsius: func() -> celsius;
     }
 }

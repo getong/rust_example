@@ -1,0 +1,150 @@
+ src/lib.rs 是 wasm guest 组件的入口，不是 native host 直接 use 调用的 Rust 库。
+
+  调用链是这样的：
+
+  1. 你运行 cargo run
+  2. src/main.rs 里的 ensure_guest_component() 执行：
+
+     cargo build --lib --target wasm32-wasip2
+
+  3. 这个命令会编译 src/lib.rs 成：
+
+     target/wit-bindgen-guest/wasm32-wasip2/debug/wit_bindgen_example.wasm
+
+  4. main.rs 再用 Wasmtime 加载这个 .wasm
+  5. host 调用：
+
+     instance.temperature_service().call_run(&mut store)?
+
+  6. 这个调用最终进入 src/lib.rs 里的：
+
+     impl exports::temperature_service::Guest for TemperatureDemo {
+       fn run() -> exports::temperature_service::Celsius {
+         ...
+       }
+     }
+
+  所以 src/lib.rs 的作用是：实现 WIT 里这段 export：
+
+  export temperature-service: interface {
+      run: func() -> celsius;
+  }
+
+  它不是普通 Rust 调用，而是通过 wasm component 的 export 被 Wasmtime 间接调用。
+
+
+
+这三个 run 是同一个 WIT export 函数在不同位置的映射。
+
+  调用链是：
+
+  src/main.rs
+  instance.temperature_service().call_run(&mut store)?
+          |
+        v
+  Wasmtime generated host binding
+  调用 wasm component export: temperature-service.run
+          |
+          v                                                                                                                                                                                  wit-bindgen generated guest export trampoline
+          |
+          v
+  src/lib.rs
+  TemperatureDemo::run()
+  对应关系：
+
+  - src/wit/the-world.wit:22
+
+    run: func() -> celsius;
+    这是接口契约，声明 wasm component 导出一个 run 函数。
+    这是接口契约，声明 wasm component 导出一个 run 函数。
+
+  - src/lib.rs:11
+
+    fn run() -> exports::temperature_service::Celsius
+
+    这是 guest 端对 WIT run 的实现。export!(TemperatureDemo) 会把这个实现导出成 wasm component 的 temperature-service.run。
+
+  - src/main.rs:75
+
+    instance.temperature_service().call_run(&mut store)?
+
+    这是 host 端由 wasmtime::component::bindgen! 生成的类型安全调用方法。call_run 的意思就是“调用 component export 里的 run”。
+
+  重点：main.rs 没有直接 Rust 调用 src/lib.rs。它先把 src/lib.rs 编译成 .wasm，再通过 Wasmtime 加载这个 .wasm，最后用 call_run 跨 wasm component 边界调用 guest 里的 run()。
+
+  如果你把 WIT 里的：
+
+  run: func() -> celsius;
+
+  那么 Rust 侧会对应变成：
+
+  fn execute() -> ...
+
+  和：
+
+  instance.temperature_service().call_execute(&mut store)?
+
+
+
+ WIT 在这里的作用是 定义 host 和 wasm guest 之间的接口契约。
+
+  它决定三件事：
+
+  1. guest 需要 host 提供什么
+
+     import thermometer: interface {
+         what-temperature-is-it: func() -> fahrenheit;
+         convert-to-celsius: func(a: fahrenheit) -> celsius;
+     }
+     这表示 wasm guest不能自己获得温度和转换逻辑，它要求 host 提供这两个函数。
+     这表示 wasm guest 不能自己获得温度和转换逻辑，它要求 host 提供这两个函数。
+
+  2. guest 会导出什么给 host 调用
+
+     exporttemperature-service: interface {
+         calculate-celsius: func()-> celsius;
+     }
+
+    这表示 wasm guest 对外暴露一个 calculate-celsius函数，host 可以调用它。
+  3. 两边共享的数据结构长什么样
+     record fahrenheit {
+         degrees: f32,
+     }
+                                                                                                                                                                                               record celsius {
+         degrees: f32,
+     }
+
+     这样 host 和 guest 都知道 fahrenheit / celsius 是什么结构，字段名和类型一致。
+
+  在代码生成上：
+
+  - host 侧 src/bindings.rs 用 WIT 生成 Wasmtime 调用代码：
+
+    wasmtime::component::bindgen!({
+      path: "src/wit",
+      world: "the-world",
+    });
+ - guest 侧 src/lib.rs 用 WIT 生成 guest 绑定：
+
+    wit_bindgen::generate!({
+      path: "src/wit",
+      world: "the-world",
+    });
+
+  所以 WIT 是中间契约文件：
+
+  src/wit/the-world.wit
+          |
+          +--> host 生成 bindings::TheWorld / bindings::thermometer
+          |
+          +--> guest 生成 thermometer::* / exports::temperature_service::Guest
+
+  没有 WIT，两边就不知道：
+
+  - host 要实现哪些 import
+  - guest 要实现哪些 export
+  - fahrenheit / celsius 怎么编码、传递、解码
+  - calculate-celsius 在 Rust 里应该生成成什么函数名
+
+  它类似“跨 wasm component 边界的接口定义文件”，作用接近 protobuf / IDL，但目标是
+  WebAssembly Component Model。
