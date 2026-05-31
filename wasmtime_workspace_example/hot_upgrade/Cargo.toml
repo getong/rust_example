@@ -3,8 +3,6 @@
 name = "hot_upgrade"
 version = "0.1.0"
 edition = "2024"
-[workspace]
-members = [".", "risk_rule_v1", "risk_rule_v2"]
 
 [dependencies]
 anyhow = "1.0"

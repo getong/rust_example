@@ -2,7 +2,11 @@
 
 resolver = "3"
 
-members = ["hot_upgrade",
+members = [
+  "hot_upgrade",
+  "hot_upgrade/risk_rule_v1",
+  "hot_upgrade/risk_rule_v2",
   "wasmtime_example",
   "wasmtime_tokio",
+  "wit_bindgen_example",
 ]

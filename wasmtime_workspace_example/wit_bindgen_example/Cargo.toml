@@ -1,0 +1,14 @@
+[package]
+name = "wit_bindgen_example"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+anyhow = "1.0"
+wasmtime = { version = "45.0.0", features = ["component-model"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = { version = "0.57.1", default-features = false, features = ["macros"] }
