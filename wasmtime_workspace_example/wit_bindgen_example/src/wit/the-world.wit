@@ -9,24 +9,21 @@ interface temperature-types {
         degrees: f32,
     }
 
-    record host-state {
-        current-fahrenheit: f32,
-        temperature-read-count: u32,
-        conversion-count: u32,
-        last-fahrenheit: option<f32>,
-        last-celsius: option<f32>,
+    record temperature-state {
+        path: string,
+        content-json: string,
     }
 
     record temperature-result {
         celsius: celsius,
-        state: host-state,
+        state: temperature-state,
     }
 }
 
 world the-world {
     export temperature-service: interface {
-        use temperature-types.{host-state, temperature-result};
+        use temperature-types.{temperature-state, temperature-result};
 
-        calculate-celsius: func(state: host-state) -> temperature-result;
+        calculate-celsius: func(state: temperature-state) -> temperature-result;
     }
 }

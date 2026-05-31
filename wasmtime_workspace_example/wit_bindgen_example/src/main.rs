@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use serde::{Deserialize, Serialize};
 use wasmtime::{
   Config, Engine, Store,
   component::{Component, Linker},
@@ -16,6 +17,18 @@ use bindings::a::b::temperature_types;
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wit_bindgen_example.wasm";
+const TEMPERATURE_STATE_PATH: &str = "state/temperature.json";
+const TEMPERATURE_STATE_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TemperatureStatePayload {
+  schema_version: u32,
+  current_fahrenheit: f32,
+  temperature_read_count: u32,
+  conversion_count: u32,
+  last_fahrenheit: Option<f32>,
+  last_celsius: Option<f32>,
+}
 
 struct HostState {
   current_fahrenheit: f32,
@@ -26,8 +39,9 @@ struct HostState {
 }
 
 impl HostState {
-  fn to_component_state(&self) -> temperature_types::HostState {
-    temperature_types::HostState {
+  fn to_payload(&self) -> TemperatureStatePayload {
+    TemperatureStatePayload {
+      schema_version: TEMPERATURE_STATE_SCHEMA_VERSION,
       current_fahrenheit: self.current_fahrenheit,
       temperature_read_count: self.temperature_read_count,
       conversion_count: self.conversion_count,
@@ -36,12 +50,40 @@ impl HostState {
     }
   }
 
-  fn save_component_state(&mut self, state: temperature_types::HostState) {
-    self.current_fahrenheit = state.current_fahrenheit;
-    self.temperature_read_count = state.temperature_read_count;
-    self.conversion_count = state.conversion_count;
-    self.last_fahrenheit = state.last_fahrenheit;
-    self.last_celsius = state.last_celsius;
+  fn to_component_state(&self) -> Result<temperature_types::TemperatureState> {
+    Ok(temperature_types::TemperatureState {
+      path: TEMPERATURE_STATE_PATH.to_string(),
+      content_json: serde_json::to_string(&self.to_payload())
+        .context("failed to serialize host temperature state")?,
+    })
+  }
+
+  fn save_component_state(&mut self, state: temperature_types::TemperatureState) -> Result<()> {
+    if state.path != TEMPERATURE_STATE_PATH {
+      bail!(
+        "wasm returned temperature state for unexpected path `{}`",
+        state.path
+      );
+    }
+
+    let payload: TemperatureStatePayload = serde_json::from_str(&state.content_json)
+      .with_context(|| format!("failed to decode temperature state at `{}`", state.path))?;
+
+    if payload.schema_version != TEMPERATURE_STATE_SCHEMA_VERSION {
+      bail!(
+        "unsupported temperature state schema version {}; expected {}",
+        payload.schema_version,
+        TEMPERATURE_STATE_SCHEMA_VERSION
+      );
+    }
+
+    self.current_fahrenheit = payload.current_fahrenheit;
+    self.temperature_read_count = payload.temperature_read_count;
+    self.conversion_count = payload.conversion_count;
+    self.last_fahrenheit = payload.last_fahrenheit;
+    self.last_celsius = payload.last_celsius;
+
+    Ok(())
   }
 }
 
@@ -92,14 +134,14 @@ fn main() -> Result<()> {
     },
   );
   let instance = bindings::TheWorld::instantiate(&mut store, &component, &linker)?;
-  let component_state = store.data().host.to_component_state();
+  let component_state = store.data().host.to_component_state()?;
   let temperature_result = instance
     .temperature_service()
-    .call_calculate_celsius(&mut store, component_state)?;
+    .call_calculate_celsius(&mut store, &component_state)?;
   store
     .data_mut()
     .host
-    .save_component_state(temperature_result.state);
+    .save_component_state(temperature_result.state)?;
   let in_celsius = temperature_result.celsius;
   let host_state = &store.data().host;
 
