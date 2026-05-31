@@ -12,6 +12,7 @@ use crate::{
     self,
     host::{self, Host},
   },
+  state::ServiceState,
   types::{Decision, Request, Response, RuleInspection, RuleMetadata, RuleRuntimeSnapshot},
 };
 
@@ -150,9 +151,10 @@ impl WasmRuleMethods {
     Ok(metadata)
   }
 
-  pub fn inspect(&mut self, request: Request) -> Result<RuleInspection> {
+  pub fn inspect(&mut self, request: Request, state: &ServiceState) -> Result<RuleInspection> {
     let metadata = self.metadata()?;
-    let sample_response = self.handle(request.clone())?;
+    let mut shadow = state.clone();
+    let sample_response = self.handle(request.clone(), &mut shadow)?;
     let runtime = self.runtime_snapshot();
     Ok(RuleInspection {
       metadata,
@@ -162,18 +164,29 @@ impl WasmRuleMethods {
     })
   }
 
-  fn evaluate(&mut self, request: &Request) -> Result<bindings::exports::rule::Evaluation> {
-    let evaluation = self
-      .instance
-      .rule()
-      .call_evaluate(&mut self.store, request.into())?;
+  fn evaluate(
+    &mut self,
+    request: &Request,
+    state: &ServiceState,
+  ) -> Result<bindings::exports::rule::EvaluateResult> {
+    let result = self.instance.rule().call_evaluate(
+      &mut self.store,
+      request.into(),
+      state.to_component_state(),
+    )?;
     self.store.data_mut().evaluate_calls += 1;
     self.store.data_mut().last_request = Some(request.clone());
-    Ok(evaluation)
+    Ok(result)
   }
 
-  pub fn handle(&mut self, request: Request) -> Result<Response> {
-    let evaluation = self.evaluate(&request)?;
+  pub fn handle(&mut self, request: Request, state: &mut ServiceState) -> Result<Response> {
+    let result = self.evaluate(&request, state)?;
+    let mut updated_state = state.clone();
+    updated_state.save_component_state(result.state);
+    updated_state.ensure_schema(&self.version, self.required_schema)?;
+    *state = updated_state;
+
+    let evaluation = result.evaluation;
     let response = Response {
       decision: evaluation.decision.into(),
       rule_version: self.version.clone(),

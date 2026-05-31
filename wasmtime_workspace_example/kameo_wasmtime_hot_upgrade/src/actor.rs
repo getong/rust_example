@@ -57,12 +57,15 @@ impl HotUpgradeActor {
     let mut shadow = self.state.clone();
     shadow.migrate_to_schema(next.required_schema())?;
 
-    let response = next.handle(Request {
-      user_id: 2,
-      amount: 100,
-      merchant_risk: 5,
-      hour: 12,
-    })?;
+    let response = next.handle(
+      Request {
+        user_id: 2,
+        amount: 100,
+        merchant_risk: 5,
+        hour: 12,
+      },
+      &mut shadow,
+    )?;
 
     if response.rule_version.trim().is_empty() {
       return Err(anyhow!("new wasm rule returned an empty version"));
@@ -98,8 +101,7 @@ impl Message<CallRule> for HotUpgradeActor {
     )?;
 
     let request = msg.0;
-    let response = self.rule_methods.handle(request.clone())?;
-    self.state.record_response(&request, &response);
+    let response = self.rule_methods.handle(request, &mut self.state)?;
 
     Ok(response)
   }
@@ -133,7 +135,7 @@ impl Message<InspectRule> for HotUpgradeActor {
     msg: InspectRule,
     _ctx: &mut kameo::message::Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    self.rule_methods.inspect(msg.sample)
+    self.rule_methods.inspect(msg.sample, &self.state)
   }
 }
 

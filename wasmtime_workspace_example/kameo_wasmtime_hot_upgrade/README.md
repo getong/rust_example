@@ -5,12 +5,14 @@ This example combines the two existing examples in this workspace:
 - `hot_upgrade`: Wasmtime loads a risk-rule module, validates it against shadow state, migrates state, and swaps the active rule.
 - `kameo_custom_swarm`: application logic is expressed as a kameo actor receiving typed messages.
 
-The host keeps long-lived service state in `ServiceState`, while the loaded
-WASM component is treated as a replaceable method set. Calls, rule inspection,
-snapshots, and upgrades are kameo messages. Because kameo processes normal
-messages for an actor sequentially, a rule upgrade is committed between
-requests: the actor loads the next `.wasm`, dry-runs it against cloned host
-state, migrates the real state, and only then swaps the active method set.
+The host keeps long-lived service state in `ServiceState`, but each request
+passes that state into the loaded WASM component. The component returns both
+the rule evaluation and the updated state, and the host saves that returned
+state before handling the next message. Calls, rule inspection, snapshots, and
+upgrades are kameo messages. Because kameo processes normal messages for an
+actor sequentially, a rule upgrade is committed between requests: the actor
+loads the next `.wasm`, dry-runs it against cloned host state, migrates the real
+state, and only then swaps the active method set.
 
 The WASM rules use the Component Model instead of hand-written exported
 symbols. The ABI contract is inlined in the host and rule bindgen macros; each
@@ -20,15 +22,16 @@ the generated `exports::rule::Guest` trait. The host uses
 so it never looks up raw function names and the rule crates do not use
 `#[no_mangle]`.
 
-The WIT interface exports only stateless rule methods:
+The WIT interface exports state-passing rule methods:
 
 - `metadata() -> rule-metadata`
-- `evaluate(request) -> evaluation`
+- `evaluate(request, state) -> evaluate-result`
 
-`evaluate` returns `decision`, `risk-score`, and `policy-id` together. The host
-then records counters, schema-specific stats, snapshots, and migrations in
-`ServiceState`. This keeps state ownership outside the WASM module and prevents
-split calls from calculating score and decision from different method versions.
+`evaluate-result` contains the `evaluation` (`decision`, `risk-score`, and
+`policy-id`) plus the updated `service-state`. The host still owns when state is
+migrated and committed, but the active WASM rule owns how request statistics are
+recorded for that evaluation. This prevents split calls from calculating score
+and decision from different method versions.
 
 `risk_rule_v1` is intentionally conservative and only returns `allow` or `review`. `risk_rule_v2` changes the scoring model, lowers the review threshold, and adds `allow-fast-lane` for trusted even-numbered users with low-risk small transactions.
 
@@ -69,21 +72,22 @@ Expected output shape:
 
 ```text
 --- boot with v1 wasm rule ---
-active_rule=risk_rule, schema=1, policy=101, deps_marker=3, threshold=75, fast_lane_limit=0, sample_score=29
+active_rule=risk_rule, schema=1, policy=101, deps_marker=3, threshold=75, fast_lane_limit=0, sample_score=29, method_calls=1, metadata_calls=2, host_entries=1
 mid amount, standard merchant      user=11  amount=6000  merchant_risk=20  hour=14 => policy=101 score=29  risk_rule:allow
 trusted even user, small amount    user=22  amount=2500  merchant_risk=8   hour=10 => policy=101 score=15  risk_rule:allow
 late-night risky merchant          user=37  amount=4800  merchant_risk=86  hour=2  => policy=101 score=51  risk_rule:allow
-snapshot before upgrade: processed=3, allow=3, review=0, fast_lane=0, schema=1, current_rule=risk_rule, upgrades=0, avg_score=31, last_score=51
+snapshot before upgrade v1: processed=3, allow=3, review=0, schema=1, current_rule=risk_rule, upgrades=0, avg_score=31, last_score=51
 
 --- hot upgrade: load v2 wasm rule ---
 upgrade risk_rule -> risk_rule_v2
 
 --- same requests after v2 takes over ---
-active_rule=risk_rule_v2, schema=2, policy=202, deps_marker=7, threshold=65, fast_lane_limit=4000, sample_score=58
+active_rule=risk_rule_v2, schema=2, policy=202, deps_marker=7, threshold=65, fast_lane_limit=4000, sample_score=58, method_calls=2, metadata_calls=2, host_entries=2
 mid amount, standard merchant      user=11  amount=6000  merchant_risk=20  hour=14 => policy=202 score=58  risk_rule_v2:allow
 trusted even user, small amount    user=22  amount=2500  merchant_risk=8   hour=10 => policy=202 score=4   risk_rule_v2:allow-fast-lane
 late-night risky merchant          user=37  amount=4800  merchant_risk=86  hour=2  => policy=202 score=88  risk_rule_v2:review
-snapshot after upgrade: processed=6, allow=5, review=1, fast_lane=1, schema=2, current_rule=risk_rule_v2, upgrades=1, avg_score=40, last_score=88
+snapshot after upgrade v2 core: processed=6, allow=5, review=1, fast_lane=1, schema=2, current_rule=risk_rule_v2, upgrades=1, avg_score=40, last_score=88
+snapshot after upgrade v2 extended: migration_generation=1, legacy_processed=3, fast_lane_amount=2500, reviewed_amount=4800, largest_amount=6000, high_risk_requests=1, late_night_reviews=1, review_rate_bps=1666, fast_lane_rate_bps=1666, last_decision=review, last_policy=202
 ```
 
 The first module is copied to `rules/current/risk_rule.wasm`, so its runtime version is `risk_rule`. The second module keeps the release filename `risk_rule_v2.wasm`, making the swap visible in the output.

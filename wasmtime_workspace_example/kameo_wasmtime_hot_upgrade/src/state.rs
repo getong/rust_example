@@ -1,9 +1,9 @@
 use anyhow::{Result, anyhow};
 
-use crate::types::{Decision, Request, Response};
+use crate::{bindings::exports::rule as component_rule, types::Decision};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct State {
+pub(crate) struct State {
   processed: u64,
   schema_version: u32,
   allow_count: u64,
@@ -16,7 +16,7 @@ struct State {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct StateV2Stats {
+pub(crate) struct StateV2Stats {
   migration_generation: u64,
   legacy_processed_at_migration: u64,
   fast_lane_amount: i64,
@@ -141,25 +141,6 @@ impl ServiceState {
     self.inner.upgrades += 1;
   }
 
-  pub fn record_response(&mut self, request: &Request, response: &Response) {
-    self.inner.processed += 1;
-    self.inner.last_score = response.risk_score;
-    self.inner.total_score += i64::from(response.risk_score);
-
-    match &response.decision {
-      Decision::Allow => self.inner.allow_count += 1,
-      Decision::AllowFastLane => {
-        self.inner.allow_count += 1;
-        self.inner.fast_lane_hits += 1;
-      }
-      Decision::Review => self.inner.review_count += 1,
-    }
-
-    if let Some(v2) = &mut self.inner.v2 {
-      record_v2_stats(v2, request, response);
-    }
-  }
-
   pub fn snapshot(&self, current_rule_version: &str) -> ServiceSnapshot {
     let average_score = self.average_score();
 
@@ -207,26 +188,71 @@ impl ServiceState {
       (self.inner.total_score / self.inner.processed as i64) as i32
     }
   }
-}
 
-fn record_v2_stats(v2: &mut StateV2Stats, request: &Request, response: &Response) {
-  v2.last_decision = response.decision.clone();
-  v2.last_policy_id = response.policy_id;
-  v2.largest_amount = v2.largest_amount.max(request.amount);
-
-  if request.merchant_risk >= 80 {
-    v2.high_risk_requests += 1;
+  pub(crate) fn to_component_state(&self) -> component_rule::ServiceState {
+    component_rule::ServiceState {
+      processed: self.inner.processed,
+      schema_version: self.inner.schema_version,
+      allow_count: self.inner.allow_count,
+      review_count: self.inner.review_count,
+      fast_lane_hits: self.inner.fast_lane_hits,
+      upgrades: self.inner.upgrades,
+      last_score: self.inner.last_score,
+      total_score: self.inner.total_score,
+      v2: self.inner.v2.as_ref().map(StateV2Stats::to_component_state),
+    }
   }
 
-  match &response.decision {
-    Decision::AllowFastLane => v2.fast_lane_amount += request.amount,
-    Decision::Review => {
-      v2.reviewed_amount += request.amount;
-      if request.hour <= 5 {
-        v2.late_night_reviews += 1;
-      }
+  pub(crate) fn save_component_state(&mut self, state: component_rule::ServiceState) {
+    self.inner = State {
+      processed: state.processed,
+      schema_version: state.schema_version,
+      allow_count: state.allow_count,
+      review_count: state.review_count,
+      fast_lane_hits: state.fast_lane_hits,
+      upgrades: state.upgrades,
+      last_score: state.last_score,
+      total_score: state.total_score,
+      v2: state.v2.map(StateV2Stats::from_component_state),
+    };
+  }
+}
+
+impl StateV2Stats {
+  fn to_component_state(&self) -> component_rule::StateV2Stats {
+    component_rule::StateV2Stats {
+      migration_generation: self.migration_generation,
+      legacy_processed_at_migration: self.legacy_processed_at_migration,
+      fast_lane_amount: self.fast_lane_amount,
+      reviewed_amount: self.reviewed_amount,
+      largest_amount: self.largest_amount,
+      high_risk_requests: self.high_risk_requests,
+      late_night_reviews: self.late_night_reviews,
+      last_decision: decision_to_component(&self.last_decision),
+      last_policy_id: self.last_policy_id,
     }
-    Decision::Allow => {}
+  }
+
+  fn from_component_state(state: component_rule::StateV2Stats) -> Self {
+    Self {
+      migration_generation: state.migration_generation,
+      legacy_processed_at_migration: state.legacy_processed_at_migration,
+      fast_lane_amount: state.fast_lane_amount,
+      reviewed_amount: state.reviewed_amount,
+      largest_amount: state.largest_amount,
+      high_risk_requests: state.high_risk_requests,
+      late_night_reviews: state.late_night_reviews,
+      last_decision: state.last_decision.into(),
+      last_policy_id: state.last_policy_id,
+    }
+  }
+}
+
+fn decision_to_component(decision: &Decision) -> component_rule::Decision {
+  match decision {
+    Decision::Allow => component_rule::Decision::Allow,
+    Decision::Review => component_rule::Decision::Review,
+    Decision::AllowFastLane => component_rule::Decision::AllowFastLane,
   }
 }
 
@@ -269,36 +295,32 @@ mod tests {
   fn v2_state_records_extended_stats_after_migration() -> Result<()> {
     let mut state = ServiceState::default();
     state.migrate_to_schema(1)?;
-    state.record_response(
-      &Request {
-        user_id: 11,
-        amount: 6_000,
-        merchant_risk: 20,
-        hour: 14,
-      },
-      &Response {
-        decision: Decision::Allow,
-        rule_version: "risk_rule".to_owned(),
-        policy_id: 101,
-        risk_score: 30,
-      },
-    );
+
+    let mut component_state = state.to_component_state();
+    component_state.processed = 1;
+    component_state.allow_count = 1;
+    component_state.last_score = 30;
+    component_state.total_score = 30;
+    state.save_component_state(component_state);
+
     state.record_upgrade();
     state.migrate_to_schema(2)?;
-    state.record_response(
-      &Request {
-        user_id: 37,
-        amount: 4_800,
-        merchant_risk: 86,
-        hour: 2,
-      },
-      &Response {
-        decision: Decision::Review,
-        rule_version: "risk_rule_v2".to_owned(),
-        policy_id: 202,
-        risk_score: 88,
-      },
-    );
+
+    let mut component_state = state.to_component_state();
+    component_state.processed = 2;
+    component_state.review_count = 1;
+    component_state.last_score = 88;
+    component_state.total_score = 118;
+    component_state.v2 = component_state.v2.map(|mut v2| {
+      v2.reviewed_amount = 4_800;
+      v2.largest_amount = 4_800;
+      v2.high_risk_requests = 1;
+      v2.late_night_reviews = 1;
+      v2.last_decision = component_rule::Decision::Review;
+      v2.last_policy_id = 202;
+      v2
+    });
+    state.save_component_state(component_state);
 
     let snapshot = state.snapshot("risk_rule_v2");
     assert_eq!(

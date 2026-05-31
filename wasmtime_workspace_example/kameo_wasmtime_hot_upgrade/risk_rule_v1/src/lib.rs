@@ -24,6 +24,30 @@ world risk-rule {
             allow-fast-lane,
         }
 
+        record state-v2-stats {
+            migration-generation: u64,
+            legacy-processed-at-migration: u64,
+            fast-lane-amount: s64,
+            reviewed-amount: s64,
+            largest-amount: s64,
+            high-risk-requests: u64,
+            late-night-reviews: u64,
+            last-decision: decision,
+            last-policy-id: s32,
+        }
+
+        record service-state {
+            processed: u64,
+            schema-version: u32,
+            allow-count: u64,
+            review-count: u64,
+            fast-lane-hits: u64,
+            upgrades: u64,
+            last-score: s32,
+            total-score: s64,
+            v2: option<state-v2-stats>,
+        }
+
         record evaluation {
             decision: decision,
             risk-score: s32,
@@ -38,8 +62,13 @@ world risk-rule {
             fast-lane-limit: s64,
         }
 
+        record evaluate-result {
+            evaluation: evaluation,
+            state: service-state,
+        }
+
         metadata: func() -> rule-metadata;
-        evaluate: func(request: request) -> evaluation;
+        evaluate: func(request: request, state: service-state) -> evaluate-result;
     }
 }
 "#,
@@ -132,31 +161,77 @@ fn risk_score(request: exports::rule::Request) -> i32 {
   score.clamp(0, 100)
 }
 
-fn evaluate(request: exports::rule::Request) -> exports::rule::Evaluation {
+fn record_response(
+  state: &mut exports::rule::ServiceState,
+  request: exports::rule::Request,
+  evaluation: &exports::rule::Evaluation,
+) {
+  state.processed += 1;
+  state.last_score = evaluation.risk_score;
+  state.total_score += i64::from(evaluation.risk_score);
+
+  match evaluation.decision {
+    exports::rule::Decision::Allow => state.allow_count += 1,
+    exports::rule::Decision::AllowFastLane => {
+      state.allow_count += 1;
+      state.fast_lane_hits += 1;
+    }
+    exports::rule::Decision::Review => state.review_count += 1,
+  }
+
+  if let Some(v2) = &mut state.v2 {
+    v2.last_decision = evaluation.decision;
+    v2.last_policy_id = evaluation.policy_id;
+    v2.largest_amount = v2.largest_amount.max(request.amount);
+
+    if request.merchant_risk >= 80 {
+      v2.high_risk_requests += 1;
+    }
+
+    match evaluation.decision {
+      exports::rule::Decision::AllowFastLane => v2.fast_lane_amount += request.amount,
+      exports::rule::Decision::Review => {
+        v2.reviewed_amount += request.amount;
+        if request.hour <= 5 {
+          v2.late_night_reviews += 1;
+        }
+      }
+      exports::rule::Decision::Allow => {}
+    }
+  }
+}
+
+fn evaluate(
+  request: exports::rule::Request,
+  mut state: exports::rule::ServiceState,
+) -> exports::rule::EvaluateResult {
   host::method_enter("evaluate", POLICY_ID);
   let required_schema = host::loaded_required_schema();
-  if required_schema != REQUIRED_SCHEMA as u32 {
-    host::record_last_score(100);
-    return exports::rule::Evaluation {
+  let evaluation = if required_schema != REQUIRED_SCHEMA as u32 {
+    exports::rule::Evaluation {
       decision: exports::rule::Decision::Review,
       risk_score: 100,
       policy_id: POLICY_ID,
-    };
-  }
-
-  let risk_score = risk_score(request);
-  let decision = if risk_score >= REVIEW_THRESHOLD {
-    exports::rule::Decision::Review
+    }
   } else {
-    exports::rule::Decision::Allow
+    let risk_score = risk_score(request);
+    let decision = if risk_score >= REVIEW_THRESHOLD {
+      exports::rule::Decision::Review
+    } else {
+      exports::rule::Decision::Allow
+    };
+
+    exports::rule::Evaluation {
+      decision,
+      risk_score,
+      policy_id: POLICY_ID,
+    }
   };
 
-  host::record_last_score(risk_score);
-  exports::rule::Evaluation {
-    decision,
-    risk_score,
-    policy_id: POLICY_ID,
-  }
+  host::record_last_score(evaluation.risk_score);
+  record_response(&mut state, request, &evaluation);
+
+  exports::rule::EvaluateResult { evaluation, state }
 }
 
 impl exports::rule::Guest for RiskRule {
@@ -170,8 +245,11 @@ impl exports::rule::Guest for RiskRule {
     }
   }
 
-  fn evaluate(request: exports::rule::Request) -> exports::rule::Evaluation {
-    evaluate(request)
+  fn evaluate(
+    request: exports::rule::Request,
+    state: exports::rule::ServiceState,
+  ) -> exports::rule::EvaluateResult {
+    evaluate(request, state)
   }
 }
 
