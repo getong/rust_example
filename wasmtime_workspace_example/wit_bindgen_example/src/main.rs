@@ -6,8 +6,9 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use wasmtime::{
   Config, Engine, Store,
-  component::{Component, HasSelf, Linker},
+  component::{Component, Linker},
 };
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 mod bindings;
 
@@ -24,22 +25,38 @@ struct HostState {
   last_celsius: Option<f32>,
 }
 
-impl bindings::thermometer::Host for HostState {
-  fn what_temperature_is_it(&mut self) -> temperature_types::Fahrenheit {
-    self.temperature_read_count += 1;
-
-    temperature_types::Fahrenheit {
-      degrees: self.current_fahrenheit,
+impl HostState {
+  fn to_component_state(&self) -> temperature_types::HostState {
+    temperature_types::HostState {
+      current_fahrenheit: self.current_fahrenheit,
+      temperature_read_count: self.temperature_read_count,
+      conversion_count: self.conversion_count,
+      last_fahrenheit: self.last_fahrenheit,
+      last_celsius: self.last_celsius,
     }
   }
 
-  fn convert_to_celsius(&mut self, a: temperature_types::Fahrenheit) -> temperature_types::Celsius {
-    self.conversion_count += 1;
-    self.last_fahrenheit = Some(a.degrees);
-    let degrees = (a.degrees - 32.0) * 5.0 / 9.0;
-    self.last_celsius = Some(degrees);
+  fn save_component_state(&mut self, state: temperature_types::HostState) {
+    self.current_fahrenheit = state.current_fahrenheit;
+    self.temperature_read_count = state.temperature_read_count;
+    self.conversion_count = state.conversion_count;
+    self.last_fahrenheit = state.last_fahrenheit;
+    self.last_celsius = state.last_celsius;
+  }
+}
 
-    temperature_types::Celsius { degrees }
+struct StoreState {
+  host: HostState,
+  wasi: WasiCtx,
+  table: ResourceTable,
+}
+
+impl WasiView for StoreState {
+  fn ctx(&mut self) -> WasiCtxView<'_> {
+    WasiCtxView {
+      ctx: &mut self.wasi,
+      table: &mut self.table,
+    }
   }
 }
 
@@ -57,37 +74,47 @@ fn main() -> Result<()> {
   })?;
 
   let mut linker = Linker::new(&engine);
-  bindings::thermometer::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+  wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
 
   let current_fahrenheit = 72.0;
   let mut store = Store::new(
     &engine,
-    HostState {
-      current_fahrenheit,
-      temperature_read_count: 0,
-      conversion_count: 0,
-      last_fahrenheit: None,
-      last_celsius: None,
+    StoreState {
+      host: HostState {
+        current_fahrenheit,
+        temperature_read_count: 0,
+        conversion_count: 0,
+        last_fahrenheit: None,
+        last_celsius: None,
+      },
+      wasi: WasiCtxBuilder::new().build(),
+      table: ResourceTable::new(),
     },
   );
   let instance = bindings::TheWorld::instantiate(&mut store, &component, &linker)?;
-  let in_celsius = instance
+  let component_state = store.data().host.to_component_state();
+  let temperature_result = instance
     .temperature_service()
-    .call_calculate_celsius(&mut store)?;
-  let host_state = store.data();
+    .call_calculate_celsius(&mut store, component_state)?;
+  store
+    .data_mut()
+    .host
+    .save_component_state(temperature_result.state);
+  let in_celsius = temperature_result.celsius;
+  let host_state = &store.data().host;
 
   println!("current temp in fahrenheit is {current_fahrenheit}");
   println!("current temp in celsius is {}", in_celsius.degrees);
   println!(
-    "wasm import thermometer.what-temperature-is-it calls: {}",
+    "temperature read count saved in host state: {}",
     host_state.temperature_read_count
   );
   println!(
-    "wasm import thermometer.convert-to-celsius calls: {}",
+    "conversion count saved in host state: {}",
     host_state.conversion_count
   );
   if let (Some(fahrenheit), Some(celsius)) = (host_state.last_fahrenheit, host_state.last_celsius) {
-    println!("last host-side conversion was {fahrenheit}F -> {celsius}C");
+    println!("last wasm-side conversion saved in host state was {fahrenheit}F -> {celsius}C");
   }
 
   Ok(())

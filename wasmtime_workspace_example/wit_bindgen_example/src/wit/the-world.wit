@@ -8,19 +8,25 @@ interface temperature-types {
     record celsius {
         degrees: f32,
     }
+
+    record host-state {
+        current-fahrenheit: f32,
+        temperature-read-count: u32,
+        conversion-count: u32,
+        last-fahrenheit: option<f32>,
+        last-celsius: option<f32>,
+    }
+
+    record temperature-result {
+        celsius: celsius,
+        state: host-state,
+    }
 }
 
 world the-world {
-    import thermometer: interface {
-        use temperature-types.{fahrenheit, celsius};
-
-        what-temperature-is-it: func() -> fahrenheit;
-        convert-to-celsius: func(a: fahrenheit) -> celsius;
-    }
-
     export temperature-service: interface {
-        use temperature-types.{celsius};
+        use temperature-types.{host-state, temperature-result};
 
-        calculate-celsius: func() -> celsius;
+        calculate-celsius: func(state: host-state) -> temperature-result;
     }
 }

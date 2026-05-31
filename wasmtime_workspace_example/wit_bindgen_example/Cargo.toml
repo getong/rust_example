@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 anyhow = "1.0"
 wasmtime = { version = "45.0.0", features = ["component-model"] }
+wasmtime-wasi = "45.0.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = { version = "0.57.1", default-features = false, features = ["macros"] }
