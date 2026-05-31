@@ -10,6 +10,8 @@ members = [".", "risk_rule_v1", "risk_rule_v2"]
 [dependencies]
 anyhow = "1.0"
 kameo = "0.20"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tokio = { version = "1.52", features = ["full"] }
 wasmparser = "0.251.0" 
 wasmtime = { version = "45.0.0", features = ["component-model"] }

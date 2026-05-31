@@ -172,7 +172,7 @@ impl WasmRuleMethods {
     let result = self.instance.rule().call_evaluate(
       &mut self.store,
       request.into(),
-      state.to_component_state(),
+      &state.to_component_state()?,
     )?;
     self.store.data_mut().evaluate_calls += 1;
     self.store.data_mut().last_request = Some(request.clone());
@@ -182,7 +182,7 @@ impl WasmRuleMethods {
   pub fn handle(&mut self, request: Request, state: &mut ServiceState) -> Result<Response> {
     let result = self.evaluate(&request, state)?;
     let mut updated_state = state.clone();
-    updated_state.save_component_state(result.state);
+    updated_state.save_component_state(result.state)?;
     updated_state.ensure_schema(&self.version, self.required_schema)?;
     *state = updated_state;
 

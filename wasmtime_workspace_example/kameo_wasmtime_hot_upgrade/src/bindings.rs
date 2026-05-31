@@ -26,28 +26,9 @@ world risk-rule {
             allow-fast-lane,
         }
 
-        record state-v2-stats {
-            migration-generation: u64,
-            legacy-processed-at-migration: u64,
-            fast-lane-amount: s64,
-            reviewed-amount: s64,
-            largest-amount: s64,
-            high-risk-requests: u64,
-            late-night-reviews: u64,
-            last-decision: decision,
-            last-policy-id: s32,
-        }
-
         record service-state {
-            processed: u64,
-            schema-version: u32,
-            allow-count: u64,
-            review-count: u64,
-            fast-lane-hits: u64,
-            upgrades: u64,
-            last-score: s32,
-            total-score: s64,
-            v2: option<state-v2-stats>,
+            path: string,
+            content-json: string,
         }
 
         record evaluation {

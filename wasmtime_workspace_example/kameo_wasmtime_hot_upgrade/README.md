@@ -6,13 +6,15 @@ This example combines the two existing examples in this workspace:
 - `kameo_custom_swarm`: application logic is expressed as a kameo actor receiving typed messages.
 
 The host keeps long-lived service state in `ServiceState`, but each request
-passes that state into the loaded WASM component. The component returns both
-the rule evaluation and the updated state, and the host saves that returned
-state before handling the next message. Calls, rule inspection, snapshots, and
-upgrades are kameo messages. Because kameo processes normal messages for an
-actor sequentially, a rule upgrade is committed between requests: the actor
-loads the next `.wasm`, dry-runs it against cloned host state, migrates the real
-state, and only then swaps the active method set.
+serializes that state with `serde_json` into a WIT `service-state` snapshot
+(`path` plus `content-json`) before passing it into the loaded WASM component.
+The component decodes the JSON, records its rule statistics, returns both the
+rule evaluation and the updated JSON state, and the host validates the path
+before decoding and saving it for the next message. Calls, rule inspection,
+snapshots, and upgrades are kameo messages. Because kameo processes normal
+messages for an actor sequentially, a rule upgrade is committed between
+requests: the actor loads the next `.wasm`, dry-runs it against cloned host
+state, migrates the real state, and only then swaps the active method set.
 
 The WASM rules use the Component Model instead of hand-written exported
 symbols. The ABI contract is inlined in the host and rule bindgen macros; each
@@ -28,10 +30,10 @@ The WIT interface exports state-passing rule methods:
 - `evaluate(request, state) -> evaluate-result`
 
 `evaluate-result` contains the `evaluation` (`decision`, `risk-score`, and
-`policy-id`) plus the updated `service-state`. The host still owns when state is
-migrated and committed, but the active WASM rule owns how request statistics are
-recorded for that evaluation. This prevents split calls from calculating score
-and decision from different method versions.
+`policy-id`) plus the updated `service-state` JSON snapshot. The host still owns
+when state is migrated and committed, but the active WASM rule owns how request
+statistics are recorded for that evaluation. This prevents split calls from
+calculating score and decision from different method versions.
 
 `risk_rule_v1` is intentionally conservative and only returns `allow` or `review`. `risk_rule_v2` changes the scoring model, lowers the review threshold, and adds `allow-fast-lane` for trusted even-numbered users with low-risk small transactions.
 

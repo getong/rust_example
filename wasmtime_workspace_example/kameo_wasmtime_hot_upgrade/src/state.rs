@@ -1,31 +1,34 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
+use serde::{Deserialize, Serialize};
 
 use crate::{bindings::exports::rule as component_rule, types::Decision};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) const SERVICE_STATE_PATH: &str = "state/service.json";
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct State {
-  processed: u64,
-  schema_version: u32,
-  allow_count: u64,
-  review_count: u64,
-  fast_lane_hits: u64,
-  upgrades: u64,
-  last_score: i32,
-  total_score: i64,
-  v2: Option<StateV2Stats>,
+  pub(crate) processed: u64,
+  pub(crate) schema_version: u32,
+  pub(crate) allow_count: u64,
+  pub(crate) review_count: u64,
+  pub(crate) fast_lane_hits: u64,
+  pub(crate) upgrades: u64,
+  pub(crate) last_score: i32,
+  pub(crate) total_score: i64,
+  pub(crate) v2: Option<StateV2Stats>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct StateV2Stats {
-  migration_generation: u64,
-  legacy_processed_at_migration: u64,
-  fast_lane_amount: i64,
-  reviewed_amount: i64,
-  largest_amount: i64,
-  high_risk_requests: u64,
-  late_night_reviews: u64,
-  last_decision: Decision,
-  last_policy_id: i32,
+  pub(crate) migration_generation: u64,
+  pub(crate) legacy_processed_at_migration: u64,
+  pub(crate) fast_lane_amount: i64,
+  pub(crate) reviewed_amount: i64,
+  pub(crate) largest_amount: i64,
+  pub(crate) high_risk_requests: u64,
+  pub(crate) late_night_reviews: u64,
+  pub(crate) last_decision: Decision,
+  pub(crate) last_policy_id: i32,
 }
 
 impl Default for StateV2Stats {
@@ -189,71 +192,34 @@ impl ServiceState {
     }
   }
 
-  pub(crate) fn to_component_state(&self) -> component_rule::ServiceState {
-    component_rule::ServiceState {
-      processed: self.inner.processed,
-      schema_version: self.inner.schema_version,
-      allow_count: self.inner.allow_count,
-      review_count: self.inner.review_count,
-      fast_lane_hits: self.inner.fast_lane_hits,
-      upgrades: self.inner.upgrades,
-      last_score: self.inner.last_score,
-      total_score: self.inner.total_score,
-      v2: self.inner.v2.as_ref().map(StateV2Stats::to_component_state),
-    }
+  pub(crate) fn to_component_state(&self) -> Result<component_rule::ServiceState> {
+    state_to_component(&self.inner)
   }
 
-  pub(crate) fn save_component_state(&mut self, state: component_rule::ServiceState) {
-    self.inner = State {
-      processed: state.processed,
-      schema_version: state.schema_version,
-      allow_count: state.allow_count,
-      review_count: state.review_count,
-      fast_lane_hits: state.fast_lane_hits,
-      upgrades: state.upgrades,
-      last_score: state.last_score,
-      total_score: state.total_score,
-      v2: state.v2.map(StateV2Stats::from_component_state),
-    };
+  pub(crate) fn save_component_state(&mut self, state: component_rule::ServiceState) -> Result<()> {
+    self.inner = state_from_component(&state)?;
+    Ok(())
   }
 }
 
-impl StateV2Stats {
-  fn to_component_state(&self) -> component_rule::StateV2Stats {
-    component_rule::StateV2Stats {
-      migration_generation: self.migration_generation,
-      legacy_processed_at_migration: self.legacy_processed_at_migration,
-      fast_lane_amount: self.fast_lane_amount,
-      reviewed_amount: self.reviewed_amount,
-      largest_amount: self.largest_amount,
-      high_risk_requests: self.high_risk_requests,
-      late_night_reviews: self.late_night_reviews,
-      last_decision: decision_to_component(&self.last_decision),
-      last_policy_id: self.last_policy_id,
-    }
-  }
-
-  fn from_component_state(state: component_rule::StateV2Stats) -> Self {
-    Self {
-      migration_generation: state.migration_generation,
-      legacy_processed_at_migration: state.legacy_processed_at_migration,
-      fast_lane_amount: state.fast_lane_amount,
-      reviewed_amount: state.reviewed_amount,
-      largest_amount: state.largest_amount,
-      high_risk_requests: state.high_risk_requests,
-      late_night_reviews: state.late_night_reviews,
-      last_decision: state.last_decision.into(),
-      last_policy_id: state.last_policy_id,
-    }
-  }
+pub(crate) fn state_to_component(state: &State) -> Result<component_rule::ServiceState> {
+  Ok(component_rule::ServiceState {
+    path: SERVICE_STATE_PATH.to_owned(),
+    content_json: serde_json::to_string(state)
+      .context("failed to serialize service state for wasm rule")?,
+  })
 }
 
-fn decision_to_component(decision: &Decision) -> component_rule::Decision {
-  match decision {
-    Decision::Allow => component_rule::Decision::Allow,
-    Decision::Review => component_rule::Decision::Review,
-    Decision::AllowFastLane => component_rule::Decision::AllowFastLane,
+pub(crate) fn state_from_component(state: &component_rule::ServiceState) -> Result<State> {
+  if state.path != SERVICE_STATE_PATH {
+    bail!(
+      "wasm returned service state for unexpected path `{}`",
+      state.path
+    );
   }
+
+  serde_json::from_str(&state.content_json)
+    .with_context(|| format!("failed to decode service state at `{}`", state.path))
 }
 
 fn rate_bps(count: u64, total: u64) -> u32 {
@@ -296,31 +262,31 @@ mod tests {
     let mut state = ServiceState::default();
     state.migrate_to_schema(1)?;
 
-    let mut component_state = state.to_component_state();
-    component_state.processed = 1;
-    component_state.allow_count = 1;
-    component_state.last_score = 30;
-    component_state.total_score = 30;
-    state.save_component_state(component_state);
+    let mut payload = state_from_component(&state.to_component_state()?)?;
+    payload.processed = 1;
+    payload.allow_count = 1;
+    payload.last_score = 30;
+    payload.total_score = 30;
+    state.save_component_state(state_to_component(&payload)?)?;
 
     state.record_upgrade();
     state.migrate_to_schema(2)?;
 
-    let mut component_state = state.to_component_state();
-    component_state.processed = 2;
-    component_state.review_count = 1;
-    component_state.last_score = 88;
-    component_state.total_score = 118;
-    component_state.v2 = component_state.v2.map(|mut v2| {
+    let mut payload = state_from_component(&state.to_component_state()?)?;
+    payload.processed = 2;
+    payload.review_count = 1;
+    payload.last_score = 88;
+    payload.total_score = 118;
+    payload.v2 = payload.v2.map(|mut v2| {
       v2.reviewed_amount = 4_800;
       v2.largest_amount = 4_800;
       v2.high_risk_requests = 1;
       v2.late_night_reviews = 1;
-      v2.last_decision = component_rule::Decision::Review;
+      v2.last_decision = Decision::Review;
       v2.last_policy_id = 202;
       v2
     });
-    state.save_component_state(component_state);
+    state.save_component_state(state_to_component(&payload)?)?;
 
     let snapshot = state.snapshot("risk_rule_v2");
     assert_eq!(

@@ -24,28 +24,9 @@ world risk-rule {
             allow-fast-lane,
         }
 
-        record state-v2-stats {
-            migration-generation: u64,
-            legacy-processed-at-migration: u64,
-            fast-lane-amount: s64,
-            reviewed-amount: s64,
-            largest-amount: s64,
-            high-risk-requests: u64,
-            late-night-reviews: u64,
-            last-decision: decision,
-            last-policy-id: s32,
-        }
-
         record service-state {
-            processed: u64,
-            schema-version: u32,
-            allow-count: u64,
-            review-count: u64,
-            fast-lane-hits: u64,
-            upgrades: u64,
-            last-score: s32,
-            total-score: s64,
-            v2: option<state-v2-stats>,
+            path: string,
+            content-json: string,
         }
 
         record evaluation {
@@ -75,13 +56,75 @@ world risk-rule {
   world: "risk-rule",
 });
 
+use serde::{Deserialize, Serialize};
+
 const POLICY_ID: i32 = 101;
 const REQUIRED_SCHEMA: i32 = 1;
 const REVIEW_THRESHOLD: i32 = 75;
 const FAST_LANE_LIMIT: i64 = 0;
 const FINGERPRINT_WEIGHT: i32 = 4;
+const SERVICE_STATE_PATH: &str = "state/service.json";
 
 struct RiskRule;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ServiceDecision {
+  Allow,
+  Review,
+  AllowFastLane,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ServiceStateV2Stats {
+  migration_generation: u64,
+  legacy_processed_at_migration: u64,
+  fast_lane_amount: i64,
+  reviewed_amount: i64,
+  largest_amount: i64,
+  high_risk_requests: u64,
+  late_night_reviews: u64,
+  last_decision: ServiceDecision,
+  last_policy_id: i32,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct ServiceStatePayload {
+  processed: u64,
+  schema_version: u32,
+  allow_count: u64,
+  review_count: u64,
+  fast_lane_hits: u64,
+  upgrades: u64,
+  last_score: i32,
+  total_score: i64,
+  v2: Option<ServiceStateV2Stats>,
+}
+
+impl From<exports::rule::Decision> for ServiceDecision {
+  fn from(decision: exports::rule::Decision) -> Self {
+    match decision {
+      exports::rule::Decision::Allow => Self::Allow,
+      exports::rule::Decision::Review => Self::Review,
+      exports::rule::Decision::AllowFastLane => Self::AllowFastLane,
+    }
+  }
+}
+
+fn decode_state(state: &exports::rule::ServiceState) -> ServiceStatePayload {
+  if state.path != SERVICE_STATE_PATH {
+    return ServiceStatePayload::default();
+  }
+
+  serde_json::from_str(&state.content_json).unwrap_or_default()
+}
+
+fn encode_state(payload: &ServiceStatePayload) -> exports::rule::ServiceState {
+  exports::rule::ServiceState {
+    path: SERVICE_STATE_PATH.to_owned(),
+    content_json: serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_owned()),
+  }
+}
 
 #[derive(Clone, Copy)]
 struct Transaction {
@@ -162,7 +205,7 @@ fn risk_score(request: exports::rule::Request) -> i32 {
 }
 
 fn record_response(
-  state: &mut exports::rule::ServiceState,
+  state: &mut ServiceStatePayload,
   request: exports::rule::Request,
   evaluation: &exports::rule::Evaluation,
 ) {
@@ -180,7 +223,7 @@ fn record_response(
   }
 
   if let Some(v2) = &mut state.v2 {
-    v2.last_decision = evaluation.decision;
+    v2.last_decision = evaluation.decision.into();
     v2.last_policy_id = evaluation.policy_id;
     v2.largest_amount = v2.largest_amount.max(request.amount);
 
@@ -203,9 +246,10 @@ fn record_response(
 
 fn evaluate(
   request: exports::rule::Request,
-  mut state: exports::rule::ServiceState,
+  state: exports::rule::ServiceState,
 ) -> exports::rule::EvaluateResult {
   host::method_enter("evaluate", POLICY_ID);
+  let mut payload = decode_state(&state);
   let required_schema = host::loaded_required_schema();
   let evaluation = if required_schema != REQUIRED_SCHEMA as u32 {
     exports::rule::Evaluation {
@@ -229,9 +273,12 @@ fn evaluate(
   };
 
   host::record_last_score(evaluation.risk_score);
-  record_response(&mut state, request, &evaluation);
+  record_response(&mut payload, request, &evaluation);
 
-  exports::rule::EvaluateResult { evaluation, state }
+  exports::rule::EvaluateResult {
+    evaluation,
+    state: encode_state(&payload),
+  }
 }
 
 impl exports::rule::Guest for RiskRule {
