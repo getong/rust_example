@@ -1,0 +1,8 @@
+[package]
+name = "wasmtime_sandbox_limits"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+wasmtime = "44.0.0"

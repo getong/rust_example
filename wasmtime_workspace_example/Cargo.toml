@@ -7,6 +7,7 @@ members = [
   "hot_upgrade/risk_rule_v1",
   "hot_upgrade/risk_rule_v2",
   "wasmtime_example",
+  "wasmtime_sandbox_limits",
   "wasmtime_tokio",
   "wit_bindgen_example",
 ]
