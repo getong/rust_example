@@ -12,6 +12,7 @@ fn main() {
   println!("cargo:rerun-if-changed=risk_rule_v1/src/lib.rs");
   println!("cargo:rerun-if-changed=risk_rule_v2/Cargo.toml");
   println!("cargo:rerun-if-changed=risk_rule_v2/src/lib.rs");
+  println!("cargo:rerun-if-changed=wit/risk_rule.wit");
   println!("cargo:rerun-if-changed=rules/current/risk_rule.wasm");
   println!("cargo:rerun-if-changed=rules/releases/risk_rule_v2.wasm");
 
