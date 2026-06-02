@@ -1,0 +1,9 @@
+[package]
+name = "ark_mpc_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-mpc = { version = "0.1.2", features = ["test_helpers"] }
+rand = "=0.8"
+tokio = { version = "1.52.3", features = ["full"] }
