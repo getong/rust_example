@@ -1,7 +1,12 @@
 [workspace]
-
 resolver = "3"
 
 members = [
   "ark_mpc_example",
 ]
+
+[workspace.dependencies]
+ark-mpc = { git = "https://github.com/renegade-fi/ark-mpc", rev = "178b66b6e9e5c7ff9217fa3ab236865770917cf1", default-features = false, features = ["test_helpers"] }
+futures = "0.3"
+rand = "=0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

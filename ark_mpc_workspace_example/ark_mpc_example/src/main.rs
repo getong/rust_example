@@ -1,28 +1,33 @@
-use ark_mpc::{
-  MpcFabric, PARTY0, PARTY1,
-  algebra::Scalar,
-  test_helpers::{TestCurve, execute_mock_mpc},
+use ark_mpc_example::{
+  run_mini_order_example, run_scalar_product_example,
+  threshold_certificate::{run_additive_certificate_example, run_threshold_certificate_example},
 };
-use rand::thread_rng;
-
-type Curve = TestCurve;
 
 #[tokio::main]
 async fn main() {
-  let (party0_res, party1_res) = execute_mock_mpc(|fabric: MpcFabric<Curve>| async move {
-    let my_val = {
-      let mut rng = thread_rng();
-      Scalar::<Curve>::random(&mut rng)
-    };
+  let product = run_scalar_product_example().await;
+  println!("party0_value * party1_value = {product}");
 
-    let a = fabric.share_scalar(my_val, PARTY0 /* sender */); // party0 value
-    let b = fabric.share_scalar(my_val, PARTY1 /* sender */); // party1 value
-    let c = a * b;
+  let order = run_mini_order_example().await;
+  println!(
+    "filled_base={}, quote_total={}, remaining_base={}",
+    order.filled_base, order.quote_total, order.remaining_base
+  );
 
-    c.open_authenticated().await.expect("authentication error")
-  })
-  .await;
+  let additive_certificate = run_additive_certificate_example();
+  println!(
+    "additive certificate serial={}, holder={}, issuer={}",
+    additive_certificate.serial, additive_certificate.holder_id, additive_certificate.issuer_id
+  );
 
-  assert_eq!(party0_res, party1_res);
-  println!("a * b = {party0_res}");
+  let threshold_certificate = run_threshold_certificate_example();
+  println!(
+    "{}-of-{} certificate recovered from shares {:?}: serial={}, holder={}, issuer={}",
+    threshold_certificate.threshold,
+    threshold_certificate.total_shares,
+    threshold_certificate.used_indices,
+    threshold_certificate.recovered.serial,
+    threshold_certificate.recovered.holder_id,
+    threshold_certificate.recovered.issuer_id
+  );
 }
