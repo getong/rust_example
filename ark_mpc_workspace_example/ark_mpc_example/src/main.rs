@@ -1,7 +1,7 @@
 use ark_mpc::{
-  algebra::Scalar,
-  test_helpers::{execute_mock_mpc, TestCurve},
   MpcFabric, PARTY0, PARTY1,
+  algebra::Scalar,
+  test_helpers::{TestCurve, execute_mock_mpc},
 };
 use rand::thread_rng;
 
