@@ -3,7 +3,9 @@
 resolver = "2"
 
 members = [
-  "ark_ec_example", "ark_mpc_example",
-  "ark_poly_example",
-  "ark_serialize_example",
+    "ark_bn254_example",
+    "ark_ec_example",
+    "ark_mpc_example",
+    "ark_poly_example",
+    "ark_serialize_example",
 ]
