@@ -1,0 +1,9 @@
+[package]
+name = "ark_ff_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-bls12-381 = "0.6.0"
+ark-ff = "0.6.0"
+ark-std = { version = "0.6.0", features = ["getrandom"] }
