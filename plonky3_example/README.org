@@ -1,0 +1,128 @@
+#+title: Plonky3 Examples
+
+This project contains a standalone copy of the Plonky3 example program using
+crates.io ~p3-*~ dependencies.
+
+* What This Code Does
+
+This code demonstrates how to use Plonky3 to build and verify STARK proofs for
+hash permutation computations.
+
+In practical terms, the program:
+
+- Builds an AIR for a selected hash computation, such as Blake3, Poseidon2, or
+  Keccak-F permutations.
+- Generates an execution trace for a chosen number of hash permutations.
+- Commits to that trace with a selected Merkle hash, such as Keccak-F or
+  Poseidon2.
+- Runs the Plonky3 STARK prover to produce a proof.
+- Serializes the proof and prints its size.
+- Runs the verifier and reports whether the proof verifies successfully.
+
+The command-line flags let you choose the field, proof objective, trace length,
+DFT implementation, and Merkle hash. This is mainly a learning and experiment
+project for Plonky3 components rather than an application-specific proof system.
+
+* Build
+
+#+begin_src bash
+cargo build
+#+end_src
+
+Build the example targets too:
+
+#+begin_src bash
+cargo build --examples
+#+end_src
+
+* Run
+
+~cargo run~ without arguments starts the binary but fails because the CLI
+requires several options:
+
+#+begin_src text
+--field <FIELD>
+--objective <OBJECTIVE>
+--log-trace-length <LOG_TRACE_LENGTH>
+--merkle-hash <MERKLE_HASH>
+#+end_src
+
+Pass program arguments after ~--~:
+
+#+begin_src bash
+cargo run -- --field baby-bear --objective blake-3-permutations --log-trace-length 4 --discrete-fourier-transform radix-2-dit-parallel --merkle-hash keccak-f
+#+end_src
+
+Show all options:
+
+#+begin_src bash
+cargo run -- --help
+#+end_src
+
+* Options
+
+Fields:
+
+#+begin_src text
+baby-bear
+koala-bear
+mersenne-31
+#+end_src
+
+Proof objectives:
+
+#+begin_src text
+blake-3-permutations
+poseidon-2-permutations
+keccak-f-permutations
+#+end_src
+
+Merkle hashes:
+
+#+begin_src text
+poseidon-2
+keccak-f
+#+end_src
+
+DFT options:
+
+#+begin_src text
+radix-2-dit-parallel
+recursive-dft
+small-batch-dft
+#+end_src
+
+For ~baby-bear~ and ~koala-bear~, provide ~--discrete-fourier-transform~.
+For ~mersenne-31~, omit ~--discrete-fourier-transform~.
+
+* Examples
+
+BabyBear + Blake3 AIR + Keccak Merkle tree:
+
+#+begin_src bash
+cargo run -- --field baby-bear --objective blake-3-permutations --log-trace-length 4 --discrete-fourier-transform radix-2-dit-parallel --merkle-hash keccak-f
+#+end_src
+
+KoalaBear + Poseidon2 AIR + Poseidon2 Merkle tree:
+
+#+begin_src bash
+cargo run -- --field koala-bear --objective poseidon-2-permutations --log-trace-length 4 --discrete-fourier-transform recursive-dft --merkle-hash poseidon-2
+#+end_src
+
+Mersenne31 + Keccak AIR + Keccak Merkle tree:
+
+#+begin_src bash
+cargo run -- --field mersenne-31 --objective keccak-f-permutations --log-trace-length 8 --merkle-hash keccak-f
+#+end_src
+
+Run the copied upstream example target directly:
+
+#+begin_src bash
+cargo run --example prove_prime_field_31 -- --field baby-bear --objective blake-3-permutations --log-trace-length 4 --discrete-fourier-transform radix-2-dit-parallel --merkle-hash keccak-f
+#+end_src
+
+* Notes
+
+The ~--log-trace-length~ value controls the trace size as a power of two.
+Start with small values such as ~4~ or ~8~; larger values can take much longer
+to prove.
