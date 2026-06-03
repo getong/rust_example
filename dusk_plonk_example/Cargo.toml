@@ -1,0 +1,9 @@
+[package]
+name = "dusk_plonk_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dusk-plonk = { version = "0.23.0", features = ["bls-backend-blst"] }
+dusk-jubjub = "0.15.2"
+rand_core = { version = "0.6", features = ["std"] }
