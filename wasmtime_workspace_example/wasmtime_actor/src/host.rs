@@ -1,5 +1,5 @@
 use std::{
-  collections::VecDeque,
+  collections::{HashMap, VecDeque},
   env,
   fmt::Write as _,
   path::{Path, PathBuf},
@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use uuid::Uuid;
 use wasmtime::{
   Config, Engine, Store,
   component::{Component, HasSelf, Linker},
@@ -23,9 +24,44 @@ use crate::bindings::{
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_actor.wasm";
 const LOOP_SLEEP_MILLIS: i32 = 500;
+const WASM_PROCESS_NAME: &str = "demo.actor.wasm";
+
+#[derive(Clone, Debug)]
+struct WasmProcessRef {
+  id: Uuid,
+  name: String,
+}
+
+#[derive(Default)]
+struct WasmProcessRegistry {
+  by_id: HashMap<Uuid, WasmProcessRef>,
+  by_name: HashMap<String, Uuid>,
+}
+
+impl WasmProcessRegistry {
+  fn register(&mut self, name: impl Into<String>) -> Result<WasmProcessRef> {
+    let name = name.into();
+    if self.by_name.contains_key(&name) {
+      bail!("wasm process name `{name}` is already registered");
+    }
+
+    let process = WasmProcessRef {
+      id: Uuid::now_v7(),
+      name,
+    };
+    self.by_name.insert(process.name.clone(), process.id);
+    self.by_id.insert(process.id, process.clone());
+    Ok(process)
+  }
+
+  fn whereis(&self, name: &str) -> Option<&WasmProcessRef> {
+    self.by_name.get(name).and_then(|id| self.by_id.get(id))
+  }
+}
 
 pub struct StoreState {
   host_handled: u64,
+  process: WasmProcessRef,
   wasi: WasiCtx,
   table: ResourceTable,
 }
@@ -61,8 +97,8 @@ impl host_actor::Host for StoreState {
       message,
     };
     println!(
-      "host actor: tick={} payload={}, handled #{}, reply={reply}",
-      msg.tick, msg.payload, self.host_handled
+      "host actor: pid={} name={} tick={} payload={}, handled #{}, reply={reply}",
+      self.process.id, self.process.name, msg.tick, msg.payload, self.host_handled
     );
     response
   }
@@ -86,10 +122,25 @@ pub fn run() -> Result<()> {
   wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
   host_actor::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
 
+  let mut registry = WasmProcessRegistry::default();
+  let process = registry.register(WASM_PROCESS_NAME)?;
+  let registered = registry
+    .whereis(WASM_PROCESS_NAME)
+    .context("registered wasm process was not found by name")?;
+  println!(
+    "host registry: register name={} pid={} version=uuid-v7",
+    registered.name, registered.id
+  );
+  println!(
+    "host registry: whereis({}) -> pid={}",
+    WASM_PROCESS_NAME, registered.id
+  );
+
   let mut store = Store::new(
     &engine,
     StoreState {
       host_handled: 0,
+      process: process.clone(),
       wasi: WasiCtxBuilder::new().inherit_stdio().build(),
       table: ResourceTable::new(),
     },
@@ -99,10 +150,14 @@ pub fn run() -> Result<()> {
 
   if max_ticks == 0 {
     println!(
-      "host: driving a shared ActorState through wasm handle-call forever; press Ctrl+C to stop"
+      "host: driving wasm process {} ({}) through handle-call forever; press Ctrl+C to stop",
+      process.name, process.id
     );
   } else {
-    println!("host: driving shared ActorState for {max_ticks} ticks for verification");
+    println!(
+      "host: driving wasm process {} ({}) for {max_ticks} ticks for verification",
+      process.name, process.id
+    );
   }
 
   let mut state = initial_actor_state();
@@ -146,7 +201,8 @@ pub fn run() -> Result<()> {
     .map_err(|err| anyhow!("failed to render final actor state: {err}"))?;
   println!("host: final shared state: {result}");
   println!(
-    "host: StoreState handled {} wasm主动 messages",
+    "host: StoreState for pid={} handled {} wasm主动 messages",
+    store.data().process.id,
     store.data().host_handled
   );
 
