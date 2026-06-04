@@ -55,7 +55,9 @@ world actor-world {
   export wasm-actor: interface {
     use host-actor.{actor-msg, actor-state};
 
-    handle-call: func(msg: actor-msg, state: actor-state) -> actor-state;
+    /// Batch processing: accepts multiple messages in one call, reducing wasm
+    /// call overhead (one state serialization round-trip instead of N).
+    handle-call: func(msgs: list<actor-msg>, state: actor-state) -> actor-state;
     render-state: func(state: actor-state) -> string;
   }
 }

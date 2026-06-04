@@ -1,6 +1,7 @@
 use std::{
   collections::VecDeque,
   env,
+  fmt::Write as _,
   path::{Path, PathBuf},
   process::Command,
   thread,
@@ -43,13 +44,21 @@ impl host_actor::Host for StoreState {
     self.host_handled += 1;
     let reply =
       ((msg.tick as i64 + msg.last_host_reply as i64 + self.host_handled as i64) % 997) as i32;
+    let message = {
+      let cap = 48 + msg.payload.len();
+      let mut buf = String::with_capacity(cap);
+      write!(
+        buf,
+        "host processed wasm主动消息 `{}` after {} handled messages",
+        msg.payload, msg.last_handled,
+      )
+      .unwrap();
+      buf
+    };
     let response = host_actor::ActorResponse {
       handled: self.host_handled,
       reply,
-      message: format!(
-        "host processed wasm主动消息 `{}` after {} handled messages",
-        msg.payload, msg.last_handled
-      ),
+      message,
     };
     println!(
       "host actor: tick={} payload={}, handled #{}, reply={reply}",
@@ -99,25 +108,24 @@ pub fn run() -> Result<()> {
   let mut state = initial_actor_state();
   let mut host_messages = initial_host_messages();
   loop {
-    state = instance.wasm_actor().call_handle_call(
-      &mut store,
-      &ActorMsg {
-        kind: ActorMsgKind::Tick,
-        host_message: None,
-      },
-      &state,
-    )?;
+    let host_message = host_messages.pop_front();
+    let pending_host_msgs = !host_messages.is_empty();
 
-    if let Some(host_message) = host_messages.pop_front() {
-      state = instance.wasm_actor().call_handle_call(
-        &mut store,
-        &ActorMsg {
-          kind: ActorMsgKind::HostMessage,
-          host_message: Some(host_message),
-        },
-        &state,
-      )?;
+    let mut msgs = Vec::with_capacity(2);
+    msgs.push(ActorMsg {
+      kind: ActorMsgKind::Tick,
+      host_message: None,
+    });
+    if let Some(host_msg) = host_message {
+      msgs.push(ActorMsg {
+        kind: ActorMsgKind::HostMessage,
+        host_message: Some(host_msg),
+      });
     }
+
+    state = instance
+      .wasm_actor()
+      .call_handle_call(&mut store, &msgs, &state)?;
 
     if max_ticks > 0 && state.tick >= max_ticks {
       println!(
@@ -127,7 +135,9 @@ pub fn run() -> Result<()> {
       break;
     }
 
-    thread::sleep(Duration::from_millis(LOOP_SLEEP_MILLIS as u64));
+    if !pending_host_msgs {
+      thread::sleep(Duration::from_millis(LOOP_SLEEP_MILLIS as u64));
+    }
   }
 
   let result = instance
