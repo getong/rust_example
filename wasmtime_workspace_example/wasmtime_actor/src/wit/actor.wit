@@ -1,0 +1,43 @@
+package demo:actor;
+
+/// Typed records shared between the WASM guest and the Rust host.
+/// Both wit_bindgen (guest) and wasmtime::component::bindgen! (host) generate
+/// identical Rust structs from these definitions, eliminating JSON on the hot path.
+interface host-actor {
+  /// A proactive message pushed by the host into StoreState.host_to_wasm_rx.
+  record host-message {
+    sequence: u64,
+    payload: string,
+  }
+
+  /// A message constructed by the WASM guest and sent through StoreState.host_actor_tx.
+  record guest-message {
+    tick: s32,
+    last-host-reply: s32,
+    payload: string,
+  }
+
+  /// The typed reply that StoreState sends back for every guest-message.
+  record actor-response {
+    handled: u64,
+    reply: s32,
+    message: string,
+  }
+
+  /// Synchronous request-reply: WASM sends a guest-message, StoreState routes it to
+  /// the host actor thread and returns the typed ActorResponse.
+  send-to-host: func(msg: guest-message) -> actor-response;
+
+  /// Non-blocking poll: returns the next HostMessage queued in StoreState, or none.
+  recv-from-host: func() -> option<host-message>;
+
+  sleep-millis: func(millis: s32);
+}
+
+world actor-world {
+  import host-actor;
+
+  export wasm-actor: interface {
+    run-loop: func(max-ticks: s32) -> string;
+  }
+}

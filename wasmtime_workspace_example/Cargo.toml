@@ -10,4 +10,5 @@ members = [
   "wasmtime_sandbox_limits",
   "wasmtime_tokio",
   "wit_bindgen_example",
+  "wasmtime_actor",
 ]
