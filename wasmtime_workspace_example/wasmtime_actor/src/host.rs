@@ -1,8 +1,8 @@
 use std::{
+  collections::VecDeque,
   env,
   path::{Path, PathBuf},
   process::Command,
-  sync::mpsc,
   thread,
   time::Duration,
 };
@@ -14,37 +14,17 @@ use wasmtime::{
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::bindings::{ActorWorld, demo::actor::host_actor};
+use crate::bindings::{
+  ActorWorld,
+  demo::actor::host_actor::{self, ActorMsg, ActorMsgKind, ActorResponse, ActorState},
+};
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_actor.wasm";
+const LOOP_SLEEP_MILLIS: i32 = 500;
 
-/// A command sent from the WASM guest (via StoreState) to the host actor thread.
-///
-/// Carries a fully-typed `GuestMessage` (generated from actor.wit by both
-/// wit_bindgen and wasmtime bindgen) — no JSON serialization on the hot path.
-enum HostCommand {
-  Message {
-    msg: host_actor::GuestMessage,
-    /// oneshot reply channel: host sends the typed ActorResponse back here.
-    reply_tx: mpsc::SyncSender<host_actor::ActorResponse>,
-  },
-}
-
-/// All state shared between the wasmtime Store and the WIT host-actor implementation.
-///
-/// wasmtime calls `host_actor::Host for StoreState` on every WIT import invoked by the
-/// WASM guest.  The guest cannot name this type — it sees only the typed WIT functions —
-/// but every call goes through this struct.
-///
-/// Channel layout (fully typed, zero JSON):
-///   host actor thread  ←──(HostCommand)──────────────────  StoreState.host_actor_tx
-///   host actor thread  ──(host_actor::HostMessage)──────→  StoreState.host_to_wasm_rx
 pub struct StoreState {
-  /// WASM sends typed GuestMessage requests through this sender.
-  host_actor_tx: mpsc::Sender<HostCommand>,
-  /// WASM polls typed HostMessage values pushed by the host actor thread.
-  host_to_wasm_rx: mpsc::Receiver<host_actor::HostMessage>,
+  host_handled: u64,
   wasi: WasiCtx,
   table: ResourceTable,
 }
@@ -58,93 +38,25 @@ impl WasiView for StoreState {
   }
 }
 
-/// The `host_actor::Host` impl is the **only** path the WASM guest uses to reach
-/// `StoreState`.  wasmtime routes every WIT import call here automatically.
-///
-/// Method signatures are fully typed (generated from actor.wit) — the guest sends
-/// a `GuestMessage` struct and receives an `ActorResponse` struct, both crossing
-/// the WASM boundary via the component-model ABI with no JSON involved.
 impl host_actor::Host for StoreState {
-  /// Synchronous request-reply: moves the typed GuestMessage to the host thread
-  /// via StoreState.host_actor_tx and blocks until the host replies with a typed
-  /// ActorResponse via the per-call sync_channel(1) oneshot.
   fn send_to_host(&mut self, msg: host_actor::GuestMessage) -> host_actor::ActorResponse {
-    let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-    self
-      .host_actor_tx
-      .send(HostCommand::Message { msg, reply_tx })
-      .expect("host actor thread disconnected");
-    reply_rx
-      .recv()
-      .expect("host actor thread closed reply channel")
+    self.host_handled += 1;
+    let reply =
+      ((msg.tick as i64 + msg.last_host_reply as i64 + self.host_handled as i64) % 997) as i32;
+    let response = host_actor::ActorResponse {
+      handled: self.host_handled,
+      reply,
+      message: format!(
+        "host processed wasm主动消息 `{}` after {} handled messages",
+        msg.payload, msg.last_handled
+      ),
+    };
+    println!(
+      "host actor: tick={} payload={}, handled #{}, reply={reply}",
+      msg.tick, msg.payload, self.host_handled
+    );
+    response
   }
-
-  /// Non-blocking poll: returns the next typed HostMessage from
-  /// StoreState.host_to_wasm_rx, or None if the queue is empty.
-  fn recv_from_host(&mut self) -> Option<host_actor::HostMessage> {
-    self.host_to_wasm_rx.try_recv().ok()
-  }
-
-  fn sleep_millis(&mut self, millis: i32) {
-    if millis > 0 {
-      let bounded = millis.min(60_000) as u64;
-      thread::sleep(Duration::from_millis(bounded));
-    }
-  }
-}
-
-/// Spawns the host actor thread.
-///
-/// The thread:
-/// 1. Pushes the initial 3 proactive messages into `msg_tx` (WASM receives them via
-///    `recv_from_host`).
-/// 2. Processes every `HostCommand::Message` sent by the WASM guest, replies synchronously via the
-///    per-command oneshot channel.
-/// 3. Exits when `cmd_rx` is closed (i.e. `StoreState` is dropped).
-///
-/// Returns the number of guest messages handled so it can be printed after the WASM
-/// loop finishes.
-fn spawn_host_actor(
-  cmd_rx: mpsc::Receiver<HostCommand>,
-  msg_tx: mpsc::Sender<host_actor::HostMessage>,
-) -> thread::JoinHandle<u64> {
-  thread::spawn(move || {
-    // Push initial proactive messages as typed HostMessage structs — no JSON.
-    for sequence in 1u64 ..= 3 {
-      let msg = host_actor::HostMessage {
-        sequence,
-        payload: format!("host queued message {sequence}"),
-      };
-      println!(
-        "host: queued message for wasm: seq={} payload={}",
-        msg.sequence, msg.payload
-      );
-      msg_tx.send(msg).ok();
-    }
-
-    let mut host_handled = 0u64;
-    while let Ok(cmd) = cmd_rx.recv() {
-      match cmd {
-        // msg is a typed GuestMessage — fields are directly accessible, no JSON decode.
-        HostCommand::Message { msg, reply_tx } => {
-          host_handled += 1;
-          let reply =
-            ((msg.tick as i64 + msg.last_host_reply as i64 + host_handled as i64) % 997) as i32;
-          let response = host_actor::ActorResponse {
-            handled: host_handled,
-            reply,
-            message: format!("host processed wasm主动消息 `{}`", msg.payload),
-          };
-          println!(
-            "host actor: tick={} payload={}, handled #{host_handled}, reply={reply}",
-            msg.tick, msg.payload
-          );
-          reply_tx.send(response).ok();
-        }
-      }
-    }
-    host_handled
-  })
 }
 
 pub fn run() -> Result<()> {
@@ -165,15 +77,10 @@ pub fn run() -> Result<()> {
   wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
   host_actor::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
 
-  let (host_actor_tx, host_cmd_rx) = mpsc::channel::<HostCommand>();
-  let (host_msg_tx, host_to_wasm_rx) = mpsc::channel::<host_actor::HostMessage>();
-  let host_handle = spawn_host_actor(host_cmd_rx, host_msg_tx);
-
   let mut store = Store::new(
     &engine,
     StoreState {
-      host_actor_tx,
-      host_to_wasm_rx,
+      host_handled: 0,
       wasi: WasiCtxBuilder::new().inherit_stdio().build(),
       table: ResourceTable::new(),
     },
@@ -183,25 +90,86 @@ pub fn run() -> Result<()> {
 
   if max_ticks == 0 {
     println!(
-      "host: native actor loop and in-process wasm guest loop are running forever; press Ctrl+C \
-       to stop"
+      "host: driving a shared ActorState through wasm handle-call forever; press Ctrl+C to stop"
     );
   } else {
-    println!("host: running in-process resident loops for {max_ticks} ticks for verification");
+    println!("host: driving shared ActorState for {max_ticks} ticks for verification");
+  }
+
+  let mut state = initial_actor_state();
+  let mut host_messages = initial_host_messages();
+  loop {
+    state = instance.wasm_actor().call_handle_call(
+      &mut store,
+      &ActorMsg {
+        kind: ActorMsgKind::Tick,
+        host_message: None,
+      },
+      &state,
+    )?;
+
+    if let Some(host_message) = host_messages.pop_front() {
+      state = instance.wasm_actor().call_handle_call(
+        &mut store,
+        &ActorMsg {
+          kind: ActorMsgKind::HostMessage,
+          host_message: Some(host_message),
+        },
+        &state,
+      )?;
+    }
+
+    if max_ticks > 0 && state.tick >= max_ticks {
+      println!(
+        "host: leaving verification loop after {} ticks with one shared ActorState",
+        state.tick
+      );
+      break;
+    }
+
+    thread::sleep(Duration::from_millis(LOOP_SLEEP_MILLIS as u64));
   }
 
   let result = instance
     .wasm_actor()
-    .call_run_loop(&mut store, max_ticks)
-    .map_err(|err| anyhow!("guest loop failed: {err}"))?;
-  println!("host: wasm guest loop returned: {result}");
-
-  // Drop the store so host_actor_tx is closed, which lets the host thread exit.
-  drop(store);
-  let host_handled = host_handle.join().unwrap_or(0);
-  println!("host: host actor thread handled {host_handled} wasm主动 messages");
+    .call_render_state(&mut store, &state)
+    .map_err(|err| anyhow!("failed to render final actor state: {err}"))?;
+  println!("host: final shared state: {result}");
+  println!(
+    "host: StoreState handled {} wasm主动 messages",
+    store.data().host_handled
+  );
 
   Ok(())
+}
+
+fn initial_actor_state() -> ActorState {
+  ActorState {
+    tick: 0,
+    last_host_reply: 0,
+    elapsed_since_push: 0,
+    last_response: ActorResponse {
+      handled: 0,
+      reply: 0,
+      message: String::new(),
+    },
+  }
+}
+
+fn initial_host_messages() -> VecDeque<host_actor::HostMessage> {
+  let mut messages = VecDeque::new();
+  for sequence in 1u64 ..= 3 {
+    let message = host_actor::HostMessage {
+      sequence,
+      payload: format!("host queued message {sequence}"),
+    };
+    println!(
+      "host: queued message for wasm: seq={} payload={}",
+      message.sequence, message.payload
+    );
+    messages.push_back(message);
+  }
+  messages
 }
 
 fn max_ticks_from_env() -> Result<i32> {
