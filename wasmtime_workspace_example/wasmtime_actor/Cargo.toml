@@ -3,6 +3,11 @@ name = "wasmtime_actor"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["guest-v1"]
+guest-v1 = []
+guest-v2 = []
+
 [lib]
 crate-type = ["cdylib"]
 

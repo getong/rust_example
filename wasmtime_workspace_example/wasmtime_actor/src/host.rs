@@ -18,13 +18,16 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiVie
 
 use crate::bindings::{
   ActorWorld,
-  demo::actor::host_actor::{self, ActorMsg, ActorMsgKind, ActorResponse, ActorState},
+  demo::actor::host_actor::{
+    self, ActorMsg, ActorMsgKind, ActorResponse, ActorState, ActorStateV1,
+  },
 };
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_actor.wasm";
 const LOOP_SLEEP_MILLIS: i32 = 500;
 const WASM_PROCESS_NAME: &str = "demo.actor.wasm";
+const DEFAULT_UPGRADE_TICK: i32 = 6;
 
 #[derive(Clone, Debug)]
 struct WasmProcessRef {
@@ -104,19 +107,84 @@ impl host_actor::Host for StoreState {
   }
 }
 
+struct LoadedActor {
+  version: &'static str,
+  component_path: PathBuf,
+  instance: ActorWorld,
+  state_schema: u32,
+}
+
+impl LoadedActor {
+  fn load(
+    engine: &Engine,
+    linker: &Linker<StoreState>,
+    store: &mut Store<StoreState>,
+    version: &'static str,
+    component_path: PathBuf,
+  ) -> Result<Self> {
+    let component = Component::from_file(engine, &component_path).map_err(|err| {
+      anyhow!(
+        "failed to load guest component {}: {err}",
+        component_path.display()
+      )
+    })?;
+    let instance = ActorWorld::instantiate(&mut *store, &component, linker).map_err(|err| {
+      anyhow!(
+        "failed to instantiate {version} guest actor component {}: {err}",
+        component_path.display()
+      )
+    })?;
+    let state_schema = instance
+      .wasm_actor()
+      .call_state_schema(store)
+      .map_err(|err| anyhow!("failed to query {version} actor state schema: {err}"))?;
+
+    Ok(Self {
+      version,
+      component_path,
+      instance,
+      state_schema,
+    })
+  }
+
+  fn handle_call(
+    &self,
+    store: &mut Store<StoreState>,
+    msgs: &[ActorMsg],
+    state: &ActorState,
+  ) -> Result<ActorState> {
+    self
+      .instance
+      .wasm_actor()
+      .call_handle_call(store, msgs, state)
+      .map_err(|err| anyhow!("{} handle-call failed: {err}", self.version))
+  }
+
+  fn migrate_state(&self, store: &mut Store<StoreState>, state: &ActorState) -> Result<ActorState> {
+    self
+      .instance
+      .wasm_actor()
+      .call_migrate_state(store, state)
+      .map_err(|err| anyhow!("{} migrate-state failed: {err}", self.version))
+  }
+
+  fn render_state(&self, store: &mut Store<StoreState>, state: &ActorState) -> Result<String> {
+    self
+      .instance
+      .wasm_actor()
+      .call_render_state(store, state)
+      .map_err(|err| anyhow!("{} render-state failed: {err}", self.version))
+  }
+}
+
 pub fn run() -> Result<()> {
   let max_ticks = max_ticks_from_env()?;
-  let guest_component = ensure_guest_component()?;
+  let upgrade_tick = upgrade_tick_from_env()?;
+  let guest_components = ensure_guest_components()?;
 
   let mut config = Config::new();
   config.wasm_component_model(true);
   let engine = Engine::new(&config)?;
-  let component = Component::from_file(&engine, &guest_component).map_err(|err| {
-    anyhow!(
-      "failed to load guest component {}: {err}",
-      guest_component.display()
-    )
-  })?;
 
   let mut linker = Linker::new(&engine);
   wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
@@ -145,24 +213,53 @@ pub fn run() -> Result<()> {
       table: ResourceTable::new(),
     },
   );
-  let instance = ActorWorld::instantiate(&mut store, &component, &linker)
-    .map_err(|err| anyhow!("failed to instantiate guest actor component: {err}"))?;
+
+  let mut actor = LoadedActor::load(
+    &engine,
+    &linker,
+    &mut store,
+    "guest-v1",
+    guest_components.v1.clone(),
+  )?;
 
   if max_ticks == 0 {
     println!(
-      "host: driving wasm process {} ({}) through handle-call forever; press Ctrl+C to stop",
+      "host: driving wasm process {} ({}) through handle-call forever; soft-upgrade at tick \
+       {upgrade_tick}; press Ctrl+C to stop",
       process.name, process.id
     );
   } else {
     println!(
-      "host: driving wasm process {} ({}) for {max_ticks} ticks for verification",
+      "host: driving wasm process {} ({}) for {max_ticks} ticks; soft-upgrade at tick \
+       {upgrade_tick}",
       process.name, process.id
     );
   }
+  println!(
+    "host: loaded {} schema={} from {}",
+    actor.version,
+    actor.state_schema,
+    actor.component_path.display()
+  );
 
   let mut state = initial_actor_state();
+  let mut upgraded = false;
   let mut host_messages = initial_host_messages();
   loop {
+    if !upgraded && tick_of(&state) >= upgrade_tick {
+      let next = LoadedActor::load(
+        &engine,
+        &linker,
+        &mut store,
+        "guest-v2",
+        guest_components.v2.clone(),
+      )?;
+      let message = upgrade_actor(&mut store, &actor, next, &mut state)?;
+      actor = message.actor;
+      upgraded = true;
+      println!("{}", message.summary);
+    }
+
     let host_message = host_messages.pop_front();
     let pending_host_msgs = !host_messages.is_empty();
 
@@ -178,14 +275,14 @@ pub fn run() -> Result<()> {
       });
     }
 
-    state = instance
-      .wasm_actor()
-      .call_handle_call(&mut store, &msgs, &state)?;
+    state = actor.handle_call(&mut store, &msgs, &state)?;
 
-    if max_ticks > 0 && state.tick >= max_ticks {
+    if max_ticks > 0 && tick_of(&state) >= max_ticks {
       println!(
-        "host: leaving verification loop after {} ticks with one shared ActorState",
-        state.tick
+        "host: leaving verification loop after {} ticks with {} state schema {}",
+        tick_of(&state),
+        actor.version,
+        actor.state_schema
       );
       break;
     }
@@ -195,10 +292,7 @@ pub fn run() -> Result<()> {
     }
   }
 
-  let result = instance
-    .wasm_actor()
-    .call_render_state(&mut store, &state)
-    .map_err(|err| anyhow!("failed to render final actor state: {err}"))?;
+  let result = actor.render_state(&mut store, &state)?;
   println!("host: final shared state: {result}");
   println!(
     "host: StoreState for pid={} handled {} wasm主动 messages",
@@ -209,8 +303,62 @@ pub fn run() -> Result<()> {
   Ok(())
 }
 
+struct UpgradeMessage {
+  actor: LoadedActor,
+  summary: String,
+}
+
+fn upgrade_actor(
+  store: &mut Store<StoreState>,
+  current: &LoadedActor,
+  next: LoadedActor,
+  state: &mut ActorState,
+) -> Result<UpgradeMessage> {
+  if next.state_schema <= current.state_schema {
+    bail!(
+      "refusing actor upgrade {} schema {} -> {} schema {}",
+      current.version,
+      current.state_schema,
+      next.version,
+      next.state_schema,
+    );
+  }
+
+  let mut shadow_state = next.migrate_state(store, state)?;
+  match (&*state, &shadow_state) {
+    (ActorState::V1(_), ActorState::V2(_)) => {}
+    (before, after) => {
+      bail!(
+        "upgrade did not change actor-state variant: before={}, after={}",
+        state_variant(before),
+        state_variant(after),
+      );
+    }
+  }
+
+  shadow_state = next.handle_call(store, &[], &shadow_state)?;
+  if !matches!(shadow_state, ActorState::V2(_)) {
+    bail!(
+      "new actor validation returned {} instead of v2 state",
+      state_variant(&shadow_state)
+    );
+  }
+
+  *state = shadow_state;
+
+  let summary = format!(
+    "host: soft upgrade {} schema {} -> {} schema {}; ActorState V1 migrated to V2",
+    current.version, current.state_schema, next.version, next.state_schema
+  );
+
+  Ok(UpgradeMessage {
+    actor: next,
+    summary,
+  })
+}
+
 fn initial_actor_state() -> ActorState {
-  ActorState {
+  ActorState::V1(ActorStateV1 {
     tick: 0,
     last_host_reply: 0,
     elapsed_since_push: 0,
@@ -219,6 +367,20 @@ fn initial_actor_state() -> ActorState {
       reply: 0,
       message: String::new(),
     },
+  })
+}
+
+fn tick_of(state: &ActorState) -> i32 {
+  match state {
+    ActorState::V1(state) => state.tick,
+    ActorState::V2(state) => state.tick,
+  }
+}
+
+fn state_variant(state: &ActorState) -> &'static str {
+  match state {
+    ActorState::V1(_) => "v1",
+    ActorState::V2(_) => "v2",
   }
 }
 
@@ -255,13 +417,48 @@ fn max_ticks_from_env() -> Result<i32> {
   Ok(max_ticks)
 }
 
-fn ensure_guest_component() -> Result<PathBuf> {
+fn upgrade_tick_from_env() -> Result<i32> {
+  let value = match env::var("WASMTIME_ACTOR_UPGRADE_TICK") {
+    Ok(value) => value,
+    Err(env::VarError::NotPresent) => return Ok(DEFAULT_UPGRADE_TICK),
+    Err(err) => bail!("failed to read WASMTIME_ACTOR_UPGRADE_TICK: {err}"),
+  };
+
+  let upgrade_tick = value
+    .parse::<i32>()
+    .with_context(|| format!("WASMTIME_ACTOR_UPGRADE_TICK must be an integer, got `{value}`"))?;
+  if upgrade_tick < 0 {
+    bail!("WASMTIME_ACTOR_UPGRADE_TICK must be >= 0, got {upgrade_tick}");
+  }
+
+  Ok(upgrade_tick)
+}
+
+struct GuestComponents {
+  v1: PathBuf,
+  v2: PathBuf,
+}
+
+fn ensure_guest_components() -> Result<GuestComponents> {
   let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
   let workspace_dir = package_dir
     .parent()
     .context("failed to determine workspace root for wasmtime_actor")?;
   let guest_target_dir = workspace_dir.join("target").join("wasmtime-actor-guest");
-  let guest_component = guest_target_dir
+
+  Ok(GuestComponents {
+    v1: build_guest_component(package_dir, &guest_target_dir, "guest-v1")?,
+    v2: build_guest_component(package_dir, &guest_target_dir, "guest-v2")?,
+  })
+}
+
+fn build_guest_component(
+  package_dir: &Path,
+  guest_target_dir: &Path,
+  feature: &'static str,
+) -> Result<PathBuf> {
+  let component_dir = guest_target_dir.join(feature);
+  let guest_component = component_dir
     .join(GUEST_TARGET)
     .join("debug")
     .join(GUEST_WASM);
@@ -274,9 +471,12 @@ fn ensure_guest_component() -> Result<PathBuf> {
     .arg("--target")
     .arg(GUEST_TARGET)
     .arg("--target-dir")
-    .arg(&guest_target_dir)
+    .arg(&component_dir)
+    .arg("--no-default-features")
+    .arg("--features")
+    .arg(feature)
     .output()
-    .context("failed to invoke cargo to build the wasm guest component")?;
+    .with_context(|| format!("failed to invoke cargo to build {feature} wasm guest component"))?;
 
   if !output.status.success() {
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -293,7 +493,7 @@ fn ensure_guest_component() -> Result<PathBuf> {
     }
 
     bail!(
-      "failed to build the guest component before launching the host actor.\nmanifest: \
+      "failed to build {feature} guest component before launching the host actor.\nmanifest: \
        {}\nexpected output: {}\n\ncargo stdout:\n{stdout}\n\ncargo stderr:\n{stderr}",
       package_dir.join("Cargo.toml").display(),
       guest_component.display(),
@@ -302,7 +502,7 @@ fn ensure_guest_component() -> Result<PathBuf> {
 
   if !guest_component.is_file() {
     bail!(
-      "cargo reported success, but the guest component was not produced at {}",
+      "cargo reported success, but the {feature} guest component was not produced at {}",
       guest_component.display(),
     );
   }

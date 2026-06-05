@@ -20,7 +20,9 @@ wasmtime::component::bindgen!({
   require_store_data_send: true,
 });
 
-use demo::actor::host_actor::{self, ActorMsg, ActorMsgKind, ActorResponse, ActorState};
+use demo::actor::host_actor::{
+  self, ActorMsg, ActorMsgKind, ActorResponse, ActorState, ActorStateV1,
+};
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_actor.wasm";
@@ -72,7 +74,7 @@ struct TestActor {
 
 impl TestActor {
   fn new() -> Result<Self> {
-    let guest_component = ensure_guest_component()?;
+    let guest_component = ensure_guest_component("guest-v1")?;
 
     let mut config = Config::new();
     config.wasm_component_model(true);
@@ -164,7 +166,7 @@ proptest! {
     inputs in prop::collection::vec(arb_input_msg(), 0 .. 80),
   ) {
     let mut actor = TestActor::new().map_err(|err| TestCaseError::fail(err.to_string()))?;
-    let initial_state = ActorState {
+    let initial_state = ActorStateV1 {
       tick: initial_tick,
       last_host_reply: initial_last_host_reply,
       elapsed_since_push: initial_elapsed,
@@ -174,6 +176,7 @@ proptest! {
         message: format!("initial response {initial_handled}"),
       },
     };
+    let initial_actor_state = ActorState::V1(initial_state.clone());
 
     let msgs: Vec<_> = inputs
       .clone()
@@ -182,8 +185,11 @@ proptest! {
       .collect();
     let expected = model_handle_call(&inputs, &initial_state, 0);
     let actual = actor
-      .handle_call(&msgs, &initial_state)
+      .handle_call(&msgs, &initial_actor_state)
       .map_err(|err| TestCaseError::fail(err.to_string()))?;
+    let ActorState::V1(actual) = actual else {
+      return Err(TestCaseError::fail("guest-v1 returned non-v1 state"));
+    };
 
     prop_assert_eq!(actual.tick, expected.state.tick);
     prop_assert_eq!(actual.elapsed_since_push, expected.state.elapsed_since_push);
@@ -202,7 +208,7 @@ proptest! {
     message in "[a-zA-Z0-9 _`-]{0,64}",
   ) {
     let mut actor = TestActor::new().map_err(|err| TestCaseError::fail(err.to_string()))?;
-    let state = ActorState {
+    let state = ActorState::V1(ActorStateV1 {
       tick,
       last_host_reply: reply,
       elapsed_since_push: 0,
@@ -211,7 +217,7 @@ proptest! {
         reply,
         message: message.clone(),
       },
-    };
+    });
 
     let rendered = actor
       .render_state(&state)
@@ -220,6 +226,7 @@ proptest! {
       .map_err(|err| TestCaseError::fail(format!("render_state did not return JSON: {err}; output={rendered}")))?;
 
     prop_assert_eq!(&value["tick"], &Value::from(tick));
+    prop_assert_eq!(&value["schema"], &Value::from(1));
     prop_assert_eq!(&value["handled"], &Value::from(handled));
     prop_assert_eq!(&value["reply"], &Value::from(reply));
     prop_assert_eq!(&value["message"], &Value::from(message));
@@ -227,13 +234,13 @@ proptest! {
 }
 
 struct ModelOutcome {
-  state: ActorState,
+  state: ActorStateV1,
   host_callbacks: u64,
 }
 
 fn model_handle_call(
   inputs: &[InputMsg],
-  initial: &ActorState,
+  initial: &ActorStateV1,
   initial_host_callbacks: u64,
 ) -> ModelOutcome {
   let mut state = initial.clone();
@@ -271,14 +278,15 @@ fn model_handle_call(
   }
 }
 
-fn ensure_guest_component() -> Result<PathBuf> {
+fn ensure_guest_component(feature: &'static str) -> Result<PathBuf> {
   let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
   let workspace_dir = package_dir
     .parent()
     .context("failed to determine workspace root for wasmtime_actor")?;
   let guest_target_dir = workspace_dir
     .join("target")
-    .join("wasmtime-actor-proptest-guest");
+    .join("wasmtime-actor-proptest-guest")
+    .join(feature);
   let guest_component = guest_target_dir
     .join(GUEST_TARGET)
     .join("debug")
@@ -293,8 +301,11 @@ fn ensure_guest_component() -> Result<PathBuf> {
     .arg(GUEST_TARGET)
     .arg("--target-dir")
     .arg(&guest_target_dir)
+    .arg("--no-default-features")
+    .arg("--features")
+    .arg(feature)
     .output()
-    .context("failed to invoke cargo to build the wasm guest component")?;
+    .with_context(|| format!("failed to invoke cargo to build {feature} wasm guest component"))?;
 
   if !output.status.success() {
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -311,8 +322,8 @@ fn ensure_guest_component() -> Result<PathBuf> {
     }
 
     bail!(
-      "failed to build the guest component before running proptests.\nmanifest: {}\nexpected \
-       output: {}\n\ncargo stdout:\n{stdout}\n\ncargo stderr:\n{stderr}",
+      "failed to build {feature} guest component before running proptests.\nmanifest: \
+       {}\nexpected output: {}\n\ncargo stdout:\n{stdout}\n\ncargo stderr:\n{stderr}",
       package_dir.join("Cargo.toml").display(),
       guest_component.display(),
     );
@@ -320,7 +331,7 @@ fn ensure_guest_component() -> Result<PathBuf> {
 
   if !guest_component.is_file() {
     bail!(
-      "cargo reported success, but the guest component was not produced at {}",
+      "cargo reported success, but the {feature} guest component was not produced at {}",
       guest_component.display(),
     );
   }

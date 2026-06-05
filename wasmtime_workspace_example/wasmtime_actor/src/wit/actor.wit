@@ -25,13 +25,36 @@ interface host-actor {
     message: string,
   }
 
-  /// The single actor state value. The Rust host owns this value and passes it
-  /// through the WASM `handle-call` callback; WASM returns the next state.
-  record actor-state {
+  /// State used by the v1 guest actor.
+  record actor-state-v1 {
     tick: s32,
     last-host-reply: s32,
     elapsed-since-push: s32,
     last-response: actor-response,
+  }
+
+  /// State used by the v2 guest actor after a hot upgrade. This is deliberately
+  /// a different record from v1 so the upgraded `handle-call` works with a
+  /// different state shape.
+  record actor-state-v2 {
+    tick: s32,
+    last-host-reply: s32,
+    elapsed-since-push: s32,
+    last-response: actor-response,
+    upgrade-generation: u64,
+    migrated-from-tick: s32,
+    host-messages-seen: u64,
+    proactive-sends: u64,
+    last-host-sequence: u64,
+    last-host-payload: string,
+  }
+
+  /// The Rust host owns this value and passes it through the WASM `handle-call`
+  /// callback; WASM returns the next state. Each hot-upgrade generation uses a
+  /// distinct variant payload instead of reusing one catch-all record.
+  variant actor-state {
+    v1(actor-state-v1),
+    v2(actor-state-v2),
   }
 
   enum actor-msg-kind {
@@ -58,6 +81,8 @@ world actor-world {
     /// Batch processing: accepts multiple messages in one call, reducing wasm
     /// call overhead (one state serialization round-trip instead of N).
     handle-call: func(msgs: list<actor-msg>, state: actor-state) -> actor-state;
+    migrate-state: func(state: actor-state) -> actor-state;
+    state-schema: func() -> u32;
     render-state: func(state: actor-state) -> string;
   }
 }

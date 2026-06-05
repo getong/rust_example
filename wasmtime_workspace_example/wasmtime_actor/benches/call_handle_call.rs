@@ -19,7 +19,9 @@ wasmtime::component::bindgen!({
   require_store_data_send: true,
 });
 
-use demo::actor::host_actor::{self, ActorMsg, ActorMsgKind, ActorResponse, ActorState};
+use demo::actor::host_actor::{
+  self, ActorMsg, ActorMsgKind, ActorResponse, ActorState, ActorStateV1,
+};
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_actor.wasm";
@@ -149,7 +151,7 @@ fn tick_messages(count: usize) -> Vec<ActorMsg> {
 }
 
 fn initial_actor_state() -> ActorState {
-  ActorState {
+  ActorState::V1(ActorStateV1 {
     tick: 0,
     last_host_reply: 0,
     elapsed_since_push: 0,
@@ -158,7 +160,7 @@ fn initial_actor_state() -> ActorState {
       reply: 0,
       message: String::new(),
     },
-  }
+  })
 }
 
 fn ensure_guest_component() -> Result<PathBuf> {
@@ -184,6 +186,9 @@ fn ensure_guest_component() -> Result<PathBuf> {
     .arg(GUEST_TARGET)
     .arg("--target-dir")
     .arg(&guest_target_dir)
+    .arg("--no-default-features")
+    .arg("--features")
+    .arg("guest-v1")
     .output()
     .context("failed to invoke cargo to build the wasm guest component")?;
 

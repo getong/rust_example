@@ -18,7 +18,9 @@ wasmtime::component::bindgen!({
   require_store_data_send: true,
 });
 
-use demo::actor::host_actor::{self, ActorMsg, ActorMsgKind, ActorResponse, ActorState};
+use demo::actor::host_actor::{
+  self, ActorMsg, ActorMsgKind, ActorResponse, ActorState, ActorStateV1,
+};
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_actor.wasm";
@@ -55,8 +57,8 @@ struct MockedActor {
 }
 
 impl MockedActor {
-  fn new(host: MockHostGateway) -> Result<Self> {
-    let guest_component = ensure_guest_component()?;
+  fn new(feature: &'static str, host: MockHostGateway) -> Result<Self> {
+    let guest_component = ensure_guest_component(feature)?;
 
     let mut config = Config::new();
     config.wasm_component_model(true);
@@ -93,6 +95,14 @@ impl MockedActor {
       .call_handle_call(&mut self.store, msgs, state)
       .map_err(|err| anyhow!("call_handle_call failed: {err}"))
   }
+
+  fn migrate_state(&mut self, state: &ActorState) -> Result<ActorState> {
+    self
+      .instance
+      .wasm_actor()
+      .call_migrate_state(&mut self.store, state)
+      .map_err(|err| anyhow!("migrate_state failed: {err}"))
+  }
 }
 
 #[test]
@@ -100,9 +110,15 @@ fn wasm_does_not_call_host_before_push_interval() -> Result<()> {
   let mut host = MockHostGateway::new();
   host.expect_send_to_host().times(0);
 
-  let mut actor = MockedActor::new(host)?;
+  let mut actor = MockedActor::new("guest-v1", host)?;
   let initial = initial_actor_state(0, 7, 10, 0);
   let actual = actor.handle_call(&tick_messages(5), &initial)?;
+  let ActorState::V1(actual) = actual else {
+    panic!("guest-v1 returned non-v1 state");
+  };
+  let ActorState::V1(initial) = initial else {
+    panic!("initial state should be v1");
+  };
 
   assert_eq!(actual.tick, 5);
   assert_eq!(actual.elapsed_since_push, 2_500);
@@ -132,9 +148,12 @@ fn wasm_calls_mocked_host_when_push_interval_is_reached() -> Result<()> {
       message: format!("mocked host reply for {}", msg.payload),
     });
 
-  let mut actor = MockedActor::new(host)?;
+  let mut actor = MockedActor::new("guest-v1", host)?;
   let initial = initial_actor_state(0, 13, 41, 0);
   let actual = actor.handle_call(&tick_messages(6), &initial)?;
+  let ActorState::V1(actual) = actual else {
+    panic!("guest-v1 returned non-v1 state");
+  };
 
   assert_eq!(actual.tick, 6);
   assert_eq!(actual.elapsed_since_push, 0);
@@ -145,6 +164,56 @@ fn wasm_calls_mocked_host_when_push_interval_is_reached() -> Result<()> {
     actual.last_response.message,
     "mocked host reply for wasm主动消息 at tick 6"
   );
+
+  Ok(())
+}
+
+#[test]
+fn guest_v2_migrates_v1_state_and_handles_calls_with_v2_state() -> Result<()> {
+  let mut host = MockHostGateway::new();
+  host.expect_send_to_host().times(0);
+
+  let mut actor = MockedActor::new("guest-v2", host)?;
+  let initial = initial_actor_state(6, 123, 99, 0);
+  let migrated = actor.migrate_state(&initial)?;
+  let ActorState::V2(migrated) = migrated else {
+    panic!("guest-v2 migrate-state should return v2 state");
+  };
+
+  assert_eq!(migrated.tick, 6);
+  assert_eq!(migrated.last_host_reply, 123);
+  assert_eq!(migrated.last_response.handled, 99);
+  assert_eq!(migrated.upgrade_generation, 1);
+  assert_eq!(migrated.migrated_from_tick, 6);
+  assert_eq!(migrated.host_messages_seen, 0);
+
+  let actual = actor.handle_call(
+    &[
+      ActorMsg {
+        kind: ActorMsgKind::HostMessage,
+        host_message: Some(host_actor::HostMessage {
+          sequence: 77,
+          payload: "queued after upgrade".to_owned(),
+        }),
+      },
+      ActorMsg {
+        kind: ActorMsgKind::Tick,
+        host_message: None,
+      },
+    ],
+    &ActorState::V2(migrated),
+  )?;
+  let ActorState::V2(actual) = actual else {
+    panic!("guest-v2 handle-call should keep v2 state");
+  };
+
+  assert_eq!(actual.tick, 7);
+  assert_eq!(actual.upgrade_generation, 1);
+  assert_eq!(actual.migrated_from_tick, 6);
+  assert_eq!(actual.host_messages_seen, 1);
+  assert_eq!(actual.last_host_sequence, 77);
+  assert_eq!(actual.last_host_payload, "queued after upgrade");
+  assert_eq!(actual.proactive_sends, 0);
 
   Ok(())
 }
@@ -164,7 +233,7 @@ fn initial_actor_state(
   handled: u64,
   elapsed_since_push: i32,
 ) -> ActorState {
-  ActorState {
+  ActorState::V1(ActorStateV1 {
     tick,
     last_host_reply,
     elapsed_since_push,
@@ -173,17 +242,18 @@ fn initial_actor_state(
       reply: last_host_reply,
       message: format!("initial handled {handled}"),
     },
-  }
+  })
 }
 
-fn ensure_guest_component() -> Result<PathBuf> {
+fn ensure_guest_component(feature: &'static str) -> Result<PathBuf> {
   let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
   let workspace_dir = package_dir
     .parent()
     .context("failed to determine workspace root for wasmtime_actor")?;
   let guest_target_dir = workspace_dir
     .join("target")
-    .join("wasmtime-actor-mockall-guest");
+    .join("wasmtime-actor-mockall-guest")
+    .join(feature);
   let guest_component = guest_target_dir
     .join(GUEST_TARGET)
     .join("debug")
@@ -198,8 +268,11 @@ fn ensure_guest_component() -> Result<PathBuf> {
     .arg(GUEST_TARGET)
     .arg("--target-dir")
     .arg(&guest_target_dir)
+    .arg("--no-default-features")
+    .arg("--features")
+    .arg(feature)
     .output()
-    .context("failed to invoke cargo to build the wasm guest component")?;
+    .with_context(|| format!("failed to invoke cargo to build {feature} wasm guest component"))?;
 
   if !output.status.success() {
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -216,8 +289,8 @@ fn ensure_guest_component() -> Result<PathBuf> {
     }
 
     bail!(
-      "failed to build the guest component before running mockall tests.\nmanifest: {}\nexpected \
-       output: {}\n\ncargo stdout:\n{stdout}\n\ncargo stderr:\n{stderr}",
+      "failed to build {feature} guest component before running mockall tests.\nmanifest: \
+       {}\nexpected output: {}\n\ncargo stdout:\n{stdout}\n\ncargo stderr:\n{stderr}",
       package_dir.join("Cargo.toml").display(),
       guest_component.display(),
     );
@@ -225,7 +298,7 @@ fn ensure_guest_component() -> Result<PathBuf> {
 
   if !guest_component.is_file() {
     bail!(
-      "cargo reported success, but the guest component was not produced at {}",
+      "cargo reported success, but the {feature} guest component was not produced at {}",
       guest_component.display(),
     );
   }
