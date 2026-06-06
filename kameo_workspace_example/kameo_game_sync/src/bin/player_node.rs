@@ -16,30 +16,91 @@
 mod map;
 #[path = "../player.rs"]
 mod player;
+#[path = "../tcp_monitor.rs"]
+mod tcp_monitor;
 
 use std::time::Duration;
 
 use kameo::{actor::RemoteActorRef, prelude::*, remote};
 use map::{Damage, GetAllPlayers, HitPlayer, MapActor};
 use player::{EnterMap, GetPlayerSnapshot, PlayerActor, PlayerSnapshot, PlayerStats};
+use tcp_monitor::{BindTcpConnection, GetTcpConnections, TcpConnectionMonitor, TcpDisconnected};
+
+struct PlayerConfig {
+  id: u64,
+  name: &'static str,
+  red: i32,
+  blue: i32,
+}
+
+struct PlayerRuntime {
+  id: u64,
+  actor: ActorRef<PlayerActor>,
+  connection_id: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let peer_id = remote::bootstrap()?;
   println!("[player_node] peer id: {peer_id}");
 
-  // ── Spawn and register the player ────────────────────────────────────────
-  let player_id: u64 = 1001;
-  let player = PlayerActor::spawn(PlayerActor {
-    snapshot: PlayerSnapshot {
-      id: player_id,
-      name: "Knight".to_string(),
-      stats: PlayerStats { red: 100, blue: 80 },
+  let tcp_monitor =
+    TcpConnectionMonitor::spawn(TcpConnectionMonitor::new(Duration::from_secs(180)));
+
+  let player_configs = [
+    PlayerConfig {
+      id: 1001,
+      name: "Knight",
+      red: 100,
+      blue: 80,
     },
-  });
-  let player_name = format!("player:{player_id}");
-  player.register(player_name.as_str()).await?;
-  println!("[player_node] PlayerActor registered as \"{player_name}\"");
+    PlayerConfig {
+      id: 1002,
+      name: "Mage",
+      red: 60,
+      blue: 150,
+    },
+    PlayerConfig {
+      id: 1003,
+      name: "Archer",
+      red: 85,
+      blue: 95,
+    },
+  ];
+
+  // ── Spawn, register, and bind players to TCP sessions ────────────────────
+  let mut players = Vec::new();
+  for config in player_configs {
+    let player = PlayerActor::spawn(PlayerActor {
+      snapshot: PlayerSnapshot {
+        id: config.id,
+        name: config.name.to_string(),
+        stats: PlayerStats {
+          red: config.red,
+          blue: config.blue,
+        },
+      },
+    });
+    let player_name = format!("player:{}", config.id);
+    player.register(player_name.as_str()).await?;
+    println!("[player_node] PlayerActor registered as \"{player_name}\"");
+
+    let connection_id = format!("tcp:{}:session-1", config.id);
+    let bind = tcp_monitor
+      .ask(BindTcpConnection {
+        player_id: config.id,
+        connection_id: connection_id.clone(),
+        player: player.clone(),
+      })
+      .await?;
+    bind.log();
+
+    players.push(PlayerRuntime {
+      id: config.id,
+      actor: player,
+      connection_id,
+    });
+  }
 
   // ── Wait for the map node to appear via mDNS ──────────────────────────────
   println!("[player_node] looking for map …");
@@ -51,22 +112,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   };
   println!("[player_node] found map — joining …");
 
-  // ── Join the map ─────────────────────────────────────────────────────────
-  let join_info = player
-    .ask(EnterMap {
-      map: map_remote.clone(),
-    })
-    .await?;
-  println!(
-    "[player_node] joined; own snapshot: {:?} | {} other(s): {:?}",
-    join_info.own_snapshot,
-    join_info.other_players.len(),
-    join_info
-      .other_players
-      .iter()
-      .map(|p| p.name.as_str())
-      .collect::<Vec<_>>(),
-  );
+  // ── Join all players to the map ──────────────────────────────────────────
+  for runtime in &players {
+    let join_info = runtime
+      .actor
+      .ask(EnterMap {
+        map: map_remote.clone(),
+      })
+      .await?;
+    println!(
+      "[player_node] player:{} joined; own snapshot: {:?} | {} other(s): {:?}",
+      runtime.id,
+      join_info.own_snapshot,
+      join_info.other_players.len(),
+      join_info
+        .other_players
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>(),
+    );
+  }
 
   // ── Apply a hit (could be from any node) ─────────────────────────────────
   // In a real game the game server / map node would trigger HitPlayer; here
@@ -74,12 +139,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   tokio::time::sleep(Duration::from_millis(200)).await;
   let hit = map_remote
     .ask(&HitPlayer {
-      player_id,
+      player_id: players[0].id,
       damage: Damage { red: 15, blue: 5 },
     })
     .await?
     .expect("player exists in map");
   println!("[player_node] hit report: {hit:?}");
+
+  // ── Simulate one TCP session dropping and reconnecting within 180 s ──────
+  let reconnect_player = &mut players[1];
+  let disconnected = tcp_monitor
+    .ask(TcpDisconnected {
+      player_id: reconnect_player.id,
+      connection_id: reconnect_player.connection_id.clone(),
+    })
+    .await?;
+  println!(
+    "[player_node] simulated tcp disconnect for player:{}: {disconnected}",
+    reconnect_player.id
+  );
+
+  tokio::time::sleep(Duration::from_millis(200)).await;
+  reconnect_player.connection_id = format!("tcp:{}:session-2", reconnect_player.id);
+  let rebind = tcp_monitor
+    .ask(BindTcpConnection {
+      player_id: reconnect_player.id,
+      connection_id: reconnect_player.connection_id.clone(),
+      player: reconnect_player.actor.clone(),
+    })
+    .await?;
+  rebind.log();
+
+  // ── Simulate one TCP session dropping and not reconnecting ───────────────
+  let dropped_player = &players[2];
+  let dropped = tcp_monitor
+    .ask(TcpDisconnected {
+      player_id: dropped_player.id,
+      connection_id: dropped_player.connection_id.clone(),
+    })
+    .await?;
+  println!(
+    "[player_node] simulated tcp disconnect without reconnect for player:{}: {dropped}",
+    dropped_player.id
+  );
 
   // ── Give the map time to push SyncFromMap back ───────────────────────────
   tokio::time::sleep(Duration::from_millis(100)).await;
@@ -88,15 +190,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let all = map_remote.ask(&GetAllPlayers).await?;
   println!("[player_node] room snapshot: {all:?}");
 
-  let snap = player.ask(GetPlayerSnapshot).await?;
-  println!("[player_node] local actor snapshot: {snap:?}");
+  let tcp_snapshot = tcp_monitor.ask(GetTcpConnections).await?;
+  for connection in &tcp_snapshot {
+    connection.log();
+  }
 
-  // ── Assertions ───────────────────────────────────────────────────────────
-  assert_eq!(snap.stats.red, hit.stats_after_hit.red);
-  assert_eq!(snap.stats.blue, hit.stats_after_hit.blue);
+  for runtime in &players {
+    let snap = runtime.actor.ask(GetPlayerSnapshot).await?;
+    println!(
+      "[player_node] local actor snapshot for player:{}: {snap:?}",
+      runtime.id
+    );
+
+    if runtime.id == hit.player_id {
+      assert_eq!(snap.stats.red, hit.stats_after_hit.red);
+      assert_eq!(snap.stats.blue, hit.stats_after_hit.blue);
+    }
+  }
+
+  println!(
+    "[player_node] staying alive; player:{} will be stopped by tcp monitor after 180 s if it does \
+     not reconnect. Press Ctrl-C to shut down.",
+    dropped_player.id
+  );
+  tokio::signal::ctrl_c().await?;
+  println!("[player_node] shutting down …");
 
   // ── Graceful shutdown ────────────────────────────────────────────────────
-  player.stop_gracefully().await?;
-  player.wait_for_shutdown().await;
+  tcp_monitor.stop_gracefully().await?;
+  tcp_monitor.wait_for_shutdown().await;
+
+  for runtime in players {
+    runtime.actor.stop_gracefully().await?;
+    runtime.actor.wait_for_shutdown().await;
+  }
   Ok(())
 }
