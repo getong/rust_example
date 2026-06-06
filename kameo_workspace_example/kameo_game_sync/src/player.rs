@@ -1,30 +1,59 @@
 use kameo::{actor::RemoteActorRef, prelude::*};
 use serde::{Deserialize, Serialize};
 
-use crate::map::{EnterPlayer, MapActor, MapJoinInfo};
+use crate::map::{EnterPlayer, MapActor, MapJoinInfo, MapPlayerView};
 
 pub(crate) type PlayerId = u64;
 
-// ── Value types ──────────────────────────────────────────────────────────────
+// ── Player-owned state ───────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, Reply, Serialize, Deserialize)]
+pub(crate) struct PlayerProfile {
+  pub(crate) id: PlayerId,
+  pub(crate) name: String,
+}
+
+#[derive(Clone, Debug, Reply, Serialize, Deserialize)]
+pub(crate) struct PlayerView {
+  pub(crate) profile: PlayerProfile,
+  pub(crate) map_mirror: Option<PlayerMapMirror>,
+}
+
+#[derive(Clone, Debug, Reply, Serialize, Deserialize)]
+pub(crate) struct PlayerMapMirror {
+  pub(crate) current_map: String,
+  pub(crate) own_state: MapPlayerView,
+  pub(crate) visible_players: Vec<MapPlayerView>,
+}
+
+// ── Map-owned value types mirrored by player ────────────────────────────────
 
 #[derive(Clone, Copy, Debug, Reply, Serialize, Deserialize)]
-pub(crate) struct PlayerStats {
+pub(crate) struct MapStats {
   pub(crate) red: i32,
   pub(crate) blue: i32,
 }
 
-impl PlayerStats {
+impl MapStats {
   pub(crate) fn apply_damage(&mut self, red_damage: i32, blue_damage: i32) {
     self.red = (self.red - red_damage).max(0);
     self.blue = (self.blue - blue_damage).max(0);
   }
 }
 
-#[derive(Clone, Debug, Reply, Serialize, Deserialize)]
-pub(crate) struct PlayerSnapshot {
-  pub(crate) id: PlayerId,
-  pub(crate) name: String,
-  pub(crate) stats: PlayerStats,
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct InitialMapStats {
+  pub(crate) red: i32,
+  pub(crate) blue: i32,
+}
+
+impl From<InitialMapStats> for MapStats {
+  fn from(stats: InitialMapStats) -> Self {
+    Self {
+      red: stats.red,
+      blue: stats.blue,
+    }
+  }
 }
 
 // ── Actor ────────────────────────────────────────────────────────────────────
@@ -32,24 +61,29 @@ pub(crate) struct PlayerSnapshot {
 #[derive(Actor, RemoteActor)]
 #[remote_actor(id = "kameo_game_sync::PlayerActor")]
 pub(crate) struct PlayerActor {
-  pub(crate) snapshot: PlayerSnapshot,
+  pub(crate) profile: PlayerProfile,
+  pub(crate) initial_map_stats: InitialMapStats,
+  pub(crate) map_mirror: Option<PlayerMapMirror>,
 }
 
-// ── GetPlayerSnapshot ────────────────────────────────────────────────────────
+// ── GetPlayerView ────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct GetPlayerSnapshot;
+pub(crate) struct GetPlayerView;
 
-#[remote_message("kameo_game_sync::PlayerActor::GetPlayerSnapshot")]
-impl Message<GetPlayerSnapshot> for PlayerActor {
-  type Reply = PlayerSnapshot;
+#[remote_message("kameo_game_sync::PlayerActor::GetPlayerView")]
+impl Message<GetPlayerView> for PlayerActor {
+  type Reply = PlayerView;
 
   async fn handle(
     &mut self,
-    _msg: GetPlayerSnapshot,
+    _msg: GetPlayerView,
     _ctx: &mut Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    self.snapshot.clone()
+    PlayerView {
+      profile: self.profile.clone(),
+      map_mirror: self.map_mirror.clone(),
+    }
   }
 }
 
@@ -57,9 +91,8 @@ impl Message<GetPlayerSnapshot> for PlayerActor {
 
 /// Tells the player to join a map.
 ///
-/// `map` is a `RemoteActorRef<MapActor>` so the same message type works whether
-/// the map lives in the same process or on a remote libp2p node.  In single-
-/// node mode convert a local `ActorRef<MapActor>` with `.into_remote_ref()`.
+/// The player sends profile + initial map stats. After this point the map owns
+/// map-state writes, and the player only stores the mirror received in events.
 pub(crate) struct EnterMap {
   pub(crate) map: RemoteActorRef<MapActor>,
 }
@@ -74,39 +107,113 @@ impl Message<EnterMap> for PlayerActor {
   ) -> Self::Reply {
     let join_info = map
       .ask(&EnterPlayer {
-        snapshot: self.snapshot.clone(),
+        profile: self.profile.clone(),
+        initial_stats: self.initial_map_stats,
       })
       .await
       .expect("EnterPlayer failed");
 
-    self.snapshot = join_info.own_snapshot.clone();
+    self.map_mirror = Some(PlayerMapMirror {
+      current_map: join_info.map_id.clone(),
+      own_state: join_info.own_state.clone(),
+      visible_players: join_info.other_players.clone(),
+    });
     join_info
   }
 }
 
-// ── SyncFromMap ──────────────────────────────────────────────────────────────
+// ── ApplyMapEvent ────────────────────────────────────────────────────────────
 
-/// Pushed from the map to the player after a stat-changing event (e.g. a hit).
-/// Returns `()` — the map only needs delivery confirmation, not the full
-/// snapshot back.  A network error triggers the map's 180-second eviction timer.
-#[derive(Serialize, Deserialize)]
-pub(crate) struct SyncFromMap {
-  pub(crate) stats: PlayerStats,
+/// Pushed from the authoritative map after a state-changing event.
+/// PlayerActor stores only a mirror for display/session recovery.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) enum MapEvent {
+  PlayerJoined {
+    map_id: String,
+    player: MapPlayerView,
+  },
+  PlayerStatsChanged {
+    map_id: String,
+    player: MapPlayerView,
+  },
+  PlayerLeft {
+    map_id: String,
+    player_id: PlayerId,
+  },
 }
 
-#[remote_message("kameo_game_sync::PlayerActor::SyncFromMap")]
-impl Message<SyncFromMap> for PlayerActor {
+#[derive(Serialize, Deserialize)]
+pub(crate) struct ApplyMapEvent {
+  pub(crate) event: MapEvent,
+}
+
+#[remote_message("kameo_game_sync::PlayerActor::ApplyMapEvent")]
+impl Message<ApplyMapEvent> for PlayerActor {
   type Reply = ();
 
   async fn handle(
     &mut self,
-    SyncFromMap { stats }: SyncFromMap,
+    ApplyMapEvent { event }: ApplyMapEvent,
     _ctx: &mut Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    self.snapshot.stats = stats;
-    println!(
-      "[player] {} synced from map: red={}, blue={}",
-      self.snapshot.name, self.snapshot.stats.red, self.snapshot.stats.blue,
-    );
+    match event {
+      MapEvent::PlayerJoined { map_id, player } => {
+        let mirror = self.map_mirror.get_or_insert_with(|| PlayerMapMirror {
+          current_map: map_id,
+          own_state: player.clone(),
+          visible_players: Vec::new(),
+        });
+
+        upsert_visible_player(mirror, player.clone());
+        println!(
+          "[player] {} sees player:{} joined {}",
+          self.profile.name, player.profile.id, mirror.current_map
+        );
+      }
+      MapEvent::PlayerStatsChanged { map_id, player } => {
+        let mirror = self.map_mirror.get_or_insert_with(|| PlayerMapMirror {
+          current_map: map_id,
+          own_state: player.clone(),
+          visible_players: Vec::new(),
+        });
+
+        if player.profile.id == self.profile.id {
+          mirror.own_state = player.clone();
+        } else {
+          upsert_visible_player(mirror, player.clone());
+        }
+
+        println!(
+          "[player] {} mirrored map stats for player:{} => red={}, blue={}",
+          self.profile.name, player.profile.id, player.stats.red, player.stats.blue,
+        );
+      }
+      MapEvent::PlayerLeft { map_id, player_id } => {
+        if let Some(mirror) = &mut self.map_mirror {
+          mirror.visible_players.retain(|p| p.profile.id != player_id);
+        }
+        println!(
+          "[player] {} sees player:{player_id} left {map_id}",
+          self.profile.name
+        );
+      }
+    }
+  }
+}
+
+fn upsert_visible_player(mirror: &mut PlayerMapMirror, player: MapPlayerView) {
+  if player.profile.id == mirror.own_state.profile.id {
+    mirror.own_state = player;
+    return;
+  }
+
+  if let Some(existing) = mirror
+    .visible_players
+    .iter_mut()
+    .find(|p| p.profile.id == player.profile.id)
+  {
+    *existing = player;
+  } else {
+    mirror.visible_players.push(player);
   }
 }

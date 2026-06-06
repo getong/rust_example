@@ -8,7 +8,7 @@ mod player;
 
 use kameo::{prelude::*, remote};
 use map::{Damage, GetAllPlayers, HitPlayer, MapActor};
-use player::{EnterMap, GetPlayerSnapshot, PlayerActor, PlayerSnapshot, PlayerStats};
+use player::{EnterMap, GetPlayerView, InitialMapStats, PlayerActor, PlayerProfile};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,19 +21,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let map = MapActor::spawn(MapActor::default());
 
   let player1 = PlayerActor::spawn(PlayerActor {
-    snapshot: PlayerSnapshot {
+    profile: PlayerProfile {
       id: 1001,
       name: "Knight".to_string(),
-      stats: PlayerStats { red: 100, blue: 80 },
     },
+    initial_map_stats: InitialMapStats { red: 100, blue: 80 },
+    map_mirror: None,
   });
 
   let player2 = PlayerActor::spawn(PlayerActor {
-    snapshot: PlayerSnapshot {
+    profile: PlayerProfile {
       id: 1002,
       name: "Mage".to_string(),
-      stats: PlayerStats { red: 60, blue: 150 },
     },
+    initial_map_stats: InitialMapStats { red: 60, blue: 150 },
+    map_mirror: None,
   });
 
   // ── Register actors in the swarm registry ────────────────────────────────
@@ -65,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     join1
       .other_players
       .iter()
-      .map(|p| p.name.as_str())
+      .map(|p| p.profile.name.as_str())
       .collect::<Vec<_>>(),
   );
   println!(
@@ -74,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     join2
       .other_players
       .iter()
-      .map(|p| p.name.as_str())
+      .map(|p| p.profile.name.as_str())
       .collect::<Vec<_>>(),
   );
 
@@ -95,29 +97,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let all_players = map.ask(GetAllPlayers).await?;
   println!("[main] all players in map (client sync): {all_players:?}");
 
-  let p1_snapshot = player1.ask(GetPlayerSnapshot).await?;
-  let p2_snapshot = player2.ask(GetPlayerSnapshot).await?;
-  println!("[main] player1 actor snapshot: {p1_snapshot:?}");
-  println!("[main] player2 actor snapshot: {p2_snapshot:?}");
+  let p1_view = player1.ask(GetPlayerView).await?;
+  let p2_view = player2.ask(GetPlayerView).await?;
+  println!("[main] player1 actor view: {p1_view:?}");
+  println!("[main] player2 actor view: {p2_view:?}");
 
   // ── Assertions ───────────────────────────────────────────────────────────
   assert_eq!(hit.player_id, 1001);
-  assert_eq!(p1_snapshot.stats.red, hit.stats_after_hit.red);
-  assert_eq!(p1_snapshot.stats.blue, hit.stats_after_hit.blue);
+  let p1_mirror = p1_view.map_mirror.expect("player1 has map mirror");
+  let p2_mirror = p2_view.map_mirror.expect("player2 has map mirror");
+  assert_eq!(p1_mirror.own_state.stats.red, hit.state_after_hit.stats.red);
+  assert_eq!(
+    p1_mirror.own_state.stats.blue,
+    hit.state_after_hit.stats.blue
+  );
 
   let map_p1 = all_players
     .iter()
-    .find(|p| p.id == 1001)
+    .find(|p| p.profile.id == 1001)
     .expect("player1 in map");
-  assert_eq!(map_p1.stats.red, p1_snapshot.stats.red);
-  assert_eq!(map_p1.stats.blue, p1_snapshot.stats.blue);
+  assert_eq!(map_p1.stats.red, p1_mirror.own_state.stats.red);
+  assert_eq!(map_p1.stats.blue, p1_mirror.own_state.stats.blue);
 
   let map_p2 = all_players
     .iter()
-    .find(|p| p.id == 1002)
+    .find(|p| p.profile.id == 1002)
     .expect("player2 in map");
-  assert_eq!(map_p2.stats.red, p2_snapshot.stats.red);
-  assert_eq!(map_p2.stats.blue, p2_snapshot.stats.blue);
+  assert_eq!(map_p2.stats.red, p2_mirror.own_state.stats.red);
+  assert_eq!(map_p2.stats.blue, p2_mirror.own_state.stats.blue);
 
   // ── Shutdown ─────────────────────────────────────────────────────────────
   map.stop_gracefully().await?;

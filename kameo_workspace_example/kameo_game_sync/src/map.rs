@@ -1,14 +1,8 @@
-//! Map actor — authoritative source of truth for all player stats.
+//! Map actor — authoritative source of truth for map-local combat state.
 //!
-//! Cross-node optimizations:
-//! • `EnterPlayer` carries no `ActorRef`; the map resolves the player via
-//!   `RemoteActorRef::lookup("player:{id}")`, making the message serialisable
-//!   so it can travel over a libp2p TCP link.
-//! • Stat sync is fire-and-forget (`tell`): map replies to the caller first,
-//!   then a background task does the remote lookup + push.
-//! • 180-second grace period: if sync fails, `PlayerDisconnected` starts an
-//!   `AbortHandle`-backed eviction timer.  Reconnecting within 180 s cancels
-//!   the timer and restores the server-side snapshot.
+//! Player actors send commands (join, hit in this demo). The map validates and
+//! mutates map-owned state, then emits events back to player actors. Player
+//! actors keep only a mirror for display/session purposes.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -16,7 +10,11 @@ use kameo::{actor::RemoteActorRef, prelude::*};
 use serde::{Deserialize, Serialize};
 use tokio::task::AbortHandle;
 
-use crate::player::{PlayerActor, PlayerId, PlayerSnapshot, PlayerStats, SyncFromMap};
+use crate::player::{
+  ApplyMapEvent, InitialMapStats, MapEvent, MapStats, PlayerActor, PlayerId, PlayerProfile,
+};
+
+const MAP_ID: &str = "green-fields";
 
 // ── Actor ────────────────────────────────────────────────────────────────────
 
@@ -26,37 +24,53 @@ pub(crate) struct MapActor {
   players: HashMap<PlayerId, PlayerInMap>,
 }
 
-// ── Internal state ───────────────────────────────────────────────────────────
+// ── Authoritative map state ──────────────────────────────────────────────────
 
 enum PlayerStatus {
   Online,
-  /// TCP dropped.  `abort_handle` cancels the eviction timer on reconnect.
-  Offline {
-    abort_handle: AbortHandle,
-  },
+  Offline { abort_handle: AbortHandle },
 }
 
 struct PlayerInMap {
-  /// Swarm name used for remote-ref lookup: `"player:{id}"`.
   player_name: String,
-  /// Server-authoritative snapshot — survives disconnects.
-  snapshot: PlayerSnapshot,
+  state: MapPlayerState,
   status: PlayerStatus,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct MapPlayerState {
+  profile: PlayerProfile,
+  stats: MapStats,
+}
+
+impl MapPlayerState {
+  fn view(&self) -> MapPlayerView {
+    MapPlayerView {
+      profile: self.profile.clone(),
+      stats: self.stats,
+    }
+  }
+}
+
+#[derive(Clone, Debug, Reply, Serialize, Deserialize)]
+pub(crate) struct MapPlayerView {
+  pub(crate) profile: PlayerProfile,
+  pub(crate) stats: MapStats,
 }
 
 // ── EnterPlayer ──────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct EnterPlayer {
-  pub(crate) snapshot: PlayerSnapshot,
+  pub(crate) profile: PlayerProfile,
+  pub(crate) initial_stats: InitialMapStats,
 }
 
-/// Returned on join: own snapshot + every other player already in the map.
-/// One round-trip gives the client everything it needs to render the room.
 #[derive(Clone, Debug, Reply, Serialize, Deserialize)]
 pub(crate) struct MapJoinInfo {
-  pub(crate) own_snapshot: PlayerSnapshot,
-  pub(crate) other_players: Vec<PlayerSnapshot>,
+  pub(crate) map_id: String,
+  pub(crate) own_state: MapPlayerView,
+  pub(crate) other_players: Vec<MapPlayerView>,
 }
 
 #[remote_message("kameo_game_sync::MapActor::EnterPlayer")]
@@ -65,49 +79,72 @@ impl Message<EnterPlayer> for MapActor {
 
   async fn handle(
     &mut self,
-    EnterPlayer { snapshot }: EnterPlayer,
-    _ctx: &mut Context<Self, Self::Reply>,
+    EnterPlayer {
+      profile,
+      initial_stats,
+    }: EnterPlayer,
+    ctx: &mut Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    let other_players: Vec<PlayerSnapshot> =
-      self.players.values().map(|p| p.snapshot.clone()).collect();
+    let other_players: Vec<MapPlayerView> = self
+      .players
+      .values()
+      .filter(|p| p.state.profile.id != profile.id)
+      .map(|p| p.state.view())
+      .collect();
+    let player_name = format!("player:{}", profile.id);
 
-    let player_name = format!("player:{}", snapshot.id);
-
-    // ── Reconnect path: cancel timer, restore server snapshot ────────────
-    if let Some(existing) = self.players.get_mut(&snapshot.id) {
+    if let Some(existing) = self.players.get_mut(&profile.id) {
       if let PlayerStatus::Offline { abort_handle } = &existing.status {
         abort_handle.abort();
-        let preserved = existing.snapshot.clone();
         existing.status = PlayerStatus::Online;
-        println!(
-          "[map] {} reconnected within grace period — state restored (red={}, blue={})",
-          existing.snapshot.name, preserved.stats.red, preserved.stats.blue,
-        );
-        return MapJoinInfo {
-          own_snapshot: preserved,
-          other_players,
-        };
       }
+
+      let own_state = existing.state.view();
+      println!(
+        "[map] {} reconnected; authoritative state restored (red={}, blue={})",
+        own_state.profile.name, own_state.stats.red, own_state.stats.blue,
+      );
+      return MapJoinInfo {
+        map_id: MAP_ID.to_string(),
+        own_state,
+        other_players,
+      };
     }
 
-    // ── Fresh join ───────────────────────────────────────────────────────
+    let state = MapPlayerState {
+      profile: profile.clone(),
+      stats: initial_stats.into(),
+    };
+    let own_state = state.view();
+
     println!(
       "[map] {} enters: red={}, blue={} | {} other(s) present",
-      snapshot.name,
-      snapshot.stats.red,
-      snapshot.stats.blue,
+      own_state.profile.name,
+      own_state.stats.red,
+      own_state.stats.blue,
       other_players.len(),
     );
     self.players.insert(
-      snapshot.id,
+      profile.id,
       PlayerInMap {
         player_name,
-        snapshot: snapshot.clone(),
+        state,
         status: PlayerStatus::Online,
       },
     );
+
+    self.broadcast_event(
+      ctx.actor_ref(),
+      profile.id,
+      MapEvent::PlayerJoined {
+        map_id: MAP_ID.to_string(),
+        player: own_state.clone(),
+      },
+    );
+
     MapJoinInfo {
-      own_snapshot: snapshot,
+      map_id: MAP_ID.to_string(),
+      own_state,
       other_players,
     }
   }
@@ -130,7 +167,7 @@ pub(crate) struct HitPlayer {
 #[derive(Debug, Reply, Serialize, Deserialize)]
 pub(crate) struct HitReport {
   pub(crate) player_id: PlayerId,
-  pub(crate) stats_after_hit: PlayerStats,
+  pub(crate) state_after_hit: MapPlayerView,
 }
 
 #[remote_message("kameo_game_sync::MapActor::HitPlayer")]
@@ -144,45 +181,35 @@ impl Message<HitPlayer> for MapActor {
   ) -> Self::Reply {
     let player = self.players.get_mut(&player_id)?;
 
-    player.snapshot.stats.apply_damage(damage.red, damage.blue);
-    let stats = player.snapshot.stats;
-    let player_name = player.player_name.clone();
+    player.state.stats.apply_damage(damage.red, damage.blue);
+    let state_after_hit = player.state.view();
     println!(
       "[map] {} hit: -{} red, -{} blue => red={}, blue={}",
-      player.snapshot.name, damage.red, damage.blue, stats.red, stats.blue,
+      state_after_hit.profile.name,
+      damage.red,
+      damage.blue,
+      state_after_hit.stats.red,
+      state_after_hit.stats.blue,
     );
 
-    // Fire-and-forget: reply first, then push the stat update to the player.
-    // Use `ask` (not `tell`) so we get a Result back — a network error means
-    // the player disconnected and we start the 180-second eviction timer.
-    let map_ref = ctx.actor_ref().clone();
-    tokio::spawn(async move {
-      match RemoteActorRef::<PlayerActor>::lookup(player_name.as_str()).await {
-        Ok(Some(remote_ref)) => {
-          if let Err(e) = remote_ref.ask(&SyncFromMap { stats }).await {
-            println!("[map] sync failed for {player_name}: {e}");
-            let _ = map_ref.tell(PlayerDisconnected { player_id }).await;
-          }
-        }
-        Ok(None) => {
-          println!("[map] {player_name} not in registry — marking offline");
-          let _ = map_ref.tell(PlayerDisconnected { player_id }).await;
-        }
-        Err(e) => println!("[map] lookup error for {player_name}: {e}"),
-      }
-    });
+    self.broadcast_event(
+      ctx.actor_ref(),
+      player_id,
+      MapEvent::PlayerStatsChanged {
+        map_id: MAP_ID.to_string(),
+        player: state_after_hit.clone(),
+      },
+    );
 
     Some(HitReport {
       player_id,
-      stats_after_hit: stats,
+      state_after_hit,
     })
   }
 }
 
 // ── PlayerDisconnected ───────────────────────────────────────────────────────
 
-/// Sent internally when a background sync task cannot reach the player.
-/// Starts the 180-second eviction countdown.
 pub(crate) struct PlayerDisconnected {
   pub(crate) player_id: PlayerId,
 }
@@ -202,10 +229,9 @@ impl Message<PlayerDisconnected> for MapActor {
     if matches!(player.status, PlayerStatus::Online) {
       println!(
         "[map] {} disconnected — grace period: 180 s",
-        player.snapshot.name
+        player.state.profile.name
       );
 
-      // WeakActorRef prevents the timer from keeping the map alive.
       let map_weak = ctx.actor_ref().downgrade();
       let abort_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(180)).await;
@@ -222,7 +248,6 @@ impl Message<PlayerDisconnected> for MapActor {
 
 // ── RemovePlayer ─────────────────────────────────────────────────────────────
 
-/// Sent by the eviction timer after the 180-second grace period expires.
 pub(crate) struct RemovePlayer {
   pub(crate) player_id: PlayerId,
 }
@@ -233,12 +258,21 @@ impl Message<RemovePlayer> for MapActor {
   async fn handle(
     &mut self,
     RemovePlayer { player_id }: RemovePlayer,
-    _ctx: &mut Context<Self, Self::Reply>,
+    ctx: &mut Context<Self, Self::Reply>,
   ) -> Self::Reply {
     if let Some(player) = self.players.remove(&player_id) {
       println!(
         "[map] {} evicted after 180 s disconnect timeout",
-        player.snapshot.name
+        player.state.profile.name
+      );
+
+      self.broadcast_event(
+        ctx.actor_ref(),
+        player_id,
+        MapEvent::PlayerLeft {
+          map_id: MAP_ID.to_string(),
+          player_id,
+        },
       );
     }
   }
@@ -246,20 +280,19 @@ impl Message<RemovePlayer> for MapActor {
 
 // ── Queries ──────────────────────────────────────────────────────────────────
 
-/// Full room snapshot — useful for a client joining late or after a reconnect.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetAllPlayers;
 
 #[remote_message("kameo_game_sync::MapActor::GetAllPlayers")]
 impl Message<GetAllPlayers> for MapActor {
-  type Reply = Vec<PlayerSnapshot>;
+  type Reply = Vec<MapPlayerView>;
 
   async fn handle(
     &mut self,
     _msg: GetAllPlayers,
     _ctx: &mut Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    self.players.values().map(|p| p.snapshot.clone()).collect()
+    self.players.values().map(|p| p.state.view()).collect()
   }
 }
 
@@ -270,13 +303,43 @@ pub(crate) struct GetMapPlayer {
 
 #[remote_message("kameo_game_sync::MapActor::GetMapPlayer")]
 impl Message<GetMapPlayer> for MapActor {
-  type Reply = Option<PlayerSnapshot>;
+  type Reply = Option<MapPlayerView>;
 
   async fn handle(
     &mut self,
     GetMapPlayer { player_id }: GetMapPlayer,
     _ctx: &mut Context<Self, Self::Reply>,
   ) -> Self::Reply {
-    self.players.get(&player_id).map(|p| p.snapshot.clone())
+    self.players.get(&player_id).map(|p| p.state.view())
+  }
+}
+
+impl MapActor {
+  fn broadcast_event(&self, map_ref: &ActorRef<Self>, source_player_id: PlayerId, event: MapEvent) {
+    for player in self.players.values() {
+      let player_id = player.state.profile.id;
+      if matches!(event, MapEvent::PlayerJoined { .. }) && player_id == source_player_id {
+        continue;
+      }
+      let player_name = player.player_name.clone();
+      let event = event.clone();
+      let map_ref = map_ref.clone();
+
+      tokio::spawn(async move {
+        match RemoteActorRef::<PlayerActor>::lookup(player_name.as_str()).await {
+          Ok(Some(remote_ref)) => {
+            if let Err(e) = remote_ref.ask(&ApplyMapEvent { event }).await {
+              println!("[map] event push failed for {player_name}: {e}");
+              let _ = map_ref.tell(PlayerDisconnected { player_id }).await;
+            }
+          }
+          Ok(None) => {
+            println!("[map] {player_name} not in registry — marking offline");
+            let _ = map_ref.tell(PlayerDisconnected { player_id }).await;
+          }
+          Err(e) => println!("[map] lookup error for {player_name}: {e}"),
+        }
+      });
+    }
   }
 }

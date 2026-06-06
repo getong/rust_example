@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use kameo::{actor::RemoteActorRef, prelude::*, remote};
 use map::{Damage, GetAllPlayers, HitPlayer, MapActor};
-use player::{EnterMap, GetPlayerSnapshot, PlayerActor, PlayerSnapshot, PlayerStats};
+use player::{EnterMap, GetPlayerView, InitialMapStats, PlayerActor, PlayerProfile};
 use tcp_monitor::{BindTcpConnection, GetTcpConnections, TcpConnectionMonitor, TcpDisconnected};
 
 struct PlayerConfig {
@@ -72,14 +72,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let mut players = Vec::new();
   for config in player_configs {
     let player = PlayerActor::spawn(PlayerActor {
-      snapshot: PlayerSnapshot {
+      profile: PlayerProfile {
         id: config.id,
         name: config.name.to_string(),
-        stats: PlayerStats {
-          red: config.red,
-          blue: config.blue,
-        },
       },
+      initial_map_stats: InitialMapStats {
+        red: config.red,
+        blue: config.blue,
+      },
+      map_mirror: None,
     });
     let player_name = format!("player:{}", config.id);
     player.register(player_name.as_str()).await?;
@@ -121,14 +122,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       })
       .await?;
     println!(
-      "[player_node] player:{} joined; own snapshot: {:?} | {} other(s): {:?}",
+      "[player_node] player:{} joined; authoritative map state: {:?} | {} other(s): {:?}",
       runtime.id,
-      join_info.own_snapshot,
+      join_info.own_state,
       join_info.other_players.len(),
       join_info
         .other_players
         .iter()
-        .map(|p| p.name.as_str())
+        .map(|p| p.profile.name.as_str())
         .collect::<Vec<_>>(),
     );
   }
@@ -183,7 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dropped_player.id
   );
 
-  // ── Give the map time to push SyncFromMap back ───────────────────────────
+  // ── Give the map time to push map events back ────────────────────────────
   tokio::time::sleep(Duration::from_millis(100)).await;
 
   // ── Full room snapshot ───────────────────────────────────────────────────
@@ -196,15 +197,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 
   for runtime in &players {
-    let snap = runtime.actor.ask(GetPlayerSnapshot).await?;
+    let view = runtime.actor.ask(GetPlayerView).await?;
     println!(
-      "[player_node] local actor snapshot for player:{}: {snap:?}",
+      "[player_node] local actor view for player:{}: {view:?}",
       runtime.id
     );
 
     if runtime.id == hit.player_id {
-      assert_eq!(snap.stats.red, hit.stats_after_hit.red);
-      assert_eq!(snap.stats.blue, hit.stats_after_hit.blue);
+      let mirror = view.map_mirror.expect("hit player has map mirror");
+      assert_eq!(mirror.own_state.stats.red, hit.state_after_hit.stats.red);
+      assert_eq!(mirror.own_state.stats.blue, hit.state_after_hit.stats.blue);
     }
   }
 
