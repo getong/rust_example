@@ -1,0 +1,15 @@
+[package]
+name = "origin_jellyfish_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-bn254 = "0.5.0"
+ark-ed-on-bn254 = "0.5.0"
+ark-ff = "0.5.0"
+ark-mpc = { workspace = true }
+ark-std = "0.5.0"
+jf-elgamal = { git = "https://github.com/EspressoSystems/jellyfish" }
+jf-plonk = { git = "https://github.com/EspressoSystems/jellyfish" }
+jf-relation = { git = "https://github.com/EspressoSystems/jellyfish" }
+tokio = { workspace = true }
