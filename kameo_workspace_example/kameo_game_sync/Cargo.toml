@@ -3,19 +3,9 @@ name = "kameo_game_sync"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "kameo_game_sync"
-path = "src/main.rs"
-
-[[bin]]
-name = "map_node"
-path = "src/bin/map_node.rs"
-
-[[bin]]
-name = "player_node"
-path = "src/bin/player_node.rs"
-
 [dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
 kameo = { version = "0.20.0", features = ["remote"] }
+rand = { version = "0.10.1", features = ["std_rng"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }

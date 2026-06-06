@@ -69,7 +69,7 @@ pub(crate) struct BindReport {
 impl BindReport {
   pub(crate) fn log(&self) {
     println!(
-      "[player_node] tcp bind: player:{} connection={} reconnected={}",
+      "[tcp_monitor] tcp bind: player:{} connection={} reconnected={}",
       self.player_id, self.connection_id, self.reconnected
     );
   }
@@ -253,11 +253,11 @@ impl TcpConnectionSnapshot {
   pub(crate) fn log(&self) {
     match &self.state {
       TcpConnectionStateSnapshot::Connected { connection_id } => println!(
-        "[player_node] tcp monitor: player:{} connected via {}",
+        "[tcp_monitor] player:{} connected via {}",
         self.player_id, connection_id
       ),
       TcpConnectionStateSnapshot::Retained { last_connection_id } => println!(
-        "[player_node] tcp monitor: player:{} retained after {}",
+        "[tcp_monitor] player:{} retained after {}",
         self.player_id, last_connection_id
       ),
     }
