@@ -1,10 +1,24 @@
 # kameo_game_sync
 
-This example starts one logical game node per process. Each process can run both
-`MapActor` and the `PlayerActor`s assigned to that node.
+This example starts one logical game node per process. Each process can run
+multiple `MapActor`s plus the `PlayerActor`s assigned to that node.
 
 Map state is authoritative in `MapActor`; `PlayerActor` keeps only a local mirror
 and TCP/session state.
+
+Each node starts three map actors:
+
+- `green-fields`
+- `crystal-cave`
+- `ember-keep`
+
+Players are assigned to one local map and receive that map's entry buff. Buffs
+stack by adding both attack bonuses and damage bonuses. Hits are resolved by the
+authoritative map with:
+
+```text
+total damage = effective attack + effective damage + per-hit bonus damage
+```
 
 ## Run One Node
 
@@ -39,8 +53,8 @@ to `node-a`, and the other players to `node-b`.
 When nodes discover each other, the logs should include lines like:
 
 ```text
-[node:node-a] connected to peer map "map:node-b" (4 player(s))
-[node:node-b] connected to peer map "map:node-a" (1 player(s))
+[node:node-a] connected to peer map "map:node-b:green-fields" (2 player(s))
+[node:node-b] connected to peer map "map:node-a:ember-keep" (1 player(s))
 ```
 
 Stop each node with `Ctrl-C`.
@@ -61,4 +75,3 @@ cargo run -p kameo_game_sync -- --node-id node-a --nodes node-a,node-b --seed 42
 --seed <SEED>        Deterministic RNG seed used to assign players to nodes
 --run-once           Run the startup demo once and exit instead of keeping the node alive
 ```
-

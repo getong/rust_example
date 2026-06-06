@@ -28,16 +28,16 @@ pub(crate) struct PlayerMapMirror {
 
 // ── Map-owned value types mirrored by player ────────────────────────────────
 
-#[derive(Clone, Copy, Debug, Reply, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Reply, Serialize, Deserialize)]
 pub(crate) struct MapStats {
   pub(crate) red: i32,
   pub(crate) blue: i32,
 }
 
 impl MapStats {
-  pub(crate) fn apply_damage(&mut self, red_damage: i32, blue_damage: i32) {
-    self.red = (self.red - red_damage).max(0);
-    self.blue = (self.blue - blue_damage).max(0);
+  pub(crate) fn apply_damage(&mut self, damage: Damage) {
+    self.red = (self.red - damage.red).max(0);
+    self.blue = (self.blue - damage.blue).max(0);
   }
 }
 
@@ -56,6 +56,56 @@ impl From<InitialMapStats> for MapStats {
   }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Damage {
+  pub(crate) red: i32,
+  pub(crate) blue: i32,
+}
+
+impl Damage {
+  pub(crate) fn stack(self, other: Self) -> Self {
+    Self {
+      red: self.red + other.red,
+      blue: self.blue + other.blue,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Reply, Serialize, Deserialize)]
+pub(crate) struct EffectiveCombat {
+  pub(crate) attack: Damage,
+  pub(crate) damage: Damage,
+}
+
+impl EffectiveCombat {
+  pub(crate) fn total_damage(self, bonus_damage: Damage) -> Damage {
+    self.attack.stack(self.damage).stack(bonus_damage)
+  }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PlayerBuff {
+  pub(crate) name: String,
+  pub(crate) attack_bonus: Damage,
+  pub(crate) damage_bonus: Damage,
+}
+
+impl PlayerBuff {
+  pub(crate) fn new(name: impl Into<String>, attack_bonus: Damage, damage_bonus: Damage) -> Self {
+    Self {
+      name: name.into(),
+      attack_bonus,
+      damage_bonus,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct InitialCombatStats {
+  pub(crate) base_attack: Damage,
+  pub(crate) base_damage: Damage,
+}
+
 // ── Actor ────────────────────────────────────────────────────────────────────
 
 #[derive(Actor, RemoteActor)]
@@ -63,6 +113,7 @@ impl From<InitialMapStats> for MapStats {
 pub(crate) struct PlayerActor {
   pub(crate) profile: PlayerProfile,
   pub(crate) initial_map_stats: InitialMapStats,
+  pub(crate) initial_combat_stats: InitialCombatStats,
   pub(crate) map_mirror: Option<PlayerMapMirror>,
 }
 
@@ -109,6 +160,7 @@ impl Message<EnterMap> for PlayerActor {
       .ask(&EnterPlayer {
         profile: self.profile.clone(),
         initial_stats: self.initial_map_stats,
+        initial_combat: self.initial_combat_stats,
       })
       .await
       .expect("EnterPlayer failed");
@@ -132,7 +184,7 @@ pub(crate) enum MapEvent {
     map_id: String,
     player: MapPlayerView,
   },
-  PlayerStatsChanged {
+  PlayerStateChanged {
     map_id: String,
     player: MapPlayerView,
   },
@@ -170,7 +222,7 @@ impl Message<ApplyMapEvent> for PlayerActor {
           self.profile.name, player.profile.id, mirror.current_map
         );
       }
-      MapEvent::PlayerStatsChanged { map_id, player } => {
+      MapEvent::PlayerStateChanged { map_id, player } => {
         let mirror = self.map_mirror.get_or_insert_with(|| PlayerMapMirror {
           current_map: map_id,
           own_state: player.clone(),
@@ -184,8 +236,17 @@ impl Message<ApplyMapEvent> for PlayerActor {
         }
 
         println!(
-          "[player] {} mirrored map stats for player:{} => red={}, blue={}",
-          self.profile.name, player.profile.id, player.stats.red, player.stats.blue,
+          "[player] {} mirrored map state for player:{} => red={}, blue={}, attack=({},{}) \
+           damage=({},{}) buffs={}",
+          self.profile.name,
+          player.profile.id,
+          player.stats.red,
+          player.stats.blue,
+          player.effective_combat.attack.red,
+          player.effective_combat.attack.blue,
+          player.effective_combat.damage.red,
+          player.effective_combat.damage.blue,
+          player.buffs.len(),
         );
       }
       MapEvent::PlayerLeft { map_id, player_id } => {
