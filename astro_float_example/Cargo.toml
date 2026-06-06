@@ -1,0 +1,7 @@
+[package]
+name = "astro_float_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+astro-float = { version = "0.9.5", default-features = false, features = ["std"] }
