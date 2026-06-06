@@ -1,0 +1,7 @@
+[package]
+name = "num_bigint_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+num-bigint = "0.4.6"
