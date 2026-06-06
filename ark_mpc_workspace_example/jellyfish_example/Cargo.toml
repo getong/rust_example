@@ -1,0 +1,17 @@
+[package]
+name = "jellyfish_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ark-bn254 = "0.4.0"
+ark-ed-on-bn254 = "0.4.0"
+ark-ff = "0.4.0"
+
+ark-mpc = { workspace = true }
+ark-std = "0.4.0"
+jf-primitives = { git = "https://github.com/renegade-fi/mpc-jellyfish.git", rev = "311568a467d0ee84517729217e0668536c1855a5" }
+mpc-plonk = { git = "https://github.com/renegade-fi/mpc-jellyfish.git", rev = "311568a467d0ee84517729217e0668536c1855a5" }
+mpc-relation = { git = "https://github.com/renegade-fi/mpc-jellyfish.git", rev = "311568a467d0ee84517729217e0668536c1855a5" }
+tokio = { workspace = true }
+typenum = "=1.19.0"
