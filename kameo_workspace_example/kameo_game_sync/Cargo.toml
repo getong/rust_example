@@ -1,0 +1,21 @@
+[package]
+name = "kameo_game_sync"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "kameo_game_sync"
+path = "src/main.rs"
+
+[[bin]]
+name = "map_node"
+path = "src/bin/map_node.rs"
+
+[[bin]]
+name = "player_node"
+path = "src/bin/player_node.rs"
+
+[dependencies]
+kameo = { version = "0.20.0", features = ["remote"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
