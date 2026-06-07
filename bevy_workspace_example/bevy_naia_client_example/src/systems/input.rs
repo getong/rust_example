@@ -1,14 +1,18 @@
-use bevy::prelude::{Input, KeyCode, Query, Res, ResMut, Vec2, Window};
-use naia_bevy_client::Client;
+use bevy::prelude::{ButtonInput, KeyCode, Query, Res, ResMut, Vec2, Window};
+use naia_bevy_client::{Client, DefaultClientTag};
 use naia_bevy_demo_shared::{components::Position, messages::KeyCommand};
 
 use crate::resources::Global;
 
-pub fn key_input(mut global: ResMut<Global>, client: Client, keyboard_input: Res<Input<KeyCode>>) {
-  let w = keyboard_input.pressed(KeyCode::W);
-  let s = keyboard_input.pressed(KeyCode::S);
-  let a = keyboard_input.pressed(KeyCode::A);
-  let d = keyboard_input.pressed(KeyCode::D);
+pub fn key_input(
+  mut global: ResMut<Global>,
+  client: Client<DefaultClientTag>,
+  keyboard_input: Res<ButtonInput<KeyCode>>,
+) {
+  let w = keyboard_input.pressed(KeyCode::KeyW);
+  let s = keyboard_input.pressed(KeyCode::KeyS);
+  let a = keyboard_input.pressed(KeyCode::KeyA);
+  let d = keyboard_input.pressed(KeyCode::KeyD);
 
   if let Some(command) = &mut global.queued_command {
     if w {
@@ -36,7 +40,7 @@ pub fn cursor_input(
   mut position_query: Query<&mut Position>,
 ) {
   if let Some(entity) = global.cursor_entity {
-    if let Ok(window) = window_query.get_single() {
+    if let Ok(window) = window_query.single() {
       if let Ok(mut cursor_position) = position_query.get_mut(entity) {
         if let Some(mouse_position) = window_relative_mouse_position(window) {
           *cursor_position.x = mouse_position.x as i16;

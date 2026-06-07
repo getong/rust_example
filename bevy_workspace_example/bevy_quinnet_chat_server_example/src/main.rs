@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use bevy::{app::ScheduleRunnerPlugin, log::LogPlugin, prelude::*};
 use bevy_quinnet::{
   server::{
-    certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, QuinnetServerPlugin,
-    Server, ServerConfiguration,
+    certificate::CertificateRetrievalMode, endpoint::Endpoint, ConnectionLostEvent,
+    EndpointAddrConfiguration, QuinnetServer, QuinnetServerPlugin, ServerEndpointConfiguration,
   },
-  shared::{channel::ChannelId, ClientId},
+  shared::ClientId,
 };
 use protocol::{ClientMessage, ServerMessage};
 
@@ -17,10 +17,10 @@ struct Users {
   names: HashMap<ClientId, String>,
 }
 
-fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) {
+fn handle_client_messages(mut server: ResMut<QuinnetServer>, mut users: ResMut<Users>) {
   let endpoint = server.endpoint_mut();
   for client_id in endpoint.clients() {
-    while let Some(message) = endpoint.try_receive_message_from::<ClientMessage>(client_id) {
+    while let Some(message) = endpoint.try_receive_message(client_id) {
       match message {
         ClientMessage::Join { name } => {
           if users.names.contains_key(&client_id) {
@@ -44,7 +44,7 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
             // Broadcast the connection event
             endpoint
               .send_group_message(
-                users.names.keys().into_iter(),
+                users.names.keys(),
                 ServerMessage::ClientConnected {
                   client_id: client_id,
                   username: name,
@@ -54,7 +54,7 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
           }
         }
         ClientMessage::Disconnect {} => {
-          // We tell the server to disconnect this user
+          // Tell the server endpoint to disconnect this user
           endpoint.disconnect_client(client_id).unwrap();
           handle_disconnect(endpoint, &mut users, client_id);
         }
@@ -64,9 +64,8 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
             users.names.get(&client_id),
             message
           );
-          endpoint.try_send_group_message_on(
-            users.names.keys().into_iter(),
-            ChannelId::UnorderedReliable,
+          endpoint.try_send_group_message(
+            users.names.keys(),
             ServerMessage::ChatMessage {
               client_id: client_id,
               message: message,
@@ -79,12 +78,12 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
 }
 
 fn handle_server_events(
-  mut connection_lost_events: EventReader<ConnectionLostEvent>,
-  mut server: ResMut<Server>,
+  mut connection_lost_events: MessageReader<ConnectionLostEvent>,
+  mut server: ResMut<QuinnetServer>,
   mut users: ResMut<Users>,
 ) {
   // The server signals us about users that lost connection
-  for client in connection_lost_events.iter() {
+  for client in connection_lost_events.read() {
     handle_disconnect(server.endpoint_mut(), &mut users, client.id);
   }
 }
@@ -97,7 +96,7 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
 
     endpoint
       .send_group_message(
-        users.names.keys().into_iter(),
+        users.names.keys(),
         ServerMessage::ClientDisconnected {
           client_id: client_id,
         },
@@ -112,14 +111,15 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
   }
 }
 
-fn start_listening(mut server: ResMut<Server>) {
+fn start_listening(mut server: ResMut<QuinnetServer>) {
   server
-    .start_endpoint(
-      ServerConfiguration::from_string("0.0.0.0:6000").unwrap(),
-      CertificateRetrievalMode::GenerateSelfSigned {
+    .start_endpoint(ServerEndpointConfiguration {
+      addr_config: EndpointAddrConfiguration::from_string("0.0.0.0:6000").unwrap(),
+      cert_mode: CertificateRetrievalMode::GenerateSelfSigned {
         server_hostname: "127.0.0.1".to_string(),
       },
-    )
+      defaultables: Default::default(),
+    })
     .unwrap();
 }
 

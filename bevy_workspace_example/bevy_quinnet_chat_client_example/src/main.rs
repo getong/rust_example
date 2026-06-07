@@ -6,22 +6,24 @@ use std::{
 
 use bevy::{
   app::{AppExit, ScheduleRunnerPlugin},
-  log::LogPlugin,
-  prelude::{
-    info, warn, App, Commands, Deref, DerefMut, EventReader, EventWriter, PostUpdate, Res, ResMut,
-    Resource, Startup, Update,
+  ecs::{
+    message::{MessageReader, MessageWriter},
+    schedule::IntoScheduleConfigs,
   },
+  log::{info, warn, LogPlugin},
+  prelude::{App, Commands, Deref, DerefMut, PostUpdate, ResMut, Resource, Startup, Update},
 };
 use bevy_quinnet::{
   client::{
     certificate::CertificateVerificationMode,
-    connection::{ConnectionConfiguration, ConnectionEvent},
-    Client, QuinnetClientPlugin,
+    client_connected,
+    connection::{ClientAddrConfiguration, ConnectionEvent, ConnectionFailedEvent},
+    ClientConnectionConfiguration, QuinnetClient, QuinnetClientPlugin,
   },
   shared::ClientId,
 };
 use protocol::{ClientMessage, ServerMessage};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, RngExt};
 use tokio::sync::mpsc;
 
 mod protocol;
@@ -35,10 +37,10 @@ struct Users {
 #[derive(Resource, Deref, DerefMut)]
 struct TerminalReceiver(mpsc::Receiver<String>);
 
-pub fn on_app_exit(app_exit_events: EventReader<AppExit>, client: Res<Client>) {
+pub fn on_app_exit(app_exit_events: MessageReader<AppExit>, mut client: ResMut<QuinnetClient>) {
   if !app_exit_events.is_empty() {
     client
-      .connection()
+      .connection_mut()
       .send_message(ClientMessage::Disconnect {})
       .unwrap();
     // TODO Clean: event to let the async client send his last messages.
@@ -46,11 +48,8 @@ pub fn on_app_exit(app_exit_events: EventReader<AppExit>, client: Res<Client>) {
   }
 }
 
-fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<Client>) {
-  while let Some(message) = client
-    .connection_mut()
-    .try_receive_message::<ServerMessage>()
-  {
+fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<QuinnetClient>) {
+  while let Some(message) = client.connection_mut().try_receive_message() {
     match message {
       ServerMessage::ClientConnected {
         client_id,
@@ -88,15 +87,15 @@ fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<Client>) 
 
 fn handle_terminal_messages(
   mut terminal_messages: ResMut<TerminalReceiver>,
-  mut app_exit_events: EventWriter<AppExit>,
-  client: Res<Client>,
+  mut app_exit_events: MessageWriter<AppExit>,
+  mut client: ResMut<QuinnetClient>,
 ) {
   while let Ok(message) = terminal_messages.try_recv() {
     if message == "quit" {
-      app_exit_events.send(AppExit);
+      app_exit_events.write(AppExit::Success);
     } else {
       client
-        .connection()
+        .connection_mut()
         .try_send_message(ClientMessage::ChatMessage { message: message });
     }
   }
@@ -116,12 +115,13 @@ fn start_terminal_listener(mut commands: Commands) {
   commands.insert_resource(TerminalReceiver(from_terminal_receiver));
 }
 
-fn start_connection(mut client: ResMut<Client>) {
+fn start_connection(mut client: ResMut<QuinnetClient>) {
   client
-    .open_connection(
-      ConnectionConfiguration::from_strings("127.0.0.1:6000", "0.0.0.0:0").unwrap(),
-      CertificateVerificationMode::SkipVerification,
-    )
+    .open_connection(ClientConnectionConfiguration {
+      addr_config: ClientAddrConfiguration::from_strings("127.0.0.1:6000", "0.0.0.0:0").unwrap(),
+      cert_mode: CertificateVerificationMode::SkipVerification,
+      defaultables: Default::default(),
+    })
     .unwrap();
 
   // You can already send message(s) even before being connected, they will be buffered. In this
@@ -129,12 +129,13 @@ fn start_connection(mut client: ResMut<Client>) {
 }
 
 fn handle_client_events(
-  mut connection_events: EventReader<ConnectionEvent>,
-  client: ResMut<Client>,
+  mut connection_events: MessageReader<ConnectionEvent>,
+  mut connection_failed_events: MessageReader<ConnectionFailedEvent>,
+  mut client: ResMut<QuinnetClient>,
 ) {
   if !connection_events.is_empty() {
     // We are connected
-    let username: String = rand::thread_rng()
+    let username: String = rand::rng()
       .sample_iter(&Alphanumeric)
       .take(7)
       .map(char::from)
@@ -144,11 +145,18 @@ fn handle_client_events(
     println!("--- Type 'quit' to disconnect");
 
     client
-      .connection()
+      .connection_mut()
       .send_message(ClientMessage::Join { name: username })
       .unwrap();
 
     connection_events.clear();
+  }
+
+  for ev in connection_failed_events.read() {
+    println!(
+      "Failed to connect: {:?}, make sure the chat-server is running.",
+      ev.err
+    );
   }
 }
 
@@ -164,9 +172,8 @@ fn main() {
     .add_systems(
       Update,
       (
-        handle_terminal_messages,
-        handle_server_messages,
         handle_client_events,
+        (handle_terminal_messages, handle_server_messages).run_if(client_connected),
       ),
     )
     // CoreSet::PostUpdate so that AppExit events generated in the previous stage are available

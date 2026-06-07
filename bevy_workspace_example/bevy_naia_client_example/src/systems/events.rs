@@ -1,18 +1,14 @@
-use std::default::Default;
-
 use bevy::{
-  prelude::{
-    info, Color as BevyColor, Commands, EventReader, Query, Res, ResMut, Sprite, SpriteBundle,
-    Transform, Vec2,
-  },
-  sprite::MaterialMesh2dBundle,
+  ecs::message::MessageReader,
+  log::info,
+  prelude::{Color as BevyColor, Commands, Query, ResMut, Sprite, Transform, Vec2},
 };
 use naia_bevy_client::{
   events::{
-    ClientTickEvent, ConnectEvent, DespawnEntityEvent, DisconnectEvent, InsertComponentEvents,
-    MessageEvents, RejectEvent, RemoveComponentEvents, SpawnEntityEvent, UpdateComponentEvents,
+    ClientTickEvent, ConnectEvent, DespawnEntityEvent, DisconnectEvent, InsertComponentEvent,
+    MessageEvents, RejectEvent, RemoveComponentEvent, SpawnEntityEvent, UpdateComponentEvent,
   },
-  sequence_greater_than, Client, CommandsExt, Random, Replicate, Tick,
+  sequence_greater_than, Client, CommandsExt, DefaultClientTag, Random, Replicate, Tick,
 };
 use naia_bevy_demo_shared::{
   behavior as shared_behavior,
@@ -27,14 +23,28 @@ use crate::{
 };
 
 const SQUARE_SIZE: f32 = 32.0;
+const CURSOR_SIZE: f32 = 12.0;
+
+fn sprite_color(value: &ColorValue) -> BevyColor {
+  match value {
+    ColorValue::Red => BevyColor::srgb(1.0, 0.0, 0.0),
+    ColorValue::Blue => BevyColor::srgb(0.0, 0.0, 1.0),
+    ColorValue::Yellow => BevyColor::srgb(1.0, 1.0, 0.0),
+    ColorValue::Green => BevyColor::srgb(0.0, 1.0, 0.0),
+    ColorValue::White => BevyColor::WHITE,
+    ColorValue::Purple => BevyColor::srgb(0.5, 0.0, 0.5),
+    ColorValue::Orange => BevyColor::srgb(1.0, 0.5, 0.0),
+    ColorValue::Aqua => BevyColor::srgb(0.0, 1.0, 1.0),
+  }
+}
 
 pub fn connect_events(
   mut commands: Commands,
-  mut client: Client,
+  mut client: Client<DefaultClientTag>,
   mut global: ResMut<Global>,
-  mut event_reader: EventReader<ConnectEvent>,
+  mut event_reader: MessageReader<ConnectEvent<DefaultClientTag>>,
 ) {
-  for _ in event_reader.iter() {
+  for _ in event_reader.read() {
     let Ok(server_address) = client.server_address() else {
       panic!("Shouldn't happen");
     };
@@ -62,38 +72,36 @@ pub fn connect_events(
       // return Entity id
       .id();
 
-    // Insert SpriteBundle locally only
-    commands.entity(cursor_entity).insert(MaterialMesh2dBundle {
-      mesh: global.circle.clone().into(),
-      material: global.white.clone(),
-      transform: Transform::from_xyz(0.0, 0.0, 1.0),
-      ..Default::default()
-    });
+    // Insert local-only sprite components.
+    commands.entity(cursor_entity).insert((
+      Sprite::from_color(BevyColor::WHITE, Vec2::splat(CURSOR_SIZE)),
+      Transform::from_xyz(0.0, 0.0, 1.0),
+    ));
 
     global.cursor_entity = Some(cursor_entity);
   }
 }
 
-pub fn reject_events(mut event_reader: EventReader<RejectEvent>) {
-  for _ in event_reader.iter() {
+pub fn reject_events(mut event_reader: MessageReader<RejectEvent<DefaultClientTag>>) {
+  for _ in event_reader.read() {
     info!("Client rejected from connecting to Server");
   }
 }
 
-pub fn disconnect_events(mut event_reader: EventReader<DisconnectEvent>) {
-  for _ in event_reader.iter() {
+pub fn disconnect_events(mut event_reader: MessageReader<DisconnectEvent<DefaultClientTag>>) {
+  for _ in event_reader.read() {
     info!("Client disconnected from Server");
   }
 }
 
 pub fn message_events(
   mut commands: Commands,
-  client: Client,
+  client: Client<DefaultClientTag>,
   mut global: ResMut<Global>,
-  mut event_reader: EventReader<MessageEvents>,
+  mut event_reader: MessageReader<MessageEvents<DefaultClientTag>>,
   position_query: Query<&Position>,
 ) {
-  for events in event_reader.iter() {
+  for events in event_reader.read() {
     for message in events.read::<EntityAssignmentChannel, EntityAssignment>() {
       let assign = message.assign;
 
@@ -103,23 +111,17 @@ pub fn message_events(
 
         // Here we create a local copy of the Player entity, to use for client-side prediction
         if let Ok(position) = position_query.get(entity) {
-          let prediction_entity = commands
-            .entity(entity)
-            .duplicate() // copies all Replicate components as well
-            .insert(SpriteBundle {
-              sprite: Sprite {
-                custom_size: Some(Vec2::new(SQUARE_SIZE, SQUARE_SIZE)),
-                color: BevyColor::WHITE,
-                ..Default::default()
-              },
-              transform: Transform::from_xyz(0.0, 0.0, 1.0),
-              ..Default::default()
-            })
+          let prediction_entity = commands.entity(entity).local_duplicate();
+          commands
+            .entity(prediction_entity)
+            .insert((
+              Sprite::from_color(BevyColor::WHITE, Vec2::new(SQUARE_SIZE, SQUARE_SIZE)),
+              Transform::from_xyz(0.0, 0.0, 1.0),
+            ))
             // insert interpolation component
             .insert(Interp::new(*position.x, *position.y))
             // mark as predicted
-            .insert(Predicted)
-            .id();
+            .insert(Predicted);
 
           global.owned_entity = Some(OwnedEntity::new(entity, prediction_entity));
         }
@@ -140,105 +142,78 @@ pub fn message_events(
   }
 }
 
-pub fn spawn_entity_events(mut event_reader: EventReader<SpawnEntityEvent>) {
-  for SpawnEntityEvent(_entity) in event_reader.iter() {
+pub fn spawn_entity_events(mut event_reader: MessageReader<SpawnEntityEvent<DefaultClientTag>>) {
+  for _event in event_reader.read() {
     info!("spawned entity");
   }
 }
 
-pub fn despawn_entity_events(mut event_reader: EventReader<DespawnEntityEvent>) {
-  for DespawnEntityEvent(_entity) in event_reader.iter() {
+pub fn despawn_entity_events(
+  mut event_reader: MessageReader<DespawnEntityEvent<DefaultClientTag>>,
+) {
+  for _event in event_reader.read() {
     info!("despawned entity");
   }
 }
 
 pub fn insert_component_events(
   mut commands: Commands,
-  mut event_reader: EventReader<InsertComponentEvents>,
-  global: Res<Global>,
+  mut color_reader: MessageReader<InsertComponentEvent<DefaultClientTag, Color>>,
+  mut position_reader: MessageReader<InsertComponentEvent<DefaultClientTag, Position>>,
   sprite_query: Query<(&Shape, &Color)>,
   position_query: Query<&Position>,
 ) {
-  for events in event_reader.iter() {
-    for entity in events.read::<Color>() {
-      // When we receive a replicated Color component for a given Entity,
-      // use that value to also insert a local-only SpriteBundle component into this entity
-      info!("add Color Component to entity");
+  for event in color_reader.read() {
+    let entity = event.entity;
+    // When we receive a replicated Color component for a given Entity,
+    // use that value to also insert local-only sprite components into this entity.
+    info!("add Color Component to entity");
 
-      if let Ok((shape, color)) = sprite_query.get(entity) {
-        match *shape.value {
-          // Square
-          ShapeValue::Square => {
-            let color = {
-              match *color.value {
-                ColorValue::Red => BevyColor::RED,
-                ColorValue::Blue => BevyColor::BLUE,
-                ColorValue::Yellow => BevyColor::YELLOW,
-                ColorValue::Green => BevyColor::GREEN,
-                ColorValue::White => BevyColor::WHITE,
-                ColorValue::Purple => BevyColor::PURPLE,
-                ColorValue::Orange => BevyColor::ORANGE,
-                ColorValue::Aqua => BevyColor::AQUAMARINE,
-              }
-            };
-
-            commands
-              .entity(entity)
-              .insert(SpriteBundle {
-                sprite: Sprite {
-                  custom_size: Some(Vec2::new(SQUARE_SIZE, SQUARE_SIZE)),
-                  color,
-                  ..Default::default()
-                },
-                transform: Transform::from_xyz(0.0, 0.0, 0.0),
-                ..Default::default()
-              })
-              // mark as confirmed
-              .insert(Confirmed);
-          }
-          // Circle
-          ShapeValue::Circle => {
-            let handle = {
-              match *color.value {
-                ColorValue::Red => &global.red,
-                ColorValue::Blue => &global.blue,
-                ColorValue::Yellow => &global.yellow,
-                ColorValue::Green => &global.green,
-                ColorValue::White => &global.white,
-                ColorValue::Purple => &global.purple,
-                ColorValue::Orange => &global.orange,
-                ColorValue::Aqua => &global.aqua,
-              }
-            };
-            commands
-              .entity(entity)
-              .insert(MaterialMesh2dBundle {
-                mesh: global.circle.clone().into(),
-                material: handle.clone(),
-                transform: Transform::from_xyz(0.0, 0.0, 0.0),
-                ..Default::default()
-              })
-              // mark as confirmed
-              .insert(Confirmed);
-          }
+    if let Ok((shape, color)) = sprite_query.get(entity) {
+      match &*shape.value {
+        // Square
+        ShapeValue::Square => {
+          commands
+            .entity(entity)
+            .insert((
+              Sprite::from_color(
+                sprite_color(&color.value),
+                Vec2::new(SQUARE_SIZE, SQUARE_SIZE),
+              ),
+              Transform::from_xyz(0.0, 0.0, 0.0),
+            ))
+            // mark as confirmed
+            .insert(Confirmed);
+        }
+        // Circle
+        ShapeValue::Circle => {
+          commands
+            .entity(entity)
+            .insert((
+              Sprite::from_color(sprite_color(&color.value), Vec2::splat(CURSOR_SIZE)),
+              Transform::from_xyz(0.0, 0.0, 0.0),
+            ))
+            // mark as confirmed
+            .insert(Confirmed);
         }
       }
     }
-    for entity in events.read::<Position>() {
-      info!("add Position Component to entity");
-      if let Ok(position) = position_query.get(entity) {
-        // initialize interpolation
-        commands
-          .entity(entity)
-          .insert(Interp::new(*position.x, *position.y));
-      }
+  }
+  for event in position_reader.read() {
+    let entity = event.entity;
+    info!("add Position Component to entity");
+    if let Ok(position) = position_query.get(entity) {
+      // initialize interpolation
+      commands
+        .entity(entity)
+        .insert(Interp::new(*position.x, *position.y));
     }
   }
 }
 
 pub fn update_component_events(
   mut global: ResMut<Global>,
-  mut event_reader: EventReader<UpdateComponentEvents>,
+  mut event_reader: MessageReader<UpdateComponentEvent<DefaultClientTag, Position>>,
   mut position_query: Query<&mut Position>,
 ) {
   // When we receive a new Position update for the Player's Entity,
@@ -250,18 +225,16 @@ pub fn update_component_events(
     let server_entity = owned_entity.confirmed;
     let client_entity = owned_entity.predicted;
 
-    for events in event_reader.iter() {
+    for event in event_reader.read() {
       // Update square position
-      for (server_tick, updated_entity) in events.read::<Position>() {
-        // If entity is owned
-        if updated_entity == server_entity {
-          if let Some(last_tick) = &mut latest_tick {
-            if sequence_greater_than(server_tick, *last_tick) {
-              *last_tick = server_tick;
-            }
-          } else {
-            latest_tick = Some(server_tick);
+      // If entity is owned
+      if event.entity == server_entity {
+        if let Some(last_tick) = &mut latest_tick {
+          if sequence_greater_than(event.tick, *last_tick) {
+            *last_tick = event.tick;
           }
+        } else {
+          latest_tick = Some(event.tick);
         }
       }
     }
@@ -288,21 +261,22 @@ pub fn update_component_events(
   }
 }
 
-pub fn remove_component_events(mut event_reader: EventReader<RemoveComponentEvents>) {
-  for events in event_reader.iter() {
-    for (_entity, _component) in events.read::<Position>() {
-      info!("removed Position component from entity");
-    }
-    for (_entity, _component) in events.read::<Color>() {
-      info!("removed Color component from entity");
-    }
+pub fn remove_component_events(
+  mut position_reader: MessageReader<RemoveComponentEvent<DefaultClientTag, Position>>,
+  mut color_reader: MessageReader<RemoveComponentEvent<DefaultClientTag, Color>>,
+) {
+  for _event in position_reader.read() {
+    info!("removed Position component from entity");
+  }
+  for _event in color_reader.read() {
+    info!("removed Color component from entity");
   }
 }
 
 pub fn tick_events(
-  mut client: Client,
+  mut client: Client<DefaultClientTag>,
   mut global: ResMut<Global>,
-  mut tick_reader: EventReader<ClientTickEvent>,
+  mut tick_reader: MessageReader<ClientTickEvent<DefaultClientTag>>,
   mut position_query: Query<&mut Position>,
 ) {
   let Some(predicted_entity) = global
@@ -318,17 +292,18 @@ pub fn tick_events(
     return;
   };
 
-  for ClientTickEvent(client_tick) in tick_reader.iter() {
-    if !global.command_history.can_insert(client_tick) {
+  for event in tick_reader.read() {
+    let client_tick = event.tick;
+    if !global.command_history.can_insert(&client_tick) {
       // History is full
       continue;
     }
 
     // Record command
-    global.command_history.insert(*client_tick, command.clone());
+    global.command_history.insert(client_tick, command.clone());
 
     // Send command
-    client.send_tick_buffer_message::<PlayerCommandChannel, KeyCommand>(client_tick, &command);
+    client.send_tick_buffer_message::<PlayerCommandChannel, KeyCommand>(&client_tick, &command);
 
     if let Ok(mut position) = position_query.get_mut(predicted_entity) {
       // Apply command

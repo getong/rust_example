@@ -1,27 +1,25 @@
 use bevy::prelude::*;
-use leafwing_input_manager::{
-  errors::NearlySingularConversion, orientation::Direction, prelude::*,
-};
+use leafwing_input_manager::prelude::*;
 
 fn main() {
   App::new()
     .add_plugins(DefaultPlugins)
     // This plugin maps inputs to an input-type agnostic action-state
     // We need to provide it with an enum which stores the possible actions a player could take
-    .add_plugin(InputManagerPlugin::<ArpgAction>::default())
+    .add_plugins(InputManagerPlugin::<ArpgAction>::default())
     // The InputMap and ActionState components will be added to any entity with the Player component
-    .add_startup_system(spawn_player)
+    .add_systems(Startup, spawn_player)
     // The ActionState can be used directly
-    .add_system(cast_fireball)
+    .add_systems(Update, cast_fireball)
     // Or multiple parts of it can be inspected
-    .add_system(player_dash)
-    // Or it can be used to emit events for later processing
-    .add_event::<PlayerWalk>()
-    .add_system(player_walks)
+    .add_systems(Update, player_dash)
+    // Or it can be used to emit messages for later processing
+    .add_message::<PlayerWalk>()
+    .add_systems(Update, player_walks)
     .run();
 }
 
-#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug)]
+#[derive(Actionlike, PartialEq, Eq, Clone, Copy, Hash, Debug, Reflect)]
 enum ArpgAction {
   // Movement
   Up,
@@ -45,12 +43,12 @@ impl ArpgAction {
     ArpgAction::Right,
   ];
 
-  fn direction(self) -> Option<Direction> {
+  fn direction(self) -> Option<Dir2> {
     match self {
-      ArpgAction::Up => Some(Direction::NORTH),
-      ArpgAction::Down => Some(Direction::SOUTH),
-      ArpgAction::Left => Some(Direction::WEST),
-      ArpgAction::Right => Some(Direction::EAST),
+      ArpgAction::Up => Some(Dir2::Y),
+      ArpgAction::Down => Some(Dir2::NEG_Y),
+      ArpgAction::Left => Some(Dir2::NEG_X),
+      ArpgAction::Right => Some(Dir2::X),
       _ => None,
     }
   }
@@ -59,16 +57,7 @@ impl ArpgAction {
 #[derive(Component)]
 pub struct Player;
 
-#[derive(Bundle)]
-struct PlayerBundle {
-  player: Player,
-  // This bundle must be added to your player entity
-  // (or whatever else you wish to control)
-  #[bundle]
-  input_manager: InputManagerBundle<ArpgAction>,
-}
-
-impl PlayerBundle {
+impl Player {
   fn default_input_map() -> InputMap<ArpgAction> {
     // This allows us to replace `ArpgAction::Up` with `Up`,
     // significantly reducing boilerplate
@@ -76,75 +65,65 @@ impl PlayerBundle {
     let mut input_map = InputMap::default();
 
     // Movement
-    input_map.insert(KeyCode::Up, Up);
-    input_map.insert(GamepadButtonType::DPadUp, Up);
+    input_map.insert(Up, KeyCode::ArrowUp);
+    input_map.insert(Up, GamepadButton::DPadUp);
 
-    input_map.insert(KeyCode::Down, Down);
-    input_map.insert(GamepadButtonType::DPadDown, Down);
+    input_map.insert(Down, KeyCode::ArrowDown);
+    input_map.insert(Down, GamepadButton::DPadDown);
 
-    input_map.insert(KeyCode::Left, Left);
-    input_map.insert(GamepadButtonType::DPadLeft, Left);
+    input_map.insert(Left, KeyCode::ArrowLeft);
+    input_map.insert(Left, GamepadButton::DPadLeft);
 
-    input_map.insert(KeyCode::Right, Right);
-    input_map.insert(GamepadButtonType::DPadRight, Right);
+    input_map.insert(Right, KeyCode::ArrowRight);
+    input_map.insert(Right, GamepadButton::DPadRight);
 
     // Abilities
-    input_map.insert(KeyCode::Q, Ability1);
-    input_map.insert(GamepadButtonType::West, Ability1);
-    input_map.insert(MouseButton::Left, Ability1);
+    input_map.insert(Ability1, KeyCode::KeyQ);
+    input_map.insert(Ability1, GamepadButton::West);
+    input_map.insert(Ability1, MouseButton::Left);
 
-    input_map.insert(KeyCode::W, Ability2);
-    input_map.insert(GamepadButtonType::North, Ability2);
-    input_map.insert(MouseButton::Right, Ability2);
+    input_map.insert(Ability2, KeyCode::KeyW);
+    input_map.insert(Ability2, GamepadButton::North);
+    input_map.insert(Ability2, MouseButton::Right);
 
-    input_map.insert(KeyCode::E, Ability3);
-    input_map.insert(GamepadButtonType::East, Ability3);
+    input_map.insert(Ability3, KeyCode::KeyE);
+    input_map.insert(Ability3, GamepadButton::East);
 
-    input_map.insert(KeyCode::Space, Ability4);
-    input_map.insert(GamepadButtonType::South, Ability4);
+    input_map.insert(Ability4, KeyCode::Space);
+    input_map.insert(Ability4, GamepadButton::South);
 
-    input_map.insert(KeyCode::R, Ultimate);
-    input_map.insert(GamepadButtonType::LeftTrigger2, Ultimate);
+    input_map.insert(Ultimate, KeyCode::KeyR);
+    input_map.insert(Ultimate, GamepadButton::LeftTrigger2);
 
     input_map
   }
 }
 
 fn spawn_player(mut commands: Commands) {
-  commands.spawn(PlayerBundle {
-    player: Player,
-    input_manager: InputManagerBundle {
-      input_map: PlayerBundle::default_input_map(),
-      ..default()
-    },
-  });
+  commands.spawn((Player, Player::default_input_map()));
 }
 
-fn cast_fireball(query: Query<&ActionState<ArpgAction>, With<Player>>) {
-  let action_state = query.single();
-
-  if action_state.just_pressed(ArpgAction::Ability1) {
+fn cast_fireball(action_state: Single<&ActionState<ArpgAction>, With<Player>>) {
+  if action_state.just_pressed(&ArpgAction::Ability1) {
     println!("Fwoosh!");
   }
 }
 
-fn player_dash(query: Query<&ActionState<ArpgAction>, With<Player>>) {
-  let action_state = query.single();
-
-  if action_state.just_pressed(ArpgAction::Ability4) {
+fn player_dash(action_state: Single<&ActionState<ArpgAction>, With<Player>>) {
+  if action_state.just_pressed(&ArpgAction::Ability4) {
     let mut direction_vector = Vec2::ZERO;
 
     for input_direction in ArpgAction::DIRECTIONS {
-      if action_state.pressed(input_direction) {
+      if action_state.pressed(&input_direction) {
         if let Some(direction) = input_direction.direction() {
           // Sum the directions as 2D vectors
-          direction_vector += Vec2::from(direction);
+          direction_vector += *direction;
         }
       }
     }
 
     // Then reconvert at the end, normalizing the magnitude
-    let net_direction: Result<Direction, NearlySingularConversion> = direction_vector.try_into();
+    let net_direction = Dir2::new(direction_vector);
 
     if let Ok(direction) = net_direction {
       println!("Dashing in {direction:?}");
@@ -152,31 +131,30 @@ fn player_dash(query: Query<&ActionState<ArpgAction>, With<Player>>) {
   }
 }
 
+#[derive(Message)]
 pub struct PlayerWalk {
-  pub direction: Direction,
+  pub direction: Dir2,
 }
 
 fn player_walks(
-  query: Query<&ActionState<ArpgAction>, With<Player>>,
-  mut event_writer: EventWriter<PlayerWalk>,
+  action_state: Single<&ActionState<ArpgAction>, With<Player>>,
+  mut message_writer: MessageWriter<PlayerWalk>,
 ) {
-  let action_state = query.single();
-
   let mut direction_vector = Vec2::ZERO;
 
   for input_direction in ArpgAction::DIRECTIONS {
-    if action_state.pressed(input_direction) {
+    if action_state.pressed(&input_direction) {
       if let Some(direction) = input_direction.direction() {
         // Sum the directions as 2D vectors
-        direction_vector += Vec2::from(direction);
+        direction_vector += *direction;
       }
     }
   }
 
   // Then reconvert at the end, normalizing the magnitude
-  let net_direction: Result<Direction, NearlySingularConversion> = direction_vector.try_into();
+  let net_direction = Dir2::new(direction_vector);
 
   if let Ok(direction) = net_direction {
-    event_writer.send(PlayerWalk { direction });
+    message_writer.write(PlayerWalk { direction });
   }
 }

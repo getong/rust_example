@@ -10,7 +10,8 @@ publish = false
 [features]
 
 [dependencies]
-naia-bevy-shared = "0.21.0"
-bevy_ecs = { version = "0.10", default-features=false}
+naia-bevy-shared = "0.25.0"
+naia-shared = "0.25.0"
+bevy_ecs = { version = "0.18", default-features=false}
 cfg-if = { version = "1.0" }
 log = { version = "0.4" }
