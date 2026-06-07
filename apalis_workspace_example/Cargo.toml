@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "apalis_workflow_example",
+]

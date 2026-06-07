@@ -1,0 +1,10 @@
+[package]
+name = "apalis_workflow_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+  apalis = "1.0.0-rc.9"
+apalis-file-storage = "0.1.0-rc.9"
+apalis-workflow = "0.1.0-rc.9"
+tokio = { version = "1.52.3", features = ["full"] }
