@@ -3,23 +3,31 @@ name = "bevy_naia_client_example"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "app"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
 name = "app"
 path = "src/main.rs"
 
-[lib]
-name = "app"
-path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-naia-bevy-client = { version = "0.25.0", features = ["transport_webrtc"] }
-naia-bevy-demo-shared = { path = "../naia-bevy-demo-shared" }
-bevy = { version = "0.18.1", default-features = false, features = [ "bevy_asset", "bevy_log", "bevy_winit", "bevy_core_pipeline", "bevy_render", "bevy_sprite", "x11"] }
+bevy = { version = "0.18.1", default-features = false, features = [
+  "bevy_asset",
+  "bevy_log",
+  "bevy_winit",
+  "bevy_core_pipeline",
+  "bevy_render",
+  "bevy_sprite",
+  "x11",
+] }
 
 cfg-if = { version = "1.0" }
+naia-bevy-client = { version = "0.25.0", features = ["transport_webrtc"] }
+naia-bevy-demo-shared = { path = "../naia-bevy-demo-shared" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = { version = "0.2.122", features = [ "serde-serialize" ] }
+wasm-bindgen = { version = "0.2.122", features = ["serde-serialize"] }
