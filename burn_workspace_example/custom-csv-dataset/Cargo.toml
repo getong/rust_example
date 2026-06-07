@@ -1,0 +1,19 @@
+[package]
+name = "custom-csv-dataset"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+dataframe = ["dep:burn-dataset", "dep:polars"]
+
+[dependencies]
+burn = { version = "0.21.0", features = ["default", "dataset"] }
+burn-dataset = { version = "0.21.0", features = ["default", "dataframe"], optional = true }
+csv = "1.4.0"
+polars = { version = "0.53.0", features = ["csv", "temporal"], optional = true }
+reqwest = { version = "0.13.4", features = ["blocking"] }
+serde = { version = "1.0.228", features = ["std", "derive"] }
+
+[[example]]
+name = "dataframe-dataset"
+required-features = ["dataframe"]

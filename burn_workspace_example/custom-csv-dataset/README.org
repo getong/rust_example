@@ -1,0 +1,6 @@
+* run command
+
+
+#+begin_src shell
+cargo run --features dataframe --example dataframe-dataset
+#+end_src
