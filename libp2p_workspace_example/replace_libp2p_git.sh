@@ -54,7 +54,7 @@ fi
 
 perl -Mstrict -Mwarnings -e '
 my $dry_run = shift @ARGV;
-my $replacement = q{libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "deaa96ccaf3e6bd518bfc346fb8c0d24d195461e", features = ["full"] }};
+my $replacement = q{libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3e72d4c071d5ec8815d2f6f7ee3602600ff51798", features = ["full"] }};
 my $total = 0;
 
 for my $path (@ARGV) {
