@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = [
+    "in_memory_users",
+    "file_posts",
+    "remote_sync_notes",
+]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+turso = "=0.7.0-pre.5"
