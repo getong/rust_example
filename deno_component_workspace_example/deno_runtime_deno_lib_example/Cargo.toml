@@ -8,20 +8,20 @@ anyhow = "1.0"
 async-trait = "0.1.89"
 base64 = "0.22.1"
 deno_ast = { version = "=0.53.2", features = ["transpiling"] }
-deno_core = "0.401.0"
+deno_core = "0.403.0"
 deno_graph = "=0.108.2"
-deno_lib = "0.66.0"
-deno_npm = "0.60.0"
-deno_npm_cache = "0.67.0"
-deno_resolver = "0.79.0"
-deno_runtime = { version = "0.256.0", features = ["transpile"] }
+deno_lib = "0.68.0"
+deno_npm = "0.62.0"
+deno_npm_cache = "0.69.0"
+deno_resolver = "0.81.0"
+deno_runtime = { version = "0.258.0", features = ["transpile"] }
 deno_semver = "=0.10.0"
 dirs = "6.0.0"
 flate2 = "1.1"
 import_map = "0.25.0"
 indexmap = "2"
 once_cell = "1.21.4"
-reqwest = { version = "0.13.3", features = ["json"] }
+reqwest = { version = "0.13.4", features = ["json"] }
 semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

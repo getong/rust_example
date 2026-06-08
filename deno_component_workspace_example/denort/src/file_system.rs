@@ -21,7 +21,7 @@ use deno_lib::standalone::virtual_fs::{
 use deno_runtime::{
   deno_fs::{FileSystem, FsDirEntry, FsFileType, OpenOptions, RealFs},
   deno_io,
-  deno_io::fs::{File as DenoFile, FsError, FsResult, FsStat},
+  deno_io::fs::{File as DenoFile, FsError, FsResult, FsStat, FsStatFs},
   deno_napi::{DenoRtNativeAddonLoader, DenoRtNativeAddonLoaderRc},
   deno_permissions::{CheckedPath, CheckedPathBuf},
 };
@@ -331,6 +331,23 @@ impl FileSystem for DenoRtSys {
     }
   }
 
+  fn statfs_sync(&self, path: &CheckedPath, bigint: bool) -> FsResult<FsStatFs> {
+    if self.is_vfs_path(path) {
+      self.vfs.stat(path)?;
+      Ok(vfs_statfs())
+    } else {
+      RealFs.statfs_sync(path, bigint)
+    }
+  }
+  async fn statfs_async(&self, path: CheckedPathBuf, bigint: bool) -> FsResult<FsStatFs> {
+    if self.is_vfs_path(&path) {
+      self.vfs.stat(&path)?;
+      Ok(vfs_statfs())
+    } else {
+      RealFs.statfs_async(path, bigint).await
+    }
+  }
+
   fn realpath_sync(&self, path: &CheckedPath) -> FsResult<PathBuf> {
     if self.is_vfs_path(path) {
       Ok(self.vfs.canonicalize(path)?)
@@ -589,6 +606,10 @@ impl sys_traits::FsMetadataValue for FileBackedVfsMetadata {
   fn file_attributes(&self) -> std::io::Result<u32> {
     Ok(0)
   }
+}
+
+fn vfs_statfs() -> FsStatFs {
+  FsStatFs::default()
 }
 
 fn not_supported(name: &str) -> std::io::Error {

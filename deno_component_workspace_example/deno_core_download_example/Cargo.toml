@@ -13,7 +13,7 @@ base64 = "0.22.1"
 dirs = "6.0.0"
 flate2 = "1.1.9"
 futures = "0.3.32"
-reqwest = { version = "0.13.3", features = [
+reqwest = { version = "0.13.4", features = [
   "json"
 ], default-features = false }
 semver = "1.0.28"

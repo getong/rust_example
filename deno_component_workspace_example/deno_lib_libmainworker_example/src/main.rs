@@ -102,6 +102,13 @@ impl NodeRequireLoader for SimpleModuleLoader {
   ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(false)
   }
+
+  fn is_maybe_cjs_from_require(
+    &self,
+    _specifier: &Url,
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
+    Ok(false)
+  }
 }
 
 // Simple module loader factory

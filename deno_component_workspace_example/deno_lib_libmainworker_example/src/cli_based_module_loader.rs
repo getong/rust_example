@@ -333,6 +333,13 @@ impl NodeRequireLoader for SimpleNodeRequireLoader {
     Ok(false)
   }
 
+  fn is_maybe_cjs_from_require(
+    &self,
+    _specifier: &ModuleSpecifier,
+  ) -> Result<bool, PackageJsonLoadError> {
+    Ok(false)
+  }
+
   fn resolve_require_node_module_paths(&self, _from: &Path) -> Vec<String> {
     // For this example, return empty paths
     Vec::new()

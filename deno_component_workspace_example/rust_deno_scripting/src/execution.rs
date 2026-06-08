@@ -43,6 +43,13 @@ impl deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
   ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(false)
   }
+
+  fn is_maybe_cjs_from_require(
+    &self,
+    _url: &deno_core::url::Url,
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
+    Ok(false)
+  }
 }
 
 pub async fn run_js(

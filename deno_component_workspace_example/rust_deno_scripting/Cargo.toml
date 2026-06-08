@@ -7,17 +7,17 @@ edition = "2024"
 anyhow = "1"
 base64 = "0.22.1"
 deno_ast = { version = "=0.53.2", features = ["transpiling"] }
-deno_core = "0.401.0"
+deno_core = "0.403.0"
 deno_error = "=0.7.1"
 deno_graph = "=0.108.2"
-deno_node = "0.186.0"
-deno_resolver = "0.79"
-deno_runtime = { version = "0.256", features = ["transpile"] }
+deno_node = "0.188.0"
+deno_resolver = "0.81"
+deno_runtime = { version = "0.258", features = ["transpile"] }
 deno_semver = "=0.10.0"
 dirs = "6.0.0"
 flate2 = "1.1"
-node_resolver = "0.86.0"
-reqwest = { version = "0.13.3", features = ["json"] }
+node_resolver = "0.88.0"
+reqwest = { version = "0.13.4", features = ["json"] }
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

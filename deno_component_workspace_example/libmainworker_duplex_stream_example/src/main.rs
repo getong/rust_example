@@ -188,6 +188,10 @@ impl NodeRequireLoader for DirectNodeRequireLoader {
         | deno_ast::MediaType::Unknown
     ))
   }
+
+  fn is_maybe_cjs_from_require(&self, specifier: &Url) -> Result<bool, PackageJsonLoadError> {
+    self.is_maybe_cjs(specifier)
+  }
 }
 
 fn parse_startup_args(args: Vec<String>) -> Result<StartupArgs, AnyError> {

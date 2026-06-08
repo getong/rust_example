@@ -71,6 +71,13 @@ impl deno_node::NodeRequireLoader for ExampleNodeRequireLoader {
   ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(false)
   }
+
+  fn is_maybe_cjs_from_require(
+    &self,
+    _specifier: &deno_core::url::Url,
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
+    Ok(false)
+  }
 }
 
 // Example permissions implementation

@@ -217,6 +217,13 @@ impl deno_runtime::deno_node::NodeRequireLoader for SimpleNodeRequireLoader {
   fn is_maybe_cjs(&self, specifier: &ModuleSpecifier) -> Result<bool, PackageJsonLoadError> {
     Ok(specifier.path().ends_with(".cjs") || specifier.path().contains("/node_modules/"))
   }
+
+  fn is_maybe_cjs_from_require(
+    &self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<bool, PackageJsonLoadError> {
+    self.is_maybe_cjs(specifier)
+  }
 }
 
 /// Example usage

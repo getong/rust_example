@@ -161,6 +161,13 @@ impl NodeRequireLoader for SimpleModuleLoader {
   ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
     Ok(specifier.path().ends_with(".cjs") || self.in_npm_pkg_checker.in_npm_package(specifier))
   }
+
+  fn is_maybe_cjs_from_require(
+    &self,
+    specifier: &Url,
+  ) -> Result<bool, node_resolver::errors::PackageJsonLoadError> {
+    self.is_maybe_cjs(specifier)
+  }
 }
 
 // Module loader factory

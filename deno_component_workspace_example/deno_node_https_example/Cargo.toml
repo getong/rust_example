@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_core = "0.401.0"
+deno_core = "0.403.0"
 deno_error = "=0.7.1"
-deno_fs = "0.158.0"
-deno_node = "0.186.0"
-deno_permissions = "0.107.0"
+deno_fs = "0.160.0"
+deno_node = "0.188.0"
+deno_permissions = "0.109.0"
 deno_semver = "=0.10.0"
-node_resolver = "0.86.0"
+node_resolver = "0.88.0"
 sys_traits = { version = "0.1.28", features = ["real"] }
 tokio = { version = "1.52.3", features = ["full"] }

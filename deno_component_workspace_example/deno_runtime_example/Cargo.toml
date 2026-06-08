@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_core = "0.401.0"
-deno_fs = "0.158.0"
-deno_permissions = "0.107.0"
-deno_resolver = "0.79.0"
-deno_runtime = { version = "0.256.0", features = ["transpile"] }
+deno_core = "0.403.0"
+deno_fs = "0.160.0"
+deno_permissions = "0.109.0"
+deno_resolver = "0.81.0"
+deno_runtime = { version = "0.258.0", features = ["transpile"] }
 sys_traits = "0.1.28"
 tokio = { version = "1.52", features = ["full"] }
