@@ -32,6 +32,8 @@ wit-bindgen = { version = "0.57.1", default-features = false, features = ["macro
 criterion = { version = "0.8.2", features = ["html_reports"] }
 mockall = "0.14.0"
 proptest = "1.11.0"
+tokio = { version = "1.52.3", features = ["io-util", "time"] }
+turmoil = "0.7.2"
 
 [[bench]]
 name = "call_handle_call"
