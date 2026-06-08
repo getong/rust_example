@@ -3,6 +3,8 @@ resolver = "3"
 
 members = [
   "ark_mpc_example",
+  "jellyfish_example",
+  "origin_jellyfish_example",
 ]
 
 [workspace.dependencies]
