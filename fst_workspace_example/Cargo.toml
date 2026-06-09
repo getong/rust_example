@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "fst_example",
+  "rustfst_example",
+]
