@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-spider_scraper = "0.1.2"
+spider_scraper = "0.2.1"
