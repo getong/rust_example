@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.52.3", features = ["full"] }
-prost = "0.14.3"
-prost-types = "0.14.3"
+prost = "0.14.4"
+prost-types = "0.14.4"
 once_cell = "1.21.4"
 bytes = "1.11.1"
 
 [build-dependencies]
-prost-build = "0.14.3"
+prost-build = "0.14.4"
 walkdir = "2.5.0"
