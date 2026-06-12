@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use rig::{client::CompletionClient, completion::Chat, message::Message, providers::deepseek};
+use rig_core::{client::CompletionClient, completion::Chat, providers::deepseek};
 
 const DEFAULT_SYSTEM_PROMPT: &str =
   "You are a helpful assistant. Answer clearly, directly, and concisely.";
@@ -32,9 +32,9 @@ async fn main() -> Result<()> {
   run_chat(agent, &model, timeout).await
 }
 
-async fn run_chat<M>(agent: rig::agent::Agent<M>, model: &str, timeout: Duration) -> Result<()>
+async fn run_chat<M>(agent: rig_core::agent::Agent<M>, model: &str, timeout: Duration) -> Result<()>
 where
-  M: rig::completion::CompletionModel + 'static,
+  M: rig_core::completion::CompletionModel + 'static,
 {
   let stdin = io::stdin();
   let mut stdout = io::stdout();
@@ -76,14 +76,11 @@ where
     );
     let started_at = Instant::now();
 
-    match agent.chat(input, &history).await {
+    match agent.chat(input, &mut history).await {
       Ok(response) => {
         eprintln!("[debug] request completed in {:.2?}", started_at.elapsed());
         println!("assistant> {response}");
         println!();
-
-        history.push(Message::user(input));
-        history.push(Message::assistant(response));
       }
       Err(error) => {
         eprintln!("[debug] request failed after {:.2?}", started_at.elapsed());

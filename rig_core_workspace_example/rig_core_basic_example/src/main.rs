@@ -1,4 +1,4 @@
-use rig::{
+use rig_core::{
   client::{CompletionClient, ProviderClient},
   completion::Prompt,
   providers::openai,
@@ -10,7 +10,10 @@ async fn main() {
   // This requires the `OPENAI_API_KEY` environment variable to be set.
   let openai_client = openai::Client::from_env();
 
-  let gpt4 = openai_client.expect("openai_env not found").agent("gpt-4").build();
+  let gpt4 = openai_client
+    .expect("openai_env not found")
+    .agent("gpt-4")
+    .build();
 
   // Prompt the model and print its response
   let response = gpt4
