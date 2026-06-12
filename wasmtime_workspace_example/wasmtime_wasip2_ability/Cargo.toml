@@ -1,0 +1,16 @@
+[package]
+name = "wasmtime_wasip2_ability"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+wasmtime = { version = "45.0.1", features = ["component-model", "async"] }
+wasmtime-wasi = "45.0.1"
+wasmtime-wasi-http = "45.0.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wstd = { version = "0.6.6", default-features = false }

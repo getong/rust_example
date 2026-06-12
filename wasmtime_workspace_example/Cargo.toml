@@ -11,4 +11,5 @@ members = [
   "wasmtime_tokio",
   "wit_bindgen_example",
   "wasmtime_actor",
+  "wasmtime_wasip2_ability",
 ]
