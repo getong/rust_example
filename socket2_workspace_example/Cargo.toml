@@ -1,6 +1,7 @@
 [workspace]
 
+resolver = "2"
 
 members = [
-        "socket2_example"
+  "socket2_example"
 ]
