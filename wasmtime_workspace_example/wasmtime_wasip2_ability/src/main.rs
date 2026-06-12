@@ -1,4 +1,5 @@
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", feature = "lsp"))]
+#[cfg_attr(all(not(target_arch = "wasm32"), feature = "lsp"), allow(dead_code))]
 mod guest;
 #[cfg(not(target_arch = "wasm32"))]
 mod host;
