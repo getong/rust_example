@@ -2,5 +2,6 @@
 
 
 #+begin_src shell
-cargo run --features dataframe --example dataframe-dataset
+cargo run --bin custom-csv-dataset
+cargo run --bin dataframe-dataset --features=dataframe
 #+end_src
