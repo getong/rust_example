@@ -1,7 +1,7 @@
 # Awesome Chat libp2p
 
 基于 `libp2p` gossipsub partial message 的文件传输示例。
-
+n
 一个节点用 `/send <path>` 发布文件后，文件会被切成多个分片。其它节点通过 gossipsub partial message 逐步接收自己缺失的分片，并把已经拥有的分片继续广播给其它节点。文件完整后会在接收端合并写入 `received/` 目录。
 
 ## 环境变量
@@ -109,7 +109,7 @@ cargo run
 ```sh
 export CHAT_MDNS_ENABLED=false
 export CHAT_BOOTSTRAP_PEERS="/ip4/127.0.0.1/tcp/<PORT>/p2p/<PEER_ID>"
-export CHAT_BOOTSTRAP_PEERS="/ip4/127.0.0.1/tcp/51726/p2p/12D3KooWSJeWVHGF7d4Pki8yJVzpMVw39EVv3rMHHKqmzUhNJjjZ"
+export CHAT_BOOTSTRAP_PEERS="/ip4/127.0.0.1/tcp/65322/p2p/12D3KooWHfHJqN68ASrxQXC4JhsZMjVxhRKFLGmDB8wdFcYxqbsQ""
 cargo run
 ```
 
