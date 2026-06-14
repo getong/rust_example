@@ -52,8 +52,8 @@ impl Error for NetErr {}
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "BehaviourEvent")]
 pub struct Behaviour {
-  pub raft: request_response::Behaviour<ProtoCodec>,
-  pub kv: request_response::Behaviour<ProstCodec<RaftKvRequest, RaftKvResponse>>,
+  pub raft_rpc: request_response::Behaviour<ProtoCodec>,
+  pub kv_rpc: request_response::Behaviour<ProstCodec<RaftKvRequest, RaftKvResponse>>,
   pub gossipsub: gossipsub::Behaviour,
   pub ping: ping::Behaviour,
   pub mdns: mdns::tokio::Behaviour,
@@ -443,18 +443,18 @@ fn handle_command(
       }
     }
     Command::RaftRequest { peer, req, resp } => {
-      let id = swarm.behaviour_mut().raft.send_request(&peer, req);
+      let id = swarm.behaviour_mut().raft_rpc.send_request(&peer, req);
       pending_raft.insert(id, resp);
     }
     Command::RaftRespond { channel, resp } => {
-      let _ = swarm.behaviour_mut().raft.send_response(channel, resp);
+      let _ = swarm.behaviour_mut().raft_rpc.send_response(channel, resp);
     }
     Command::KvRequest { peer, req, resp } => {
-      let id = swarm.behaviour_mut().kv.send_request(&peer, req);
+      let id = swarm.behaviour_mut().kv_rpc.send_request(&peer, req);
       pending_kv.insert(id, resp);
     }
     Command::KvRespond { channel, resp } => {
-      let _ = swarm.behaviour_mut().kv.send_response(channel, resp);
+      let _ = swarm.behaviour_mut().kv_rpc.send_response(channel, resp);
     }
   }
 }
@@ -804,7 +804,7 @@ pub async fn run_swarm_client_with_shutdown(
               request_response::Message::Request { channel, .. } => {
                 let _ = swarm
                   .behaviour_mut()
-                  .raft
+                  .raft_rpc
                   .send_response(channel, RaftRpcResponse::Error("client-only".to_string()));
               }
               request_response::Message::Response { request_id, response } => {
@@ -829,7 +829,7 @@ pub async fn run_swarm_client_with_shutdown(
               request_response::Message::Request { channel, .. } => {
                 let _ = swarm
                   .behaviour_mut()
-                  .kv
+                  .kv_rpc
                   .send_response(channel, kv_error_response("client-only"));
               }
               request_response::Message::Response { request_id, response } => {

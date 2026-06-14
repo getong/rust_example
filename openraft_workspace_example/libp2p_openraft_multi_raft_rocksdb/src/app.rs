@@ -454,7 +454,7 @@ fn build_swarm(
       );
 
       Ok(Behaviour {
-        raft: request_response::Behaviour::with_codec(
+        raft_rpc: request_response::Behaviour::with_codec(
           ProtoCodec::default(),
           [(
             StreamProtocol::new("/openraft/raft/1"),
@@ -462,7 +462,7 @@ fn build_swarm(
           )],
           cfg.clone(),
         ),
-        kv: request_response::Behaviour::with_codec(
+        kv_rpc: request_response::Behaviour::with_codec(
           ProstCodec::<RaftKvRequest, RaftKvResponse>::default(),
           [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
           cfg,
