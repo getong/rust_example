@@ -310,7 +310,7 @@ fi
 
 cmd=(
 	cargo run -p libp2p_openraft_multi_raft_rocksdb --bin libp2p_openraft_multi_raft_rocksdb --
-	--id 1
+	--id "$P1"
 	--listen "$NODE1_LISTEN"
 	--http "$NODE1_HTTP"
 	--db "$NODE1_DB"
@@ -327,9 +327,9 @@ if ((should_init == 1)); then
 fi
 
 cmd+=(
-	--node 1="$ADDR1"
-	--node 2="$ADDR2"
-	--node 3="$ADDR3"
+	--node "$P1=$ADDR1"
+	--node "$P2=$ADDR2"
+	--node "$P3=$ADDR3"
 )
 
 "${cmd[@]}" 2>&1 | tee "$NODE1_LOG"

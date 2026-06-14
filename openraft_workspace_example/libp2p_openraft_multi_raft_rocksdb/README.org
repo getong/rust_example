@@ -84,13 +84,13 @@ multiaddrs for listen and peer addresses.
 #+begin_src shell
 # listen with websocket
 cargo run -p libp2p_openraft_multi_raft_rocksdb --bin libp2p_openraft_multi_raft_rocksdb -- \
-  --id 1 \
+  --id <peerid1> \
   --listen /ip4/0.0.0.0/tcp/4001/ws \
   --http 0.0.0.0:3001 \
   --db /tmp/openraft-node1 \
   --init \
-  --node 1=/ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
-  --node 2=/ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
+  --node <peerid1>=/ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
+  --node <peerid2>=/ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
 
 # use websocket address in the kv client
 cargo run -p libp2p_openraft_multi_raft_rocksdb --bin kv -- \
@@ -118,7 +118,7 @@ Secure websocket (wss):
 
 # listen with wss using the generated cert
 cargo run -p libp2p_openraft_multi_raft_rocksdb --bin libp2p_openraft_multi_raft_rocksdb -- \
-  --id 1 \
+  --id <peerid1> \
   --listen /ip4/0.0.0.0/tcp/4001/wss \
   --http 0.0.0.0:3001 \
   --db /tmp/openraft-node1 \

@@ -69,7 +69,7 @@ impl P2PRaftNetworkWrapper {
 #[async_trait]
 impl P2PRaftNetwork for P2PRaftNetworkWrapper {
   fn target(&self) -> NodeId {
-    self.inner.target()
+    self.inner.target().clone()
   }
 
   fn group_id(&self) -> &GroupId {

@@ -52,7 +52,7 @@ impl Libp2pNetworkFactory {
           if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
         {
           tracing::info!(
-            node_id,
+            node_id = %node_id,
             peer = %peer,
             addr = %maddr,
             stored_addr = %stored_addr,
@@ -61,14 +61,14 @@ impl Libp2pNetworkFactory {
           false
         }
         _ => {
-          map.insert(node_id, (peer, maddr.clone()));
+          map.insert(node_id.clone(), (peer, maddr.clone()));
           true
         }
       }
     };
     if peer == self.local_peer_id {
       tracing::warn!(
-        node_id,
+        node_id = %node_id,
         peer = %peer,
         addr = %maddr,
         "skip self dial in register_node"
@@ -102,7 +102,7 @@ impl Libp2pNetworkFactory {
       }
 
       tracing::info!(
-        node_id = *node_id,
+        node_id = %node_id,
         peer = %peer,
         addr = %candidate,
         "updating peer address from mdns"
@@ -116,7 +116,7 @@ impl Libp2pNetworkFactory {
     let map = self.node_peers.read().await;
     map
       .iter()
-      .map(|(id, (peer, addr))| (*id, *peer, addr.clone()))
+      .map(|(id, (peer, addr))| (id.clone(), *peer, addr.clone()))
       .collect()
   }
 
@@ -129,7 +129,7 @@ impl Libp2pNetworkFactory {
     node_id: NodeId,
     req: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable> {
-    let (peer, addr) = self.peer_addr_for(node_id).await?;
+    let (peer, addr) = self.peer_addr_for(&node_id).await?;
     if peer == self.local_peer_id {
       return Err(Unreachable::new(&NetErr(format!(
         "self dial blocked: node_id={node_id}, peer={peer}"
@@ -137,7 +137,7 @@ impl Libp2pNetworkFactory {
     }
     if let Err(err) = self.client.connect(peer, addr.clone()).await {
       tracing::warn!(
-        node_id,
+        node_id = %node_id,
         peer = %peer,
         addr = %addr,
         error = %err,
@@ -148,10 +148,10 @@ impl Libp2pNetworkFactory {
     self.client.request(peer, req).await
   }
 
-  async fn peer_addr_for(&self, node_id: NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {
+  async fn peer_addr_for(&self, node_id: &NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {
     let map = self.node_peers.read().await;
     map
-      .get(&node_id)
+      .get(node_id)
       .map(|(peer, addr)| (*peer, addr.clone()))
       .ok_or_else(|| Unreachable::new(&NetErr(format!("unknown target node_id={node_id}"))))
   }
@@ -166,7 +166,7 @@ struct Libp2pRaftNetwork {
 #[async_trait]
 impl P2PNetworkFactory for Libp2pNetworkFactory {
   async fn new_p2p_client(&self, target: NodeId, target_info: BasicNode) -> P2PRaftNetworkWrapper {
-    let _ = self.register_node(target, &target_info.addr).await;
+    let _ = self.register_node(target.clone(), &target_info.addr).await;
     let group_id = self
       .group_id
       .clone()
@@ -183,7 +183,7 @@ impl P2PNetworkFactory for Libp2pNetworkFactory {
 #[async_trait]
 impl P2PRaftNetwork for Libp2pRaftNetwork {
   fn target(&self) -> NodeId {
-    self.target
+    self.target.clone()
   }
 
   fn group_id(&self) -> &GroupId {

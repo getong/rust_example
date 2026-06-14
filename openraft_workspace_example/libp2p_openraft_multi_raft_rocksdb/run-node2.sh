@@ -291,7 +291,7 @@ echo "Starting node2 (Ctrl-C to stop)..."
 # Node2 just joins the network (it will be contacted by the leader during replication).
 cmd=(
 	cargo run -p libp2p_openraft_multi_raft_rocksdb --bin libp2p_openraft_multi_raft_rocksdb --
-	--id 2
+	--id "$P2"
 	--listen "$NODE2_LISTEN"
 	--http "$NODE2_HTTP"
 	--db "$NODE2_DB"
@@ -304,9 +304,9 @@ if [[ "${KAMEO_REMOTE:-0}" == "1" ]]; then
 fi
 
 cmd+=(
-	--node 1="$ADDR1"
-	--node 2="$ADDR2"
-	--node 3="$ADDR3"
+	--node "$P1=$ADDR1"
+	--node "$P2=$ADDR2"
+	--node "$P3=$ADDR3"
 )
 
 "${cmd[@]}" 2>&1 | tee "$NODE2_LOG"

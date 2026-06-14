@@ -180,7 +180,7 @@ async fn cluster_info(
     })
     .collect();
 
-  nodes.sort_by_key(|node| node.node_id);
+  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 
   let group_id = query
     .group_id
@@ -190,7 +190,7 @@ async fn cluster_info(
 
   let Some(group) = state.groups.get(&group_id) else {
     return Json(ClusterInfoResponse {
-      node_id: state.node_id,
+      node_id: state.node_id.clone(),
       node_name: state.node_name.clone(),
       peer_id: state.peer_id.clone(),
       listen: state.listen.clone(),
@@ -242,7 +242,7 @@ async fn cluster_info(
   kv_data.sort_by(|a, b| a.key.cmp(&b.key));
 
   Json(ClusterInfoResponse {
-    node_id: state.node_id,
+    node_id: state.node_id.clone(),
     node_name: state.node_name.clone(),
     peer_id: state.peer_id.clone(),
     listen: state.listen.clone(),
@@ -539,35 +539,35 @@ async fn resolve_kv_target(
     .get(group_id)
     .ok_or_else(|| format!("unknown group_id={group_id}"))?;
   let metrics = group.raft.metrics().borrow_watched().clone();
-  let candidate = target_node_id.or(metrics.current_leader);
+  let candidate = target_node_id.or_else(|| metrics.current_leader.clone());
 
-  if metrics.state.is_leader() || candidate == Some(state.node_id) {
+  if metrics.state.is_leader() || candidate.as_ref() == Some(&state.node_id) {
     return Ok(KvTarget::Local {
-      node_id: state.node_id,
+      node_id: state.node_id.clone(),
     });
   }
 
   let nodes = state.network.known_nodes().await;
   if nodes.is_empty() {
     return Ok(KvTarget::Local {
-      node_id: state.node_id,
+      node_id: state.node_id.clone(),
     });
   }
 
   let node_id = candidate
-    .filter(|id| *id != state.node_id)
+    .filter(|id| id != &state.node_id)
     .or_else(|| {
       nodes
         .iter()
-        .find(|(id, _, _)| *id != state.node_id)
-        .map(|(id, _, _)| *id)
+        .find(|(id, _, _)| id != &state.node_id)
+        .map(|(id, _, _)| id.clone())
     })
-    .or_else(|| nodes.first().map(|(id, _, _)| *id))
+    .or_else(|| nodes.first().map(|(id, _, _)| id.clone()))
     .ok_or_else(|| "no leader available".to_string())?;
 
   nodes
     .into_iter()
-    .find(|(id, _, _)| *id == node_id)
+    .find(|(id, _, _)| id == &node_id)
     .map(|(id, peer, addr)| KvTarget::Remote {
       node_id: id,
       peer,

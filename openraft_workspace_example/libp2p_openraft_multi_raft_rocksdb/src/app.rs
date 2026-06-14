@@ -33,7 +33,7 @@ use crate::{
     proto_codec::{ProstCodec, ProtoCodec},
     raft_bridge::P2PNetworkFactoryWrapper,
     swarm::{Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
-    transport::Libp2pNetworkFactory,
+    transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   store,
@@ -141,9 +141,9 @@ pub fn build_ping_behaviour() -> ping::Behaviour {
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 pub struct Opt {
-  /// Raft node id.
+  /// Raft node id. In the demo scripts this is the local libp2p PeerId.
   #[arg(long)]
-  pub id: u64,
+  pub id: NodeId,
 
   /// Libp2p listen address, e.g. /ip4/0.0.0.0/tcp/4001/ws or /ip4/0.0.0.0/udp/4001/quic-v1
   #[arg(long)]
@@ -164,7 +164,7 @@ pub struct Opt {
   /// Initialize cluster membership on startup.
   ///
   /// Provide all nodes (including self) with multiaddr including /p2p/<peerid>:
-  ///   --init --node 1=/ip4/127.0.0.1/tcp/4001/p2p/12D3KooW... --node 2=...
+  ///   --init --node 12D3KooW...=/ip4/127.0.0.1/tcp/4001/p2p/12D3KooW...
   #[arg(long, default_value_t = false)]
   pub init: bool,
 
@@ -204,7 +204,14 @@ pub fn parse_node_kv(s: &str) -> anyhow::Result<(NodeId, String)> {
   let (id_str, addr) = s
     .split_once('=')
     .ok_or_else(|| anyhow!("expected <id>=<multiaddr>, got: {s}"))?;
-  let id: NodeId = id_str.parse().context("invalid node id")?;
+  let (peer, _) = parse_p2p_addr(addr)?;
+  let peer_id = peer.to_string();
+  if id_str != peer_id {
+    return Err(anyhow!(
+      "node id must match multiaddr /p2p peer id: id={id_str}, peer={peer_id}"
+    ));
+  }
+  let id = NodeId::from(id_str);
   Ok((id, addr.to_string()))
 }
 
@@ -267,9 +274,9 @@ fn load_env_file() {
   }
 }
 
-fn node_name_for_id(id: NodeId) -> String {
+fn node_name_for_id(id: &NodeId) -> String {
   let key = format!("LIBP2P_NODE_NAME_{id}");
-  env::var(key).unwrap_or_else(|_| format!("node{id}"))
+  env::var(key).unwrap_or_else(|_| format!("node-{id}"))
 }
 
 struct NodeIdentity {
@@ -292,7 +299,16 @@ fn init_node_identity(opt: &Opt) -> anyhow::Result<(identity::Keypair, NodeIdent
   let key_path = opt.key.clone().unwrap_or_else(|| default_key_path(&opt.db));
   let local_key = load_or_create_keypair(&key_path)?;
   let local_peer_id = PeerId::from(local_key.public());
-  let node_name = env::var(ENV_SELF_NAME).unwrap_or_else(|_| node_name_for_id(opt.id));
+  let local_peer_id_str = local_peer_id.to_string();
+  if opt.id.to_string() != local_peer_id_str {
+    return Err(anyhow!(
+      "--id must match the local libp2p peer id from {}: expected {}, got {}",
+      key_path.display(),
+      local_peer_id_str,
+      opt.id
+    ));
+  }
+  let node_name = env::var(ENV_SELF_NAME).unwrap_or_else(|_| node_name_for_id(&opt.id));
   tracing::info!(
     "node_id={}, node_name={}, peer_id={}",
     opt.id,
@@ -368,7 +384,7 @@ async fn start_openraft_groups(
     let kv_data = store::kv_data(&state_machine);
 
     let raft = Raft::new(
-      node_id,
+      node_id.clone(),
       config.clone(),
       group_network,
       log_store,
@@ -525,7 +541,7 @@ fn build_http_state(
   };
 
   http::AppState {
-    node_id: opt.id,
+    node_id: opt.id.clone(),
     node_name: identity.node_name.clone(),
     peer_id: identity.local_peer_id.to_string(),
     listen: opt.listen.clone(),
@@ -599,7 +615,7 @@ async fn register_members(
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
   for n in nodes {
     let (id, addr) = parse_node_kv(n)?;
-    network.register_node(id, &addr).await?;
+    network.register_node(id.clone(), &addr).await?;
     members.insert(
       id,
       BasicNode {
@@ -621,8 +637,8 @@ async fn maybe_bootstrap(
 
   let mut bootstrap_target: Option<(NodeId, String)> = None;
   for (id, node) in members {
-    if node_name_for_id(*id) == bootstrap_name {
-      bootstrap_target = Some((*id, node.addr.clone()));
+    if node_name_for_id(id) == bootstrap_name {
+      bootstrap_target = Some((id.clone(), node.addr.clone()));
       break;
     }
   }
@@ -723,8 +739,14 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let (libp2p, cmd_rx) = build_libp2p_handles(timeout, identity.local_peer_id.clone());
 
   let group_ids = groups::all();
-  let openraft =
-    start_openraft_groups(&opt, opt.id, &opt.db, libp2p.network.clone(), &group_ids).await?;
+  let openraft = start_openraft_groups(
+    &opt,
+    opt.id.clone(),
+    &opt.db,
+    libp2p.network.clone(),
+    &group_ids,
+  )
+  .await?;
 
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
   let mut shutdown = crate::signal::spawn_handler();
@@ -755,8 +777,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   );
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;
-  maybe_bootstrap(&libp2p.client, &members, opt.id).await;
-  maybe_init_cluster(&openraft.groups, members, opt.id, opt.init).await?;
+  maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
+  maybe_init_cluster(&openraft.groups, members, opt.id.clone(), opt.init).await?;
 
   await_shutdown(shutdown).await
 }
