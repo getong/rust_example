@@ -9,6 +9,8 @@ async fn main() -> anyhow::Result<()> {
     .with_thread_ids(true)
     .with_level(true)
     .with_ansi(false)
+    .with_file(true)
+    .with_line_number(true)
     .with_env_filter(EnvFilter::from_default_env())
     .init();
 
