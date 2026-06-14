@@ -3,6 +3,18 @@ name = "libp2p_openraft_multi_raft_rocksdb"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "lpmr-kv"
+path = "src/bin/kv.rs"
+
+[[bin]]
+name = "lpmr-peer-id"
+path = "src/bin/peer_id.rs"
+
+[[bin]]
+name = "lpmr-status"
+path = "src/bin/status.rs"
+
 [dependencies]
 anyhow = "1.0.102"
 async-trait = "0.1.89"
@@ -53,18 +65,6 @@ tokio = { version = "1.52", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 types-kv = { path = "../types-kv" }
-
-[[bin]]
-name = "lpmr-kv"
-path = "src/bin/kv.rs"
-
-[[bin]]
-name = "lpmr-peer-id"
-path = "src/bin/peer_id.rs"
-
-[[bin]]
-name = "lpmr-status"
-path = "src/bin/status.rs"
 
 [build-dependencies]
 prost-build = "0.14.3"
