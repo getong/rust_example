@@ -380,8 +380,7 @@ async fn start_openraft_groups(
   for group_id in group_ids {
     let group_network = network.with_group(group_id.clone());
     let group_network = P2PNetworkFactoryWrapper::new(group_network);
-    let (log_store, state_machine) = store::open_store_for_group(db_dir, group_id).await?;
-    let kv_data = store::kv_data(&state_machine);
+    let (log_store, state_machine, kv_data) = store::open_store_for_group(db_dir, group_id).await?;
 
     let raft = Raft::new(
       node_id.clone(),

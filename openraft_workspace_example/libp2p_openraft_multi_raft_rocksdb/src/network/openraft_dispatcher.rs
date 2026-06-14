@@ -101,20 +101,20 @@ pub async fn process_kv_request(
       if let Err(err) = ensure_linearizable_read(&raft).await {
         return kv_error_response(format!("{err:?}"));
       }
-      let kvs = kv_data.read().await;
-      match kvs.get(&req.key) {
-        Some(value) => RaftKvResponse {
+      match kv_data.get(&req.key).await {
+        Ok(Some(value)) => RaftKvResponse {
           op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
             found: true,
-            value: value.clone(),
+            value,
           })),
         },
-        None => RaftKvResponse {
+        Ok(None) => RaftKvResponse {
           op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
             found: false,
             value: String::new(),
           })),
         },
+        Err(err) => kv_error_response(format!("read rocksdb kv failed: {err}")),
       }
     }
     KvRequestOp::Set(req) => {
@@ -129,10 +129,6 @@ pub async fn process_kv_request(
       {
         Ok(resp) => {
           let value = resp.data.value.unwrap_or(value);
-          {
-            let mut kvs = kv_data.write().await;
-            kvs.insert(key, value.clone());
-          }
           RaftKvResponse {
             op: Some(KvResponseOp::Set(crate::proto::raft_kv::SetValueResponse {
               ok: true,
@@ -149,9 +145,9 @@ pub async fn process_kv_request(
       if let Err(err) = ensure_linearizable_read(&raft).await {
         return kv_error_response(format!("{err:?}"));
       }
-      let exists = {
-        let kvs = kv_data.read().await;
-        kvs.contains_key(&key)
+      let exists = match kv_data.contains_key(&key).await {
+        Ok(exists) => exists,
+        Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
       };
       if !exists {
         RaftKvResponse {
@@ -172,10 +168,6 @@ pub async fn process_kv_request(
         {
           Ok(resp) => {
             let value = resp.data.value.unwrap_or(value);
-            {
-              let mut kvs = kv_data.write().await;
-              kvs.insert(key, value.clone());
-            }
             RaftKvResponse {
               op: Some(KvResponseOp::Update(
                 crate::proto::raft_kv::UpdateValueResponse { ok: true, value },
@@ -190,9 +182,9 @@ pub async fn process_kv_request(
       if let Err(err) = ensure_linearizable_read(&raft).await {
         return kv_error_response(format!("{err:?}"));
       }
-      let exists = {
-        let kvs = kv_data.read().await;
-        kvs.contains_key(&req.key)
+      let exists = match kv_data.contains_key(&req.key).await {
+        Ok(exists) => exists,
+        Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
       };
       if !exists {
         RaftKvResponse {

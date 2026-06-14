@@ -618,9 +618,11 @@ async fn handle_mdns_event(
     mdns::Event::Discovered(list) => {
       let mut saw_peer = false;
       for (peer, addr) in list {
-        saw_peer = true;
-        network.update_peer_addr_from_mdns(peer, addr.clone()).await;
-        add_kad_peer_address(swarm, peer, addr);
+        let use_discovered_addr = network.update_peer_addr_from_mdns(peer, addr.clone()).await;
+        if use_discovered_addr {
+          saw_peer = true;
+          add_kad_peer_address(swarm, peer, addr);
+        }
         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
       }
       if saw_peer {
@@ -1050,17 +1052,6 @@ fn strip_p2p(mut addr: Multiaddr) -> Multiaddr {
   addr
 }
 
-fn ensure_p2p_addr(mut addr: Multiaddr, peer: PeerId) -> Multiaddr {
-  if matches!(
-    addr.iter().last(),
-    Some(libp2p::multiaddr::Protocol::P2p(_))
-  ) {
-    return addr;
-  }
-  addr.push(libp2p::multiaddr::Protocol::P2p(peer.into()));
-  addr
-}
-
 fn kick_kad_queries(swarm: &mut Swarm<Behaviour>) {
   let local_peer_id = swarm.local_peer_id().to_owned();
   let _ = swarm.behaviour_mut().kad.bootstrap();
@@ -1079,16 +1070,17 @@ fn handle_kad_event(
       if peer == *swarm.local_peer_id() {
         return;
       }
-      let Some(connected_peers) = connected_peers else {
+      if connected_peers.is_none() {
         tracing::debug!(peer = %peer, "kad routing updated (client)");
         return;
-      };
-      if connected_peers.contains(&peer) {
-        return;
       }
-      for addr in addresses.iter() {
-        let dial_addr = ensure_p2p_addr(addr.clone(), peer);
-        let _ = Swarm::dial(swarm, dial_addr);
+      tracing::debug!(
+        peer = %peer,
+        addresses = ?addresses,
+        "kad routing updated"
+      );
+      if connected_peers.is_some_and(|peers| peers.contains(&peer)) {
+        return;
       }
     }
     kad::Event::OutboundQueryProgressed { result, .. } => {

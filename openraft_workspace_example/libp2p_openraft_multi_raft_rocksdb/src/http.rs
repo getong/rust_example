@@ -231,12 +231,16 @@ async fn cluster_info(
     }
   };
   if allow_local_read {
-    let kvs = group.kv_data.read().await;
-    for (key, value) in kvs.iter() {
-      kv_data.push(KvPairResponse {
-        key: key.clone(),
-        value: value.clone(),
-      });
+    match group.kv_data.entries().await {
+      Ok(entries) => {
+        for (key, value) in entries {
+          kv_data.push(KvPairResponse { key, value });
+        }
+      }
+      Err(err) => {
+        tracing::warn!("cluster_info rocksdb kv read failed: {err:?}");
+        kv_data.clear();
+      }
     }
   }
   kv_data.sort_by(|a, b| a.key.cmp(&b.key));

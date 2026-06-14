@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -81,7 +81,7 @@ impl Libp2pNetworkFactory {
     Ok(())
   }
 
-  pub async fn update_peer_addr_from_mdns(&self, peer: PeerId, addr: Multiaddr) {
+  pub async fn update_peer_addr_from_mdns(&self, peer: PeerId, addr: Multiaddr) -> bool {
     let mut map = self.node_peers.write().await;
     for (node_id, (stored_peer, stored_addr)) in map.iter_mut() {
       if *stored_peer != peer {
@@ -90,26 +90,35 @@ impl Libp2pNetworkFactory {
 
       let candidate = ensure_p2p_addr(addr.clone(), peer);
       if candidate == *stored_addr {
-        return;
+        return true;
       }
 
-      let candidate_loopback = is_loopback_addr(&candidate);
-      let stored_loopback = is_loopback_addr(stored_addr);
-      // Do not downgrade from a usable non-loopback address to loopback.
-      // But allow upgrading from loopback to non-loopback discovered by mDNS.
-      if candidate_loopback && !stored_loopback {
-        return;
+      if !should_use_discovered_addr(stored_addr, &candidate) {
+        tracing::debug!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %candidate,
+          stored_addr = %stored_addr,
+          "ignoring discovered peer address"
+        );
+        return false;
+      }
+
+      if !is_unspecified_addr(stored_addr) {
+        return true;
       }
 
       tracing::info!(
         node_id = %node_id,
         peer = %peer,
         addr = %candidate,
-        "updating peer address from mdns"
+        "updating unspecified peer address from mdns"
       );
       *stored_addr = candidate;
-      return;
+      return true;
     }
+
+    !is_undialable_discovered_addr(&ensure_p2p_addr(addr, peer))
   }
 
   pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
@@ -136,6 +145,9 @@ impl Libp2pNetworkFactory {
       ))));
     }
     if let Err(err) = self.client.connect(peer, addr.clone()).await {
+      if is_loopback_addr(&addr) {
+        return Err(err);
+      }
       tracing::warn!(
         node_id = %node_id,
         peer = %peer,
@@ -223,17 +235,136 @@ fn ensure_p2p_addr(mut addr: Multiaddr, peer: PeerId) -> Multiaddr {
 }
 
 fn is_loopback_addr(addr: &Multiaddr) -> bool {
+  addr_ip(addr).is_some_and(|ip| ip.is_loopback()) || has_localhost_dns(addr)
+}
+
+fn is_unspecified_addr(addr: &Multiaddr) -> bool {
+  addr_ip(addr).is_some_and(|ip| ip.is_unspecified())
+}
+
+fn is_link_local_addr(addr: &Multiaddr) -> bool {
+  match addr_ip(addr) {
+    Some(IpAddr::V4(ip)) => ip.octets()[0] == 169 && ip.octets()[1] == 254,
+    Some(IpAddr::V6(ip)) => (ip.segments()[0] & 0xffc0) == 0xfe80,
+    None => false,
+  }
+}
+
+fn is_undialable_discovered_addr(addr: &Multiaddr) -> bool {
+  is_unspecified_addr(addr) || is_link_local_addr(addr)
+}
+
+fn should_use_discovered_addr(stored_addr: &Multiaddr, candidate: &Multiaddr) -> bool {
+  if is_unspecified_addr(candidate) {
+    return false;
+  }
+
+  if is_loopback_addr(stored_addr) {
+    return is_loopback_addr(candidate);
+  }
+
+  if !is_link_local_addr(stored_addr) && is_link_local_addr(candidate) {
+    return false;
+  }
+
+  true
+}
+
+fn addr_ip(addr: &Multiaddr) -> Option<IpAddr> {
   for protocol in addr.iter() {
     match protocol {
-      Protocol::Ip4(ip) => return ip.is_loopback(),
-      Protocol::Ip6(ip) => return ip.is_loopback(),
+      Protocol::Ip4(ip) => return Some(IpAddr::V4(ip)),
+      Protocol::Ip6(ip) => return Some(IpAddr::V6(ip)),
+      _ => {}
+    }
+  }
+  None
+}
+
+fn has_localhost_dns(addr: &Multiaddr) -> bool {
+  for protocol in addr.iter() {
+    match protocol {
       Protocol::Dns(host) | Protocol::Dns4(host) | Protocol::Dns6(host) => {
-        if host.eq_ignore_ascii_case("localhost") {
-          return true;
-        }
+        return host.eq_ignore_ascii_case("localhost");
       }
       _ => {}
     }
   }
   false
+}
+
+#[cfg(test)]
+mod tests {
+  use std::time::Duration;
+
+  use libp2p::identity;
+  use tokio::sync::mpsc;
+
+  use super::*;
+
+  fn peer_id() -> PeerId {
+    PeerId::from(identity::Keypair::generate_ed25519().public())
+  }
+
+  #[tokio::test]
+  async fn mdns_does_not_replace_configured_loopback_addr() {
+    let (tx, _rx) = mpsc::channel(4);
+    let local_peer = peer_id();
+    let peer = peer_id();
+    let client = Libp2pClient::new(tx, Duration::from_secs(1));
+    let network = Libp2pNetworkFactory::new(client, local_peer);
+    let node_id = NodeId::from("node-2");
+    let configured_addr = format!("/ip4/127.0.0.1/tcp/4002/wss/p2p/{peer}");
+
+    network
+      .register_node(node_id.clone(), &configured_addr)
+      .await
+      .expect("register node");
+    let use_discovered = network
+      .update_peer_addr_from_mdns(peer, "/ip4/192.168.31.29/tcp/4002/wss".parse().unwrap())
+      .await;
+
+    let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
+    assert!(!use_discovered);
+    assert_eq!(stored_addr.to_string(), configured_addr);
+  }
+
+  #[tokio::test]
+  async fn mdns_replaces_unspecified_configured_addr() {
+    let (tx, _rx) = mpsc::channel(4);
+    let local_peer = peer_id();
+    let peer = peer_id();
+    let client = Libp2pClient::new(tx, Duration::from_secs(1));
+    let network = Libp2pNetworkFactory::new(client, local_peer);
+    let node_id = NodeId::from("node-2");
+    let configured_addr = format!("/ip4/0.0.0.0/tcp/4002/wss/p2p/{peer}");
+
+    network
+      .register_node(node_id.clone(), &configured_addr)
+      .await
+      .expect("register node");
+    let use_discovered = network
+      .update_peer_addr_from_mdns(peer, "/ip4/192.168.31.29/tcp/4002/wss".parse().unwrap())
+      .await;
+
+    let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
+    assert!(use_discovered);
+    assert_eq!(
+      stored_addr.to_string(),
+      format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}")
+    );
+  }
+
+  #[test]
+  fn discovered_link_local_addr_is_not_used_for_normal_addr() {
+    let peer = peer_id();
+    let stored = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}")
+      .parse()
+      .unwrap();
+    let candidate = format!("/ip4/169.254.173.129/tcp/4002/wss/p2p/{peer}")
+      .parse()
+      .unwrap();
+
+    assert!(!should_use_discovered_addr(&stored, &candidate));
+  }
 }
