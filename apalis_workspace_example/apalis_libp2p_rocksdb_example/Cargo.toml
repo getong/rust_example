@@ -1,0 +1,20 @@
+[package]
+name = "apalis_libp2p_rocksdb_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+apalis = { version = "1.0.0-rc.9", default-features = false, features = ["tracing"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+clap = { version = "4", features = ["derive"] }
+futures = "0.3"
+libp2p = { version = "0.56", features = ["json", "macros", "noise", "request-response", "tcp", "tokio", "yamux"] }
+rocksdb = { version = "0.24", default-features = false, features = ["bindgen-runtime"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tower-layer = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

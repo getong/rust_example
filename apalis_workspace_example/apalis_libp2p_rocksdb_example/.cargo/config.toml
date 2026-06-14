@@ -1,0 +1,2 @@
+[env]
+LIBCLANG_PATH = "/Library/Developer/CommandLineTools/usr/lib/libclang.dylib"
