@@ -40,7 +40,8 @@ fi
 
 cd "$WS_DIR"
 
-peer_id="$(cargo run -q -p libp2p_openraft_multi_raft_rocksdb --bin peer_id -- --key "$KEY_PATH" --create)"
+PEER_ID_BIN="${PEER_ID_BIN:-lpmr-peer-id}"
+peer_id="$(cargo run -q -p libp2p_openraft_multi_raft_rocksdb --bin "$PEER_ID_BIN" -- --key "$KEY_PATH" --create)"
 
 if [[ -n "$OUT_PATH" ]]; then
 	mkdir -p "$(dirname "$OUT_PATH")"
