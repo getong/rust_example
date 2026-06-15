@@ -1,0 +1,9 @@
+[package]
+name = "snow_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+snow = { git = "https://github.com/royzah/snow", branch = "feat/ml-kem-hfs", features = [
+  "use-ml-kem",
+] }
