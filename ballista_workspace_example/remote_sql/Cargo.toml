@@ -4,22 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ballista = "51.0.0"
-ballista-core = { version = "51.0.0", default-features = false }
-ballista-executor = { version = "51.0.0", default-features = false }
-ballista-scheduler = { version = "51.0.0", default-features = false }
+ballista = "53.0.0"
+ballista-core = { version = "53.0.0", default-features = false }
+ballista-executor = { version = "53.0.0", default-features = false }
+ballista-scheduler = { version = "53.0.0", default-features = false }
 ballista_examples = { path = "../ballista_examples" }
-ctor = "0.6.3"
-env_logger = "0.11.8"
-log = "0.4.29"
-object_store = { version = "0.13.1", features = ["aws"] }
-testcontainers-modules = { version = "0.14.0", features = ["minio"] }
-tokio = { version = "1.49.0", features = [
+ctor = "1.0.7"
+env_logger = "0.11.10"
+log = "0.4.32"
+object_store = { version = "0.13.2", features = ["aws"] }
+testcontainers-modules = { version = "0.15.0", features = ["minio"] }
+tokio = { version = "1.52.3", features = [
   "macros",
   "rt",
   "rt-multi-thread",
   "sync",
   "parking_lot",
 ] }
-tonic = "0.14.2"
+tonic = "0.14.6"
 url = "2.5.8"
