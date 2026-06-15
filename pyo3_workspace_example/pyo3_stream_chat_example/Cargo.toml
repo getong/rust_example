@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["auto-initialize"] }
-tokio = { version = "1.45", features = ["full"] }
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
+tokio = { version = "1.52", features = ["full"] }

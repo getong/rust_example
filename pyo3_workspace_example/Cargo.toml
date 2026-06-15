@@ -5,4 +5,5 @@ resolver = "2"
 members = [
   "pyo3_stream_chat_example",
   "pyo3_info",
+  "rs_python_demo",
 ]
