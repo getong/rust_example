@@ -12,7 +12,7 @@ pub mod state_machine;
 #[cfg(test)]
 mod test;
 
-use std::{fmt, io, path::Path, sync::Arc};
+use std::{convert::Infallible, fmt, io, path::Path, str::FromStr, sync::Arc};
 
 use openraft::RaftTypeConfig;
 use rocksdb::{ColumnFamilyDescriptor, DB, Options};
@@ -21,13 +21,64 @@ use serde::{Deserialize, Serialize};
 use crate::log_store::RocksLogStore;
 pub use crate::state_machine::RocksStateMachine;
 
-pub type RocksNodeId = u64;
+#[derive(Serialize, Deserialize, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[serde(transparent)]
+pub struct RocksNodeId(String);
+
+impl RocksNodeId {
+  pub fn new(id: impl Into<String>) -> Self {
+    Self(id.into())
+  }
+
+  pub fn as_str(&self) -> &str {
+    &self.0
+  }
+}
+
+impl fmt::Display for RocksNodeId {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&self.0)
+  }
+}
+
+impl fmt::Debug for RocksNodeId {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt::Debug::fmt(&self.0, f)
+  }
+}
+
+impl From<String> for RocksNodeId {
+  fn from(value: String) -> Self {
+    Self(value)
+  }
+}
+
+impl From<&str> for RocksNodeId {
+  fn from(value: &str) -> Self {
+    Self(value.to_string())
+  }
+}
+
+impl From<u64> for RocksNodeId {
+  fn from(value: u64) -> Self {
+    Self(value.to_string())
+  }
+}
+
+impl FromStr for RocksNodeId {
+  type Err = Infallible;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    Ok(Self::from(s))
+  }
+}
 
 openraft::declare_raft_types!(
     /// Declare the type configuration.
     pub TypeConfig:
         D = types_kv::Request,
         R = types_kv::Response,
+        NodeId = RocksNodeId,
 );
 
 /// Here you will set the types of request that will interact with the raft nodes.
@@ -83,9 +134,10 @@ impl From<RocksRequest> for types_kv::Request {
       RocksRequest::Set { key, value } | RocksRequest::Update { key, value } => {
         types_kv::Request::Set { key, value }
       }
-      RocksRequest::Delete { key } => {
-        types_kv::Request::Set { key, value: String::new() }
-      }
+      RocksRequest::Delete { key } => types_kv::Request::Set {
+        key,
+        value: String::new(),
+      },
     }
   }
 }
