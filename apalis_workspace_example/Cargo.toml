@@ -2,6 +2,6 @@
 
 resolver = "3"
 
-members = ["apalis_libp2p_rocksdb_example",
+members = ["apalis_libp2p_rocksdb_example", "apalis_redis_example",
   "apalis_workflow_example",
 ]

@@ -1,0 +1,10 @@
+[package]
+name = "apalis_redis_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+apalis = { version = "1.0.0-rc.9", features = ["retry"] }
+apalis-redis = { version = "1.0.0-rc.8" }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
