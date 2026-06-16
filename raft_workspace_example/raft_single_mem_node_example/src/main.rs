@@ -7,7 +7,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use raft::{eraftpb::ConfState, prelude::*, storage::MemStorage};
+use raft::{prelude::*, storage::MemStorage};
 use slog::{info, o, Drain, Logger};
 
 type ProposeCallback = Box<dyn Fn() + Send>;
@@ -132,12 +132,12 @@ fn on_ready(raft_group: &mut RawNode<MemStorage>, cbs: &mut HashMap<u8, ProposeC
       _last_apply_index = entry.index;
 
       if entry.data.is_empty() {
-        // Emtpy entry, when the peer becomes Leader it will send an empty entry.
+        // Empty entry, when the peer becomes Leader it will send an empty entry.
         continue;
       }
 
       if entry.get_entry_type() == EntryType::EntryNormal {
-        if let Some(cb) = cbs.remove(entry.data.get(0).unwrap()) {
+        if let Some(cb) = cbs.remove(entry.data.first().unwrap()) {
           cb();
         }
       }
@@ -149,7 +149,7 @@ fn on_ready(raft_group: &mut RawNode<MemStorage>, cbs: &mut HashMap<u8, ProposeC
 
   if !ready.entries().is_empty() {
     // Append entries to the Raft log.
-    store.wl().append(&ready.entries()).unwrap();
+    store.wl().append(ready.entries()).unwrap();
   }
 
   if let Some(hs) = ready.hs() {

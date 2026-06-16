@@ -15,8 +15,7 @@ use std::{
   time::{Duration, Instant},
 };
 
-use protobuf::Message as PbMessage;
-use raft::{prelude::*, storage::MemStorage, StateRole};
+use raft::{prelude::*, protocompat::*, storage::MemStorage, StateRole};
 use regex::Regex;
 use slog::{error, info, o, Drain};
 
@@ -107,7 +106,7 @@ fn main() {
         &logger,
       );
 
-      // Check control signals from
+      // Check control signals from the main thread.
       if check_signals(&rx_stop_clone) {
         return;
       };
@@ -226,7 +225,7 @@ impl Node {
   fn step(&mut self, msg: Message, logger: &slog::Logger) {
     if self.raft_group.is_none() {
       if is_initial_msg(&msg) {
-        self.initialize_raft_from_message(&msg, &logger);
+        self.initialize_raft_from_message(&msg, logger);
       } else {
         return;
       }
@@ -280,6 +279,7 @@ fn on_ready(
     }
   }
 
+  let reg = Regex::new("put ([0-9]+) (.+)").unwrap();
   let mut handle_committed_entries =
     |rn: &mut RawNode<MemStorage>, committed_entries: Vec<Entry>| {
       for entry in committed_entries {
@@ -297,8 +297,7 @@ fn on_ready(
           // For normal proposals, extract the key-value pair and then
           // insert them into the kv engine.
           let data = str::from_utf8(&entry.data).unwrap();
-          let reg = Regex::new("put ([0-9]+) (.+)").unwrap();
-          if let Some(caps) = reg.captures(&data) {
+          if let Some(caps) = reg.captures(data) {
             kv_pairs.insert(caps[1].parse().unwrap(), caps[2].to_string());
           }
         }
@@ -401,7 +400,7 @@ impl Proposal {
 fn propose(raft_group: &mut RawNode<MemStorage>, proposal: &mut Proposal) {
   let last_index1 = raft_group.raft.raft_log.last_index() + 1;
   if let Some((ref key, ref value)) = proposal.normal {
-    let data = format!("put {} {}", key, value).into_bytes();
+    let data = format!("put {key} {value}").into_bytes();
     let _ = raft_group.propose(vec![], data);
   } else if let Some(ref cc) = proposal.conf_change {
     let _ = raft_group.propose_conf_change(vec![], cc.clone());

@@ -3,6 +3,6 @@
 resolver = "2"
 
 members = [
-        "raft_five_mem_node_example",
-        "raft_single_mem_node_example",
+  "raft_five_mem_node_example",
+  "raft_single_mem_node_example",
 ]
