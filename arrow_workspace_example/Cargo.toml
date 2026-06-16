@@ -1,9 +1,10 @@
 [workspace]
 
+resolver = "3"
 
 members = [
         "arrow_array_builder_example",
-        "arrow_compute_example",
+        "arrow_compute_example", "arrow_flight_example",
         "arrow_reader_example",
         "arrow_record_batch_example",
 ]

@@ -1,0 +1,15 @@
+[package]
+name = "arrow_flight_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+arrow-array = "59.0.0"
+arrow-cast = { version = "59.0.0", features = ["prettyprint"] }
+arrow-flight = "59.0.0"
+arrow-schema = "59.0.0"
+futures = "0.3"
+tokio = { version = "1.52", features = ["macros", "net", "rt-multi-thread", "sync"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.14", features = ["transport"] }
