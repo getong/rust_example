@@ -12,5 +12,5 @@ pub mod store;
 pub mod typ;
 
 pub type TypeConfig = openraft_rocksstore_crud::TypeConfig;
-pub type NodeId = u64;
+pub type NodeId = openraft_rocksstore_crud::RocksNodeId;
 pub type Unreachable = openraft::error::Unreachable<TypeConfig>;

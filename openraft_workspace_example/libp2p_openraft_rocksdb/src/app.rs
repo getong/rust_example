@@ -235,7 +235,7 @@ fn load_env_file() {
   }
 }
 
-fn node_name_for_id(id: NodeId) -> String {
+fn node_name_for_id(id: &NodeId) -> String {
   let key = format!("LIBP2P_NODE_NAME_{id}");
   env::var(key).unwrap_or_else(|_| format!("node{id}"))
 }
@@ -261,10 +261,11 @@ fn init_node_identity(opt: &Opt) -> anyhow::Result<(identity::Keypair, NodeIdent
   let key_path = opt.key.clone().unwrap_or_else(|| default_key_path(&opt.db));
   let local_key = load_or_create_keypair(&key_path)?;
   let local_peer_id = PeerId::from(local_key.public());
-  let node_name = env::var(ENV_SELF_NAME).unwrap_or_else(|_| node_name_for_id(opt.id));
+  let node_id = NodeId::from(opt.id);
+  let node_name = env::var(ENV_SELF_NAME).unwrap_or_else(|_| node_name_for_id(&node_id));
   tracing::info!(
     "node_id={}, node_name={}, peer_id={}",
-    opt.id,
+    node_id,
     node_name,
     local_peer_id
   );
@@ -446,7 +447,7 @@ fn build_http_state(
   openraft: &OpenraftHandles,
 ) -> http::AppState {
   http::AppState {
-    node_id: opt.id,
+    node_id: NodeId::from(opt.id),
     node_name: identity.node_name.clone(),
     peer_id: identity.local_peer_id.to_string(),
     listen: opt.listen.clone(),
@@ -506,7 +507,7 @@ async fn register_members(
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
   for n in nodes {
     let (id, addr) = parse_node_kv(n)?;
-    network.register_node(id, &addr).await?;
+    network.register_node(id.clone(), &addr).await?;
     members.insert(
       id,
       BasicNode {
@@ -528,8 +529,8 @@ async fn maybe_bootstrap(
 
   let mut bootstrap_target: Option<(NodeId, String)> = None;
   for (id, node) in members {
-    if node_name_for_id(*id) == bootstrap_name {
-      bootstrap_target = Some((*id, node.addr.clone()));
+    if node_name_for_id(id) == bootstrap_name {
+      bootstrap_target = Some((id.clone(), node.addr.clone()));
       break;
     }
   }
@@ -623,7 +624,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let timeout = Duration::from_secs(5);
   let (libp2p, cmd_rx) = build_libp2p_handles(timeout);
 
-  let openraft = start_openraft(opt.id, &opt.db, libp2p.network.clone()).await?;
+  let node_id = NodeId::from(opt.id);
+  let openraft = start_openraft(node_id.clone(), &opt.db, libp2p.network.clone()).await?;
 
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
   let mut shutdown = crate::signal::spawn_handler();
@@ -648,8 +650,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   );
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;
-  maybe_bootstrap(&libp2p.client, &members, opt.id).await;
-  maybe_init_cluster(&openraft.raft, members, opt.id, opt.init).await?;
+  maybe_bootstrap(&libp2p.client, &members, node_id.clone()).await;
+  maybe_init_cluster(&openraft.raft, members, node_id, opt.init).await?;
 
   await_shutdown(shutdown).await
 }

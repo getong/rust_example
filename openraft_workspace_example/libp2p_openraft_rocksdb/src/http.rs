@@ -162,7 +162,7 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
     })
     .collect();
 
-  nodes.sort_by_key(|node| node.node_id);
+  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 
   let metrics = state.raft.metrics().borrow_watched().clone();
   let raft_metrics = serde_json::to_value(metrics)
@@ -203,7 +203,7 @@ async fn cluster_info(State(state): State<Arc<AppState>>) -> Json<ClusterInfoRes
   kv_data.sort_by(|a, b| a.key.cmp(&b.key));
 
   Json(ClusterInfoResponse {
-    node_id: state.node_id,
+    node_id: state.node_id.clone(),
     node_name: state.node_name.clone(),
     peer_id: state.peer_id.clone(),
     listen: state.listen.clone(),
@@ -409,19 +409,19 @@ async fn resolve_kv_target(
   let metrics = state.raft.metrics().borrow_watched().clone();
   let mut candidate = target_node_id.or_else(|| {
     if metrics.state.is_leader() {
-      Some(state.node_id)
+      Some(state.node_id.clone())
     } else {
       metrics.current_leader
     }
   });
 
-  if candidate.is_none() || candidate == Some(state.node_id) {
-    if let Some((id, _, _)) = nodes.iter().find(|(id, _, _)| *id != state.node_id) {
-      candidate = Some(*id);
+  if candidate.is_none() || candidate.as_ref() == Some(&state.node_id) {
+    if let Some((id, _, _)) = nodes.iter().find(|(id, _, _)| id != &state.node_id) {
+      candidate = Some(id.clone());
     }
   }
 
-  let candidate = candidate.or_else(|| nodes.first().map(|(id, _, _)| *id));
+  let candidate = candidate.or_else(|| nodes.first().map(|(id, _, _)| id.clone()));
 
   let Some(node_id) = candidate else {
     return Err("no leader available".to_string());
@@ -429,7 +429,7 @@ async fn resolve_kv_target(
 
   nodes
     .into_iter()
-    .find(|(id, _, _)| *id == node_id)
+    .find(|(id, _, _)| id == &node_id)
     .map(|(id, peer, addr)| KvTarget {
       node_id: id,
       peer,

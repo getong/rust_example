@@ -21,7 +21,7 @@ serde = ["openraft/serde"]
 
 [dependencies]
 futures = "0.3.32"
-openraft = { version = "0.10.0-alpha.21", features = [
+openraft = { version = "0.10.0-alpha.22", features = [
   "type-alias",
   "tokio-rt",
 ] }
