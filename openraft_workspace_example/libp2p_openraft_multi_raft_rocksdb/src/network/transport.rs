@@ -77,6 +77,42 @@ impl Libp2pNetworkFactory {
       );
       return false;
     }
+
+    {
+      let mut map = self.node_peers.write().await;
+      for (stored_node_id, (stored_peer, stored_addr)) in map.iter_mut() {
+        if *stored_peer != peer {
+          continue;
+        }
+
+        if *stored_addr == addr {
+          return true;
+        }
+
+        if !should_use_discovered_addr(stored_addr, &addr) {
+          tracing::debug!(
+            node_id = %stored_node_id,
+            peer = %peer,
+            addr = %addr,
+            stored_addr = %stored_addr,
+            "ignoring discovered peer address"
+          );
+          return false;
+        }
+
+        if is_unspecified_addr(stored_addr) {
+          tracing::info!(
+            node_id = %stored_node_id,
+            peer = %peer,
+            addr = %addr,
+            "updating unspecified peer address from discovery"
+          );
+          *stored_addr = addr;
+        }
+        return true;
+      }
+    }
+
     self.register_node_addr(node_id, peer, addr).await
   }
 
@@ -88,7 +124,7 @@ impl Libp2pNetworkFactory {
       Some((stored_peer, stored_addr))
         if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
       {
-        tracing::info!(
+        tracing::debug!(
           node_id = %node_id,
           peer = %peer,
           addr = %addr,
@@ -292,6 +328,10 @@ fn should_use_discovered_addr(stored_addr: &Multiaddr, candidate: &Multiaddr) ->
     return is_loopback_addr(candidate);
   }
 
+  if is_loopback_addr(candidate) {
+    return false;
+  }
+
   if !is_link_local_addr(stored_addr) && is_link_local_addr(candidate) {
     return false;
   }
@@ -382,6 +422,29 @@ mod tests {
       stored_addr.to_string(),
       format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}")
     );
+  }
+
+  #[tokio::test]
+  async fn discovered_loopback_does_not_reregister_known_normal_addr() {
+    let (tx, _rx) = mpsc::channel(4);
+    let local_peer = peer_id();
+    let peer = peer_id();
+    let client = Libp2pClient::new(tx, Duration::from_secs(1));
+    let network = Libp2pNetworkFactory::new(client, local_peer);
+    let node_id = NodeId::from(peer.to_string());
+    let configured_addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
+
+    network
+      .register_node(node_id.clone(), &configured_addr)
+      .await
+      .expect("register node");
+    let registered = network
+      .register_discovered_peer(peer, "/ip4/127.0.0.1/tcp/4002/wss".parse().unwrap())
+      .await;
+
+    let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
+    assert!(!registered);
+    assert_eq!(stored_addr.to_string(), configured_addr);
   }
 
   #[test]
