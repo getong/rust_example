@@ -1,16 +1,15 @@
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use clap::Parser;
 use futures::StreamExt;
 use libp2p::{Multiaddr, PeerId, Swarm, identity};
-use openraft::ServerState;
 use tokio::{select, sync::mpsc};
 
 use crate::{
   domain::{DistributedTask, TaskStage},
   journal::ConsensusTaskJournal,
-  network,
+  network, openraft_groups,
   raft_role::OpenRaftRoleTracker,
   state::{AppState, TaskDispatch},
   worker::spawn_apalis_worker,
@@ -43,13 +42,13 @@ pub(crate) struct Opt {
   #[arg(long)]
   openraft_node_id: Option<String>,
 
-  /// Local OpenRaft server state: learner, follower, candidate, leader, or shutdown.
-  #[arg(long, value_parser = parse_openraft_state)]
-  openraft_state: Option<ServerState>,
+  /// Comma-separated OpenRaft group ids to start locally.
+  #[arg(long, value_delimiter = ',', default_value = "users,orders,products")]
+  openraft_groups: Vec<String>,
 
-  /// Current OpenRaft leader node id, used only for journal detail.
+  /// Override the group used for Apalis follower checks. Defaults to users.
   #[arg(long)]
-  openraft_leader: Option<String>,
+  openraft_default_group: Option<String>,
 }
 
 pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
@@ -65,10 +64,16 @@ pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
     .clone()
     .unwrap_or_else(|| local_peer_id.to_string());
   let raft_role = OpenRaftRoleTracker::new(openraft_node_id.clone(), None, None);
-  raft_role.set_state(opt.openraft_state).await;
-  raft_role
-    .set_current_leader(opt.openraft_leader.clone())
-    .await;
+
+  let group_ids = normalized_group_ids(&opt.openraft_groups);
+  let openraft =
+    openraft_groups::start_openraft_groups(openraft_node_id.clone(), &opt.db, &group_ids).await?;
+  let default_group = opt
+    .openraft_default_group
+    .clone()
+    .or_else(|| openraft.default_group_id().map(ToOwned::to_owned))
+    .context("no default openraft group available")?;
+  openraft_groups::spawn_metrics_watcher(&openraft, default_group.clone(), raft_role.clone());
 
   let state = AppState::new(
     local_peer_id,
@@ -92,9 +97,9 @@ pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
     local_peer_id,
     opt.listen.clone(),
     network::swarm_external_addresses(&swarm),
-    openraft_node_id,
-    opt.openraft_state,
-    opt.openraft_leader.clone(),
+    openraft.local_node_id().to_string(),
+    default_group,
+    openraft_groups::metrics_summary(&openraft),
   ));
 
   let mut published_demo = false;
@@ -146,16 +151,19 @@ async fn print_journal(journal: &ConsensusTaskJournal) -> anyhow::Result<()> {
   Ok(())
 }
 
-fn parse_openraft_state(value: &str) -> anyhow::Result<ServerState> {
-  match value {
-    "learner" => Ok(ServerState::Learner),
-    "follower" => Ok(ServerState::Follower),
-    "candidate" => Ok(ServerState::Candidate),
-    "leader" => Ok(ServerState::Leader),
-    "shutdown" => Ok(ServerState::Shutdown),
-    _ => Err(anyhow!(
-      "invalid openraft state `{value}`; expected learner, follower, candidate, leader, or \
-       shutdown"
-    )),
+fn normalized_group_ids(group_ids: &[String]) -> Vec<String> {
+  let mut groups = Vec::new();
+  for group_id in group_ids {
+    for parsed in openraft_groups::parse_group_ids(group_id) {
+      if !groups.contains(&parsed) {
+        groups.push(parsed);
+      }
+    }
+  }
+
+  if groups.is_empty() {
+    openraft_groups::default_group_ids()
+  } else {
+    groups
   }
 }

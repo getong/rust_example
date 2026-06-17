@@ -16,6 +16,8 @@ NODE3_DB="${NODE3_DB:-$DB_ROOT/$NODE3_ID}"
 NODE3_LOG="${NODE3_LOG:-$LOG_DIR/$NODE3_ID.log}"
 
 OPENRAFT_LEADER="${OPENRAFT_LEADER:-$NODE1_ID}"
+OPENRAFT_GROUPS="${OPENRAFT_GROUPS:-users,orders,products}"
+OPENRAFT_DEFAULT_GROUP="${OPENRAFT_DEFAULT_GROUP:-users}"
 
 mkdir -p "$NODE3_DB" "$LOG_DIR"
 
@@ -55,8 +57,8 @@ cmd=(
 	--db "$NODE3_DB"
 	--keep-alive
 	--openraft-node-id "$NODE3_ID"
-	--openraft-state follower
-	--openraft-leader "$OPENRAFT_LEADER"
+	--openraft-groups "$OPENRAFT_GROUPS"
+	--openraft-default-group "$OPENRAFT_DEFAULT_GROUP"
 )
 
 append_peer_args "${NODE3_PEERS:-}"
@@ -71,5 +73,6 @@ echo "  peer:   $NODE1_LISTEN"
 echo "  peer:   $NODE2_LISTEN"
 echo "  db:     $NODE3_DB"
 echo "  log:    $NODE3_LOG"
+echo "  groups: $OPENRAFT_GROUPS"
 
 "${cmd[@]}" 2>&1 | tee "$NODE3_LOG"

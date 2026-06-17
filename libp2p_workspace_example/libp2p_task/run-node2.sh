@@ -15,6 +15,8 @@ NODE2_DB="${NODE2_DB:-$DB_ROOT/$NODE2_ID}"
 NODE2_LOG="${NODE2_LOG:-$LOG_DIR/$NODE2_ID.log}"
 
 OPENRAFT_LEADER="${OPENRAFT_LEADER:-$NODE1_ID}"
+OPENRAFT_GROUPS="${OPENRAFT_GROUPS:-users,orders,products}"
+OPENRAFT_DEFAULT_GROUP="${OPENRAFT_DEFAULT_GROUP:-users}"
 
 mkdir -p "$NODE2_DB" "$LOG_DIR"
 
@@ -53,8 +55,8 @@ cmd=(
 	--db "$NODE2_DB"
 	--keep-alive
 	--openraft-node-id "$NODE2_ID"
-	--openraft-state follower
-	--openraft-leader "$OPENRAFT_LEADER"
+	--openraft-groups "$OPENRAFT_GROUPS"
+	--openraft-default-group "$OPENRAFT_DEFAULT_GROUP"
 )
 
 append_peer_args "${NODE2_PEERS:-}"
@@ -68,5 +70,6 @@ echo "  listen: $NODE2_LISTEN"
 echo "  peer:   $NODE1_LISTEN"
 echo "  db:     $NODE2_DB"
 echo "  log:    $NODE2_LOG"
+echo "  groups: $OPENRAFT_GROUPS"
 
 "${cmd[@]}" 2>&1 | tee "$NODE2_LOG"

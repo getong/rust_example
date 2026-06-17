@@ -7,12 +7,14 @@ edition = "2024"
 anyhow = "1.0.102"
 apalis = { version = "1.0.0-rc.9", features = ["retry"] }
 apalis-core = "1.0.0-rc.9"
+byteorder = "1.5.0"
 clap = { version = "4.6.1", features = ["derive"] }
 futures = "0.3.32"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "6a6814bb698b01c40d6ce08eb0f61281c909124f", features = [
     "full",
 ] }
-openraft = { version = "0.10.0-alpha.21", features = ["serde"] }
+openraft = { version = "0.10.0-alpha.21", features = ["serde", "type-alias"] }
+rand = "0.10"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"

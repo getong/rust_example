@@ -13,6 +13,8 @@ NODE1_DB="${NODE1_DB:-$DB_ROOT/$NODE1_ID}"
 NODE1_LOG="${NODE1_LOG:-$LOG_DIR/$NODE1_ID.log}"
 
 OPENRAFT_LEADER="${OPENRAFT_LEADER:-$NODE1_ID}"
+OPENRAFT_GROUPS="${OPENRAFT_GROUPS:-users,orders,products}"
+OPENRAFT_DEFAULT_GROUP="${OPENRAFT_DEFAULT_GROUP:-users}"
 
 mkdir -p "$NODE1_DB" "$LOG_DIR"
 
@@ -50,8 +52,8 @@ cmd=(
 	--db "$NODE1_DB"
 	--keep-alive
 	--openraft-node-id "$NODE1_ID"
-	--openraft-state leader
-	--openraft-leader "$OPENRAFT_LEADER"
+	--openraft-groups "$OPENRAFT_GROUPS"
+	--openraft-default-group "$OPENRAFT_DEFAULT_GROUP"
 )
 
 append_peer_args "${NODE1_PEERS:-}"
@@ -64,6 +66,7 @@ echo "Starting $NODE1_ID as OpenRaft leader"
 echo "  listen: $NODE1_LISTEN"
 echo "  db:     $NODE1_DB"
 echo "  log:    $NODE1_LOG"
+echo "  groups: $OPENRAFT_GROUPS"
 echo "Run run-node2.sh and run-node3.sh in separate terminals to complete the cluster."
 
 "${cmd[@]}" 2>&1 | tee "$NODE1_LOG"

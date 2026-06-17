@@ -12,7 +12,6 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
-use openraft::ServerState;
 
 use crate::{
   domain::{DistributedTask, TaskStage, TaskUnderstanding},
@@ -178,19 +177,15 @@ pub(crate) async fn report_ready_address(
   requested_listen: Multiaddr,
   external_addresses: Vec<Multiaddr>,
   openraft_node_id: String,
-  openraft_state: Option<ServerState>,
-  openraft_leader: Option<String>,
+  openraft_default_group: String,
+  openraft_groups: Vec<String>,
 ) {
   tokio::time::sleep(Duration::from_millis(300)).await;
   println!("local peer id: {peer_id}");
   println!("openraft node id: {openraft_node_id}");
-  match openraft_state {
-    Some(state) => println!("openraft state: {state:?}"),
-    None => println!("openraft state: <unknown>"),
-  }
-  match openraft_leader {
-    Some(leader) => println!("openraft current leader: {leader}"),
-    None => println!("openraft current leader: <unknown>"),
+  println!("openraft default group: {openraft_default_group}");
+  for group in openraft_groups {
+    println!("openraft {group}");
   }
   println!("requested listen: {requested_listen}");
   for addr in external_addresses {

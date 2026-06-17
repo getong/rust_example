@@ -1,8 +1,11 @@
 mod app;
 mod domain;
 mod journal;
+mod kv_types;
 mod network;
+mod openraft_groups;
 mod raft_role;
+mod raft_store;
 mod state;
 mod worker;
 
