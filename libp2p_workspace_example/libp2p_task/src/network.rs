@@ -12,6 +12,7 @@ use libp2p::{
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,
 };
+use openraft::ServerState;
 
 use crate::{
   domain::{DistributedTask, TaskStage, TaskUnderstanding},
@@ -162,7 +163,7 @@ pub(crate) async fn handle_swarm_event(
         .enqueue_task_once(
           task,
           TaskStage::ReceivedFromLibp2p,
-          "task received from libp2p and will be pushed to apalis",
+          "task received from libp2p and evaluated against openraft role before apalis enqueue",
         )
         .await?;
     }
@@ -176,9 +177,21 @@ pub(crate) async fn report_ready_address(
   peer_id: PeerId,
   requested_listen: Multiaddr,
   external_addresses: Vec<Multiaddr>,
+  openraft_node_id: String,
+  openraft_state: Option<ServerState>,
+  openraft_leader: Option<String>,
 ) {
   tokio::time::sleep(Duration::from_millis(300)).await;
   println!("local peer id: {peer_id}");
+  println!("openraft node id: {openraft_node_id}");
+  match openraft_state {
+    Some(state) => println!("openraft state: {state:?}"),
+    None => println!("openraft state: <unknown>"),
+  }
+  match openraft_leader {
+    Some(leader) => println!("openraft current leader: {leader}"),
+    None => println!("openraft current leader: <unknown>"),
+  }
   println!("requested listen: {requested_listen}");
   for addr in external_addresses {
     println!("external address: {addr}/p2p/{peer_id}");

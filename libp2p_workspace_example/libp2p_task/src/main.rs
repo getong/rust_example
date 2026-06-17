@@ -2,6 +2,7 @@ mod app;
 mod domain;
 mod journal;
 mod network;
+mod raft_role;
 mod state;
 mod worker;
 

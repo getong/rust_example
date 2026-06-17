@@ -1,16 +1,18 @@
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use clap::Parser;
 use futures::StreamExt;
 use libp2p::{Multiaddr, PeerId, Swarm, identity};
+use openraft::ServerState;
 use tokio::{select, sync::mpsc};
 
 use crate::{
   domain::{DistributedTask, TaskStage},
   journal::ConsensusTaskJournal,
   network,
-  state::AppState,
+  raft_role::OpenRaftRoleTracker,
+  state::{AppState, TaskDispatch},
   worker::spawn_apalis_worker,
 };
 
@@ -36,6 +38,18 @@ pub(crate) struct Opt {
   /// Keep running after the demo task is processed.
   #[arg(long, default_value_t = false)]
   keep_alive: bool,
+
+  /// Local OpenRaft node id. Defaults to the local libp2p PeerId string.
+  #[arg(long)]
+  openraft_node_id: Option<String>,
+
+  /// Local OpenRaft server state: learner, follower, candidate, leader, or shutdown.
+  #[arg(long, value_parser = parse_openraft_state)]
+  openraft_state: Option<ServerState>,
+
+  /// Current OpenRaft leader node id, used only for journal detail.
+  #[arg(long)]
+  openraft_leader: Option<String>,
 }
 
 pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
@@ -46,12 +60,22 @@ pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
   let journal = ConsensusTaskJournal::open(&opt.db)?;
   let (incoming_tx, incoming_rx) = mpsc::channel(128);
   let (worker_done_tx, mut worker_done_rx) = mpsc::channel(128);
+  let openraft_node_id = opt
+    .openraft_node_id
+    .clone()
+    .unwrap_or_else(|| local_peer_id.to_string());
+  let raft_role = OpenRaftRoleTracker::new(openraft_node_id.clone(), None, None);
+  raft_role.set_state(opt.openraft_state).await;
+  raft_role
+    .set_current_leader(opt.openraft_leader.clone())
+    .await;
 
   let state = AppState::new(
     local_peer_id,
     journal.clone(),
     incoming_tx.clone(),
     worker_done_tx,
+    raft_role.clone(),
   );
 
   spawn_apalis_worker(incoming_rx, state.clone());
@@ -68,6 +92,9 @@ pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
     local_peer_id,
     opt.listen.clone(),
     network::swarm_external_addresses(&swarm),
+    openraft_node_id,
+    opt.openraft_state,
+    opt.openraft_leader.clone(),
   ));
 
   let mut published_demo = false;
@@ -80,11 +107,15 @@ pub(crate) async fn run(opt: Opt) -> anyhow::Result<()> {
         published_demo = true;
         let task = DistributedTask::demo(local_peer_id);
         network::publish_task(&mut swarm, &topic, &journal, &task).await?;
-        state.enqueue_task_once(
+        let dispatch = state.enqueue_task_once(
           task,
           TaskStage::SubmittedLocally,
-          "task published locally and mirrored into the local apalis worker",
+          "task published locally and evaluated against openraft role before apalis enqueue",
         ).await?;
+        if !opt.keep_alive && dispatch != TaskDispatch::Enqueued {
+          print_journal(&journal).await?;
+          return Ok(());
+        }
       }
       Some(task) = worker_done_rx.recv() => {
         if !opt.keep_alive && opt.publish_demo && task.submitted_by == local_peer_id.to_string() {
@@ -113,4 +144,18 @@ async fn print_journal(journal: &ConsensusTaskJournal) -> anyhow::Result<()> {
     );
   }
   Ok(())
+}
+
+fn parse_openraft_state(value: &str) -> anyhow::Result<ServerState> {
+  match value {
+    "learner" => Ok(ServerState::Learner),
+    "follower" => Ok(ServerState::Follower),
+    "candidate" => Ok(ServerState::Candidate),
+    "leader" => Ok(ServerState::Leader),
+    "shutdown" => Ok(ServerState::Shutdown),
+    _ => Err(anyhow!(
+      "invalid openraft state `{value}`; expected learner, follower, candidate, leader, or \
+       shutdown"
+    )),
+  }
 }
