@@ -43,29 +43,9 @@ impl Libp2pNetworkFactory {
 
   pub async fn register_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {
     let (peer, maddr) = parse_p2p_addr(addr)?;
-    let new_is_loopback = is_loopback_addr(&maddr);
-    let should_dial = {
-      let mut map = self.node_peers.write().await;
-      match map.get(&node_id) {
-        Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == maddr => false,
-        Some((stored_peer, stored_addr))
-          if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
-        {
-          tracing::info!(
-            node_id = %node_id,
-            peer = %peer,
-            addr = %maddr,
-            stored_addr = %stored_addr,
-            "ignore loopback addr because a non-loopback addr is already known"
-          );
-          false
-        }
-        _ => {
-          map.insert(node_id.clone(), (peer, maddr.clone()));
-          true
-        }
-      }
-    };
+    let should_dial = self
+      .register_node_addr(node_id.clone(), peer, maddr.clone())
+      .await;
     if peer == self.local_peer_id {
       tracing::warn!(
         node_id = %node_id,
@@ -79,6 +59,55 @@ impl Libp2pNetworkFactory {
       self.client.dial(maddr).await;
     }
     Ok(())
+  }
+
+  pub async fn register_discovered_peer(&self, peer: PeerId, addr: Multiaddr) -> bool {
+    if peer == self.local_peer_id {
+      return false;
+    }
+
+    let node_id = NodeId::from(peer.to_string());
+    let addr = ensure_p2p_addr(addr, peer);
+    if is_undialable_discovered_addr(&addr) {
+      tracing::debug!(
+        node_id = %node_id,
+        peer = %peer,
+        addr = %addr,
+        "ignore undialable discovered peer address"
+      );
+      return false;
+    }
+    self.register_node_addr(node_id, peer, addr).await
+  }
+
+  async fn register_node_addr(&self, node_id: NodeId, peer: PeerId, addr: Multiaddr) -> bool {
+    let new_is_loopback = is_loopback_addr(&addr);
+    let mut map = self.node_peers.write().await;
+    match map.get(&node_id) {
+      Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == addr => false,
+      Some((stored_peer, stored_addr))
+        if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
+      {
+        tracing::info!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %addr,
+          stored_addr = %stored_addr,
+          "ignore loopback addr because a non-loopback addr is already known"
+        );
+        false
+      }
+      _ => {
+        map.insert(node_id.clone(), (peer, addr.clone()));
+        tracing::info!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %addr,
+          "registered libp2p node"
+        );
+        true
+      }
+    }
   }
 
   pub async fn update_peer_addr_from_mdns(&self, peer: PeerId, addr: Multiaddr) -> bool {

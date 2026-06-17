@@ -1,5 +1,5 @@
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, BTreeSet},
   env,
   net::SocketAddr,
   path::{Path, PathBuf},
@@ -20,18 +20,23 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
-use openraft::BasicNode;
+use openraft::{BasicNode, ChangeMembers, ServerState, async_runtime::WatchReceiver};
+use rand::seq::IndexedRandom;
 use tokio::sync::mpsc;
 
 use crate::{
   GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
-  constants::{SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT},
+  constants::{
+    SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT,
+    SERVICE_OPENRAFT_AUTOSCALER,
+  },
   groups, http,
   kameo_remote::KameoState,
   network::{
     openraft_dispatcher::OpenRaftDispatcher,
     proto_codec::{ProstCodec, ProtoCodec},
     raft_bridge::P2PNetworkFactoryWrapper,
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm},
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -42,6 +47,9 @@ use crate::{
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
+const OPENRAFT_MAX_LEARNERS: usize = 5;
+const OPENRAFT_MAX_VOTERS: usize = 5;
+const OPENRAFT_AUTOSCALER_INTERVAL_SECS: u64 = 5;
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -598,6 +606,205 @@ fn spawn_apalis_worker(
   })
 }
 
+fn spawn_openraft_autoscaler(
+  shutdown: &mut crate::signal::ShutdownHandler,
+  groups: GroupHandleMap,
+  network: Libp2pNetworkFactory,
+) -> tokio::task::JoinHandle<()> {
+  let done = shutdown.push(SERVICE_OPENRAFT_AUTOSCALER);
+  let shutdown_rx = shutdown.shutdown_rx();
+  tokio::spawn(async move {
+    run_openraft_autoscaler(groups, network, shutdown_rx).await;
+    let _ = done.send(Ok(()));
+  })
+}
+
+async fn run_openraft_autoscaler(
+  groups: GroupHandleMap,
+  network: Libp2pNetworkFactory,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let mut tick = tokio::time::interval(Duration::from_secs(OPENRAFT_AUTOSCALER_INTERVAL_SECS));
+  tick.tick().await;
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => {
+        tracing::info!("shutdown signal received, stopping openraft autoscaler");
+        break;
+      }
+      _ = tick.tick() => {
+        let known_nodes = network.known_nodes().await;
+        for (group_id, group) in &groups {
+          if let Err(err) = reconcile_openraft_group(group_id, group, &network, &known_nodes).await {
+            tracing::warn!(group = group_id, error = ?err, "openraft autoscaler reconcile failed");
+          }
+        }
+      }
+    }
+  }
+}
+
+async fn reconcile_openraft_group(
+  group_id: &str,
+  group: &GroupHandle,
+  network: &Libp2pNetworkFactory,
+  known_nodes: &[(NodeId, PeerId, Multiaddr)],
+) -> anyhow::Result<()> {
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  if !metrics.state.is_leader() {
+    return Ok(());
+  }
+
+  let membership = metrics.membership_config.membership();
+  let voters = membership.voter_ids().collect::<BTreeSet<_>>();
+  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+
+  if learners.len() < OPENRAFT_MAX_LEARNERS {
+    add_next_discovered_learner(group_id, group, known_nodes, &voters, &learners).await?;
+  }
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  if metrics.state.is_leader() {
+    let active_voters = count_active_voter_states(group_id, &metrics, network).await;
+    if active_voters <= OPENRAFT_MAX_VOTERS {
+      promote_random_learner_if_needed(group_id, group, &metrics, active_voters).await?;
+    }
+  }
+
+  Ok(())
+}
+
+async fn add_next_discovered_learner(
+  group_id: &str,
+  group: &GroupHandle,
+  known_nodes: &[(NodeId, PeerId, Multiaddr)],
+  voters: &BTreeSet<NodeId>,
+  learners: &BTreeSet<NodeId>,
+) -> anyhow::Result<()> {
+  for (node_id, _peer, addr) in known_nodes {
+    if voters.contains(node_id) || learners.contains(node_id) {
+      continue;
+    }
+
+    let node = BasicNode {
+      addr: addr.to_string(),
+    };
+    tracing::info!(
+      group = group_id,
+      node_id = %node_id,
+      addr = %addr,
+      "adding discovered libp2p node as openraft learner"
+    );
+    group
+      .raft
+      .add_learner(node_id.clone(), node, true)
+      .await
+      .map_err(|err| anyhow!("add learner {node_id} to group {group_id}: {err}"))?;
+    break;
+  }
+
+  Ok(())
+}
+
+async fn promote_random_learner_if_needed(
+  group_id: &str,
+  group: &GroupHandle,
+  metrics: &crate::typ::RaftMetrics,
+  active_voters: usize,
+) -> anyhow::Result<()> {
+  let membership = metrics.membership_config.membership();
+  let learners = membership.learner_ids().collect::<Vec<_>>();
+  let Some(learner_id) = learners.choose(&mut rand::rng()).cloned() else {
+    return Ok(());
+  };
+
+  tracing::info!(
+    group = group_id,
+    node_id = %learner_id,
+    active_voters,
+    learners = learners.len(),
+    "promoting openraft learner to voter"
+  );
+  group
+    .raft
+    .change_membership(
+      ChangeMembers::AddVoterIds(BTreeSet::from([learner_id.clone()])),
+      true,
+    )
+    .await
+    .map_err(|err| anyhow!("promote learner {learner_id} in group {group_id}: {err}"))?;
+
+  Ok(())
+}
+
+async fn count_active_voter_states(
+  group_id: &str,
+  local_metrics: &crate::typ::RaftMetrics,
+  network: &Libp2pNetworkFactory,
+) -> usize {
+  let voter_ids = local_metrics
+    .membership_config
+    .membership()
+    .voter_ids()
+    .collect::<Vec<_>>();
+  let mut count = 0;
+
+  for node_id in voter_ids {
+    let state = if node_id == local_metrics.id {
+      Some(local_metrics.state)
+    } else {
+      remote_server_state(group_id, &node_id, network).await
+    };
+
+    if matches!(
+      state,
+      Some(ServerState::Leader | ServerState::Follower | ServerState::Candidate)
+    ) {
+      count += 1;
+    }
+  }
+
+  count
+}
+
+async fn remote_server_state(
+  group_id: &str,
+  node_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+) -> Option<ServerState> {
+  match network
+    .request(
+      node_id.clone(),
+      RaftRpcRequest {
+        group_id: group_id.to_string(),
+        op: RaftRpcOp::GetMetrics,
+      },
+    )
+    .await
+  {
+    Ok(RaftRpcResponse::GetMetrics(metrics)) => Some(metrics.state),
+    Ok(other) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        response = ?other,
+        "unexpected get-metrics response"
+      );
+      None
+    }
+    Err(err) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        error = ?err,
+        "get-metrics failed while counting openraft server states"
+      );
+      None
+    }
+  }
+}
+
 fn spawn_openraft_shutdown(
   shutdown: &mut crate::signal::ShutdownHandler,
   rafts: Vec<Raft>,
@@ -605,6 +812,7 @@ fn spawn_openraft_shutdown(
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
   apalis_handle: tokio::task::JoinHandle<()>,
+  autoscaler_handle: tokio::task::JoinHandle<()>,
 ) {
   // Openraft should shut down after libp2p swarm has stopped.
   let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
@@ -638,6 +846,7 @@ fn spawn_openraft_shutdown(
     let _ = swarm_handle.await;
     let _ = http_handle.await;
     let _ = apalis_handle.await;
+    let _ = autoscaler_handle.await;
     let _ = openraft_shutdown_tx.send(());
   });
 }
@@ -801,6 +1010,16 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
   let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
 
+  let members = register_members(&libp2p.network, &opt.nodes).await?;
+  maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
+  maybe_init_cluster(&openraft.groups, members, opt.id.clone(), opt.init).await?;
+
+  let autoscaler_handle = spawn_openraft_autoscaler(
+    &mut shutdown,
+    openraft.groups.clone(),
+    libp2p.network.clone(),
+  );
+
   spawn_openraft_shutdown(
     &mut shutdown,
     openraft
@@ -812,11 +1031,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     swarm_handle,
     http_handle,
     apalis_handle,
+    autoscaler_handle,
   );
-
-  let members = register_members(&libp2p.network, &opt.nodes).await?;
-  maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
-  maybe_init_cluster(&openraft.groups, members, opt.id.clone(), opt.init).await?;
 
   await_shutdown(shutdown).await
 }

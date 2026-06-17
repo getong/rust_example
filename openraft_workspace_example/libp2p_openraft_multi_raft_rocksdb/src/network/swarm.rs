@@ -488,7 +488,7 @@ async fn handle_swarm_event(
       handle_ping_event(event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-      handle_kad_event(swarm, Some(connected_peers), event);
+      handle_kad_event(swarm, Some(network), Some(connected_peers), event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kameo(event)) => {
       handle_kameo_event(event);
@@ -618,7 +618,10 @@ async fn handle_mdns_event(
     mdns::Event::Discovered(list) => {
       let mut saw_peer = false;
       for (peer, addr) in list {
-        let use_discovered_addr = network.update_peer_addr_from_mdns(peer, addr.clone()).await;
+        let mut use_discovered_addr = network.update_peer_addr_from_mdns(peer, addr.clone()).await;
+        if network.register_discovered_peer(peer, addr.clone()).await {
+          use_discovered_addr = true;
+        }
         if use_discovered_addr {
           saw_peer = true;
           add_kad_peer_address(swarm, peer, addr);
@@ -881,7 +884,7 @@ pub async fn run_swarm_client_with_shutdown(
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-            handle_kad_event(&mut swarm, None, event);
+            handle_kad_event(&mut swarm, None, None, event);
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kameo(event)) => {
@@ -1060,6 +1063,7 @@ fn kick_kad_queries(swarm: &mut Swarm<Behaviour>) {
 
 fn handle_kad_event(
   swarm: &mut Swarm<Behaviour>,
+  network: Option<&Libp2pNetworkFactory>,
   connected_peers: Option<&HashSet<PeerId>>,
   event: kad::Event,
 ) {
@@ -1069,6 +1073,15 @@ fn handle_kad_event(
     } => {
       if peer == *swarm.local_peer_id() {
         return;
+      }
+      if let Some(network) = network {
+        let addrs: Vec<Multiaddr> = addresses.iter().cloned().collect();
+        let network = network.clone();
+        tokio::spawn(async move {
+          for addr in addrs {
+            let _ = network.register_discovered_peer(peer, addr).await;
+          }
+        });
       }
       if connected_peers.is_none() {
         tracing::debug!(peer = %peer, "kad routing updated (client)");
