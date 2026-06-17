@@ -1,9 +1,12 @@
 use std::{
+  collections::{BTreeSet, hash_map::DefaultHasher},
   convert::Infallible,
   error::Error,
   fmt,
+  hash::{Hash, Hasher},
   marker::PhantomData,
   str::FromStr,
+  sync::Arc,
   time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -14,20 +17,20 @@ use apalis::prelude::{
 use apalis_codec::json::JsonCodec;
 use apalis_core::backend::queue::Queue;
 use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream};
-use openraft::async_runtime::WatchReceiver;
+use openraft::{ServerState, async_runtime::WatchReceiver};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
 use types_kv::Request as KvWriteRequest;
 
 use crate::{
-  GroupHandle,
+  GroupHandle, NodeId,
   network::{swarm::KvClient, transport::parse_p2p_addr},
   proto::raft_kv::{
     ErrorResponse, RaftKvRequest, SetValueRequest, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
   store::{KvData, ensure_linearizable_read},
-  typ::Raft,
+  typ::{Raft, RaftMetrics},
 };
 
 const TASK_KEY_PART: &str = "task";
@@ -42,6 +45,8 @@ pub struct Email {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RaftTaskContext {
   pub lock_by: Option<String>,
+  #[serde(default)]
+  pub assigned_node_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -74,26 +79,35 @@ impl FromStr for RaftTaskId {
 }
 
 pub struct RaftApalisStorage<Args, C = JsonCodec<Vec<u8>>> {
+  node_id: NodeId,
   group_id: String,
   queue: Queue,
   raft: Raft,
   kv_data: KvData,
   kv_client: KvClient,
   poll_interval: Duration,
+  claimed: Arc<Mutex<BTreeSet<String>>>,
   _args: PhantomData<Args>,
   _codec: PhantomData<C>,
 }
 
 impl<Args> RaftApalisStorage<Args> {
-  pub fn new(group_id: impl Into<String>, group: GroupHandle, kv_client: KvClient) -> Self {
+  pub fn new(
+    node_id: NodeId,
+    group_id: impl Into<String>,
+    group: GroupHandle,
+    kv_client: KvClient,
+  ) -> Self {
     let group_id = group_id.into();
     Self {
+      node_id,
       queue: Queue::from(group_id.clone()),
       group_id,
       raft: group.raft,
       kv_data: group.kv_data,
       kv_client,
       poll_interval: POLL_INTERVAL,
+      claimed: Arc::new(Mutex::new(BTreeSet::new())),
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -157,6 +171,7 @@ where
       group_id: self.group_id.clone(),
       raft: self.raft.clone(),
       kv_client: self.kv_client.clone(),
+      claimed: self.claimed.clone(),
       _codec: PhantomData,
     })
   }
@@ -282,8 +297,21 @@ impl<Args, C> RaftApalisStorage<Args, C> {
     worker_id: &str,
   ) -> Result<Option<Task<Vec<u8>, RaftTaskContext, RaftTaskId>>, RaftApalisError> {
     let metrics = self.raft.metrics().borrow_watched().clone();
-    if !metrics.state.is_leader() {
-      return Ok(None);
+
+    match metrics.state {
+      ServerState::Leader => {
+        self.schedule_next_to_follower(&metrics).await?;
+        Ok(None)
+      }
+      ServerState::Follower => self.try_claim_assigned(worker_id).await,
+      _ => Ok(None),
+    }
+  }
+
+  async fn schedule_next_to_follower(&self, metrics: &RaftMetrics) -> Result<(), RaftApalisError> {
+    let followers = self.follower_node_ids(metrics);
+    if followers.is_empty() {
+      return Ok(());
     }
 
     ensure_linearizable_read(&self.raft)
@@ -312,26 +340,117 @@ impl<Args, C> RaftApalisStorage<Args, C> {
         continue;
       }
 
+      let Some(target_node_id) = select_follower_for_task(&followers, &record.task_id) else {
+        return Ok(());
+      };
       record.status = StoredStatus::Running;
-      record.lock_by = Some(worker_id.to_string());
-      let task = record.clone().into_compact_task()?;
+      record.lock_by = None;
+      record.assigned_node_id = Some(target_node_id.clone());
+      let task_id = record.task_id.clone();
       self.write_record(key, record).await?;
+      tracing::debug!(
+        task_id = %task_id,
+        follower_node_id = %target_node_id,
+        "scheduled apalis task to follower"
+      );
+      return Ok(());
+    }
+
+    Ok(())
+  }
+
+  async fn try_claim_assigned(
+    &self,
+    worker_id: &str,
+  ) -> Result<Option<Task<Vec<u8>, RaftTaskContext, RaftTaskId>>, RaftApalisError> {
+    let local_node_id = self.node_id.to_string();
+    let mut entries = self.kv_data.entries().await?;
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let prefix = task_key_prefix(self.queue.as_ref());
+    for (key, value) in entries {
+      if !key.starts_with(&prefix) {
+        continue;
+      }
+
+      let mut record = match StoredTask::decode(&value) {
+        Ok(record) => record,
+        Err(err) => {
+          tracing::warn!(%key, error = ?err, "skipping invalid apalis task record");
+          continue;
+        }
+      };
+
+      if record.status != StoredStatus::Running {
+        continue;
+      }
+      if record.assigned_node_id.as_deref() != Some(local_node_id.as_str()) {
+        continue;
+      }
+      if let Some(lock_by) = record.lock_by.as_deref()
+        && lock_by != worker_id
+      {
+        continue;
+      }
+
+      let task_id = record.task_id.clone();
+      if !self.insert_local_claim(&task_id).await {
+        continue;
+      }
+
+      record.lock_by = Some(worker_id.to_string());
+      let task = match record.clone().into_compact_task() {
+        Ok(task) => task,
+        Err(err) => {
+          self.remove_local_claim(&task_id).await;
+          return Err(err);
+        }
+      };
+
+      if let Err(err) = self.write_record(key, record).await {
+        self.remove_local_claim(&task_id).await;
+        return Err(err);
+      }
+
       return Ok(Some(task));
     }
 
     Ok(None)
+  }
+
+  fn follower_node_ids(&self, metrics: &RaftMetrics) -> Vec<String> {
+    let current_leader = metrics.current_leader.as_ref();
+    let mut followers: Vec<String> = metrics
+      .membership_config
+      .voter_ids()
+      .filter(|node_id| node_id != &self.node_id)
+      .filter(|node_id| current_leader != Some(node_id))
+      .map(|node_id| node_id.to_string())
+      .collect();
+    followers.sort();
+    followers
+  }
+
+  async fn insert_local_claim(&self, task_id: &str) -> bool {
+    self.claimed.lock().await.insert(task_id.to_string())
+  }
+
+  async fn remove_local_claim(&self, task_id: &str) {
+    self.claimed.lock().await.remove(task_id);
   }
 }
 
 impl<Args, C> Clone for RaftApalisStorage<Args, C> {
   fn clone(&self) -> Self {
     Self {
+      node_id: self.node_id.clone(),
       group_id: self.group_id.clone(),
       queue: self.queue.clone(),
       raft: self.raft.clone(),
       kv_data: self.kv_data.clone(),
       kv_client: self.kv_client.clone(),
       poll_interval: self.poll_interval,
+      claimed: self.claimed.clone(),
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -341,6 +460,7 @@ impl<Args, C> Clone for RaftApalisStorage<Args, C> {
 impl<Args, C> fmt::Debug for RaftApalisStorage<Args, C> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RaftApalisStorage")
+      .field("node_id", &self.node_id)
       .field("group_id", &self.group_id)
       .field("queue", &self.queue)
       .field("poll_interval", &self.poll_interval)
@@ -353,6 +473,7 @@ pub struct RaftApalisAck<C = JsonCodec<Vec<u8>>> {
   group_id: String,
   raft: Raft,
   kv_client: KvClient,
+  claimed: Arc<Mutex<BTreeSet<String>>>,
   _codec: PhantomData<C>,
 }
 
@@ -382,7 +503,8 @@ where
       return futures::future::ready(Err(RaftApalisError::new("missing task id"))).boxed();
     };
 
-    let key = task_record_key(&self.group_id, &task_id.to_string());
+    let task_id = task_id.to_string();
+    let key = task_record_key(&self.group_id, &task_id);
     let status = if res.is_ok() {
       StoredStatus::Done
     } else {
@@ -406,7 +528,9 @@ where
     let raft = self.raft.clone();
     let kv_client = self.kv_client.clone();
     let group_id = self.group_id.clone();
+    let claimed = self.claimed.clone();
     let lock_by = parts.ctx.lock_by.clone();
+    let assigned_node_id = parts.ctx.assigned_node_id.clone();
     let attempt = parts.attempt.current();
     let run_at = parts.run_at;
     let idempotency_key = parts.idempotency_key.clone();
@@ -414,17 +538,20 @@ where
     async move {
       let result = result?;
       let record = StoredTask {
-        task_id: task_id.to_string(),
+        task_id: task_id.clone(),
         payload: Vec::new(),
         attempts: attempt,
         status,
         run_at,
         idempotency_key,
         lock_by,
+        assigned_node_id,
         result: Some(result),
       };
       let value = serde_json::to_string(&record)?;
-      raft_set(&raft, &kv_client, group_id, key, value).await
+      raft_set(&raft, &kv_client, group_id, key, value).await?;
+      claimed.lock().await.remove(&task_id);
+      Ok(())
     }
     .boxed()
   }
@@ -487,6 +614,8 @@ struct StoredTask {
   run_at: u64,
   idempotency_key: Option<String>,
   lock_by: Option<String>,
+  #[serde(default)]
+  assigned_node_id: Option<String>,
   result: Option<TaskResultRecord>,
 }
 
@@ -506,6 +635,7 @@ impl StoredTask {
       run_at: task.parts.run_at,
       idempotency_key: task.parts.idempotency_key,
       lock_by: task.parts.ctx.lock_by,
+      assigned_node_id: task.parts.ctx.assigned_node_id,
       result: None,
     })
   }
@@ -526,6 +656,7 @@ impl StoredTask {
       .run_at_timestamp(self.run_at)
       .with_ctx(RaftTaskContext {
         lock_by: self.lock_by,
+        assigned_node_id: self.assigned_node_id,
       });
     if let Some(idempotency_key) = self.idempotency_key {
       task = task.with_idempotency_key(idempotency_key);
@@ -625,11 +756,12 @@ pub async fn send_email(task: Email) -> Result<(), BoxDynError> {
 }
 
 pub fn build_email_storage(
+  node_id: NodeId,
   group_id: impl Into<String>,
   group: GroupHandle,
   kv_client: KvClient,
 ) -> RaftApalisStorage<Email> {
-  RaftApalisStorage::new(group_id, group, kv_client)
+  RaftApalisStorage::new(node_id, group_id, group, kv_client)
 }
 
 pub async fn run_email_worker(
@@ -676,6 +808,17 @@ fn unique_task_id() -> String {
   format!("{nanos:x}")
 }
 
+fn select_follower_for_task(followers: &[String], task_id: &str) -> Option<String> {
+  if followers.is_empty() {
+    return None;
+  }
+
+  let mut hasher = DefaultHasher::new();
+  task_id.hash(&mut hasher);
+  let index = (hasher.finish() as usize) % followers.len();
+  followers.get(index).cloned()
+}
+
 #[cfg(test)]
 mod tests {
   use apalis::prelude::{Attempt, Task};
@@ -691,6 +834,7 @@ mod tests {
       .run_at_timestamp(123)
       .with_ctx(RaftTaskContext {
         lock_by: Some("worker-a".to_string()),
+        assigned_node_id: Some("node-b".to_string()),
       })
       .with_idempotency_key("idem-1")
       .build();
@@ -706,6 +850,7 @@ mod tests {
     assert_eq!(task.parts.status.load(), Status::Queued);
     assert_eq!(task.parts.run_at, 123);
     assert_eq!(task.parts.ctx.lock_by, Some("worker-a".to_string()));
+    assert_eq!(task.parts.ctx.assigned_node_id, Some("node-b".to_string()));
     assert_eq!(task.parts.idempotency_key, Some("idem-1".to_string()));
   }
 
@@ -719,5 +864,19 @@ mod tests {
       idempotency_key_record_key("apalis", "email-1"),
       "apalis:apalis:idem:email-1".to_string()
     );
+  }
+
+  #[test]
+  fn select_follower_for_task_returns_a_stable_follower() {
+    let followers = vec![
+      "node-a".to_string(),
+      "node-b".to_string(),
+      "node-c".to_string(),
+    ];
+
+    let picked = select_follower_for_task(&followers, "task-1").expect("follower");
+    assert!(followers.contains(&picked));
+    assert_eq!(select_follower_for_task(&followers, "task-1"), Some(picked));
+    assert_eq!(select_follower_for_task(&[], "task-1"), None);
   }
 }

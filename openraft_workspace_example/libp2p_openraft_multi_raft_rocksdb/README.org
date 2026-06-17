@@ -48,7 +48,9 @@ curl -X POST http://127.0.0.1:3001/apalis/email \
 This project includes a Raft-backed apalis storage in the =apalis= raft group.
 Tasks are stored as keys under =apalis:apalis:task:<task-id>= and state changes
 (queued, running, done, failed) are written through OpenRaft. The built-in email
-worker runs with the node and only claims work on the current Raft leader.
+worker runs with the node. The current Raft leader schedules queued tasks to
+voter nodes other than itself, and a worker executes a task only when its local
+OpenRaft state is =Follower= and the task is assigned to that node.
 
 ** kameo
 

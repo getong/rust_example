@@ -548,13 +548,14 @@ fn build_http_state(
     groups: openraft.groups.clone(),
     kv_client: libp2p.kv_client.clone(),
     default_group,
-    apalis_email: build_apalis_email_storage(libp2p, openraft)
+    apalis_email: build_apalis_email_storage(opt.id.clone(), libp2p, openraft)
       .expect("apalis group should be configured"),
     kameo: kameo_state,
   }
 }
 
 fn build_apalis_email_storage(
+  node_id: NodeId,
   libp2p: &Libp2pHandles,
   openraft: &OpenraftHandles,
 ) -> anyhow::Result<apalis_raft::RaftApalisStorage<apalis_raft::Email>> {
@@ -564,6 +565,7 @@ fn build_apalis_email_storage(
     .cloned()
     .ok_or_else(|| anyhow!("apalis raft group is not configured"))?;
   Ok(apalis_raft::build_email_storage(
+    node_id,
     groups::APALIS,
     group,
     libp2p.kv_client.clone(),
@@ -585,12 +587,13 @@ fn spawn_http(
 
 fn spawn_apalis_worker(
   shutdown: &mut crate::signal::ShutdownHandler,
+  worker_name: String,
   storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
 ) -> tokio::task::JoinHandle<()> {
   let apalis_done = shutdown.push(SERVICE_APALIS_WORKER);
   let apalis_shutdown = shutdown.shutdown_rx();
   tokio::spawn(async move {
-    let res = apalis_raft::run_email_worker("raft-email-worker", storage, apalis_shutdown).await;
+    let res = apalis_raft::run_email_worker(worker_name, storage, apalis_shutdown).await;
     let _ = apalis_done.send(res);
   })
 }
@@ -794,8 +797,9 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     crate::kameo_remote::register_incrementor(identity.local_peer_id.clone()).await?;
   let http_state = build_http_state(&opt, &identity, &libp2p, &openraft, kameo_state);
   let apalis_storage = http_state.apalis_email.clone();
+  let apalis_worker_name = format!("raft-email-worker-{}", opt.id);
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
-  let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_storage);
+  let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
 
   spawn_openraft_shutdown(
     &mut shutdown,
