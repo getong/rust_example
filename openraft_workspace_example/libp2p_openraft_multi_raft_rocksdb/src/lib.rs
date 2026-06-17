@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+pub mod apalis_raft;
 pub mod app;
 pub mod constants;
 pub mod http;
@@ -28,11 +29,17 @@ pub struct GroupHandle {
 pub type GroupHandleMap = BTreeMap<GroupId, GroupHandle>;
 
 pub mod groups {
+  pub const APALIS: &str = "apalis";
   pub const USERS: &str = "users";
   pub const ORDERS: &str = "orders";
   pub const PRODUCTS: &str = "products";
 
   pub fn all() -> Vec<String> {
-    vec![USERS.to_string(), ORDERS.to_string(), PRODUCTS.to_string()]
+    vec![
+      USERS.to_string(),
+      ORDERS.to_string(),
+      PRODUCTS.to_string(),
+      APALIS.to_string(),
+    ]
   }
 }

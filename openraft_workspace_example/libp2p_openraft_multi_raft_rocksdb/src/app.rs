@@ -24,8 +24,8 @@ use openraft::BasicNode;
 use tokio::sync::mpsc;
 
 use crate::{
-  GroupHandle, GroupHandleMap, GroupId, NodeId,
-  constants::{SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT},
+  GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
+  constants::{SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT},
   groups, http,
   kameo_remote::KameoState,
   network::{
@@ -548,8 +548,26 @@ fn build_http_state(
     groups: openraft.groups.clone(),
     kv_client: libp2p.kv_client.clone(),
     default_group,
+    apalis_email: build_apalis_email_storage(libp2p, openraft)
+      .expect("apalis group should be configured"),
     kameo: kameo_state,
   }
+}
+
+fn build_apalis_email_storage(
+  libp2p: &Libp2pHandles,
+  openraft: &OpenraftHandles,
+) -> anyhow::Result<apalis_raft::RaftApalisStorage<apalis_raft::Email>> {
+  let group = openraft
+    .groups
+    .get(groups::APALIS)
+    .cloned()
+    .ok_or_else(|| anyhow!("apalis raft group is not configured"))?;
+  Ok(apalis_raft::build_email_storage(
+    groups::APALIS,
+    group,
+    libp2p.kv_client.clone(),
+  ))
 }
 
 fn spawn_http(
@@ -565,12 +583,25 @@ fn spawn_http(
   })
 }
 
+fn spawn_apalis_worker(
+  shutdown: &mut crate::signal::ShutdownHandler,
+  storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+) -> tokio::task::JoinHandle<()> {
+  let apalis_done = shutdown.push(SERVICE_APALIS_WORKER);
+  let apalis_shutdown = shutdown.shutdown_rx();
+  tokio::spawn(async move {
+    let res = apalis_raft::run_email_worker("raft-email-worker", storage, apalis_shutdown).await;
+    let _ = apalis_done.send(res);
+  })
+}
+
 fn spawn_openraft_shutdown(
   shutdown: &mut crate::signal::ShutdownHandler,
   rafts: Vec<Raft>,
   mut shutdown_rx_for_ordering: crate::signal::ShutdownRx,
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
+  apalis_handle: tokio::task::JoinHandle<()>,
 ) {
   // Openraft should shut down after libp2p swarm has stopped.
   let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
@@ -603,6 +634,7 @@ fn spawn_openraft_shutdown(
     let _ = shutdown_rx_for_ordering.changed().await;
     let _ = swarm_handle.await;
     let _ = http_handle.await;
+    let _ = apalis_handle.await;
     let _ = openraft_shutdown_tx.send(());
   });
 }
@@ -761,7 +793,9 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let kameo_state =
     crate::kameo_remote::register_incrementor(identity.local_peer_id.clone()).await?;
   let http_state = build_http_state(&opt, &identity, &libp2p, &openraft, kameo_state);
+  let apalis_storage = http_state.apalis_email.clone();
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
+  let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_storage);
 
   spawn_openraft_shutdown(
     &mut shutdown,
@@ -773,6 +807,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     shutdown_rx_for_ordering,
     swarm_handle,
     http_handle,
+    apalis_handle,
   );
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;

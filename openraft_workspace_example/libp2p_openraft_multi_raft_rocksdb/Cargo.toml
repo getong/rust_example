@@ -17,6 +17,9 @@ path = "src/bin/status.rs"
 
 [dependencies]
 anyhow = "1.0.102"
+apalis = { version = "1.0.0-rc.9", features = ["retry"] }
+apalis-codec = { version = "0.1.0-rc.9", features = ["json"] }
+apalis-core = "1.0.0-rc.9"
 async-trait = "0.1.89"
 axum = { version = "0.8.9", features = ["json"] }
 clap = { version = "4.6.1", features = ["derive"] }
