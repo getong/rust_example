@@ -39,3 +39,4 @@ buffer_example_workspace/sample.json
 **/package-lock.json
 **/.claude
 **/snapshots
+**/todo*
