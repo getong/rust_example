@@ -54,6 +54,18 @@ const OPENRAFT_MAX_LEARNERS: usize = 5;
 const OPENRAFT_MAX_VOTERS: usize = 5;
 const OPENRAFT_AUTOSCALER_INTERVAL_SECS: u64 = 5;
 const OPENRAFT_OFFLINE_REMOVE_AFTER_SECS: u64 = 300;
+/// Max log-index lag a learner may have compared to the leader before being
+/// eligible for promotion to voter. A learner further behind than this is
+/// skipped until it catches up, preventing a lagging node from being promoted
+/// into the quorum where it would slow down commit latency.
+const LEARNER_PROMOTE_MAX_LAG: u64 = 500;
+/// How long to wait for at least one remote peer to become connected before
+/// running the startup "was this node removed?" membership check. Without
+/// this wait the check always sees zero connected peers and silently skips,
+/// missing the case where the node was evicted while it was offline.
+const STARTUP_PEER_CONNECT_WAIT: Duration = Duration::from_secs(8);
+/// Timeout for a single graceful-leave attempt on one Raft group at shutdown.
+const GRACEFUL_LEAVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -664,10 +676,24 @@ async fn reconcile_openraft_group(
     add_next_discovered_learner(group_id, group, known_nodes, &voters, &learners).await?;
   }
 
+  // Refresh metrics after potential learner addition.
   let metrics = group.raft.metrics().borrow_watched().clone();
-  let active_voters = count_active_voter_states(group_id, &metrics, network).await;
-  if active_voters <= OPENRAFT_MAX_VOTERS {
-    promote_random_learner_if_needed(group_id, group, &metrics, active_voters).await?;
+  let learners_after = metrics
+    .membership_config
+    .membership()
+    .learner_ids()
+    .collect::<BTreeSet<_>>();
+
+  // Only pay the cost of counting active voters when there are learners that
+  // could potentially be promoted.
+  if !learners_after.is_empty() {
+    let active_voters = count_active_voter_states(group_id, &metrics, network).await;
+    // Promote only when we are strictly below the voter cap so we never
+    // exceed OPENRAFT_MAX_VOTERS (the old `<=` comparison was a bug that
+    // allowed promotion even when the cap was already reached).
+    if active_voters < OPENRAFT_MAX_VOTERS {
+      promote_caught_up_learner_if_needed(group_id, group, &metrics, active_voters).await?;
+    }
   }
 
   Ok(())
@@ -811,7 +837,27 @@ async fn add_next_discovered_learner(
   Ok(())
 }
 
-async fn promote_random_learner_if_needed(
+/// Returns `true` when the given learner's replication progress is within
+/// [`LEARNER_PROMOTE_MAX_LAG`] log entries of the leader, meaning the learner
+/// is sufficiently caught-up to be promoted without stalling consensus.
+fn learner_is_caught_up(learner_id: &NodeId, metrics: &crate::typ::RaftMetrics) -> bool {
+  let Some(replication) = &metrics.replication else {
+    // No replication map means we cannot confirm catch-up; be conservative.
+    return false;
+  };
+  let leader_last = metrics.last_log_index.unwrap_or(0);
+  let learner_matched = replication
+    .get(learner_id)
+    .and_then(|log_id| log_id.clone())
+    .map(|log_id| log_id.index)
+    .unwrap_or(0);
+  leader_last.saturating_sub(learner_matched) <= LEARNER_PROMOTE_MAX_LAG
+}
+
+/// Promote one caught-up learner to voter when the cluster is under the voter
+/// cap. Only learners whose replication lag is within [`LEARNER_PROMOTE_MAX_LAG`]
+/// are considered; the rest are skipped until they catch up.
+async fn promote_caught_up_learner_if_needed(
   group_id: &str,
   group: &GroupHandle,
   metrics: &crate::typ::RaftMetrics,
@@ -819,7 +865,26 @@ async fn promote_random_learner_if_needed(
 ) -> anyhow::Result<()> {
   let membership = metrics.membership_config.membership();
   let learners = membership.learner_ids().collect::<Vec<_>>();
-  let Some(learner_id) = learners.choose(&mut rand::rng()).cloned() else {
+
+  // Collect caught-up learners and pick a random one.
+  let caught_up: Vec<_> = learners
+    .iter()
+    .filter(|id| learner_is_caught_up(id, metrics))
+    .cloned()
+    .collect();
+
+  if caught_up.is_empty() {
+    if !learners.is_empty() {
+      tracing::debug!(
+        group = group_id,
+        learners = learners.len(),
+        "no learner is sufficiently caught up for promotion yet"
+      );
+    }
+    return Ok(());
+  }
+
+  let Some(learner_id) = caught_up.choose(&mut rand::rng()).cloned() else {
     return Ok(());
   };
 
@@ -828,7 +893,8 @@ async fn promote_random_learner_if_needed(
     node_id = %learner_id,
     active_voters,
     learners = learners.len(),
-    "promoting openraft learner to voter"
+    caught_up = caught_up.len(),
+    "promoting caught-up openraft learner to voter"
   );
   group
     .raft
@@ -909,9 +975,85 @@ async fn remote_server_state(
   }
 }
 
+/// Attempt a best-effort graceful leave for one Raft group.
+///
+/// If this node is the **leader** it tries to remove itself from the membership
+/// so that it transfers leadership before the network drops. This is done with
+/// a bounded timeout so that a slow network never blocks shutdown indefinitely.
+///
+/// If this node is a **follower / learner** or the only voter it simply logs
+/// and returns; the autoscaler on other nodes will clean up the stale entry
+/// after `OPENRAFT_OFFLINE_REMOVE_AFTER_SECS`.
+async fn try_graceful_leave_group(group_id: &str, group: &GroupHandle, self_id: &NodeId) {
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let membership = metrics.membership_config.membership();
+
+  if membership.get_node(self_id).is_none() {
+    return; // Already not a member.
+  }
+
+  if !metrics.state.is_leader() {
+    tracing::info!(
+      group = group_id,
+      state = ?metrics.state,
+      "graceful leave skipped: not the leader, autoscaler will handle removal"
+    );
+    return;
+  }
+
+  let voters: BTreeSet<NodeId> = membership.voter_ids().collect();
+  let is_voter = voters.contains(self_id);
+
+  if is_voter && voters.len() <= 1 {
+    tracing::info!(
+      group = group_id,
+      "graceful leave skipped: last voter in group"
+    );
+    return;
+  }
+
+  let changes = if is_voter {
+    ChangeMembers::RemoveVoters(BTreeSet::from([self_id.clone()]))
+  } else {
+    ChangeMembers::RemoveNodes(BTreeSet::from([self_id.clone()]))
+  };
+
+  tracing::info!(
+    group = group_id,
+    is_voter,
+    "attempting graceful self-removal from raft group before shutdown"
+  );
+
+  match tokio::time::timeout(
+    GRACEFUL_LEAVE_TIMEOUT,
+    group.raft.change_membership(changes, false),
+  )
+  .await
+  {
+    Ok(Ok(_)) => tracing::info!(group = group_id, "gracefully left raft group"),
+    Ok(Err(err)) => tracing::warn!(group = group_id, error = ?err, "graceful leave failed"),
+    Err(_) => tracing::warn!(group = group_id, "graceful leave timed out"),
+  }
+}
+
+/// Run graceful leave for every configured Raft group.
+async fn try_graceful_leave(self_id: NodeId) {
+  let Some(groups) = openraft_groups().map(|g| {
+    g.iter()
+      .map(|(id, group)| (id.clone(), group.clone()))
+      .collect::<Vec<_>>()
+  }) else {
+    return;
+  };
+  for (group_id, group) in &groups {
+    try_graceful_leave_group(group_id, group, &self_id).await;
+  }
+}
+
 fn spawn_openraft_shutdown(
   shutdown: &mut crate::signal::ShutdownHandler,
   mut shutdown_rx_for_ordering: crate::signal::ShutdownRx,
+  self_id: NodeId,
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
   apalis_handle: tokio::task::JoinHandle<()>,
@@ -955,6 +1097,9 @@ fn spawn_openraft_shutdown(
 
   tokio::spawn(async move {
     let _ = shutdown_rx_for_ordering.changed().await;
+    // Attempt graceful self-removal while the network is still up so that
+    // other nodes do not have to wait for the offline-timeout to expire.
+    try_graceful_leave(self_id).await;
     let _ = swarm_handle.await;
     let _ = http_handle.await;
     let _ = apalis_handle.await;
@@ -979,6 +1124,28 @@ async fn register_members(
     );
   }
   Ok(members)
+}
+
+/// Wait until at least one peer (other than ourselves) has an established
+/// connection, or until `timeout` elapses. Returns `true` if a peer connected
+/// within the window, `false` on timeout.
+///
+/// This is used before the startup membership-cleanup check so that the check
+/// has a chance to reach remote nodes (dials are fire-and-forget and the
+/// connection is established asynchronously).
+async fn wait_for_any_peer_connected(network: &Libp2pNetworkFactory, timeout: Duration) -> bool {
+  let deadline = tokio::time::Instant::now() + timeout;
+  loop {
+    for (_node_id, peer, _addr) in network.known_nodes().await {
+      if network.is_peer_connected(&peer).await {
+        return true;
+      }
+    }
+    if tokio::time::Instant::now() >= deadline {
+      return false;
+    }
+    tokio::time::sleep(Duration::from_millis(250)).await;
+  }
 }
 
 async fn cleanup_removed_local_groups(
@@ -1221,6 +1388,21 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;
+
+  // Dials issued by register_members are fire-and-forget; wait a short window
+  // for at least one peer connection to be established before running the
+  // removed-node check, so the check can actually reach remote nodes.
+  if !opt.nodes.is_empty() {
+    let peer_connected =
+      wait_for_any_peer_connected(&libp2p.network, STARTUP_PEER_CONNECT_WAIT).await;
+    if !peer_connected {
+      tracing::warn!(
+        "no peer connected within {:?}; removed-node detection may be skipped",
+        STARTUP_PEER_CONNECT_WAIT
+      );
+    }
+  }
+
   cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
 
   let openraft_groups = start_openraft_groups(
@@ -1255,6 +1437,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   spawn_openraft_shutdown(
     &mut shutdown,
     shutdown_rx_for_ordering,
+    opt.id.clone(),
     swarm_handle,
     http_handle,
     apalis_handle,
