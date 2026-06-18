@@ -19,7 +19,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
   GroupId, NodeId,
   apalis_raft::{Email, RaftApalisStorage},
-  kameo_remote::{self, KameoState},
   network::{
     openraft_dispatcher::process_kv_request,
     swarm::{GOSSIP_TOPIC, KvClient},
@@ -45,7 +44,6 @@ pub struct AppState {
   pub kv_client: KvClient,
   pub default_group: GroupId,
   pub apalis_email: RaftApalisStorage<Email>,
-  pub kameo: Arc<KameoState>,
 }
 
 pub async fn serve(
@@ -56,7 +54,6 @@ pub async fn serve(
   let app = Router::new()
     .route("/cluster", get(cluster_info))
     .route("/chat", post(send_chat))
-    .route("/kameo/inc", post(kameo_inc))
     .route("/apalis/email", post(push_email))
     .route("/write", post(set_value))
     .route("/update", post(update_value))
@@ -287,14 +284,6 @@ async fn cluster_info(
     kv_data,
     error: None,
   })
-}
-
-async fn kameo_inc(
-  State(state): State<Arc<AppState>>,
-  Json(req): Json<kameo_remote::IncRequest>,
-) -> Json<kameo_remote::IncResponse> {
-  let response = kameo_remote::handle_inc(state.kameo.as_ref(), req).await;
-  Json(response)
 }
 
 async fn push_email(

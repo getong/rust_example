@@ -318,10 +318,6 @@ cmd=(
 	--ws-tls-cert "$WS_TLS_CERT"
 )
 
-if [[ "${KAMEO_REMOTE:-0}" == "1" ]]; then
-	cmd+=(--kameo-remote)
-fi
-
 if ((should_init == 1)); then
 	cmd+=(--init)
 fi

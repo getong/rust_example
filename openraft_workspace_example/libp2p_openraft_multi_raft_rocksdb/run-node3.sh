@@ -299,10 +299,6 @@ cmd=(
 	--ws-tls-cert "$WS_TLS_CERT"
 )
 
-if [[ "${KAMEO_REMOTE:-0}" == "1" ]]; then
-	cmd+=(--kameo-remote)
-fi
-
 cmd+=(
 	--node "$P1=$ADDR1"
 	--node "$P2=$ADDR2"

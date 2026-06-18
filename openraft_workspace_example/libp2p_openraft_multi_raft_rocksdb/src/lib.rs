@@ -9,7 +9,6 @@ pub mod apalis_raft;
 pub mod app;
 pub mod constants;
 pub mod http;
-pub mod kameo_remote;
 pub mod network;
 pub mod proto;
 pub mod signal;

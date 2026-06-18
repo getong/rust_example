@@ -1,6 +1,5 @@
 use std::{io, marker::PhantomData};
 
-use async_trait::async_trait;
 use futures::prelude::*;
 use libp2p::StreamProtocol;
 use prost::Message;
@@ -44,50 +43,65 @@ struct ProtoEnvelope {
   payload: Vec<u8>,
 }
 
-#[async_trait]
 impl libp2p::request_response::Codec for ProtoCodec {
   type Protocol = StreamProtocol;
   type Request = RaftRpcRequest;
   type Response = RaftRpcResponse;
 
-  async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+  fn read_request<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Request>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    let payload = read_envelope(io, self.request_size_maximum).await?;
-    decode_payload(&payload)
+    let limit = self.request_size_maximum;
+    async move {
+      let payload = read_envelope(io, limit).await?;
+      decode_payload(&payload)
+    }
   }
 
-  async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
+  fn read_response<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Response>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    let payload = read_envelope(io, self.response_size_maximum).await?;
-    decode_payload(&payload)
+    let limit = self.response_size_maximum;
+    async move {
+      let payload = read_envelope(io, limit).await?;
+      decode_payload(&payload)
+    }
   }
 
-  async fn write_request<T>(
+  fn write_request<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     req: Self::Request,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_envelope(io, &req).await
+    let data = encode_envelope(&req);
+    async move { write_encoded(io, data).await }
   }
 
-  async fn write_response<T>(
+  fn write_response<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     resp: Self::Response,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_envelope(io, &resp).await
+    let data = encode_envelope(&resp);
+    async move { write_encoded(io, data).await }
   }
 }
 
@@ -102,14 +116,20 @@ where
   Ok(envelope.payload)
 }
 
-async fn write_envelope<T, V>(io: &mut T, value: &V) -> io::Result<()>
+fn encode_envelope<V>(value: &V) -> io::Result<Vec<u8>>
 where
-  T: AsyncWrite + Unpin + Send,
   V: Serialize,
 {
   let payload = encode_payload(value)?;
   let envelope = ProtoEnvelope { payload };
-  let data = envelope.encode_to_vec();
+  Ok(envelope.encode_to_vec())
+}
+
+async fn write_encoded<T>(io: &mut T, data: io::Result<Vec<u8>>) -> io::Result<()>
+where
+  T: AsyncWrite + Unpin + Send,
+{
+  let data = data?;
   io.write_all(data.as_ref()).await?;
   Ok(())
 }
@@ -151,7 +171,6 @@ impl<Req, Resp> ProstCodec<Req, Resp> {
   }
 }
 
-#[async_trait]
 impl<Req, Resp> libp2p::request_response::Codec for ProstCodec<Req, Resp>
 where
   Req: Message + Default + Send,
@@ -161,42 +180,54 @@ where
   type Request = Req;
   type Response = Resp;
 
-  async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+  fn read_request<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Request>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    read_message(io, self.request_size_maximum).await
+    let limit = self.request_size_maximum;
+    async move { read_message(io, limit).await }
   }
 
-  async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
+  fn read_response<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Response>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    read_message(io, self.response_size_maximum).await
+    let limit = self.response_size_maximum;
+    async move { read_message(io, limit).await }
   }
 
-  async fn write_request<T>(
+  fn write_request<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     req: Self::Request,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_message(io, &req).await
+    let data = Ok(req.encode_to_vec());
+    async move { write_encoded(io, data).await }
   }
 
-  async fn write_response<T>(
+  fn write_response<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     resp: Self::Response,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_message(io, &resp).await
+    let data = Ok(resp.encode_to_vec());
+    async move { write_encoded(io, data).await }
   }
 }
 
@@ -208,14 +239,4 @@ where
   let mut buf = Vec::new();
   io.take(limit).read_to_end(&mut buf).await?;
   M::decode(buf.as_slice()).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
-}
-
-async fn write_message<T, M>(io: &mut T, message: &M) -> io::Result<()>
-where
-  T: AsyncWrite + Unpin + Send,
-  M: Message,
-{
-  let data = message.encode_to_vec();
-  io.write_all(data.as_ref()).await?;
-  Ok(())
 }

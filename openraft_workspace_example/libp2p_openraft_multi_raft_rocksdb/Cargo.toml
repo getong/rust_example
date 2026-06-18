@@ -24,26 +24,8 @@ async-trait = "0.1.89"
 axum = { version = "0.8.9", features = ["json"] }
 clap = { version = "4.6.1", features = ["derive"] }
 futures = "0.3.32"
-kameo = { version = "0.20.0", features = ["remote"] }
-libp2p = { version = "0.56", features = [
-  "cbor",
-  "dns",
-  "gossipsub",
-  "identify",
-  "json",
-  "kad",
-  "macros",
-  "mdns",
-  "noise",
-  "ping",
-  "quic",
-  "request-response",
-  "serde",
-  "tcp",
-  "tls",
-  "tokio",
-  "websocket",
-  "yamux",
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "50306daea5f47e0f6ac7968d7376e4cee5e6b655", features = [
+  "full",
 ] }
 once_cell = "1.21.4"
 openraft = { version = "0.10.0-alpha.22", features = [

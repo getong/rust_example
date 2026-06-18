@@ -7,7 +7,6 @@ use std::{
 };
 
 use futures::{StreamExt, future::poll_fn};
-use kameo::remote;
 use libp2p::{
   Multiaddr, PeerId, Swarm, gossipsub,
   kad::{self, store::MemoryStore},
@@ -75,7 +74,6 @@ pub struct Behaviour {
   pub ping: ping::Behaviour,
   pub mdns: mdns::tokio::Behaviour,
   pub kad: kad::Behaviour<MemoryStore>,
-  pub kameo: remote::Behaviour,
 }
 
 #[derive(Debug)]
@@ -86,7 +84,6 @@ pub enum BehaviourEvent {
   Ping(ping::Event),
   Mdns(mdns::Event),
   Kad(kad::Event),
-  Kameo(remote::Event),
 }
 
 impl From<request_response::Event<RaftRpcRequest, RaftRpcResponse>> for BehaviourEvent {
@@ -122,12 +119,6 @@ impl From<mdns::Event> for BehaviourEvent {
 impl From<kad::Event> for BehaviourEvent {
   fn from(value: kad::Event) -> Self {
     Self::Kad(value)
-  }
-}
-
-impl From<remote::Event> for BehaviourEvent {
-  fn from(value: remote::Event) -> Self {
-    Self::Kameo(value)
   }
 }
 
@@ -536,9 +527,6 @@ async fn handle_swarm_event(
       let mut swarm = lock_swarm(swarm).await;
       handle_kad_event(&mut swarm, Some(network), Some(connected_peers), event);
     }
-    SwarmEvent::Behaviour(BehaviourEvent::Kameo(event)) => {
-      handle_kameo_event(event);
-    }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
       {
         let mut swarm = lock_swarm(swarm).await;
@@ -658,17 +646,6 @@ fn handle_kv_event(
     }
     request_response::Event::InboundFailure { .. } => {}
     request_response::Event::ResponseSent { .. } => {}
-  }
-}
-
-fn handle_kameo_event(event: remote::Event) {
-  match event {
-    remote::Event::Registry(registry_event) => {
-      tracing::debug!("kameo registry event: {:?}", registry_event);
-    }
-    remote::Event::Messaging(messaging_event) => {
-      tracing::debug!("kameo messaging event: {:?}", messaging_event);
-    }
   }
 }
 
@@ -952,10 +929,6 @@ pub async fn run_swarm_client_with_shutdown(
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
             handle_kad_event(&mut swarm, None, None, event);
-          }
-
-          SwarmEvent::Behaviour(BehaviourEvent::Kameo(event)) => {
-            handle_kameo_event(event);
           }
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
