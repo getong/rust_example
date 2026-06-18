@@ -114,7 +114,7 @@ impl OpenRaftSnapshotPartial {
     payload: OpenRaftSnapshotPayload,
     local_peer_id: PeerId,
   ) -> anyhow::Result<Option<Self>> {
-    let bytes = serde_json::to_vec(&payload)?;
+    let bytes = sonic_rs::to_vec(&payload)?;
     let total_parts = bytes.len().div_ceil(PART_SIZE).max(1);
     if total_parts > MAX_PARTS {
       anyhow::bail!("snapshot needs {total_parts} parts; max supported is {MAX_PARTS}");
@@ -300,7 +300,7 @@ impl OpenRaftSnapshotPartial {
         bytes.len()
       );
     }
-    serde_json::from_slice(&bytes).map_err(Into::into)
+    sonic_rs::from_slice(&bytes).map_err(Into::into)
   }
 
   fn metadata_bytes(&self) -> Vec<u8> {

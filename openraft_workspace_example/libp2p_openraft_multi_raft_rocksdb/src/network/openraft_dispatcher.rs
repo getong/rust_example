@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use openraft::async_runtime::WatchReceiver;
-use openraft_rocksstore_crud::RocksRequest;
 use types_kv::Request as KvWriteRequest;
 
 use crate::{
@@ -15,6 +14,7 @@ use crate::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
   },
+  rocksstore_crud::{RocksRequest, TypeConfig},
   store::{KvData, ensure_linearizable_read},
   typ::{Raft, Snapshot},
 };
@@ -238,10 +238,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
         .install_full_snapshot(vote, snapshot)
         .await
         .map_err(|e| {
-          openraft::error::RaftError::<
-            openraft_rocksstore_crud::TypeConfig,
-            openraft::error::Infallible,
-          >::Fatal(e)
+          openraft::error::RaftError::<TypeConfig, openraft::error::Infallible>::Fatal(e)
         });
 
       RaftRpcResponse::FullSnapshot(res)

@@ -9,10 +9,12 @@ use std::{
 
 use anyhow::Context;
 use openraft::{ReadPolicy, type_config::TypeConfigExt};
-use openraft_rocksstore_crud::{RocksStateMachine, TypeConfig, log_store::RocksLogStore};
 use rocksdb::{ColumnFamilyRef, DB, Options};
 
-use crate::typ::{LinearizableReadError, Raft, RaftError, StoredMembership};
+use crate::{
+  rocksstore_crud::{RocksStateMachine, TypeConfig, log_store::RocksLogStore},
+  typ::{LinearizableReadError, Raft, RaftError, StoredMembership},
+};
 
 pub type LogStore = RocksLogStore<TypeConfig>;
 pub type StateMachineStore = RocksStateMachine;
@@ -114,7 +116,7 @@ fn decode_utf8(bytes: &[u8], what: &str) -> anyhow::Result<String> {
 pub async fn open_store<P: AsRef<Path>>(
   db_dir: P,
 ) -> anyhow::Result<(LogStore, StateMachineStore)> {
-  openraft_rocksstore_crud::new::<TypeConfig, _>(db_dir)
+  crate::rocksstore_crud::new::<TypeConfig, _>(db_dir)
     .await
     .context("open rocksdb store")
 }
@@ -147,8 +149,7 @@ pub fn read_persisted_membership_for_group(
     return Ok(None);
   };
 
-  let membership =
-    serde_json::from_slice(&bytes).context("decode persisted openraft membership")?;
+  let membership = sonic_rs::from_slice(&bytes).context("decode persisted openraft membership")?;
   Ok(Some(membership))
 }
 

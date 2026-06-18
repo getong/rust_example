@@ -7,14 +7,23 @@ use std::{
 use anyhow::Context;
 use apalis::prelude::TaskSink;
 use axum::{
-  Json, Router,
-  extract::{Query, State},
+  Router,
+  body::to_bytes,
+  extract::{FromRequest, Query, Request, State},
+  http::{
+    StatusCode,
+    header::{CONTENT_TYPE, HeaderMap, HeaderValue},
+  },
+  response::{IntoResponse, Response},
   routing::{get, post},
 };
 use libp2p::{Multiaddr, PeerId};
 use openraft::async_runtime::WatchReceiver;
 use prost::Message;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{
+  Deserialize, Deserializer, Serialize,
+  de::{self, DeserializeOwned, Visitor},
+};
 
 use crate::{
   GroupId, NodeId,
@@ -33,6 +42,81 @@ use crate::{
   signal::ShutdownRx,
   store::ensure_linearizable_read,
 };
+
+const HTTP_JSON_BODY_LIMIT: usize = 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Json<T>(pub T);
+
+impl<T, S> FromRequest<S> for Json<T>
+where
+  T: DeserializeOwned,
+  S: Send + Sync,
+{
+  type Rejection = Response;
+
+  async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
+    if !is_json_content_type(req.headers()) {
+      return Err(
+        (
+          StatusCode::UNSUPPORTED_MEDIA_TYPE,
+          "expected content-type application/json",
+        )
+          .into_response(),
+      );
+    }
+
+    let bytes = to_bytes(req.into_body(), HTTP_JSON_BODY_LIMIT)
+      .await
+      .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
+    sonic_rs::from_slice(&bytes)
+      .map(Self)
+      .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())
+  }
+}
+
+impl<T> IntoResponse for Json<T>
+where
+  T: Serialize,
+{
+  fn into_response(self) -> Response {
+    match sonic_rs::to_vec(&self.0) {
+      Ok(bytes) => (
+        [(CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+        bytes,
+      )
+        .into_response(),
+      Err(err) => (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        [(
+          CONTENT_TYPE,
+          HeaderValue::from_static("text/plain; charset=utf-8"),
+        )],
+        err.to_string(),
+      )
+        .into_response(),
+    }
+  }
+}
+
+fn is_json_content_type(headers: &HeaderMap) -> bool {
+  let Some(content_type) = headers.get(CONTENT_TYPE) else {
+    return false;
+  };
+  let Ok(content_type) = content_type.to_str() else {
+    return false;
+  };
+  content_type
+    .split(';')
+    .next()
+    .map(str::trim)
+    .is_some_and(|mime| {
+      mime.eq_ignore_ascii_case("application/json")
+        || mime
+          .rsplit_once('+')
+          .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("json"))
+    })
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -82,7 +166,7 @@ struct ClusterInfoResponse {
   group_id: String,
   groups: Vec<String>,
   known_nodes: Vec<KnownNodeResponse>,
-  raft_metrics: serde_json::Value,
+  raft_metrics: sonic_rs::Value,
   kv_data: Vec<KvPairResponse>,
   error: Option<String>,
 }
@@ -221,7 +305,7 @@ async fn cluster_info(
       group_id,
       groups: Vec::new(),
       known_nodes: nodes,
-      raft_metrics: serde_json::Value::String("openraft groups are not initialized".to_string()),
+      raft_metrics: sonic_rs::Value::from_static_str("openraft groups are not initialized"),
       kv_data: Vec::new(),
       error: Some("openraft groups are not initialized".to_string()),
     });
@@ -238,15 +322,15 @@ async fn cluster_info(
       group_id,
       groups,
       known_nodes: nodes,
-      raft_metrics: serde_json::Value::String("unknown group".to_string()),
+      raft_metrics: sonic_rs::Value::from_static_str("unknown group"),
       kv_data: Vec::new(),
       error: Some("unknown group_id".to_string()),
     });
   };
 
   let metrics = group.raft.metrics().borrow_watched().clone();
-  let raft_metrics = serde_json::to_value(metrics)
-    .unwrap_or_else(|err| serde_json::Value::String(format!("metrics serialize error: {err}")));
+  let raft_metrics = sonic_rs::to_value(&metrics)
+    .unwrap_or_else(|err| sonic_rs::Value::copy_str(&format!("metrics serialize error: {err}")));
 
   let mut kv_data = Vec::new();
   let allow_local_read = match tokio::time::timeout(
@@ -659,11 +743,57 @@ fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
   D: Deserializer<'de>,
 {
-  let value = serde_json::Value::deserialize(deserializer)?;
-  match value {
-    serde_json::Value::String(s) => Ok(s),
-    serde_json::Value::Number(n) => Ok(n.to_string()),
-    serde_json::Value::Bool(b) => Ok(b.to_string()),
-    _ => Err(serde::de::Error::custom("value must be string or number")),
+  struct StringOrNumberVisitor;
+
+  impl Visitor<'_> for StringOrNumberVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      formatter.write_str("a string, number, or bool")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_owned())
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value)
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
   }
+
+  deserializer.deserialize_any(StringOrNumberVisitor)
 }

@@ -14,7 +14,6 @@ use apalis::prelude::{
   Acknowledge, AcknowledgeLayer, Backend, BackendExt, BoxDynError, Codec, Status, Task, TaskId,
   TaskSink, TaskSinkError, TaskStream, WorkerBuilder, WorkerContext,
 };
-use apalis_codec::json::JsonCodec;
 use apalis_core::backend::queue::Queue;
 use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream};
 use openraft::{ServerState, async_runtime::WatchReceiver};
@@ -36,6 +35,27 @@ use crate::{
 const TASK_KEY_PART: &str = "task";
 const IDEMPOTENCY_KEY_PART: &str = "idem";
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, Default)]
+pub struct SonicCodec<Output> {
+  _output: PhantomData<Output>,
+}
+
+impl<T> Codec<T> for SonicCodec<Vec<u8>>
+where
+  T: Serialize + DeserializeOwned,
+{
+  type Compact = Vec<u8>;
+  type Error = sonic_rs::Error;
+
+  fn encode(val: &T) -> Result<Self::Compact, Self::Error> {
+    sonic_rs::to_vec(val)
+  }
+
+  fn decode(val: &Self::Compact) -> Result<T, Self::Error> {
+    sonic_rs::from_slice(val)
+  }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Email {
@@ -78,7 +98,7 @@ impl FromStr for RaftTaskId {
   }
 }
 
-pub struct RaftApalisStorage<Args, C = JsonCodec<Vec<u8>>> {
+pub struct RaftApalisStorage<Args, C = SonicCodec<Vec<u8>>> {
   node_id: NodeId,
   group_id: String,
   queue: Queue,
@@ -121,7 +141,7 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   }
 
   async fn write_record(&self, key: String, record: StoredTask) -> Result<(), RaftApalisError> {
-    let value = serde_json::to_string(&record)?;
+    let value = sonic_rs::to_string(&record)?;
     raft_set(
       &self.raft,
       &self.kv_client,
@@ -469,7 +489,7 @@ impl<Args, C> fmt::Debug for RaftApalisStorage<Args, C> {
 }
 
 #[derive(Clone)]
-pub struct RaftApalisAck<C = JsonCodec<Vec<u8>>> {
+pub struct RaftApalisAck<C = SonicCodec<Vec<u8>>> {
   group_id: String,
   raft: Raft,
   kv_client: KvClient,
@@ -548,7 +568,7 @@ where
         assigned_node_id,
         result: Some(result),
       };
-      let value = serde_json::to_string(&record)?;
+      let value = sonic_rs::to_string(&record)?;
       raft_set(&raft, &kv_client, group_id, key, value).await?;
       claimed.lock().await.remove(&task_id);
       Ok(())
@@ -665,7 +685,7 @@ impl StoredTask {
   }
 
   fn decode(value: &str) -> Result<Self, RaftApalisError> {
-    serde_json::from_str(value).map_err(Into::into)
+    sonic_rs::from_str(value).map_err(Into::into)
   }
 }
 
@@ -744,8 +764,8 @@ impl From<anyhow::Error> for RaftApalisError {
   }
 }
 
-impl From<serde_json::Error> for RaftApalisError {
-  fn from(value: serde_json::Error) -> Self {
+impl From<sonic_rs::Error> for RaftApalisError {
+  fn from(value: sonic_rs::Error) -> Self {
     Self::new(value.to_string())
   }
 }
@@ -840,7 +860,7 @@ mod tests {
       .build();
 
     let record = StoredTask::from_compact_task(task).expect("stored task");
-    let encoded = serde_json::to_string(&record).expect("encode");
+    let encoded = sonic_rs::to_string(&record).expect("encode");
     let decoded = StoredTask::decode(&encoded).expect("decode");
     let task = decoded.into_compact_task().expect("compact task");
 

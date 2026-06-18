@@ -11,11 +11,12 @@ pub mod constants;
 pub mod http;
 pub mod network;
 pub mod proto;
+pub mod rocksstore_crud;
 pub mod signal;
 pub mod store;
 pub mod typ;
 
-pub type TypeConfig = openraft_rocksstore_crud::TypeConfig;
+pub type TypeConfig = rocksstore_crud::TypeConfig;
 pub type NodeId = <TypeConfig as openraft::RaftTypeConfig>::NodeId;
 pub type GroupId = String;
 pub type Raft = openraft::Raft<TypeConfig, store::StateMachineStore>;

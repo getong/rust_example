@@ -1,8 +1,8 @@
-use openraft_rocksstore_crud::RocksRequest;
 use serde::{Deserialize, Serialize};
 
 use crate::{
   GroupId,
+  rocksstore_crud::RocksRequest,
   typ::{
     AppendEntriesRequest, AppendEntriesResponse, ClientWriteError, ClientWriteResponse, RaftError,
     RaftMetrics, SnapshotMeta, SnapshotResponse, Vote, VoteRequest, VoteResponse,

@@ -135,11 +135,11 @@ where
 }
 
 fn encode_payload<T: Serialize>(value: &T) -> io::Result<Vec<u8>> {
-  serde_json::to_vec(value).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+  sonic_rs::to_vec(value).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
 }
 
 fn decode_payload<T: DeserializeOwned>(bytes: &[u8]) -> io::Result<T> {
-  serde_json::from_slice(bytes).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+  sonic_rs::from_slice(bytes).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
 }
 
 #[derive(Clone)]
