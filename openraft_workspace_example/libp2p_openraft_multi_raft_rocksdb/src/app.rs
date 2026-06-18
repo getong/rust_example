@@ -665,11 +665,9 @@ async fn reconcile_openraft_group(
   }
 
   let metrics = group.raft.metrics().borrow_watched().clone();
-  if metrics.state.is_leader() {
-    let active_voters = count_active_voter_states(group_id, &metrics, network).await;
-    if active_voters <= OPENRAFT_MAX_VOTERS {
-      promote_random_learner_if_needed(group_id, group, &metrics, active_voters).await?;
-    }
+  let active_voters = count_active_voter_states(group_id, &metrics, network).await;
+  if active_voters <= OPENRAFT_MAX_VOTERS {
+    promote_random_learner_if_needed(group_id, group, &metrics, active_voters).await?;
   }
 
   Ok(())
