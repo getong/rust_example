@@ -540,14 +540,17 @@ async fn handle_swarm_event(
       handle_kameo_event(event);
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-      let mut swarm = lock_swarm(swarm).await;
-      handle_connection_established(
-        &mut swarm,
-        pending_connect,
-        connected_peers,
-        dial_backoff_until,
-        peer_id,
-      );
+      {
+        let mut swarm = lock_swarm(swarm).await;
+        handle_connection_established(
+          &mut swarm,
+          pending_connect,
+          connected_peers,
+          dial_backoff_until,
+          peer_id,
+        );
+      }
+      network.set_peer_connected(peer_id).await;
     }
     SwarmEvent::ConnectionClosed {
       peer_id,
@@ -555,8 +558,13 @@ async fn handle_swarm_event(
       cause,
       ..
     } => {
-      let mut swarm = lock_swarm(swarm).await;
-      handle_connection_closed(&mut swarm, connected_peers, peer_id, num_established, cause);
+      {
+        let mut swarm = lock_swarm(swarm).await;
+        handle_connection_closed(&mut swarm, connected_peers, peer_id, num_established, cause);
+      }
+      if num_established == 0 {
+        network.set_peer_disconnected(peer_id).await;
+      }
     }
     SwarmEvent::NewListenAddr { address, .. } => {
       tracing::info!("listening on {address}");

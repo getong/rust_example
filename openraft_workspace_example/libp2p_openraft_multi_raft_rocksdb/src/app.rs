@@ -53,6 +53,7 @@ const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
 const OPENRAFT_MAX_LEARNERS: usize = 5;
 const OPENRAFT_MAX_VOTERS: usize = 5;
 const OPENRAFT_AUTOSCALER_INTERVAL_SECS: u64 = 5;
+const OPENRAFT_OFFLINE_REMOVE_AFTER_SECS: u64 = 300;
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -601,6 +602,7 @@ async fn run_openraft_autoscaler(
   mut shutdown_rx: crate::signal::ShutdownRx,
 ) {
   let mut tick = tokio::time::interval(Duration::from_secs(OPENRAFT_AUTOSCALER_INTERVAL_SECS));
+  let mut offline_since = BTreeMap::new();
   tick.tick().await;
 
   loop {
@@ -621,7 +623,13 @@ async fn run_openraft_autoscaler(
           continue;
         };
         for (group_id, group) in &groups {
-          if let Err(err) = reconcile_openraft_group(group_id, group, &network, &known_nodes).await {
+          if let Err(err) = reconcile_openraft_group(
+            group_id,
+            group,
+            &network,
+            &known_nodes,
+            &mut offline_since,
+          ).await {
             tracing::warn!(group = group_id, error = ?err, "openraft autoscaler reconcile failed");
           }
         }
@@ -635,6 +643,7 @@ async fn reconcile_openraft_group(
   group: &GroupHandle,
   network: &Libp2pNetworkFactory,
   known_nodes: &[(NodeId, PeerId, Multiaddr)],
+  offline_since: &mut BTreeMap<(GroupId, NodeId), tokio::time::Instant>,
 ) -> anyhow::Result<()> {
   let metrics = group.raft.metrics().borrow_watched().clone();
   if !metrics.state.is_leader() {
@@ -644,6 +653,12 @@ async fn reconcile_openraft_group(
   let membership = metrics.membership_config.membership();
   let voters = membership.voter_ids().collect::<BTreeSet<_>>();
   let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+
+  if remove_offline_openraft_member_if_expired(group_id, group, &metrics, network, offline_since)
+    .await?
+  {
+    return Ok(());
+  }
 
   if learners.len() < OPENRAFT_MAX_LEARNERS {
     add_next_discovered_learner(group_id, group, known_nodes, &voters, &learners).await?;
@@ -656,6 +671,112 @@ async fn reconcile_openraft_group(
   }
 
   Ok(())
+}
+
+async fn remove_offline_openraft_member_if_expired(
+  group_id: &str,
+  group: &GroupHandle,
+  metrics: &crate::typ::RaftMetrics,
+  network: &Libp2pNetworkFactory,
+  offline_since: &mut BTreeMap<(GroupId, NodeId), tokio::time::Instant>,
+) -> anyhow::Result<bool> {
+  let membership = metrics.membership_config.membership();
+  let voters = membership.voter_ids().collect::<BTreeSet<_>>();
+  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+  let member_ids = membership
+    .nodes()
+    .map(|(id, _)| id.clone())
+    .collect::<BTreeSet<_>>();
+  offline_since.retain(|(offline_group, node_id), _| {
+    offline_group != group_id || member_ids.contains(node_id)
+  });
+
+  let timeout = Duration::from_secs(OPENRAFT_OFFLINE_REMOVE_AFTER_SECS);
+  for (node_id, node) in membership.nodes() {
+    if *node_id == metrics.id {
+      continue;
+    }
+
+    let (peer, _) = match parse_p2p_addr(&node.addr) {
+      Ok(peer_addr) => peer_addr,
+      Err(err) => {
+        tracing::warn!(
+          group = group_id,
+          node_id = %node_id,
+          addr = %node.addr,
+          error = ?err,
+          "skip openraft offline check for node with invalid libp2p address"
+        );
+        continue;
+      }
+    };
+
+    let key = (group_id.to_string(), node_id.clone());
+    if network.is_peer_connected(&peer).await {
+      if offline_since.remove(&key).is_some() {
+        tracing::info!(
+          group = group_id,
+          node_id = %node_id,
+          peer = %peer,
+          "openraft member reconnected before removal timeout"
+        );
+      }
+      continue;
+    }
+
+    let now = tokio::time::Instant::now();
+    let Some(since) = offline_since.get(&key).copied() else {
+      offline_since.insert(key, now);
+      tracing::warn!(
+        group = group_id,
+        node_id = %node_id,
+        peer = %peer,
+        timeout_secs = OPENRAFT_OFFLINE_REMOVE_AFTER_SECS,
+        "openraft member is disconnected; starting removal timeout"
+      );
+      continue;
+    };
+
+    if now.duration_since(since) < timeout {
+      continue;
+    }
+
+    let remove_id = node_id.clone();
+    let changes = if voters.contains(&remove_id) {
+      if voters.len() <= 1 {
+        tracing::warn!(
+          group = group_id,
+          node_id = %remove_id,
+          "skip removing the last openraft voter"
+        );
+        continue;
+      }
+      ChangeMembers::RemoveVoters(BTreeSet::from([remove_id.clone()]))
+    } else if learners.contains(&remove_id) {
+      ChangeMembers::RemoveNodes(BTreeSet::from([remove_id.clone()]))
+    } else {
+      continue;
+    };
+
+    tracing::warn!(
+      group = group_id,
+      node_id = %remove_id,
+      peer = %peer,
+      timeout_secs = OPENRAFT_OFFLINE_REMOVE_AFTER_SECS,
+      "removing disconnected openraft member after timeout"
+    );
+    group
+      .raft
+      .change_membership(changes, false)
+      .await
+      .map_err(|err| {
+        anyhow!("remove disconnected node {remove_id} from group {group_id}: {err}")
+      })?;
+    offline_since.remove(&(group_id.to_string(), remove_id));
+    return Ok(true);
+  }
+
+  Ok(false)
 }
 
 async fn add_next_discovered_learner(
@@ -860,6 +981,107 @@ async fn register_members(
   Ok(members)
 }
 
+async fn cleanup_removed_local_groups(
+  db_dir: &Path,
+  self_id: &NodeId,
+  group_ids: &[GroupId],
+  network: &Libp2pNetworkFactory,
+) -> anyhow::Result<()> {
+  for group_id in group_ids {
+    let Some(local_membership) = store::read_persisted_membership_for_group(db_dir, group_id)?
+    else {
+      continue;
+    };
+
+    if local_membership.membership().get_node(self_id).is_none() {
+      continue;
+    }
+
+    let Some(remote_metrics) = fetch_remote_group_metrics(group_id, self_id, network).await else {
+      tracing::debug!(
+        group = group_id,
+        node_id = %self_id,
+        "skip local data cleanup because no remote openraft metrics are available"
+      );
+      continue;
+    };
+
+    let remote_membership = remote_metrics.membership_config.membership();
+    if remote_membership.nodes().next().is_none() {
+      tracing::debug!(
+        group = group_id,
+        node_id = %self_id,
+        "skip local data cleanup because remote openraft membership is empty"
+      );
+      continue;
+    }
+
+    if remote_membership.get_node(self_id).is_some() {
+      continue;
+    }
+
+    tracing::warn!(
+      group = group_id,
+      node_id = %self_id,
+      "local openraft data belongs to a node removed from remote membership; cleaning group data before startup"
+    );
+    store::remove_group_store(db_dir, group_id)?;
+  }
+
+  Ok(())
+}
+
+async fn fetch_remote_group_metrics(
+  group_id: &str,
+  self_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+) -> Option<crate::typ::RaftMetrics> {
+  for (node_id, _peer, _addr) in network.known_nodes().await {
+    if &node_id == self_id {
+      continue;
+    }
+
+    match network
+      .request(
+        node_id.clone(),
+        RaftRpcRequest {
+          group_id: group_id.to_string(),
+          op: RaftRpcOp::GetMetrics,
+        },
+      )
+      .await
+    {
+      Ok(RaftRpcResponse::GetMetrics(metrics)) => return Some(metrics),
+      Ok(RaftRpcResponse::Error(message)) => {
+        tracing::debug!(
+          group = group_id,
+          node_id = %node_id,
+          error = %message,
+          "remote openraft metrics request returned error"
+        );
+      }
+      Ok(other) => {
+        tracing::debug!(
+          group = group_id,
+          node_id = %node_id,
+          response = ?other,
+          "unexpected remote openraft metrics response"
+        );
+      }
+      Err(err) => {
+        tracing::debug!(
+          group = group_id,
+          node_id = %node_id,
+          error = ?err,
+          "remote openraft metrics request failed"
+        );
+      }
+    }
+  }
+
+  None
+}
+
 async fn maybe_bootstrap(
   client: &Libp2pClient,
   members: &BTreeMap<NodeId, BasicNode>,
@@ -990,6 +1212,17 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let (libp2p, cmd_rx) = build_libp2p_handles(timeout, identity.local_peer_id.clone());
 
   let group_ids = groups::all();
+  let swarm = build_swarm(&opt, listen_addr, local_key)?;
+  let swarm = Arc::new(tokio::sync::Mutex::new(swarm));
+  set_libp2p_swarm(swarm).map_err(|_| anyhow!("global libp2p swarm already initialized"))?;
+  let mut shutdown = crate::signal::spawn_handler();
+  let shutdown_rx_for_ordering = shutdown.shutdown_rx();
+
+  let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
+
+  let members = register_members(&libp2p.network, &opt.nodes).await?;
+  cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
+
   let openraft_groups = start_openraft_groups(
     &opt,
     opt.id.clone(),
@@ -1000,14 +1233,6 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   .await?;
   set_openraft_groups(openraft_groups)
     .map_err(|_| anyhow!("global openraft groups already initialized"))?;
-
-  let swarm = build_swarm(&opt, listen_addr, local_key)?;
-  let swarm = Arc::new(tokio::sync::Mutex::new(swarm));
-  set_libp2p_swarm(swarm).map_err(|_| anyhow!("global libp2p swarm already initialized"))?;
-  let mut shutdown = crate::signal::spawn_handler();
-  let shutdown_rx_for_ordering = shutdown.shutdown_rx();
-
-  let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
 
   if opt.kameo_remote {
     let custom_swarm = env::var("CUSTOM_SWARM").is_ok();
@@ -1022,7 +1247,6 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
   let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
 
-  let members = register_members(&libp2p.network, &opt.nodes).await?;
   maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
   maybe_init_cluster(members, opt.id.clone(), opt.init).await?;
 

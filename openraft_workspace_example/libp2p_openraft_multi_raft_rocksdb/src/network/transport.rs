@@ -1,4 +1,8 @@
-use std::{collections::HashMap, net::IpAddr, sync::Arc};
+use std::{
+  collections::{HashMap, HashSet},
+  net::IpAddr,
+  sync::Arc,
+};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -18,6 +22,7 @@ use crate::{
 pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
+  connected_peers: Arc<tokio::sync::RwLock<HashSet<PeerId>>>,
   group_id: Option<GroupId>,
   local_peer_id: PeerId,
 }
@@ -27,6 +32,7 @@ impl Libp2pNetworkFactory {
     Self {
       client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+      connected_peers: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
       group_id: None,
       local_peer_id,
     }
@@ -36,6 +42,7 @@ impl Libp2pNetworkFactory {
     Self {
       client: self.client.clone(),
       node_peers: self.node_peers.clone(),
+      connected_peers: self.connected_peers.clone(),
       group_id: Some(group_id),
       local_peer_id: self.local_peer_id,
     }
@@ -192,6 +199,24 @@ impl Libp2pNetworkFactory {
       .iter()
       .map(|(id, (peer, addr))| (id.clone(), *peer, addr.clone()))
       .collect()
+  }
+
+  pub async fn set_peer_connected(&self, peer: PeerId) {
+    if peer == self.local_peer_id {
+      return;
+    }
+    self.connected_peers.write().await.insert(peer);
+  }
+
+  pub async fn set_peer_disconnected(&self, peer: PeerId) {
+    self.connected_peers.write().await.remove(&peer);
+  }
+
+  pub async fn is_peer_connected(&self, peer: &PeerId) -> bool {
+    if *peer == self.local_peer_id {
+      return true;
+    }
+    self.connected_peers.read().await.contains(peer)
   }
 
   pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) -> Result<(), NetErr> {

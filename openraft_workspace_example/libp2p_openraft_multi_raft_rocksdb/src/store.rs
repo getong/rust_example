@@ -12,7 +12,7 @@ use openraft::{ReadPolicy, type_config::TypeConfigExt};
 use openraft_rocksstore_crud::{RocksStateMachine, TypeConfig, log_store::RocksLogStore};
 use rocksdb::{ColumnFamilyRef, DB, Options};
 
-use crate::typ::{LinearizableReadError, Raft, RaftError};
+use crate::typ::{LinearizableReadError, Raft, RaftError, StoredMembership};
 
 pub type LogStore = RocksLogStore<TypeConfig>;
 pub type StateMachineStore = RocksStateMachine;
@@ -121,6 +121,51 @@ pub async fn open_store<P: AsRef<Path>>(
 
 pub fn group_db_dir(base_dir: &Path, group_id: &str) -> PathBuf {
   base_dir.join(group_id)
+}
+
+pub fn read_persisted_membership_for_group(
+  db_dir: &Path,
+  group_id: &str,
+) -> anyhow::Result<Option<StoredMembership>> {
+  let db_path = group_db_dir(db_dir, group_id);
+  if !db_path.join("CURRENT").exists() {
+    return Ok(None);
+  }
+
+  let mut opts = Options::default();
+  opts.set_max_open_files(-1);
+
+  let db = DB::open_cf_for_read_only(&opts, &db_path, STORE_CFS, false)
+    .with_context(|| format!("open rocksdb read-only: {}", db_path.display()))?;
+  let cf = db
+    .cf_handle("sm_meta")
+    .ok_or_else(|| anyhow::anyhow!("column family `sm_meta` not found"))?;
+  let Some(bytes) = db
+    .get_cf(&cf, "last_membership")
+    .context("read persisted openraft membership")?
+  else {
+    return Ok(None);
+  };
+
+  let membership =
+    serde_json::from_slice(&bytes).context("decode persisted openraft membership")?;
+  Ok(Some(membership))
+}
+
+pub fn remove_group_store(db_dir: &Path, group_id: &str) -> anyhow::Result<()> {
+  let db_path = group_db_dir(db_dir, group_id);
+  let secondary_path = secondary_db_dir(&db_path);
+
+  if secondary_path.exists() {
+    fs::remove_dir_all(&secondary_path)
+      .with_context(|| format!("remove rocksdb secondary dir: {}", secondary_path.display()))?;
+  }
+  if db_path.exists() {
+    fs::remove_dir_all(&db_path)
+      .with_context(|| format!("remove rocksdb group dir: {}", db_path.display()))?;
+  }
+
+  Ok(())
 }
 
 pub async fn open_store_for_group<P: AsRef<Path>>(
