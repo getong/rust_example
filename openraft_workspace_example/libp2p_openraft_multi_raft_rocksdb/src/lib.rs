@@ -3,6 +3,8 @@
 
 use std::collections::BTreeMap;
 
+use once_cell::sync::OnceCell;
+
 pub mod apalis_raft;
 pub mod app;
 pub mod constants;
@@ -27,6 +29,22 @@ pub struct GroupHandle {
 }
 
 pub type GroupHandleMap = BTreeMap<GroupId, GroupHandle>;
+
+pub static OPENRAFT_GROUPS: OnceCell<GroupHandleMap> = OnceCell::new();
+
+pub fn set_openraft_groups(groups: GroupHandleMap) -> Result<(), GroupHandleMap> {
+  OPENRAFT_GROUPS.set(groups)
+}
+
+pub fn openraft_groups() -> Option<&'static GroupHandleMap> {
+  OPENRAFT_GROUPS.get()
+}
+
+pub fn openraft_group(group_id: &str) -> Option<GroupHandle> {
+  openraft_groups()
+    .and_then(|groups| groups.get(group_id))
+    .cloned()
+}
 
 pub mod groups {
   pub const APALIS: &str = "apalis";

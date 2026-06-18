@@ -4,13 +4,13 @@ use openraft_rocksstore_crud::RocksRequest;
 use types_kv::Request as KvWriteRequest;
 
 use crate::{
-  GroupHandleMap,
   network::{
     dispatcher::SwarmRequestDispatcher,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::KvClient,
     transport::parse_p2p_addr,
   },
+  openraft_group,
   proto::raft_kv::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
@@ -21,13 +21,12 @@ use crate::{
 
 #[derive(Clone)]
 pub struct OpenRaftDispatcher {
-  groups: GroupHandleMap,
   kv_client: KvClient,
 }
 
 impl OpenRaftDispatcher {
-  pub fn new(groups: GroupHandleMap, kv_client: KvClient) -> Self {
-    Self { groups, kv_client }
+  pub fn new(kv_client: KvClient) -> Self {
+    Self { kv_client }
   }
 }
 
@@ -35,11 +34,11 @@ impl OpenRaftDispatcher {
 impl SwarmRequestDispatcher for OpenRaftDispatcher {
   async fn handle_raft(&self, request: RaftRpcRequest) -> RaftRpcResponse {
     let group_id = request.group_id.clone();
-    let Some(group) = self.groups.get(&group_id) else {
+    let Some(group) = openraft_group(&group_id) else {
       return RaftRpcResponse::Error(format!("unknown group_id={group_id}"));
     };
 
-    handle_inbound_rpc(group.raft.clone(), request.op).await
+    handle_inbound_rpc(group.raft, request.op).await
   }
 
   async fn handle_kv(&self, request: RaftKvRequest) -> RaftKvResponse {
@@ -48,17 +47,11 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
       return kv_error_response("missing group_id");
     }
 
-    let Some(group) = self.groups.get(&group_id) else {
+    let Some(group) = openraft_group(&group_id) else {
       return kv_error_response(format!("unknown group_id={group_id}"));
     };
 
-    process_kv_request(
-      group.raft.clone(),
-      group.kv_data.clone(),
-      self.kv_client.clone(),
-      request,
-    )
-    .await
+    process_kv_request(group.raft, group.kv_data, self.kv_client.clone(), request).await
   }
 }
 

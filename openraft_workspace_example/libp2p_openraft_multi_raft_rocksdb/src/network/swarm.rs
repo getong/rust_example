@@ -6,7 +6,7 @@ use std::{
   time::Duration,
 };
 
-use futures::StreamExt;
+use futures::{StreamExt, future::poll_fn};
 use kameo::remote;
 use libp2p::{
   Multiaddr, PeerId, Swarm, gossipsub,
@@ -18,8 +18,9 @@ use libp2p::{
     dial_opts::{DialOpts, PeerCondition},
   },
 };
+use once_cell::sync::OnceCell;
 use prost::Message;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Mutex, MutexGuard, mpsc, oneshot};
 
 use crate::{
   Unreachable,
@@ -37,6 +38,22 @@ use crate::{
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+
+pub type SharedSwarm = Arc<Mutex<Swarm<Behaviour>>>;
+
+pub static LIBP2P_SWARM: OnceCell<SharedSwarm> = OnceCell::new();
+
+pub fn set_libp2p_swarm(swarm: SharedSwarm) -> Result<(), SharedSwarm> {
+  LIBP2P_SWARM.set(swarm)
+}
+
+pub fn libp2p_swarm() -> Option<SharedSwarm> {
+  LIBP2P_SWARM.get().cloned()
+}
+
+pub async fn lock_swarm(swarm: &SharedSwarm) -> MutexGuard<'_, Swarm<Behaviour>> {
+  swarm.lock().await
+}
 
 #[derive(Debug, Clone)]
 pub struct NetErr(pub String);
@@ -321,13 +338,17 @@ impl KvClient {
 }
 
 pub async fn run_swarm(
-  mut swarm: Swarm<Behaviour>,
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
   network: Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   mut shutdown_rx: ShutdownRx,
 ) {
+  let Some(swarm) = libp2p_swarm() else {
+    tracing::error!("global libp2p swarm is not initialized");
+    return;
+  };
+
   let mut pending_raft: HashMap<
     OutboundRequestId,
     oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
@@ -350,13 +371,15 @@ pub async fn run_swarm(
         break;
       }
       _ = reconnect_tick.tick() => {
-        handle_reconnect_tick(&mut swarm, &network, &connected_peers).await;
+        handle_reconnect_tick(&swarm, &network, &connected_peers).await;
       }
       _ = kad_discovery_tick.tick() => {
+        let mut swarm = lock_swarm(&swarm).await;
         kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
+        let mut swarm = lock_swarm(&swarm).await;
         handle_command(
           &mut swarm,
           cmd,
@@ -367,9 +390,9 @@ pub async fn run_swarm(
         );
       }
 
-      ev = swarm.select_next_some() => {
+      ev = next_swarm_event(&swarm) => {
         handle_swarm_event(
-          &mut swarm,
+          &swarm,
           ev,
           &network,
           dispatcher.clone(),
@@ -387,11 +410,12 @@ pub async fn run_swarm(
 }
 
 async fn handle_reconnect_tick(
-  swarm: &mut Swarm<Behaviour>,
+  swarm: &SharedSwarm,
   network: &Libp2pNetworkFactory,
   connected_peers: &HashSet<PeerId>,
 ) {
   let nodes = network.known_nodes().await;
+  let mut swarm = lock_swarm(swarm).await;
   for (_node_id, peer_id, addr) in nodes {
     if peer_id == *swarm.local_peer_id() {
       continue;
@@ -404,8 +428,29 @@ async fn handle_reconnect_tick(
       addr = %addr,
       "reconnecting to peer"
     );
-    dial_peer_addr(swarm, addr.clone());
-    add_kad_address_from_p2p(swarm, &addr);
+    dial_peer_addr(&mut swarm, addr.clone());
+    add_kad_address_from_p2p(&mut swarm, &addr);
+  }
+}
+
+async fn next_swarm_event(swarm: &SharedSwarm) -> SwarmEvent<BehaviourEvent> {
+  loop {
+    if let Some(event) = poll_fn(|cx| {
+      let Ok(mut swarm) = swarm.try_lock() else {
+        return std::task::Poll::Ready(None);
+      };
+      match swarm.poll_next_unpin(cx) {
+        std::task::Poll::Ready(Some(event)) => std::task::Poll::Ready(Some(event)),
+        std::task::Poll::Ready(None) => panic!("swarm stream ended"),
+        std::task::Poll::Pending => std::task::Poll::Pending,
+      }
+    })
+    .await
+    {
+      return event;
+    }
+
+    tokio::task::yield_now().await;
   }
 }
 
@@ -460,7 +505,7 @@ fn handle_command(
 }
 
 async fn handle_swarm_event(
-  swarm: &mut Swarm<Behaviour>,
+  swarm: &SharedSwarm,
   event: SwarmEvent<BehaviourEvent>,
   network: &Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
@@ -488,14 +533,16 @@ async fn handle_swarm_event(
       handle_ping_event(event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-      handle_kad_event(swarm, Some(network), Some(connected_peers), event);
+      let mut swarm = lock_swarm(swarm).await;
+      handle_kad_event(&mut swarm, Some(network), Some(connected_peers), event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kameo(event)) => {
       handle_kameo_event(event);
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+      let mut swarm = lock_swarm(swarm).await;
       handle_connection_established(
-        swarm,
+        &mut swarm,
         pending_connect,
         connected_peers,
         dial_backoff_until,
@@ -508,13 +555,21 @@ async fn handle_swarm_event(
       cause,
       ..
     } => {
-      handle_connection_closed(swarm, connected_peers, peer_id, num_established, cause);
+      let mut swarm = lock_swarm(swarm).await;
+      handle_connection_closed(&mut swarm, connected_peers, peer_id, num_established, cause);
     }
     SwarmEvent::NewListenAddr { address, .. } => {
       tracing::info!("listening on {address}");
     }
     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-      handle_outgoing_connection_error(swarm, pending_connect, dial_backoff_until, peer_id, error);
+      let mut swarm = lock_swarm(swarm).await;
+      handle_outgoing_connection_error(
+        &mut swarm,
+        pending_connect,
+        dial_backoff_until,
+        peer_id,
+        error,
+      );
     }
     _ => {}
   }
@@ -610,7 +665,7 @@ fn handle_kameo_event(event: remote::Event) {
 }
 
 async fn handle_mdns_event(
-  swarm: &mut Swarm<Behaviour>,
+  swarm: &SharedSwarm,
   network: &Libp2pNetworkFactory,
   event: mdns::Event,
 ) {
@@ -624,15 +679,19 @@ async fn handle_mdns_event(
         }
         if use_discovered_addr {
           saw_peer = true;
-          add_kad_peer_address(swarm, peer, addr);
+          let mut swarm = lock_swarm(swarm).await;
+          add_kad_peer_address(&mut swarm, peer, addr);
         }
+        let mut swarm = lock_swarm(swarm).await;
         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
       }
       if saw_peer {
-        kick_kad_queries(swarm);
+        let mut swarm = lock_swarm(swarm).await;
+        kick_kad_queries(&mut swarm);
       }
     }
     mdns::Event::Expired(list) => {
+      let mut swarm = lock_swarm(swarm).await;
       for (peer, addr) in list {
         let addr = strip_p2p(addr);
         swarm.behaviour_mut().kad.remove_address(&peer, &addr);

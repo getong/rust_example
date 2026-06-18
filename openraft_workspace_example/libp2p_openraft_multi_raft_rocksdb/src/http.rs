@@ -17,7 +17,7 @@ use prost::Message;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{
-  GroupHandleMap, GroupId, NodeId,
+  GroupId, NodeId,
   apalis_raft::{Email, RaftApalisStorage},
   kameo_remote::{self, KameoState},
   network::{
@@ -25,6 +25,7 @@ use crate::{
     swarm::{GOSSIP_TOPIC, KvClient},
     transport::Libp2pNetworkFactory,
   },
+  openraft_group, openraft_groups,
   proto::raft_kv::{
     ChatMessage, DeleteValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
     UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
@@ -42,7 +43,6 @@ pub struct AppState {
   pub listen: String,
   pub network: Libp2pNetworkFactory,
   pub kv_client: KvClient,
-  pub groups: GroupHandleMap,
   pub default_group: GroupId,
   pub apalis_email: RaftApalisStorage<Email>,
   pub kameo: Arc<KameoState>,
@@ -201,9 +201,24 @@ async fn cluster_info(
     .group_id
     .unwrap_or_else(|| state.default_group.clone());
 
-  let groups: Vec<String> = state.groups.keys().cloned().collect();
+  let Some(global_groups) = openraft_groups() else {
+    return Json(ClusterInfoResponse {
+      node_id: state.node_id.clone(),
+      node_name: state.node_name.clone(),
+      peer_id: state.peer_id.clone(),
+      listen: state.listen.clone(),
+      group_id,
+      groups: Vec::new(),
+      known_nodes: nodes,
+      raft_metrics: serde_json::Value::String("openraft groups are not initialized".to_string()),
+      kv_data: Vec::new(),
+      error: Some("openraft groups are not initialized".to_string()),
+    });
+  };
 
-  let Some(group) = state.groups.get(&group_id) else {
+  let groups: Vec<String> = global_groups.keys().cloned().collect();
+
+  let Some(group) = openraft_group(&group_id) else {
     return Json(ClusterInfoResponse {
       node_id: state.node_id.clone(),
       node_name: state.node_name.clone(),
@@ -508,17 +523,9 @@ async fn send_kv_request(
 ) -> Result<(NodeId, RaftKvResponse), String> {
   match resolve_kv_target(state, group_id, target_node_id).await? {
     KvTarget::Local { node_id } => {
-      let group = state
-        .groups
-        .get(group_id)
-        .ok_or_else(|| format!("unknown group_id={group_id}"))?;
-      let resp = process_kv_request(
-        group.raft.clone(),
-        group.kv_data.clone(),
-        state.kv_client.clone(),
-        request,
-      )
-      .await;
+      let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
+      let resp =
+        process_kv_request(group.raft, group.kv_data, state.kv_client.clone(), request).await;
       Ok((node_id, resp))
     }
     KvTarget::Remote {
@@ -555,7 +562,7 @@ enum KvTarget {
 fn resolve_group_id(state: &AppState, group_id: Option<String>) -> Result<GroupId, String> {
   match group_id {
     Some(group_id) => {
-      if state.groups.contains_key(&group_id) {
+      if openraft_groups().is_some_and(|groups| groups.contains_key(&group_id)) {
         Ok(group_id)
       } else {
         Err(format!("unknown group_id={group_id}"))
@@ -570,10 +577,7 @@ async fn resolve_kv_target(
   group_id: &str,
   target_node_id: Option<NodeId>,
 ) -> Result<KvTarget, String> {
-  let group = state
-    .groups
-    .get(group_id)
-    .ok_or_else(|| format!("unknown group_id={group_id}"))?;
+  let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
   let metrics = group.raft.metrics().borrow_watched().clone();
   let candidate = target_node_id.or_else(|| metrics.current_leader.clone());
 
