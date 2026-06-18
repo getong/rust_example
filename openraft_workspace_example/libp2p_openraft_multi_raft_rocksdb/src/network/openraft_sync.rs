@@ -3,6 +3,7 @@ use std::{
   hash::{DefaultHasher, Hash, Hasher},
   io::Read,
   sync::atomic::{AtomicU64, Ordering},
+  time::Duration,
 };
 
 use libp2p::{
@@ -16,10 +17,10 @@ use openraft::async_runtime::WatchReceiver;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  GroupId,
+  GroupId, Raft,
   network::rpc::RaftRpcResponse,
   openraft_group,
-  typ::{RaftError, Snapshot, SnapshotMeta, Vote},
+  typ::{LogId, RaftError, Snapshot, SnapshotMeta, Vote},
 };
 
 pub const OPENRAFT_SYNC_TOPIC: &str = "openraft/snapshot-sync/1";
@@ -29,6 +30,8 @@ const MAX_PARTS_PER_MESSAGE: usize = 4;
 const GROUP_ID_LEN: usize = 8;
 const MAX_PARTS: usize = u16::MAX as usize;
 const METADATA_MAGIC: &[u8; 4] = b"ORS1";
+const SNAPSHOT_BUILD_TIMEOUT: Duration = Duration::from_secs(20);
+const SNAPSHOT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 static NEXT_PARTIAL_GROUP: AtomicU64 = AtomicU64::new(1);
 
@@ -67,6 +70,10 @@ impl OpenRaftSnapshotPartial {
       anyhow::bail!("unknown group_id={group_id}");
     };
 
+    let metrics = group.raft.metrics().borrow_watched().clone();
+    let target = metrics.last_applied.clone();
+    let mut snapshot_progress = group.raft.watch_snapshot_progress();
+
     group
       .raft
       .trigger()
@@ -74,12 +81,16 @@ impl OpenRaftSnapshotPartial {
       .await
       .map_err(|err| anyhow::anyhow!("trigger openraft snapshot: {err}"))?;
 
-    let Some(snapshot) = group
-      .raft
-      .get_snapshot()
-      .await
-      .map_err(|err| anyhow::anyhow!("get openraft snapshot: {err}"))?
-    else {
+    if let Some(target) = target.as_ref() {
+      let target_progress = Some(target.clone());
+      let wait = snapshot_progress.wait_until_ge(&target_progress);
+      tokio::time::timeout(SNAPSHOT_BUILD_TIMEOUT, wait)
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out waiting for openraft snapshot to cover {target}"))?
+        .map_err(|err| anyhow::anyhow!("watch openraft snapshot progress: {err}"))?;
+    }
+
+    let Some(snapshot) = wait_for_current_snapshot(&group.raft, target.as_ref()).await? else {
       return Ok(None);
     };
 
@@ -548,6 +559,45 @@ pub struct OpenRaftSyncUpdate {
   pub partial: OpenRaftSnapshotPartial,
   pub should_republish: bool,
   pub first_complete: bool,
+}
+
+async fn wait_for_current_snapshot(
+  raft: &Raft,
+  target: Option<&LogId>,
+) -> anyhow::Result<Option<Snapshot>> {
+  let deadline = tokio::time::Instant::now() + SNAPSHOT_BUILD_TIMEOUT;
+  loop {
+    let snapshot = raft
+      .get_snapshot()
+      .await
+      .map_err(|err| anyhow::anyhow!("get openraft snapshot: {err}"))?;
+
+    if snapshot
+      .as_ref()
+      .is_some_and(|snapshot| snapshot_covers_target(&snapshot.meta, target))
+    {
+      return Ok(snapshot);
+    }
+
+    if tokio::time::Instant::now() >= deadline {
+      if let Some(target) = target {
+        anyhow::bail!("timed out waiting for readable openraft snapshot covering {target}");
+      }
+      return Ok(None);
+    }
+
+    tokio::time::sleep(SNAPSHOT_POLL_INTERVAL).await;
+  }
+}
+
+fn snapshot_covers_target(meta: &SnapshotMeta, target: Option<&LogId>) -> bool {
+  match target {
+    Some(target) => meta
+      .last_log_id
+      .as_ref()
+      .is_some_and(|snapshot_log_id| snapshot_log_id >= target),
+    None => true,
+  }
 }
 
 pub fn hex_id(bytes: &[u8]) -> String {

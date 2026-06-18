@@ -38,6 +38,7 @@ use crate::{
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub type SharedSwarm = Arc<Mutex<Swarm<Behaviour>>>;
 
@@ -240,7 +241,8 @@ impl Libp2pClient {
       .await
       .map_err(|e| NetErr(format!("command channel closed: {e}")))?;
 
-    tokio::time::timeout(self.timeout, resp_rx)
+    let timeout = self.timeout.max(OPENRAFT_SNAPSHOT_SYNC_TIMEOUT);
+    tokio::time::timeout(timeout, resp_rx)
       .await
       .map_err(|e| NetErr(format!("openraft snapshot sync timeout: {e}")))?
       .map_err(|e| NetErr(format!("openraft snapshot sync dropped: {e}")))?
