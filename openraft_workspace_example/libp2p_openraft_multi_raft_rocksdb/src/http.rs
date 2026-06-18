@@ -54,6 +54,7 @@ pub async fn serve(
   let app = Router::new()
     .route("/cluster", get(cluster_info))
     .route("/chat", post(send_chat))
+    .route("/sync/snapshot", post(sync_snapshot))
     .route("/apalis/email", post(push_email))
     .route("/write", post(set_value))
     .route("/update", post(update_value))
@@ -156,6 +157,19 @@ struct ChatRequest {
 #[derive(Serialize)]
 struct ChatResponse {
   ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SyncSnapshotRequest {
+  group_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SyncSnapshotResponse {
+  ok: bool,
+  group_id: String,
+  sync_group_id: Option<String>,
   error: Option<String>,
 }
 
@@ -391,6 +405,42 @@ async fn send_chat(
     }),
     Err(err) => Json(ChatResponse {
       ok: false,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn sync_snapshot(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<SyncSnapshotRequest>,
+) -> Json<SyncSnapshotResponse> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(SyncSnapshotResponse {
+        ok: false,
+        group_id: state.default_group.clone(),
+        sync_group_id: None,
+        error: Some(err),
+      });
+    }
+  };
+
+  match state
+    .network
+    .publish_openraft_snapshot(group_id.clone())
+    .await
+  {
+    Ok(sync_group_id) => Json(SyncSnapshotResponse {
+      ok: true,
+      group_id,
+      sync_group_id: Some(sync_group_id),
+      error: None,
+    }),
+    Err(err) => Json(SyncSnapshotResponse {
+      ok: false,
+      group_id,
+      sync_group_id: None,
       error: Some(err.to_string()),
     }),
   }

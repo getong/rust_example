@@ -223,6 +223,10 @@ impl Libp2pNetworkFactory {
     self.client.publish_gossipsub(topic, data).await
   }
 
+  pub async fn publish_openraft_snapshot(&self, group_id: String) -> Result<String, NetErr> {
+    self.client.publish_openraft_snapshot(group_id).await
+  }
+
   pub async fn request(
     &self,
     node_id: NodeId,

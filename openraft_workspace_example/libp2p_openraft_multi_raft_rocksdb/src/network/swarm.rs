@@ -25,6 +25,7 @@ use crate::{
   Unreachable,
   network::{
     dispatcher::SwarmRequestDispatcher,
+    openraft_sync::{OpenRaftSnapshotPartial, OpenRaftSyncState, hex_id, sync_topic_hash},
     proto_codec::{ProstCodec, ProtoCodec},
     rpc::{RaftRpcRequest, RaftRpcResponse},
     transport::Libp2pNetworkFactory,
@@ -139,6 +140,10 @@ pub enum Command {
     topic: String,
     data: Vec<u8>,
   },
+  PublishOpenRaftSnapshot {
+    group_id: String,
+    resp: oneshot::Sender<Result<String, NetErr>>,
+  },
   RaftRequest {
     peer: PeerId,
     req: RaftRpcRequest,
@@ -222,6 +227,23 @@ impl Libp2pClient {
       })
       .await
       .map_err(|e| NetErr(format!("command channel closed: {e}")))
+  }
+
+  pub async fn publish_openraft_snapshot(&self, group_id: String) -> Result<String, NetErr> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::PublishOpenRaftSnapshot {
+        group_id,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| NetErr(format!("command channel closed: {e}")))?;
+
+    tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| NetErr(format!("openraft snapshot sync timeout: {e}")))?
+      .map_err(|e| NetErr(format!("openraft snapshot sync dropped: {e}")))?
   }
 
   pub async fn request(
@@ -348,6 +370,7 @@ pub async fn run_swarm(
     HashMap::new();
   let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
     HashMap::new();
+  let mut openraft_sync = OpenRaftSyncState::default();
   let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
@@ -370,6 +393,11 @@ pub async fn run_swarm(
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else { return; };
+        if let Command::PublishOpenRaftSnapshot { group_id, resp } = cmd {
+          handle_publish_openraft_snapshot(&swarm, group_id, resp, &mut openraft_sync).await;
+          continue;
+        }
+
         let mut swarm = lock_swarm(&swarm).await;
         handle_command(
           &mut swarm,
@@ -391,6 +419,7 @@ pub async fn run_swarm(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_connect,
+          &mut openraft_sync,
           &mut connected_peers,
           &mut dial_backoff_until,
         )
@@ -478,6 +507,11 @@ fn handle_command(
         tracing::warn!("gossipsub publish failed: {err}");
       }
     }
+    Command::PublishOpenRaftSnapshot { resp, .. } => {
+      let _ = resp.send(Err(NetErr(
+        "openraft snapshot sync is not available in this swarm loop".to_string(),
+      )));
+    }
     Command::RaftRequest { peer, req, resp } => {
       let id = swarm.behaviour_mut().raft_rpc.send_request(&peer, req);
       pending_raft.insert(id, resp);
@@ -495,6 +529,56 @@ fn handle_command(
   }
 }
 
+async fn handle_publish_openraft_snapshot(
+  swarm: &SharedSwarm,
+  group_id: String,
+  resp: oneshot::Sender<Result<String, NetErr>>,
+  openraft_sync: &mut OpenRaftSyncState,
+) {
+  let local_peer_id = {
+    let swarm = lock_swarm(swarm).await;
+    *swarm.local_peer_id()
+  };
+
+  let partial = match OpenRaftSnapshotPartial::from_raft_group(&group_id, local_peer_id).await {
+    Ok(Some(partial)) => partial,
+    Ok(None) => {
+      let _ = resp.send(Err(NetErr(format!(
+        "openraft group {group_id} has no snapshot"
+      ))));
+      return;
+    }
+    Err(err) => {
+      let _ = resp.send(Err(NetErr(format!(
+        "build openraft snapshot partial failed: {err}"
+      ))));
+      return;
+    }
+  };
+
+  let sync_group = hex_id(&partial.group_id);
+  let topic = sync_topic_hash();
+  let publish_result = {
+    let mut swarm = lock_swarm(swarm).await;
+    swarm
+      .behaviour_mut()
+      .gossipsub
+      .publish_partial(topic, partial.clone())
+  };
+
+  match publish_result {
+    Ok(()) => {
+      openraft_sync.insert_local(partial);
+      let _ = resp.send(Ok(sync_group));
+    }
+    Err(err) => {
+      let _ = resp.send(Err(NetErr(format!(
+        "publish openraft snapshot partial failed: {err}"
+      ))));
+    }
+  }
+}
+
 async fn handle_swarm_event(
   swarm: &SharedSwarm,
   event: SwarmEvent<BehaviourEvent>,
@@ -504,6 +588,7 @@ async fn handle_swarm_event(
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  openraft_sync: &mut OpenRaftSyncState,
   connected_peers: &mut HashSet<PeerId>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
 ) {
@@ -518,7 +603,7 @@ async fn handle_swarm_event(
       handle_mdns_event(swarm, network, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-      handle_gossipsub_event(event);
+      handle_gossipsub_event(swarm, openraft_sync, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
       handle_ping_event(event);
@@ -686,7 +771,11 @@ async fn handle_mdns_event(
   }
 }
 
-fn handle_gossipsub_event(event: gossipsub::Event) {
+async fn handle_gossipsub_event(
+  swarm: &SharedSwarm,
+  openraft_sync: &mut OpenRaftSyncState,
+  event: gossipsub::Event,
+) {
   match event {
     gossipsub::Event::Message {
       propagation_source,
@@ -713,6 +802,120 @@ fn handle_gossipsub_event(event: gossipsub::Event) {
         );
       }
     },
+    gossipsub::Event::Partial {
+      topic_hash,
+      peer_id,
+      group_id,
+      message,
+      metadata,
+    } => {
+      if topic_hash != sync_topic_hash() {
+        tracing::debug!(peer = %peer_id, topic = %topic_hash, "partial message on unknown topic");
+        return;
+      }
+
+      let Some(metadata) = metadata else {
+        tracing::warn!(peer = %peer_id, group = %hex_id(&group_id), "openraft snapshot partial missing metadata");
+        let mut swarm = lock_swarm(swarm).await;
+        swarm
+          .behaviour_mut()
+          .gossipsub
+          .report_invalid_partial(peer_id, &topic_hash);
+        return;
+      };
+
+      let update =
+        match openraft_sync.handle_partial(group_id.clone(), &metadata, message.as_deref()) {
+          Ok(update) => update,
+          Err(err) => {
+            tracing::warn!(
+              peer = %peer_id,
+              group = %hex_id(&group_id),
+              error = ?err,
+              "invalid openraft snapshot partial"
+            );
+            let mut swarm = lock_swarm(swarm).await;
+            swarm
+              .behaviour_mut()
+              .gossipsub
+              .report_invalid_partial(peer_id, &topic_hash);
+            return;
+          }
+        };
+
+      if update.should_republish {
+        let mut swarm = lock_swarm(swarm).await;
+        if let Err(err) = swarm
+          .behaviour_mut()
+          .gossipsub
+          .publish_partial(topic_hash.clone(), update.partial.clone())
+        {
+          tracing::debug!(error = ?err, "republish openraft snapshot partial failed");
+        }
+      }
+
+      if update.first_complete {
+        let raft_group_id = update.partial.raft_group_id.clone();
+        let snapshot_id = update.partial.snapshot_id.clone();
+        match update.partial.install().await {
+          Ok(resp) => {
+            tracing::info!(
+              peer = %peer_id,
+              group = %raft_group_id,
+              snapshot_id = %snapshot_id,
+              response = ?resp,
+              "installed openraft snapshot from gossipsub partial sync"
+            );
+          }
+          Err(err) => {
+            tracing::warn!(
+              peer = %peer_id,
+              group = %raft_group_id,
+              snapshot_id = %snapshot_id,
+              error = ?err,
+              "failed to install openraft snapshot from gossipsub partial sync"
+            );
+          }
+        }
+      } else {
+        tracing::debug!(
+          peer = %peer_id,
+          group = %update.partial.raft_group_id,
+          snapshot_id = %update.partial.snapshot_id,
+          partial_group = %hex_id(&update.partial.group_id),
+          parts = update.partial.present_parts(),
+          total_parts = update.partial.total_parts(),
+          "received openraft snapshot partial"
+        );
+      }
+    }
+    gossipsub::Event::Subscribed {
+      peer_id,
+      topic,
+      supports_partial,
+      ..
+    } => {
+      if topic != sync_topic_hash() || !supports_partial {
+        tracing::debug!("gossipsub subscribed: peer={peer_id} topic={topic}");
+        return;
+      }
+
+      let known_snapshots = openraft_sync.known_partials();
+      let mut swarm = lock_swarm(swarm).await;
+      for partial in known_snapshots {
+        if let Err(err) = swarm
+          .behaviour_mut()
+          .gossipsub
+          .publish_partial(topic.clone(), partial)
+        {
+          tracing::debug!(
+            peer = %peer_id,
+            error = ?err,
+            "advertise known openraft snapshot partial failed"
+          );
+        }
+      }
+    }
     other => {
       tracing::debug!("gossipsub event: {:?}", other);
     }
@@ -920,7 +1123,7 @@ pub async fn run_swarm_client_with_shutdown(
           },
 
           SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-            handle_gossipsub_event(event);
+            tracing::debug!("gossipsub event: {:?}", event);
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {

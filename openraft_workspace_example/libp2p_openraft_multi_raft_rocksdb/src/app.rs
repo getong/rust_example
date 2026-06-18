@@ -32,6 +32,7 @@ use crate::{
   groups, http,
   network::{
     openraft_dispatcher::OpenRaftDispatcher,
+    openraft_sync::OPENRAFT_SYNC_TOPIC,
     proto_codec::{ProstCodec, ProtoCodec},
     raft_bridge::P2PNetworkFactoryWrapper,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
@@ -487,6 +488,17 @@ fn build_swarm(
     .build();
 
   let gossip_topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
+  let sync_topic = gossipsub::IdentTopic::new(OPENRAFT_SYNC_TOPIC);
+  let sync_topic_hash = sync_topic.hash();
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .enable_partials_for_topic(sync_topic_hash, true);
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&sync_topic)
+    .context("openraft sync gossipsub subscribe")?;
   swarm
     .behaviour_mut()
     .gossipsub

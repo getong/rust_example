@@ -37,6 +37,12 @@ curl -X POST http://127.0.0.1:3001/chat \
   -H 'content-type: application/json' \
   -d '{"text":"hello from http","from":"node1"}'
 
+# publish this node's latest OpenRaft snapshot through libp2p gossipsub
+# partial messages; receivers install it through OpenRaft APIs
+curl -X POST http://127.0.0.1:3001/sync/snapshot \
+  -H 'content-type: application/json' \
+  -d '{"group_id":"users"}'
+
 # enqueue an apalis email task backed by the apalis raft group
 curl -X POST http://127.0.0.1:3001/apalis/email \
   -H 'content-type: application/json' \
@@ -51,23 +57,6 @@ Tasks are stored as keys under =apalis:apalis:task:<task-id>= and state changes
 worker runs with the node. The current Raft leader schedules queued tasks to
 voter nodes other than itself, and a worker executes a task only when its local
 OpenRaft state is =Follower= and the task is assigned to that node.
-
-** kameo
-
-Kameo remote actor demo runs alongside the raft node. Start at least 2 nodes
-(for example, =./run-2nodes.sh=), then call:
-
-#+begin_src shell
-curl -X POST http://127.0.0.1:3001/kameo/inc \
-  -H 'content-type: application/json' \
-  -d '{"amount":10}'
-
-curl -X POST http://127.0.0.1:3002/kameo/inc \
-  -H 'content-type: application/json' \
-  -d '{"amount":5}'
-#+end_src
-
-Note: =/kameo/inc= forwards to a remote incrementor, so you need more than one node.
 
 ** cli examples
 
