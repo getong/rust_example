@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use self::log_store::RocksLogStore;
 pub use self::state_machine::RocksStateMachine;
+use crate::types_kv;
 
 #[derive(Serialize, Deserialize, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[serde(transparent)]

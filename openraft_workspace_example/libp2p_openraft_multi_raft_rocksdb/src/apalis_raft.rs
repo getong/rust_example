@@ -19,7 +19,6 @@ use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream};
 use openraft::{ServerState, async_runtime::WatchReceiver};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{sync::Mutex, time::sleep};
-use types_kv::Request as KvWriteRequest;
 
 use crate::{
   GroupHandle, NodeId,
@@ -30,6 +29,7 @@ use crate::{
   },
   store::{KvData, ensure_linearizable_read},
   typ::{Raft, RaftMetrics},
+  types_kv::Request as KvWriteRequest,
 };
 
 const TASK_KEY_PART: &str = "task";

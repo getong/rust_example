@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use openraft::async_runtime::WatchReceiver;
-use types_kv::Request as KvWriteRequest;
 
 use crate::{
   network::{
@@ -17,6 +16,7 @@ use crate::{
   rocksstore_crud::{RocksRequest, TypeConfig},
   store::{KvData, ensure_linearizable_read},
   typ::{Raft, Snapshot},
+  types_kv::Request as KvWriteRequest,
 };
 
 #[derive(Clone)]
