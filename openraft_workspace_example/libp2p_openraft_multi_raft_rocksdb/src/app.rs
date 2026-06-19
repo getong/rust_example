@@ -211,6 +211,10 @@ pub struct Opt {
   #[arg(long, default_value_t = true, action = ArgAction::Set)]
   pub raft_enable_heartbeat: bool,
 
+  /// Disable tokio-console subscriber. It is enabled by default.
+  #[arg(long)]
+  pub no_tokio_console: bool,
+
   /// Close an idle libp2p connection only after this many seconds.
   #[arg(long, default_value_t = 30)]
   pub swarm_idle_connection_timeout_secs: u64,

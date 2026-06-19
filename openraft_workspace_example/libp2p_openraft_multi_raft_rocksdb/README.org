@@ -5,6 +5,20 @@
 Raft groups: `users`, `orders`, `products`. Default group is `users`.
 Use `group_id` in HTTP bodies, `--group` in CLI tools, or `?group=` on `/cluster`.
 
+Three-node local runs enable =console-subscriber= for tokio-console. Each node
+binds a different console port to avoid conflicts:
+
+#+begin_src shell
+./run-3nodes.sh
+
+tokio-console http://127.0.0.1:6669 # node1
+tokio-console http://127.0.0.1:6670 # node2
+tokio-console http://127.0.0.1:6671 # node3
+#+end_src
+
+Override the defaults with =NODE1_TOKIO_CONSOLE_BIND=,
+=NODE2_TOKIO_CONSOLE_BIND=, or =NODE3_TOKIO_CONSOLE_BIND= when needed.
+
 #+begin_src shell
 # set (default group: users)
 curl -X POST http://127.0.0.1:3001/write \

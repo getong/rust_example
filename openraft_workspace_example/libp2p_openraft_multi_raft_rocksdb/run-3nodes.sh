@@ -39,6 +39,10 @@ DB_ROOT="${DB_ROOT:-$DB_BASE/$(date +%Y%m%d-%H%M%S)}"
 
 export DB_ROOT
 
+if [[ "${RUSTFLAGS:-}" != *"tokio_unstable"* ]]; then
+	export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--cfg tokio_unstable"
+fi
+
 WSS_CERT_DIR="${WSS_CERT_DIR:-$DB_ROOT/certs}"
 WSS_DNS_NAME="${WSS_DNS_NAME:-localhost}"
 WSS_IP_ADDR="${WSS_IP_ADDR:-127.0.0.1}"
@@ -182,6 +186,14 @@ cargo build -p libp2p_openraft_multi_raft_rocksdb >/dev/null
 export SKIP_BUILD=1
 
 echo "Starting 3 nodes (Ctrl-C to stop)..."
+echo "Tokio console:"
+echo "  node1: ${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
+echo "  node2: ${NODE2_TOKIO_CONSOLE_BIND:-127.0.0.1:6670}"
+echo "  node3: ${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
+echo "Connect with:"
+echo "  tokio-console http://127.0.0.1:6669"
+echo "  tokio-console http://127.0.0.1:6670"
+echo "  tokio-console http://127.0.0.1:6671"
 
 cleanup() {
 	echo "Stopping..."

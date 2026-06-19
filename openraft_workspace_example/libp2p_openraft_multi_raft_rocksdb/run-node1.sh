@@ -51,6 +51,8 @@ NODE1_HTTP="${NODE1_HTTP:-127.0.0.1:3001}"
 NODE2_HTTP="${NODE2_HTTP:-127.0.0.1:3002}"
 NODE3_HTTP="${NODE3_HTTP:-127.0.0.1:3003}"
 
+NODE1_TOKIO_CONSOLE_BIND="${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
+
 LOG_DIR="$DB_ROOT/logs"
 NODE1_LOG="$LOG_DIR/node1.log"
 NODE1_PEER_ID_FILE="$NODE1_DB/peer.id"
@@ -150,6 +152,9 @@ cd "$WS_DIR"
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
 	echo "Building..."
+	if [[ "${RUSTFLAGS:-}" != *"tokio_unstable"* ]]; then
+		export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--cfg tokio_unstable"
+	fi
 	cargo build -p libp2p_openraft_multi_raft_rocksdb >/dev/null
 fi
 
@@ -281,11 +286,22 @@ if [[ "$NODE1_LISTEN" =~ /tcp/([0-9]+) ]]; then
 	fi
 fi
 
+if [[ "$NODE1_TOKIO_CONSOLE_BIND" =~ :([0-9]+)$ ]]; then
+	if port_in_use "${BASH_REMATCH[1]}"; then
+		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE1_TOKIO_CONSOLE_BIND=$NODE1_TOKIO_CONSOLE_BIND)."
+		echo "Hint: stop the previous nodes, or set NODE1_TOKIO_CONSOLE_BIND to another port."
+		exit 1
+	fi
+fi
+
 export RUST_LOG="${RUST_LOG:-info}"
 export LIBP2P_SELF_NAME="$NODE1_NAME"
+export TOKIO_CONSOLE_BIND="$NODE1_TOKIO_CONSOLE_BIND"
 
 echo "Logs:"
 echo "  $NODE1_LOG"
+echo "Tokio console:"
+echo "  tokio-console http://$TOKIO_CONSOLE_BIND"
 
 echo "Starting node1 (Ctrl-C to stop)..."
 
