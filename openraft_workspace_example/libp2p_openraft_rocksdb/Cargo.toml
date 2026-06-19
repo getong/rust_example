@@ -36,11 +36,11 @@ openraft = { version = "0.10.0-alpha.22", features = [
 ] }
 # openraft-legacy = { version="0.10.0-alpha.17" }
 openraft-rocksstore-crud = { path = "../rocksstore_crud" }
-prost = "0.14.3"
+prost = "0.14.4"
 rand = "0.10"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 tokio = { version = "1.52", default-features = false, features = [
   "io-util",
   "macros",
@@ -67,4 +67,4 @@ name = "lpr-status"
 path = "src/bin/status.rs"
 
 [build-dependencies]
-prost-build = "0.14.3"
+prost-build = "0.14.4"

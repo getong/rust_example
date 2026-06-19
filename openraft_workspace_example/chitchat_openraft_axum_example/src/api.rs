@@ -112,8 +112,14 @@ pub async fn get_state(State(state): State<AppState>) -> Json<ApiResponse> {
   let response = ApiResponse {
     cluster_id: "chitchat-example-cluster".to_string(),
     cluster_state: serde_json::to_value(cluster_state).unwrap_or_default(),
-    live_nodes: live_nodes.into_iter().map(|id| id.node_id).collect(),
-    dead_nodes: dead_nodes.into_iter().map(|id| id.node_id).collect(),
+    live_nodes: live_nodes
+      .into_iter()
+      .map(|id| id.node_id.to_string())
+      .collect(),
+    dead_nodes: dead_nodes
+      .into_iter()
+      .map(|id| id.node_id.to_string())
+      .collect(),
   };
   Json(response)
 }

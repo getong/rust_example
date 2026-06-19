@@ -19,12 +19,12 @@ axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22.1"
 bincode = "=2"
 # chitchat = { git = "https://github.com/quickwit-oss/chitchat", rev = "c6f7809cd782173e8dbddf79e25d9cb40c9c14a4" }
-chitchat = "0.10"
+chitchat = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.6", features = ["derive"] }
 cool-id-generator = "1"
 futures = "0.3"
-itertools = "0.14"
+itertools = "0.15"
 mem-log = { path = "../mem-log", features = [] }
 openraft = { version = "0.10.0-alpha.22", features = [
   "serde",
@@ -34,7 +34,7 @@ openraft-legacy = { version = "0.10.0-alpha.22" }
 schemars = { version = "1", features = ["uuid1"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-tokio = { version = "1.52.1", features = [
+tokio = { version = "1.52.3", features = [
   "net",
   "sync",
   "rt-multi-thread",
@@ -42,7 +42,7 @@ tokio = { version = "1.52.1", features = [
   "time",
   "signal",
 ] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.7", features = ["cors"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

@@ -28,7 +28,7 @@ fn snapshot_members(snapshot: ClusterStateSnapshot) -> Vec<Member> {
     if let Some(service) = state.get(SERVICE_KEY) {
       if let Ok(service) = serde_json::from_str(service) {
         res.push(Member::with_id(
-          state.chitchat_id().node_id.clone(),
+          state.chitchat_id().node_id.to_string(),
           service,
         ));
       }

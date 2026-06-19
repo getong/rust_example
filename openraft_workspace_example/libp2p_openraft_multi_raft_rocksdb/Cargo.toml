@@ -53,7 +53,7 @@ openraft = { version = "0.10.0-alpha.22", features = [
   "type-alias",
 ] }
 # openraft-legacy = { version="0.10.0-alpha.17" }
-prost = "0.14.3"
+prost = "0.14.4"
 rand = "0.10"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -72,7 +72,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [build-dependencies]
-prost-build = "0.14.3"
+prost-build = "0.14.4"
 
 [dev-dependencies]
 tempfile = "3.27.0"
