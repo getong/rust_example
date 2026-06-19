@@ -10,7 +10,7 @@ anyhow = "1.0.102"
 bincode_next = { package = "bincode-next", version = "3.0.0-rc.15" }
 console = "0.16.3"
 futures = "0.3.32"
-regex = "1.12.3"
+regex = "1.12.4"
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "time", "sync", "net", "macros", "io-util", "io-std"] }
 tokio-stream = "0.1.18"
