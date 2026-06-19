@@ -1,2 +1,6 @@
 [build]
 rustflags = ["--cfg", "tokio_unstable"]
+rustdocflags = ["--cfg", "tokio_unstable"]
+
+[target.'cfg(all())']
+rustflags = ["--cfg", "tokio_unstable"]
