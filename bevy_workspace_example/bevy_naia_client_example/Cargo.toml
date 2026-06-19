@@ -30,4 +30,4 @@ naia-bevy-client = { version = "0.25.0", features = ["transport_webrtc"] }
 naia-bevy-demo-shared = { path = "../naia-bevy-demo-shared" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = { version = "0.2.122", features = ["serde-serialize"] }
+wasm-bindgen = { version = "0.2.125", features = ["serde-serialize"] }
