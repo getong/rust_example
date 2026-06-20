@@ -14,6 +14,7 @@ fn main() -> PyResult<()> {
     add_project_site_packages(py)?;
     add_project_python_path(py)?;
     call_python_function_with_kwargs(py)?;
+    call_python_script_and_use_return_value(py)?;
 
     let app = py.import("embedded_python_demo")?;
     let message: String = app.getattr("main")?.call0()?.extract()?;
@@ -44,6 +45,24 @@ fn call_python_function_with_kwargs(py: Python<'_>) -> PyResult<()> {
   kwargs.insert(key1, 1);
   let kwargs = kwargs.into_py_dict(py)?;
   fun.call((), Some(&kwargs))?;
+
+  Ok(())
+}
+
+fn call_python_script_and_use_return_value(py: Python<'_>) -> PyResult<()> {
+  let script = py.import("return_value_example")?;
+  let invoice = script
+    .getattr("calculate_invoice")?
+    .call1((3_u32, 19.99_f64, 0.15_f64))?;
+
+  let (subtotal, discount_amount, total): (f64, f64, f64) = invoice.extract()?;
+  let tax_rate = 0.06;
+  let total_with_tax = total * (1.0 + tax_rate);
+
+  println!(
+    "Rust received Python invoice: subtotal={subtotal:.2}, discount={discount_amount:.2}, \
+     total={total:.2}, total with tax={total_with_tax:.2}"
+  );
 
   Ok(())
 }
