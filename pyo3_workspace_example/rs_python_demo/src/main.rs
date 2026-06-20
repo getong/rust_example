@@ -102,7 +102,7 @@ fn add_project_site_packages(py: Python<'_>) -> PyResult<()> {
 }
 
 fn add_project_python_path(py: Python<'_>) -> PyResult<()> {
-  add_sys_path(py, project_python_dir())
+  add_sys_path(py, project_python_source_dir())
 }
 
 fn add_sys_path(py: Python<'_>, path: impl AsRef<Path>) -> PyResult<()> {
@@ -121,11 +121,15 @@ fn add_sys_path(py: Python<'_>, path: impl AsRef<Path>) -> PyResult<()> {
 }
 
 fn project_venv() -> PathBuf {
-  project_python_dir().join(".venv")
+  project_python_root_dir().join(".venv")
 }
 
-fn project_python_dir() -> PathBuf {
+fn project_python_root_dir() -> PathBuf {
   PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python_src")
+}
+
+fn project_python_source_dir() -> PathBuf {
+  project_python_root_dir().join("src")
 }
 
 fn python_home_from_project_venv() -> Option<PathBuf> {
