@@ -4,10 +4,11 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 project_root="$(pwd -P)"
-venv_dir="${project_root}/.venv"
+python_src_dir="${project_root}/python_src"
+venv_dir="${python_src_dir}/.venv"
 venv_python="${venv_dir}/bin/python"
 
-requires_python="$(awk -F '"' '/^[[:space:]]*requires-python[[:space:]]*=/ { print $2; exit }' pyproject.toml)"
+requires_python="$(awk -F '"' '/^[[:space:]]*requires-python[[:space:]]*=/ { print $2; exit }' "${python_src_dir}/pyproject.toml")"
 python_version=""
 python_requirement_kind=""
 
@@ -21,7 +22,7 @@ elif [[ "${requires_python}" =~ ^\>=([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
     python_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
     python_requirement_kind="minimum"
 else
-    echo "Missing supported 'requires-python' in pyproject.toml. Use '==<major>.<minor>.*', '==<major>.<minor>.<patch>', or '>=<major>.<minor>[.<patch>]'" >&2
+    echo "Missing supported 'requires-python' in ${python_src_dir}/pyproject.toml. Use '==<major>.<minor>.*', '==<major>.<minor>.<patch>', or '>=<major>.<minor>[.<patch>]'" >&2
     exit 1
 fi
 
@@ -84,7 +85,7 @@ if [ -z "${current_python_version}" ]; then
     exit 1
 fi
 
-uv pip install --python "${venv_python}" -r requirement.txt
+uv pip install --python "${venv_python}" -r "${python_src_dir}/requirement.txt"
 
 python_library_dir="$("${venv_python}" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
 

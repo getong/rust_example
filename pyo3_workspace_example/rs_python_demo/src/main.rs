@@ -137,11 +137,11 @@ fn add_sys_path(py: Python<'_>, path: impl AsRef<Path>) -> PyResult<()> {
 }
 
 fn project_venv() -> PathBuf {
-  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".venv")
+  project_python_dir().join(".venv")
 }
 
 fn project_python_dir() -> PathBuf {
-  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python")
+  PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python_src")
 }
 
 fn python_home_from_project_venv() -> Option<PathBuf> {
