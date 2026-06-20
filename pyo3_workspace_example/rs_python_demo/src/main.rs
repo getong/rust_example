@@ -34,14 +34,21 @@ fn call_python_function_with_kwargs(py: Python<'_>) -> PyResult<()> {
   let val2 = 2;
   let code = CString::new(
     "def example(*args, **kwargs):
-    if args != ():
+    if args != () and kwargs != {}:
+        print('called with args and kwargs', args, kwargs)
+    elif args != ():
         print('called with args', args)
-    if kwargs != {}:
+    elif kwargs != {}:
         print('called with kwargs', kwargs)
-    if args == () and kwargs == {}:
+    else:
         print('called with no arguments')",
   )?;
   let fun = PyModule::from_code(py, code.as_c_str(), c"", c"kwargs_example")?.getattr("example")?;
+
+  fun.call1(("arg1", 42, true, "arg4"))?;
+
+  let kwargs = [(key1, val1), (key2, val2)].into_py_dict(py)?;
+  fun.call(("arg1", 42), Some(&kwargs))?;
 
   let kwargs = [(key1, val1)].into_py_dict(py)?;
   fun.call((), Some(&kwargs))?;
