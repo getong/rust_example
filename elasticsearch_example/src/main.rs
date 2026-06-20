@@ -1,5 +1,7 @@
-use elasticsearch::{http::Method, Elasticsearch, SearchParts};
-use http::HeaderMap;
+use elasticsearch::{
+  http::{headers::HeaderMap, Method},
+  Elasticsearch, SearchParts,
+};
 use serde_json::{json, Value};
 
 #[tokio::main]
