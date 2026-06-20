@@ -1,10 +1,16 @@
 // 引入pyo3包
 use std::{
-  env, fs,
+  collections::HashMap,
+  env,
+  ffi::CString,
+  fs,
   path::{Path, PathBuf},
 };
 
-use pyo3::prelude::*;
+use pyo3::{
+  prelude::*,
+  types::{IntoPyDict, PyModule},
+};
 
 fn main() -> PyResult<()> {
   configure_python_environment();
@@ -12,12 +18,43 @@ fn main() -> PyResult<()> {
   Python::attach(|py| {
     add_project_site_packages(py)?;
     add_project_python_path(py)?;
+    call_python_function_with_kwargs(py)?;
 
     let app = py.import("embedded_python_demo")?;
     let message: String = app.getattr("main")?.call0()?.extract()?;
     println!("{message}");
     Ok(())
   })
+}
+
+fn call_python_function_with_kwargs(py: Python<'_>) -> PyResult<()> {
+  let key1 = "key1";
+  let val1 = 1;
+  let key2 = "key2";
+  let val2 = 2;
+  let code = CString::new(
+    "def example(*args, **kwargs):
+    if args != ():
+        print('called with args', args)
+    if kwargs != {}:
+        print('called with kwargs', kwargs)
+    if args == () and kwargs == {}:
+        print('called with no arguments')",
+  )?;
+  let fun = PyModule::from_code(py, code.as_c_str(), c"", c"kwargs_example")?.getattr("example")?;
+
+  let kwargs = [(key1, val1)].into_py_dict(py)?;
+  fun.call((), Some(&kwargs))?;
+
+  let kwargs = vec![(key1, val1), (key2, val2)].into_py_dict(py)?;
+  fun.call((), Some(&kwargs))?;
+
+  let mut kwargs = HashMap::<&str, i32>::new();
+  kwargs.insert(key1, 1);
+  let kwargs = kwargs.into_py_dict(py)?;
+  fun.call((), Some(&kwargs))?;
+
+  Ok(())
 }
 
 fn configure_python_environment() {
