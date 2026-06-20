@@ -29,7 +29,7 @@ byteorder = "1.5.0"
 clap = { version = "4.6.1", features = ["derive"] }
 console-subscriber = "0.5.0"
 futures = "0.3.32"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "50306daea5f47e0f6ac7968d7376e4cee5e6b655", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "4f8e0a49cf45a49b262ffdcf6d4ba02e5cd5d14d", features = [
   "dns",
   "ed25519",
   "gossipsub",
