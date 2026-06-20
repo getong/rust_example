@@ -85,7 +85,7 @@ if [ -z "${current_python_version}" ]; then
     exit 1
 fi
 
-uv pip install --python "${venv_python}" -r "${python_src_dir}/requirement.txt"
+uv sync --project "${python_src_dir}" --python "${venv_python}" --managed-python --locked
 
 python_library_dir="$("${venv_python}" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
 

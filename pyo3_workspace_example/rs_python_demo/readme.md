@@ -1,10 +1,10 @@
 # 在 Rust 中使用 Python 的模块
 
-本示例使用 `uv` 管理项目内 Python 虚拟环境，通过 `python_src/pyproject.toml` 的 `requires-python = "==3.13.14"` 锁定 Python 版本，并通过 `python_src/requirement.txt` 锁定 Python 包依赖：
+本示例使用 `uv` 管理项目内 Python 虚拟环境，通过 `python_src/pyproject.toml` 的 `requires-python` 指定 Python 版本，并通过 `python_src/pyproject.toml` 和 `python_src/uv.lock` 管理 Python 包依赖：
 
 ```shell
-uv venv --python 3.13.14 --managed-python python_src/.venv
-uv pip install --python python_src/.venv/bin/python -r python_src/requirement.txt
+uv venv --python 3.14 --managed-python python_src/.venv
+uv sync --project python_src --python python_src/.venv/bin/python --managed-python --locked
 cargo run
 ```
 
@@ -14,11 +14,11 @@ cargo run
 ./scripts/run.sh
 ```
 
-如果当前 shell 激活了其他虚拟环境，`uv pip install --python python_src/.venv/bin/python` 会明确把依赖装进项目内 `python_src/.venv`。程序启动时会忽略外部 `VIRTUAL_ENV`，并根据 `python_src/.venv/pyvenv.cfg` 设置嵌入式 Python 所需的 `PYTHONHOME` / `PYTHONPATH`，避免初始化时找不到标准库模块，例如 `encodings`；初始化完成后会把项目 `python_src/.venv` 的 `site-packages` 加入 `sys.path`。
+如果当前 shell 激活了其他虚拟环境，`uv sync --project python_src --python python_src/.venv/bin/python` 会明确把依赖装进项目内 `python_src/.venv`。程序启动时会忽略外部 `VIRTUAL_ENV`，并根据 `python_src/.venv/pyvenv.cfg` 设置嵌入式 Python 所需的 `PYTHONHOME` / `PYTHONPATH`，避免初始化时找不到标准库模块，例如 `encodings`；初始化完成后会把项目 `python_src/.venv` 的 `site-packages` 加入 `sys.path`。
 
 在 Linux 上，脚本还会从 `python_src/.venv/bin/python` 的 `sysconfig` 读取 `LIBDIR`，并把它加入 `LD_LIBRARY_PATH`，让运行时动态链接器能找到 uv 管理的 `libpython3.x.so.1.0`。
 
-`python_src/pyproject.toml` 中的 `requires-python = "==3.13.14"` 是解释器版本锁；脚本会读取它并用 `uv venv --python 3.13.14` 创建 `python_src/.venv`。`python_src/requirement.txt` 中的 `packaging==25.0` 是 Python 包版本锁。
+`python_src/pyproject.toml` 中的 `requires-python` 是解释器版本要求；脚本会读取它并用 `uv venv --python ...` 创建 `python_src/.venv`。Python 包依赖写在 `python_src/pyproject.toml` 的 `dependencies` 中，`python_src/uv.lock` 负责锁定解析后的具体版本。
 
 要将Python嵌入到Rust二进制文件中，需要确保Python安装包含一个共享库。
 假设我们用的ubuntu操作系统，先需要安装好python3环境和pip3，安装方式如下：
