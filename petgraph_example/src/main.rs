@@ -3,7 +3,7 @@ use petgraph::{algo::dijkstra, dot::Dot, prelude::*};
 fn main() {
   // println!("Hello, world!");
   // let root = TypedArena::<Node<_>>::new();
-  let mut gr = UnGraphMap::new();
+  let mut gr: UnGraphMap<&str, i32> = UnGraphMap::new();
   // let node = |&: name: &'static str| Ptr(root.alloc(Node(name.to_string())));
   let a = gr.add_node("A");
   let b = gr.add_node("B");
