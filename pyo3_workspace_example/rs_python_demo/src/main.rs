@@ -1,16 +1,11 @@
 // 引入pyo3包
 use std::{
   collections::HashMap,
-  env,
-  ffi::CString,
-  fs,
+  env, fs,
   path::{Path, PathBuf},
 };
 
-use pyo3::{
-  prelude::*,
-  types::{IntoPyDict, PyModule},
-};
+use pyo3::{prelude::*, types::IntoPyDict};
 
 fn main() -> PyResult<()> {
   configure_python_environment();
@@ -32,18 +27,7 @@ fn call_python_function_with_kwargs(py: Python<'_>) -> PyResult<()> {
   let val1 = 1;
   let key2 = "key2";
   let val2 = 2;
-  let code = CString::new(
-    "def example(*args, **kwargs):
-    if args != () and kwargs != {}:
-        print('called with args and kwargs', args, kwargs)
-    elif args != ():
-        print('called with args', args)
-    elif kwargs != {}:
-        print('called with kwargs', kwargs)
-    else:
-        print('called with no arguments')",
-  )?;
-  let fun = PyModule::from_code(py, code.as_c_str(), c"", c"kwargs_example")?.getattr("example")?;
+  let fun = py.import("kwargs_example")?.getattr("example")?;
 
   fun.call1(("arg1", 42, true, "arg4"))?;
 
