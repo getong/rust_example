@@ -1,0 +1,22 @@
+[package]
+name = "clatter_example"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["std", "system-rng"]
+std = []
+system-rng = ["clatter/getrandom"]
+
+[dependencies]
+clatter = { version = "2.2.0", default-features = false, features = [
+  "use-25519",
+  "use-aes-gcm",
+  "use-rust-crypto-ml-kem",
+  "use-sha",
+] }
+
+[[bin]]
+name = "clatter_example"
+path = "src/main.rs"
+required-features = ["std"]
