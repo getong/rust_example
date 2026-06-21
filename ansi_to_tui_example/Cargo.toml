@@ -1,0 +1,8 @@
+[package]
+name = "ansi_to_tui_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ansi-to-tui = "8.0.1"
+ratatui-core = "0.1.2"
