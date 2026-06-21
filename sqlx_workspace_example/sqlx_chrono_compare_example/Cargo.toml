@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chrono = "0.4.44"
+chrono = "0.4.45"
 dotenv = "0.15.0"
 rand = "0.10.1"
 sqlx = { version = "0.9", features = [
