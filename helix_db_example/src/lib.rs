@@ -32,6 +32,94 @@ pub fn active_users_query() -> ReadBatch {
     .returning(["active_users"])
 }
 
+pub fn local_user_count() -> DynamicQueryRequest {
+  DynamicQueryRequest::read(
+    read_batch()
+      .var_as("user_count", g().n_with_label("User").count())
+      .returning(["user_count"]),
+  )
+}
+
+pub fn create_user_query(external_id: &str, name: &str, status: &str) -> DynamicQueryRequest {
+  DynamicQueryRequest::write(
+    write_batch()
+      .var_as(
+        "created_user",
+        g()
+          .add_n(
+            "User",
+            vec![
+              ("external_id", external_id),
+              ("name", name),
+              ("status", status),
+            ],
+          )
+          .value_map(Some(vec!["$id", "external_id", "name", "status"])),
+      )
+      .returning(["created_user"]),
+  )
+}
+
+pub fn read_user_query(external_id: &str) -> DynamicQueryRequest {
+  DynamicQueryRequest::read(
+    read_batch()
+      .var_as(
+        "user",
+        g()
+          .n_with_label("User")
+          .where_(Predicate::eq("external_id", external_id))
+          .value_map(Some(vec!["$id", "external_id", "name", "status"])),
+      )
+      .returning(["user"]),
+  )
+}
+
+pub fn update_user_query(external_id: &str, name: &str, status: &str) -> DynamicQueryRequest {
+  DynamicQueryRequest::write(
+    write_batch()
+      .var_as(
+        "updated_user",
+        g()
+          .n_with_label("User")
+          .where_(Predicate::eq("external_id", external_id))
+          .set_property("name", name)
+          .set_property("status", status)
+          .value_map(Some(vec!["$id", "external_id", "name", "status"])),
+      )
+      .returning(["updated_user"]),
+  )
+}
+
+pub fn delete_user_query(external_id: &str) -> DynamicQueryRequest {
+  DynamicQueryRequest::write(
+    write_batch()
+      .var_as(
+        "user_to_delete",
+        g()
+          .n_with_label("User")
+          .where_(Predicate::eq("external_id", external_id)),
+      )
+      .var_as(
+        "deleted_user",
+        g().n(NodeRef::var("user_to_delete")).value_map(Some(vec![
+          "$id",
+          "external_id",
+          "name",
+          "status",
+        ])),
+      )
+      .var_as(
+        "deleted_count",
+        g().n(NodeRef::var("user_to_delete")).count(),
+      )
+      .var_as(
+        "delete_result",
+        g().n(NodeRef::var("user_to_delete")).drop(),
+      )
+      .returning(["deleted_user", "deleted_count"]),
+  )
+}
+
 pub fn matching_users_query() -> ReadBatch {
   let statuses = Expr::param("statuses");
 
@@ -103,7 +191,13 @@ pub fn local_client() -> Result<Client, helix_db::HelixError> {
 }
 
 pub fn remote_client(url: &str, api_key: &str) -> Result<Client, helix_db::HelixError> {
-  Ok(Client::new(Some(url))?.with_api_key(Some(api_key)))
+  let client = Client::new(Some(url))?;
+
+  if api_key.is_empty() {
+    Ok(client)
+  } else {
+    Ok(client.with_api_key(Some(api_key)))
+  }
 }
 
 #[register]
