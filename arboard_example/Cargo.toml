@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 arboard = "3.6.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
