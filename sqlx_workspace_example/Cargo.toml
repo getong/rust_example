@@ -14,4 +14,5 @@ members = [
   "sqlx_track_caller_example",
   "timescaledb_example",
   # "doris_example",
+  "sqlx_sqlite_example",
 ]
