@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 futures = "0.3.32"
-kameo = { version = "0.20.0", features = ["remote"] }
+kameo = { version = "0.21.0", features = ["remote"] }
 libp2p = { version = "0.56.0", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }

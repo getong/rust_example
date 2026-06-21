@@ -542,7 +542,7 @@ async fn run_actor_node(args: NodeArgs) -> anyhow::Result<()> {
     args.actor_name, args.swarm_listen_addr
   );
 
-  let raft = CounterRaftHandle::open_single_node(1, &args.raft_db_path).await?;
+  let raft = CounterRaftHandle::open_single_node(1_u64.into(), &args.raft_db_path).await?;
   let actor_ref = CounterActor::spawn(CounterActor {
     raft: std::sync::Arc::new(tokio::sync::Mutex::new(raft)),
   });

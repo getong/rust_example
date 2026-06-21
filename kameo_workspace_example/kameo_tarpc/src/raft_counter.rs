@@ -7,12 +7,12 @@ use openraft::{
   error::{ReplicationClosed, StreamingError, Unreachable},
   network::{RPCOption, v2::RaftNetworkV2},
 };
-use openraft_rocksstore_crud::{RocksStateMachine, TypeConfig};
+use openraft_rocksstore_crud::{RocksNodeId, RocksStateMachine, TypeConfig};
 use tokio::sync::Mutex;
 use tracing::info;
 use types_kv::Request;
 
-pub type NodeId = u64;
+pub type NodeId = RocksNodeId;
 pub type CounterRaft = Raft<TypeConfig, RocksStateMachine>;
 
 #[derive(Clone)]
@@ -43,7 +43,7 @@ impl CounterRaftHandle {
       .context("open rocksdb-backed raft store")?;
 
     let raft = Raft::new(
-      node_id,
+      node_id.clone(),
       config,
       LoopbackNetworkFactory,
       log_store,
@@ -52,8 +52,8 @@ impl CounterRaftHandle {
     .await
     .map_err(|err| anyhow!("failed to create raft: {err}"))?;
 
-    maybe_initialize_single_node(&raft, node_id).await?;
-    wait_for_leader(&raft, node_id).await?;
+    maybe_initialize_single_node(&raft, &node_id).await?;
+    wait_for_leader(&raft, &node_id).await?;
     let initial_total = read_counter_total_from_state_machine(&state_machine).await?;
 
     Ok(Self {
@@ -137,7 +137,7 @@ pub struct CounterReply {
 
 const COUNTER_KEY: &str = "counter.total";
 
-async fn maybe_initialize_single_node(raft: &CounterRaft, node_id: NodeId) -> anyhow::Result<()> {
+async fn maybe_initialize_single_node(raft: &CounterRaft, node_id: &NodeId) -> anyhow::Result<()> {
   if raft
     .is_initialized()
     .await
@@ -148,7 +148,7 @@ async fn maybe_initialize_single_node(raft: &CounterRaft, node_id: NodeId) -> an
 
   let mut nodes = BTreeMap::new();
   nodes.insert(
-    node_id,
+    node_id.clone(),
     BasicNode {
       addr: format!("node-{node_id}"),
     },
@@ -167,10 +167,10 @@ async fn maybe_initialize_single_node(raft: &CounterRaft, node_id: NodeId) -> an
   }
 }
 
-async fn wait_for_leader(raft: &CounterRaft, node_id: NodeId) -> anyhow::Result<()> {
+async fn wait_for_leader(raft: &CounterRaft, node_id: &NodeId) -> anyhow::Result<()> {
   for _ in 0 .. 50 {
     let metrics = raft.metrics().borrow_watched().clone();
-    if metrics.current_leader == Some(node_id) {
+    if metrics.current_leader.as_ref() == Some(node_id) {
       return Ok(());
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
