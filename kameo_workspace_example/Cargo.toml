@@ -10,5 +10,7 @@ members = [
   "kameo_remote",
   "kameo_custom_swarm",
   "kameo_tarpc",
-  "kameo_examples", "kameo_game_sync",
+  "kameo_examples",
+  "kameo_game_sync",
+  "kameo_console",
 ]

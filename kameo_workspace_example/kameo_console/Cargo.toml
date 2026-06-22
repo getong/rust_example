@@ -1,0 +1,8 @@
+[package]
+name = "kameo_console"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kameo = { version = "0.21.0", features = ["console"] }
+tokio = { version = "1.52.3", features = ["full"] }
