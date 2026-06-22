@@ -3,7 +3,10 @@ use std::env;
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Pool, Postgres};
-use tokio;
+use tokio::time::{interval, Duration};
+
+const USER_CACHE_TTL_SECS: i64 = 60 * 5;
+const SYNC_INTERVAL_SECS: u64 = 5;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct User {
@@ -28,50 +31,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let redis_client = redis::Client::open(redis_url)?;
   let mut redis_conn = redis_client.get_multiplexed_async_connection().await?;
 
-  // Example data to write
+  let sync_task = tokio::spawn(sync_redis_to_postgres_in_background(
+    pg_pool.clone(),
+    redis_client.clone(),
+  ));
+
+  // Example data to cache before the background task writes it to PostgreSQL.
   let new_user = User {
     id: 1,
     name: "John Doe".to_string(),
     email: "john.doe@example.com".to_string(),
   };
 
-  // Write user to PostgreSQL and cache in Redis
-  write_user(&pg_pool, &mut redis_conn, &new_user).await?;
+  write_user_to_cache(&mut redis_conn, &new_user).await?;
 
-  // Sync data from Redis to PostgreSQL
-  sync_redis_to_postgres(&pg_pool, &mut redis_conn).await?;
+  println!("Background sync is running. Press Ctrl+C to stop.");
+  tokio::signal::ctrl_c().await?;
+  sync_task.abort();
 
   Ok(())
 }
 
-async fn write_user(
-  pg_pool: &Pool<Postgres>,
+async fn write_user_to_cache(
   redis_conn: &mut redis::aio::MultiplexedConnection, // Updated connection type
   user: &User,
 ) -> Result<(), Box<dyn std::error::Error>> {
   // Serialize the user struct to JSON for Redis
   let user_json = serde_json::to_string(user)?;
 
-  // Insert user into PostgreSQL
-  sqlx::query(
-    "INSERT INTO users (id, name, email) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
-  )
-  .bind(user.id)
-  .bind(&user.name)
-  .bind(&user.email)
-  .execute(pg_pool)
-  .await?;
-
-  // Cache the user in Redis
+  // Cache the user first. The background sync task will persist it later.
   let cache_key = format!("user:{}", user.id);
   redis_conn
     .set::<String, String, ()>(cache_key.clone(), user_json)
     .await?;
-  redis_conn.expire::<String, ()>(cache_key, 60 * 5).await?; // Cache for 5 minutes
+  redis_conn
+    .expire::<String, ()>(cache_key, USER_CACHE_TTL_SECS)
+    .await?;
 
-  println!("User written to PostgreSQL and cached in Redis.");
+  println!("User written to Redis cache.");
 
   Ok(())
+}
+
+async fn sync_redis_to_postgres_in_background(pg_pool: PgPool, redis_client: redis::Client) {
+  let mut ticker = interval(Duration::from_secs(SYNC_INTERVAL_SECS));
+
+  loop {
+    ticker.tick().await;
+
+    let mut redis_conn = match redis_client.get_multiplexed_async_connection().await {
+      Ok(redis_conn) => redis_conn,
+      Err(err) => {
+        eprintln!("Failed to connect to Redis for background sync: {err}");
+        continue;
+      }
+    };
+
+    if let Err(err) = sync_redis_to_postgres(&pg_pool, &mut redis_conn).await {
+      eprintln!("Failed to sync Redis to PostgreSQL: {err}");
+    }
+  }
 }
 
 async fn sync_redis_to_postgres(
