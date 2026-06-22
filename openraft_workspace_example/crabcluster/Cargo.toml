@@ -24,11 +24,11 @@ clap = { version = "4", features = [
 ] }
 directories = "6"
 futures = "0.3"
-openraft = { version = "0.10.0-alpha.22", features = [
+openraft = { version = "0.10.0-alpha.23", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.22" }
+openraft-legacy = { version = "0.10.0-alpha.23" }
 podman-api = "0.11"
 reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
 # clap_complete = "4"
