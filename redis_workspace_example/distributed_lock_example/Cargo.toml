@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rand = "0.10.0"
-redis = { version = "1.0.5", features = ["aio", "tokio-comp", "connection-manager"] }
+rand = "0.10.1"
+redis = { version = "1.2.4", features = ["aio", "tokio-comp", "connection-manager"] }
 thiserror = "2.0.18"
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
