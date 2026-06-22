@@ -1,0 +1,7 @@
+[package]
+name = "aprender_rag_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aprender-rag = "0.51.0"
