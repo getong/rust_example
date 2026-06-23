@@ -1,7 +1,7 @@
-use petgraph::dot::Dot;
-use petgraph::graph::Graph;
 use std::fs;
-use std::process::Command;
+
+use graphviz_rust::{cmd::Format, exec_dot};
+use petgraph::{dot::Dot, graph::Graph};
 
 fn main() -> std::io::Result<()> {
   let mut g: Graph<&str, &str> = Graph::new();
@@ -10,11 +10,11 @@ fn main() -> std::io::Result<()> {
   let b = g.add_node("Node B");
   g.add_edge(a, b, "edge A->B");
 
-  fs::write("graph.dot", format!("{}", Dot::new(&g)))?;
+  let dot = Dot::new(&g).to_string();
+  fs::write("graph.dot", &dot)?;
 
-  Command::new("dot")
-    .args(["-Tpng", "graph.dot", "-o", "graph.png"])
-    .status()?;
+  let png = exec_dot(dot, vec![Format::Png.into()])?;
+  fs::write("graph.png", png)?;
 
   Ok(())
 }
