@@ -638,6 +638,7 @@ fn spawn_sqlite_cache_flusher(
   local_node_id: NodeId,
   group_id: GroupId,
   network: Libp2pNetworkFactory,
+  kv_client: KvClient,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_SQLITE_CACHE_FLUSHER);
   let shutdown_rx = shutdown.shutdown_rx();
@@ -646,6 +647,7 @@ fn spawn_sqlite_cache_flusher(
       local_node_id,
       group_id,
       network,
+      kv_client,
       Duration::from_secs(SQLITE_CACHE_FLUSH_INTERVAL_SECS),
       shutdown_rx,
     )
@@ -1492,6 +1494,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       opt.id.clone(),
       sqlite_flush_group_id,
       libp2p.network.clone(),
+      libp2p.kv_client.clone(),
     )
   });
 

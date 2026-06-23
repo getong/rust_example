@@ -40,7 +40,7 @@ use crate::{
     raft_kv_response::Op as KvResponseOp,
   },
   signal::ShutdownRx,
-  sqlite_cache::{CachedValue, SqliteCache, pending_key},
+  sqlite_cache::{CachedValue, SqliteCache, pending_key, record_pending_key},
   store::ensure_linearizable_read,
 };
 
@@ -715,44 +715,73 @@ async fn write_cached_value(
   }
 
   let openraft_key = pending_key(&req.key);
-  let request = RaftKvRequest {
-    group_id: group_id.clone(),
-    op: Some(KvRequestOp::Set(SetValueRequest {
-      key: openraft_key.clone(),
-      value: "1".to_string(),
-    })),
+  let group = match openraft_group(&group_id) {
+    Some(group) => group,
+    None => {
+      return Json(CacheWriteResponse {
+        target_node_id: None,
+        ok: false,
+        pending_key: Some(openraft_key),
+        error: Some(format!("unknown group_id={group_id}")),
+      });
+    }
   };
-  let (target_node_id, response) =
-    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
-      Ok((id, resp)) => (Some(id), resp),
-      Err(err) => {
-        return Json(CacheWriteResponse {
-          target_node_id: None,
-          ok: false,
-          pending_key: Some(openraft_key),
-          error: Some(err),
-        });
-      }
-    };
 
-  match response.op {
-    Some(KvResponseOp::Set(resp)) if resp.ok => Json(CacheWriteResponse {
-      target_node_id,
+  if req.target_node_id.is_some() {
+    let request = RaftKvRequest {
+      group_id: group_id.clone(),
+      op: Some(KvRequestOp::Set(SetValueRequest {
+        key: openraft_key.clone(),
+        value: "1".to_string(),
+      })),
+    };
+    let (target_node_id, response) =
+      match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
+        Ok((id, resp)) => (Some(id), resp),
+        Err(err) => {
+          return Json(CacheWriteResponse {
+            target_node_id: None,
+            ok: false,
+            pending_key: Some(openraft_key),
+            error: Some(err),
+          });
+        }
+      };
+
+    return match response.op {
+      Some(KvResponseOp::Set(resp)) if resp.ok => Json(CacheWriteResponse {
+        target_node_id,
+        ok: true,
+        pending_key: Some(openraft_key),
+        error: None,
+      }),
+      Some(KvResponseOp::Error(err)) => Json(CacheWriteResponse {
+        target_node_id,
+        ok: false,
+        pending_key: Some(openraft_key),
+        error: Some(err.message),
+      }),
+      other => Json(CacheWriteResponse {
+        target_node_id,
+        ok: false,
+        pending_key: Some(openraft_key),
+        error: Some(format!("unexpected response: {other:?}")),
+      }),
+    };
+  }
+
+  match record_pending_key(group_id, &group, &state.kv_client, &req.key).await {
+    Ok(target_node_id) => Json(CacheWriteResponse {
+      target_node_id: Some(target_node_id),
       ok: true,
       pending_key: Some(openraft_key),
       error: None,
     }),
-    Some(KvResponseOp::Error(err)) => Json(CacheWriteResponse {
-      target_node_id,
+    Err(err) => Json(CacheWriteResponse {
+      target_node_id: None,
       ok: false,
       pending_key: Some(openraft_key),
-      error: Some(err.message),
-    }),
-    other => Json(CacheWriteResponse {
-      target_node_id,
-      ok: false,
-      pending_key: Some(openraft_key),
-      error: Some(format!("unexpected response: {other:?}")),
+      error: Some(err.to_string()),
     }),
   }
 }

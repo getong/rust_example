@@ -15,11 +15,11 @@ use tarpc::{context, server::Serve};
 
 use crate::{
   GroupHandle, GroupId, NodeId,
-  network::transport::Libp2pNetworkFactory,
+  network::{swarm::KvClient, transport::Libp2pNetworkFactory},
   openraft_group,
   proto::raft_kv::{
-    DeleteValueRequest, RaftKvRequest, raft_kv_request::Op as KvRequestOp,
-    raft_kv_response::Op as KvResponseOp,
+    DeleteValueRequest, ErrorResponse, RaftKvRequest, RaftKvResponse, SetValueRequest,
+    raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
   },
   sqlite_sync_rpc::{
     SqliteFlushReport, SqliteFlushTask, SqliteSyncRpc, SqliteSyncRpcRequest,
@@ -185,6 +185,7 @@ pub async fn run_sqlite_flush_worker(
   local_node_id: NodeId,
   group_id: GroupId,
   network: Libp2pNetworkFactory,
+  kv_client: KvClient,
   interval: Duration,
   mut shutdown_rx: crate::signal::ShutdownRx,
 ) {
@@ -198,7 +199,7 @@ pub async fn run_sqlite_flush_worker(
         break;
       }
       _ = tick.tick() => {
-        if let Err(err) = flush_once(&local_node_id, &group_id, &network).await {
+        if let Err(err) = flush_once(&local_node_id, &group_id, &network, &kv_client).await {
           tracing::warn!(group = %group_id, error = ?err, "sqlite cache flush failed");
         }
       }
@@ -210,6 +211,7 @@ async fn flush_once(
   local_node_id: &NodeId,
   group_id: &str,
   network: &Libp2pNetworkFactory,
+  kv_client: &KvClient,
 ) -> anyhow::Result<()> {
   let Some(group) = openraft_group(group_id) else {
     tracing::debug!(
@@ -263,7 +265,7 @@ async fn flush_once(
     };
 
     let report = sqlite_sync_report(response)?;
-    handle_sqlite_flush_report(group_id, &group, &node_id, report).await;
+    handle_sqlite_flush_report(group_id, &group, kv_client, &node_id, report).await;
   }
 
   Ok(())
@@ -349,6 +351,7 @@ fn sqlite_sync_report(response: SqliteSyncRpcResponseMessage) -> anyhow::Result<
 async fn handle_sqlite_flush_report(
   group_id: &str,
   group: &GroupHandle,
+  kv_client: &KvClient,
   node_id: &NodeId,
   report: SqliteFlushReport,
 ) {
@@ -383,7 +386,7 @@ async fn handle_sqlite_flush_report(
   }
 
   for openraft_key in report.synced_openraft_keys {
-    if let Err(err) = delete_pending_key(group_id, group, openraft_key.clone()).await {
+    if let Err(err) = delete_pending_key(group_id, group, kv_client, openraft_key.clone()).await {
       tracing::warn!(
         group = group_id,
         node_id = %node_id,
@@ -395,22 +398,136 @@ async fn handle_sqlite_flush_report(
   }
 }
 
+pub async fn record_pending_key(
+  group_id: String,
+  group: &GroupHandle,
+  kv_client: &KvClient,
+  data_key: &str,
+) -> anyhow::Result<NodeId> {
+  let openraft_key = pending_key(data_key);
+  let (target_node_id, response) = submit_pending_key_request(
+    group_id,
+    group,
+    kv_client,
+    RaftKvRequest {
+      group_id: String::new(),
+      op: Some(KvRequestOp::Set(SetValueRequest {
+        key: openraft_key.clone(),
+        value: "1".to_string(),
+      })),
+    },
+  )
+  .await?;
+
+  match response.op {
+    Some(KvResponseOp::Set(resp)) if resp.ok => Ok(target_node_id),
+    Some(KvResponseOp::Error(ErrorResponse { message })) => Err(anyhow::anyhow!(message)),
+    other => Err(anyhow::anyhow!(
+      "unexpected raft kv pending-key response: {other:?}"
+    )),
+  }
+}
+
 async fn delete_pending_key(
   group_id: &str,
   group: &GroupHandle,
+  kv_client: &KvClient,
   openraft_key: String,
 ) -> anyhow::Result<()> {
-  let response = group
-    .raft
-    .client_write(KvWriteRequest::delete(openraft_key.clone()))
-    .await
-    .map_err(|err| anyhow::anyhow!("{err:?}"))?;
+  let (_, response) = submit_pending_key_request(
+    group_id.to_string(),
+    group,
+    kv_client,
+    pending_delete_request(group_id.to_string(), openraft_key.clone()),
+  )
+  .await?;
 
-  if response.data.value.is_none() {
-    tracing::debug!(group = group_id, key = %openraft_key, "deleted sqlite pending key");
+  match response.op {
+    Some(KvResponseOp::Delete(resp)) if resp.ok => {
+      tracing::debug!(group = group_id, key = %openraft_key, "deleted sqlite pending key");
+      Ok(())
+    }
+    Some(KvResponseOp::Delete(_)) => {
+      tracing::debug!(group = group_id, key = %openraft_key, "sqlite pending key already deleted");
+      Ok(())
+    }
+    Some(KvResponseOp::Error(ErrorResponse { message })) => Err(anyhow::anyhow!(message)),
+    other => Err(anyhow::anyhow!(
+      "unexpected raft kv pending-key delete response: {other:?}"
+    )),
+  }
+}
+
+async fn submit_pending_key_request(
+  group_id: String,
+  group: &GroupHandle,
+  kv_client: &KvClient,
+  mut request: RaftKvRequest,
+) -> anyhow::Result<(NodeId, RaftKvResponse)> {
+  request.group_id = group_id.clone();
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let local_node_id = metrics.id.clone();
+  if metrics.state.is_leader() {
+    let response = submit_local_pending_key_request(&group_id, group, request).await?;
+    return Ok((local_node_id, response));
   }
 
-  Ok(())
+  let Some(leader_id) = metrics.current_leader else {
+    anyhow::bail!("no leader available");
+  };
+  let Some(node) = metrics.membership_config.membership().get_node(&leader_id) else {
+    anyhow::bail!("leader node not found in membership");
+  };
+  let (peer, addr) = crate::network::transport::parse_p2p_addr(&node.addr)
+    .with_context(|| format!("parse leader address for node_id={leader_id}"))?;
+  kv_client
+    .connect(peer, addr)
+    .await
+    .map_err(|err| anyhow::anyhow!("connect to leader failed: {err}"))?;
+  kv_client
+    .request(peer, request)
+    .await
+    .map(|response| (leader_id, response))
+    .map_err(|err| anyhow::anyhow!("forward pending key to leader failed: {err}"))
+}
+
+async fn submit_local_pending_key_request(
+  group_id: &str,
+  group: &GroupHandle,
+  request: RaftKvRequest,
+) -> anyhow::Result<RaftKvResponse> {
+  let Some(op) = request.op else {
+    anyhow::bail!("missing pending-key request op");
+  };
+
+  match op {
+    KvRequestOp::Set(req) => group
+      .raft
+      .client_write(KvWriteRequest::Set {
+        key: req.key.clone(),
+        value: req.value.clone(),
+      })
+      .await
+      .map(|resp| RaftKvResponse {
+        op: Some(KvResponseOp::Set(crate::proto::raft_kv::SetValueResponse {
+          ok: true,
+          value: resp.data.value.unwrap_or(req.value),
+        })),
+      })
+      .map_err(|err| anyhow::anyhow!("{err:?}")),
+    KvRequestOp::Delete(req) => group
+      .raft
+      .client_write(KvWriteRequest::delete(req.key))
+      .await
+      .map(|_| RaftKvResponse {
+        op: Some(KvResponseOp::Delete(
+          crate::proto::raft_kv::DeleteValueResponse { ok: true },
+        )),
+      })
+      .map_err(|err| anyhow::anyhow!("{err:?}")),
+    _ => anyhow::bail!("unsupported pending-key request op for group_id={group_id}"),
+  }
 }
 
 pub fn pending_delete_request(group_id: String, openraft_key: String) -> RaftKvRequest {
