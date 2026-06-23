@@ -17,4 +17,4 @@ bevy = { version = "0.19.0", default-features = false, features = [
   "bevy_text",
   "bevy_core_pipeline",
 ] }
-leafwing-input-manager = "0.20.0"
+leafwing-input-manager = "0.21.0"
