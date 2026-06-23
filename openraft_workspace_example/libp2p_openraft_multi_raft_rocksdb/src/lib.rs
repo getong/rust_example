@@ -14,6 +14,7 @@ pub mod proto;
 pub mod rocksstore_crud;
 pub mod signal;
 pub mod sqlite_cache;
+pub mod sqlite_sync_rpc;
 pub mod store;
 pub mod typ;
 pub mod types_kv;

@@ -14,7 +14,7 @@ use libp2p::{
 use libp2p_openraft_multi_raft_rocksdb::{
   app, groups,
   network::{
-    proto_codec::{ProstCodec, ProtoCodec},
+    proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
     swarm::{Behaviour, KvClient, run_swarm_client_with_shutdown},
     transport::parse_p2p_addr,
   },
@@ -23,6 +23,7 @@ use libp2p_openraft_multi_raft_rocksdb::{
     UpdateValueRequest, raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
   },
   signal,
+  sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
 };
 use tokio::sync::mpsc;
 
@@ -130,6 +131,14 @@ async fn main() -> anyhow::Result<()> {
         kv_rpc: request_response::Behaviour::with_codec(
           ProstCodec::<RaftKvRequest, RaftKvResponse>::default(),
           [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
+          cfg.clone(),
+        ),
+        sqlite_sync_rpc: request_response::Behaviour::with_codec(
+          SerdeCodec::<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>::default(),
+          [(
+            StreamProtocol::new("/openraft/sqlite-sync/1"),
+            ProtocolSupport::Full,
+          )],
           cfg,
         ),
         gossipsub,

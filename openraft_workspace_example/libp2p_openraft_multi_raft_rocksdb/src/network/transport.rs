@@ -14,13 +14,15 @@ use crate::{
   network::{
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork, P2PRaftNetworkWrapper},
     rpc::{RaftRpcRequest, RaftRpcResponse},
-    swarm::{Libp2pClient, NetErr},
+    swarm::{Libp2pClient, NetErr, SqliteSyncClient},
   },
+  sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
 };
 
 #[derive(Clone)]
 pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
+  sqlite_sync_client: SqliteSyncClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
   connected_peers: Arc<tokio::sync::RwLock<HashSet<PeerId>>>,
   group_id: Option<GroupId>,
@@ -28,9 +30,14 @@ pub struct Libp2pNetworkFactory {
 }
 
 impl Libp2pNetworkFactory {
-  pub fn new(client: Libp2pClient, local_peer_id: PeerId) -> Self {
+  pub fn new(
+    client: Libp2pClient,
+    sqlite_sync_client: SqliteSyncClient,
+    local_peer_id: PeerId,
+  ) -> Self {
     Self {
       client,
+      sqlite_sync_client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       connected_peers: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
       group_id: None,
@@ -41,6 +48,7 @@ impl Libp2pNetworkFactory {
   pub fn with_group(&self, group_id: GroupId) -> Self {
     Self {
       client: self.client.clone(),
+      sqlite_sync_client: self.sqlite_sync_client.clone(),
       node_peers: self.node_peers.clone(),
       connected_peers: self.connected_peers.clone(),
       group_id: Some(group_id),
@@ -254,6 +262,33 @@ impl Libp2pNetworkFactory {
     self.client.request(peer, req).await
   }
 
+  pub async fn request_sqlite_sync(
+    &self,
+    node_id: NodeId,
+    req: SqliteSyncRpcRequestMessage,
+  ) -> Result<SqliteSyncRpcResponseMessage, Unreachable> {
+    let (peer, addr) = self.peer_addr_for(&node_id).await?;
+    if peer == self.local_peer_id {
+      return Err(Unreachable::new(&NetErr(format!(
+        "self dial blocked: node_id={node_id}, peer={peer}"
+      ))));
+    }
+    if let Err(err) = self.sqlite_sync_client.connect(peer, addr.clone()).await {
+      if is_loopback_addr(&addr) {
+        return Err(err);
+      }
+      tracing::warn!(
+        node_id = %node_id,
+        peer = %peer,
+        addr = %addr,
+        error = %err,
+        "connect with configured address failed, trying any known address for sqlite sync"
+      );
+      self.sqlite_sync_client.connect_any(peer).await?;
+    }
+    self.sqlite_sync_client.request(peer, req).await
+  }
+
   async fn peer_addr_for(&self, node_id: &NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {
     let map = self.node_peers.read().await;
     map
@@ -404,13 +439,18 @@ mod tests {
     PeerId::from(identity::Keypair::generate_ed25519().public())
   }
 
+  fn test_network(local_peer: PeerId) -> Libp2pNetworkFactory {
+    let (tx, _rx) = mpsc::channel(4);
+    let client = Libp2pClient::new(tx.clone(), Duration::from_secs(1));
+    let sqlite_sync_client = SqliteSyncClient::new(tx, Duration::from_secs(1));
+    Libp2pNetworkFactory::new(client, sqlite_sync_client, local_peer)
+  }
+
   #[tokio::test]
   async fn mdns_does_not_replace_configured_loopback_addr() {
-    let (tx, _rx) = mpsc::channel(4);
     let local_peer = peer_id();
     let peer = peer_id();
-    let client = Libp2pClient::new(tx, Duration::from_secs(1));
-    let network = Libp2pNetworkFactory::new(client, local_peer);
+    let network = test_network(local_peer);
     let node_id = NodeId::from("node-2");
     let configured_addr = format!("/ip4/127.0.0.1/tcp/4002/wss/p2p/{peer}");
 
@@ -429,11 +469,9 @@ mod tests {
 
   #[tokio::test]
   async fn mdns_replaces_unspecified_configured_addr() {
-    let (tx, _rx) = mpsc::channel(4);
     let local_peer = peer_id();
     let peer = peer_id();
-    let client = Libp2pClient::new(tx, Duration::from_secs(1));
-    let network = Libp2pNetworkFactory::new(client, local_peer);
+    let network = test_network(local_peer);
     let node_id = NodeId::from("node-2");
     let configured_addr = format!("/ip4/0.0.0.0/tcp/4002/wss/p2p/{peer}");
 
@@ -455,11 +493,9 @@ mod tests {
 
   #[tokio::test]
   async fn discovered_loopback_does_not_reregister_known_normal_addr() {
-    let (tx, _rx) = mpsc::channel(4);
     let local_peer = peer_id();
     let peer = peer_id();
-    let client = Libp2pClient::new(tx, Duration::from_secs(1));
-    let network = Libp2pNetworkFactory::new(client, local_peer);
+    let network = test_network(local_peer);
     let node_id = NodeId::from(peer.to_string());
     let configured_addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
 

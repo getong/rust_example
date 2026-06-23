@@ -53,6 +53,13 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
 
     process_kv_request(group.raft, group.kv_data, self.kv_client.clone(), request).await
   }
+
+  async fn handle_sqlite_sync(
+    &self,
+    request: crate::sqlite_sync_rpc::SqliteSyncRpcRequestMessage,
+  ) -> crate::sqlite_sync_rpc::SqliteSyncRpcResponseMessage {
+    crate::sqlite_cache::process_sqlite_sync_rpc_request(request).await
+  }
 }
 
 pub async fn process_kv_request(

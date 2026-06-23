@@ -315,6 +315,12 @@ cmd=(
 	--ws-tls-cert "$WS_TLS_CERT"
 )
 
+if [[ "${DISABLE_SQLITE_CACHE:-0}" == "1" ]]; then
+	cmd+=(--disable-sqlite-cache)
+else
+	cmd+=(--redis-url "${REDIS_URL:-redis://127.0.0.1/}")
+fi
+
 cmd+=(
 	--node "$P1=$ADDR1"
 	--node "$P2=$ADDR2"

@@ -37,6 +37,110 @@ impl ProtoCodec {
   }
 }
 
+pub struct SerdeCodec<Req, Resp> {
+  request_size_maximum: u64,
+  response_size_maximum: u64,
+  _marker: PhantomData<(Req, Resp)>,
+}
+
+impl<Req, Resp> Clone for SerdeCodec<Req, Resp> {
+  fn clone(&self) -> Self {
+    Self {
+      request_size_maximum: self.request_size_maximum,
+      response_size_maximum: self.response_size_maximum,
+      _marker: PhantomData,
+    }
+  }
+}
+
+impl<Req, Resp> Default for SerdeCodec<Req, Resp> {
+  fn default() -> Self {
+    Self {
+      request_size_maximum: DEFAULT_REQUEST_MAX,
+      response_size_maximum: DEFAULT_RESPONSE_MAX,
+      _marker: PhantomData,
+    }
+  }
+}
+
+impl<Req, Resp> SerdeCodec<Req, Resp> {
+  pub fn set_request_size_maximum(mut self, request_size_maximum: u64) -> Self {
+    self.request_size_maximum = request_size_maximum;
+    self
+  }
+
+  pub fn set_response_size_maximum(mut self, response_size_maximum: u64) -> Self {
+    self.response_size_maximum = response_size_maximum;
+    self
+  }
+}
+
+impl<Req, Resp> libp2p::request_response::Codec for SerdeCodec<Req, Resp>
+where
+  Req: Serialize + DeserializeOwned + Send,
+  Resp: Serialize + DeserializeOwned + Send,
+{
+  type Protocol = StreamProtocol;
+  type Request = Req;
+  type Response = Resp;
+
+  fn read_request<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Request>> + Send
+  where
+    T: AsyncRead + Unpin + Send,
+  {
+    let limit = self.request_size_maximum;
+    async move {
+      let payload = read_envelope(io, limit).await?;
+      decode_payload(&payload)
+    }
+  }
+
+  fn read_response<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Response>> + Send
+  where
+    T: AsyncRead + Unpin + Send,
+  {
+    let limit = self.response_size_maximum;
+    async move {
+      let payload = read_envelope(io, limit).await?;
+      decode_payload(&payload)
+    }
+  }
+
+  fn write_request<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+    req: Self::Request,
+  ) -> impl Future<Output = io::Result<()>> + Send
+  where
+    T: AsyncWrite + Unpin + Send,
+  {
+    let data = encode_envelope(&req);
+    async move { write_encoded(io, data).await }
+  }
+
+  fn write_response<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+    resp: Self::Response,
+  ) -> impl Future<Output = io::Result<()>> + Send
+  where
+    T: AsyncWrite + Unpin + Send,
+  {
+    let data = encode_envelope(&resp);
+    async move { write_encoded(io, data).await }
+  }
+}
+
 #[derive(Clone, PartialEq, Message)]
 struct ProtoEnvelope {
   #[prost(bytes, tag = "1")]

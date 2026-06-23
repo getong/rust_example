@@ -33,18 +33,20 @@ use crate::{
   network::{
     openraft_dispatcher::OpenRaftDispatcher,
     openraft_sync::OPENRAFT_SYNC_TOPIC,
-    proto_codec::{ProstCodec, ProtoCodec},
+    proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
     raft_bridge::P2PNetworkFactoryWrapper,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
-      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, run_swarm, set_libp2p_swarm,
+      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, SqliteSyncClient, run_swarm,
+      set_libp2p_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   openraft_group, openraft_groups,
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   set_openraft_groups,
-  sqlite_cache::SqliteCache,
+  sqlite_cache::{self, SqliteCache},
+  sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
   store,
   typ::Raft,
 };
@@ -373,7 +375,9 @@ fn build_libp2p_handles(
   let (cmd_tx, cmd_rx) = mpsc::channel(256);
   let client = Libp2pClient::new(cmd_tx.clone(), timeout);
   let kv_client = KvClient::new(cmd_tx.clone(), timeout);
-  let network = Libp2pNetworkFactory::new(client.clone(), local_peer_id);
+  let sqlite_sync_client = SqliteSyncClient::new(cmd_tx.clone(), timeout);
+  let network =
+    Libp2pNetworkFactory::new(client.clone(), sqlite_sync_client.clone(), local_peer_id);
   (
     Libp2pHandles {
       cmd_tx,
@@ -488,6 +492,14 @@ fn build_swarm(
         kv_rpc: request_response::Behaviour::with_codec(
           ProstCodec::<RaftKvRequest, RaftKvResponse>::default(),
           [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
+          cfg.clone(),
+        ),
+        sqlite_sync_rpc: request_response::Behaviour::with_codec(
+          SerdeCodec::<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>::default(),
+          [(
+            StreamProtocol::new("/openraft/sqlite-sync/1"),
+            ProtocolSupport::Full,
+          )],
           cfg,
         ),
         gossipsub,
@@ -623,17 +635,17 @@ fn spawn_openraft_autoscaler(
 
 fn spawn_sqlite_cache_flusher(
   shutdown: &mut crate::signal::ShutdownHandler,
+  local_node_id: NodeId,
   group_id: GroupId,
-  group: GroupHandle,
-  cache: SqliteCache,
+  network: Libp2pNetworkFactory,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_SQLITE_CACHE_FLUSHER);
   let shutdown_rx = shutdown.shutdown_rx();
   tokio::spawn(async move {
-    crate::sqlite_cache::run_sqlite_flush_worker(
+    sqlite_cache::run_sqlite_flush_worker(
+      local_node_id,
       group_id,
-      group,
-      cache,
+      network,
       Duration::from_secs(SQLITE_CACHE_FLUSH_INTERVAL_SECS),
       shutdown_rx,
     )
@@ -1458,9 +1470,11 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   } else {
     Some(SqliteCache::connect_in_db_dir(&opt.db, &opt.redis_url).await?)
   };
+  if let Some(cache) = sqlite_cache.clone() {
+    sqlite_cache::set_sqlite_cache(cache)
+      .map_err(|_| anyhow!("global sqlite cache already initialized"))?;
+  }
   let sqlite_flush_group_id = default_openraft_group_id();
-  let sqlite_flush_group = openraft_group(&sqlite_flush_group_id)
-    .ok_or_else(|| anyhow!("sqlite cache raft group is not configured"))?;
 
   let http_state = build_http_state(&opt, &identity, &libp2p, sqlite_cache.clone());
   let apalis_storage = http_state.apalis_email.clone();
@@ -1472,12 +1486,12 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   maybe_init_cluster(members, opt.id.clone(), opt.init).await?;
 
   let autoscaler_handle = spawn_openraft_autoscaler(&mut shutdown, libp2p.network.clone());
-  let sqlite_flusher_handle = sqlite_cache.map(|cache| {
+  let sqlite_flusher_handle = sqlite_cache.map(|_| {
     spawn_sqlite_cache_flusher(
       &mut shutdown,
+      opt.id.clone(),
       sqlite_flush_group_id,
-      sqlite_flush_group,
-      cache,
+      libp2p.network.clone(),
     )
   });
 

@@ -39,6 +39,25 @@ DB_ROOT="${DB_ROOT:-$DB_BASE/$(date +%Y%m%d-%H%M%S)}"
 
 export DB_ROOT
 
+repo_path() {
+	case "$1" in
+	/*) printf '%s' "$1" ;;
+	*) printf '%s/%s' "$ROOT_DIR" "$1" ;;
+	esac
+}
+
+REDIS_PORT="${REDIS_PORT:-6380}"
+REDIS_URL="${REDIS_URL:-redis://127.0.0.1:${REDIS_PORT}/}"
+DISABLE_SQLITE_CACHE="${DISABLE_SQLITE_CACHE:-0}"
+AUTO_START_REDIS="${AUTO_START_REDIS:-auto}"
+REDIS_DIR="${REDIS_DIR:-$DB_ROOT/redis}"
+REDIS_LOG="${REDIS_LOG:-$DB_ROOT/logs/redis.log}"
+REDIS_SERVER_BIN="${REDIS_SERVER_BIN:-}"
+VALKEY_CONFIG_DIR="${VALKEY_CONFIG_DIR:-config/valkey}"
+VALKEY_CONFIG_DIR="$(repo_path "$VALKEY_CONFIG_DIR")"
+VALKEY_CONFIG_FILE="${VALKEY_CONFIG_FILE:-$VALKEY_CONFIG_DIR/valkey.conf}"
+VALKEY_CONFIG_FILE="$(repo_path "$VALKEY_CONFIG_FILE")"
+
 WSS_CERT_DIR="${WSS_CERT_DIR:-$DB_ROOT/certs}"
 WSS_DNS_NAME="${WSS_DNS_NAME:-localhost}"
 WSS_IP_ADDR="${WSS_IP_ADDR:-127.0.0.1}"
@@ -175,6 +194,89 @@ ensure_wss_certs() {
 ensure_wss_certs
 export WS_TLS_KEY WS_TLS_CERT WSS_CERT_DIR WSS_DNS_NAME WSS_IP_ADDR WSS_DNS_NAMES WSS_IP_ADDRS
 
+tcp_port_open() {
+	local host="$1"
+	local port="$2"
+	(echo >/dev/tcp/"$host"/"$port") >/dev/null 2>&1
+}
+
+wait_for_tcp_port() {
+	local host="$1"
+	local port="$2"
+	local timeout="${3:-10}"
+	local start=$SECONDS
+	while ! tcp_port_open "$host" "$port"; do
+		if ((SECONDS - start >= timeout)); then
+			return 1
+		fi
+		sleep 0.1
+	done
+}
+
+start_demo_redis() {
+	if [[ "$DISABLE_SQLITE_CACHE" == "1" ]]; then
+		echo "SQLite cache disabled by DISABLE_SQLITE_CACHE=1."
+		return 0
+	fi
+	if [[ "$AUTO_START_REDIS" == "0" ]]; then
+		echo "Using Redis URL: $REDIS_URL"
+		return 0
+	fi
+	if tcp_port_open 127.0.0.1 "$REDIS_PORT"; then
+		echo "Using existing Redis at $REDIS_URL"
+		return 0
+	fi
+	local server_bin="$REDIS_SERVER_BIN"
+	if [[ -z "$server_bin" ]]; then
+		if command -v valkey-server >/dev/null 2>&1; then
+			server_bin="valkey-server"
+		elif command -v redis-server >/dev/null 2>&1; then
+			server_bin="redis-server"
+		fi
+	fi
+	if [[ -z "$server_bin" ]] || ! command -v "$server_bin" >/dev/null 2>&1; then
+		echo "valkey-server/redis-server not found; disabling sqlite cache for this demo run."
+		DISABLE_SQLITE_CACHE=1
+		export DISABLE_SQLITE_CACHE
+		return 0
+	fi
+
+	local config_args=()
+	if [[ -f "$VALKEY_CONFIG_FILE" ]]; then
+		config_args+=("$VALKEY_CONFIG_FILE")
+	fi
+
+	mkdir -p "$REDIS_DIR" "$(dirname "$REDIS_LOG")"
+	echo "Starting demo Redis-compatible server at $REDIS_URL"
+	"$server_bin" "${config_args[@]}" \
+		--bind 127.0.0.1 \
+		--port "$REDIS_PORT" \
+		--dir "$REDIS_DIR" \
+		--save "" \
+		--appendonly no \
+		--daemonize no \
+		>"$REDIS_LOG" 2>&1 &
+
+	if ! wait_for_tcp_port 127.0.0.1 "$REDIS_PORT" "${REDIS_WAIT_SECS:-10}"; then
+		echo "Demo Redis did not start; disabling sqlite cache for this demo run. See $REDIS_LOG"
+		DISABLE_SQLITE_CACHE=1
+		export DISABLE_SQLITE_CACHE
+	fi
+}
+
+cleanup() {
+	echo "Stopping..."
+	local pids
+	pids="$(jobs -p)"
+	if [[ -n "$pids" ]]; then
+		kill $pids 2>/dev/null || true
+	fi
+}
+trap cleanup INT TERM EXIT
+
+start_demo_redis
+export REDIS_URL DISABLE_SQLITE_CACHE
+
 echo "Building..."
 cd "$WS_DIR"
 cargo build -p libp2p_openraft_multi_raft_rocksdb >/dev/null
@@ -182,12 +284,6 @@ cargo build -p libp2p_openraft_multi_raft_rocksdb >/dev/null
 export SKIP_BUILD=1
 
 echo "Starting 2 nodes (Ctrl-C to stop)..."
-
-cleanup() {
-	echo "Stopping..."
-	jobs -p | xargs -r kill 2>/dev/null || true
-}
-trap cleanup INT TERM EXIT
 
 "$ROOT_DIR/run-node1.sh" &
 

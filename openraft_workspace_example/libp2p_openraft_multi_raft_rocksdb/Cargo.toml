@@ -70,6 +70,7 @@ sqlx = { version = "0.9", default-features = false, features = [
     "tls-rustls",
     "uuid",
   ] }
+tarpc = { version = "0.37", features = ["serde1", "tokio1"] }
 tokio = { version = "1.52", default-features = false, features = [
   "io-util",
   "macros",
