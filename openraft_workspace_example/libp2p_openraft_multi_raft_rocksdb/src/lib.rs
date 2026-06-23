@@ -13,6 +13,7 @@ pub mod network;
 pub mod proto;
 pub mod rocksstore_crud;
 pub mod signal;
+pub mod sqlite_cache;
 pub mod store;
 pub mod typ;
 pub mod types_kv;

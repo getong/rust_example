@@ -55,9 +55,21 @@ openraft = { version = "0.10.0-alpha.23", features = [
 # openraft-legacy = { version="0.10.0-alpha.17" }
 prost = "0.14.4"
 rand = "0.10"
+redis = { version = "1.2.4", features = ["aio", "tokio-comp", "connection-manager"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 sonic-rs = "0.5.8"
+sqlx = { version = "0.9", default-features = false, features = [
+    "chrono",
+    "json",
+    "macros",
+    "migrate",
+    "runtime-tokio",
+    "sqlite-bundled",
+    "time",
+    "tls-rustls",
+    "uuid",
+  ] }
 tokio = { version = "1.52", default-features = false, features = [
   "io-util",
   "macros",

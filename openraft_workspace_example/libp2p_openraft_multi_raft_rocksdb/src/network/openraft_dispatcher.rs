@@ -172,10 +172,11 @@ pub async fn process_kv_request(
       }
     }
     KvRequestOp::Delete(req) => {
+      let key = req.key;
       if let Err(err) = ensure_linearizable_read(&raft).await {
         return kv_error_response(format!("{err:?}"));
       }
-      let exists = match kv_data.contains_key(&req.key).await {
+      let exists = match kv_data.contains_key(&key).await {
         Ok(exists) => exists,
         Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
       };
@@ -186,7 +187,14 @@ pub async fn process_kv_request(
           )),
         }
       } else {
-        kv_error_response("delete is not supported by current raft request schema")
+        match raft.client_write(KvWriteRequest::Delete { key }).await {
+          Ok(_) => RaftKvResponse {
+            op: Some(KvResponseOp::Delete(
+              crate::proto::raft_kv::DeleteValueResponse { ok: true },
+            )),
+          },
+          Err(err) => kv_error_response(format!("{err:?}")),
+        }
       }
     }
   }
@@ -215,11 +223,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
         RocksRequest::Set { key, value } | RocksRequest::Update { key, value } => {
           KvWriteRequest::Set { key, value }
         }
-        RocksRequest::Delete { .. } => {
-          return RaftRpcResponse::Error(
-            "delete is not supported by current raft request schema".to_string(),
-          );
-        }
+        RocksRequest::Delete { key } => KvWriteRequest::Delete { key },
       };
       let res = raft.client_write(request).await;
       RaftRpcResponse::ClientWrite(res)

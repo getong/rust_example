@@ -40,6 +40,7 @@ use crate::{
     raft_kv_response::Op as KvResponseOp,
   },
   signal::ShutdownRx,
+  sqlite_cache::{CachedValue, SqliteCache, pending_key},
   store::ensure_linearizable_read,
 };
 
@@ -128,6 +129,7 @@ pub struct AppState {
   pub kv_client: KvClient,
   pub default_group: GroupId,
   pub apalis_email: RaftApalisStorage<Email>,
+  pub sqlite_cache: Option<SqliteCache>,
 }
 
 pub async fn serve(
@@ -143,6 +145,9 @@ pub async fn serve(
     .route("/write", post(set_value))
     .route("/update", post(update_value))
     .route("/delete", post(delete_value))
+    .route("/cache/write", post(write_cached_value))
+    .route("/cache/read", post(read_cached_value))
+    .route("/sqlite/values", get(list_sqlite_values))
     .with_state(Arc::new(state));
 
   let listener = tokio::net::TcpListener::bind(addr)
@@ -229,6 +234,43 @@ struct DeleteValueRequestBody {
 struct DeleteValueResponseBody {
   target_node_id: Option<NodeId>,
   ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CacheWriteRequest {
+  key: String,
+  #[serde(deserialize_with = "string_or_number")]
+  value: String,
+  group_id: Option<String>,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct CacheWriteResponse {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  pending_key: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CacheReadRequest {
+  key: String,
+}
+
+#[derive(Serialize)]
+struct CacheReadResponse {
+  ok: bool,
+  found: bool,
+  value: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SqliteValuesResponse {
+  ok: bool,
+  values: Vec<CachedValue>,
   error: Option<String>,
 }
 
@@ -634,6 +676,141 @@ async fn delete_value(
       target_node_id,
       ok: false,
       error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn write_cached_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<CacheWriteRequest>,
+) -> Json<CacheWriteResponse> {
+  let Some(cache) = state.sqlite_cache.as_ref() else {
+    return Json(CacheWriteResponse {
+      target_node_id: None,
+      ok: false,
+      pending_key: None,
+      error: Some("sqlite cache is disabled".to_string()),
+    });
+  };
+
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(CacheWriteResponse {
+        target_node_id: None,
+        ok: false,
+        pending_key: None,
+        error: Some(err),
+      });
+    }
+  };
+
+  if let Err(err) = cache.write_redis(&req.key, &req.value).await {
+    return Json(CacheWriteResponse {
+      target_node_id: None,
+      ok: false,
+      pending_key: None,
+      error: Some(err.to_string()),
+    });
+  }
+
+  let openraft_key = pending_key(&req.key);
+  let request = RaftKvRequest {
+    group_id: group_id.clone(),
+    op: Some(KvRequestOp::Set(SetValueRequest {
+      key: openraft_key.clone(),
+      value: "1".to_string(),
+    })),
+  };
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(CacheWriteResponse {
+          target_node_id: None,
+          ok: false,
+          pending_key: Some(openraft_key),
+          error: Some(err),
+        });
+      }
+    };
+
+  match response.op {
+    Some(KvResponseOp::Set(resp)) if resp.ok => Json(CacheWriteResponse {
+      target_node_id,
+      ok: true,
+      pending_key: Some(openraft_key),
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(CacheWriteResponse {
+      target_node_id,
+      ok: false,
+      pending_key: Some(openraft_key),
+      error: Some(err.message),
+    }),
+    other => Json(CacheWriteResponse {
+      target_node_id,
+      ok: false,
+      pending_key: Some(openraft_key),
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn read_cached_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<CacheReadRequest>,
+) -> Json<CacheReadResponse> {
+  let Some(cache) = state.sqlite_cache.as_ref() else {
+    return Json(CacheReadResponse {
+      ok: false,
+      found: false,
+      value: None,
+      error: Some("sqlite cache is disabled".to_string()),
+    });
+  };
+
+  match cache.read_cached(&req.key).await {
+    Ok(Some(value)) => Json(CacheReadResponse {
+      ok: true,
+      found: true,
+      value: Some(value),
+      error: None,
+    }),
+    Ok(None) => Json(CacheReadResponse {
+      ok: true,
+      found: false,
+      value: None,
+      error: None,
+    }),
+    Err(err) => Json(CacheReadResponse {
+      ok: false,
+      found: false,
+      value: None,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn list_sqlite_values(State(state): State<Arc<AppState>>) -> Json<SqliteValuesResponse> {
+  let Some(cache) = state.sqlite_cache.as_ref() else {
+    return Json(SqliteValuesResponse {
+      ok: false,
+      values: Vec::new(),
+      error: Some("sqlite cache is disabled".to_string()),
+    });
+  };
+
+  match cache.list_sqlite_values().await {
+    Ok(values) => Json(SqliteValuesResponse {
+      ok: true,
+      values,
+      error: None,
+    }),
+    Err(err) => Json(SqliteValuesResponse {
+      ok: false,
+      values: Vec::new(),
+      error: Some(err.to_string()),
     }),
   }
 }

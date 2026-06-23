@@ -236,6 +236,12 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
             batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
             types_kv::Response::new(value.clone())
           }
+          types_kv::Request::Delete { key } => {
+            let cf_data = self.cf_sm_data();
+
+            batch.delete_cf(cf_data, key.as_bytes());
+            types_kv::Response::none()
+          }
         },
         EntryPayload::Membership(ref mem) => {
           last_membership = Some(StoredMembershipOf::<TypeConfig>::new(

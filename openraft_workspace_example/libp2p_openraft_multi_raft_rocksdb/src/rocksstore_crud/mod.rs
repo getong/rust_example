@@ -115,6 +115,7 @@ impl From<types_kv::Request> for RocksRequest {
   fn from(request: types_kv::Request) -> Self {
     match request {
       types_kv::Request::Set { key, value } => RocksRequest::Set { key, value },
+      types_kv::Request::Delete { key } => RocksRequest::Delete { key },
     }
   }
 }
@@ -133,10 +134,7 @@ impl From<RocksRequest> for types_kv::Request {
       RocksRequest::Set { key, value } | RocksRequest::Update { key, value } => {
         types_kv::Request::Set { key, value }
       }
-      RocksRequest::Delete { key } => types_kv::Request::Set {
-        key,
-        value: String::new(),
-      },
+      RocksRequest::Delete { key } => types_kv::Request::Delete { key },
     }
   }
 }

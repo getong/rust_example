@@ -27,7 +27,7 @@ use crate::{
   GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
   constants::{
     SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT,
-    SERVICE_OPENRAFT_AUTOSCALER,
+    SERVICE_OPENRAFT_AUTOSCALER, SERVICE_SQLITE_CACHE_FLUSHER,
   },
   groups, http,
   network::{
@@ -43,7 +43,9 @@ use crate::{
   },
   openraft_group, openraft_groups,
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
-  set_openraft_groups, store,
+  set_openraft_groups,
+  sqlite_cache::SqliteCache,
+  store,
   typ::Raft,
 };
 
@@ -52,6 +54,7 @@ const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
 const OPENRAFT_MAX_LEARNERS: usize = 5;
 const OPENRAFT_MAX_VOTERS: usize = 5;
 const OPENRAFT_AUTOSCALER_INTERVAL_SECS: u64 = 5;
+const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const OPENRAFT_OFFLINE_REMOVE_AFTER_SECS: u64 = 300;
 /// Max log-index lag a learner may have compared to the leader before being
 /// eligible for promotion to voter. A learner further behind than this is
@@ -214,6 +217,14 @@ pub struct Opt {
   /// Disable tokio-console subscriber. It is enabled by default.
   #[arg(long)]
   pub no_tokio_console: bool,
+
+  /// Redis URL used as the cache in front of SQLite.
+  #[arg(long, default_value = "redis://127.0.0.1/")]
+  pub redis_url: String,
+
+  /// Disable Redis-backed SQLite cache integration.
+  #[arg(long)]
+  pub disable_sqlite_cache: bool,
 
   /// Close an idle libp2p connection only after this many seconds.
   #[arg(long, default_value_t = 30)]
@@ -536,7 +547,12 @@ fn spawn_libp2p_swarm(
   })
 }
 
-fn build_http_state(opt: &Opt, identity: &NodeIdentity, libp2p: &Libp2pHandles) -> http::AppState {
+fn build_http_state(
+  opt: &Opt,
+  identity: &NodeIdentity,
+  libp2p: &Libp2pHandles,
+  sqlite_cache: Option<SqliteCache>,
+) -> http::AppState {
   let default_group = default_openraft_group_id();
 
   http::AppState {
@@ -549,6 +565,7 @@ fn build_http_state(opt: &Opt, identity: &NodeIdentity, libp2p: &Libp2pHandles) 
     default_group,
     apalis_email: build_apalis_email_storage(opt.id.clone(), libp2p)
       .expect("apalis group should be configured"),
+    sqlite_cache,
   }
 }
 
@@ -600,6 +617,27 @@ fn spawn_openraft_autoscaler(
   let shutdown_rx = shutdown.shutdown_rx();
   tokio::spawn(async move {
     run_openraft_autoscaler(network, shutdown_rx).await;
+    let _ = done.send(Ok(()));
+  })
+}
+
+fn spawn_sqlite_cache_flusher(
+  shutdown: &mut crate::signal::ShutdownHandler,
+  group_id: GroupId,
+  group: GroupHandle,
+  cache: SqliteCache,
+) -> tokio::task::JoinHandle<()> {
+  let done = shutdown.push(SERVICE_SQLITE_CACHE_FLUSHER);
+  let shutdown_rx = shutdown.shutdown_rx();
+  tokio::spawn(async move {
+    crate::sqlite_cache::run_sqlite_flush_worker(
+      group_id,
+      group,
+      cache,
+      Duration::from_secs(SQLITE_CACHE_FLUSH_INTERVAL_SECS),
+      shutdown_rx,
+    )
+    .await;
     let _ = done.send(Ok(()));
   })
 }
@@ -1053,6 +1091,7 @@ fn spawn_openraft_shutdown(
   http_handle: tokio::task::JoinHandle<()>,
   apalis_handle: tokio::task::JoinHandle<()>,
   autoscaler_handle: tokio::task::JoinHandle<()>,
+  sqlite_flusher_handle: Option<tokio::task::JoinHandle<()>>,
 ) {
   // Openraft should shut down after libp2p swarm has stopped.
   let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
@@ -1099,6 +1138,9 @@ fn spawn_openraft_shutdown(
     let _ = http_handle.await;
     let _ = apalis_handle.await;
     let _ = autoscaler_handle.await;
+    if let Some(sqlite_flusher_handle) = sqlite_flusher_handle {
+      let _ = sqlite_flusher_handle.await;
+    }
     let _ = openraft_shutdown_tx.send(());
   });
 }
@@ -1411,7 +1453,16 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   set_openraft_groups(openraft_groups)
     .map_err(|_| anyhow!("global openraft groups already initialized"))?;
 
-  let http_state = build_http_state(&opt, &identity, &libp2p);
+  let sqlite_cache = if opt.disable_sqlite_cache {
+    None
+  } else {
+    Some(SqliteCache::connect_in_db_dir(&opt.db, &opt.redis_url).await?)
+  };
+  let sqlite_flush_group_id = default_openraft_group_id();
+  let sqlite_flush_group = openraft_group(&sqlite_flush_group_id)
+    .ok_or_else(|| anyhow!("sqlite cache raft group is not configured"))?;
+
+  let http_state = build_http_state(&opt, &identity, &libp2p, sqlite_cache.clone());
   let apalis_storage = http_state.apalis_email.clone();
   let apalis_worker_name = format!("raft-email-worker-{}", opt.id);
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
@@ -1421,6 +1472,14 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   maybe_init_cluster(members, opt.id.clone(), opt.init).await?;
 
   let autoscaler_handle = spawn_openraft_autoscaler(&mut shutdown, libp2p.network.clone());
+  let sqlite_flusher_handle = sqlite_cache.map(|cache| {
+    spawn_sqlite_cache_flusher(
+      &mut shutdown,
+      sqlite_flush_group_id,
+      sqlite_flush_group,
+      cache,
+    )
+  });
 
   spawn_openraft_shutdown(
     &mut shutdown,
@@ -1430,6 +1489,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     http_handle,
     apalis_handle,
     autoscaler_handle,
+    sqlite_flusher_handle,
   );
 
   await_shutdown(shutdown).await

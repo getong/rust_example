@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
   Set { key: String, value: String },
+  Delete { key: String },
 }
 
 impl Request {
@@ -17,12 +18,17 @@ impl Request {
       value: value.into(),
     }
   }
+
+  pub fn delete(key: impl Into<String>) -> Self {
+    Request::Delete { key: key.into() }
+  }
 }
 
 impl fmt::Display for Request {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Request::Set { key, value } => write!(f, "Set {{ key: {}, value: {} }}", key, value),
+      Request::Delete { key } => write!(f, "Delete {{ key: {} }}", key),
     }
   }
 }
