@@ -252,14 +252,25 @@ start_demo_redis() {
 
 	mkdir -p "$REDIS_DIR" "$(dirname "$REDIS_LOG")"
 	echo "Starting demo Redis-compatible server at $REDIS_URL"
-	"$server_bin" "${config_args[@]}" \
-		--bind 127.0.0.1 \
-		--port "$REDIS_PORT" \
-		--dir "$REDIS_DIR" \
-		--save "" \
-		--appendonly no \
-		--daemonize no \
-		>"$REDIS_LOG" 2>&1 &
+	if (( ${#config_args[@]} > 0 )); then
+		"$server_bin" "${config_args[@]}" \
+			--bind 127.0.0.1 \
+			--port "$REDIS_PORT" \
+			--dir "$REDIS_DIR" \
+			--save "" \
+			--appendonly no \
+			--daemonize no \
+			>"$REDIS_LOG" 2>&1 &
+	else
+		"$server_bin" \
+			--bind 127.0.0.1 \
+			--port "$REDIS_PORT" \
+			--dir "$REDIS_DIR" \
+			--save "" \
+			--appendonly no \
+			--daemonize no \
+			>"$REDIS_LOG" 2>&1 &
+	fi
 
 	if ! wait_for_tcp_port 127.0.0.1 "$REDIS_PORT" "${REDIS_WAIT_SECS:-10}"; then
 		echo "Demo Redis did not start; disabling sqlite cache for this demo run. See $REDIS_LOG"
@@ -296,6 +307,10 @@ echo "Connect with:"
 echo "  tokio-console http://127.0.0.1:6669"
 echo "  tokio-console http://127.0.0.1:6670"
 echo "  tokio-console http://127.0.0.1:6671"
+echo "Cluster graph:"
+echo "  http://${NODE1_HTTP:-127.0.0.1:3001}/graph"
+echo "  http://${NODE2_HTTP:-127.0.0.1:3002}/graph"
+echo "  http://${NODE3_HTTP:-127.0.0.1:3003}/graph"
 
 "$ROOT_DIR/run-node1.sh" &
 

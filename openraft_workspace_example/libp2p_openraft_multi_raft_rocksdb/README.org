@@ -154,3 +154,8 @@ Notes:
 - Websocket addresses use /ws (plain websocket). Secure websocket (/wss or /tls/ws)
   is not configured by default.
 - You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
+
+- 用 ./run-3nodes.sh 启动三节点后验证：
+- http://127.0.0.1:3001/graph
+- http://127.0.0.1:3001/graph.svg
+- http://127.0.0.1:3001/graph.dot

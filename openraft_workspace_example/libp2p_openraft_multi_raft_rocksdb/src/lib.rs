@@ -8,6 +8,7 @@ use once_cell::sync::OnceCell;
 pub mod apalis_raft;
 pub mod app;
 pub mod constants;
+pub mod graphviz;
 pub mod http;
 pub mod network;
 pub mod proto;
