@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = [
+    "criterion_demo",
+    "fake_demo",
+    "mockall_demo",
+    "proptest_demo",
+    "quickcheck_demo",
+    "wiremock_demo",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+fake = { version = "5.1", features = ["derive"] }
+mockall = "0.14"
+proptest = "1.11"
+quickcheck = "1.1"
+quickcheck_macros = "1.1"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"
