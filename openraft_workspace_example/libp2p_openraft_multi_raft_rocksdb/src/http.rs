@@ -18,7 +18,7 @@ use axum::{
   routing::{get, post},
 };
 use libp2p::{Multiaddr, PeerId};
-use openraft::async_runtime::WatchReceiver;
+use openraft::{ServerState, async_runtime::WatchReceiver};
 use prost::Message;
 use serde::{
   Deserialize, Deserializer, Serialize,
@@ -31,6 +31,7 @@ use crate::{
   graphviz::{ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg},
   network::{
     openraft_dispatcher::process_kv_request,
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{GOSSIP_TOPIC, KvClient},
     transport::Libp2pNetworkFactory,
   },
@@ -387,19 +388,6 @@ async fn cluster_graph_svg_response(
 }
 
 async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> ClusterGraphSnapshot {
-  let known_nodes = state.network.known_nodes().await;
-  let mut nodes = Vec::with_capacity(known_nodes.len());
-  for (node_id, peer_id, addr) in known_nodes {
-    let connected = state.network.is_peer_connected(&peer_id).await;
-    nodes.push(ClusterGraphNode {
-      node_name: node_name_for(&node_id, state),
-      node_id,
-      peer_id: peer_id.to_string(),
-      addr: addr.to_string(),
-      connected,
-    });
-  }
-
   let group_id = query
     .group_id
     .unwrap_or_else(|| state.default_group.clone());
@@ -416,9 +404,28 @@ async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> Cluste
     None => (None, Some(format!("unknown group_id={group_id}"))),
   };
 
+  let known_nodes = state.network.known_nodes().await;
+  let mut nodes = Vec::with_capacity(known_nodes.len());
+  for (node_id, peer_id, addr) in known_nodes {
+    let connected = state.network.is_peer_connected(&peer_id).await;
+    let server_state = if node_id == state.node_id {
+      metrics.as_ref().map(|metrics| metrics.state)
+    } else if connected {
+      remote_server_state(&group_id, &node_id, &state.network).await
+    } else {
+      None
+    };
+    nodes.push(ClusterGraphNode {
+      node_id,
+      peer_id: peer_id.to_string(),
+      addr: addr.to_string(),
+      connected,
+      server_state,
+    });
+  }
+
   ClusterGraphSnapshot {
     self_node_id: state.node_id.clone(),
-    self_node_name: state.node_name.clone(),
     self_peer_id: state.peer_id.clone(),
     self_listen: state.listen.clone(),
     group_id,
@@ -426,6 +433,52 @@ async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> Cluste
     nodes,
     metrics,
     error,
+  }
+}
+
+async fn remote_server_state(
+  group_id: &str,
+  node_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+) -> Option<ServerState> {
+  match network
+    .request(
+      node_id.clone(),
+      RaftRpcRequest {
+        group_id: group_id.to_string(),
+        op: RaftRpcOp::GetMetrics,
+      },
+    )
+    .await
+  {
+    Ok(RaftRpcResponse::GetMetrics(metrics)) => Some(metrics.state),
+    Ok(RaftRpcResponse::Error(message)) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        error = %message,
+        "remote openraft metrics request returned error while rendering graph"
+      );
+      None
+    }
+    Ok(other) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        response = ?other,
+        "unexpected remote openraft metrics response while rendering graph"
+      );
+      None
+    }
+    Err(err) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        error = ?err,
+        "remote openraft metrics request failed while rendering graph"
+      );
+      None
+    }
   }
 }
 
@@ -562,7 +615,7 @@ fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {
   <header>
     <div>
       <h1>libp2p / openraft graph</h1>
-      <div class="meta">local: {} | node: {} | refresh: 5s</div>
+      <div class="meta">local peer_id: {} | refresh: 5s</div>
     </div>
     <form method="get" action="/graph">
       <select name="group_id" aria-label="Raft group" onchange="this.form.submit()">{}</select>
@@ -579,8 +632,7 @@ fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {
   </main>
 </body>
 </html>"#,
-    html_escape(&snapshot.self_node_name),
-    html_escape(&snapshot.self_node_id.to_string()),
+    html_escape(&snapshot.self_peer_id),
     group_options,
     url_escape(&snapshot.group_id),
     url_escape(&snapshot.group_id),
@@ -588,13 +640,6 @@ fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {
     status,
     url_escape(&snapshot.group_id),
   )
-}
-
-fn node_name_for(node_id: &NodeId, state: &AppState) -> Option<String> {
-  if node_id == &state.node_id {
-    return Some(state.node_name.clone());
-  }
-  None
 }
 
 fn html_escape(value: &str) -> String {

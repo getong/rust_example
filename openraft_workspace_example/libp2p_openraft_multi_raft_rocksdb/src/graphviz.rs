@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use graphviz_rust::{cmd::Format, exec_dot};
+use openraft::ServerState;
 use petgraph::{
   dot::{Config, Dot},
   graph::DiGraph,
@@ -11,16 +12,15 @@ use crate::{GroupId, NodeId, typ::RaftMetrics};
 #[derive(Debug, Clone)]
 pub struct ClusterGraphNode {
   pub node_id: NodeId,
-  pub node_name: Option<String>,
   pub peer_id: String,
   pub addr: String,
   pub connected: bool,
+  pub server_state: Option<ServerState>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ClusterGraphSnapshot {
   pub self_node_id: NodeId,
-  pub self_node_name: String,
   pub self_peer_id: String,
   pub self_listen: String,
   pub group_id: GroupId,
@@ -52,14 +52,14 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
   let mut indices = BTreeMap::new();
   let mut known_node_ids = BTreeSet::new();
 
-  let role_by_node = role_by_node(snapshot.metrics.as_ref());
+  let mut nodes = snapshot.nodes.clone();
+  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+
+  let role_by_node = role_by_node(snapshot.metrics.as_ref(), &nodes);
   let leader_id = snapshot
     .metrics
     .as_ref()
     .and_then(|metrics| metrics.current_leader.as_ref());
-
-  let mut nodes = snapshot.nodes.clone();
-  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 
   for node in &nodes {
     known_node_ids.insert(node.node_id.clone());
@@ -69,14 +69,10 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
       .unwrap_or("discovered");
     let is_leader = leader_id == Some(&node.node_id);
     let is_self = node.node_id == snapshot.self_node_id;
-    let title = node
-      .node_name
-      .clone()
-      .unwrap_or_else(|| short_id(&node.node_id));
+    let title = short_peer(&node.peer_id);
     let mut lines = vec![
       format!("role: {role}"),
-      format!("node: {}", short_id(&node.node_id)),
-      format!("peer: {}", short_peer(&node.peer_id)),
+      format!("peer_id: {}", short_peer(&node.peer_id)),
       format!("addr: {}", compact_addr(&node.addr)),
     ];
     if is_self {
@@ -103,11 +99,10 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
 
   if !known_node_ids.contains(&snapshot.self_node_id) {
     let index = graph.add_node(GraphNodeLabel {
-      title: snapshot.self_node_name.clone(),
+      title: short_peer(&snapshot.self_peer_id),
       lines: vec![
         "role: local".to_string(),
-        format!("node: {}", short_id(&snapshot.self_node_id)),
-        format!("peer: {}", short_peer(&snapshot.self_peer_id)),
+        format!("peer_id: {}", short_peer(&snapshot.self_peer_id)),
         format!("addr: {}", compact_addr(&snapshot.self_listen)),
       ],
       fill_color: "#e8f7ff",
@@ -158,7 +153,7 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
           &indices,
           leader,
           voter,
-          "replicate voter",
+          "replicate follower",
           "#1d4ed8",
           "solid",
         );
@@ -238,22 +233,41 @@ fn add_openraft_edge(
   );
 }
 
-fn role_by_node(metrics: Option<&RaftMetrics>) -> BTreeMap<NodeId, String> {
+fn role_by_node(
+  metrics: Option<&RaftMetrics>,
+  nodes: &[ClusterGraphNode],
+) -> BTreeMap<NodeId, String> {
   let mut roles = BTreeMap::new();
-  let Some(metrics) = metrics else {
-    return roles;
-  };
-  let membership = metrics.membership_config.membership();
-  for node_id in membership.voter_ids() {
-    roles.insert(node_id, "voter".to_string());
+  if let Some(metrics) = metrics {
+    let membership = metrics.membership_config.membership();
+    for node_id in membership.voter_ids() {
+      roles.insert(node_id, "follower".to_string());
+    }
+    for node_id in membership.learner_ids() {
+      roles.insert(node_id, "learner".to_string());
+    }
+    if let Some(leader_id) = metrics.current_leader.as_ref() {
+      roles.insert(leader_id.clone(), "leader".to_string());
+    }
   }
-  for node_id in membership.learner_ids() {
-    roles.insert(node_id, "learner".to_string());
+
+  for node in nodes {
+    if let Some(state) = node.server_state {
+      roles.insert(node.node_id.clone(), server_state_label(state).to_string());
+    }
   }
-  if let Some(leader_id) = metrics.current_leader.as_ref() {
-    roles.insert(leader_id.clone(), "leader".to_string());
-  }
+
   roles
+}
+
+fn server_state_label(state: ServerState) -> &'static str {
+  match state {
+    ServerState::Learner => "learner",
+    ServerState::Follower => "follower",
+    ServerState::Candidate => "candidate",
+    ServerState::Leader => "leader",
+    ServerState::Shutdown => "shutdown",
+  }
 }
 
 fn node_fill_color(role: &str, is_leader: bool, is_self: bool) -> &'static str {
@@ -264,8 +278,10 @@ fn node_fill_color(role: &str, is_leader: bool, is_self: bool) -> &'static str {
     return "#e8f7ff";
   }
   match role {
-    "voter" => "#dbeafe",
+    "follower" => "#dbeafe",
     "learner" => "#f3e8ff",
+    "candidate" => "#fef9c3",
+    "shutdown" => "#e2e8f0",
     _ => "#f8fafc",
   }
 }
@@ -276,8 +292,10 @@ fn node_border_color(role: &str, connected: bool) -> &'static str {
   }
   match role {
     "leader" => "#15803d",
-    "voter" => "#1d4ed8",
+    "follower" => "#1d4ed8",
     "learner" => "#7c3aed",
+    "candidate" => "#ca8a04",
+    "shutdown" => "#64748b",
     _ => "#475569",
   }
 }
@@ -300,9 +318,9 @@ fn html_label(label: &GraphNodeLabel) -> String {
 
 fn with_graph_attributes(dot: &str, snapshot: &ClusterGraphSnapshot) -> String {
   let label = format!(
-    "libp2p / openraft cluster\\ngroup: {} | local: {} | groups: {}",
+    "libp2p / openraft cluster\\ngroup: {} | local peer_id: {} | groups: {}",
     dot_escape(&snapshot.group_id),
-    dot_escape(&snapshot.self_node_name),
+    dot_escape(&snapshot.self_peer_id),
     dot_escape(&snapshot.groups.join(", "))
   );
   let attrs = format!(
@@ -313,11 +331,6 @@ fn with_graph_attributes(dot: &str, snapshot: &ClusterGraphSnapshot) -> String {
     label
   );
   dot.replacen("digraph {", &attrs, 1)
-}
-
-fn short_id(node_id: &NodeId) -> String {
-  let id = node_id.to_string();
-  short_text(&id, 10, 8)
 }
 
 fn short_peer(peer_id: &str) -> String {
