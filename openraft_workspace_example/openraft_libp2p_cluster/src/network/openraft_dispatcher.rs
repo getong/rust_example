@@ -1,0 +1,258 @@
+use async_trait::async_trait;
+use openraft::async_runtime::WatchReceiver;
+
+use crate::{
+  network::{
+    dispatcher::SwarmRequestDispatcher,
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    swarm::KvClient,
+    transport::parse_p2p_addr,
+  },
+  openraft_group,
+  proto::raft_kv::{
+    ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
+    raft_kv_response::Op as KvResponseOp,
+  },
+  rocksstore_crud::{RocksRequest, TypeConfig},
+  store::{KvData, ensure_linearizable_read},
+  typ::{Raft, Snapshot},
+  types_kv::Request as KvWriteRequest,
+};
+
+#[derive(Clone)]
+pub struct OpenRaftDispatcher {
+  kv_client: KvClient,
+}
+
+impl OpenRaftDispatcher {
+  pub fn new(kv_client: KvClient) -> Self {
+    Self { kv_client }
+  }
+}
+
+#[async_trait]
+impl SwarmRequestDispatcher for OpenRaftDispatcher {
+  async fn handle_raft(&self, request: RaftRpcRequest) -> RaftRpcResponse {
+    let group_id = request.group_id.clone();
+    let Some(group) = openraft_group(&group_id) else {
+      return RaftRpcResponse::Error(format!("unknown group_id={group_id}"));
+    };
+
+    handle_inbound_rpc(group.raft, request.op).await
+  }
+
+  async fn handle_kv(&self, request: RaftKvRequest) -> RaftKvResponse {
+    let group_id = request.group_id.clone();
+    if group_id.is_empty() {
+      return kv_error_response("missing group_id");
+    }
+
+    let Some(group) = openraft_group(&group_id) else {
+      return kv_error_response(format!("unknown group_id={group_id}"));
+    };
+
+    process_kv_request(group.raft, group.kv_data, self.kv_client.clone(), request).await
+  }
+
+  async fn handle_sqlite_sync(
+    &self,
+    request: crate::sqlite_sync_rpc::SqliteSyncRpcRequestMessage,
+  ) -> crate::sqlite_sync_rpc::SqliteSyncRpcResponseMessage {
+    crate::sqlite_cache::process_sqlite_sync_rpc_request(request).await
+  }
+}
+
+pub async fn process_kv_request(
+  raft: Raft,
+  kv_data: KvData,
+  kv_client: KvClient,
+  request: RaftKvRequest,
+) -> RaftKvResponse {
+  if request.group_id.is_empty() {
+    return kv_error_response("missing group_id");
+  }
+
+  let metrics = raft.metrics().borrow_watched().clone();
+  if !metrics.state.is_leader() {
+    let Some(leader_id) = metrics.current_leader else {
+      return kv_error_response("no leader available");
+    };
+    let Some(node) = metrics.membership_config.membership().get_node(&leader_id) else {
+      return kv_error_response("leader node not found in membership");
+    };
+    let Ok((peer, addr)) = parse_p2p_addr(&node.addr) else {
+      return kv_error_response("invalid leader address");
+    };
+    if let Err(err) = kv_client.connect(peer, addr).await {
+      return kv_error_response(format!("connect to leader failed: {err}"));
+    }
+    return match kv_client.request(peer, request).await {
+      Ok(resp) => resp,
+      Err(err) => kv_error_response(format!("forward to leader failed: {err}")),
+    };
+  }
+
+  let Some(op) = request.op else {
+    return kv_error_response("missing request op");
+  };
+
+  match op {
+    KvRequestOp::Get(req) => {
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
+      match kv_data.get(&req.key).await {
+        Ok(Some(value)) => RaftKvResponse {
+          op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
+            found: true,
+            value,
+          })),
+        },
+        Ok(None) => RaftKvResponse {
+          op: Some(KvResponseOp::Get(crate::proto::raft_kv::GetValueResponse {
+            found: false,
+            value: String::new(),
+          })),
+        },
+        Err(err) => kv_error_response(format!("read rocksdb kv failed: {err}")),
+      }
+    }
+    KvRequestOp::Set(req) => {
+      let key = req.key;
+      let value = req.value;
+      match raft
+        .client_write(KvWriteRequest::Set {
+          key: key.clone(),
+          value: value.clone(),
+        })
+        .await
+      {
+        Ok(resp) => {
+          let value = resp.data.value.unwrap_or(value);
+          RaftKvResponse {
+            op: Some(KvResponseOp::Set(crate::proto::raft_kv::SetValueResponse {
+              ok: true,
+              value,
+            })),
+          }
+        }
+        Err(err) => kv_error_response(format!("{err:?}")),
+      }
+    }
+    KvRequestOp::Update(req) => {
+      let key = req.key;
+      let value = req.value;
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
+      let exists = match kv_data.contains_key(&key).await {
+        Ok(exists) => exists,
+        Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
+      };
+      if !exists {
+        RaftKvResponse {
+          op: Some(KvResponseOp::Update(
+            crate::proto::raft_kv::UpdateValueResponse {
+              ok: false,
+              value: String::new(),
+            },
+          )),
+        }
+      } else {
+        match raft
+          .client_write(KvWriteRequest::Set {
+            key: key.clone(),
+            value: value.clone(),
+          })
+          .await
+        {
+          Ok(resp) => {
+            let value = resp.data.value.unwrap_or(value);
+            RaftKvResponse {
+              op: Some(KvResponseOp::Update(
+                crate::proto::raft_kv::UpdateValueResponse { ok: true, value },
+              )),
+            }
+          }
+          Err(err) => kv_error_response(format!("{err:?}")),
+        }
+      }
+    }
+    KvRequestOp::Delete(req) => {
+      let key = req.key;
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
+      let exists = match kv_data.contains_key(&key).await {
+        Ok(exists) => exists,
+        Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
+      };
+      if !exists {
+        RaftKvResponse {
+          op: Some(KvResponseOp::Delete(
+            crate::proto::raft_kv::DeleteValueResponse { ok: false },
+          )),
+        }
+      } else {
+        match raft.client_write(KvWriteRequest::Delete { key }).await {
+          Ok(_) => RaftKvResponse {
+            op: Some(KvResponseOp::Delete(
+              crate::proto::raft_kv::DeleteValueResponse { ok: true },
+            )),
+          },
+          Err(err) => kv_error_response(format!("{err:?}")),
+        }
+      }
+    }
+  }
+}
+
+fn kv_error_response(message: impl Into<String>) -> RaftKvResponse {
+  RaftKvResponse {
+    op: Some(KvResponseOp::Error(ErrorResponse {
+      message: message.into(),
+    })),
+  }
+}
+
+async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
+  match request {
+    RaftRpcOp::AppendEntries(req) => {
+      let res = raft.append_entries(req).await;
+      RaftRpcResponse::AppendEntries(res)
+    }
+    RaftRpcOp::Vote(req) => {
+      let res = raft.vote(req).await;
+      RaftRpcResponse::Vote(res)
+    }
+    RaftRpcOp::ClientWrite(req) => {
+      let request = match req {
+        RocksRequest::Set { key, value } | RocksRequest::Update { key, value } => {
+          KvWriteRequest::Set { key, value }
+        }
+        RocksRequest::Delete { key } => KvWriteRequest::Delete { key },
+      };
+      let res = raft.client_write(request).await;
+      RaftRpcResponse::ClientWrite(res)
+    }
+    RaftRpcOp::GetMetrics => {
+      let metrics = raft.metrics().borrow_watched().clone();
+      RaftRpcResponse::GetMetrics(metrics)
+    }
+    RaftRpcOp::FullSnapshot { vote, meta, data } => {
+      let snapshot = Snapshot {
+        meta,
+        snapshot: std::io::Cursor::new(data),
+      };
+
+      let res = raft
+        .install_full_snapshot(vote, snapshot)
+        .await
+        .map_err(|e| {
+          openraft::error::RaftError::<TypeConfig, openraft::error::Infallible>::Fatal(e)
+        });
+
+      RaftRpcResponse::FullSnapshot(res)
+    }
+  }
+}

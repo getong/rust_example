@@ -1,0 +1,93 @@
+[package]
+name = "openraft_libp2p_cluster"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "lpmr-kv"
+path = "src/bin/kv.rs"
+
+[[bin]]
+name = "lpmr-peer-id"
+path = "src/bin/peer_id.rs"
+
+[[bin]]
+name = "lpmr-status"
+path = "src/bin/status.rs"
+
+[dependencies]
+anyhow = "1.0.102"
+apalis = { version = "1.0.0-rc.9", features = ["retry"] }
+apalis-core = "1.0.0-rc.9"
+async-trait = "0.1.89"
+axum = { version = "0.8.9", default-features = false, features = [
+  "http1",
+  "query",
+  "tokio",
+] }
+byteorder = "1.5.0"
+clap = { version = "4.6.1", features = ["derive"] }
+console-subscriber = "0.5.0"
+futures = "0.3.32"
+graphviz-rust = "0.9.8"
+  libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "5f7eb900114f90394c3b4ab5473dcb3d1f6876a1", features = [
+  "dns",
+  "ed25519",
+  "gossipsub",
+  "gossipsub-partial-messages",
+  "kad",
+  "macros",
+  "mdns",
+  "noise",
+  "ping",
+  "quic",
+  "request-response",
+  "tcp",
+  "tls",
+  "tokio",
+  "websocket",
+  "yamux",
+] }
+once_cell = "1.21.4"
+openraft = { version = "0.10.0-alpha.23", features = [
+  "serde",
+  "type-alias",
+] }
+petgraph = "0.8.3"
+# openraft-legacy = { version="0.10.0-alpha.17" }
+prost = "0.14.4"
+rand = "0.10"
+redis = { version = "1.2.4", features = ["aio", "tokio-comp", "connection-manager"] }
+rocksdb = "0.24.0"
+serde = { version = "1.0.228", features = ["derive"] }
+sonic-rs = "0.5.8"
+sqlx = { version = "0.9", default-features = false, features = [
+    "chrono",
+    "json",
+    "macros",
+    "migrate",
+    "runtime-tokio",
+    "sqlite-bundled",
+    "time",
+    "tls-rustls",
+    "uuid",
+  ] }
+tarpc = { version = "0.37", features = ["serde1", "tokio1"] }
+tokio = { version = "1.52", default-features = false, features = [
+  "io-util",
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+  "tracing",
+] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[build-dependencies]
+prost-build = "0.14.4"
+
+[dev-dependencies]
+tempfile = "3.27.0"

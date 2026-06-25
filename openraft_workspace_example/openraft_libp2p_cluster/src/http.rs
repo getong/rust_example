@@ -1,0 +1,1351 @@
+use std::{
+  net::SocketAddr,
+  sync::Arc,
+  time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use anyhow::Context;
+use apalis::prelude::TaskSink;
+use axum::{
+  Router,
+  body::to_bytes,
+  extract::{FromRequest, Query, Request, State},
+  http::{
+    StatusCode,
+    header::{CONTENT_TYPE, HeaderMap, HeaderValue},
+  },
+  response::{IntoResponse, Response},
+  routing::{get, post},
+};
+use libp2p::{Multiaddr, PeerId};
+use openraft::{ServerState, async_runtime::WatchReceiver};
+use prost::Message;
+use serde::{
+  Deserialize, Deserializer, Serialize,
+  de::{self, DeserializeOwned, Visitor},
+};
+
+use crate::{
+  GroupId, NodeId,
+  apalis_raft::{Email, RaftApalisStorage},
+  graphviz::{ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg},
+  network::{
+    openraft_dispatcher::process_kv_request,
+    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    swarm::{GOSSIP_TOPIC, KvClient},
+    transport::Libp2pNetworkFactory,
+  },
+  openraft_group, openraft_groups,
+  proto::raft_kv::{
+    ChatMessage, DeleteValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
+    UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
+    raft_kv_response::Op as KvResponseOp,
+  },
+  signal::ShutdownRx,
+  sqlite_cache::{CachedValue, SqliteCache, pending_key, record_pending_key},
+  store::ensure_linearizable_read,
+};
+
+const HTTP_JSON_BODY_LIMIT: usize = 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Json<T>(pub T);
+
+impl<T, S> FromRequest<S> for Json<T>
+where
+  T: DeserializeOwned,
+  S: Send + Sync,
+{
+  type Rejection = Response;
+
+  async fn from_request(req: Request, _state: &S) -> Result<Self, Self::Rejection> {
+    if !is_json_content_type(req.headers()) {
+      return Err(
+        (
+          StatusCode::UNSUPPORTED_MEDIA_TYPE,
+          "expected content-type application/json",
+        )
+          .into_response(),
+      );
+    }
+
+    let bytes = to_bytes(req.into_body(), HTTP_JSON_BODY_LIMIT)
+      .await
+      .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())?;
+    sonic_rs::from_slice(&bytes)
+      .map(Self)
+      .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()).into_response())
+  }
+}
+
+impl<T> IntoResponse for Json<T>
+where
+  T: Serialize,
+{
+  fn into_response(self) -> Response {
+    match sonic_rs::to_vec(&self.0) {
+      Ok(bytes) => (
+        [(CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+        bytes,
+      )
+        .into_response(),
+      Err(err) => (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        [(
+          CONTENT_TYPE,
+          HeaderValue::from_static("text/plain; charset=utf-8"),
+        )],
+        err.to_string(),
+      )
+        .into_response(),
+    }
+  }
+}
+
+fn is_json_content_type(headers: &HeaderMap) -> bool {
+  let Some(content_type) = headers.get(CONTENT_TYPE) else {
+    return false;
+  };
+  let Ok(content_type) = content_type.to_str() else {
+    return false;
+  };
+  content_type
+    .split(';')
+    .next()
+    .map(str::trim)
+    .is_some_and(|mime| {
+      mime.eq_ignore_ascii_case("application/json")
+        || mime
+          .rsplit_once('+')
+          .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("json"))
+    })
+}
+
+#[derive(Clone)]
+pub struct AppState {
+  pub node_id: NodeId,
+  pub node_name: String,
+  pub peer_id: String,
+  pub listen: String,
+  pub network: Libp2pNetworkFactory,
+  pub kv_client: KvClient,
+  pub default_group: GroupId,
+  pub apalis_email: RaftApalisStorage<Email>,
+  pub sqlite_cache: Option<SqliteCache>,
+}
+
+pub async fn serve(
+  addr: SocketAddr,
+  state: AppState,
+  mut shutdown_rx: ShutdownRx,
+) -> anyhow::Result<()> {
+  let app = Router::new()
+    .route("/cluster", get(cluster_info))
+    .route("/graph", get(cluster_graph_page))
+    .route("/graph.dot", get(cluster_graph_dot_response))
+    .route("/graph.svg", get(cluster_graph_svg_response))
+    .route("/chat", post(send_chat))
+    .route("/sync/snapshot", post(sync_snapshot))
+    .route("/apalis/email", post(push_email))
+    .route("/write", post(set_value))
+    .route("/update", post(update_value))
+    .route("/delete", post(delete_value))
+    .route("/cache/write", post(write_cached_value))
+    .route("/cache/read", post(read_cached_value))
+    .route("/sqlite/values", get(list_sqlite_values))
+    .with_state(Arc::new(state));
+
+  let listener = tokio::net::TcpListener::bind(addr)
+    .await
+    .context("bind http")?;
+  axum::serve(listener, app)
+    .with_graceful_shutdown(async move {
+      let _ = shutdown_rx.changed().await;
+    })
+    .await
+    .context("serve http")?;
+  Ok(())
+}
+
+#[derive(Serialize)]
+struct ClusterInfoResponse {
+  node_id: NodeId,
+  node_name: String,
+  peer_id: String,
+  listen: String,
+  group_id: String,
+  groups: Vec<String>,
+  known_nodes: Vec<KnownNodeResponse>,
+  raft_metrics: sonic_rs::Value,
+  kv_data: Vec<KvPairResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct KnownNodeResponse {
+  node_id: NodeId,
+  peer_id: String,
+  addr: String,
+}
+
+#[derive(Serialize)]
+struct KvPairResponse {
+  key: String,
+  value: String,
+}
+
+#[derive(Deserialize)]
+struct WriteValueRequest {
+  key: String,
+  #[serde(deserialize_with = "string_or_number")]
+  value: String,
+  group_id: Option<String>,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct WriteValueResponse {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  value: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateValueRequest {
+  key: String,
+  #[serde(deserialize_with = "string_or_number")]
+  value: String,
+  group_id: Option<String>,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct UpdateValueResponse {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  value: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeleteValueRequestBody {
+  key: String,
+  group_id: Option<String>,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct DeleteValueResponseBody {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CacheWriteRequest {
+  key: String,
+  #[serde(deserialize_with = "string_or_number")]
+  value: String,
+  group_id: Option<String>,
+  target_node_id: Option<NodeId>,
+}
+
+#[derive(Serialize)]
+struct CacheWriteResponse {
+  target_node_id: Option<NodeId>,
+  ok: bool,
+  pending_key: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CacheReadRequest {
+  key: String,
+}
+
+#[derive(Serialize)]
+struct CacheReadResponse {
+  ok: bool,
+  found: bool,
+  value: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SqliteValuesResponse {
+  ok: bool,
+  values: Vec<CachedValue>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ChatRequest {
+  text: String,
+  from: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ChatResponse {
+  ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SyncSnapshotRequest {
+  group_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SyncSnapshotResponse {
+  ok: bool,
+  group_id: String,
+  sync_group_id: Option<String>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EmailRequest {
+  to: String,
+}
+
+#[derive(Serialize)]
+struct EmailResponse {
+  ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ClusterQuery {
+  #[serde(alias = "group")]
+  group_id: Option<String>,
+}
+
+async fn cluster_graph_page(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Response {
+  let snapshot = cluster_graph_snapshot(state.as_ref(), query).await;
+  let body = render_cluster_graph_page(&snapshot);
+  (
+    StatusCode::OK,
+    [(
+      CONTENT_TYPE,
+      HeaderValue::from_static("text/html; charset=utf-8"),
+    )],
+    body,
+  )
+    .into_response()
+}
+
+async fn cluster_graph_dot_response(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Response {
+  let snapshot = cluster_graph_snapshot(state.as_ref(), query).await;
+  (
+    StatusCode::OK,
+    [(
+      CONTENT_TYPE,
+      HeaderValue::from_static("text/vnd.graphviz; charset=utf-8"),
+    )],
+    cluster_graph_dot(&snapshot),
+  )
+    .into_response()
+}
+
+async fn cluster_graph_svg_response(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Response {
+  let snapshot = cluster_graph_snapshot(state.as_ref(), query).await;
+  match tokio::task::spawn_blocking(move || cluster_graph_svg(&snapshot)).await {
+    Ok(Ok(svg)) => (
+      StatusCode::OK,
+      [(CONTENT_TYPE, HeaderValue::from_static("image/svg+xml"))],
+      svg,
+    )
+      .into_response(),
+    Ok(Err(err)) => (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      [(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+      )],
+      format!("render graphviz svg: {err}"),
+    )
+      .into_response(),
+    Err(err) => (
+      StatusCode::INTERNAL_SERVER_ERROR,
+      [(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+      )],
+      format!("join graphviz render task: {err}"),
+    )
+      .into_response(),
+  }
+}
+
+async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> ClusterGraphSnapshot {
+  let group_id = query
+    .group_id
+    .unwrap_or_else(|| state.default_group.clone());
+  let groups = openraft_groups()
+    .map(|groups| groups.keys().cloned().collect())
+    .unwrap_or_default();
+
+  let (metrics, error) = match openraft_group(&group_id) {
+    Some(group) => (Some(group.raft.metrics().borrow_watched().clone()), None),
+    None if openraft_groups().is_none() => (
+      None,
+      Some("openraft groups are not initialized".to_string()),
+    ),
+    None => (None, Some(format!("unknown group_id={group_id}"))),
+  };
+
+  let known_nodes = state.network.known_nodes().await;
+  let mut nodes = Vec::with_capacity(known_nodes.len());
+  for (node_id, peer_id, addr) in known_nodes {
+    let connected = state.network.is_peer_connected(&peer_id).await;
+    let server_state = if node_id == state.node_id {
+      metrics.as_ref().map(|metrics| metrics.state)
+    } else if connected {
+      remote_server_state(&group_id, &node_id, &state.network).await
+    } else {
+      None
+    };
+    nodes.push(ClusterGraphNode {
+      node_id,
+      peer_id: peer_id.to_string(),
+      addr: addr.to_string(),
+      connected,
+      server_state,
+    });
+  }
+
+  ClusterGraphSnapshot {
+    self_node_id: state.node_id.clone(),
+    self_peer_id: state.peer_id.clone(),
+    self_listen: state.listen.clone(),
+    group_id,
+    groups,
+    nodes,
+    metrics,
+    error,
+  }
+}
+
+async fn remote_server_state(
+  group_id: &str,
+  node_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+) -> Option<ServerState> {
+  match network
+    .request(
+      node_id.clone(),
+      RaftRpcRequest {
+        group_id: group_id.to_string(),
+        op: RaftRpcOp::GetMetrics,
+      },
+    )
+    .await
+  {
+    Ok(RaftRpcResponse::GetMetrics(metrics)) => Some(metrics.state),
+    Ok(RaftRpcResponse::Error(message)) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        error = %message,
+        "remote openraft metrics request returned error while rendering graph"
+      );
+      None
+    }
+    Ok(other) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        response = ?other,
+        "unexpected remote openraft metrics response while rendering graph"
+      );
+      None
+    }
+    Err(err) => {
+      tracing::debug!(
+        group = group_id,
+        node_id = %node_id,
+        error = ?err,
+        "remote openraft metrics request failed while rendering graph"
+      );
+      None
+    }
+  }
+}
+
+fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {
+  let group_options = snapshot
+    .groups
+    .iter()
+    .map(|group| {
+      let selected = if group == &snapshot.group_id {
+        " selected"
+      } else {
+        ""
+      };
+      format!(
+        "<option value=\"{}\"{}>{}</option>",
+        html_escape(group),
+        selected,
+        html_escape(group)
+      )
+    })
+    .collect::<String>();
+  let status = snapshot
+    .error
+    .as_ref()
+    .map(|err| format!("<p class=\"error\">{}</p>", html_escape(err)))
+    .unwrap_or_default();
+  format!(
+    r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="5">
+  <title>libp2p openraft graph</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #cbd5e1;
+      --accent: #0f766e;
+      --danger: #b91c1c;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }}
+    h1 {{
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }}
+    .meta {{
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }}
+    form {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }}
+    select,
+    a {{
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 6px 10px;
+      text-decoration: none;
+      font: inherit;
+    }}
+    a.primary {{
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }}
+    main {{
+      padding: 18px;
+    }}
+    .graph {{
+      width: 100%;
+      min-height: calc(100vh - 118px);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: auto;
+    }}
+    .graph img {{
+      display: block;
+      min-width: 760px;
+      max-width: none;
+      width: 100%;
+      height: auto;
+    }}
+    .error {{
+      margin: 0 0 12px;
+      color: var(--danger);
+      font-weight: 600;
+    }}
+    @media (max-width: 720px) {{
+      header {{
+        align-items: stretch;
+        flex-direction: column;
+      }}
+      main {{
+        padding: 10px;
+      }}
+      .graph {{
+        min-height: calc(100vh - 178px);
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>libp2p / openraft graph</h1>
+      <div class="meta">local peer_id: {} | refresh: 5s</div>
+    </div>
+    <form method="get" action="/graph">
+      <select name="group_id" aria-label="Raft group" onchange="this.form.submit()">{}</select>
+      <a class="primary" href="/graph.svg?group_id={}">SVG</a>
+      <a href="/graph.dot?group_id={}">DOT</a>
+      <a href="/cluster?group_id={}">JSON</a>
+    </form>
+  </header>
+  <main>
+    {}
+    <div class="graph">
+      <img src="/graph.svg?group_id={}" alt="libp2p and openraft topology">
+    </div>
+  </main>
+</body>
+</html>"#,
+    html_escape(&snapshot.self_peer_id),
+    group_options,
+    url_escape(&snapshot.group_id),
+    url_escape(&snapshot.group_id),
+    url_escape(&snapshot.group_id),
+    status,
+    url_escape(&snapshot.group_id),
+  )
+}
+
+fn html_escape(value: &str) -> String {
+  value
+    .replace('&', "&amp;")
+    .replace('<', "&lt;")
+    .replace('>', "&gt;")
+    .replace('"', "&quot;")
+}
+
+fn url_escape(value: &str) -> String {
+  value
+    .bytes()
+    .flat_map(|byte| match byte {
+      b'A' ..= b'Z' | b'a' ..= b'z' | b'0' ..= b'9' | b'-' | b'_' | b'.' | b'~' => {
+        vec![byte as char]
+      }
+      _ => format!("%{byte:02X}").chars().collect(),
+    })
+    .collect()
+}
+
+async fn cluster_info(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Json<ClusterInfoResponse> {
+  let mut nodes: Vec<KnownNodeResponse> = state
+    .network
+    .known_nodes()
+    .await
+    .into_iter()
+    .map(|(node_id, peer_id, addr)| KnownNodeResponse {
+      node_id,
+      peer_id: peer_id.to_string(),
+      addr: addr.to_string(),
+    })
+    .collect();
+
+  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+
+  let group_id = query
+    .group_id
+    .unwrap_or_else(|| state.default_group.clone());
+
+  let Some(global_groups) = openraft_groups() else {
+    return Json(ClusterInfoResponse {
+      node_id: state.node_id.clone(),
+      node_name: state.node_name.clone(),
+      peer_id: state.peer_id.clone(),
+      listen: state.listen.clone(),
+      group_id,
+      groups: Vec::new(),
+      known_nodes: nodes,
+      raft_metrics: sonic_rs::Value::from_static_str("openraft groups are not initialized"),
+      kv_data: Vec::new(),
+      error: Some("openraft groups are not initialized".to_string()),
+    });
+  };
+
+  let groups: Vec<String> = global_groups.keys().cloned().collect();
+
+  let Some(group) = openraft_group(&group_id) else {
+    return Json(ClusterInfoResponse {
+      node_id: state.node_id.clone(),
+      node_name: state.node_name.clone(),
+      peer_id: state.peer_id.clone(),
+      listen: state.listen.clone(),
+      group_id,
+      groups,
+      known_nodes: nodes,
+      raft_metrics: sonic_rs::Value::from_static_str("unknown group"),
+      kv_data: Vec::new(),
+      error: Some("unknown group_id".to_string()),
+    });
+  };
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let raft_metrics = sonic_rs::to_value(&metrics)
+    .unwrap_or_else(|err| sonic_rs::Value::copy_str(&format!("metrics serialize error: {err}")));
+
+  let mut kv_data = Vec::new();
+  let allow_local_read = match tokio::time::timeout(
+    Duration::from_millis(300),
+    ensure_linearizable_read(&group.raft),
+  )
+  .await
+  {
+    Ok(Ok(())) => true,
+    Ok(Err(err)) => {
+      let is_forward = matches!(
+        err.api_error(),
+        Some(openraft::error::LinearizableReadError::ForwardToLeader(_))
+      );
+      if !is_forward {
+        tracing::warn!("cluster_info read index failed: {err:?}");
+      }
+      is_forward
+    }
+    Err(_) => {
+      tracing::warn!("cluster_info read index timeout");
+      false
+    }
+  };
+  if allow_local_read {
+    match group.kv_data.entries().await {
+      Ok(entries) => {
+        for (key, value) in entries {
+          kv_data.push(KvPairResponse { key, value });
+        }
+      }
+      Err(err) => {
+        tracing::warn!("cluster_info rocksdb kv read failed: {err:?}");
+        kv_data.clear();
+      }
+    }
+  }
+  kv_data.sort_by(|a, b| a.key.cmp(&b.key));
+
+  Json(ClusterInfoResponse {
+    node_id: state.node_id.clone(),
+    node_name: state.node_name.clone(),
+    peer_id: state.peer_id.clone(),
+    listen: state.listen.clone(),
+    group_id,
+    groups,
+    known_nodes: nodes,
+    raft_metrics,
+    kv_data,
+    error: None,
+  })
+}
+
+async fn push_email(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<EmailRequest>,
+) -> Json<EmailResponse> {
+  let mut storage = state.apalis_email.clone();
+  match storage.push(Email { to: req.to }).await {
+    Ok(()) => Json(EmailResponse {
+      ok: true,
+      error: None,
+    }),
+    Err(err) => Json(EmailResponse {
+      ok: false,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn set_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<WriteValueRequest>,
+) -> Json<WriteValueResponse> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(WriteValueResponse {
+        target_node_id: None,
+        ok: false,
+        value: None,
+        error: Some(err),
+      });
+    }
+  };
+
+  let request = RaftKvRequest {
+    group_id: group_id.clone(),
+    op: Some(KvRequestOp::Set(SetValueRequest {
+      key: req.key,
+      value: req.value,
+    })),
+  };
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(WriteValueResponse {
+          target_node_id: None,
+          ok: false,
+          value: None,
+          error: Some(err),
+        });
+      }
+    };
+
+  match response.op {
+    Some(KvResponseOp::Set(resp)) => Json(WriteValueResponse {
+      target_node_id,
+      ok: resp.ok,
+      value: Some(resp.value),
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(WriteValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(err.message),
+    }),
+    other => Json(WriteValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn send_chat(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<ChatRequest>,
+) -> Json<ChatResponse> {
+  let from = req.from.unwrap_or_else(|| state.node_name.clone());
+  let ts = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis() as i64;
+  let chat = ChatMessage {
+    from,
+    text: req.text,
+    ts_unix_ms: ts,
+  };
+
+  let mut buf = Vec::new();
+  if let Err(err) = chat.encode(&mut buf) {
+    return Json(ChatResponse {
+      ok: false,
+      error: Some(format!("encode error: {err}")),
+    });
+  }
+
+  match state.network.publish_gossipsub(GOSSIP_TOPIC, buf).await {
+    Ok(()) => Json(ChatResponse {
+      ok: true,
+      error: None,
+    }),
+    Err(err) => Json(ChatResponse {
+      ok: false,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn sync_snapshot(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<SyncSnapshotRequest>,
+) -> Json<SyncSnapshotResponse> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(SyncSnapshotResponse {
+        ok: false,
+        group_id: state.default_group.clone(),
+        sync_group_id: None,
+        error: Some(err),
+      });
+    }
+  };
+
+  match state
+    .network
+    .publish_openraft_snapshot(group_id.clone())
+    .await
+  {
+    Ok(sync_group_id) => Json(SyncSnapshotResponse {
+      ok: true,
+      group_id,
+      sync_group_id: Some(sync_group_id),
+      error: None,
+    }),
+    Err(err) => Json(SyncSnapshotResponse {
+      ok: false,
+      group_id,
+      sync_group_id: None,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn update_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<UpdateValueRequest>,
+) -> Json<UpdateValueResponse> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(UpdateValueResponse {
+        target_node_id: None,
+        ok: false,
+        value: None,
+        error: Some(err),
+      });
+    }
+  };
+
+  let request = RaftKvRequest {
+    group_id: group_id.clone(),
+    op: Some(KvRequestOp::Update(ProtoUpdateValueRequest {
+      key: req.key,
+      value: req.value,
+    })),
+  };
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(UpdateValueResponse {
+          target_node_id: None,
+          ok: false,
+          value: None,
+          error: Some(err),
+        });
+      }
+    };
+
+  match response.op {
+    Some(KvResponseOp::Update(resp)) => Json(UpdateValueResponse {
+      target_node_id,
+      ok: resp.ok,
+      value: Some(resp.value),
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(UpdateValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(err.message),
+    }),
+    other => Json(UpdateValueResponse {
+      target_node_id,
+      ok: false,
+      value: None,
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn delete_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<DeleteValueRequestBody>,
+) -> Json<DeleteValueResponseBody> {
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(DeleteValueResponseBody {
+        target_node_id: None,
+        ok: false,
+        error: Some(err),
+      });
+    }
+  };
+
+  let request = RaftKvRequest {
+    group_id: group_id.clone(),
+    op: Some(KvRequestOp::Delete(DeleteValueRequest { key: req.key })),
+  };
+  let (target_node_id, response) =
+    match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
+      Ok((id, resp)) => (Some(id), resp),
+      Err(err) => {
+        return Json(DeleteValueResponseBody {
+          target_node_id: None,
+          ok: false,
+          error: Some(err),
+        });
+      }
+    };
+
+  match response.op {
+    Some(KvResponseOp::Delete(resp)) => Json(DeleteValueResponseBody {
+      target_node_id,
+      ok: resp.ok,
+      error: None,
+    }),
+    Some(KvResponseOp::Error(err)) => Json(DeleteValueResponseBody {
+      target_node_id,
+      ok: false,
+      error: Some(err.message),
+    }),
+    other => Json(DeleteValueResponseBody {
+      target_node_id,
+      ok: false,
+      error: Some(format!("unexpected response: {other:?}")),
+    }),
+  }
+}
+
+async fn write_cached_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<CacheWriteRequest>,
+) -> Json<CacheWriteResponse> {
+  let Some(cache) = state.sqlite_cache.as_ref() else {
+    return Json(CacheWriteResponse {
+      target_node_id: None,
+      ok: false,
+      pending_key: None,
+      error: Some("sqlite cache is disabled".to_string()),
+    });
+  };
+
+  let group_id = match resolve_group_id(state.as_ref(), req.group_id) {
+    Ok(group_id) => group_id,
+    Err(err) => {
+      return Json(CacheWriteResponse {
+        target_node_id: None,
+        ok: false,
+        pending_key: None,
+        error: Some(err),
+      });
+    }
+  };
+
+  if let Err(err) = cache.write_redis(&req.key, &req.value).await {
+    return Json(CacheWriteResponse {
+      target_node_id: None,
+      ok: false,
+      pending_key: None,
+      error: Some(err.to_string()),
+    });
+  }
+
+  let openraft_key = pending_key(&req.key);
+  let group = match openraft_group(&group_id) {
+    Some(group) => group,
+    None => {
+      return Json(CacheWriteResponse {
+        target_node_id: None,
+        ok: false,
+        pending_key: Some(openraft_key),
+        error: Some(format!("unknown group_id={group_id}")),
+      });
+    }
+  };
+
+  if req.target_node_id.is_some() {
+    let request = RaftKvRequest {
+      group_id: group_id.clone(),
+      op: Some(KvRequestOp::Set(SetValueRequest {
+        key: openraft_key.clone(),
+        value: "1".to_string(),
+      })),
+    };
+    let (target_node_id, response) =
+      match send_kv_request(state.as_ref(), &group_id, req.target_node_id, request).await {
+        Ok((id, resp)) => (Some(id), resp),
+        Err(err) => {
+          return Json(CacheWriteResponse {
+            target_node_id: None,
+            ok: false,
+            pending_key: Some(openraft_key),
+            error: Some(err),
+          });
+        }
+      };
+
+    return match response.op {
+      Some(KvResponseOp::Set(resp)) if resp.ok => Json(CacheWriteResponse {
+        target_node_id,
+        ok: true,
+        pending_key: Some(openraft_key),
+        error: None,
+      }),
+      Some(KvResponseOp::Error(err)) => Json(CacheWriteResponse {
+        target_node_id,
+        ok: false,
+        pending_key: Some(openraft_key),
+        error: Some(err.message),
+      }),
+      other => Json(CacheWriteResponse {
+        target_node_id,
+        ok: false,
+        pending_key: Some(openraft_key),
+        error: Some(format!("unexpected response: {other:?}")),
+      }),
+    };
+  }
+
+  match record_pending_key(group_id, &group, &state.kv_client, &req.key).await {
+    Ok(target_node_id) => Json(CacheWriteResponse {
+      target_node_id: Some(target_node_id),
+      ok: true,
+      pending_key: Some(openraft_key),
+      error: None,
+    }),
+    Err(err) => Json(CacheWriteResponse {
+      target_node_id: None,
+      ok: false,
+      pending_key: Some(openraft_key),
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn read_cached_value(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<CacheReadRequest>,
+) -> Json<CacheReadResponse> {
+  let Some(cache) = state.sqlite_cache.as_ref() else {
+    return Json(CacheReadResponse {
+      ok: false,
+      found: false,
+      value: None,
+      error: Some("sqlite cache is disabled".to_string()),
+    });
+  };
+
+  match cache.read_cached(&req.key).await {
+    Ok(Some(value)) => Json(CacheReadResponse {
+      ok: true,
+      found: true,
+      value: Some(value),
+      error: None,
+    }),
+    Ok(None) => Json(CacheReadResponse {
+      ok: true,
+      found: false,
+      value: None,
+      error: None,
+    }),
+    Err(err) => Json(CacheReadResponse {
+      ok: false,
+      found: false,
+      value: None,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn list_sqlite_values(State(state): State<Arc<AppState>>) -> Json<SqliteValuesResponse> {
+  let Some(cache) = state.sqlite_cache.as_ref() else {
+    return Json(SqliteValuesResponse {
+      ok: false,
+      values: Vec::new(),
+      error: Some("sqlite cache is disabled".to_string()),
+    });
+  };
+
+  match cache.list_sqlite_values().await {
+    Ok(values) => Json(SqliteValuesResponse {
+      ok: true,
+      values,
+      error: None,
+    }),
+    Err(err) => Json(SqliteValuesResponse {
+      ok: false,
+      values: Vec::new(),
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn send_kv_request(
+  state: &AppState,
+  group_id: &str,
+  target_node_id: Option<NodeId>,
+  request: RaftKvRequest,
+) -> Result<(NodeId, RaftKvResponse), String> {
+  match resolve_kv_target(state, group_id, target_node_id).await? {
+    KvTarget::Local { node_id } => {
+      let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
+      let resp =
+        process_kv_request(group.raft, group.kv_data, state.kv_client.clone(), request).await;
+      Ok((node_id, resp))
+    }
+    KvTarget::Remote {
+      node_id,
+      peer,
+      addr,
+    } => {
+      state
+        .kv_client
+        .connect(peer, addr)
+        .await
+        .map_err(|err| format!("libp2p connect error: {err}"))?;
+      let resp = state
+        .kv_client
+        .request(peer, request)
+        .await
+        .map_err(|err| format!("libp2p error: {err}"))?;
+      Ok((node_id, resp))
+    }
+  }
+}
+
+enum KvTarget {
+  Local {
+    node_id: NodeId,
+  },
+  Remote {
+    node_id: NodeId,
+    peer: PeerId,
+    addr: Multiaddr,
+  },
+}
+
+fn resolve_group_id(state: &AppState, group_id: Option<String>) -> Result<GroupId, String> {
+  match group_id {
+    Some(group_id) => {
+      if openraft_groups().is_some_and(|groups| groups.contains_key(&group_id)) {
+        Ok(group_id)
+      } else {
+        Err(format!("unknown group_id={group_id}"))
+      }
+    }
+    None => Ok(state.default_group.clone()),
+  }
+}
+
+async fn resolve_kv_target(
+  state: &AppState,
+  group_id: &str,
+  target_node_id: Option<NodeId>,
+) -> Result<KvTarget, String> {
+  let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let candidate = target_node_id.or_else(|| metrics.current_leader.clone());
+
+  if metrics.state.is_leader() || candidate.as_ref() == Some(&state.node_id) {
+    return Ok(KvTarget::Local {
+      node_id: state.node_id.clone(),
+    });
+  }
+
+  let nodes = state.network.known_nodes().await;
+  if nodes.is_empty() {
+    return Ok(KvTarget::Local {
+      node_id: state.node_id.clone(),
+    });
+  }
+
+  let node_id = candidate
+    .filter(|id| id != &state.node_id)
+    .or_else(|| {
+      nodes
+        .iter()
+        .find(|(id, _, _)| id != &state.node_id)
+        .map(|(id, _, _)| id.clone())
+    })
+    .or_else(|| nodes.first().map(|(id, _, _)| id.clone()))
+    .ok_or_else(|| "no leader available".to_string())?;
+
+  nodes
+    .into_iter()
+    .find(|(id, _, _)| id == &node_id)
+    .map(|(id, peer, addr)| KvTarget::Remote {
+      node_id: id,
+      peer,
+      addr,
+    })
+    .ok_or_else(|| format!("unknown target node_id={node_id}"))
+}
+
+fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+  D: Deserializer<'de>,
+{
+  struct StringOrNumberVisitor;
+
+  impl Visitor<'_> for StringOrNumberVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      formatter.write_str("a string, number, or bool")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_owned())
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value)
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+      E: de::Error,
+    {
+      Ok(value.to_string())
+    }
+  }
+
+  deserializer.deserialize_any(StringOrNumberVisitor)
+}
