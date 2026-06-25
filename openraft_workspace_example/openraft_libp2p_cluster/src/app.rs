@@ -19,14 +19,14 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
-use openraft::BasicNode;
+use openraft::{BasicNode, async_runtime::WatchReceiver};
 use tokio::sync::mpsc;
 
 use crate::{
   GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
   constants::{
     SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT,
-    SERVICE_SQLITE_CACHE_FLUSHER,
+    SERVICE_OPENRAFT_LEADER_WORKER, SERVICE_SQLITE_CACHE_FLUSHER,
   },
   groups, http,
   network::{
@@ -53,6 +53,8 @@ use crate::{
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
 const OPENRAFT_CONTROL_PLANE_SIZE: usize = 3;
+const OPENRAFT_LEADER_WORKER_INTERVAL_SECS: u64 = 1;
+const APALIS_WORKER_RESTART_DELAY_SECS: u64 = 2;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 /// How long to wait for at least one remote peer to become connected before
 /// running the startup "was this node removed?" membership check. Without
@@ -644,6 +646,138 @@ fn spawn_apalis_worker(
   })
 }
 
+fn spawn_resilient_apalis_worker(
+  shutdown: &mut crate::signal::ShutdownHandler,
+  worker_name: String,
+  storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+) -> tokio::task::JoinHandle<()> {
+  let apalis_done = shutdown.push(SERVICE_APALIS_WORKER);
+  let apalis_shutdown = shutdown.shutdown_rx();
+  tokio::spawn(async move {
+    run_resilient_apalis_worker(worker_name, storage, apalis_shutdown).await;
+    let _ = apalis_done.send(Ok(()));
+  })
+}
+
+async fn run_resilient_apalis_worker(
+  worker_name: String,
+  storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let restart_delay = Duration::from_secs(APALIS_WORKER_RESTART_DELAY_SECS);
+
+  loop {
+    let worker_shutdown_rx = shutdown_rx.clone();
+    let mut handle = tokio::spawn(apalis_raft::run_email_worker(
+      worker_name.clone(),
+      storage.clone(),
+      worker_shutdown_rx,
+    ));
+
+    tokio::select! {
+      _ = shutdown_rx.changed() => {
+        let _ = handle.await;
+        break;
+      }
+      result = &mut handle => {
+        match result {
+          Ok(Ok(())) => break,
+          Ok(Err(err)) => {
+            tracing::warn!(
+              worker_name = %worker_name,
+              error = ?err,
+              "apalis worker stopped; restarting so libp2p worker stays online"
+            );
+          }
+          Err(err) => {
+            tracing::warn!(
+              worker_name = %worker_name,
+              error = ?err,
+              "apalis worker task failed; restarting so libp2p worker stays online"
+            );
+          }
+        }
+      }
+    }
+
+    tokio::select! {
+      _ = shutdown_rx.changed() => break,
+      _ = tokio::time::sleep(restart_delay) => {}
+    }
+  }
+}
+
+fn spawn_openraft_leader_worker(
+  shutdown: &mut crate::signal::ShutdownHandler,
+  apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+) -> tokio::task::JoinHandle<()> {
+  let done = shutdown.push(SERVICE_OPENRAFT_LEADER_WORKER);
+  let shutdown_rx = shutdown.shutdown_rx();
+  tokio::spawn(async move {
+    run_openraft_leader_worker(
+      apalis_storage,
+      Duration::from_secs(OPENRAFT_LEADER_WORKER_INTERVAL_SECS),
+      shutdown_rx,
+    )
+    .await;
+    let _ = done.send(Ok(()));
+  })
+}
+
+async fn run_openraft_leader_worker(
+  apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+  interval: Duration,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let mut tick = tokio::time::interval(interval);
+  tick.tick().await;
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => {
+        tracing::info!("stopping openraft leader worker");
+        break;
+      }
+      _ = tick.tick() => {
+        run_openraft_leader_tick(&apalis_storage).await;
+      }
+    }
+  }
+}
+
+async fn run_openraft_leader_tick(
+  apalis_storage: &apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+) {
+  let Some(groups) = openraft_groups() else {
+    tracing::warn!("openraft leader worker skipped tick because groups are not initialized");
+    return;
+  };
+
+  for (group_id, group) in groups {
+    let metrics = group.raft.metrics().borrow_watched().clone();
+    if !metrics.state.is_leader() {
+      continue;
+    }
+
+    tracing::trace!(
+      group = %group_id,
+      node_id = %metrics.id,
+      "openraft leader worker tick"
+    );
+
+    if group_id == groups::APALIS
+      && let Err(err) = apalis_storage.run_leader_operations().await
+    {
+      tracing::warn!(
+        group = %group_id,
+        node_id = %metrics.id,
+        error = ?err,
+        "openraft leader operation failed"
+      );
+    }
+  }
+}
+
 fn spawn_sqlite_cache_flusher(
   shutdown: &mut crate::signal::ShutdownHandler,
   local_node_id: NodeId,
@@ -673,6 +807,7 @@ fn spawn_openraft_shutdown(
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
   apalis_handle: tokio::task::JoinHandle<()>,
+  leader_worker_handle: tokio::task::JoinHandle<()>,
   sqlite_flusher_handle: Option<tokio::task::JoinHandle<()>>,
 ) {
   // Openraft should shut down after libp2p swarm has stopped.
@@ -716,6 +851,7 @@ fn spawn_openraft_shutdown(
     let _ = swarm_handle.await;
     let _ = http_handle.await;
     let _ = apalis_handle.await;
+    let _ = leader_worker_handle.await;
     if let Some(sqlite_flusher_handle) = sqlite_flusher_handle {
       let _ = sqlite_flusher_handle.await;
     }
@@ -1065,7 +1201,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     let http_state = build_http_state(&opt, &identity, &libp2p, None, Some(apalis_storage.clone()));
     let apalis_worker_name = format!("libp2p-email-worker-{}", opt.id);
     let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
-    let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
+    let apalis_handle =
+      spawn_resilient_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
 
     maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
 
@@ -1114,6 +1251,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let apalis_storage =
     build_apalis_email_storage(opt.id.clone(), &libp2p).expect("apalis group should be configured");
+  let leader_worker_storage = apalis_storage.clone();
   let http_state = build_http_state(
     &opt,
     &identity,
@@ -1124,6 +1262,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let apalis_worker_name = format!("raft-scheduler-{}", opt.id);
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
   let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
+  let leader_worker_handle = spawn_openraft_leader_worker(&mut shutdown, leader_worker_storage);
 
   maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
   maybe_init_cluster(members, opt.id.clone(), opt.init).await?;
@@ -1144,6 +1283,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     swarm_handle,
     http_handle,
     apalis_handle,
+    leader_worker_handle,
     sqlite_flusher_handle,
   );
 

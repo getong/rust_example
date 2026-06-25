@@ -16,7 +16,7 @@ use apalis::prelude::{
 };
 use apalis_core::backend::queue::Queue;
 use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream};
-use openraft::{ServerState, async_runtime::WatchReceiver};
+use openraft::async_runtime::WatchReceiver;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{sync::Mutex, time::sleep};
 
@@ -352,11 +352,40 @@ where
 
   fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
     let worker_id = worker.name().clone();
-    stream::unfold((self, worker_id), |(storage, worker_id)| async move {
-      sleep(storage.poll_interval).await;
-      let item = storage.try_claim_next(&worker_id).await;
-      Some((item, (storage, worker_id)))
-    })
+    stream::unfold(
+      (self, worker_id, false),
+      |(storage, worker_id, was_erroring)| async move {
+        sleep(storage.poll_interval).await;
+        let (item, is_erroring) = match storage.try_claim_next(&worker_id).await {
+          Ok(item) => {
+            if was_erroring {
+              tracing::info!(
+                worker_id = %worker_id,
+                "apalis backend poll recovered"
+              );
+            }
+            (Ok(item), false)
+          }
+          Err(err) => {
+            if was_erroring {
+              tracing::debug!(
+                worker_id = %worker_id,
+                error = ?err,
+                "apalis backend poll failed; retrying"
+              );
+            } else {
+              tracing::warn!(
+                worker_id = %worker_id,
+                error = ?err,
+                "apalis backend poll failed; retrying"
+              );
+            }
+            (Ok(None), true)
+          }
+        };
+        Some((item, (storage, worker_id, is_erroring)))
+      },
+    )
     .boxed()
   }
 }
@@ -442,14 +471,21 @@ impl<Args, C> RaftApalisStorage<Args, C> {
     worker_id: &str,
   ) -> Result<Option<Task<Vec<u8>, RaftTaskContext, RaftTaskId>>, RaftApalisError> {
     match &self.backend {
+      RaftApalisBackend::Control { .. } => Ok(None),
+      RaftApalisBackend::Worker { .. } => self.try_claim_assigned(worker_id).await,
+    }
+  }
+
+  pub async fn run_leader_operations(&self) -> Result<(), RaftApalisError> {
+    match &self.backend {
       RaftApalisBackend::Control { raft, .. } => {
         let metrics = raft.metrics().borrow_watched().clone();
-        if metrics.state == ServerState::Leader {
+        if metrics.state.is_leader() {
           self.schedule_next_to_worker().await?;
         }
-        Ok(None)
+        Ok(())
       }
-      RaftApalisBackend::Worker { .. } => self.try_claim_assigned(worker_id).await,
+      RaftApalisBackend::Worker { .. } => Ok(()),
     }
   }
 
