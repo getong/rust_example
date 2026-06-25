@@ -34,7 +34,7 @@ use crate::{
     openraft_sync::OPENRAFT_SYNC_TOPIC,
     proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
     raft_bridge::P2PNetworkFactoryWrapper,
-    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    rpc::{JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
       Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, SqliteSyncClient, run_swarm,
       set_libp2p_swarm,
@@ -51,11 +51,13 @@ use crate::{
 };
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
-const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
 const OPENRAFT_LEADER_WORKER_INTERVAL_SECS: u64 = 1;
 const APALIS_WORKER_RESTART_DELAY_SECS: u64 = 2;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
+const CONTROL_JOIN_POLL_INTERVAL_SECS: u64 = 2;
+const CONTROL_JOIN_CATCH_UP_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_MAX_CONTROL_NODES: usize = 3;
 /// How long to wait for at least one remote peer to become connected before
 /// running the startup "was this node removed?" membership check. Without
 /// this wait the check always sees zero connected peers and silently skips,
@@ -180,19 +182,29 @@ pub struct Opt {
   #[arg(long)]
   pub key: Option<PathBuf>,
 
-  /// Initialize cluster membership on startup.
-  ///
-  /// Provide all nodes (including self) with multiaddr including /p2p/<peerid>:
-  ///   --init --node 12D3KooW...=/ip4/127.0.0.1/tcp/4001/p2p/12D3KooW...
-  #[arg(long, default_value_t = false)]
-  pub init: bool,
-
   /// Known cluster node addresses in the form: <id>=<multiaddr-with-/p2p/peerid>.
   ///
-  /// On first boot with --init this is the initial OpenRaft membership. Before
-  /// this node has joined OpenRaft, these nodes are used as the control plane.
+  /// Kept for compatibility. Prefer --bootstrap-node for normal startup.
   #[arg(long = "node")]
   pub nodes: Vec<String>,
+
+  /// Libp2p bootstrap node in the form: <id>=<multiaddr-with-/p2p/peerid>.
+  ///
+  /// If the local --id matches a bootstrap node id, this process bootstraps
+  /// OpenRaft locally. Otherwise it dials the bootstrap node and requests to join.
+  ///
+  /// Non-bootstrap nodes dial this node and ask the current OpenRaft leader to
+  /// join the control membership while it has fewer than --max-control-nodes voters.
+  #[arg(long = "bootstrap-node")]
+  pub bootstrap_nodes: Vec<String>,
+
+  /// Address advertised in OpenRaft membership. Defaults to --listen with /p2p/<id> appended.
+  #[arg(long)]
+  pub advertise: Option<String>,
+
+  /// Maximum number of OpenRaft control voters admitted by automatic startup join.
+  #[arg(long, default_value_t = DEFAULT_MAX_CONTROL_NODES)]
+  pub max_control_nodes: usize,
 
   /// OpenRaft heartbeat interval in milliseconds (leader keepalive cadence).
   #[arg(long, default_value_t = 250)]
@@ -332,8 +344,12 @@ struct ControlRuntime {
 }
 
 enum StartupMode {
-  Worker { control_nodes: Vec<NodeId> },
+  Worker { known_control_nodes: Vec<NodeId> },
   Control,
+}
+
+fn is_bootstrap_node(bootstrap_nodes: &[(NodeId, String)], self_id: &NodeId) -> bool {
+  bootstrap_nodes.iter().any(|(id, _addr)| id == self_id)
 }
 
 fn init_node_identity(opt: &Opt) -> anyhow::Result<(identity::Keypair, NodeIdentity)> {
@@ -375,6 +391,22 @@ fn parse_listen_addr(opt: &Opt) -> anyhow::Result<Multiaddr> {
     ));
   }
   Ok(listen_addr)
+}
+
+fn local_advertise_addr(opt: &Opt) -> anyhow::Result<String> {
+  let addr = opt
+    .advertise
+    .clone()
+    .unwrap_or_else(|| format!("{}/p2p/{}", opt.listen, opt.id));
+  let (peer, _) = parse_p2p_addr(&addr).context("invalid --advertise multiaddr")?;
+  if opt.id.as_str() != peer.to_string() {
+    return Err(anyhow!(
+      "--advertise /p2p peer id must match --id: id={}, peer={}",
+      opt.id,
+      peer
+    ));
+  }
+  Ok(addr)
 }
 
 fn build_libp2p_handles(
@@ -794,28 +826,8 @@ fn linked_shutdown(parent_rx: crate::signal::ShutdownRx) -> crate::signal::Shutd
 async fn run_control_services(
   runtime: ControlRuntime,
   http_addr: SocketAddr,
-  members: BTreeMap<NodeId, BasicNode>,
   shutdown_rx_for_ordering: crate::signal::ShutdownRx,
 ) -> anyhow::Result<()> {
-  cleanup_removed_local_groups(
-    &runtime.opt.db,
-    &runtime.opt.id,
-    &runtime.group_ids,
-    &runtime.libp2p.network,
-  )
-  .await?;
-
-  let group_handles = start_openraft_groups(
-    &runtime.opt,
-    runtime.opt.id.clone(),
-    &runtime.opt.db,
-    runtime.libp2p.network.clone(),
-    &runtime.group_ids,
-  )
-  .await?;
-  set_openraft_groups(group_handles)
-    .map_err(|_| anyhow!("global openraft groups already initialized"))?;
-
   let sqlite_cache = if runtime.opt.disable_sqlite_cache {
     None
   } else {
@@ -853,8 +865,6 @@ async fn run_control_services(
       runtime.libp2p.kv_client.clone(),
     )
   });
-
-  maybe_init_cluster(members, runtime.opt.id.clone(), runtime.opt.init).await?;
 
   let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
 
@@ -899,6 +909,13 @@ enum PromotionWatchResult {
   Shutdown,
 }
 
+enum ControlJoinWatchResult {
+  Joined,
+  AlreadyMember,
+  Full,
+  Shutdown,
+}
+
 async fn run_control_promotion_watcher(
   runtime: ControlRuntime,
   mut shutdown_rx: crate::signal::ShutdownRx,
@@ -930,17 +947,224 @@ async fn run_control_promotion_watcher(
   }
 }
 
+async fn run_control_join_watcher(
+  runtime: ControlRuntime,
+  bootstrap_nodes: Vec<NodeId>,
+  advertise_addr: String,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) -> anyhow::Result<ControlJoinWatchResult> {
+  if bootstrap_nodes.is_empty() || runtime.opt.max_control_nodes == 0 {
+    return Ok(ControlJoinWatchResult::Full);
+  }
+
+  let mut tick = tokio::time::interval(Duration::from_secs(CONTROL_JOIN_POLL_INTERVAL_SECS));
+  tick.tick().await;
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => {
+        return Ok(ControlJoinWatchResult::Shutdown);
+      }
+      _ = tick.tick() => {
+        match try_join_control_cluster(&runtime, &bootstrap_nodes, &advertise_addr).await {
+          Some(JoinClusterOutcome::Joined) => return Ok(ControlJoinWatchResult::Joined),
+          Some(JoinClusterOutcome::AlreadyMember) => return Ok(ControlJoinWatchResult::AlreadyMember),
+          Some(JoinClusterOutcome::Full) => return Ok(ControlJoinWatchResult::Full),
+          None => {}
+        }
+      }
+    }
+  }
+}
+
+enum JoinClusterOutcome {
+  Joined,
+  AlreadyMember,
+  Full,
+}
+
+struct JoinClusterAttempt {
+  outcome: JoinClusterOutcome,
+  leader_hint: Option<(NodeId, String)>,
+}
+
+async fn try_join_control_cluster(
+  runtime: &ControlRuntime,
+  bootstrap_nodes: &[NodeId],
+  advertise_addr: &str,
+) -> Option<JoinClusterOutcome> {
+  for bootstrap_node in bootstrap_nodes {
+    if bootstrap_node == &runtime.opt.id {
+      continue;
+    }
+
+    let Some(metrics) = fetch_remote_group_metrics(
+      &runtime.group_ids[0],
+      &runtime.opt.id,
+      &runtime.libp2p.network,
+    )
+    .await
+    else {
+      tracing::debug!(
+        bootstrap_node = %bootstrap_node,
+        "skip control join attempt because remote metrics are unavailable"
+      );
+      continue;
+    };
+
+    let membership = metrics.membership_config.membership();
+    if membership.get_node(&runtime.opt.id).is_some() {
+      return Some(JoinClusterOutcome::AlreadyMember);
+    }
+
+    let voter_count = membership.voter_ids().count();
+    if voter_count >= runtime.opt.max_control_nodes {
+      tracing::info!(
+        voters = voter_count,
+        max_voters = runtime.opt.max_control_nodes,
+        "openraft control membership is full; staying worker"
+      );
+      return Some(JoinClusterOutcome::Full);
+    }
+
+    let mut target_node = match metrics.current_leader.as_ref() {
+      Some(leader_id) if leader_id != &runtime.opt.id => leader_id.clone(),
+      _ => bootstrap_node.clone(),
+    };
+
+    loop {
+      match request_join_all_groups(runtime, target_node.clone(), advertise_addr).await {
+        Ok(JoinClusterAttempt {
+          outcome,
+          leader_hint: None,
+        }) => return Some(outcome),
+        Ok(JoinClusterAttempt {
+          leader_hint: Some((leader_id, leader_addr)),
+          ..
+        }) if leader_id != runtime.opt.id && leader_id != target_node => {
+          let _ = runtime
+            .libp2p
+            .network
+            .register_node(leader_id.clone(), &leader_addr)
+            .await;
+          target_node = leader_id;
+        }
+        Ok(JoinClusterAttempt { outcome, .. }) => return Some(outcome),
+        Err(err) => {
+          tracing::debug!(error = ?err, "control join request failed");
+          break;
+        }
+      }
+    }
+  }
+
+  None
+}
+
+async fn request_join_all_groups(
+  runtime: &ControlRuntime,
+  target_node: NodeId,
+  advertise_addr: &str,
+) -> anyhow::Result<JoinClusterAttempt> {
+  let mut joined_any = false;
+
+  for group_id in &runtime.group_ids {
+    let response =
+      request_join_control_group(runtime, target_node.clone(), group_id, advertise_addr).await?;
+    if let Some(leader_id) = response.leader_id.clone()
+      && leader_id != target_node
+      && let Some(leader_addr) = response.leader_addr.clone()
+    {
+      return Ok(JoinClusterAttempt {
+        outcome: JoinClusterOutcome::AlreadyMember,
+        leader_hint: Some((leader_id, leader_addr)),
+      });
+    }
+
+    if response.already_member {
+      continue;
+    }
+
+    if response.joined {
+      joined_any = true;
+      continue;
+    }
+
+    if response.voter_count >= response.max_voters {
+      tracing::info!(
+        group = group_id,
+        voters = response.voter_count,
+        max_voters = response.max_voters,
+        error = ?response.error,
+        "openraft control membership is full; staying worker"
+      );
+      return Ok(JoinClusterAttempt {
+        outcome: JoinClusterOutcome::Full,
+        leader_hint: None,
+      });
+    }
+
+    return Err(anyhow!(
+      "join group {group_id} failed: {}",
+      response
+        .error
+        .unwrap_or_else(|| "unknown error".to_string())
+    ));
+  }
+
+  Ok(JoinClusterAttempt {
+    outcome: if joined_any {
+      JoinClusterOutcome::Joined
+    } else {
+      JoinClusterOutcome::AlreadyMember
+    },
+    leader_hint: None,
+  })
+}
+
+async fn request_join_control_group(
+  runtime: &ControlRuntime,
+  target_node: NodeId,
+  group_id: &str,
+  advertise_addr: &str,
+) -> anyhow::Result<JoinClusterResponse> {
+  let response = runtime
+    .libp2p
+    .network
+    .request(
+      target_node.clone(),
+      RaftRpcRequest {
+        group_id: group_id.to_string(),
+        op: RaftRpcOp::JoinCluster(JoinClusterRequest {
+          node_id: runtime.opt.id.clone(),
+          addr: advertise_addr.to_string(),
+          max_voters: runtime.opt.max_control_nodes,
+          catch_up_timeout_ms: CONTROL_JOIN_CATCH_UP_TIMEOUT_SECS * 1000,
+        }),
+      },
+    )
+    .await?;
+
+  match response {
+    RaftRpcResponse::JoinCluster(response) => Ok(response),
+    RaftRpcResponse::Error(message) => Err(anyhow!("join request failed: {message}")),
+    other => Err(anyhow!("unexpected join response: {other:?}")),
+  }
+}
+
 async fn run_worker_services_until_promotion(
   runtime: ControlRuntime,
   http_addr: SocketAddr,
-  control_nodes: Vec<NodeId>,
+  known_control_nodes: Vec<NodeId>,
+  bootstrap_nodes: Vec<NodeId>,
+  advertise_addr: String,
   shutdown_rx: crate::signal::ShutdownRx,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<ControlJoinWatchResult> {
   let mut worker_shutdown = linked_shutdown(shutdown_rx.clone());
   let worker_shutdown_tx = worker_shutdown.shutdown_tx();
 
   let apalis_storage =
-    build_worker_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p, control_nodes);
+    build_worker_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p, known_control_nodes);
   let http_state = build_http_state(
     &runtime.opt,
     &runtime.identity,
@@ -955,11 +1179,21 @@ async fn run_worker_services_until_promotion(
 
   let mut worker_done_handle =
     tokio::spawn(async move { worker_shutdown.await_any_then_shutdown().await });
-  let mut promotion_handle =
-    tokio::spawn(run_control_promotion_watcher(runtime, shutdown_rx.clone()));
+  let runtime_for_promotion = runtime.clone();
+  let mut promotion_handle = tokio::spawn(run_control_promotion_watcher(
+    runtime_for_promotion,
+    shutdown_rx.clone(),
+  ));
+  let mut join_handle = tokio::spawn(run_control_join_watcher(
+    runtime.clone(),
+    bootstrap_nodes,
+    advertise_addr,
+    shutdown_rx.clone(),
+  ));
 
   tokio::select! {
     promotion = &mut promotion_handle => {
+      join_handle.abort();
       let _ = worker_shutdown_tx.send(());
       let (_tx, _rx, results) = worker_done_handle
         .await
@@ -967,16 +1201,58 @@ async fn run_worker_services_until_promotion(
       collect_shutdown_errors("worker", results)?;
 
       match promotion.map_err(|err| anyhow!("promotion watcher task failed: {err}"))?? {
-        PromotionWatchResult::Promote => Ok(true),
-        PromotionWatchResult::Shutdown => Ok(false),
+        PromotionWatchResult::Promote => Ok(ControlJoinWatchResult::AlreadyMember),
+        PromotionWatchResult::Shutdown => Ok(ControlJoinWatchResult::Shutdown),
+      }
+    }
+    join = &mut join_handle => {
+      match join.map_err(|err| anyhow!("control join watcher task failed: {err}"))?? {
+        ControlJoinWatchResult::Joined | ControlJoinWatchResult::AlreadyMember => {
+          promotion_handle.abort();
+          let _ = worker_shutdown_tx.send(());
+          let (_tx, _rx, results) = worker_done_handle
+            .await
+            .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
+          collect_shutdown_errors("worker", results)?;
+          Ok(ControlJoinWatchResult::Joined)
+        }
+        ControlJoinWatchResult::Full => {
+          tracing::info!("automatic control join stopped; node remains a worker");
+          match promotion_handle.await.map_err(|err| anyhow!("promotion watcher task failed: {err}"))?? {
+            PromotionWatchResult::Promote => {
+              let _ = worker_shutdown_tx.send(());
+              let (_tx, _rx, results) = worker_done_handle
+                .await
+                .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
+              collect_shutdown_errors("worker", results)?;
+              Ok(ControlJoinWatchResult::AlreadyMember)
+            }
+            PromotionWatchResult::Shutdown => {
+              let (_tx, _rx, results) = worker_done_handle
+                .await
+                .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
+              collect_shutdown_errors("worker", results)?;
+              Ok(ControlJoinWatchResult::Shutdown)
+            }
+          }
+        }
+        ControlJoinWatchResult::Shutdown => {
+          promotion_handle.abort();
+          let (_tx, _rx, results) = worker_done_handle
+            .await
+            .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
+          collect_shutdown_errors("worker", results)?;
+          Ok(ControlJoinWatchResult::Shutdown)
+        }
       }
     }
     worker_done = &mut worker_done_handle => {
       promotion_handle.abort();
+      join_handle.abort();
       let (_tx, _rx, results) = worker_done
         .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
       collect_shutdown_errors("worker", results)?;
-      Ok(false)
+      Ok(ControlJoinWatchResult::Shutdown)
     }
   }
 }
@@ -1006,14 +1282,13 @@ fn spawn_sqlite_cache_flusher(
 
 async fn register_members(
   network: &Libp2pNetworkFactory,
-  nodes: &[String],
+  nodes: &[(NodeId, String)],
 ) -> anyhow::Result<BTreeMap<NodeId, BasicNode>> {
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
-  for n in nodes {
-    let (id, addr) = parse_node_kv(n)?;
+  for (id, addr) in nodes {
     network.register_node(id.clone(), &addr).await?;
     members.insert(
-      id,
+      id.clone(),
       BasicNode {
         addr: addr.to_string(),
       },
@@ -1022,34 +1297,21 @@ async fn register_members(
   Ok(members)
 }
 
-fn validate_initial_members(
-  members: &BTreeMap<NodeId, BasicNode>,
-  self_id: &NodeId,
-) -> anyhow::Result<()> {
-  if members.is_empty() {
-    return Err(anyhow!("--init requires at least one --node entry"));
+fn configured_nodes(opt: &Opt) -> anyhow::Result<Vec<(NodeId, String)>> {
+  let mut nodes = BTreeMap::new();
+  for raw in opt.nodes.iter().chain(opt.bootstrap_nodes.iter()) {
+    let (id, addr) = parse_node_kv(raw)?;
+    nodes.insert(id, addr);
   }
-  if !members.contains_key(self_id) {
-    return Err(anyhow!("--init requires providing self in --node list"));
-  }
-  Ok(())
+  Ok(nodes.into_iter().collect())
 }
 
-fn worker_control_nodes(
-  members: &BTreeMap<NodeId, BasicNode>,
-  self_id: &NodeId,
-) -> anyhow::Result<Vec<NodeId>> {
-  let control_nodes = members
+fn known_control_nodes(members: &BTreeMap<NodeId, BasicNode>, self_id: &NodeId) -> Vec<NodeId> {
+  members
     .keys()
     .filter(|node_id| *node_id != self_id)
     .cloned()
-    .collect::<Vec<_>>();
-  if control_nodes.is_empty() {
-    return Err(anyhow!(
-      "worker startup requires at least one remote --node entry"
-    ));
-  }
-  Ok(control_nodes)
+    .collect::<Vec<_>>()
 }
 
 fn local_openraft_membership_contains_self(
@@ -1057,24 +1319,28 @@ fn local_openraft_membership_contains_self(
   self_id: &NodeId,
   group_ids: &[GroupId],
 ) -> anyhow::Result<bool> {
+  if group_ids.is_empty() {
+    return Ok(false);
+  }
+
   for group_id in group_ids {
     let Some(membership) = store::read_persisted_membership_for_group(db_dir, group_id)? else {
-      continue;
+      return Ok(false);
     };
-    if membership.membership().get_node(self_id).is_some() {
-      return Ok(true);
+    if membership.membership().get_node(self_id).is_none() {
+      return Ok(false);
     }
   }
-  Ok(false)
+  Ok(true)
 }
 
 fn decide_startup_mode(
   opt: &Opt,
   members: &BTreeMap<NodeId, BasicNode>,
+  bootstrap_nodes: &[(NodeId, String)],
   group_ids: &[GroupId],
 ) -> anyhow::Result<StartupMode> {
-  if opt.init {
-    validate_initial_members(members, &opt.id)?;
+  if is_bootstrap_node(bootstrap_nodes, &opt.id) {
     return Ok(StartupMode::Control);
   }
 
@@ -1083,7 +1349,7 @@ fn decide_startup_mode(
   }
 
   Ok(StartupMode::Worker {
-    control_nodes: worker_control_nodes(members, &opt.id)?,
+    known_control_nodes: known_control_nodes(members, &opt.id),
   })
 }
 
@@ -1092,20 +1358,24 @@ async fn remote_openraft_membership_contains_self(
   group_ids: &[GroupId],
   network: &Libp2pNetworkFactory,
 ) -> bool {
+  if group_ids.is_empty() {
+    return false;
+  }
+
   for group_id in group_ids {
     let Some(metrics) = fetch_remote_group_metrics(group_id, self_id, network).await else {
-      continue;
+      return false;
     };
     if metrics
       .membership_config
       .membership()
       .get_node(self_id)
-      .is_some()
+      .is_none()
     {
-      return true;
+      return false;
     }
   }
-  false
+  true
 }
 
 /// Wait until at least one peer (other than ourselves) has an established
@@ -1233,62 +1503,45 @@ async fn fetch_remote_group_metrics(
 
 async fn maybe_bootstrap(
   client: &Libp2pClient,
-  members: &BTreeMap<NodeId, BasicNode>,
-  self_id: NodeId,
+  bootstrap_nodes: &[(NodeId, String)],
+  self_id: &NodeId,
 ) {
-  let Ok(bootstrap_name) = env::var(ENV_BOOTSTRAP_NAME) else {
+  if bootstrap_nodes.is_empty() {
     return;
-  };
-
-  let mut bootstrap_target: Option<(NodeId, String)> = None;
-  for (id, node) in members {
-    if node_name_for_id(id) == bootstrap_name {
-      bootstrap_target = Some((id.clone(), node.addr.clone()));
-      break;
-    }
   }
 
-  match bootstrap_target {
-    Some((id, addr)) if id == self_id => {
+  for (id, addr) in bootstrap_nodes {
+    if id == self_id {
       tracing::info!(
-        "bootstrap_name={}, bootstrap_id={}, bootstrap_addr={}, skipping self dial",
-        bootstrap_name,
+        "bootstrap_id={}, bootstrap_addr={}, skipping self dial",
         id,
         addr
       );
+      continue;
     }
-    Some((_id, addr)) => match addr.parse::<Multiaddr>() {
+
+    match addr.parse::<Multiaddr>() {
       Ok(maddr) => {
-        tracing::info!("dialing bootstrap_name={} addr={}", bootstrap_name, addr);
+        tracing::info!("dialing bootstrap_id={} addr={}", id, addr);
         client.dial(maddr).await;
       }
       Err(err) => {
-        tracing::warn!(
-          "bootstrap_name={}, invalid multiaddr: {} ({})",
-          bootstrap_name,
-          addr,
-          err
-        );
+        tracing::warn!("bootstrap_id={}, invalid multiaddr: {} ({})", id, addr, err);
       }
-    },
-    None => {
-      tracing::warn!("bootstrap_name={} not found in --node list", bootstrap_name);
     }
   }
 }
 
-async fn maybe_init_cluster(
-  members: BTreeMap<NodeId, BasicNode>,
+async fn maybe_initialize_bootstrap_openraft(
   self_id: NodeId,
-  init: bool,
+  self_addr: String,
+  bootstrap_self: bool,
 ) -> anyhow::Result<()> {
-  if !init {
+  if !bootstrap_self {
     return Ok(());
   }
 
-  if !members.contains_key(&self_id) {
-    return Err(anyhow!("--init requires providing self in --node list"));
-  }
+  let members = BTreeMap::from([(self_id, BasicNode { addr: self_addr })]);
   let groups = openraft_groups()
     .map(|groups| {
       groups
@@ -1362,6 +1615,25 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let (libp2p, cmd_rx) = build_libp2p_handles(timeout, identity.local_peer_id.clone());
 
   let group_ids = groups::all();
+  let advertise_addr = local_advertise_addr(&opt)?;
+  let configured_nodes = configured_nodes(&opt)?;
+  let configured_bootstrap_nodes = opt
+    .bootstrap_nodes
+    .iter()
+    .map(|node| parse_node_kv(node))
+    .collect::<anyhow::Result<Vec<_>>>()?;
+  if configured_bootstrap_nodes.is_empty() {
+    return Err(anyhow!(
+      "--bootstrap-node is required; set it to the bootstrap node's <id>=<multiaddr>"
+    ));
+  }
+  let bootstrap_self = is_bootstrap_node(&configured_bootstrap_nodes, &opt.id);
+  let bootstrap_nodes = opt
+    .bootstrap_nodes
+    .iter()
+    .map(|node| parse_node_kv(node).map(|(id, _addr)| id))
+    .collect::<anyhow::Result<Vec<_>>>()?;
+
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
   let swarm = Arc::new(tokio::sync::Mutex::new(swarm));
   set_libp2p_swarm(swarm).map_err(|_| anyhow!("global libp2p swarm already initialized"))?;
@@ -1370,12 +1642,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
 
-  let members = register_members(&libp2p.network, &opt.nodes).await?;
+  let members = register_members(&libp2p.network, &configured_nodes).await?;
+  maybe_bootstrap(&libp2p.client, &configured_bootstrap_nodes, &opt.id).await;
 
   // Dials issued by register_members are fire-and-forget; wait a short window
   // for at least one peer connection to be established before running the
   // removed-node check, so the check can actually reach remote nodes.
-  if !opt.nodes.is_empty() {
+  if !configured_nodes.is_empty() {
     let peer_connected =
       wait_for_any_peer_connected(&libp2p.network, STARTUP_PEER_CONNECT_WAIT).await;
     if !peer_connected {
@@ -1386,12 +1659,23 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     }
   }
 
-  if !opt.init {
+  if !bootstrap_self {
     cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
   }
-  let startup_mode = decide_startup_mode(&opt, &members, &group_ids)?;
+  let startup_mode = decide_startup_mode(&opt, &members, &configured_bootstrap_nodes, &group_ids)?;
 
-  maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
+  let group_handles = start_openraft_groups(
+    &opt,
+    opt.id.clone(),
+    &opt.db,
+    libp2p.network.clone(),
+    &group_ids,
+  )
+  .await?;
+  set_openraft_groups(group_handles)
+    .map_err(|_| anyhow!("global openraft groups already initialized"))?;
+  maybe_initialize_bootstrap_openraft(opt.id.clone(), advertise_addr.clone(), bootstrap_self)
+    .await?;
 
   let runtime = ControlRuntime {
     opt,
@@ -1402,21 +1686,25 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let service_result = match startup_mode {
     StartupMode::Control => {
-      run_control_services(runtime, http_addr, members, shutdown_rx_for_ordering).await
+      run_control_services(runtime, http_addr, shutdown_rx_for_ordering).await
     }
-    StartupMode::Worker { control_nodes } => {
+    StartupMode::Worker {
+      known_control_nodes,
+    } => {
       match run_worker_services_until_promotion(
         runtime.clone(),
         http_addr,
-        control_nodes,
+        known_control_nodes,
+        bootstrap_nodes,
+        advertise_addr,
         shutdown_rx_for_ordering.clone(),
       )
       .await
       {
-        Ok(true) => {
-          run_control_services(runtime, http_addr, members, shutdown_rx_for_ordering).await
+        Ok(ControlJoinWatchResult::Joined | ControlJoinWatchResult::AlreadyMember) => {
+          run_control_services(runtime, http_addr, shutdown_rx_for_ordering).await
         }
-        Ok(false) => Ok(()),
+        Ok(ControlJoinWatchResult::Full | ControlJoinWatchResult::Shutdown) => Ok(()),
         Err(err) => Err(err),
       }
     }

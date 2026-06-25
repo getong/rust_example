@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  GroupId,
+  GroupId, NodeId,
   rocksstore_crud::RocksRequest,
   typ::{
     AppendEntriesRequest, AppendEntriesResponse, ClientWriteError, ClientWriteResponse, RaftError,
@@ -21,6 +21,7 @@ pub enum RaftRpcOp {
   Vote(VoteRequest),
   ClientWrite(RocksRequest),
   GetMetrics,
+  JoinCluster(JoinClusterRequest),
   FullSnapshot {
     vote: Vote,
     meta: SnapshotMeta,
@@ -34,6 +35,27 @@ pub enum RaftRpcResponse {
   Vote(Result<VoteResponse, RaftError>),
   ClientWrite(Result<ClientWriteResponse, RaftError<ClientWriteError>>),
   GetMetrics(RaftMetrics),
+  JoinCluster(JoinClusterResponse),
   FullSnapshot(Result<SnapshotResponse, RaftError>),
   Error(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinClusterRequest {
+  pub node_id: NodeId,
+  pub addr: String,
+  pub max_voters: usize,
+  pub catch_up_timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinClusterResponse {
+  pub ok: bool,
+  pub joined: bool,
+  pub already_member: bool,
+  pub voter_count: usize,
+  pub max_voters: usize,
+  pub leader_id: Option<NodeId>,
+  pub leader_addr: Option<String>,
+  pub error: Option<String>,
 }

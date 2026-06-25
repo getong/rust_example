@@ -88,9 +88,12 @@ curl -X POST http://127.0.0.1:3001/openraft/membership/remove \
 
 ** apalis
 
-Nodes start as libp2p workers by default. A node runs the OpenRaft control
-plane only after it is part of OpenRaft membership, either from =--init= or
-after a leader adds it through membership change.
+Nodes start as libp2p workers by default. The node whose =--id= matches the
+configured =--bootstrap-node= id creates the initial OpenRaft cluster. Other
+nodes dial =--bootstrap-node= and ask the current OpenRaft leader to join;
+automatic startup join stops when the control membership reaches
+=--max-control-nodes=, which defaults to 3. Nodes accepted into OpenRaft
+membership promote to control nodes, and later nodes stay as workers.
 
 Tasks are stored in the =apalis= raft group under
 =apalis:apalis:task:<task-id>=. Worker lease records are stored under
@@ -128,7 +131,7 @@ the LAN addresses advertised by mDNS are dialable by other peers. Worker HTTP
 ports stay on =127.0.0.1= by default.
 
 Workers can also accept task submissions on their own HTTP ports; they forward
-the writes to the three-node control plane:
+the writes to the control plane:
 
 #+begin_src shell
 curl -X POST http://127.0.0.1:3101/apalis/email \
@@ -178,9 +181,17 @@ cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster -- \
   --listen /ip4/0.0.0.0/tcp/4001/ws \
   --http 0.0.0.0:3001 \
   --db /tmp/openraft-node1 \
-  --init \
-  --node <peerid1>=/ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
-  --node <peerid2>=/ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
+  --bootstrap-node <peerid1>=/ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
+  --advertise /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1>
+
+# join through the bootstrap node
+cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster -- \
+  --id <peerid2> \
+  --listen /ip4/0.0.0.0/tcp/4002/ws \
+  --http 0.0.0.0:3002 \
+  --db /tmp/openraft-node2 \
+  --bootstrap-node <peerid1>=/ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
+  --advertise /ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
 
 # use websocket address in the kv client
 cargo run -p openraft_libp2p_cluster --bin kv -- \

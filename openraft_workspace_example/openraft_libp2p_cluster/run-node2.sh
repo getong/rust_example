@@ -253,20 +253,16 @@ wait_for_peer_id() {
 
 P2="$(generate_peer_id "$NODE2_DB/node.key" "$NODE2_PEER_ID_FILE")"
 P1="$(wait_for_peer_id "node1" "$NODE1_PEER_ID_FILE")"
-P3="$(wait_for_peer_id "node3" "$NODE3_PEER_ID_FILE")"
 
 ensure_wss_certs
 
 ADDR1="$NODE1_LISTEN/p2p/$P1"
 ADDR2="$NODE2_LISTEN/p2p/$P2"
-ADDR3="$NODE3_LISTEN/p2p/$P3"
 
 echo "Node1 peer id: $P1"
 echo "Node2 peer id: $P2"
-echo "Node3 peer id: $P3"
 echo "Node1 addr:    $ADDR1"
 echo "Node2 addr:    $ADDR2"
-echo "Node3 addr:    $ADDR3"
 
 port_in_use() {
 	local port="$1"
@@ -322,9 +318,8 @@ else
 fi
 
 cmd+=(
-	--node "$P1=$ADDR1"
-	--node "$P2=$ADDR2"
-	--node "$P3=$ADDR3"
+	--bootstrap-node "$P1=$ADDR1"
+	--advertise "$ADDR2"
 )
 
 "${cmd[@]}" 2>&1 | tee "$NODE2_LOG"

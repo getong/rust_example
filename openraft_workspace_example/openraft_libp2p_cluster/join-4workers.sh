@@ -70,7 +70,7 @@ fetch_cluster_info() {
 	done
 }
 
-parse_control_nodes() {
+parse_bootstrap_node() {
 	if command -v jq >/dev/null 2>&1; then
 		jq -r '
 		  def from_object_nodes:
@@ -79,10 +79,10 @@ parse_control_nodes() {
 		    (.raft_metrics.membership_config.membership.nodes? // empty) |
 		    if type == "object" then from_object_nodes else empty end;
 		  [membership_nodes] as $members |
-		  if ($members | length) == 3 then
-		    $members[]
+		  if ($members | length) > 0 then
+		    $members[0]
 		  else
-		    .known_nodes[] | "\(.node_id)=\(.addr)"
+		    (.known_nodes[0]? // empty | select(.node_id and .addr) | "\(.node_id)=\(.addr)")
 		  end
 		'
 		return 0
@@ -98,14 +98,14 @@ if isinstance(nodes, dict):
         addr = node.get("addr") if isinstance(node, dict) else node
         if node_id and addr:
             out.append(f"{node_id}={addr}")
-if len(out) != 3:
+if not out:
     out=[]
     for node in data.get("known_nodes", []):
         node_id=node.get("node_id", "")
         addr=node.get("addr", "")
         if node_id and addr:
             out.append(f"{node_id}={addr}")
-print("\n".join(out))'
+print(out[0] if out else "")'
 		return 0
 	fi
 
@@ -114,23 +114,15 @@ print("\n".join(out))'
 }
 
 cluster_info="$(fetch_cluster_info)"
-control_nodes=()
-while IFS= read -r node; do
-	[[ -z "$node" ]] && continue
-	control_nodes+=("$node")
-done < <(printf '%s' "$cluster_info" | parse_control_nodes)
+bootstrap_node="$(printf '%s' "$cluster_info" | parse_bootstrap_node)"
 
-if ((${#control_nodes[@]} != 3)); then
-	echo "Error: expected exactly 3 control nodes from $CLUSTER_HTTP, got ${#control_nodes[@]}." >&2
-	printf 'Parsed nodes:\n' >&2
-	printf '  %s\n' "${control_nodes[@]}" >&2
+if [[ -z "$bootstrap_node" ]]; then
+	echo "Error: could not parse a bootstrap node from $CLUSTER_HTTP." >&2
 	exit 1
 fi
 
-control_nodes_env="${control_nodes[*]}"
-
-echo "Control plane from $CLUSTER_HTTP:"
-printf '  %s\n' "${control_nodes[@]}"
+echo "Bootstrap node from $CLUSTER_HTTP:"
+echo "  $bootstrap_node"
 echo "Starting $WORKER_COUNT external libp2p workers..."
 
 if [[ "${SKIP_BUILD:-0}" != "1" && "$DRY_RUN" != "1" ]]; then
@@ -162,16 +154,17 @@ for ((offset = 0; offset < WORKER_COUNT; offset++)); do
 	console_port=$((WORKER_CONSOLE_BASE + index))
 	(
 		export DB_ROOT
-		export CONTROL_NODES="$control_nodes_env"
+		export BOOTSTRAP_NODE="$bootstrap_node"
 		export WORKER_INDEX="$index"
 		export WORKER_NAME="${WORKER_NAME_PREFIX:-worker}${index}"
 		export WORKER_LISTEN="${WORKER_LISTEN_PREFIX:-/ip4/0.0.0.0/tcp}/${listen_port}/wss"
+		export WORKER_ADVERTISE_LISTEN="${WORKER_ADVERTISE_LISTEN_PREFIX:-/ip4/127.0.0.1/tcp}/${listen_port}/wss"
 		export WORKER_HTTP="${WORKER_HTTP_HOST:-127.0.0.1}:${http_port}"
 		export WORKER_TOKIO_CONSOLE_BIND="${WORKER_CONSOLE_HOST:-127.0.0.1}:${console_port}"
 		export SKIP_BUILD
 		if [[ "$DRY_RUN" == "1" ]]; then
-			printf 'DRY_RUN worker %s: WORKER_LISTEN=%s WORKER_HTTP=%s CONTROL_NODES=%q %s\n' \
-				"$index" "$WORKER_LISTEN" "$WORKER_HTTP" "$CONTROL_NODES" "$ROOT_DIR/run-worker.sh"
+			printf 'DRY_RUN worker %s: WORKER_LISTEN=%s WORKER_HTTP=%s BOOTSTRAP_NODE=%q %s\n' \
+				"$index" "$WORKER_LISTEN" "$WORKER_HTTP" "$BOOTSTRAP_NODE" "$ROOT_DIR/run-worker.sh"
 			exit 0
 		fi
 		"$ROOT_DIR/run-worker.sh"

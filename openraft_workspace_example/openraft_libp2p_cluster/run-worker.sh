@@ -45,6 +45,7 @@ WORKER_INDEX="${WORKER_INDEX:-1}"
 WORKER_NAME="${WORKER_NAME:-worker${WORKER_INDEX}}"
 WORKER_DB="${WORKER_DB:-$DB_ROOT/${WORKER_NAME}}"
 WORKER_LISTEN="${WORKER_LISTEN:-/ip4/0.0.0.0/tcp/$((4100 + WORKER_INDEX))/wss}"
+WORKER_ADVERTISE_LISTEN="${WORKER_ADVERTISE_LISTEN:-/ip4/127.0.0.1/tcp/$((4100 + WORKER_INDEX))/wss}"
 WORKER_HTTP="${WORKER_HTTP:-127.0.0.1:$((3100 + WORKER_INDEX))}"
 WORKER_TOKIO_CONSOLE_BIND="${WORKER_TOKIO_CONSOLE_BIND:-127.0.0.1:$((6700 + WORKER_INDEX))}"
 
@@ -141,29 +142,15 @@ if [[ ! -s "$WS_TLS_KEY" || ! -s "$WS_TLS_CERT" ]]; then
 	bash "$WSS_SCRIPT" "$WSS_CERT_DIR" "$WSS_DNS_NAMES" "$WSS_IP_ADDRS"
 fi
 
-CONTROL_NODE_ARGS=()
-if [[ -n "${CONTROL_NODES:-}" ]]; then
-	for node in $CONTROL_NODES; do
-		CONTROL_NODE_ARGS+=("$node")
-	done
-	if ((${#CONTROL_NODE_ARGS[@]} != 3)); then
-		echo "Error: CONTROL_NODES must contain exactly 3 '<node-id>=<multiaddr>' entries."
-		exit 1
-	fi
+if [[ -n "${BOOTSTRAP_NODE:-}" ]]; then
+	BOOTSTRAP_ARG="$BOOTSTRAP_NODE"
 else
 	P1="$(wait_for_peer_id "node1" "$NODE1_PEER_ID_FILE")"
-	P2="$(wait_for_peer_id "node2" "$NODE2_PEER_ID_FILE")"
-	P3="$(wait_for_peer_id "node3" "$NODE3_PEER_ID_FILE")"
 	ADDR1="$NODE1_LISTEN/p2p/$P1"
-	ADDR2="$NODE2_LISTEN/p2p/$P2"
-	ADDR3="$NODE3_LISTEN/p2p/$P3"
-	CONTROL_NODE_ARGS=(
-		"$P1=$ADDR1"
-		"$P2=$ADDR2"
-		"$P3=$ADDR3"
-	)
+	BOOTSTRAP_ARG="$P1=$ADDR1"
 fi
 PW="$(generate_peer_id "$WORKER_DB/node.key" "$WORKER_PEER_ID_FILE")"
+WORKER_ADDR="${WORKER_ADVERTISE:-$WORKER_ADVERTISE_LISTEN/p2p/$PW}"
 
 export RUST_LOG="${RUST_LOG:-info}"
 export LIBP2P_SELF_NAME="$WORKER_NAME"
@@ -172,11 +159,10 @@ export TOKIO_CONSOLE_BIND="$WORKER_TOKIO_CONSOLE_BIND"
 echo "Starting libp2p worker (Ctrl-C to stop)..."
 echo "Worker peer id: $PW"
 echo "Worker listen:  $WORKER_LISTEN"
+echo "Worker addr:    $WORKER_ADDR"
 echo "Worker HTTP:    $WORKER_HTTP"
-echo "Control nodes:"
-for node in "${CONTROL_NODE_ARGS[@]}"; do
-	echo "  $node"
-done
+echo "Bootstrap node:"
+echo "  $BOOTSTRAP_ARG"
 echo "Logs:"
 echo "  $WORKER_LOG"
 
@@ -189,10 +175,8 @@ cmd=(
 	--ws-tls-key "$WS_TLS_KEY"
 	--ws-tls-cert "$WS_TLS_CERT"
 	--disable-sqlite-cache
+	--bootstrap-node "$BOOTSTRAP_ARG"
+	--advertise "$WORKER_ADDR"
 )
-
-for node in "${CONTROL_NODE_ARGS[@]}"; do
-	cmd+=(--node "$node")
-done
 
 "${cmd[@]}" 2>&1 | tee "$WORKER_LOG"

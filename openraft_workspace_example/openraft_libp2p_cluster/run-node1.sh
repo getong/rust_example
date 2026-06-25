@@ -119,7 +119,6 @@ fi
 CERT_META="$WSS_CERT_DIR/params.txt"
 CERT_PROFILE="wss-v2"
 CERT_PARAMS="profile=$CERT_PROFILE;dns=$WSS_DNS_NAMES;ips=$WSS_IP_ADDRS"
-INIT_CLUSTER="${INIT_CLUSTER:-auto}"
 
 mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$LOG_DIR" "$WSS_CERT_DIR"
 
@@ -229,11 +228,6 @@ generate_peer_id() {
 	"$GEN_SCRIPT" --key "$key_path" --out "$out_path"
 }
 
-db_has_rocksdb() {
-	local dir="$1"
-	[[ -f "$dir/CURRENT" ]]
-}
-
 wait_for_peer_id() {
 	local label="$1"
 	local path="$2"
@@ -253,21 +247,13 @@ wait_for_peer_id() {
 }
 
 P1="$(generate_peer_id "$NODE1_DB/node.key" "$NODE1_PEER_ID_FILE")"
-P2="$(wait_for_peer_id "node2" "$NODE2_PEER_ID_FILE")"
-P3="$(wait_for_peer_id "node3" "$NODE3_PEER_ID_FILE")"
 
 ensure_wss_certs
 
 ADDR1="$NODE1_LISTEN/p2p/$P1"
-ADDR2="$NODE2_LISTEN/p2p/$P2"
-ADDR3="$NODE3_LISTEN/p2p/$P3"
 
 echo "Node1 peer id: $P1"
-echo "Node2 peer id: $P2"
-echo "Node3 peer id: $P3"
 echo "Node1 addr:    $ADDR1"
-echo "Node2 addr:    $ADDR2"
-echo "Node3 addr:    $ADDR3"
 
 port_in_use() {
 	local port="$1"
@@ -305,25 +291,6 @@ echo "  tokio-console http://$TOKIO_CONSOLE_BIND"
 
 echo "Starting node1 (Ctrl-C to stop)..."
 
-should_init=0
-case "$INIT_CLUSTER" in
-1 | true | yes | always)
-	should_init=1
-	;;
-0 | false | no | never)
-	should_init=0
-	;;
-*)
-	if ! db_has_rocksdb "$NODE1_DB"; then
-		should_init=1
-	fi
-	;;
-esac
-
-if ((should_init == 0)) && db_has_rocksdb "$NODE1_DB"; then
-	echo "Node1 DB already initialized; skipping --init (set INIT_CLUSTER=1 or RESET=1 to re-init)."
-fi
-
 cmd=(
 	cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster --
 	--id "$P1"
@@ -340,14 +307,9 @@ else
 	cmd+=(--redis-url "${REDIS_URL:-redis://127.0.0.1/}")
 fi
 
-if ((should_init == 1)); then
-	cmd+=(--init)
-fi
-
 cmd+=(
-	--node "$P1=$ADDR1"
-	--node "$P2=$ADDR2"
-	--node "$P3=$ADDR3"
+	--bootstrap-node "$P1=$ADDR1"
+	--advertise "$ADDR1"
 )
 
 "${cmd[@]}" 2>&1 | tee "$NODE1_LOG"
