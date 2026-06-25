@@ -7,11 +7,11 @@ edition = "2024"
 
 [dependencies]
 futures = "0.3.32"
-openraft = { version = "0.10.0-alpha.23", features = [
+openraft = { version = "0.10.0-alpha.24", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.23" }
+openraft-legacy = { version = "0.10.0-alpha.24" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", default-features = false, features = ["sync"] }

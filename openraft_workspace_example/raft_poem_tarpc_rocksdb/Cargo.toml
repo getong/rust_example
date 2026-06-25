@@ -9,11 +9,11 @@ edition = "2024"
 byteorder = "1.5"
 clap = { version = "4.6", features = ["derive", "env"] }
 futures = "0.3"
-openraft = { version = "0.10.0-alpha.23", features = [
+openraft = { version = "0.10.0-alpha.24", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.23" }
+openraft-legacy = { version = "0.10.0-alpha.24" }
 openraft-rocksstore = { path = "../rocksstore" }
 poem = "3.1"
 poem-openapi = { version = "5.1", features = ["swagger-ui", "email"] }

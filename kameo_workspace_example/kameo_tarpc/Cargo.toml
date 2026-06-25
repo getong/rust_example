@@ -10,7 +10,7 @@ clap = { version = "4.6.1", features = ["derive"] }
 futures = "0.3.32"
 kameo = { version = "0.21.0", features = ["remote"] }
 libp2p = { version = "0.56.0", features = ["macros", "noise", "serde", "tcp", "tokio", "yamux"] }
-openraft = { version = "0.10.0-alpha.23", features = ["serde", "type-alias"] }
+openraft = { version = "0.10.0-alpha.24", features = ["serde", "type-alias"] }
 openraft-rocksstore-crud = { path = "../../openraft_workspace_example/rocksstore_crud" }
 prost = "0.14.4"
 prost-types = "0.14.4"

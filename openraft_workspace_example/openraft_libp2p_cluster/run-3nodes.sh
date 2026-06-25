@@ -311,6 +311,9 @@ echo "Cluster graph:"
 echo "  http://${NODE1_HTTP:-127.0.0.1:3001}/graph"
 echo "  http://${NODE2_HTTP:-127.0.0.1:3002}/graph"
 echo "  http://${NODE3_HTTP:-127.0.0.1:3003}/graph"
+echo "External workers:"
+echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
+echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
 
 "$ROOT_DIR/run-node1.sh" &
 

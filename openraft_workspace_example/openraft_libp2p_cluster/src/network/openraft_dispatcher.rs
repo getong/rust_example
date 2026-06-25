@@ -204,6 +204,26 @@ pub async fn process_kv_request(
         }
       }
     }
+    KvRequestOp::ListPrefix(req) => {
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
+
+      let entries = match kv_data.entries().await {
+        Ok(entries) => entries,
+        Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
+      };
+      let entries = entries
+        .into_iter()
+        .filter(|(key, _)| key.starts_with(&req.prefix))
+        .map(|(key, value)| crate::proto::raft_kv::KeyValue { key, value })
+        .collect();
+      RaftKvResponse {
+        op: Some(KvResponseOp::ListPrefix(
+          crate::proto::raft_kv::ListPrefixResponse { entries },
+        )),
+      }
+    }
   }
 }
 

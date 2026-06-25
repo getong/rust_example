@@ -14,14 +14,16 @@ use crate::{
   network::{
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork, P2PRaftNetworkWrapper},
     rpc::{RaftRpcRequest, RaftRpcResponse},
-    swarm::{Libp2pClient, NetErr, SqliteSyncClient},
+    swarm::{KvClient, Libp2pClient, NetErr, SqliteSyncClient},
   },
+  proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
 };
 
 #[derive(Clone)]
 pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
+  kv_client: KvClient,
   sqlite_sync_client: SqliteSyncClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
   connected_peers: Arc<tokio::sync::RwLock<HashSet<PeerId>>>,
@@ -32,11 +34,13 @@ pub struct Libp2pNetworkFactory {
 impl Libp2pNetworkFactory {
   pub fn new(
     client: Libp2pClient,
+    kv_client: KvClient,
     sqlite_sync_client: SqliteSyncClient,
     local_peer_id: PeerId,
   ) -> Self {
     Self {
       client,
+      kv_client,
       sqlite_sync_client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       connected_peers: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
@@ -48,6 +52,7 @@ impl Libp2pNetworkFactory {
   pub fn with_group(&self, group_id: GroupId) -> Self {
     Self {
       client: self.client.clone(),
+      kv_client: self.kv_client.clone(),
       sqlite_sync_client: self.sqlite_sync_client.clone(),
       node_peers: self.node_peers.clone(),
       connected_peers: self.connected_peers.clone(),
@@ -289,6 +294,33 @@ impl Libp2pNetworkFactory {
     self.sqlite_sync_client.request(peer, req).await
   }
 
+  pub async fn request_kv(
+    &self,
+    node_id: NodeId,
+    req: RaftKvRequest,
+  ) -> Result<RaftKvResponse, Unreachable> {
+    let (peer, addr) = self.peer_addr_for(&node_id).await?;
+    if peer == self.local_peer_id {
+      return Err(Unreachable::new(&NetErr(format!(
+        "self dial blocked: node_id={node_id}, peer={peer}"
+      ))));
+    }
+    if let Err(err) = self.kv_client.connect(peer, addr.clone()).await {
+      if is_loopback_addr(&addr) {
+        return Err(err);
+      }
+      tracing::warn!(
+        node_id = %node_id,
+        peer = %peer,
+        addr = %addr,
+        error = %err,
+        "connect with configured address failed, trying any known address for kv"
+      );
+      self.kv_client.connect_any(peer).await?;
+    }
+    self.kv_client.request(peer, req).await
+  }
+
   async fn peer_addr_for(&self, node_id: &NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {
     let map = self.node_peers.read().await;
     map
@@ -442,8 +474,9 @@ mod tests {
   fn test_network(local_peer: PeerId) -> Libp2pNetworkFactory {
     let (tx, _rx) = mpsc::channel(4);
     let client = Libp2pClient::new(tx.clone(), Duration::from_secs(1));
+    let kv_client = KvClient::new(tx.clone(), Duration::from_secs(1));
     let sqlite_sync_client = SqliteSyncClient::new(tx, Duration::from_secs(1));
-    Libp2pNetworkFactory::new(client, sqlite_sync_client, local_peer)
+    Libp2pNetworkFactory::new(client, kv_client, sqlite_sync_client, local_peer)
   }
 
   #[tokio::test]

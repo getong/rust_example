@@ -13,7 +13,7 @@ futures = "0.3.32"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "6a6814bb698b01c40d6ce08eb0f61281c909124f", features = [
     "full",
 ] }
-openraft = { version = "0.10.0-alpha.23", features = ["serde", "type-alias"] }
+openraft = { version = "0.10.0-alpha.24", features = ["serde", "type-alias"] }
 rand = "0.10"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }

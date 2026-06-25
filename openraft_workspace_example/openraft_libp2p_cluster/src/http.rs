@@ -27,7 +27,7 @@ use serde::{
 
 use crate::{
   GroupId, NodeId,
-  apalis_raft::{Email, RaftApalisStorage},
+  apalis_raft::{Email, RaftApalisStorage, TaskRecordView, WorkerRecord},
   graphviz::{ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg},
   network::{
     openraft_dispatcher::process_kv_request,
@@ -130,7 +130,7 @@ pub struct AppState {
   pub network: Libp2pNetworkFactory,
   pub kv_client: KvClient,
   pub default_group: GroupId,
-  pub apalis_email: RaftApalisStorage<Email>,
+  pub apalis_email: Option<RaftApalisStorage<Email>>,
   pub sqlite_cache: Option<SqliteCache>,
 }
 
@@ -147,6 +147,8 @@ pub async fn serve(
     .route("/chat", post(send_chat))
     .route("/sync/snapshot", post(sync_snapshot))
     .route("/apalis/email", post(push_email))
+    .route("/apalis/tasks", get(list_apalis_tasks))
+    .route("/apalis/workers", get(list_apalis_workers))
     .route("/write", post(set_value))
     .route("/update", post(update_value))
     .route("/delete", post(delete_value))
@@ -312,6 +314,20 @@ struct EmailRequest {
 #[derive(Serialize)]
 struct EmailResponse {
   ok: bool,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ApalisTasksResponse {
+  ok: bool,
+  tasks: Vec<TaskRecordView>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ApalisWorkersResponse {
+  ok: bool,
+  workers: Vec<WorkerRecord>,
   error: Option<String>,
 }
 
@@ -776,7 +792,12 @@ async fn push_email(
   State(state): State<Arc<AppState>>,
   Json(req): Json<EmailRequest>,
 ) -> Json<EmailResponse> {
-  let mut storage = state.apalis_email.clone();
+  let Some(mut storage) = state.apalis_email.clone() else {
+    return Json(EmailResponse {
+      ok: false,
+      error: Some("apalis storage is not available on this node".to_string()),
+    });
+  };
   match storage.push(Email { to: req.to }).await {
     Ok(()) => Json(EmailResponse {
       ok: true,
@@ -784,6 +805,52 @@ async fn push_email(
     }),
     Err(err) => Json(EmailResponse {
       ok: false,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn list_apalis_tasks(State(state): State<Arc<AppState>>) -> Json<ApalisTasksResponse> {
+  let Some(storage) = state.apalis_email.clone() else {
+    return Json(ApalisTasksResponse {
+      ok: false,
+      tasks: Vec::new(),
+      error: Some("apalis storage is not available on this node".to_string()),
+    });
+  };
+
+  match storage.list_tasks().await {
+    Ok(tasks) => Json(ApalisTasksResponse {
+      ok: true,
+      tasks,
+      error: None,
+    }),
+    Err(err) => Json(ApalisTasksResponse {
+      ok: false,
+      tasks: Vec::new(),
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+async fn list_apalis_workers(State(state): State<Arc<AppState>>) -> Json<ApalisWorkersResponse> {
+  let Some(storage) = state.apalis_email.clone() else {
+    return Json(ApalisWorkersResponse {
+      ok: false,
+      workers: Vec::new(),
+      error: Some("apalis storage is not available on this node".to_string()),
+    });
+  };
+
+  match storage.list_workers().await {
+    Ok(workers) => Json(ApalisWorkersResponse {
+      ok: true,
+      workers,
+      error: None,
+    }),
+    Err(err) => Json(ApalisWorkersResponse {
+      ok: false,
+      workers: Vec::new(),
       error: Some(err.to_string()),
     }),
   }

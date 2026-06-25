@@ -19,8 +19,9 @@ use openraft_libp2p_cluster::{
     transport::parse_p2p_addr,
   },
   proto::raft_kv::{
-    DeleteValueRequest, GetValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
-    UpdateValueRequest, raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
+    DeleteValueRequest, GetValueRequest, ListPrefixRequest, RaftKvRequest, RaftKvResponse,
+    SetValueRequest, UpdateValueRequest, raft_kv_request::Op as KvRequestOp,
+    raft_kv_response::Op as KvResponseOp,
   },
   signal,
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
@@ -59,6 +60,7 @@ pub enum Command {
   Set { key: String, value: String },
   Update { key: String, value: String },
   Delete { key: String },
+  ListPrefix { prefix: String },
 }
 
 #[tokio::main]
@@ -181,6 +183,10 @@ async fn main() -> anyhow::Result<()> {
       group_id: opt.group.clone(),
       op: Some(KvRequestOp::Delete(DeleteValueRequest { key })),
     },
+    Command::ListPrefix { prefix } => RaftKvRequest {
+      group_id: opt.group.clone(),
+      op: Some(KvRequestOp::ListPrefix(ListPrefixRequest { prefix })),
+    },
   };
 
   let resp = client.request(peer, req).await.context("kv request")?;
@@ -197,6 +203,11 @@ async fn main() -> anyhow::Result<()> {
     }
     Some(KvResponseOp::Delete(resp)) => {
       println!("ok: {}", resp.ok);
+    }
+    Some(KvResponseOp::ListPrefix(resp)) => {
+      for entry in resp.entries {
+        println!("{}={}", entry.key, entry.value);
+      }
     }
     Some(KvResponseOp::Error(resp)) => {
       println!("error: {}", resp.message);

@@ -57,20 +57,50 @@ curl -X POST http://127.0.0.1:3001/sync/snapshot \
   -H 'content-type: application/json' \
   -d '{"group_id":"users"}'
 
-# enqueue an apalis email task backed by the apalis raft group
+# enqueue an apalis email task backed by the apalis raft control plane
 curl -X POST http://127.0.0.1:3001/apalis/email \
   -H 'content-type: application/json' \
   -d '{"to":"test@example.com"}'
+
+# list registered external workers and task state
+curl http://127.0.0.1:3001/apalis/workers
+curl http://127.0.0.1:3001/apalis/tasks
 #+end_src
 
 ** apalis
 
-This project includes a Raft-backed apalis storage in the =apalis= raft group.
-Tasks are stored as keys under =apalis:apalis:task:<task-id>= and state changes
-(queued, running, done, failed) are written through OpenRaft. The built-in email
-worker runs with the node. The current Raft leader schedules queued tasks to
-voter nodes other than itself, and a worker executes a task only when its local
-OpenRaft state is =Follower= and the task is assigned to that node.
+This project uses a fixed three-node OpenRaft control plane and any number of
+external libp2p worker nodes. Worker nodes run libp2p + apalis only; they do
+not join OpenRaft membership.
+
+Tasks are stored in the =apalis= raft group under
+=apalis:apalis:task:<task-id>=. Worker lease records are stored under
+=apalis:apalis:worker:<node-id>=. The Raft leader schedules queued tasks to
+active worker leases, writes the assigned worker and lease epoch through
+OpenRaft, and the target worker executes the task locally with apalis. Final
+task state is acknowledged back through the Raft-backed KV protocol.
+
+Start the control plane:
+
+#+begin_src shell
+./run-3nodes.sh
+#+end_src
+
+Start one or more external workers after copying the printed =DB_ROOT=:
+
+#+begin_src shell
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=1 ./run-worker.sh
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=2 ./run-worker.sh
+#+end_src
+
+Workers can also accept task submissions on their own HTTP ports; they forward
+the writes to the three-node control plane:
+
+#+begin_src shell
+curl -X POST http://127.0.0.1:3101/apalis/email \
+  -H 'content-type: application/json' \
+  -d '{"to":"worker-submit@example.com"}'
+#+end_src
 
 ** cli examples
 

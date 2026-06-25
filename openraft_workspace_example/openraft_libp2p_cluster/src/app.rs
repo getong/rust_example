@@ -1,5 +1,5 @@
 use std::{
-  collections::{BTreeMap, BTreeSet},
+  collections::BTreeMap,
   env,
   net::SocketAddr,
   path::{Path, PathBuf},
@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
-use clap::{ArgAction, Parser};
+use clap::{ArgAction, Parser, ValueEnum};
 use futures::{AsyncRead, AsyncWrite};
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, Transport,
@@ -19,15 +19,14 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
-use openraft::{BasicNode, ChangeMembers, ServerState, async_runtime::WatchReceiver};
-use rand::seq::IndexedRandom;
+use openraft::BasicNode;
 use tokio::sync::mpsc;
 
 use crate::{
   GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
   constants::{
     SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT,
-    SERVICE_OPENRAFT_AUTOSCALER, SERVICE_SQLITE_CACHE_FLUSHER,
+    SERVICE_SQLITE_CACHE_FLUSHER,
   },
   groups, http,
   network::{
@@ -53,23 +52,21 @@ use crate::{
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
-const OPENRAFT_MAX_LEARNERS: usize = 5;
-const OPENRAFT_MAX_VOTERS: usize = 5;
-const OPENRAFT_AUTOSCALER_INTERVAL_SECS: u64 = 5;
+const OPENRAFT_CONTROL_PLANE_SIZE: usize = 3;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
-const OPENRAFT_OFFLINE_REMOVE_AFTER_SECS: u64 = 300;
-/// Max log-index lag a learner may have compared to the leader before being
-/// eligible for promotion to voter. A learner further behind than this is
-/// skipped until it catches up, preventing a lagging node from being promoted
-/// into the quorum where it would slow down commit latency.
-const LEARNER_PROMOTE_MAX_LAG: u64 = 500;
 /// How long to wait for at least one remote peer to become connected before
 /// running the startup "was this node removed?" membership check. Without
 /// this wait the check always sees zero connected peers and silently skips,
 /// missing the case where the node was evicted while it was offline.
 const STARTUP_PEER_CONNECT_WAIT: Duration = Duration::from_secs(8);
-/// Timeout for a single graceful-leave attempt on one Raft group at shutdown.
-const GRACEFUL_LEAVE_TIMEOUT: Duration = Duration::from_secs(5);
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
+pub enum NodeRole {
+  /// OpenRaft control-plane node. Exactly three control nodes should be passed with --node.
+  #[default]
+  Control,
+  /// External libp2p worker. It registers in Raft state and runs apalis tasks only.
+  Worker,
+}
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -197,8 +194,16 @@ pub struct Opt {
   pub init: bool,
 
   /// Cluster node addresses in the form: <id>=<multiaddr-with-/p2p/peerid>
+  ///
+  /// In control mode these are the three OpenRaft control-plane nodes. In
+  /// worker mode these are the control-plane nodes the worker uses to register,
+  /// poll, and report task state.
   #[arg(long = "node")]
   pub nodes: Vec<String>,
+
+  /// Node role. Control nodes run OpenRaft; worker nodes only run libp2p + apalis.
+  #[arg(long, value_enum, default_value_t = NodeRole::Control)]
+  pub role: NodeRole,
 
   /// OpenRaft heartbeat interval in milliseconds (leader keepalive cadence).
   #[arg(long, default_value_t = 250)]
@@ -376,8 +381,12 @@ fn build_libp2p_handles(
   let client = Libp2pClient::new(cmd_tx.clone(), timeout);
   let kv_client = KvClient::new(cmd_tx.clone(), timeout);
   let sqlite_sync_client = SqliteSyncClient::new(cmd_tx.clone(), timeout);
-  let network =
-    Libp2pNetworkFactory::new(client.clone(), sqlite_sync_client.clone(), local_peer_id);
+  let network = Libp2pNetworkFactory::new(
+    client.clone(),
+    kv_client.clone(),
+    sqlite_sync_client.clone(),
+    local_peer_id,
+  );
   (
     Libp2pHandles {
       cmd_tx,
@@ -564,6 +573,7 @@ fn build_http_state(
   identity: &NodeIdentity,
   libp2p: &Libp2pHandles,
   sqlite_cache: Option<SqliteCache>,
+  apalis_email: Option<apalis_raft::RaftApalisStorage<apalis_raft::Email>>,
 ) -> http::AppState {
   let default_group = default_openraft_group_id();
 
@@ -575,8 +585,7 @@ fn build_http_state(
     network: libp2p.network.clone(),
     kv_client: libp2p.kv_client.clone(),
     default_group,
-    apalis_email: build_apalis_email_storage(opt.id.clone(), libp2p)
-      .expect("apalis group should be configured"),
+    apalis_email,
     sqlite_cache,
   }
 }
@@ -593,6 +602,20 @@ fn build_apalis_email_storage(
     group,
     libp2p.kv_client.clone(),
   ))
+}
+
+fn build_worker_apalis_email_storage(
+  node_id: NodeId,
+  libp2p: &Libp2pHandles,
+  control_nodes: Vec<NodeId>,
+) -> apalis_raft::RaftApalisStorage<apalis_raft::Email> {
+  apalis_raft::build_worker_email_storage(
+    node_id,
+    groups::APALIS,
+    libp2p.network.clone(),
+    control_nodes,
+    libp2p.kv_client.clone(),
+  )
 }
 
 fn spawn_http(
@@ -621,18 +644,6 @@ fn spawn_apalis_worker(
   })
 }
 
-fn spawn_openraft_autoscaler(
-  shutdown: &mut crate::signal::ShutdownHandler,
-  network: Libp2pNetworkFactory,
-) -> tokio::task::JoinHandle<()> {
-  let done = shutdown.push(SERVICE_OPENRAFT_AUTOSCALER);
-  let shutdown_rx = shutdown.shutdown_rx();
-  tokio::spawn(async move {
-    run_openraft_autoscaler(network, shutdown_rx).await;
-    let _ = done.send(Ok(()));
-  })
-}
-
 fn spawn_sqlite_cache_flusher(
   shutdown: &mut crate::signal::ShutdownHandler,
   local_node_id: NodeId,
@@ -656,455 +667,12 @@ fn spawn_sqlite_cache_flusher(
   })
 }
 
-async fn run_openraft_autoscaler(
-  network: Libp2pNetworkFactory,
-  mut shutdown_rx: crate::signal::ShutdownRx,
-) {
-  let mut tick = tokio::time::interval(Duration::from_secs(OPENRAFT_AUTOSCALER_INTERVAL_SECS));
-  let mut offline_since = BTreeMap::new();
-  tick.tick().await;
-
-  loop {
-    tokio::select! {
-      _ = shutdown_rx.changed() => {
-        tracing::info!("shutdown signal received, stopping openraft autoscaler");
-        break;
-      }
-      _ = tick.tick() => {
-        let known_nodes = network.known_nodes().await;
-        let Some(groups) = openraft_groups().map(|groups| {
-          groups
-            .iter()
-            .map(|(group_id, group)| (group_id.clone(), group.clone()))
-            .collect::<Vec<_>>()
-        }) else {
-          tracing::warn!("openraft groups are not initialized");
-          continue;
-        };
-        for (group_id, group) in &groups {
-          if let Err(err) = reconcile_openraft_group(
-            group_id,
-            group,
-            &network,
-            &known_nodes,
-            &mut offline_since,
-          ).await {
-            tracing::warn!(group = group_id, error = ?err, "openraft autoscaler reconcile failed");
-          }
-        }
-      }
-    }
-  }
-}
-
-async fn reconcile_openraft_group(
-  group_id: &str,
-  group: &GroupHandle,
-  network: &Libp2pNetworkFactory,
-  known_nodes: &[(NodeId, PeerId, Multiaddr)],
-  offline_since: &mut BTreeMap<(GroupId, NodeId), tokio::time::Instant>,
-) -> anyhow::Result<()> {
-  let metrics = group.raft.metrics().borrow_watched().clone();
-  if !metrics.state.is_leader() {
-    return Ok(());
-  }
-
-  let membership = metrics.membership_config.membership();
-  let voters = membership.voter_ids().collect::<BTreeSet<_>>();
-  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
-
-  if remove_offline_openraft_member_if_expired(group_id, group, &metrics, network, offline_since)
-    .await?
-  {
-    return Ok(());
-  }
-
-  if learners.len() < OPENRAFT_MAX_LEARNERS {
-    add_next_discovered_learner(group_id, group, known_nodes, &voters, &learners).await?;
-  }
-
-  // Refresh metrics after potential learner addition.
-  let metrics = group.raft.metrics().borrow_watched().clone();
-  let learners_after = metrics
-    .membership_config
-    .membership()
-    .learner_ids()
-    .collect::<BTreeSet<_>>();
-
-  // Only pay the cost of counting active voters when there are learners that
-  // could potentially be promoted.
-  if !learners_after.is_empty() {
-    let active_voters = count_active_voter_states(group_id, &metrics, network).await;
-    // Promote only when we are strictly below the voter cap so we never
-    // exceed OPENRAFT_MAX_VOTERS (the old `<=` comparison was a bug that
-    // allowed promotion even when the cap was already reached).
-    if active_voters < OPENRAFT_MAX_VOTERS {
-      promote_caught_up_learner_if_needed(group_id, group, &metrics, active_voters).await?;
-    }
-  }
-
-  Ok(())
-}
-
-async fn remove_offline_openraft_member_if_expired(
-  group_id: &str,
-  group: &GroupHandle,
-  metrics: &crate::typ::RaftMetrics,
-  network: &Libp2pNetworkFactory,
-  offline_since: &mut BTreeMap<(GroupId, NodeId), tokio::time::Instant>,
-) -> anyhow::Result<bool> {
-  let membership = metrics.membership_config.membership();
-  let voters = membership.voter_ids().collect::<BTreeSet<_>>();
-  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
-  let member_ids = membership
-    .nodes()
-    .map(|(id, _)| id.clone())
-    .collect::<BTreeSet<_>>();
-  offline_since.retain(|(offline_group, node_id), _| {
-    offline_group != group_id || member_ids.contains(node_id)
-  });
-
-  let timeout = Duration::from_secs(OPENRAFT_OFFLINE_REMOVE_AFTER_SECS);
-  for (node_id, node) in membership.nodes() {
-    if *node_id == metrics.id {
-      continue;
-    }
-
-    let (peer, _) = match parse_p2p_addr(&node.addr) {
-      Ok(peer_addr) => peer_addr,
-      Err(err) => {
-        tracing::warn!(
-          group = group_id,
-          node_id = %node_id,
-          addr = %node.addr,
-          error = ?err,
-          "skip openraft offline check for node with invalid libp2p address"
-        );
-        continue;
-      }
-    };
-
-    let key = (group_id.to_string(), node_id.clone());
-    if network.is_peer_connected(&peer).await {
-      if offline_since.remove(&key).is_some() {
-        tracing::info!(
-          group = group_id,
-          node_id = %node_id,
-          peer = %peer,
-          "openraft member reconnected before removal timeout"
-        );
-      }
-      continue;
-    }
-
-    let now = tokio::time::Instant::now();
-    let Some(since) = offline_since.get(&key).copied() else {
-      offline_since.insert(key, now);
-      tracing::warn!(
-        group = group_id,
-        node_id = %node_id,
-        peer = %peer,
-        timeout_secs = OPENRAFT_OFFLINE_REMOVE_AFTER_SECS,
-        "openraft member is disconnected; starting removal timeout"
-      );
-      continue;
-    };
-
-    if now.duration_since(since) < timeout {
-      continue;
-    }
-
-    let remove_id = node_id.clone();
-    let changes = if voters.contains(&remove_id) {
-      if voters.len() <= 1 {
-        tracing::warn!(
-          group = group_id,
-          node_id = %remove_id,
-          "skip removing the last openraft voter"
-        );
-        continue;
-      }
-      ChangeMembers::RemoveVoters(BTreeSet::from([remove_id.clone()]))
-    } else if learners.contains(&remove_id) {
-      ChangeMembers::RemoveNodes(BTreeSet::from([remove_id.clone()]))
-    } else {
-      continue;
-    };
-
-    tracing::warn!(
-      group = group_id,
-      node_id = %remove_id,
-      peer = %peer,
-      timeout_secs = OPENRAFT_OFFLINE_REMOVE_AFTER_SECS,
-      "removing disconnected openraft member after timeout"
-    );
-    group
-      .raft
-      .change_membership(changes, false)
-      .await
-      .map_err(|err| {
-        anyhow!("remove disconnected node {remove_id} from group {group_id}: {err}")
-      })?;
-    offline_since.remove(&(group_id.to_string(), remove_id));
-    return Ok(true);
-  }
-
-  Ok(false)
-}
-
-async fn add_next_discovered_learner(
-  group_id: &str,
-  group: &GroupHandle,
-  known_nodes: &[(NodeId, PeerId, Multiaddr)],
-  voters: &BTreeSet<NodeId>,
-  learners: &BTreeSet<NodeId>,
-) -> anyhow::Result<()> {
-  for (node_id, _peer, addr) in known_nodes {
-    if voters.contains(node_id) || learners.contains(node_id) {
-      continue;
-    }
-
-    let node = BasicNode {
-      addr: addr.to_string(),
-    };
-    tracing::info!(
-      group = group_id,
-      node_id = %node_id,
-      addr = %addr,
-      "adding discovered libp2p node as openraft learner"
-    );
-    group
-      .raft
-      .add_learner(node_id.clone(), node, true)
-      .await
-      .map_err(|err| anyhow!("add learner {node_id} to group {group_id}: {err}"))?;
-    break;
-  }
-
-  Ok(())
-}
-
-/// Returns `true` when the given learner's replication progress is within
-/// [`LEARNER_PROMOTE_MAX_LAG`] log entries of the leader, meaning the learner
-/// is sufficiently caught-up to be promoted without stalling consensus.
-fn learner_is_caught_up(learner_id: &NodeId, metrics: &crate::typ::RaftMetrics) -> bool {
-  let Some(replication) = &metrics.replication else {
-    // No replication map means we cannot confirm catch-up; be conservative.
-    return false;
-  };
-  let leader_last = metrics.last_log_index.unwrap_or(0);
-  let learner_matched = replication
-    .get(learner_id)
-    .and_then(|log_id| log_id.clone())
-    .map(|log_id| log_id.index)
-    .unwrap_or(0);
-  leader_last.saturating_sub(learner_matched) <= LEARNER_PROMOTE_MAX_LAG
-}
-
-/// Promote one caught-up learner to voter when the cluster is under the voter
-/// cap. Only learners whose replication lag is within [`LEARNER_PROMOTE_MAX_LAG`]
-/// are considered; the rest are skipped until they catch up.
-async fn promote_caught_up_learner_if_needed(
-  group_id: &str,
-  group: &GroupHandle,
-  metrics: &crate::typ::RaftMetrics,
-  active_voters: usize,
-) -> anyhow::Result<()> {
-  let membership = metrics.membership_config.membership();
-  let learners = membership.learner_ids().collect::<Vec<_>>();
-
-  // Collect caught-up learners and pick a random one.
-  let caught_up: Vec<_> = learners
-    .iter()
-    .filter(|id| learner_is_caught_up(id, metrics))
-    .cloned()
-    .collect();
-
-  if caught_up.is_empty() {
-    if !learners.is_empty() {
-      tracing::debug!(
-        group = group_id,
-        learners = learners.len(),
-        "no learner is sufficiently caught up for promotion yet"
-      );
-    }
-    return Ok(());
-  }
-
-  let Some(learner_id) = caught_up.choose(&mut rand::rng()).cloned() else {
-    return Ok(());
-  };
-
-  tracing::info!(
-    group = group_id,
-    node_id = %learner_id,
-    active_voters,
-    learners = learners.len(),
-    caught_up = caught_up.len(),
-    "promoting caught-up openraft learner to voter"
-  );
-  group
-    .raft
-    .change_membership(
-      ChangeMembers::AddVoterIds(BTreeSet::from([learner_id.clone()])),
-      true,
-    )
-    .await
-    .map_err(|err| anyhow!("promote learner {learner_id} in group {group_id}: {err}"))?;
-
-  Ok(())
-}
-
-async fn count_active_voter_states(
-  group_id: &str,
-  local_metrics: &crate::typ::RaftMetrics,
-  network: &Libp2pNetworkFactory,
-) -> usize {
-  let voter_ids = local_metrics
-    .membership_config
-    .membership()
-    .voter_ids()
-    .collect::<Vec<_>>();
-  let mut count = 0;
-
-  for node_id in voter_ids {
-    let state = if node_id == local_metrics.id {
-      Some(local_metrics.state)
-    } else {
-      remote_server_state(group_id, &node_id, network).await
-    };
-
-    if matches!(
-      state,
-      Some(ServerState::Leader | ServerState::Follower | ServerState::Candidate)
-    ) {
-      count += 1;
-    }
-  }
-
-  count
-}
-
-async fn remote_server_state(
-  group_id: &str,
-  node_id: &NodeId,
-  network: &Libp2pNetworkFactory,
-) -> Option<ServerState> {
-  match network
-    .request(
-      node_id.clone(),
-      RaftRpcRequest {
-        group_id: group_id.to_string(),
-        op: RaftRpcOp::GetMetrics,
-      },
-    )
-    .await
-  {
-    Ok(RaftRpcResponse::GetMetrics(metrics)) => Some(metrics.state),
-    Ok(other) => {
-      tracing::debug!(
-        group = group_id,
-        node_id = %node_id,
-        response = ?other,
-        "unexpected get-metrics response"
-      );
-      None
-    }
-    Err(err) => {
-      tracing::debug!(
-        group = group_id,
-        node_id = %node_id,
-        error = ?err,
-        "get-metrics failed while counting openraft server states"
-      );
-      None
-    }
-  }
-}
-
-/// Attempt a best-effort graceful leave for one Raft group.
-///
-/// If this node is the **leader** it tries to remove itself from the membership
-/// so that it transfers leadership before the network drops. This is done with
-/// a bounded timeout so that a slow network never blocks shutdown indefinitely.
-///
-/// If this node is a **follower / learner** or the only voter it simply logs
-/// and returns; the autoscaler on other nodes will clean up the stale entry
-/// after `OPENRAFT_OFFLINE_REMOVE_AFTER_SECS`.
-async fn try_graceful_leave_group(group_id: &str, group: &GroupHandle, self_id: &NodeId) {
-  let metrics = group.raft.metrics().borrow_watched().clone();
-  let membership = metrics.membership_config.membership();
-
-  if membership.get_node(self_id).is_none() {
-    return; // Already not a member.
-  }
-
-  if !metrics.state.is_leader() {
-    tracing::info!(
-      group = group_id,
-      state = ?metrics.state,
-      "graceful leave skipped: not the leader, autoscaler will handle removal"
-    );
-    return;
-  }
-
-  let voters: BTreeSet<NodeId> = membership.voter_ids().collect();
-  let is_voter = voters.contains(self_id);
-
-  if is_voter && voters.len() <= 1 {
-    tracing::info!(
-      group = group_id,
-      "graceful leave skipped: last voter in group"
-    );
-    return;
-  }
-
-  let changes = if is_voter {
-    ChangeMembers::RemoveVoters(BTreeSet::from([self_id.clone()]))
-  } else {
-    ChangeMembers::RemoveNodes(BTreeSet::from([self_id.clone()]))
-  };
-
-  tracing::info!(
-    group = group_id,
-    is_voter,
-    "attempting graceful self-removal from raft group before shutdown"
-  );
-
-  match tokio::time::timeout(
-    GRACEFUL_LEAVE_TIMEOUT,
-    group.raft.change_membership(changes, false),
-  )
-  .await
-  {
-    Ok(Ok(_)) => tracing::info!(group = group_id, "gracefully left raft group"),
-    Ok(Err(err)) => tracing::warn!(group = group_id, error = ?err, "graceful leave failed"),
-    Err(_) => tracing::warn!(group = group_id, "graceful leave timed out"),
-  }
-}
-
-/// Run graceful leave for every configured Raft group.
-async fn try_graceful_leave(self_id: NodeId) {
-  let Some(groups) = openraft_groups().map(|g| {
-    g.iter()
-      .map(|(id, group)| (id.clone(), group.clone()))
-      .collect::<Vec<_>>()
-  }) else {
-    return;
-  };
-  for (group_id, group) in &groups {
-    try_graceful_leave_group(group_id, group, &self_id).await;
-  }
-}
-
 fn spawn_openraft_shutdown(
   shutdown: &mut crate::signal::ShutdownHandler,
   mut shutdown_rx_for_ordering: crate::signal::ShutdownRx,
-  self_id: NodeId,
   swarm_handle: tokio::task::JoinHandle<()>,
   http_handle: tokio::task::JoinHandle<()>,
   apalis_handle: tokio::task::JoinHandle<()>,
-  autoscaler_handle: tokio::task::JoinHandle<()>,
   sqlite_flusher_handle: Option<tokio::task::JoinHandle<()>>,
 ) {
   // Openraft should shut down after libp2p swarm has stopped.
@@ -1145,13 +713,9 @@ fn spawn_openraft_shutdown(
 
   tokio::spawn(async move {
     let _ = shutdown_rx_for_ordering.changed().await;
-    // Attempt graceful self-removal while the network is still up so that
-    // other nodes do not have to wait for the offline-timeout to expire.
-    try_graceful_leave(self_id).await;
     let _ = swarm_handle.await;
     let _ = http_handle.await;
     let _ = apalis_handle.await;
-    let _ = autoscaler_handle.await;
     if let Some(sqlite_flusher_handle) = sqlite_flusher_handle {
       let _ = sqlite_flusher_handle.await;
     }
@@ -1175,6 +739,37 @@ async fn register_members(
     );
   }
   Ok(members)
+}
+
+fn validate_control_members(
+  members: &BTreeMap<NodeId, BasicNode>,
+  self_id: &NodeId,
+) -> anyhow::Result<()> {
+  if members.len() != OPENRAFT_CONTROL_PLANE_SIZE {
+    return Err(anyhow!(
+      "control mode requires exactly {OPENRAFT_CONTROL_PLANE_SIZE} --node entries; got {}",
+      members.len()
+    ));
+  }
+  if !members.contains_key(self_id) {
+    return Err(anyhow!(
+      "control mode requires providing self in --node list"
+    ));
+  }
+  Ok(())
+}
+
+fn validate_worker_control_nodes(
+  members: &BTreeMap<NodeId, BasicNode>,
+) -> anyhow::Result<Vec<NodeId>> {
+  if members.len() != OPENRAFT_CONTROL_PLANE_SIZE {
+    return Err(anyhow!(
+      "worker mode requires exactly {OPENRAFT_CONTROL_PLANE_SIZE} control-plane --node entries; \
+       got {}",
+      members.len()
+    ));
+  }
+  Ok(members.keys().cloned().collect())
 }
 
 /// Wait until at least one peer (other than ourselves) has an established
@@ -1439,6 +1034,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;
+  let worker_control_nodes = match opt.role {
+    NodeRole::Control => {
+      validate_control_members(&members, &opt.id)?;
+      None
+    }
+    NodeRole::Worker => Some(validate_worker_control_nodes(&members)?),
+  };
 
   // Dials issued by register_members are fire-and-forget; wait a short window
   // for at least one peer connection to be established before running the
@@ -1452,6 +1054,38 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
         STARTUP_PEER_CONNECT_WAIT
       );
     }
+  }
+
+  if opt.role == NodeRole::Worker {
+    let apalis_storage = build_worker_apalis_email_storage(
+      opt.id.clone(),
+      &libp2p,
+      worker_control_nodes.expect("worker control nodes validated"),
+    );
+    let http_state = build_http_state(&opt, &identity, &libp2p, None, Some(apalis_storage.clone()));
+    let apalis_worker_name = format!("libp2p-email-worker-{}", opt.id);
+    let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
+    let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
+
+    maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
+
+    let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
+    let mut errors = Vec::new();
+    for (service, res) in results {
+      if let Err(err) = res {
+        tracing::error!(service, error = ?err, "shutdown task failed");
+        errors.push((service, err));
+      }
+    }
+    let _ = swarm_handle.await;
+    let _ = http_handle.await;
+    let _ = apalis_handle.await;
+    if errors.is_empty() {
+      tracing::info!("worker shutdown complete");
+      return Ok(());
+    }
+    let (service, err) = errors.remove(0);
+    return Err(anyhow!("shutdown error in {service}: {err}"));
   }
 
   cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
@@ -1478,16 +1112,22 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   }
   let sqlite_flush_group_id = default_openraft_group_id();
 
-  let http_state = build_http_state(&opt, &identity, &libp2p, sqlite_cache.clone());
-  let apalis_storage = http_state.apalis_email.clone();
-  let apalis_worker_name = format!("raft-email-worker-{}", opt.id);
+  let apalis_storage =
+    build_apalis_email_storage(opt.id.clone(), &libp2p).expect("apalis group should be configured");
+  let http_state = build_http_state(
+    &opt,
+    &identity,
+    &libp2p,
+    sqlite_cache.clone(),
+    Some(apalis_storage.clone()),
+  );
+  let apalis_worker_name = format!("raft-scheduler-{}", opt.id);
   let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
   let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
 
   maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
   maybe_init_cluster(members, opt.id.clone(), opt.init).await?;
 
-  let autoscaler_handle = spawn_openraft_autoscaler(&mut shutdown, libp2p.network.clone());
   let sqlite_flusher_handle = sqlite_cache.map(|_| {
     spawn_sqlite_cache_flusher(
       &mut shutdown,
@@ -1501,11 +1141,9 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   spawn_openraft_shutdown(
     &mut shutdown,
     shutdown_rx_for_ordering,
-    opt.id.clone(),
     swarm_handle,
     http_handle,
     apalis_handle,
-    autoscaler_handle,
     sqlite_flusher_handle,
   );
 

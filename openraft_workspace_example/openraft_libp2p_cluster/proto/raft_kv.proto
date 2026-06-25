@@ -39,6 +39,19 @@ message DeleteValueResponse {
   bool ok = 1;
 }
 
+message ListPrefixRequest {
+  string prefix = 1;
+}
+
+message KeyValue {
+  string key = 1;
+  string value = 2;
+}
+
+message ListPrefixResponse {
+  repeated KeyValue entries = 1;
+}
+
 message ErrorResponse {
   string message = 1;
 }
@@ -50,6 +63,7 @@ message RaftKvRequest {
     SetValueRequest set = 2;
     UpdateValueRequest update = 3;
     DeleteValueRequest delete = 4;
+    ListPrefixRequest list_prefix = 5;
   }
 }
 
@@ -59,6 +73,7 @@ message RaftKvResponse {
     SetValueResponse set = 2;
     UpdateValueResponse update = 3;
     DeleteValueResponse delete = 4;
+    ListPrefixResponse list_prefix = 5;
     ErrorResponse error = 10;
   }
 }
