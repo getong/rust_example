@@ -146,6 +146,7 @@ pub async fn serve(
     .route("/libp2p/nodes", get(libp2p_nodes))
     .route("/cluster/openraft", get(openraft_nodes))
     .route("/cluster/libp2p", get(libp2p_nodes))
+    .route("/openraft/membership/remove", post(remove_openraft_member))
     .route("/graph", get(cluster_graph_page))
     .route("/graph.dot", get(cluster_graph_dot_response))
     .route("/graph.svg", get(cluster_graph_svg_response))
@@ -244,6 +245,30 @@ struct Libp2pNodeResponse {
   connected: bool,
   is_local: bool,
   openraft_role: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RemoveOpenRaftMemberRequest {
+  node_id: NodeId,
+  group_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RemoveOpenRaftMemberResponse {
+  ok: bool,
+  target_node_id: NodeId,
+  groups: Vec<RemoveOpenRaftMemberGroupResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RemoveOpenRaftMemberGroupResponse {
+  group_id: String,
+  ok: bool,
+  before_voters: Vec<NodeId>,
+  after_voters: Vec<NodeId>,
+  leader_id: Option<NodeId>,
+  error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -876,6 +901,132 @@ async fn libp2p_nodes(
     nodes,
     error,
   })
+}
+
+async fn remove_openraft_member(
+  State(_state): State<Arc<AppState>>,
+  Json(req): Json<RemoveOpenRaftMemberRequest>,
+) -> Json<RemoveOpenRaftMemberResponse> {
+  let group_ids = match req.group_id.clone() {
+    Some(group_id) => vec![group_id],
+    None => openraft_group_ids(),
+  };
+
+  if group_ids.is_empty() {
+    return Json(RemoveOpenRaftMemberResponse {
+      ok: false,
+      target_node_id: req.node_id,
+      groups: Vec::new(),
+      error: Some("openraft groups are not initialized".to_string()),
+    });
+  }
+
+  let mut groups = Vec::with_capacity(group_ids.len());
+  for group_id in group_ids {
+    groups.push(remove_openraft_member_from_group(&group_id, &req.node_id).await);
+  }
+  let ok = groups.iter().all(|group| group.ok);
+  let error = if ok {
+    None
+  } else {
+    Some("one or more openraft membership changes failed".to_string())
+  };
+
+  Json(RemoveOpenRaftMemberResponse {
+    ok,
+    target_node_id: req.node_id,
+    groups,
+    error,
+  })
+}
+
+async fn remove_openraft_member_from_group(
+  group_id: &str,
+  target_node_id: &NodeId,
+) -> RemoveOpenRaftMemberGroupResponse {
+  let Some(group) = openraft_group(group_id) else {
+    return RemoveOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: Vec::new(),
+      after_voters: Vec::new(),
+      leader_id: None,
+      error: Some(format!("unknown group_id={group_id}")),
+    };
+  };
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let membership = metrics.membership_config.membership();
+  let before_voters = membership.voter_ids().collect::<BTreeSet<_>>();
+  let after_voters = before_voters
+    .iter()
+    .filter(|node_id| *node_id != target_node_id)
+    .cloned()
+    .collect::<BTreeSet<_>>();
+
+  if !metrics.state.is_leader() {
+    return RemoveOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: after_voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      error: Some("membership changes must be submitted to the leader node".to_string()),
+    };
+  }
+
+  if !before_voters.contains(target_node_id) {
+    return RemoveOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: true,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: before_voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      error: None,
+    };
+  }
+
+  if after_voters.is_empty() {
+    return RemoveOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: Vec::new(),
+      leader_id: metrics.current_leader,
+      error: Some("refusing to remove the last openraft voter".to_string()),
+    };
+  }
+
+  match group
+    .raft
+    .change_membership(after_voters.clone(), false)
+    .await
+  {
+    Ok(response) => {
+      tracing::info!(
+        group = group_id,
+        target_node_id = %target_node_id,
+        response = ?response,
+        "removed openraft voter from membership"
+      );
+      RemoveOpenRaftMemberGroupResponse {
+        group_id: group_id.to_string(),
+        ok: true,
+        before_voters: before_voters.iter().cloned().collect(),
+        after_voters: after_voters.iter().cloned().collect(),
+        leader_id: metrics.current_leader,
+        error: None,
+      }
+    }
+    Err(err) => RemoveOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: after_voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      error: Some(format!("change_membership failed: {err:?}")),
+    },
+  }
 }
 
 fn openraft_group_ids() -> Vec<String> {

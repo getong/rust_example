@@ -73,6 +73,17 @@ curl -X POST http://127.0.0.1:3001/apalis/email \
 # list registered external workers and task state
 curl http://127.0.0.1:3001/apalis/workers
 curl http://127.0.0.1:3001/apalis/tasks
+
+# safely remove an OpenRaft control node before shutting that node down
+# send this to the current leader's HTTP port; omit group_id to remove from all groups
+curl -X POST http://127.0.0.1:3001/openraft/membership/remove \
+  -H 'content-type: application/json' \
+  -d '{"node_id":"<node-id-to-remove>"}'
+
+# or remove from a single raft group
+curl -X POST http://127.0.0.1:3001/openraft/membership/remove \
+  -H 'content-type: application/json' \
+  -d '{"group_id":"users","node_id":"<node-id-to-remove>"}'
 #+end_src
 
 ** apalis
