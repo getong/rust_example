@@ -25,8 +25,8 @@ use tokio::sync::mpsc;
 use crate::{
   GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
   constants::{
-    SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT,
-    SERVICE_OPENRAFT_LEADER_WORKER, SERVICE_SQLITE_CACHE_FLUSHER,
+    SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT_LEADER_WORKER,
+    SERVICE_SQLITE_CACHE_FLUSHER,
   },
   groups, http,
   network::{
@@ -52,10 +52,10 @@ use crate::{
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const ENV_BOOTSTRAP_NAME: &str = "LIBP2P_BOOTSTRAP_NAME";
-const OPENRAFT_CONTROL_PLANE_SIZE: usize = 3;
 const OPENRAFT_LEADER_WORKER_INTERVAL_SECS: u64 = 1;
 const APALIS_WORKER_RESTART_DELAY_SECS: u64 = 2;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
+const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
 /// How long to wait for at least one remote peer to become connected before
 /// running the startup "was this node removed?" membership check. Without
 /// this wait the check always sees zero connected peers and silently skips,
@@ -63,10 +63,10 @@ const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const STARTUP_PEER_CONNECT_WAIT: Duration = Duration::from_secs(8);
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
 pub enum NodeRole {
-  /// OpenRaft control-plane node. Exactly three control nodes should be passed with --node.
-  #[default]
+  /// OpenRaft control-plane node. Deprecated: nodes now promote to control after joining OpenRaft.
   Control,
-  /// External libp2p worker. It registers in Raft state and runs apalis tasks only.
+  /// Libp2p worker. This is the default startup role before OpenRaft membership is detected.
+  #[default]
   Worker,
 }
 
@@ -195,16 +195,15 @@ pub struct Opt {
   #[arg(long, default_value_t = false)]
   pub init: bool,
 
-  /// Cluster node addresses in the form: <id>=<multiaddr-with-/p2p/peerid>
+  /// Known cluster node addresses in the form: <id>=<multiaddr-with-/p2p/peerid>.
   ///
-  /// In control mode these are the three OpenRaft control-plane nodes. In
-  /// worker mode these are the control-plane nodes the worker uses to register,
-  /// poll, and report task state.
+  /// On first boot with --init this is the initial OpenRaft membership. Before
+  /// this node has joined OpenRaft, these nodes are used as the control plane.
   #[arg(long = "node")]
   pub nodes: Vec<String>,
 
-  /// Node role. Control nodes run OpenRaft; worker nodes only run libp2p + apalis.
-  #[arg(long, value_enum, default_value_t = NodeRole::Control)]
+  /// Startup role hint. Deprecated: all nodes start as workers and promote after joining OpenRaft.
+  #[arg(long, value_enum, default_value_t = NodeRole::Worker)]
   pub role: NodeRole,
 
   /// OpenRaft heartbeat interval in milliseconds (leader keepalive cadence).
@@ -322,16 +321,31 @@ fn node_name_for_id(id: &NodeId) -> String {
   env::var(key).unwrap_or_else(|_| format!("node-{id}"))
 }
 
+#[derive(Clone)]
 struct NodeIdentity {
   local_peer_id: PeerId,
   node_name: String,
 }
 
+#[derive(Clone)]
 struct Libp2pHandles {
   cmd_tx: mpsc::Sender<Command>,
   client: Libp2pClient,
   kv_client: KvClient,
   network: Libp2pNetworkFactory,
+}
+
+#[derive(Clone)]
+struct ControlRuntime {
+  opt: Opt,
+  identity: NodeIdentity,
+  libp2p: Libp2pHandles,
+  group_ids: Vec<GroupId>,
+}
+
+enum StartupMode {
+  Worker { control_nodes: Vec<NodeId> },
+  Control,
 }
 
 fn init_node_identity(opt: &Opt) -> anyhow::Result<(identity::Keypair, NodeIdentity)> {
@@ -778,6 +792,207 @@ async fn run_openraft_leader_tick(
   }
 }
 
+fn linked_shutdown(parent_rx: crate::signal::ShutdownRx) -> crate::signal::ShutdownHandler {
+  let (tx, rx) = crate::signal::channel();
+  let tx_for_parent = tx.clone();
+  let mut parent_rx = parent_rx;
+  tokio::spawn(async move {
+    let _ = parent_rx.changed().await;
+    let _ = tx_for_parent.send(());
+  });
+  crate::signal::ShutdownHandler::new(tx, rx)
+}
+
+async fn run_control_services(
+  runtime: ControlRuntime,
+  http_addr: SocketAddr,
+  members: BTreeMap<NodeId, BasicNode>,
+  shutdown_rx_for_ordering: crate::signal::ShutdownRx,
+) -> anyhow::Result<()> {
+  cleanup_removed_local_groups(
+    &runtime.opt.db,
+    &runtime.opt.id,
+    &runtime.group_ids,
+    &runtime.libp2p.network,
+  )
+  .await?;
+
+  let group_handles = start_openraft_groups(
+    &runtime.opt,
+    runtime.opt.id.clone(),
+    &runtime.opt.db,
+    runtime.libp2p.network.clone(),
+    &runtime.group_ids,
+  )
+  .await?;
+  set_openraft_groups(group_handles)
+    .map_err(|_| anyhow!("global openraft groups already initialized"))?;
+
+  let sqlite_cache = if runtime.opt.disable_sqlite_cache {
+    None
+  } else {
+    Some(SqliteCache::connect_in_db_dir(&runtime.opt.db, &runtime.opt.redis_url).await?)
+  };
+  if let Some(cache) = sqlite_cache.clone() {
+    sqlite_cache::set_sqlite_cache(cache)
+      .map_err(|_| anyhow!("global sqlite cache already initialized"))?;
+  }
+  let sqlite_flush_group_id = default_openraft_group_id();
+
+  let apalis_storage = build_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p)
+    .expect("apalis group should be configured");
+  let leader_worker_storage = apalis_storage.clone();
+  let http_state = build_http_state(
+    &runtime.opt,
+    &runtime.identity,
+    &runtime.libp2p,
+    sqlite_cache.clone(),
+    Some(apalis_storage.clone()),
+  );
+  let apalis_worker_name = format!("raft-scheduler-{}", runtime.opt.id);
+
+  let mut shutdown = linked_shutdown(shutdown_rx_for_ordering.clone());
+  let _http_handle = spawn_http(&mut shutdown, http_addr, http_state);
+  let _apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
+  let _leader_worker_handle = spawn_openraft_leader_worker(&mut shutdown, leader_worker_storage);
+
+  let _sqlite_flusher_handle = sqlite_cache.map(|_| {
+    spawn_sqlite_cache_flusher(
+      &mut shutdown,
+      runtime.opt.id.clone(),
+      sqlite_flush_group_id,
+      runtime.libp2p.network.clone(),
+      runtime.libp2p.kv_client.clone(),
+    )
+  });
+
+  maybe_init_cluster(members, runtime.opt.id.clone(), runtime.opt.init).await?;
+
+  let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
+
+  let mut errors = Vec::new();
+  for (service, res) in results {
+    if let Err(err) = res {
+      tracing::error!(service, error = ?err, "control service failed");
+      errors.push(anyhow!("control service failed in {service}: {err}"));
+    }
+  }
+
+  if let Some(rafts) = openraft_groups().map(|groups| {
+    groups
+      .values()
+      .map(|group| group.raft.clone())
+      .collect::<Vec<_>>()
+  }) {
+    for raft in rafts {
+      if let Err(err) = raft.shutdown().await {
+        errors.push(anyhow!("openraft shutdown failed: {err:?}"));
+      }
+    }
+  }
+
+  match errors.len() {
+    0 => Ok(()),
+    1 => Err(errors.remove(0)),
+    _ => {
+      let mut msg = String::new();
+      use std::fmt::Write as _;
+      let _ = writeln!(&mut msg, "control service errors: {}", errors.len());
+      for err in errors {
+        let _ = writeln!(&mut msg, "  {err}");
+      }
+      Err(anyhow!(msg))
+    }
+  }
+}
+
+enum PromotionWatchResult {
+  Promote,
+  Shutdown,
+}
+
+async fn run_control_promotion_watcher(
+  runtime: ControlRuntime,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) -> anyhow::Result<PromotionWatchResult> {
+  let mut tick = tokio::time::interval(Duration::from_secs(CONTROL_PROMOTION_POLL_INTERVAL_SECS));
+  tick.tick().await;
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => {
+        return Ok(PromotionWatchResult::Shutdown);
+      }
+      _ = tick.tick() => {
+        if remote_openraft_membership_contains_self(
+          &runtime.opt.id,
+          &runtime.group_ids,
+          &runtime.libp2p.network,
+        )
+        .await
+        {
+          tracing::info!(
+            node_id = %runtime.opt.id,
+            "local node is now in OpenRaft membership; promoting worker to control"
+          );
+          return Ok(PromotionWatchResult::Promote);
+        }
+      }
+    }
+  }
+}
+
+async fn run_worker_services_until_promotion(
+  runtime: ControlRuntime,
+  http_addr: SocketAddr,
+  control_nodes: Vec<NodeId>,
+  shutdown_rx: crate::signal::ShutdownRx,
+) -> anyhow::Result<bool> {
+  let mut worker_shutdown = linked_shutdown(shutdown_rx.clone());
+  let worker_shutdown_tx = worker_shutdown.shutdown_tx();
+
+  let apalis_storage =
+    build_worker_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p, control_nodes);
+  let http_state = build_http_state(
+    &runtime.opt,
+    &runtime.identity,
+    &runtime.libp2p,
+    None,
+    Some(apalis_storage.clone()),
+  );
+  let apalis_worker_name = format!("libp2p-email-worker-{}", runtime.opt.id);
+  let _http_handle = spawn_http(&mut worker_shutdown, http_addr, http_state);
+  let _apalis_handle =
+    spawn_resilient_apalis_worker(&mut worker_shutdown, apalis_worker_name, apalis_storage);
+
+  let mut worker_done_handle =
+    tokio::spawn(async move { worker_shutdown.await_any_then_shutdown().await });
+  let mut promotion_handle =
+    tokio::spawn(run_control_promotion_watcher(runtime, shutdown_rx.clone()));
+
+  tokio::select! {
+    promotion = &mut promotion_handle => {
+      let _ = worker_shutdown_tx.send(());
+      let (_tx, _rx, results) = worker_done_handle
+        .await
+        .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
+      collect_shutdown_errors("worker", results)?;
+
+      match promotion.map_err(|err| anyhow!("promotion watcher task failed: {err}"))?? {
+        PromotionWatchResult::Promote => Ok(true),
+        PromotionWatchResult::Shutdown => Ok(false),
+      }
+    }
+    worker_done = &mut worker_done_handle => {
+      promotion_handle.abort();
+      let (_tx, _rx, results) = worker_done
+        .map_err(|err| anyhow!("worker shutdown task failed: {err}"))?;
+      collect_shutdown_errors("worker", results)?;
+      Ok(false)
+    }
+  }
+}
+
 fn spawn_sqlite_cache_flusher(
   shutdown: &mut crate::signal::ShutdownHandler,
   local_node_id: NodeId,
@@ -801,64 +1016,6 @@ fn spawn_sqlite_cache_flusher(
   })
 }
 
-fn spawn_openraft_shutdown(
-  shutdown: &mut crate::signal::ShutdownHandler,
-  mut shutdown_rx_for_ordering: crate::signal::ShutdownRx,
-  swarm_handle: tokio::task::JoinHandle<()>,
-  http_handle: tokio::task::JoinHandle<()>,
-  apalis_handle: tokio::task::JoinHandle<()>,
-  leader_worker_handle: tokio::task::JoinHandle<()>,
-  sqlite_flusher_handle: Option<tokio::task::JoinHandle<()>>,
-) {
-  // Openraft should shut down after libp2p swarm has stopped.
-  let (openraft_shutdown_tx, mut openraft_shutdown_rx) = crate::signal::channel();
-  let raft_done = shutdown.push(SERVICE_OPENRAFT);
-  tokio::spawn(async move {
-    let _ = openraft_shutdown_rx.changed().await;
-    let mut errors = Vec::new();
-    if let Some(rafts) = openraft_groups().map(|groups| {
-      groups
-        .values()
-        .map(|group| group.raft.clone())
-        .collect::<Vec<_>>()
-    }) {
-      for raft in rafts {
-        if let Err(err) = raft.shutdown().await {
-          errors.push(anyhow!("openraft shutdown failed: {err:?}"));
-        }
-      }
-    } else {
-      errors.push(anyhow!("openraft groups are not initialized"));
-    }
-    let res = match errors.len() {
-      0 => Ok(()),
-      1 => Err(errors.remove(0)),
-      _ => {
-        let mut msg = String::new();
-        use std::fmt::Write as _;
-        let _ = writeln!(&mut msg, "openraft shutdown errors: {}", errors.len());
-        for err in errors {
-          let _ = writeln!(&mut msg, "  {err}");
-        }
-        Err(anyhow!(msg))
-      }
-    };
-    let _ = raft_done.send(res);
-  });
-
-  tokio::spawn(async move {
-    let _ = shutdown_rx_for_ordering.changed().await;
-    let _ = swarm_handle.await;
-    let _ = http_handle.await;
-    let _ = apalis_handle.await;
-    let _ = leader_worker_handle.await;
-    if let Some(sqlite_flusher_handle) = sqlite_flusher_handle {
-      let _ = sqlite_flusher_handle.await;
-    }
-    let _ = openraft_shutdown_tx.send(());
-  });
-}
-
 async fn register_members(
   network: &Libp2pNetworkFactory,
   nodes: &[String],
@@ -877,35 +1034,96 @@ async fn register_members(
   Ok(members)
 }
 
-fn validate_control_members(
+fn validate_initial_members(
   members: &BTreeMap<NodeId, BasicNode>,
   self_id: &NodeId,
 ) -> anyhow::Result<()> {
-  if members.len() != OPENRAFT_CONTROL_PLANE_SIZE {
-    return Err(anyhow!(
-      "control mode requires exactly {OPENRAFT_CONTROL_PLANE_SIZE} --node entries; got {}",
-      members.len()
-    ));
+  if members.is_empty() {
+    return Err(anyhow!("--init requires at least one --node entry"));
   }
   if !members.contains_key(self_id) {
-    return Err(anyhow!(
-      "control mode requires providing self in --node list"
-    ));
+    return Err(anyhow!("--init requires providing self in --node list"));
   }
   Ok(())
 }
 
-fn validate_worker_control_nodes(
+fn worker_control_nodes(
   members: &BTreeMap<NodeId, BasicNode>,
+  self_id: &NodeId,
 ) -> anyhow::Result<Vec<NodeId>> {
-  if members.len() != OPENRAFT_CONTROL_PLANE_SIZE {
+  let control_nodes = members
+    .keys()
+    .filter(|node_id| *node_id != self_id)
+    .cloned()
+    .collect::<Vec<_>>();
+  if control_nodes.is_empty() {
     return Err(anyhow!(
-      "worker mode requires exactly {OPENRAFT_CONTROL_PLANE_SIZE} control-plane --node entries; \
-       got {}",
-      members.len()
+      "worker startup requires at least one remote --node entry"
     ));
   }
-  Ok(members.keys().cloned().collect())
+  Ok(control_nodes)
+}
+
+fn local_openraft_membership_contains_self(
+  db_dir: &Path,
+  self_id: &NodeId,
+  group_ids: &[GroupId],
+) -> anyhow::Result<bool> {
+  for group_id in group_ids {
+    let Some(membership) = store::read_persisted_membership_for_group(db_dir, group_id)? else {
+      continue;
+    };
+    if membership.membership().get_node(self_id).is_some() {
+      return Ok(true);
+    }
+  }
+  Ok(false)
+}
+
+fn decide_startup_mode(
+  opt: &Opt,
+  members: &BTreeMap<NodeId, BasicNode>,
+  group_ids: &[GroupId],
+) -> anyhow::Result<StartupMode> {
+  if opt.role == NodeRole::Control {
+    tracing::warn!(
+      "--role=control is deprecated; startup mode is determined by OpenRaft membership"
+    );
+  }
+
+  if opt.init {
+    validate_initial_members(members, &opt.id)?;
+    return Ok(StartupMode::Control);
+  }
+
+  if local_openraft_membership_contains_self(&opt.db, &opt.id, group_ids)? {
+    return Ok(StartupMode::Control);
+  }
+
+  Ok(StartupMode::Worker {
+    control_nodes: worker_control_nodes(members, &opt.id)?,
+  })
+}
+
+async fn remote_openraft_membership_contains_self(
+  self_id: &NodeId,
+  group_ids: &[GroupId],
+  network: &Libp2pNetworkFactory,
+) -> bool {
+  for group_id in group_ids {
+    let Some(metrics) = fetch_remote_group_metrics(group_id, self_id, network).await else {
+      continue;
+    };
+    if metrics
+      .membership_config
+      .membership()
+      .get_node(self_id)
+      .is_some()
+    {
+      return true;
+    }
+  }
+  false
 }
 
 /// Wait until at least one peer (other than ourselves) has an established
@@ -1116,11 +1334,13 @@ fn default_openraft_group_id() -> GroupId {
 
   openraft_groups()
     .and_then(|raft_groups| raft_groups.keys().next().cloned())
-    .unwrap_or_else(|| "default".to_string())
+    .unwrap_or_else(|| groups::USERS.to_string())
 }
 
-async fn await_shutdown(shutdown: crate::signal::ShutdownHandler) -> anyhow::Result<()> {
-  let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
+fn collect_shutdown_errors(
+  label: &str,
+  results: Vec<(&'static str, anyhow::Result<()>)>,
+) -> anyhow::Result<()> {
   let mut errors = Vec::new();
   for (service, res) in results {
     if let Err(err) = res {
@@ -1130,18 +1350,17 @@ async fn await_shutdown(shutdown: crate::signal::ShutdownHandler) -> anyhow::Res
   }
 
   if errors.is_empty() {
-    tracing::info!("shutdown complete");
     return Ok(());
   }
 
   if errors.len() == 1 {
     let (service, err) = errors.pop().unwrap();
-    return Err(anyhow!("shutdown error in {service}: {err}"));
+    return Err(anyhow!("{label} error in {service}: {err}"));
   }
 
   let mut msg = String::new();
   use std::fmt::Write as _;
-  let _ = writeln!(&mut msg, "encountered {} shutdown errors:", errors.len());
+  let _ = writeln!(&mut msg, "{label} encountered {} errors:", errors.len());
   for (service, err) in errors {
     let _ = writeln!(&mut msg, "  {service}: {err}");
   }
@@ -1170,13 +1389,6 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
 
   let members = register_members(&libp2p.network, &opt.nodes).await?;
-  let worker_control_nodes = match opt.role {
-    NodeRole::Control => {
-      validate_control_members(&members, &opt.id)?;
-      None
-    }
-    NodeRole::Worker => Some(validate_worker_control_nodes(&members)?),
-  };
 
   // Dials issued by register_members are fire-and-forget; wait a short window
   // for at least one peer connection to be established before running the
@@ -1192,100 +1404,47 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     }
   }
 
-  if opt.role == NodeRole::Worker {
-    let apalis_storage = build_worker_apalis_email_storage(
-      opt.id.clone(),
-      &libp2p,
-      worker_control_nodes.expect("worker control nodes validated"),
-    );
-    let http_state = build_http_state(&opt, &identity, &libp2p, None, Some(apalis_storage.clone()));
-    let apalis_worker_name = format!("libp2p-email-worker-{}", opt.id);
-    let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
-    let apalis_handle =
-      spawn_resilient_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
-
-    maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
-
-    let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
-    let mut errors = Vec::new();
-    for (service, res) in results {
-      if let Err(err) = res {
-        tracing::error!(service, error = ?err, "shutdown task failed");
-        errors.push((service, err));
-      }
-    }
-    let _ = swarm_handle.await;
-    let _ = http_handle.await;
-    let _ = apalis_handle.await;
-    if errors.is_empty() {
-      tracing::info!("worker shutdown complete");
-      return Ok(());
-    }
-    let (service, err) = errors.remove(0);
-    return Err(anyhow!("shutdown error in {service}: {err}"));
+  if !opt.init {
+    cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
   }
-
-  cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
-
-  let openraft_groups = start_openraft_groups(
-    &opt,
-    opt.id.clone(),
-    &opt.db,
-    libp2p.network.clone(),
-    &group_ids,
-  )
-  .await?;
-  set_openraft_groups(openraft_groups)
-    .map_err(|_| anyhow!("global openraft groups already initialized"))?;
-
-  let sqlite_cache = if opt.disable_sqlite_cache {
-    None
-  } else {
-    Some(SqliteCache::connect_in_db_dir(&opt.db, &opt.redis_url).await?)
-  };
-  if let Some(cache) = sqlite_cache.clone() {
-    sqlite_cache::set_sqlite_cache(cache)
-      .map_err(|_| anyhow!("global sqlite cache already initialized"))?;
-  }
-  let sqlite_flush_group_id = default_openraft_group_id();
-
-  let apalis_storage =
-    build_apalis_email_storage(opt.id.clone(), &libp2p).expect("apalis group should be configured");
-  let leader_worker_storage = apalis_storage.clone();
-  let http_state = build_http_state(
-    &opt,
-    &identity,
-    &libp2p,
-    sqlite_cache.clone(),
-    Some(apalis_storage.clone()),
-  );
-  let apalis_worker_name = format!("raft-scheduler-{}", opt.id);
-  let http_handle = spawn_http(&mut shutdown, http_addr, http_state);
-  let apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
-  let leader_worker_handle = spawn_openraft_leader_worker(&mut shutdown, leader_worker_storage);
+  let startup_mode = decide_startup_mode(&opt, &members, &group_ids)?;
 
   maybe_bootstrap(&libp2p.client, &members, opt.id.clone()).await;
-  maybe_init_cluster(members, opt.id.clone(), opt.init).await?;
 
-  let sqlite_flusher_handle = sqlite_cache.map(|_| {
-    spawn_sqlite_cache_flusher(
-      &mut shutdown,
-      opt.id.clone(),
-      sqlite_flush_group_id,
-      libp2p.network.clone(),
-      libp2p.kv_client.clone(),
-    )
-  });
+  let runtime = ControlRuntime {
+    opt,
+    identity,
+    libp2p,
+    group_ids,
+  };
 
-  spawn_openraft_shutdown(
-    &mut shutdown,
-    shutdown_rx_for_ordering,
-    swarm_handle,
-    http_handle,
-    apalis_handle,
-    leader_worker_handle,
-    sqlite_flusher_handle,
-  );
+  let service_result = match startup_mode {
+    StartupMode::Control => {
+      run_control_services(runtime, http_addr, members, shutdown_rx_for_ordering).await
+    }
+    StartupMode::Worker { control_nodes } => {
+      match run_worker_services_until_promotion(
+        runtime.clone(),
+        http_addr,
+        control_nodes,
+        shutdown_rx_for_ordering.clone(),
+      )
+      .await
+      {
+        Ok(true) => {
+          run_control_services(runtime, http_addr, members, shutdown_rx_for_ordering).await
+        }
+        Ok(false) => Ok(()),
+        Err(err) => Err(err),
+      }
+    }
+  };
 
-  await_shutdown(shutdown).await
+  let (_tx, _rx, results) = shutdown.shutdown().await;
+  let shutdown_result = collect_shutdown_errors("shutdown", results);
+  let _ = swarm_handle.await;
+  service_result?;
+  shutdown_result?;
+  tracing::info!("shutdown complete");
+  Ok(())
 }

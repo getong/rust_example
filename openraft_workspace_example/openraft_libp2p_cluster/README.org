@@ -88,9 +88,9 @@ curl -X POST http://127.0.0.1:3001/openraft/membership/remove \
 
 ** apalis
 
-This project uses a fixed three-node OpenRaft control plane and any number of
-external libp2p worker nodes. Worker nodes run libp2p + apalis only; they do
-not join OpenRaft membership.
+Nodes start as libp2p workers by default. A node runs the OpenRaft control
+plane only after it is part of OpenRaft membership, either from =--init= or
+after a leader adds it through membership change.
 
 Tasks are stored in the =apalis= raft group under
 =apalis:apalis:task:<task-id>=. Worker lease records are stored under
@@ -134,6 +134,15 @@ the writes to the three-node control plane:
 curl -X POST http://127.0.0.1:3101/apalis/email \
   -H 'content-type: application/json' \
   -d '{"to":"worker-submit@example.com"}'
+#+end_src
+
+Promote a running worker into OpenRaft membership by submitting the request to
+the current leader:
+
+#+begin_src shell
+curl -X POST http://127.0.0.1:3001/openraft/membership/add \
+  -H 'content-type: application/json' \
+  -d '{"node_id":"<worker-peer-id>","addr":"/ip4/127.0.0.1/tcp/4101/wss/p2p/<worker-peer-id>"}'
 #+end_src
 
 ** cli examples

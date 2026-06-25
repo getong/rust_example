@@ -19,7 +19,7 @@ use axum::{
   routing::{get, post},
 };
 use libp2p::{Multiaddr, PeerId};
-use openraft::{ServerState, async_runtime::WatchReceiver};
+use openraft::{BasicNode, ServerState, async_runtime::WatchReceiver, log_id::RaftLogId};
 use prost::Message;
 use serde::{
   Deserialize, Deserializer, Serialize,
@@ -146,6 +146,7 @@ pub async fn serve(
     .route("/libp2p/nodes", get(libp2p_nodes))
     .route("/cluster/openraft", get(openraft_nodes))
     .route("/cluster/libp2p", get(libp2p_nodes))
+    .route("/openraft/membership/add", post(add_openraft_member))
     .route("/openraft/membership/remove", post(remove_openraft_member))
     .route("/graph", get(cluster_graph_page))
     .route("/graph.dot", get(cluster_graph_dot_response))
@@ -251,6 +252,40 @@ struct Libp2pNodeResponse {
 struct RemoveOpenRaftMemberRequest {
   node_id: NodeId,
   group_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AddOpenRaftMemberRequest {
+  node_id: NodeId,
+  addr: Option<String>,
+  group_id: Option<String>,
+  #[serde(default = "default_promote_openraft_member")]
+  promote: bool,
+  catch_up_timeout_secs: Option<u64>,
+}
+
+fn default_promote_openraft_member() -> bool {
+  true
+}
+
+#[derive(Serialize)]
+struct AddOpenRaftMemberResponse {
+  ok: bool,
+  target_node_id: NodeId,
+  groups: Vec<AddOpenRaftMemberGroupResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AddOpenRaftMemberGroupResponse {
+  group_id: String,
+  ok: bool,
+  before_voters: Vec<NodeId>,
+  after_voters: Vec<NodeId>,
+  leader_id: Option<NodeId>,
+  learner_added: bool,
+  promoted: bool,
+  error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -938,6 +973,315 @@ async fn remove_openraft_member(
     groups,
     error,
   })
+}
+
+async fn add_openraft_member(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<AddOpenRaftMemberRequest>,
+) -> Json<AddOpenRaftMemberResponse> {
+  let group_ids = match req.group_id.clone() {
+    Some(group_id) => vec![group_id],
+    None => openraft_group_ids(),
+  };
+
+  if group_ids.is_empty() {
+    return Json(AddOpenRaftMemberResponse {
+      ok: false,
+      target_node_id: req.node_id,
+      groups: Vec::new(),
+      error: Some("openraft groups are not initialized".to_string()),
+    });
+  }
+
+  let target_addr = match resolve_openraft_member_addr(state.as_ref(), &req.node_id, req.addr).await
+  {
+    Ok(addr) => addr,
+    Err(err) => {
+      return Json(AddOpenRaftMemberResponse {
+        ok: false,
+        target_node_id: req.node_id,
+        groups: Vec::new(),
+        error: Some(err),
+      });
+    }
+  };
+
+  if let Err(err) = state
+    .network
+    .register_node(req.node_id.clone(), &target_addr)
+    .await
+  {
+    return Json(AddOpenRaftMemberResponse {
+      ok: false,
+      target_node_id: req.node_id,
+      groups: Vec::new(),
+      error: Some(format!("register target node failed: {err}")),
+    });
+  }
+
+  let catch_up_timeout = Duration::from_secs(req.catch_up_timeout_secs.unwrap_or(30));
+  let mut groups = Vec::with_capacity(group_ids.len());
+  for group_id in group_ids {
+    groups.push(
+      add_openraft_member_to_group(
+        &group_id,
+        &req.node_id,
+        &target_addr,
+        req.promote,
+        catch_up_timeout,
+      )
+      .await,
+    );
+  }
+  let ok = groups.iter().all(|group| group.ok);
+  let error = if ok {
+    None
+  } else {
+    Some("one or more openraft membership changes failed".to_string())
+  };
+
+  Json(AddOpenRaftMemberResponse {
+    ok,
+    target_node_id: req.node_id,
+    groups,
+    error,
+  })
+}
+
+async fn resolve_openraft_member_addr(
+  state: &AppState,
+  node_id: &NodeId,
+  requested_addr: Option<String>,
+) -> Result<String, String> {
+  if let Some(addr) = requested_addr {
+    let (peer_id, _) =
+      parse_p2p_addr(&addr).map_err(|err| format!("invalid target addr: {err}"))?;
+    if node_id.as_str() != peer_id.to_string() {
+      return Err(format!(
+        "target node_id must match addr /p2p peer id: node_id={node_id}, peer={peer_id}"
+      ));
+    }
+    return Ok(addr);
+  }
+
+  state
+    .network
+    .known_nodes()
+    .await
+    .into_iter()
+    .find(|(known_node_id, _, _)| known_node_id == node_id)
+    .map(|(_, _, addr)| addr.to_string())
+    .ok_or_else(|| "target addr is required for an unknown libp2p node".to_string())
+}
+
+async fn add_openraft_member_to_group(
+  group_id: &str,
+  target_node_id: &NodeId,
+  target_addr: &str,
+  promote: bool,
+  catch_up_timeout: Duration,
+) -> AddOpenRaftMemberGroupResponse {
+  let Some(group) = openraft_group(group_id) else {
+    return AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: Vec::new(),
+      after_voters: Vec::new(),
+      leader_id: None,
+      learner_added: false,
+      promoted: false,
+      error: Some(format!("unknown group_id={group_id}")),
+    };
+  };
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let membership = metrics.membership_config.membership();
+  let before_voters = membership.voter_ids().collect::<BTreeSet<_>>();
+
+  if !metrics.state.is_leader() {
+    return AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: before_voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      learner_added: false,
+      promoted: false,
+      error: Some("membership changes must be submitted to the leader node".to_string()),
+    };
+  }
+
+  if before_voters.contains(target_node_id) {
+    return AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: true,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: before_voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      learner_added: false,
+      promoted: false,
+      error: None,
+    };
+  }
+
+  let node = BasicNode {
+    addr: target_addr.to_string(),
+  };
+
+  let learner_log_index = match group
+    .raft
+    .add_learner(target_node_id.clone(), node, false)
+    .await
+  {
+    Ok(response) => response.log_id.index(),
+    Err(err) => {
+      return AddOpenRaftMemberGroupResponse {
+        group_id: group_id.to_string(),
+        ok: false,
+        before_voters: before_voters.iter().cloned().collect(),
+        after_voters: before_voters.iter().cloned().collect(),
+        leader_id: metrics.current_leader,
+        learner_added: false,
+        promoted: false,
+        error: Some(format!("add_learner failed: {err:?}")),
+      };
+    }
+  };
+
+  if !promote {
+    let metrics = group.raft.metrics().borrow_watched().clone();
+    let voters = metrics
+      .membership_config
+      .membership()
+      .voter_ids()
+      .collect::<BTreeSet<_>>();
+    return AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: true,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      learner_added: true,
+      promoted: false,
+      error: None,
+    };
+  }
+
+  if let Err(err) = wait_for_openraft_member_rpc(
+    group_id,
+    target_node_id,
+    learner_log_index,
+    catch_up_timeout,
+  )
+  .await
+  {
+    let metrics = group.raft.metrics().borrow_watched().clone();
+    let voters = metrics
+      .membership_config
+      .membership()
+      .voter_ids()
+      .collect::<BTreeSet<_>>();
+    return AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      learner_added: true,
+      promoted: false,
+      error: Some(err),
+    };
+  }
+
+  let voters = group
+    .raft
+    .metrics()
+    .borrow_watched()
+    .membership_config
+    .membership()
+    .voter_ids()
+    .chain(std::iter::once(target_node_id.clone()))
+    .collect::<BTreeSet<_>>();
+
+  match group.raft.change_membership(voters.clone(), false).await {
+    Ok(response) => {
+      tracing::info!(
+        group = group_id,
+        target_node_id = %target_node_id,
+        response = ?response,
+        "added openraft voter to membership"
+      );
+      AddOpenRaftMemberGroupResponse {
+        group_id: group_id.to_string(),
+        ok: true,
+        before_voters: before_voters.iter().cloned().collect(),
+        after_voters: voters.iter().cloned().collect(),
+        leader_id: metrics.current_leader,
+        learner_added: true,
+        promoted: true,
+        error: None,
+      }
+    }
+    Err(err) => AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: before_voters.iter().cloned().collect(),
+      after_voters: voters.iter().cloned().collect(),
+      leader_id: metrics.current_leader,
+      learner_added: true,
+      promoted: false,
+      error: Some(format!("change_membership failed: {err:?}")),
+    },
+  }
+}
+
+async fn wait_for_openraft_member_rpc(
+  group_id: &str,
+  target_node_id: &NodeId,
+  min_matched_index: u64,
+  timeout: Duration,
+) -> Result<(), String> {
+  let deadline = tokio::time::Instant::now() + timeout;
+  loop {
+    let Some(group) = openraft_group(group_id) else {
+      return Err(format!("unknown group_id={group_id}"));
+    };
+
+    let metrics = group.raft.metrics().borrow_watched().clone();
+    if !metrics.state.is_leader() {
+      return Err("local node is no longer the leader".to_string());
+    }
+
+    let leader_last_log_index = metrics.last_log_index.unwrap_or(0);
+    let target_index = metrics
+      .replication
+      .as_ref()
+      .and_then(|replication| replication.get(target_node_id))
+      .and_then(|matched| matched.as_ref())
+      .map(RaftLogId::index)
+      .unwrap_or(0);
+
+    let required_index = leader_last_log_index.max(min_matched_index);
+    if target_index >= required_index {
+      return Ok(());
+    }
+
+    if tokio::time::Instant::now() >= deadline {
+      return Err(format!(
+        "learner did not catch up before timeout: matched_index={target_index}, \
+         required_index={required_index}"
+      ));
+    }
+
+    tracing::debug!(
+      group = group_id,
+      target_node_id = %target_node_id,
+      matched_index = target_index,
+      required_index,
+      "waiting for learner to catch up"
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+  }
 }
 
 async fn remove_openraft_member_from_group(
