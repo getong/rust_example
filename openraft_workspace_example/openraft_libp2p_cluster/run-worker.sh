@@ -182,7 +182,6 @@ echo "  $WORKER_LOG"
 
 cmd=(
 	cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster --
-	--role worker
 	--id "$PW"
 	--listen "$WORKER_LISTEN"
 	--http "$WORKER_HTTP"

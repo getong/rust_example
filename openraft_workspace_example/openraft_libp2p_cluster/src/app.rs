@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{ArgAction, Parser};
 use futures::{AsyncRead, AsyncWrite};
 use libp2p::{
   Multiaddr, PeerId, StreamProtocol, Transport,
@@ -61,14 +61,6 @@ const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
 /// this wait the check always sees zero connected peers and silently skips,
 /// missing the case where the node was evicted while it was offline.
 const STARTUP_PEER_CONNECT_WAIT: Duration = Duration::from_secs(8);
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, ValueEnum)]
-pub enum NodeRole {
-  /// OpenRaft control-plane node. Deprecated: nodes now promote to control after joining OpenRaft.
-  Control,
-  /// Libp2p worker. This is the default startup role before OpenRaft membership is detected.
-  #[default]
-  Worker,
-}
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -201,10 +193,6 @@ pub struct Opt {
   /// this node has joined OpenRaft, these nodes are used as the control plane.
   #[arg(long = "node")]
   pub nodes: Vec<String>,
-
-  /// Startup role hint. Deprecated: all nodes start as workers and promote after joining OpenRaft.
-  #[arg(long, value_enum, default_value_t = NodeRole::Worker)]
-  pub role: NodeRole,
 
   /// OpenRaft heartbeat interval in milliseconds (leader keepalive cadence).
   #[arg(long, default_value_t = 250)]
@@ -1085,12 +1073,6 @@ fn decide_startup_mode(
   members: &BTreeMap<NodeId, BasicNode>,
   group_ids: &[GroupId],
 ) -> anyhow::Result<StartupMode> {
-  if opt.role == NodeRole::Control {
-    tracing::warn!(
-      "--role=control is deprecated; startup mode is determined by OpenRaft membership"
-    );
-  }
-
   if opt.init {
     validate_initial_members(members, &opt.id)?;
     return Ok(StartupMode::Control);
