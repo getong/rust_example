@@ -46,6 +46,14 @@ curl http://127.0.0.1:3001/cluster
 # get cluster info for orders group
 curl "http://127.0.0.1:3001/cluster?group=orders"
 
+# list OpenRaft members for a group
+curl http://127.0.0.1:3001/openraft/nodes
+curl "http://127.0.0.1:3001/openraft/nodes?group=apalis"
+
+# list libp2p known peers and their OpenRaft role, when any
+curl http://127.0.0.1:3001/libp2p/nodes
+curl "http://127.0.0.1:3001/libp2p/nodes?group=apalis"
+
 # chat
 curl -X POST http://127.0.0.1:3001/chat \
   -H 'content-type: application/json' \
@@ -92,6 +100,21 @@ Start one or more external workers after copying the printed =DB_ROOT=:
 DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=1 ./run-worker.sh
 DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=2 ./run-worker.sh
 #+end_src
+
+Or fetch the current control-plane information from =/cluster= and start four
+workers at once:
+
+#+begin_src shell
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./join-4workers.sh
+
+# optional overrides
+CLUSTER_HTTP=http://127.0.0.1:3002/cluster WORKER_COUNT=4 \
+  DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./join-4workers.sh
+#+end_src
+
+Worker libp2p listeners bind to =/ip4/0.0.0.0/tcp/<port>/wss= by default so
+the LAN addresses advertised by mDNS are dialable by other peers. Worker HTTP
+ports stay on =127.0.0.1= by default.
 
 Workers can also accept task submissions on their own HTTP ports; they forward
 the writes to the three-node control plane:

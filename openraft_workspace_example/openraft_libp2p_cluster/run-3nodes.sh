@@ -314,6 +314,7 @@ echo "  http://${NODE3_HTTP:-127.0.0.1:3003}/graph"
 echo "External workers:"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
+echo "  DB_ROOT=$DB_ROOT ./join-4workers.sh"
 
 "$ROOT_DIR/run-node1.sh" &
 

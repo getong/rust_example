@@ -1,4 +1,5 @@
 use std::{
+  collections::{BTreeMap, BTreeSet},
   net::SocketAddr,
   sync::Arc,
   time::{Duration, SystemTime, UNIX_EPOCH},
@@ -33,7 +34,7 @@ use crate::{
     openraft_dispatcher::process_kv_request,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{GOSSIP_TOPIC, KvClient},
-    transport::Libp2pNetworkFactory,
+    transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   openraft_group, openraft_groups,
   proto::raft_kv::{
@@ -141,6 +142,10 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
   let app = Router::new()
     .route("/cluster", get(cluster_info))
+    .route("/openraft/nodes", get(openraft_nodes))
+    .route("/libp2p/nodes", get(libp2p_nodes))
+    .route("/cluster/openraft", get(openraft_nodes))
+    .route("/cluster/libp2p", get(libp2p_nodes))
     .route("/graph", get(cluster_graph_page))
     .route("/graph.dot", get(cluster_graph_dot_response))
     .route("/graph.svg", get(cluster_graph_svg_response))
@@ -188,6 +193,57 @@ struct KnownNodeResponse {
   node_id: NodeId,
   peer_id: String,
   addr: String,
+}
+
+#[derive(Serialize)]
+struct OpenRaftNodesResponse {
+  ok: bool,
+  group_id: String,
+  groups: Vec<String>,
+  local_node_id: NodeId,
+  local_peer_id: String,
+  leader_id: Option<NodeId>,
+  raft_state: Option<String>,
+  voters: usize,
+  learners: usize,
+  nodes: Vec<OpenRaftNodeResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OpenRaftNodeResponse {
+  node_id: NodeId,
+  peer_id: Option<String>,
+  addr: String,
+  role: String,
+  connected: bool,
+  is_local: bool,
+  is_leader: bool,
+  raft_state: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Libp2pNodesResponse {
+  ok: bool,
+  local_node_id: NodeId,
+  local_peer_id: String,
+  listen: String,
+  group_id: String,
+  known_count: usize,
+  connected_count: usize,
+  openraft_member_count: usize,
+  nodes: Vec<Libp2pNodeResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Libp2pNodeResponse {
+  node_id: NodeId,
+  peer_id: String,
+  addr: String,
+  connected: bool,
+  is_local: bool,
+  openraft_role: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -676,6 +732,199 @@ fn url_escape(value: &str) -> String {
       _ => format!("%{byte:02X}").chars().collect(),
     })
     .collect()
+}
+
+async fn openraft_nodes(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Json<OpenRaftNodesResponse> {
+  let group_id = query
+    .group_id
+    .unwrap_or_else(|| state.default_group.clone());
+  let groups = openraft_group_ids();
+  let Some(group) = openraft_group(&group_id) else {
+    let error = if openraft_groups().is_none() {
+      "openraft groups are not initialized".to_string()
+    } else {
+      format!("unknown group_id={group_id}")
+    };
+    return Json(OpenRaftNodesResponse {
+      ok: false,
+      group_id,
+      groups,
+      local_node_id: state.node_id.clone(),
+      local_peer_id: state.peer_id.clone(),
+      leader_id: None,
+      raft_state: None,
+      voters: 0,
+      learners: 0,
+      nodes: Vec::new(),
+      error: Some(error),
+    });
+  };
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let membership = metrics.membership_config.membership();
+  let voters = membership.voter_ids().collect::<BTreeSet<_>>();
+  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+  let known_nodes = known_nodes_by_id(&state.network).await;
+  let mut nodes = Vec::new();
+
+  for (node_id, node) in membership.nodes() {
+    let is_leader = metrics.current_leader.as_ref() == Some(node_id);
+    let role = if is_leader {
+      "leader"
+    } else if voters.contains(node_id) {
+      "voter"
+    } else if learners.contains(node_id) {
+      "learner"
+    } else {
+      "member"
+    }
+    .to_string();
+
+    let peer_id = known_nodes
+      .get(node_id)
+      .map(|(peer_id, _addr)| *peer_id)
+      .or_else(|| peer_id_from_addr(&node.addr));
+    let connected = match peer_id.as_ref() {
+      Some(peer_id) => state.network.is_peer_connected(peer_id).await,
+      None => false,
+    };
+    let is_local = node_id == &state.node_id;
+    let raft_state = if is_local {
+      Some(server_state_name(metrics.state))
+    } else if connected {
+      remote_server_state(&group_id, node_id, &state.network)
+        .await
+        .map(server_state_name)
+    } else {
+      None
+    };
+
+    nodes.push(OpenRaftNodeResponse {
+      node_id: node_id.clone(),
+      peer_id: peer_id.map(|peer_id| peer_id.to_string()),
+      addr: node.addr.clone(),
+      role,
+      connected,
+      is_local,
+      is_leader,
+      raft_state,
+    });
+  }
+
+  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+
+  Json(OpenRaftNodesResponse {
+    ok: true,
+    group_id,
+    groups,
+    local_node_id: state.node_id.clone(),
+    local_peer_id: state.peer_id.clone(),
+    leader_id: metrics.current_leader.clone(),
+    raft_state: Some(server_state_name(metrics.state)),
+    voters: voters.len(),
+    learners: learners.len(),
+    nodes,
+    error: None,
+  })
+}
+
+async fn libp2p_nodes(
+  State(state): State<Arc<AppState>>,
+  Query(query): Query<ClusterQuery>,
+) -> Json<Libp2pNodesResponse> {
+  let group_id = query
+    .group_id
+    .unwrap_or_else(|| state.default_group.clone());
+  let (roles, error) = match openraft_roles_by_node(&group_id) {
+    Ok(roles) => (roles, None),
+    Err(error) => (BTreeMap::new(), Some(error)),
+  };
+  let mut nodes = Vec::new();
+
+  for (node_id, peer_id, addr) in state.network.known_nodes().await {
+    let connected = state.network.is_peer_connected(&peer_id).await;
+    nodes.push(Libp2pNodeResponse {
+      openraft_role: roles.get(&node_id).cloned(),
+      is_local: node_id == state.node_id,
+      node_id,
+      peer_id: peer_id.to_string(),
+      addr: addr.to_string(),
+      connected,
+    });
+  }
+
+  nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+  let known_count = nodes.len();
+  let connected_count = nodes.iter().filter(|node| node.connected).count();
+  let openraft_member_count = nodes
+    .iter()
+    .filter(|node| node.openraft_role.is_some())
+    .count();
+
+  Json(Libp2pNodesResponse {
+    ok: error.is_none(),
+    local_node_id: state.node_id.clone(),
+    local_peer_id: state.peer_id.clone(),
+    listen: state.listen.clone(),
+    group_id,
+    known_count,
+    connected_count,
+    openraft_member_count,
+    nodes,
+    error,
+  })
+}
+
+fn openraft_group_ids() -> Vec<String> {
+  openraft_groups()
+    .map(|groups| groups.keys().cloned().collect())
+    .unwrap_or_default()
+}
+
+async fn known_nodes_by_id(
+  network: &Libp2pNetworkFactory,
+) -> BTreeMap<NodeId, (PeerId, Multiaddr)> {
+  network
+    .known_nodes()
+    .await
+    .into_iter()
+    .map(|(node_id, peer_id, addr)| (node_id, (peer_id, addr)))
+    .collect()
+}
+
+fn openraft_roles_by_node(group_id: &str) -> Result<BTreeMap<NodeId, String>, String> {
+  let Some(group) = openraft_group(group_id) else {
+    return if openraft_groups().is_none() {
+      Err("openraft groups are not initialized".to_string())
+    } else {
+      Err(format!("unknown group_id={group_id}"))
+    };
+  };
+
+  let metrics = group.raft.metrics().borrow_watched().clone();
+  let membership = metrics.membership_config.membership();
+  let mut roles = BTreeMap::new();
+  for node_id in membership.voter_ids() {
+    roles.insert(node_id, "voter".to_string());
+  }
+  for node_id in membership.learner_ids() {
+    roles.insert(node_id, "learner".to_string());
+  }
+  if let Some(leader_id) = metrics.current_leader {
+    roles.insert(leader_id, "leader".to_string());
+  }
+  Ok(roles)
+}
+
+fn peer_id_from_addr(addr: &str) -> Option<PeerId> {
+  parse_p2p_addr(addr).ok().map(|(peer_id, _addr)| peer_id)
+}
+
+fn server_state_name(state: ServerState) -> String {
+  format!("{state:?}")
 }
 
 async fn cluster_info(
