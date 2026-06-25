@@ -80,10 +80,6 @@ impl IndexedDocuments {
     let line_ref = self.lines[line_index];
     &self.documents[line_ref.document].name
   }
-
-  fn same_document(&self, left: usize, right: usize) -> bool {
-    self.lines[left].document == self.lines[right].document
-  }
 }
 
 fn read_documents(dir: impl AsRef<Path>) -> io::Result<Vec<Document>> {
@@ -183,28 +179,13 @@ fn build_global_candidate_index(documents: &IndexedDocuments) -> HashMap<String,
       line_indices.sort_unstable();
       line_indices.dedup();
 
-      if has_cross_document_candidates(documents, &line_indices)
-        && line_indices.len() <= MAX_BROAD_KEY_POSTINGS
-      {
+      if (2 ..= MAX_BROAD_KEY_POSTINGS).contains(&line_indices.len()) {
         Some((key, line_indices))
       } else {
         None
       }
     })
     .collect()
-}
-
-fn has_cross_document_candidates(documents: &IndexedDocuments, line_indices: &[usize]) -> bool {
-  let mut seen_documents = HashSet::new();
-
-  for &line_index in line_indices {
-    seen_documents.insert(documents.lines[line_index].document);
-    if seen_documents.len() >= 2 {
-      return true;
-    }
-  }
-
-  false
 }
 
 fn mst_ordered_keys<'a>(keys: impl Iterator<Item = &'a String>) -> Vec<String> {
@@ -265,10 +246,6 @@ fn collect_shard_matches(
 }
 
 fn is_similar_pair(documents: &IndexedDocuments, pair: LinePair) -> bool {
-  if documents.same_document(pair.left, pair.right) {
-    return false;
-  }
-
   let left = documents.line(pair.left);
   let right = documents.line(pair.right);
 
@@ -563,6 +540,18 @@ mod tests {
     let pair = LinePair { left: 0, right: 1 };
 
     assert!(is_similar_pair(&documents, pair));
+  }
+
+  #[tokio::test]
+  async fn finds_similar_lines_inside_same_document() {
+    let documents = Arc::new(test_documents(&[(
+      "a",
+      &["Object-Oriented 2025.pdf", "Object-Oriented 2026.pdf"][..],
+    )]));
+
+    let matches = find_similar_lines(Arc::clone(&documents)).await.unwrap();
+
+    assert_eq!(matches, vec![LinePair { left: 0, right: 1 }]);
   }
 
   #[test]
