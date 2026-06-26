@@ -21,7 +21,7 @@ bt = ["openraft/bt"]
 [dependencies]
 byteorder = "1.5.0"
 futures = "0.3.32"
-openraft = { version = "0.10.0-alpha.24", features = ["serde", "type-alias"] }
+openraft = { version = "0.10.0-alpha.25", features = ["serde", "type-alias"] }
 rand = "0.10"
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }

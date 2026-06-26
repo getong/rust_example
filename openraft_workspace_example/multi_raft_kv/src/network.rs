@@ -7,7 +7,7 @@ use openraft::{
   network::{Backoff, RPCOption, RaftNetworkFactory},
   raft::{
     AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, TransferLeaderRequest,
-    VoteRequest, VoteResponse,
+    TransferLeaderResponse, VoteRequest, VoteResponse,
   },
 };
 use openraft_multi::{GroupNetworkAdapter, GroupNetworkFactory, GroupRouter};
@@ -69,7 +69,7 @@ impl GroupRouter<TypeConfig, GroupId> for Router {
     group_id: GroupId,
     req: TransferLeaderRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<(), RPCError<TypeConfig>> {
+  ) -> Result<TransferLeaderResponse<TypeConfig>, RPCError<TypeConfig>> {
     self
       .send(target, &group_id, "/raft/transfer_leader", req)
       .await
@@ -77,7 +77,9 @@ impl GroupRouter<TypeConfig, GroupId> for Router {
   }
 
   fn backoff(&self) -> Option<Backoff> {
-    Some(Backoff::new(std::iter::repeat(std::time::Duration::from_millis(500))))
+    Some(Backoff::new(std::iter::repeat(
+      std::time::Duration::from_millis(500),
+    )))
   }
 }
 

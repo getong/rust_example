@@ -8,7 +8,7 @@ use openraft::{
   network::{
     Backoff, NetBackoff, NetSnapshot, NetStreamAppend, NetTransferLeader, NetVote, RPCOption,
   },
-  raft::{StreamAppendError, StreamAppendResult, TransferLeaderRequest},
+  raft::{StreamAppendError, StreamAppendResult, TransferLeaderRequest, TransferLeaderResponse},
 };
 use tonic::transport::Channel;
 
@@ -218,7 +218,7 @@ impl NetTransferLeader<TypeConfig> for NetworkConnection {
     &mut self,
     _req: TransferLeaderRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<(), RPCError> {
+  ) -> Result<TransferLeaderResponse<TypeConfig>, RPCError> {
     Err(RPCError::Unreachable(Unreachable::new(&AnyError::error(
       "transfer_leader not implemented",
     ))))
