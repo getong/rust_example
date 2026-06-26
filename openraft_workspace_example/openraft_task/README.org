@@ -1,0 +1,36 @@
+* OpenRaft Apalis RocksDB task queue
+
+This project is a compact task-queue demo modeled after
+=octopii_basic=, but built directly on:
+
+- =openraft= for replicated task state
+- =apalis= for task submission, polling, execution, and acknowledgement
+- =rocksdb= for durable raft logs and state machine data
+
+The binary starts a local three-node OpenRaft cluster in one process, persists
+each node under its own RocksDB directory, submits demo tasks through the
+Apalis storage, runs one worker, and prints final task state.
+
+** Run
+
+#+begin_src shell
+cargo run -- --db /tmp/openraft-task-demo --tasks 3 --worker-seconds 2
+#+end_src
+
+Expected output:
+
+#+begin_src text
+task-0 status=done attempts=1 worker=Some("worker-node-1") result_ok=Some(true) error=None
+task-1 status=done attempts=1 worker=Some("worker-node-1") result_ok=Some(true) error=None
+task-2 status=done attempts=1 worker=Some("worker-node-1") result_ok=Some(true) error=None
+#+end_src
+
+Use a fresh =--db= directory for a fresh cluster run.
+
+** Verify
+
+#+begin_src shell
+cargo fmt --check
+cargo check
+cargo test
+#+end_src

@@ -22,5 +22,7 @@ members = [
   "libp2p_openraft_rocksdb",
   "libp2p_openraft_multi_raft_rocksdb",
   "multi_raft_kv_string_node_id",
-  "openraft_libp2p_cluster", "openraft_kameo",
+  "openraft_libp2p_cluster",
+  "openraft_kameo",
+  "openraft_task",
 ]
