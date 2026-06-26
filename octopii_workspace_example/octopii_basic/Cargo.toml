@@ -1,0 +1,11 @@
+[package]
+name = "octopii_basic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bincode = "=1"
+bytes = "1.10"
+octopii = { git = "https://github.com/octopii-rs/octopii", rev = "b54c112d7db7ed1195dd4f600b4b786df85c8e7e" }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.52.3", features = ["full"] }
