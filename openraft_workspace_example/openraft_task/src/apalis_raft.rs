@@ -96,6 +96,8 @@ pub struct RaftApalisStorage<Args, C = SonicCodec<Vec<u8>>> {
   poll_interval: Duration,
   /// Maximum number of attempts before a failing task is permanently marked Failed.
   max_attempts: usize,
+  /// How long a task may stay in Running state before it is reclaimed.
+  reclaim_timeout: Duration,
   _args: PhantomData<Args>,
   _codec: PhantomData<C>,
 }
@@ -114,6 +116,7 @@ impl<Args> RaftApalisStorage<Args> {
       state_machine,
       poll_interval: POLL_INTERVAL,
       max_attempts: 3,
+      reclaim_timeout: Duration::from_secs(30),
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -129,6 +132,37 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   pub fn with_max_attempts(mut self, max_attempts: usize) -> Self {
     self.max_attempts = max_attempts;
     self
+  }
+
+  pub fn with_reclaim_timeout(mut self, timeout: Duration) -> Self {
+    self.reclaim_timeout = timeout;
+    self
+  }
+
+  /// Spawn a background task that periodically re-queues Running tasks whose
+  /// worker has exceeded `reclaim_timeout`.  Abort the returned handle when
+  /// the worker shuts down.
+  pub fn spawn_reclaim_task(&self) -> tokio::task::JoinHandle<()> {
+    let raft = self.raft.clone();
+    let router = self.router.clone();
+    let timeout_secs = self.reclaim_timeout.as_secs().max(1);
+    // Check at half the timeout so a stalled task is recovered promptly.
+    let check_interval = self.reclaim_timeout / 2;
+    tokio::spawn(async move {
+      loop {
+        sleep(check_interval).await;
+        let now = current_unix_secs();
+        match raft_write_inner(&raft, &router, QueueCommand::Reclaim { timeout_secs, now }).await {
+          Ok(QueueResponse::Reclaimed { count }) if count > 0 => {
+            tracing::info!(count, "reclaimed stalled Running tasks back to Pending");
+          }
+          Err(err) => {
+            tracing::warn!(error = ?err, "periodic reclaim write failed");
+          }
+          _ => {}
+        }
+      }
+    })
   }
 
   pub async fn list_tasks(&self) -> Result<Vec<TaskRecordView>, RaftApalisError> {
@@ -156,6 +190,7 @@ impl<Args, C> RaftApalisStorage<Args, C> {
       run_at: task.parts.run_at,
       lock_by: None,
       result: None,
+      claimed_at: None,
     };
 
     match self
@@ -190,31 +225,7 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   }
 
   async fn raft_write(&self, command: QueueCommand) -> Result<QueueResponse, RaftApalisError> {
-    // If this node is the current leader, write directly.  Otherwise find the
-    // leader from metrics and forward — this lets any cluster node participate.
-    let metrics = self.raft.metrics().borrow_watched().clone();
-    if metrics.state.is_leader() {
-      return self
-        .raft
-        .client_write(command)
-        .await
-        .map(|r| r.data)
-        .map_err(|err| RaftApalisError::new(format!("{err:?}")));
-    }
-
-    let leader_id = metrics
-      .current_leader
-      .ok_or_else(|| RaftApalisError::new("no raft leader available"))?;
-    let leader = self
-      .router
-      .get_raft(leader_id)
-      .await
-      .ok_or_else(|| RaftApalisError::new(format!("leader node {leader_id} not in router")))?;
-    leader
-      .client_write(command)
-      .await
-      .map(|r| r.data)
-      .map_err(|err| RaftApalisError::new(format!("{err:?}")))
+    raft_write_inner(&self.raft, &self.router, command).await
   }
 }
 
@@ -369,6 +380,7 @@ where
         run_at: encoded.parts.run_at,
         lock_by: None,
         result: None,
+        claimed_at: None,
       });
     }
     if records.is_empty() {
@@ -391,6 +403,7 @@ impl<Args, C> Clone for RaftApalisStorage<Args, C> {
       state_machine: self.state_machine.clone(),
       poll_interval: self.poll_interval,
       max_attempts: self.max_attempts,
+      reclaim_timeout: self.reclaim_timeout,
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -459,27 +472,9 @@ where
     let raft = self.raft.clone();
     let router = self.router.clone();
     async move {
-      let metrics = raft.metrics().borrow_watched().clone();
-      if metrics.state.is_leader() {
-        return raft
-          .client_write(command)
-          .await
-          .map(|_| ())
-          .map_err(|err| RaftApalisError::new(format!("{err:?}")));
-      }
-
-      let leader_id = metrics
-        .current_leader
-        .ok_or_else(|| RaftApalisError::new("no raft leader available"))?;
-      let leader = router
-        .get_raft(leader_id)
-        .await
-        .ok_or_else(|| RaftApalisError::new(format!("leader node {leader_id} not in router")))?;
-      leader
-        .client_write(command)
+      raft_write_inner(&raft, &router, command)
         .await
         .map(|_| ())
-        .map_err(|err| RaftApalisError::new(format!("{err:?}")))
     }
     .boxed()
   }
@@ -582,17 +577,51 @@ pub async fn run_demo_worker(
   storage: RaftApalisStorage<DemoTask>,
   stop_after: Duration,
 ) -> anyhow::Result<()> {
+  let reclaim_handle = storage.spawn_reclaim_task();
+
   let worker = WorkerBuilder::new(worker_name.as_ref())
     .backend(storage)
     .build(execute_demo_task);
 
-  worker
+  let result = worker
     .run_until(async move {
       sleep(stop_after).await;
       Ok::<(), apalis::prelude::WorkerError>(())
     })
     .await
-    .map_err(|err| anyhow::anyhow!("apalis worker failed: {err}"))
+    .map_err(|err| anyhow::anyhow!("apalis worker failed: {err}"));
+
+  reclaim_handle.abort();
+  result
+}
+
+/// Write a command through the Raft cluster, forwarding to the leader if this
+/// node is not currently the leader.
+async fn raft_write_inner(
+  raft: &Raft,
+  router: &Router,
+  command: QueueCommand,
+) -> Result<QueueResponse, RaftApalisError> {
+  let metrics = raft.metrics().borrow_watched().clone();
+  if metrics.state.is_leader() {
+    return raft
+      .client_write(command)
+      .await
+      .map(|r| r.data)
+      .map_err(|err| RaftApalisError::new(format!("{err:?}")));
+  }
+  let leader_id = metrics
+    .current_leader
+    .ok_or_else(|| RaftApalisError::new("no raft leader available"))?;
+  let leader = router
+    .get_raft(leader_id)
+    .await
+    .ok_or_else(|| RaftApalisError::new(format!("leader node {leader_id} not in router")))?;
+  leader
+    .client_write(command)
+    .await
+    .map(|r| r.data)
+    .map_err(|err| RaftApalisError::new(format!("{err:?}")))
 }
 
 fn current_unix_secs() -> u64 {
@@ -632,6 +661,7 @@ mod tests {
       run_at: task.parts.run_at,
       lock_by: task.parts.ctx.lock_by,
       result: None,
+      claimed_at: Some(42),
     };
 
     let rebuilt = record.into_compact_task().expect("rebuilt task");

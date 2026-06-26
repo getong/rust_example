@@ -29,6 +29,13 @@ pub enum QueueCommand {
   Kill {
     task_id: String,
   },
+  /// Scan for Running tasks whose lock has expired and re-queue them as Pending.
+  Reclaim {
+    /// Tasks that have been Running longer than this many seconds are reclaimed.
+    timeout_secs: u64,
+    /// Caller-supplied current Unix timestamp (keeps the state machine deterministic).
+    now: u64,
+  },
 }
 
 impl fmt::Display for QueueCommand {
@@ -40,6 +47,7 @@ impl fmt::Display for QueueCommand {
       Self::Complete { task_id, .. } => write!(f, "complete({task_id})"),
       Self::Fail { task_id, retry, .. } => write!(f, "fail({task_id}, retry={retry})"),
       Self::Kill { task_id } => write!(f, "kill({task_id})"),
+      Self::Reclaim { timeout_secs, .. } => write!(f, "reclaim(timeout={timeout_secs}s)"),
     }
   }
 }
@@ -53,6 +61,10 @@ pub struct TaskRecord {
   pub run_at: u64,
   pub lock_by: Option<String>,
   pub result: Option<TaskResult>,
+  /// Unix timestamp (seconds) when this task was last claimed by a worker.
+  /// Used to detect stalled tasks whose worker has crashed.
+  #[serde(default)]
+  pub claimed_at: Option<u64>,
 }
 
 impl TaskRecord {
@@ -65,6 +77,7 @@ impl TaskRecord {
       run_at,
       lock_by: None,
       result: None,
+      claimed_at: None,
     }
   }
 }
@@ -103,6 +116,7 @@ pub enum QueueResponse {
   SubmittedBatch { count: usize },
   Claimed(Option<TaskRecord>),
   Updated { task_id: String },
+  Reclaimed { count: usize },
   None,
 }
 

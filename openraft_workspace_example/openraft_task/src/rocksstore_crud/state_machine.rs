@@ -488,6 +488,7 @@ impl RocksStateMachine {
           if *retry {
             task.status = TaskStatus::Pending;
             task.lock_by = None;
+            task.claimed_at = None;
             if pending_ids.insert(task_id.clone()) {
               pending.push_back(task_id.clone());
             }
@@ -517,6 +518,51 @@ impl RocksStateMachine {
         pending.retain(|queued_id| queued_id != task_id);
         pending_ids.remove(task_id);
         Ok(QueueResponse::updated(task_id.clone()))
+      }
+      QueueCommand::Reclaim { timeout_secs, now } => {
+        // Collect timed-out Running tasks with a full scan.
+        // Staged tasks (modified earlier in this batch) take precedence over disk.
+        let mut to_reclaim: Vec<TaskRecord> = Vec::new();
+        {
+          let cf = self.cf_sm_data();
+          for item in self.db.iterator_cf(cf, rocksdb::IteratorMode::Start) {
+            let (key, value) = item.map_err(|e| io::Error::other(e.to_string()))?;
+            let task_id = String::from_utf8_lossy(&key).to_string();
+            let task = if let Some(t) = staged_tasks.get(&task_id) {
+              t.clone()
+            } else {
+              decode_task(&value)?
+            };
+            if task.status != TaskStatus::Running {
+              continue;
+            }
+            let timed_out = match task.claimed_at {
+              Some(claimed_at) => now.saturating_sub(claimed_at) >= *timeout_secs,
+              // Running without a claim timestamp — reclaim defensively.
+              None => true,
+            };
+            if timed_out {
+              to_reclaim.push(task);
+            }
+          }
+        } // iterator dropped; batch writes are now safe
+
+        let count = to_reclaim.len();
+        for mut task in to_reclaim {
+          task.status = TaskStatus::Pending;
+          task.lock_by = None;
+          task.claimed_at = None;
+          batch.put_cf(
+            self.cf_sm_data(),
+            task.task_id.as_bytes(),
+            serialize_task(&task)?,
+          );
+          if pending_ids.insert(task.task_id.clone()) {
+            pending.push_back(task.task_id.clone());
+          }
+          staged_tasks.insert(task.task_id.clone(), task);
+        }
+        Ok(QueueResponse::Reclaimed { count })
       }
     }
   }
@@ -551,6 +597,7 @@ impl RocksStateMachine {
       pending_ids.remove(&task_id);
       task.status = TaskStatus::Running;
       task.lock_by = Some(worker_id.to_string());
+      task.claimed_at = Some(now);
       task.attempts = task.attempts.saturating_add(1);
       batch.put_cf(
         self.cf_sm_data(),

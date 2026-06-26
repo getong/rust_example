@@ -45,6 +45,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .node(leader_id)
     .with_context(|| format!("leader node {leader_id} not found"))?;
 
+  // Submit tasks — any node can submit; we use the leader here for convenience.
   let mut storage = RaftApalisStorage::<DemoTask>::new(
     "demo",
     leader.raft.clone(),
@@ -67,12 +68,27 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       .map_err(|err| anyhow::anyhow!("push {task_id}: {err}"))?;
   }
 
-  run_demo_worker(
-    format!("worker-node-{leader_id}"),
-    storage.clone(),
-    Duration::from_secs(opt.worker_seconds),
-  )
-  .await?;
+  // Start a worker on EVERY node.  Each worker issues QueueCommand::Claim
+  // through Raft consensus, so all workers compete for tasks safely without
+  // any external locking — the state machine guarantees each task is claimed
+  // by exactly one worker.
+  let stop_after = Duration::from_secs(opt.worker_seconds);
+  let mut worker_handles = JoinSet::new();
+  for (node_id, node) in &cluster.nodes {
+    let node_storage = RaftApalisStorage::<DemoTask>::new(
+      "demo",
+      node.raft.clone(),
+      cluster.router.clone(),
+      node.state_machine.clone(),
+    );
+    let worker_name = format!("worker-node-{node_id}");
+    worker_handles.spawn(async move {
+      run_demo_worker(worker_name, node_storage, stop_after).await
+    });
+  }
+  while let Some(result) = worker_handles.join_next().await {
+    result.context("worker join error")??;
+  }
 
   let tasks = storage.list_tasks().await?;
   for task in tasks {
