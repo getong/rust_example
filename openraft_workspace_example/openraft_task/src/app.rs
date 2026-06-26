@@ -45,8 +45,12 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .node(leader_id)
     .with_context(|| format!("leader node {leader_id} not found"))?;
 
-  let mut storage =
-    RaftApalisStorage::<DemoTask>::new("demo", leader.raft.clone(), leader.state_machine.clone());
+  let mut storage = RaftApalisStorage::<DemoTask>::new(
+    "demo",
+    leader.raft.clone(),
+    cluster.router.clone(),
+    leader.state_machine.clone(),
+  );
 
   for index in 0 .. opt.tasks {
     let task_id = format!("task-{index}");
@@ -89,6 +93,7 @@ struct LocalNode {
 
 struct LocalCluster {
   nodes: BTreeMap<u64, LocalNode>,
+  router: Router,
 }
 
 impl LocalCluster {
@@ -128,25 +133,36 @@ impl LocalCluster {
       );
     }
 
-    Ok(Self { nodes })
+    Ok(Self { nodes, router })
   }
 
   async fn initialize(&self) -> anyhow::Result<()> {
     let leader = self.node(1).context("node 1 not found")?;
     let mut members = BTreeMap::new();
     members.insert(1, BasicNode::new("memory://node-1"));
-    leader
+
+    // `initialize` returns NotAllowed when the node already has Raft state from a
+    // previous run.  In that case the cluster is already configured correctly, so
+    // skip the bootstrap sequence entirely.
+    let already_initialized = leader
       .raft
       .initialize(members)
       .await
+      .map(|_| false)
       .or_else(|err| {
         if format!("{err:?}").contains("NotAllowed") {
-          Ok(())
+          Ok(true)
         } else {
-          Err(err)
+          Err(anyhow::anyhow!("initialize raft cluster: {err:?}"))
         }
-      })
-      .map_err(|err| anyhow::anyhow!("initialize raft cluster: {err:?}"))?;
+      })?;
+
+    if already_initialized {
+      return Ok(());
+    }
+
+    // First-time bootstrap: wait for node 1 to become leader, then add the other
+    // two nodes as learners and promote to a 3-voter cluster.
     wait_for_membership_committed(&leader.raft, BTreeSet::from([1]), Duration::from_secs(5))
       .await?;
 
@@ -156,12 +172,11 @@ impl LocalCluster {
         .add_learner(
           node_id,
           BasicNode::new(format!("memory://node-{node_id}")),
-          true,
+          true, // block until replicated
         )
         .await
         .map_err(|err| anyhow::anyhow!("add learner {node_id}: {err:?}"))?;
-      wait_for_membership_committed(&leader.raft, BTreeSet::from([1]), Duration::from_secs(5))
-        .await?;
+      // add_learner(block=true) already awaits replication — no extra wait needed.
     }
 
     leader
@@ -172,7 +187,7 @@ impl LocalCluster {
     wait_for_membership_committed(
       &leader.raft,
       BTreeSet::from([1, 2, 3]),
-      Duration::from_secs(5),
+      Duration::from_secs(10),
     )
     .await?;
     Ok(())

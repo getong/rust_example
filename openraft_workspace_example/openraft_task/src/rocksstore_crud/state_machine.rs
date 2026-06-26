@@ -1,11 +1,12 @@
 //! RocksDB-backed task queue state machine.
 
 use std::{
-  collections::{BTreeMap, VecDeque},
+  collections::{BTreeMap, HashSet, VecDeque},
   fs, io,
   io::Cursor,
   path::PathBuf,
   sync::Arc,
+  time::{SystemTime, UNIX_EPOCH},
 };
 
 use futures::{Stream, TryStreamExt};
@@ -16,7 +17,6 @@ use openraft::{
   storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
-use rand::RngExt;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,11 @@ const PENDING_QUEUE_KEY: &str = "pending_queue";
 pub struct RocksStateMachine {
   db: Arc<DB>,
   snapshot_dir: PathBuf,
+  /// In-memory pending task ID queue.  Kept in sync with RocksDB via `WriteBatch`.
+  /// Stored here to avoid a full RocksDB read on every `apply` call.
+  pending: VecDeque<String>,
+  /// Set of IDs currently in `pending` for O(1) duplicate checks.
+  pending_ids: HashSet<String>,
 }
 
 impl RocksStateMachine {
@@ -41,7 +46,27 @@ impl RocksStateMachine {
       .ok_or_else(|| io::Error::other("column family `sm_data` not found"))?;
 
     fs::create_dir_all(&snapshot_dir)?;
-    Ok(Self { db, snapshot_dir })
+
+    // Warm the in-memory pending queue from persisted state.
+    let pending: VecDeque<String> = {
+      let cf = db.cf_handle("sm_meta").unwrap();
+      db.get_cf(cf, PENDING_QUEUE_KEY)
+        .map_err(io::Error::other)?
+        .map(|bytes| {
+          sonic_rs::from_slice::<VecDeque<String>>(&bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        })
+        .transpose()?
+        .unwrap_or_default()
+    };
+    let pending_ids: HashSet<String> = pending.iter().cloned().collect();
+
+    Ok(Self {
+      db,
+      snapshot_dir,
+      pending,
+      pending_ids,
+    })
   }
 
   fn cf_sm_meta(&self) -> &rocksdb::ColumnFamily {
@@ -113,16 +138,6 @@ impl RocksStateMachine {
 
     Ok((last_applied_log, last_membership))
   }
-
-  fn load_pending_queue(&self) -> Result<VecDeque<String>, StorageError<TypeConfig>> {
-    self
-      .db
-      .get_cf(self.cf_sm_meta(), PENDING_QUEUE_KEY)
-      .map_err(|e| StorageError::read(TypeConfig::err_from_error(&e)))?
-      .map(|bytes| deserialize(&bytes))
-      .transpose()
-      .map(|queue| queue.unwrap_or_default())
-  }
 }
 
 fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError<TypeConfig>> {
@@ -148,9 +163,13 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
   #[tracing::instrument(level = "trace", skip(self))]
   async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
     let (last_applied_log, last_membership) = self.get_meta()?;
-    let pending = self.load_pending_queue()?;
+    // Use the in-memory pending queue — no extra RocksDB round-trip.
+    let pending = self.pending.clone();
 
-    let snapshot_idx: u64 = rand::rng().random_range(0 .. 1000);
+    let snapshot_idx: u64 = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .unwrap_or_default()
+      .as_micros() as u64;
     let snapshot_id = if let Some(ref last) = last_applied_log {
       format!(
         "{}-{}-{}",
@@ -225,9 +244,9 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
     let mut batch = rocksdb::WriteBatch::default();
-    let mut pending = self
-      .load_pending_queue()
-      .map_err(|e| io::Error::other(e.to_string()))?;
+    // Clone the in-memory pending state — avoids a RocksDB read on every apply.
+    let mut pending = self.pending.clone();
+    let mut pending_ids = self.pending_ids.clone();
     let mut staged_tasks = BTreeMap::new();
     let mut last_applied_log = None;
     let mut last_membership: Option<StoredMembershipOf<TypeConfig>> = None;
@@ -238,9 +257,13 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
       let response = match entry.payload {
         EntryPayload::Blank => QueueResponse::None,
-        EntryPayload::Normal(ref command) => {
-          self.apply_command(&mut batch, &mut staged_tasks, &mut pending, command)?
-        }
+        EntryPayload::Normal(ref command) => self.apply_command(
+          &mut batch,
+          &mut staged_tasks,
+          &mut pending,
+          &mut pending_ids,
+          command,
+        )?,
         EntryPayload::Membership(ref mem) => {
           last_membership = Some(StoredMembershipOf::<TypeConfig>::new(
             Some(entry.log_id),
@@ -269,6 +292,10 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       .write(batch)
       .map_err(|e| io::Error::other(e.to_string()))?;
 
+    // Commit the updated in-memory state only after the durable write succeeds.
+    self.pending = pending;
+    self.pending_ids = pending_ids;
+
     for (responder, response) in responses {
       responder.send(response);
     }
@@ -289,10 +316,11 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     meta: &SnapshotMetaOf<TypeConfig>,
     snapshot: SnapshotDataOf<TypeConfig>,
   ) -> Result<(), io::Error> {
-    let snapshot_file: SnapshotFile = sonic_rs::from_slice(snapshot.get_ref())
+    let raw_bytes = snapshot.into_inner();
+    let snapshot_file: SnapshotFile = sonic_rs::from_slice(&raw_bytes)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let snapshot_pending = snapshot_file.pending.clone();
-    let snapshot_tasks = snapshot_file.tasks.clone();
+
+    let new_pending: VecDeque<String> = snapshot_file.pending.clone();
     let pending_bytes = serialize(&snapshot_file.pending)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     let last_applied_bytes = meta
@@ -306,6 +334,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     let db = self.db.clone();
+    let snapshot_tasks = snapshot_file.tasks.clone();
     TypeConfig::spawn_blocking(move || -> Result<(), io::Error> {
       let cf_data = db
         .cf_handle("sm_data")
@@ -319,7 +348,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
         let (key, _) = item.map_err(|e| io::Error::other(e.to_string()))?;
         batch.delete_cf(cf_data, &key);
       }
-      for (key, value) in snapshot_file.tasks {
+      for (key, value) in snapshot_tasks {
         batch.put_cf(cf_data, &key, &value);
       }
 
@@ -336,14 +365,12 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     })
     .await??;
 
-    let snapshot_file = SnapshotFile {
-      meta: meta.clone(),
-      pending: snapshot_pending,
-      tasks: snapshot_tasks,
-    };
-    let file_bytes = sonic_rs::to_vec(&snapshot_file)
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    fs::write(self.snapshot_dir.join(&meta.snapshot_id), file_bytes)?;
+    // Write the raw snapshot bytes to disk — no re-serialization needed.
+    fs::write(self.snapshot_dir.join(&meta.snapshot_id), &raw_bytes)?;
+
+    // Update in-memory pending state to match the installed snapshot.
+    self.pending_ids = new_pending.iter().cloned().collect();
+    self.pending = new_pending;
 
     Ok(())
   }
@@ -386,6 +413,7 @@ impl RocksStateMachine {
     batch: &mut rocksdb::WriteBatch,
     staged_tasks: &mut BTreeMap<String, TaskRecord>,
     pending: &mut VecDeque<String>,
+    pending_ids: &mut HashSet<String>,
     command: &QueueCommand,
   ) -> Result<QueueResponse, io::Error> {
     match command {
@@ -400,13 +428,33 @@ impl RocksStateMachine {
           serialize_task(&task)?,
         );
         staged_tasks.insert(task.task_id.clone(), task.clone());
-        if !pending.contains(&task.task_id) {
+        if pending_ids.insert(task.task_id.clone()) {
           pending.push_back(task.task_id.clone());
         }
         Ok(QueueResponse::submitted(task.task_id))
       }
+      QueueCommand::SubmitBatch { tasks } => {
+        let count = tasks.len();
+        for task in tasks {
+          let mut task = task.clone();
+          task.status = TaskStatus::Pending;
+          task.lock_by = None;
+          task.result = None;
+          batch.put_cf(
+            self.cf_sm_data(),
+            task.task_id.as_bytes(),
+            serialize_task(&task)?,
+          );
+          staged_tasks.insert(task.task_id.clone(), task.clone());
+          if pending_ids.insert(task.task_id.clone()) {
+            pending.push_back(task.task_id.clone());
+          }
+        }
+        Ok(QueueResponse::SubmittedBatch { count })
+      }
       QueueCommand::Claim { worker_id, now } => {
-        let claimed = self.claim_next(batch, staged_tasks, pending, worker_id, *now)?;
+        let claimed =
+          self.claim_next(batch, staged_tasks, pending, pending_ids, worker_id, *now)?;
         Ok(QueueResponse::Claimed(claimed))
       }
       QueueCommand::Complete { task_id, result } => {
@@ -440,7 +488,9 @@ impl RocksStateMachine {
           if *retry {
             task.status = TaskStatus::Pending;
             task.lock_by = None;
-            pending.push_back(task_id.clone());
+            if pending_ids.insert(task_id.clone()) {
+              pending.push_back(task_id.clone());
+            }
           } else {
             task.status = TaskStatus::Failed;
           }
@@ -465,6 +515,7 @@ impl RocksStateMachine {
           staged_tasks.insert(task_id.clone(), task);
         }
         pending.retain(|queued_id| queued_id != task_id);
+        pending_ids.remove(task_id);
         Ok(QueueResponse::updated(task_id.clone()))
       }
     }
@@ -475,6 +526,7 @@ impl RocksStateMachine {
     batch: &mut rocksdb::WriteBatch,
     staged_tasks: &mut BTreeMap<String, TaskRecord>,
     pending: &mut VecDeque<String>,
+    pending_ids: &mut HashSet<String>,
     worker_id: &str,
     now: u64,
   ) -> Result<Option<TaskRecord>, io::Error> {
@@ -482,9 +534,12 @@ impl RocksStateMachine {
 
     while let Some(task_id) = pending.pop_front() {
       let Some(mut task) = self.load_task(staged_tasks, &task_id)? else {
+        // Task record missing — drop from pending_ids too.
+        pending_ids.remove(&task_id);
         continue;
       };
       if task.status != TaskStatus::Pending {
+        pending_ids.remove(&task_id);
         continue;
       }
       if task.run_at > now {
@@ -492,6 +547,8 @@ impl RocksStateMachine {
         continue;
       }
 
+      // Claim the task.
+      pending_ids.remove(&task_id);
       task.status = TaskStatus::Running;
       task.lock_by = Some(worker_id.to_string());
       task.attempts = task.attempts.saturating_add(1);

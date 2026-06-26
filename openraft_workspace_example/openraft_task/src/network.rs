@@ -26,6 +26,11 @@ impl Router {
     self.nodes.write().await.insert(node_id, raft);
   }
 
+  /// Return the `Raft` handle for a node, or `None` if it has not been registered.
+  pub async fn get_raft(&self, node_id: u64) -> Option<Raft> {
+    self.nodes.read().await.get(&node_id).cloned()
+  }
+
   async fn get(&self, node_id: u64) -> Result<Raft, RPCError<TypeConfig>> {
     self
       .nodes

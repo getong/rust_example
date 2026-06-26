@@ -19,6 +19,7 @@ use tokio::time::{Duration, sleep};
 
 use crate::{
   Raft,
+  network::Router,
   rocksstore_crud::RocksStateMachine,
   types_kv::{QueueCommand, QueueResponse, TaskRecord, TaskResult, TaskStatus},
 };
@@ -89,19 +90,30 @@ impl FromStr for RaftTaskId {
 pub struct RaftApalisStorage<Args, C = SonicCodec<Vec<u8>>> {
   queue: Queue,
   raft: Raft,
+  /// Router for forwarding writes to the current leader from any node.
+  router: Router,
   state_machine: RocksStateMachine,
   poll_interval: Duration,
+  /// Maximum number of attempts before a failing task is permanently marked Failed.
+  max_attempts: usize,
   _args: PhantomData<Args>,
   _codec: PhantomData<C>,
 }
 
 impl<Args> RaftApalisStorage<Args> {
-  pub fn new(queue_name: impl Into<String>, raft: Raft, state_machine: RocksStateMachine) -> Self {
+  pub fn new(
+    queue_name: impl Into<String>,
+    raft: Raft,
+    router: Router,
+    state_machine: RocksStateMachine,
+  ) -> Self {
     Self {
       queue: Queue::from(queue_name.into()),
       raft,
+      router,
       state_machine,
       poll_interval: POLL_INTERVAL,
+      max_attempts: 3,
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -111,6 +123,11 @@ impl<Args> RaftApalisStorage<Args> {
 impl<Args, C> RaftApalisStorage<Args, C> {
   pub fn with_poll_interval(mut self, interval: Duration) -> Self {
     self.poll_interval = interval;
+    self
+  }
+
+  pub fn with_max_attempts(mut self, max_attempts: usize) -> Self {
+    self.max_attempts = max_attempts;
     self
   }
 
@@ -173,12 +190,30 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   }
 
   async fn raft_write(&self, command: QueueCommand) -> Result<QueueResponse, RaftApalisError> {
-    ensure_leader(&self.raft)?;
-    self
-      .raft
+    // If this node is the current leader, write directly.  Otherwise find the
+    // leader from metrics and forward — this lets any cluster node participate.
+    let metrics = self.raft.metrics().borrow_watched().clone();
+    if metrics.state.is_leader() {
+      return self
+        .raft
+        .client_write(command)
+        .await
+        .map(|r| r.data)
+        .map_err(|err| RaftApalisError::new(format!("{err:?}")));
+    }
+
+    let leader_id = metrics
+      .current_leader
+      .ok_or_else(|| RaftApalisError::new("no raft leader available"))?;
+    let leader = self
+      .router
+      .get_raft(leader_id)
+      .await
+      .ok_or_else(|| RaftApalisError::new(format!("leader node {leader_id} not in router")))?;
+    leader
       .client_write(command)
       .await
-      .map(|response| response.data)
+      .map(|r| r.data)
       .map_err(|err| RaftApalisError::new(format!("{err:?}")))
   }
 }
@@ -208,6 +243,8 @@ where
   fn middleware(&self) -> Self::Layer {
     AcknowledgeLayer::new(RaftApalisAck {
       raft: self.raft.clone(),
+      router: self.router.clone(),
+      max_attempts: self.max_attempts,
       _codec: PhantomData,
     })
   }
@@ -274,10 +311,20 @@ where
   }
 
   async fn push_bulk(&mut self, tasks: Vec<Args>) -> Result<(), TaskSinkError<Self::Error>> {
-    for task in tasks {
-      self.push(task).await?;
-    }
-    Ok(())
+    let now = current_unix_secs();
+    let records = tasks
+      .iter()
+      .map(|task| {
+        C::encode(task)
+          .map(|payload| TaskRecord::pending(unique_task_id(), payload, now))
+          .map_err(|err| TaskSinkError::CodecError(err.into()))
+      })
+      .collect::<Result<Vec<_>, _>>()?;
+    self
+      .raft_write(QueueCommand::SubmitBatch { tasks: records })
+      .await
+      .map(|_| ())
+      .map_err(TaskSinkError::PushError)
   }
 
   async fn push_stream(
@@ -304,10 +351,34 @@ where
     &mut self,
     mut tasks: impl Stream<Item = Task<Args, Self::Context, Self::IdType>> + Unpin + Send,
   ) -> Result<(), TaskSinkError<Self::Error>> {
+    let mut records = Vec::new();
     while let Some(task) = tasks.next().await {
-      self.push_task(task).await?;
+      let encoded = task
+        .try_map(|args| C::encode(&args).map_err(|err| TaskSinkError::CodecError(err.into())))?;
+      let task_id = encoded
+        .parts
+        .task_id
+        .as_ref()
+        .map(|id| id.to_string())
+        .unwrap_or_else(unique_task_id);
+      records.push(TaskRecord {
+        task_id,
+        payload: encoded.args,
+        attempts: encoded.parts.attempt.current(),
+        status: TaskStatus::Pending,
+        run_at: encoded.parts.run_at,
+        lock_by: None,
+        result: None,
+      });
     }
-    Ok(())
+    if records.is_empty() {
+      return Ok(());
+    }
+    self
+      .raft_write(QueueCommand::SubmitBatch { tasks: records })
+      .await
+      .map(|_| ())
+      .map_err(TaskSinkError::PushError)
   }
 }
 
@@ -316,8 +387,10 @@ impl<Args, C> Clone for RaftApalisStorage<Args, C> {
     Self {
       queue: self.queue.clone(),
       raft: self.raft.clone(),
+      router: self.router.clone(),
       state_machine: self.state_machine.clone(),
       poll_interval: self.poll_interval,
+      max_attempts: self.max_attempts,
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -336,6 +409,8 @@ impl<Args, C> fmt::Debug for RaftApalisStorage<Args, C> {
 #[derive(Clone)]
 pub struct RaftApalisAck<C = SonicCodec<Vec<u8>>> {
   raft: Raft,
+  router: Router,
+  max_attempts: usize,
   _codec: PhantomData<C>,
 }
 
@@ -364,6 +439,7 @@ where
     };
 
     let task_id = task_id.to_string();
+    let max_attempts = self.max_attempts;
     let command = match res {
       Ok(value) => match C::encode(value) {
         Ok(payload) => QueueCommand::Complete {
@@ -375,14 +451,31 @@ where
       Err(err) => QueueCommand::Fail {
         task_id,
         reason: err.to_string(),
-        retry: false,
+        // Retry if the task has not yet exhausted its allowed attempts.
+        retry: parts.attempt.current() < max_attempts,
       },
     };
 
     let raft = self.raft.clone();
+    let router = self.router.clone();
     async move {
-      ensure_leader(&raft)?;
-      raft
+      let metrics = raft.metrics().borrow_watched().clone();
+      if metrics.state.is_leader() {
+        return raft
+          .client_write(command)
+          .await
+          .map(|_| ())
+          .map_err(|err| RaftApalisError::new(format!("{err:?}")));
+      }
+
+      let leader_id = metrics
+        .current_leader
+        .ok_or_else(|| RaftApalisError::new("no raft leader available"))?;
+      let leader = router
+        .get_raft(leader_id)
+        .await
+        .ok_or_else(|| RaftApalisError::new(format!("leader node {leader_id} not in router")))?;
+      leader
         .client_write(command)
         .await
         .map(|_| ())
@@ -502,18 +595,6 @@ pub async fn run_demo_worker(
     .map_err(|err| anyhow::anyhow!("apalis worker failed: {err}"))
 }
 
-fn ensure_leader(raft: &Raft) -> Result<(), RaftApalisError> {
-  let metrics = raft.metrics().borrow_watched().clone();
-  if metrics.state.is_leader() {
-    Ok(())
-  } else {
-    Err(RaftApalisError::new(format!(
-      "local raft node is not leader; current leader: {:?}",
-      metrics.current_leader
-    )))
-  }
-}
-
 fn current_unix_secs() -> u64 {
   SystemTime::now()
     .duration_since(UNIX_EPOCH)
@@ -522,11 +603,7 @@ fn current_unix_secs() -> u64 {
 }
 
 fn unique_task_id() -> String {
-  let nanos = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_nanos();
-  format!("{nanos:x}")
+  uuid::Uuid::new_v4().to_string()
 }
 
 #[cfg(test)]

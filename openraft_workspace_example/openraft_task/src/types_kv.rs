@@ -9,6 +9,10 @@ pub enum QueueCommand {
   Submit {
     task: TaskRecord,
   },
+  /// Batch-submit multiple tasks in a single Raft log entry.
+  SubmitBatch {
+    tasks: Vec<TaskRecord>,
+  },
   Claim {
     worker_id: String,
     now: u64,
@@ -31,6 +35,7 @@ impl fmt::Display for QueueCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Submit { task } => write!(f, "submit({})", task.task_id),
+      Self::SubmitBatch { tasks } => write!(f, "submit_batch(count={})", tasks.len()),
       Self::Claim { worker_id, .. } => write!(f, "claim({worker_id})"),
       Self::Complete { task_id, .. } => write!(f, "complete({task_id})"),
       Self::Fail { task_id, retry, .. } => write!(f, "fail({task_id}, retry={retry})"),
@@ -95,6 +100,7 @@ pub struct TaskResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QueueResponse {
   Submitted { task_id: String },
+  SubmittedBatch { count: usize },
   Claimed(Option<TaskRecord>),
   Updated { task_id: String },
   None,
