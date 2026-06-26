@@ -1,0 +1,19 @@
+[package]
+name = "openraft_kameo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4.14.0"
+clap = { version = "4.6.1", features = ["derive", "env"] }
+futures = "0.3.32"
+kameo = "0.21.0"
+mem-log = { path = "../mem-log" }
+network-v1-http = { path = "../network-v1-http" }
+openraft = { version = "0.10.0-alpha.24", features = ["serde", "type-alias"] }
+openraft-legacy = { version = "=0.10.0-alpha.24" }
+reqwest = { version = "0.13.4", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", default-features = false, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
