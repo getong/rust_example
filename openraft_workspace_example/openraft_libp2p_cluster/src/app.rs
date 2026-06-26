@@ -19,7 +19,7 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
-use openraft::{BasicNode, async_runtime::WatchReceiver};
+use openraft::BasicNode;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
     SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT_LEADER_WORKER,
     SERVICE_SQLITE_CACHE_FLUSHER,
   },
-  groups, http,
+  groups, http, leader_controller,
   network::{
     openraft_dispatcher::OpenRaftDispatcher,
     openraft_sync::OPENRAFT_SYNC_TOPIC,
@@ -51,7 +51,7 @@ use crate::{
 };
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
-const OPENRAFT_LEADER_WORKER_INTERVAL_SECS: u64 = 1;
+const OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS: u64 = 1;
 const APALIS_WORKER_RESTART_DELAY_SECS: u64 = 2;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
@@ -741,75 +741,23 @@ async fn run_resilient_apalis_worker(
   }
 }
 
-fn spawn_openraft_leader_worker(
+fn spawn_openraft_leader_controller(
   shutdown: &mut crate::signal::ShutdownHandler,
+  groups: GroupHandleMap,
   apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_OPENRAFT_LEADER_WORKER);
   let shutdown_rx = shutdown.shutdown_rx();
   tokio::spawn(async move {
-    run_openraft_leader_worker(
+    let res = leader_controller::run_leader_controller(
+      groups,
       apalis_storage,
-      Duration::from_secs(OPENRAFT_LEADER_WORKER_INTERVAL_SECS),
+      Duration::from_secs(OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS),
       shutdown_rx,
     )
     .await;
-    let _ = done.send(Ok(()));
+    let _ = done.send(res);
   })
-}
-
-async fn run_openraft_leader_worker(
-  apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
-  interval: Duration,
-  mut shutdown_rx: crate::signal::ShutdownRx,
-) {
-  let mut tick = tokio::time::interval(interval);
-  tick.tick().await;
-
-  loop {
-    tokio::select! {
-      _ = shutdown_rx.changed() => {
-        tracing::info!("stopping openraft leader worker");
-        break;
-      }
-      _ = tick.tick() => {
-        run_openraft_leader_tick(&apalis_storage).await;
-      }
-    }
-  }
-}
-
-async fn run_openraft_leader_tick(
-  apalis_storage: &apalis_raft::RaftApalisStorage<apalis_raft::Email>,
-) {
-  let Some(groups) = openraft_groups() else {
-    tracing::warn!("openraft leader worker skipped tick because groups are not initialized");
-    return;
-  };
-
-  for (group_id, group) in groups {
-    let metrics = group.raft.metrics().borrow_watched().clone();
-    if !metrics.state.is_leader() {
-      continue;
-    }
-
-    tracing::trace!(
-      group = %group_id,
-      node_id = %metrics.id,
-      "openraft leader worker tick"
-    );
-
-    if group_id == groups::APALIS
-      && let Err(err) = apalis_storage.run_leader_operations().await
-    {
-      tracing::warn!(
-        group = %group_id,
-        node_id = %metrics.id,
-        error = ?err,
-        "openraft leader operation failed"
-      );
-    }
-  }
 }
 
 fn linked_shutdown(parent_rx: crate::signal::ShutdownRx) -> crate::signal::ShutdownHandler {
@@ -842,6 +790,9 @@ async fn run_control_services(
   let apalis_storage = build_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p)
     .expect("apalis group should be configured");
   let leader_worker_storage = apalis_storage.clone();
+  let leader_controller_groups = openraft_groups()
+    .cloned()
+    .ok_or_else(|| anyhow!("openraft groups are not initialized"))?;
   let http_state = build_http_state(
     &runtime.opt,
     &runtime.identity,
@@ -854,7 +805,11 @@ async fn run_control_services(
   let mut shutdown = linked_shutdown(shutdown_rx_for_ordering.clone());
   let _http_handle = spawn_http(&mut shutdown, http_addr, http_state);
   let _apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
-  let _leader_worker_handle = spawn_openraft_leader_worker(&mut shutdown, leader_worker_storage);
+  let _leader_controller_handle = spawn_openraft_leader_controller(
+    &mut shutdown,
+    leader_controller_groups,
+    leader_worker_storage,
+  );
 
   let _sqlite_flusher_handle = sqlite_cache.map(|_| {
     spawn_sqlite_cache_flusher(
