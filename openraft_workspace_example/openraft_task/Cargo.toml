@@ -10,7 +10,7 @@ apalis-core = "1.0.0-rc.9"
 byteorder = "1.5.0"
 clap = { version = "4.6.1", features = ["derive"] }
 futures = "0.3.32"
-openraft = { version = "0.10.0-alpha.25", features = [
+openraft = { version = "0.10.0-alpha.26", features = [
   "serde",
   "type-alias",
 ] }
