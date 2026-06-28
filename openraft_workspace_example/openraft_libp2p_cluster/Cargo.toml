@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "lpmr-kv"
+name = "olpc-kv"
 path = "src/bin/kv.rs"
 
 [[bin]]
-name = "lpmr-peer-id"
+name = "olpc-peer-id"
 path = "src/bin/peer_id.rs"
 
 [[bin]]
-name = "lpmr-status"
+name = "olpc-status"
 path = "src/bin/status.rs"
 
 [dependencies]

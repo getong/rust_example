@@ -40,7 +40,7 @@ fi
 
 cd "$WS_DIR"
 
-PEER_ID_BIN="${PEER_ID_BIN:-lpmr-peer-id}"
+PEER_ID_BIN="${PEER_ID_BIN:-olpc-peer-id}"
 peer_id="$(cargo run -q -p openraft_libp2p_cluster --bin "$PEER_ID_BIN" -- --key "$KEY_PATH" --create)"
 
 if [[ -n "$OUT_PATH" ]]; then

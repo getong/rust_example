@@ -152,19 +152,19 @@ curl -X POST http://127.0.0.1:3001/openraft/membership/add \
 
 #+begin_src shell
 # write into users group
-cargo run -p openraft_libp2p_cluster --bin kv -- \
+cargo run -p openraft_libp2p_cluster --bin olpc-kv -- \
   --addr /ip4/127.0.0.1/tcp/4001/p2p/<peerid1> \
   --group users \
   set --key user:2 --value Bob
 
 # read from orders group
-cargo run -p openraft_libp2p_cluster --bin kv -- \
+cargo run -p openraft_libp2p_cluster --bin olpc-kv -- \
   --addr /ip4/127.0.0.1/tcp/4001/p2p/<peerid1> \
   --group orders \
   get --key order:1001
 
 # query metrics for products group
-cargo run -p openraft_libp2p_cluster --bin status -- \
+cargo run -p openraft_libp2p_cluster --bin olpc-status -- \
   --addr /ip4/127.0.0.1/tcp/4001/p2p/<peerid1> \
   --group products
 #+end_src
@@ -194,13 +194,13 @@ cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster -- \
   --advertise /ip4/127.0.0.1/tcp/4002/ws/p2p/<peerid2>
 
 # use websocket address in the kv client
-cargo run -p openraft_libp2p_cluster --bin kv -- \
+cargo run -p openraft_libp2p_cluster --bin olpc-kv -- \
   --addr /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1> \
   --group users \
   get --key counter
 
 # use websocket address in the status client
-cargo run -p openraft_libp2p_cluster --bin status -- \
+cargo run -p openraft_libp2p_cluster --bin olpc-status -- \
   --addr /ip4/127.0.0.1/tcp/4001/ws/p2p/<peerid1>
 #+end_src
 
@@ -227,7 +227,7 @@ cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster -- \
   --ws-tls-cert ./certs/fullchain.der
 
 # trust the self-signed cert when dialing
-cargo run -p openraft_libp2p_cluster --bin kv -- \
+cargo run -p openraft_libp2p_cluster --bin olpc-kv -- \
   --addr /ip4/127.0.0.1/tcp/4001/wss/p2p/<peerid1> \
   --group users \
   --ws-tls-cert ./certs/fullchain.der \
