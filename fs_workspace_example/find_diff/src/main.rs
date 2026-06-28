@@ -1,6 +1,7 @@
 use std::{
   cmp::Ordering,
   collections::{HashMap, HashSet},
+  env,
   fs::{self, File},
   io::{self, BufWriter, Write},
   iter::Peekable,
@@ -12,7 +13,7 @@ use std::{
 use merkle_search_tree::MerkleSearchTree;
 use strsim::normalized_levenshtein;
 
-const INPUT_DIR: &str = "files";
+const INPUT_DIR: &str = "~/disk_files";
 const OUTPUT_FILE: &str = "out.txt";
 const SIMILARITY_THRESHOLD: f64 = 0.85;
 const MAX_BROAD_KEY_POSTINGS: usize = 256;
@@ -51,7 +52,8 @@ struct LinePair {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> io::Result<()> {
-  let documents = read_documents(INPUT_DIR)?;
+  let input_dir = expand_home(INPUT_DIR)?;
+  let documents = read_documents(&input_dir)?;
   let documents = Arc::new(IndexedDocuments::new(documents));
   let matches = find_similar_lines(Arc::clone(&documents)).await?;
   let groups = group_matches(&matches);
@@ -59,6 +61,18 @@ async fn main() -> io::Result<()> {
 
   println!("wrote {} groups to {}", groups.len(), OUTPUT_FILE);
   Ok(())
+}
+
+fn expand_home(path: &str) -> io::Result<PathBuf> {
+  let Some(stripped) = path.strip_prefix("~/") else {
+    return Ok(PathBuf::from(path));
+  };
+
+  let home = env::var_os("HOME")
+    .map(PathBuf::from)
+    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "home directory is not set"))?;
+
+  Ok(home.join(stripped))
 }
 
 impl IndexedDocuments {
@@ -539,6 +553,19 @@ mod tests {
       normalize_digits("Object-Oriented 2026.pdf"),
       "object.oriented.#.pdf"
     );
+  }
+
+  #[test]
+  fn expands_home_prefixed_paths() {
+    let Some(home) = env::var_os("HOME") else {
+      return;
+    };
+
+    assert_eq!(
+      expand_home("~/disk_files").unwrap(),
+      PathBuf::from(home).join("disk_files")
+    );
+    assert_eq!(expand_home("files").unwrap(), PathBuf::from("files"));
   }
 
   #[test]
