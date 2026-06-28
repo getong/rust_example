@@ -26,7 +26,8 @@ struct Document {
 #[derive(Debug)]
 struct Line {
   text: String,
-  char_len: usize,
+  comparison_text: String,
+  comparison_char_len: usize,
   candidate_keys: Vec<String>,
 }
 
@@ -119,10 +120,12 @@ fn read_document(path: &Path) -> io::Result<Document> {
       continue;
     }
 
+    let comparison_text = comparison_slice(text);
     lines.push(Line {
       text: text.to_owned(),
-      char_len: text.chars().count(),
-      candidate_keys: candidate_keys(text),
+      comparison_text: comparison_text.to_owned(),
+      comparison_char_len: comparison_text.chars().count(),
+      candidate_keys: candidate_keys(comparison_text),
     });
   }
 
@@ -253,11 +256,15 @@ fn is_similar_pair(documents: &IndexedDocuments, pair: LinePair) -> bool {
     return false;
   }
 
-  if !can_reach_threshold(left.char_len, right.char_len) {
+  if !can_reach_threshold(left.comparison_char_len, right.comparison_char_len) {
     return false;
   }
 
-  normalized_levenshtein(&left.text, &right.text) >= SIMILARITY_THRESHOLD
+  normalized_levenshtein(&left.comparison_text, &right.comparison_text) >= SIMILARITY_THRESHOLD
+}
+
+fn comparison_slice(text: &str) -> &str {
+  text.rsplit_once('/').map_or(text, |(_, tail)| tail)
 }
 
 fn candidate_keys(text: &str) -> Vec<String> {
@@ -542,6 +549,39 @@ mod tests {
     assert!(is_similar_pair(&documents, pair));
   }
 
+  #[test]
+  fn compares_path_lines_by_file_name() {
+    let documents = test_documents(&[(
+      "a",
+      &[
+        "./unreal-engine-video/Unreal.Engine.for.Indie.Filmmakers",
+        "Unreal.Engine.for.Indie.Filmmakers",
+      ][..],
+    )]);
+    let pair = LinePair { left: 0, right: 1 };
+
+    assert!(is_similar_pair(&documents, pair));
+  }
+
+  #[test]
+  fn keeps_full_path_text_for_output() {
+    let documents = test_documents(&[(
+      "backup",
+      &[
+        "./unreal-engine-video/Unreal.Engine.for.Indie.Filmmakers",
+        "Unreal.Engine.for.Indie.Filmmakers",
+      ][..],
+    )]);
+    let groups = vec![vec![0, 1]];
+    let path = std::env::temp_dir().join("find_diff_output_test.txt");
+
+    write_groups(&path, &documents, &groups).unwrap();
+
+    let output = fs::read_to_string(&path).unwrap();
+    fs::remove_file(path).unwrap();
+    assert!(output.contains("./unreal-engine-video/Unreal.Engine.for.Indie.Filmmakers : backup"));
+  }
+
   #[tokio::test]
   async fn finds_similar_lines_inside_same_document() {
     let documents = Arc::new(test_documents(&[(
@@ -589,10 +629,15 @@ mod tests {
         name: (*name).to_owned(),
         lines: lines
           .iter()
-          .map(|text| Line {
-            text: (*text).to_owned(),
-            char_len: text.chars().count(),
-            candidate_keys: candidate_keys(text),
+          .map(|text| {
+            let comparison_text = comparison_slice(text);
+
+            Line {
+              text: (*text).to_owned(),
+              comparison_text: comparison_text.to_owned(),
+              comparison_char_len: comparison_text.chars().count(),
+              candidate_keys: candidate_keys(comparison_text),
+            }
           })
           .collect(),
       })
