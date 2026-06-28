@@ -18,6 +18,8 @@ const OUTPUT_FILE: &str = "out.txt";
 const SIMILARITY_THRESHOLD: f64 = 0.85;
 const MAX_BROAD_KEY_POSTINGS: usize = 256;
 const FIXED_FILE_SUFFIXES: &[&str] = &[".Code.zip"];
+const POSSIBLE_FORMAT_DUPLICATE_HEADER: &str =
+  "-------------------might be the same file with different file format ---------------------";
 
 #[derive(Debug)]
 struct Document {
@@ -535,25 +537,49 @@ fn write_groups(
   let file = File::create(path)?;
   let mut writer = BufWriter::new(file);
   let mut groups = groups.to_vec();
+  let mut possible_format_duplicates = Vec::new();
 
   for group in &mut groups {
     group.sort_by(|left, right| match_line_cmp(documents, *left, *right));
     group.dedup();
   }
-  groups.retain(|group| !is_same_location_suffix_only_group(documents, group));
+  groups.retain(|group| {
+    if is_same_location_suffix_only_group(documents, group) {
+      possible_format_duplicates.push(group.clone());
+      false
+    } else {
+      true
+    }
+  });
   groups.sort_by(|left, right| match_group_cmp(documents, left, right));
+  possible_format_duplicates.sort_by(|left, right| match_group_cmp(documents, left, right));
 
   for group in &groups {
-    for &line_index in group {
-      let line = documents.line(line_index);
-      let file = documents.file_name(line_index);
-      writeln!(writer, "{} : {}", line.text, file)?;
+    write_group(&mut writer, documents, group)?;
+  }
+
+  if !possible_format_duplicates.is_empty() {
+    writeln!(writer, "{POSSIBLE_FORMAT_DUPLICATE_HEADER}")?;
+    for group in &possible_format_duplicates {
+      write_group(&mut writer, documents, group)?;
     }
-    writeln!(writer)?;
   }
 
   writer.flush()?;
-  Ok(groups.len())
+  Ok(groups.len() + possible_format_duplicates.len())
+}
+
+fn write_group(
+  writer: &mut impl Write,
+  documents: &IndexedDocuments,
+  group: &[usize],
+) -> io::Result<()> {
+  for &line_index in group {
+    let line = documents.line(line_index);
+    let file = documents.file_name(line_index);
+    writeln!(writer, "{} : {}", line.text, file)?;
+  }
+  writeln!(writer)
 }
 
 fn natural_cmp(left: &str, right: &str) -> Ordering {
@@ -686,7 +712,7 @@ mod tests {
   }
 
   #[test]
-  fn skips_extension_only_group_in_same_location() {
+  fn appends_extension_only_group_in_same_location() {
     let documents = test_documents(&[(
       "apple-disk",
       &[
@@ -702,8 +728,11 @@ mod tests {
 
     let output = fs::read_to_string(&path).unwrap();
     fs::remove_file(path).unwrap();
-    assert_eq!(written_groups, 0);
-    assert!(output.is_empty());
+    assert_eq!(written_groups, 1);
+    assert!(output.starts_with(POSSIBLE_FORMAT_DUPLICATE_HEADER));
+    assert!(output.contains("WebAssembly.2.0.Essentials.2025.epub : apple-disk"));
+    assert!(output.contains("WebAssembly.2.0.Essentials.2025.mobi : apple-disk"));
+    assert!(output.contains("WebAssembly.2.0.Essentials.2025.pdf : apple-disk"));
   }
 
   #[test]
@@ -722,12 +751,18 @@ mod tests {
 
     let output = fs::read_to_string(&path).unwrap();
     fs::remove_file(path).unwrap();
-    assert_eq!(written_groups, 0);
-    assert!(output.is_empty());
+    assert_eq!(written_groups, 1);
+    assert!(output.starts_with(POSSIBLE_FORMAT_DUPLICATE_HEADER));
+    assert!(
+      output.contains("Data.Modeling.with.Snowflake.A.practical.guide.2ed.2025.Code.zip : english")
+    );
+    assert!(
+      output.contains("Data.Modeling.with.Snowflake.A.practical.guide.2ed.2025.pdf : english")
+    );
   }
 
   #[test]
-  fn skips_suffix_only_group_with_ascii_case_differences() {
+  fn appends_suffix_only_group_with_ascii_case_differences() {
     let documents = test_documents(&[(
       "english",
       &[
@@ -744,8 +779,46 @@ mod tests {
 
     let output = fs::read_to_string(&path).unwrap();
     fs::remove_file(path).unwrap();
-    assert_eq!(written_groups, 0);
-    assert!(output.is_empty());
+    assert_eq!(written_groups, 1);
+    assert!(output.starts_with(POSSIBLE_FORMAT_DUPLICATE_HEADER));
+    assert!(output.contains(
+      "Flame.Game.Development.Your.Guide.to.Creating.Cross-platform.Games.in.2D.Using.Flame.\
+       Engine.in.Flutter.3.2024.epub : english"
+    ));
+    assert!(output.contains(
+      "Flame.Game.Development.Your.Guide.to.Creating.Cross-Platform.Games.in.2D.Using.Flame.\
+       Engine.in.Flutter.3.2024.pdf : english"
+    ));
+  }
+
+  #[test]
+  fn appends_possible_format_duplicates_after_regular_groups() {
+    let documents = test_documents(&[(
+      "english",
+      &[
+        "Object-Oriented 2025.pdf",
+        "Object-Oriented 2026.pdf",
+        "Flame.Game.Development.Your.Guide.to.Creating.Cross-platform.Games.in.2D.Using.Flame.\
+         Engine.in.Flutter.3.2024.epub",
+        "Flame.Game.Development.Your.Guide.to.Creating.Cross-Platform.Games.in.2D.Using.Flame.\
+         Engine.in.Flutter.3.2024.pdf",
+      ][..],
+    )]);
+    let groups = vec![vec![2, 3], vec![0, 1]];
+    let path = std::env::temp_dir().join("find_diff_format_duplicates_last_test.txt");
+
+    let written_groups = write_groups(&path, &documents, &groups).unwrap();
+
+    let output = fs::read_to_string(&path).unwrap();
+    fs::remove_file(path).unwrap();
+    assert_eq!(written_groups, 2);
+    let regular_index = output.find("Object-Oriented 2025.pdf : english").unwrap();
+    let header_index = output.find(POSSIBLE_FORMAT_DUPLICATE_HEADER).unwrap();
+    let format_duplicate_index = output
+      .find("Flame.Game.Development.Your.Guide.to.Creating.Cross-platform")
+      .unwrap();
+    assert!(regular_index < header_index);
+    assert!(header_index < format_duplicate_index);
   }
 
   #[test]
