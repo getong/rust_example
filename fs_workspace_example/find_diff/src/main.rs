@@ -17,6 +17,7 @@ const INPUT_DIR: &str = "~/disk_files";
 const OUTPUT_FILE: &str = "out.txt";
 const SIMILARITY_THRESHOLD: f64 = 0.85;
 const MAX_BROAD_KEY_POSTINGS: usize = 256;
+const FIXED_FILE_SUFFIXES: &[&str] = &[".Code.zip"];
 
 #[derive(Debug)]
 struct Document {
@@ -57,9 +58,9 @@ async fn main() -> io::Result<()> {
   let documents = Arc::new(IndexedDocuments::new(documents));
   let matches = find_similar_lines(Arc::clone(&documents)).await?;
   let groups = group_matches(&matches);
-  write_groups(OUTPUT_FILE, &documents, &groups)?;
+  let written_groups = write_groups(OUTPUT_FILE, &documents, &groups)?;
 
-  println!("wrote {} groups to {}", groups.len(), OUTPUT_FILE);
+  println!("wrote {} groups to {}", written_groups, OUTPUT_FILE);
   Ok(())
 }
 
@@ -453,11 +454,84 @@ fn match_line_cmp(documents: &IndexedDocuments, left: usize, right: usize) -> Or
     .then_with(|| documents.file_name(left).cmp(documents.file_name(right)))
 }
 
+fn is_same_location_suffix_only_group(documents: &IndexedDocuments, group: &[usize]) -> bool {
+  let Some((&first, rest)) = group.split_first() else {
+    return false;
+  };
+
+  let location = documents.file_name(first);
+  let Some((stem, first_suffix)) = split_file_suffix(&documents.line(first).text) else {
+    return false;
+  };
+  let mut suffixes = HashSet::new();
+  suffixes.insert(first_suffix.to_ascii_lowercase());
+
+  for &line_index in rest {
+    if documents.file_name(line_index) != location {
+      return false;
+    }
+
+    let Some((item_stem, suffix)) = split_file_suffix(&documents.line(line_index).text) else {
+      return false;
+    };
+
+    if !item_stem.eq_ignore_ascii_case(stem) {
+      return false;
+    }
+
+    suffixes.insert(suffix.to_ascii_lowercase());
+  }
+
+  suffixes.len() > 1
+}
+
+fn split_file_suffix(text: &str) -> Option<(&str, &str)> {
+  for suffix in FIXED_FILE_SUFFIXES {
+    let Some(suffix_start) = text.len().checked_sub(suffix.len()) else {
+      continue;
+    };
+    let Some(text_suffix) = text.as_bytes().get(suffix_start ..) else {
+      continue;
+    };
+    if suffix_start == 0 || !text_suffix.eq_ignore_ascii_case(suffix.as_bytes()) {
+      continue;
+    }
+
+    let separator_start = last_separator_index(text);
+    if separator_start.is_some_and(|separator| suffix_start <= separator) {
+      return None;
+    }
+
+    return Some((text.get(.. suffix_start)?, &suffix[1 ..]));
+  }
+
+  split_final_extension(text)
+}
+
+fn split_final_extension(text: &str) -> Option<(&str, &str)> {
+  let extension_start = text.rfind('.')?;
+  let separator_start = last_separator_index(text);
+
+  if separator_start.is_some_and(|separator| extension_start <= separator) {
+    return None;
+  }
+
+  if extension_start == 0 || text[extension_start + 1 ..].is_empty() {
+    return None;
+  }
+
+  Some((&text[.. extension_start], &text[extension_start + 1 ..]))
+}
+
+fn last_separator_index(text: &str) -> Option<usize> {
+  text.rfind('/').into_iter().chain(text.rfind('\\')).max()
+}
+
 fn write_groups(
   path: impl AsRef<Path>,
   documents: &IndexedDocuments,
   groups: &[Vec<usize>],
-) -> io::Result<()> {
+) -> io::Result<usize> {
   let file = File::create(path)?;
   let mut writer = BufWriter::new(file);
   let mut groups = groups.to_vec();
@@ -466,6 +540,7 @@ fn write_groups(
     group.sort_by(|left, right| match_line_cmp(documents, *left, *right));
     group.dedup();
   }
+  groups.retain(|group| !is_same_location_suffix_only_group(documents, group));
   groups.sort_by(|left, right| match_group_cmp(documents, left, right));
 
   for group in &groups {
@@ -477,7 +552,8 @@ fn write_groups(
     writeln!(writer)?;
   }
 
-  writer.flush()
+  writer.flush()?;
+  Ok(groups.len())
 }
 
 fn natural_cmp(left: &str, right: &str) -> Ordering {
@@ -607,6 +683,97 @@ mod tests {
     let output = fs::read_to_string(&path).unwrap();
     fs::remove_file(path).unwrap();
     assert!(output.contains("./unreal-engine-video/Unreal.Engine.for.Indie.Filmmakers : backup"));
+  }
+
+  #[test]
+  fn skips_extension_only_group_in_same_location() {
+    let documents = test_documents(&[(
+      "apple-disk",
+      &[
+        "WebAssembly.2.0.Essentials.2025.epub",
+        "WebAssembly.2.0.Essentials.2025.mobi",
+        "WebAssembly.2.0.Essentials.2025.pdf",
+      ][..],
+    )]);
+    let groups = vec![vec![0, 1, 2]];
+    let path = std::env::temp_dir().join("find_diff_extension_only_test.txt");
+
+    let written_groups = write_groups(&path, &documents, &groups).unwrap();
+
+    let output = fs::read_to_string(&path).unwrap();
+    fs::remove_file(path).unwrap();
+    assert_eq!(written_groups, 0);
+    assert!(output.is_empty());
+  }
+
+  #[test]
+  fn treats_code_zip_as_fixed_suffix() {
+    let documents = test_documents(&[(
+      "english",
+      &[
+        "Data.Modeling.with.Snowflake.A.practical.guide.2ed.2025.Code.zip",
+        "Data.Modeling.with.Snowflake.A.practical.guide.2ed.2025.pdf",
+      ][..],
+    )]);
+    let groups = vec![vec![0, 1]];
+    let path = std::env::temp_dir().join("find_diff_code_zip_suffix_test.txt");
+
+    let written_groups = write_groups(&path, &documents, &groups).unwrap();
+
+    let output = fs::read_to_string(&path).unwrap();
+    fs::remove_file(path).unwrap();
+    assert_eq!(written_groups, 0);
+    assert!(output.is_empty());
+  }
+
+  #[test]
+  fn skips_suffix_only_group_with_ascii_case_differences() {
+    let documents = test_documents(&[(
+      "english",
+      &[
+        "Flame.Game.Development.Your.Guide.to.Creating.Cross-platform.Games.in.2D.Using.Flame.\
+         Engine.in.Flutter.3.2024.epub",
+        "Flame.Game.Development.Your.Guide.to.Creating.Cross-Platform.Games.in.2D.Using.Flame.\
+         Engine.in.Flutter.3.2024.pdf",
+      ][..],
+    )]);
+    let groups = vec![vec![0, 1]];
+    let path = std::env::temp_dir().join("find_diff_case_suffix_test.txt");
+
+    let written_groups = write_groups(&path, &documents, &groups).unwrap();
+
+    let output = fs::read_to_string(&path).unwrap();
+    fs::remove_file(path).unwrap();
+    assert_eq!(written_groups, 0);
+    assert!(output.is_empty());
+  }
+
+  #[test]
+  fn falls_back_to_final_extension_for_short_names() {
+    assert_eq!(split_file_suffix("a.pdf"), Some(("a", "pdf")));
+  }
+
+  #[test]
+  fn ignores_fixed_suffix_when_start_is_not_char_boundary() {
+    assert_eq!(split_file_suffix("电影Code.zip"), Some(("电影Code", "zip")));
+  }
+
+  #[test]
+  fn keeps_extension_only_group_in_different_locations() {
+    let documents = test_documents(&[
+      ("apple-disk", &["WebAssembly.2.0.Essentials.2025.epub"][..]),
+      ("backup-disk", &["WebAssembly.2.0.Essentials.2025.pdf"][..]),
+    ]);
+    let groups = vec![vec![0, 1]];
+    let path = std::env::temp_dir().join("find_diff_different_location_test.txt");
+
+    let written_groups = write_groups(&path, &documents, &groups).unwrap();
+
+    let output = fs::read_to_string(&path).unwrap();
+    fs::remove_file(path).unwrap();
+    assert_eq!(written_groups, 1);
+    assert!(output.contains("WebAssembly.2.0.Essentials.2025.epub : apple-disk"));
+    assert!(output.contains("WebAssembly.2.0.Essentials.2025.pdf : backup-disk"));
   }
 
   #[tokio::test]
