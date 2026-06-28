@@ -49,7 +49,7 @@ graphviz-rust = "0.9.8"
   "yamux",
 ] }
 once_cell = "1.21.4"
-openraft = { version = "0.10.0-alpha.26", features = [
+openraft = { version = "0.10.0-alpha.27", features = [
   "serde",
   "type-alias",
 ] }

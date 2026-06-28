@@ -13,12 +13,12 @@ clap = { version = "4.6.1", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
 futures = "0.3.32"
 network-v1-http = { path = "../network-v1-http" }
-openraft = { version = "0.10.0-alpha.26", features = [
+openraft = { version = "0.10.0-alpha.27", features = [
   "serde",
   "type-alias",
   "serde_json",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.26" }
+openraft-legacy = { version = "0.10.0-alpha.27" }
 openraft-rocksstore = { path = "../rocksstore" }
 reqwest = { version = "0.13", features = ["json"] }
 rocksdb = "0.24.0"
