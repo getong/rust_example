@@ -32,6 +32,10 @@ struct Line {
   text: String,
   comparison_text: String,
   comparison_char_len: usize,
+  normalized_comparison_text: String,
+  normalized_comparison_char_len: usize,
+  title_comparison_text: String,
+  title_comparison_char_len: usize,
   candidate_keys: Vec<String>,
 }
 
@@ -100,6 +104,25 @@ impl IndexedDocuments {
   }
 }
 
+impl Line {
+  fn new(text: &str) -> Self {
+    let comparison_text = comparison_slice(text);
+    let normalized_comparison_text = normalize_digits(comparison_text);
+    let title_comparison_text = title_comparison_text(comparison_text);
+
+    Self {
+      text: text.to_owned(),
+      comparison_text: comparison_text.to_owned(),
+      comparison_char_len: comparison_text.chars().count(),
+      normalized_comparison_char_len: normalized_comparison_text.chars().count(),
+      normalized_comparison_text,
+      title_comparison_char_len: title_comparison_text.chars().count(),
+      candidate_keys: candidate_keys(comparison_text, &title_comparison_text),
+      title_comparison_text,
+    }
+  }
+}
+
 fn read_documents(dir: impl AsRef<Path>) -> io::Result<Vec<Document>> {
   let mut paths = txt_files(dir.as_ref())?;
   paths.sort();
@@ -137,13 +160,7 @@ fn read_document(path: &Path) -> io::Result<Document> {
       continue;
     }
 
-    let comparison_text = comparison_slice(text);
-    lines.push(Line {
-      text: text.to_owned(),
-      comparison_text: comparison_text.to_owned(),
-      comparison_char_len: comparison_text.chars().count(),
-      candidate_keys: candidate_keys(comparison_text),
-    });
+    lines.push(Line::new(text));
   }
 
   Ok(Document { name, lines })
@@ -273,24 +290,133 @@ fn is_similar_pair(documents: &IndexedDocuments, pair: LinePair) -> bool {
     return false;
   }
 
-  if !can_reach_threshold(left.comparison_char_len, right.comparison_char_len) {
-    return false;
-  }
+  is_similar_text(
+    &left.comparison_text,
+    left.comparison_char_len,
+    &right.comparison_text,
+    right.comparison_char_len,
+  ) || is_similar_text(
+    &left.normalized_comparison_text,
+    left.normalized_comparison_char_len,
+    &right.normalized_comparison_text,
+    right.normalized_comparison_char_len,
+  ) || is_similar_text(
+    &left.title_comparison_text,
+    left.title_comparison_char_len,
+    &right.title_comparison_text,
+    right.title_comparison_char_len,
+  )
+}
 
-  normalized_levenshtein(&left.comparison_text, &right.comparison_text) >= SIMILARITY_THRESHOLD
+fn is_similar_text(left: &str, left_len: usize, right: &str, right_len: usize) -> bool {
+  can_reach_threshold(left_len, right_len)
+    && normalized_levenshtein(left, right) >= SIMILARITY_THRESHOLD
 }
 
 fn comparison_slice(text: &str) -> &str {
   text.rsplit_once('/').map_or(text, |(_, tail)| tail)
 }
 
-fn candidate_keys(text: &str) -> Vec<String> {
+fn title_comparison_text(text: &str) -> String {
+  let without_author = strip_author_suffix(text);
+  let without_numeric_metadata = strip_trailing_numeric_metadata(without_author);
+
+  normalize_digits(without_numeric_metadata)
+}
+
+fn strip_author_suffix(text: &str) -> &str {
+  let words = word_spans(text);
+  let Some(by_index) = words.iter().rposition(|word| word.text == "by") else {
+    return text;
+  };
+
+  let title_word_count = words[.. by_index].len();
+  let author_word_count = words[by_index + 1 ..].len();
+  if title_word_count < 4 || author_word_count < 2 {
+    return text;
+  }
+
+  trim_trailing_metadata_separators(&text[.. words[by_index].start])
+}
+
+fn word_spans(text: &str) -> Vec<WordSpan> {
+  let mut words = Vec::new();
+  let mut start = None;
+
+  for (index, ch) in text.char_indices() {
+    if ch.is_alphabetic() {
+      start.get_or_insert(index);
+      continue;
+    }
+
+    if let Some(word_start) = start.take() {
+      words.push(WordSpan {
+        start: word_start,
+        text: text[word_start .. index].to_lowercase(),
+      });
+    }
+  }
+
+  if let Some(word_start) = start {
+    words.push(WordSpan {
+      start: word_start,
+      text: text[word_start ..].to_lowercase(),
+    });
+  }
+
+  words
+}
+
+struct WordSpan {
+  start: usize,
+  text: String,
+}
+
+fn strip_trailing_numeric_metadata(mut text: &str) -> &str {
+  let mut removed_numeric_metadata = false;
+
+  loop {
+    let without_separators = trim_trailing_metadata_separators(text);
+    let Some(prefix) = strip_final_ascii_digit_run(without_separators) else {
+      return if removed_numeric_metadata {
+        without_separators
+      } else {
+        text
+      };
+    };
+
+    text = prefix;
+    removed_numeric_metadata = true;
+  }
+}
+
+fn trim_trailing_metadata_separators(text: &str) -> &str {
+  text.trim_end_matches(|ch: char| !ch.is_alphanumeric())
+}
+
+fn strip_final_ascii_digit_run(text: &str) -> Option<&str> {
+  let mut digit_start = text.len();
+
+  for (index, ch) in text.char_indices().rev() {
+    if !ch.is_ascii_digit() {
+      break;
+    }
+    digit_start = index;
+  }
+
+  (digit_start < text.len()).then_some(&text[.. digit_start])
+}
+
+fn candidate_keys(text: &str, title_text: &str) -> Vec<String> {
   let tokens = significant_tokens(text);
   let mut keys = Vec::new();
 
   let normalized = normalize_digits(text);
   if !normalized.is_empty() {
     keys.push(format!("full:{normalized}"));
+  }
+  if !title_text.is_empty() && title_text != normalized {
+    keys.push(format!("title:{title_text}"));
   }
 
   for pair in tokens.windows(2) {
@@ -658,6 +784,26 @@ mod tests {
   }
 
   #[test]
+  fn builds_title_comparison_text_from_metadata_variants() {
+    assert_eq!(
+      title_comparison_text("Learn.to.Code.with.Rust.1080.2025-3"),
+      "learn.to.code.with.rust"
+    );
+    assert_eq!(
+      title_comparison_text("Learn.to.Code.with.Rust.by.Boris.Paskhaver"),
+      "learn.to.code.with.rust"
+    );
+  }
+
+  #[test]
+  fn keeps_short_title_by_as_regular_title_word() {
+    assert_eq!(
+      title_comparison_text("Concurrency.by.Tutorials.(3rd.Edition).2023.epub"),
+      "concurrency.by.tutorials.#rd.edition.#.epub"
+    );
+  }
+
+  #[test]
   fn expands_home_prefixed_paths() {
     let Some(home) = env::var_os("HOME") else {
       return;
@@ -673,6 +819,37 @@ mod tests {
   #[test]
   fn finds_lines_that_only_differ_by_year() {
     let documents = test_documents(&[("a", &["abc.2025"][..]), ("b", &["abc.2026"][..])]);
+    let pair = LinePair { left: 0, right: 1 };
+
+    assert!(is_similar_pair(&documents, pair));
+  }
+
+  #[test]
+  fn finds_lines_with_extra_resolution_and_date_metadata() {
+    let documents = test_documents(&[
+      ("english", &["Learn.to.Code.with.Rust.2026-2"][..]),
+      (
+        "old-apple-disk",
+        &["Learn.to.Code.with.Rust.1080.2025-3"][..],
+      ),
+    ]);
+    let pair = LinePair { left: 0, right: 1 };
+
+    assert!(is_similar_pair(&documents, pair));
+  }
+
+  #[test]
+  fn finds_lines_with_author_suffix_metadata() {
+    let documents = test_documents(&[
+      (
+        "english",
+        &["Learn.to.Code.with.Rust.by.Boris.Paskhaver"][..],
+      ),
+      (
+        "old-apple-disk",
+        &["Learn.to.Code.with.Rust.1080.2025-3"][..],
+      ),
+    ]);
     let pair = LinePair { left: 0, right: 1 };
 
     assert!(is_similar_pair(&documents, pair));
@@ -861,6 +1038,50 @@ mod tests {
     assert_eq!(matches, vec![LinePair { left: 0, right: 1 }]);
   }
 
+  #[tokio::test]
+  async fn finds_similar_lines_with_extra_numeric_metadata() {
+    let documents = Arc::new(test_documents(&[
+      ("english", &["Learn.to.Code.with.Rust.2026-2"][..]),
+      (
+        "old-apple-disk",
+        &["Learn.to.Code.with.Rust.1080.2025-3"][..],
+      ),
+    ]));
+
+    let matches = find_similar_lines(Arc::clone(&documents)).await.unwrap();
+
+    assert_eq!(matches, vec![LinePair { left: 0, right: 1 }]);
+  }
+
+  #[tokio::test]
+  async fn finds_similar_lines_with_author_suffix_metadata() {
+    let documents = Arc::new(test_documents(&[
+      (
+        "english",
+        &[
+          "Learn.to.Code.with.Rust.2026-2",
+          "Learn.to.Code.with.Rust.by.Boris.Paskhaver",
+        ][..],
+      ),
+      (
+        "old-apple-disk",
+        &["Learn.to.Code.with.Rust.1080.2025-3"][..],
+      ),
+    ]));
+
+    let mut matches = find_similar_lines(Arc::clone(&documents)).await.unwrap();
+    matches.sort_unstable();
+
+    assert_eq!(
+      matches,
+      vec![
+        LinePair { left: 0, right: 1 },
+        LinePair { left: 0, right: 2 },
+        LinePair { left: 1, right: 2 },
+      ]
+    );
+  }
+
   #[test]
   fn natural_sort_orders_numbers_by_value() {
     assert_eq!(
@@ -894,19 +1115,7 @@ mod tests {
       .iter()
       .map(|(name, lines)| Document {
         name: (*name).to_owned(),
-        lines: lines
-          .iter()
-          .map(|text| {
-            let comparison_text = comparison_slice(text);
-
-            Line {
-              text: (*text).to_owned(),
-              comparison_text: comparison_text.to_owned(),
-              comparison_char_len: comparison_text.chars().count(),
-              candidate_keys: candidate_keys(comparison_text),
-            }
-          })
-          .collect(),
+        lines: lines.iter().map(|text| Line::new(text)).collect(),
       })
       .collect();
 
