@@ -12,5 +12,5 @@ members = [
   "kameo_tarpc",
   "kameo_examples",
   "kameo_game_sync",
-  "kameo_console",
+  "kameo_console", "send_self_msg",
 ]
