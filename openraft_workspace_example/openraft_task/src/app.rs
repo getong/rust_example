@@ -33,6 +33,18 @@ pub struct Opt {
   /// How long the demo worker should poll before shutting down.
   #[arg(long, default_value_t = 3)]
   pub worker_seconds: u64,
+
+  /// Maximum time allowed for a single task execution attempt.
+  #[arg(long, default_value_t = 5)]
+  pub task_timeout_seconds: u64,
+
+  /// How long a task may stay Running before being reclaimed.
+  #[arg(long, default_value_t = 30)]
+  pub reclaim_timeout_seconds: u64,
+
+  /// How often workers log task status counts and run reclaim checks.
+  #[arg(long, default_value_t = 2)]
+  pub monitor_seconds: u64,
 }
 
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
@@ -73,6 +85,9 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   // any external locking — the state machine guarantees each task is claimed
   // by exactly one worker.
   let stop_after = Duration::from_secs(opt.worker_seconds);
+  let task_timeout = Duration::from_secs(opt.task_timeout_seconds.max(1));
+  let reclaim_timeout = Duration::from_secs(opt.reclaim_timeout_seconds.max(1));
+  let monitor_interval = Duration::from_secs(opt.monitor_seconds.max(1));
   let mut worker_handles = JoinSet::new();
   for (node_id, node) in &cluster.nodes {
     let node_storage = RaftApalisStorage::<DemoTask>::new(
@@ -80,11 +95,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       node.raft.clone(),
       cluster.router.clone(),
       node.state_machine.clone(),
-    );
+    )
+    .with_task_timeout(task_timeout)
+    .with_reclaim_timeout(reclaim_timeout)
+    .with_monitor_interval(monitor_interval);
     let worker_name = format!("worker-node-{node_id}");
-    worker_handles.spawn(async move {
-      run_demo_worker(worker_name, node_storage, stop_after).await
-    });
+    worker_handles
+      .spawn(async move { run_demo_worker(worker_name, node_storage, stop_after).await });
   }
   while let Some(result) = worker_handles.join_next().await {
     result.context("worker join error")??;

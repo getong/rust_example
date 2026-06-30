@@ -15,7 +15,7 @@ use apalis_core::backend::queue::Queue;
 use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream};
 use openraft::async_runtime::WatchReceiver;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tokio::time::{Duration, sleep};
+use tokio::time::{Duration, sleep, timeout};
 
 use crate::{
   Raft,
@@ -98,6 +98,10 @@ pub struct RaftApalisStorage<Args, C = SonicCodec<Vec<u8>>> {
   max_attempts: usize,
   /// How long a task may stay in Running state before it is reclaimed.
   reclaim_timeout: Duration,
+  /// Maximum time a single task execution attempt may run.
+  task_timeout: Duration,
+  /// How often the background monitor logs status counts and checks reclaim.
+  monitor_interval: Duration,
   _args: PhantomData<Args>,
   _codec: PhantomData<C>,
 }
@@ -117,6 +121,8 @@ impl<Args> RaftApalisStorage<Args> {
       poll_interval: POLL_INTERVAL,
       max_attempts: 3,
       reclaim_timeout: Duration::from_secs(30),
+      task_timeout: Duration::from_secs(30),
+      monitor_interval: Duration::from_secs(2),
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -139,18 +145,47 @@ impl<Args, C> RaftApalisStorage<Args, C> {
     self
   }
 
-  /// Spawn a background task that periodically re-queues Running tasks whose
-  /// worker has exceeded `reclaim_timeout`.  Abort the returned handle when
-  /// the worker shuts down.
-  pub fn spawn_reclaim_task(&self) -> tokio::task::JoinHandle<()> {
+  pub fn with_task_timeout(mut self, timeout: Duration) -> Self {
+    self.task_timeout = timeout;
+    self
+  }
+
+  pub fn with_monitor_interval(mut self, interval: Duration) -> Self {
+    self.monitor_interval = interval;
+    self
+  }
+
+  /// Spawn a background monitor that periodically logs task status counts and
+  /// re-queues Running tasks whose worker has exceeded `reclaim_timeout`.
+  /// Abort the returned handle when the worker shuts down.
+  pub fn spawn_monitor_task(&self) -> tokio::task::JoinHandle<()> {
     let raft = self.raft.clone();
     let router = self.router.clone();
+    let state_machine = self.state_machine.clone();
     let timeout_secs = self.reclaim_timeout.as_secs().max(1);
-    // Check at half the timeout so a stalled task is recovered promptly.
-    let check_interval = self.reclaim_timeout / 2;
+    let monitor_interval = non_zero_duration(self.monitor_interval, Duration::from_secs(1));
     tokio::spawn(async move {
       loop {
-        sleep(check_interval).await;
+        sleep(monitor_interval).await;
+
+        match state_machine.tasks().await {
+          Ok(tasks) => {
+            let counts = TaskStatusCounts::from_tasks(&tasks);
+            tracing::info!(
+              total = counts.total,
+              pending = counts.pending,
+              running = counts.running,
+              done = counts.done,
+              failed = counts.failed,
+              killed = counts.killed,
+              "task monitor status"
+            );
+          }
+          Err(err) => {
+            tracing::warn!(error = ?err, "task monitor status scan failed");
+          }
+        }
+
         let now = current_unix_secs();
         match raft_write_inner(&raft, &router, QueueCommand::Reclaim { timeout_secs, now }).await {
           Ok(QueueResponse::Reclaimed { count }) if count > 0 => {
@@ -163,6 +198,11 @@ impl<Args, C> RaftApalisStorage<Args, C> {
         }
       }
     })
+  }
+
+  /// Backwards-compatible alias for code that only needs the reclaim behavior.
+  pub fn spawn_reclaim_task(&self) -> tokio::task::JoinHandle<()> {
+    self.spawn_monitor_task()
   }
 
   pub async fn list_tasks(&self) -> Result<Vec<TaskRecordView>, RaftApalisError> {
@@ -404,6 +444,8 @@ impl<Args, C> Clone for RaftApalisStorage<Args, C> {
       poll_interval: self.poll_interval,
       max_attempts: self.max_attempts,
       reclaim_timeout: self.reclaim_timeout,
+      task_timeout: self.task_timeout,
+      monitor_interval: self.monitor_interval,
       _args: PhantomData,
       _codec: PhantomData,
     }
@@ -471,12 +513,7 @@ where
 
     let raft = self.raft.clone();
     let router = self.router.clone();
-    async move {
-      raft_write_inner(&raft, &router, command)
-        .await
-        .map(|_| ())
-    }
-    .boxed()
+    async move { raft_write_inner(&raft, &router, command).await.map(|_| ()) }.boxed()
   }
 }
 
@@ -572,16 +609,52 @@ pub async fn execute_demo_task(task: DemoTask) -> Result<TaskResult, BoxDynError
   })
 }
 
+async fn execute_demo_task_with_timeout(
+  task: DemoTask,
+  task_timeout: Duration,
+) -> Result<TaskResult, BoxDynError> {
+  let task_id = task.task_id.clone();
+  match timeout(task_timeout, execute_demo_task(task)).await {
+    Ok(result) => result,
+    Err(_) => {
+      tracing::warn!(%task_id, ?task_timeout, "task execution timed out");
+      Err(Box::new(TaskExecutionTimeout {
+        task_id,
+        timeout: task_timeout,
+      }))
+    }
+  }
+}
+
+#[derive(Debug)]
+struct TaskExecutionTimeout {
+  task_id: String,
+  timeout: Duration,
+}
+
+impl fmt::Display for TaskExecutionTimeout {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(
+      f,
+      "task {} timed out after {:?}",
+      self.task_id, self.timeout
+    )
+  }
+}
+
+impl Error for TaskExecutionTimeout {}
+
 pub async fn run_demo_worker(
   worker_name: impl AsRef<str>,
   storage: RaftApalisStorage<DemoTask>,
   stop_after: Duration,
 ) -> anyhow::Result<()> {
-  let reclaim_handle = storage.spawn_reclaim_task();
+  let monitor_handle = storage.spawn_monitor_task();
+  let task_timeout = storage.task_timeout;
 
   let worker = WorkerBuilder::new(worker_name.as_ref())
     .backend(storage)
-    .build(execute_demo_task);
+    .build(move |task| execute_demo_task_with_timeout(task, task_timeout));
 
   let result = worker
     .run_until(async move {
@@ -591,7 +664,7 @@ pub async fn run_demo_worker(
     .await
     .map_err(|err| anyhow::anyhow!("apalis worker failed: {err}"));
 
-  reclaim_handle.abort();
+  monitor_handle.abort();
   result
 }
 
@@ -635,6 +708,45 @@ fn unique_task_id() -> String {
   uuid::Uuid::new_v4().to_string()
 }
 
+fn non_zero_duration(duration: Duration, fallback: Duration) -> Duration {
+  if duration.is_zero() {
+    fallback
+  } else {
+    duration
+  }
+}
+
+#[derive(Default)]
+struct TaskStatusCounts {
+  total: usize,
+  pending: usize,
+  running: usize,
+  done: usize,
+  failed: usize,
+  killed: usize,
+}
+
+impl TaskStatusCounts {
+  fn from_tasks(tasks: &[TaskRecord]) -> Self {
+    let mut counts = Self {
+      total: tasks.len(),
+      ..Default::default()
+    };
+
+    for task in tasks {
+      match task.status {
+        TaskStatus::Pending => counts.pending += 1,
+        TaskStatus::Running => counts.running += 1,
+        TaskStatus::Done => counts.done += 1,
+        TaskStatus::Failed => counts.failed += 1,
+        TaskStatus::Killed => counts.killed += 1,
+      }
+    }
+
+    counts
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use apalis::prelude::{Attempt, Task};
@@ -672,5 +784,19 @@ mod tests {
     assert_eq!(rebuilt.args, vec![1, 2, 3]);
     assert_eq!(rebuilt.parts.attempt.current(), 2);
     assert_eq!(rebuilt.parts.ctx.lock_by.as_deref(), Some("worker-1"));
+  }
+
+  #[tokio::test]
+  async fn demo_task_execution_times_out() {
+    let task = DemoTask {
+      task_id: "slow-task".to_string(),
+      payload: "payload".to_string(),
+    };
+
+    let err = execute_demo_task_with_timeout(task, Duration::from_millis(1))
+      .await
+      .expect_err("task should time out");
+
+    assert!(err.to_string().contains("timed out"));
   }
 }
