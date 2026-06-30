@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = "2.0.5"
+alloy = "2.1.0"
 hex = "0.4.3"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3e72d4c071d5ec8815d2f6f7ee3602600ff51798", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
   "full",
 ] }
 secp256k1 = { version = "0.31.1", features = [

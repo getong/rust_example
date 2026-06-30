@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 futures = "0.3.32"
 rand = "=0.8.5"
 tracing = "0.1.44"
@@ -24,11 +24,11 @@ rust-embed = { version = "8.11.0", features = [
 tokio = { version = "1.52.3", features = ["macros", "net", "rt", "signal"] }
 tokio-util = { version = "0.7.18", features = ["compat"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.11", features = ["cors"] }
+tower-http = { version = "0.7.0", features = ["cors"] }
 mime_guess = "2.0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.85"
+js-sys = "=0.3.85"
 libp2p = { version = "0.56", features = [
   "ed25519",
   "macros",
@@ -37,9 +37,9 @@ libp2p = { version = "0.56", features = [
 ] }
 libp2p-webrtc-websys = { version = "0.4" }
 tracing-wasm = "0.2.1"
-wasm-bindgen = "0.2.108"
-wasm-bindgen-futures = "0.4.58"
-web-sys = { version = "0.3.85", features = [
+wasm-bindgen = "=0.2.108"
+wasm-bindgen-futures = "=0.4.58"
+web-sys = { version = "=0.3.85", features = [
   "Document",
   "Element",
   "HtmlElement",

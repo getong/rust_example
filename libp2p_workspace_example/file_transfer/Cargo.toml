@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 blake3 = "1"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "6a6814bb698b01c40d6ce08eb0f61281c909124f", features = [
   "full",

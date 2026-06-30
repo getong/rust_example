@@ -5,14 +5,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.102"
-bytes = "1.11.1"
+anyhow = "1.0.103"
+bytes = "1.12.0"
 futures = "0.3.32"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3e72d4c071d5ec8815d2f6f7ee3602600ff51798", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
   "full",
 ] }
 # libp2p-mplex = "0.40.0"
-log = "0.4.29"
+log = "0.4.33"
 once_cell = "1.21.4"
 pretty_env_logger = "0.5.0"
 serde = { version = "1.0.228", features = ["derive"] }

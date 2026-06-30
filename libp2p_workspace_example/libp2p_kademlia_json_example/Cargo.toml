@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.44"
-env_logger = "0.11.10"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3e72d4c071d5ec8815d2f6f7ee3602600ff51798", features = [
+chrono = "0.4.45"
+env_logger = "0.11.11"
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
   "full",
 ] }
-log = "0.4.29"
+log = "0.4.33"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1", features = ["full"] }
