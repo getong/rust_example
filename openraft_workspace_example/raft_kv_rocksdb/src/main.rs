@@ -12,7 +12,7 @@ pub struct Opt {
   pub addr: String,
 }
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
   // Setup the logger
   tracing_subscriber::fmt()

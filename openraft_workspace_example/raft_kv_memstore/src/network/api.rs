@@ -1,4 +1,6 @@
-use actix_web::{Responder, post, web, web::Data};
+use std::sync::Arc;
+
+use axum::{Json, extract::State, response::IntoResponse};
 use client_http::FollowerReadError;
 use openraft::{
   ReadPolicy,
@@ -6,7 +8,6 @@ use openraft::{
   error::{Infallible, LinearizableReadError, decompose::DecomposeResult},
   raft::linearizable_read::Linearizer,
 };
-use web::Json;
 
 use crate::{TypeConfig, app::App};
 
@@ -17,30 +18,24 @@ use crate::{TypeConfig, app::App};
 ///
 ///  - `POST - /write` saves a value in a key and sync the nodes.
 ///  - `POST - /read` attempt to find a value from a given key.
-#[post("/write")]
-pub async fn write(
-  app: Data<App>,
-  req: Json<types_kv::Request>,
-) -> actix_web::Result<impl Responder> {
+pub async fn write(State(app): State<Arc<App>>, req: Json<types_kv::Request>) -> impl IntoResponse {
   let response = app.raft.client_write(req.0).await.decompose().unwrap();
-  Ok(Json(response))
+  Json(response)
 }
 
-#[post("/read")]
-pub async fn read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl Responder> {
+pub async fn read(State(app): State<Arc<App>>, req: Json<String>) -> impl IntoResponse {
   let inner = app.state_machine_store.inner().lock().await;
   let key = req.0;
   let value = inner.state_machine.data.get(&key).cloned();
 
   let res: Result<String, Infallible> = Ok(value.unwrap_or_default());
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/linearizable_read")]
 pub async fn linearizable_read(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<String>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let ret = app
     .raft
     .get_read_linearizer(ReadPolicy::ReadIndex)
@@ -57,9 +52,9 @@ pub async fn linearizable_read(
       let value = inner.state_machine.data.get(&key).cloned();
 
       let res: Result<String, LinearizableReadError<TypeConfig>> = Ok(value.unwrap_or_default());
-      Ok(Json(res))
+      Json(res)
     }
-    Err(e) => Ok(Json(Err(e))),
+    Err(e) => Json(Err(e)),
   }
 }
 
@@ -71,15 +66,14 @@ pub async fn linearizable_read(
 /// 2. Fetch linearizer from leader via HTTP
 /// 3. Wait for local state machine to catch up to the linearizer's read_log_id
 /// 4. Read from local state machine
-#[post("/follower_read")]
-pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl Responder> {
+pub async fn follower_read(State(app): State<Arc<App>>, req: Json<String>) -> impl IntoResponse {
   // 1. Get current leader
   let leader_id = match app.raft.current_leader().await {
     Some(id) => id,
     None => {
-      return Ok(Json(Err(FollowerReadError {
+      return Json(Err(FollowerReadError {
         message: "No leader available".to_string(),
-      })));
+      }));
     }
   };
 
@@ -88,9 +82,9 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
   let leader_node = match metrics.membership_config.membership().get_node(&leader_id) {
     Some(node) => node,
     None => {
-      return Ok(Json(Err(FollowerReadError {
+      return Json(Err(FollowerReadError {
         message: format!("Leader node {} not found in membership", leader_id),
-      })));
+      }));
     }
   };
   let leader_addr = if leader_node.data.is_empty() {
@@ -106,9 +100,9 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
   let response = match client.post(&url).send().await {
     Ok(resp) => resp,
     Err(e) => {
-      return Ok(Json(Err(FollowerReadError {
+      return Json(Err(FollowerReadError {
         message: format!("Failed to contact leader: {}", e),
-      })));
+      }));
     }
   };
 
@@ -118,18 +112,18 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
   > = match response.json().await {
     Ok(result) => result,
     Err(e) => {
-      return Ok(Json(Err(FollowerReadError {
+      return Json(Err(FollowerReadError {
         message: format!("Failed to parse linearizer data: {}", e),
-      })));
+      }));
     }
   };
 
   let linearizer_data = match linearizer_data_result {
     Ok(data) => data,
     Err(e) => {
-      return Ok(Json(Err(FollowerReadError {
+      return Json(Err(FollowerReadError {
         message: format!("Leader returned error: {:?}", e),
-      })));
+      }));
     }
   };
 
@@ -142,9 +136,9 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
 
   // 4. Wait for local state machine to catch up
   if let Err(e) = linearizer.await_ready(&app.raft).await {
-    return Ok(Json(Err(FollowerReadError {
+    return Json(Err(FollowerReadError {
       message: format!("Failed to wait for state machine: {:?}", e),
-    })));
+    }));
   }
 
   // 5. Read from local state machine
@@ -152,5 +146,5 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
   let key = req.0;
   let value = inner.state_machine.data.get(&key).cloned();
 
-  Ok(Json(Ok(value.unwrap_or_default())))
+  Json(Ok(value.unwrap_or_default()))
 }

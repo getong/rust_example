@@ -30,6 +30,6 @@ members = [
   "multi_raft_kv_string_node_id",
   "openraft_libp2p_cluster",
   # Uses network-v1-http/openraft legacy APIs.
-  # "openraft_kameo",
+  "openraft_kameo",
   "openraft_task",
 ]

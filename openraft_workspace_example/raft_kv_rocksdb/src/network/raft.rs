@@ -1,7 +1,6 @@
-use actix_web::{
-  Responder, post,
-  web::{Data, Json},
-};
+use std::sync::Arc;
+
+use axum::{Json, extract::State, response::IntoResponse};
 use openraft::{
   Snapshot,
   errors::RaftError,
@@ -12,26 +11,23 @@ use crate::{app::App, typ::*};
 
 // --- Raft communication
 
-#[post("/vote")]
-pub async fn vote(app: Data<App>, req: Json<VoteRequest>) -> actix_web::Result<impl Responder> {
+pub async fn vote(State(app): State<Arc<App>>, req: Json<VoteRequest>) -> impl IntoResponse {
   let res = app.raft.vote(req.0).await;
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/append")]
 pub async fn append(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<AppendEntriesRequest>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let res = app.raft.append_entries(req.0).await;
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/snapshot")]
 pub async fn snapshot(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<(Vote, SnapshotMeta, Vec<u8>)>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let (snapshot_vote, meta, data) = req.0;
   let snapshot = Snapshot {
     meta,
@@ -42,18 +38,17 @@ pub async fn snapshot(
     .install_full_snapshot(snapshot_vote, snapshot)
     .await
     .map_err(RaftError::Fatal);
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/transfer-leader")]
 pub async fn transfer_leader(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<TransferLeaderRequest<TypeConfig>>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let res: Result<TransferLeaderResponse<TypeConfig>, RaftError<TypeConfig>> = app
     .raft
     .handle_transfer_leader(req.0)
     .await
     .map_err(RaftError::Fatal);
-  Ok(Json(res))
+  Json(res)
 }

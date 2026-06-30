@@ -1,36 +1,31 @@
-use actix_web::{Responder, post, web, web::Data};
+use std::sync::Arc;
+
+use axum::{Json, extract::State, response::IntoResponse};
 use openraft::{
   ReadPolicy,
   error::{Infallible, LinearizableReadError, decompose::DecomposeResult},
 };
-use web::Json;
 
 use crate::{TypeConfig, app::App};
 
-#[post("/write")]
-pub async fn write(
-  app: Data<App>,
-  req: Json<types_kv::Request>,
-) -> actix_web::Result<impl Responder> {
+pub async fn write(State(app): State<Arc<App>>, req: Json<types_kv::Request>) -> impl IntoResponse {
   let response = app.raft.client_write(req.0).await.decompose().unwrap();
-  Ok(Json(response))
+  Json(response)
 }
 
-#[post("/read")]
-pub async fn read(app: Data<App>, req: Json<String>) -> actix_web::Result<impl Responder> {
+pub async fn read(State(app): State<Arc<App>>, req: Json<String>) -> impl IntoResponse {
   let key = req.0;
   let kvs = app.key_values.lock().await;
   let value = kvs.get(&key);
 
   let res: Result<String, Infallible> = Ok(value.cloned().unwrap_or_default());
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/linearizable_read")]
 pub async fn linearizable_read(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<String>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let ret = app
     .raft
     .get_read_linearizer(ReadPolicy::ReadIndex)
@@ -48,8 +43,8 @@ pub async fn linearizable_read(
 
       let res: Result<String, LinearizableReadError<TypeConfig>> =
         Ok(value.cloned().unwrap_or_default());
-      Ok(Json(res))
+      Json(res)
     }
-    Err(e) => Ok(Json(Err(e))),
+    Err(e) => Json(Err(e)),
   }
 }

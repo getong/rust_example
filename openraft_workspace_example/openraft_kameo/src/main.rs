@@ -12,7 +12,7 @@ struct Opt {
   http_addr: String,
 }
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
   tracing_subscriber::fmt()
     .with_target(true)

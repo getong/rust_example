@@ -3,8 +3,12 @@
 
 use std::sync::Arc;
 
-use actix_web::{HttpServer, middleware, middleware::Logger, web::Data};
+use axum::{
+  Router,
+  routing::{get, post},
+};
 use openraft::Config;
+use tokio::net::TcpListener;
 
 use crate::{
   app::App,
@@ -65,41 +69,32 @@ pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std:
   .await
   .unwrap();
 
-  // Create an application that will store all the instances created above, this will
-  // later be used on the actix-web services.
-  let app_data = Data::new(App {
+  let app_data = Arc::new(App {
     id: node_id,
     addr: http_addr.clone(),
     raft,
     state_machine_store,
   });
 
-  // Start the actix-web server.
-  let server = HttpServer::new(move || {
-    actix_web::App::new()
-      .wrap(Logger::default())
-      .wrap(Logger::new("%a %{User-Agent}i"))
-      .wrap(middleware::Compress::default())
-      .app_data(app_data.clone())
-      // raft internal RPC
-      .service(raft::append)
-      .service(raft::snapshot)
-      .service(raft::transfer_leader)
-      .service(raft::vote)
-      // admin API
-      .service(management::init)
-      .service(management::add_learner)
-      .service(management::change_membership)
-      .service(management::metrics)
-      .service(management::get_linearizer)
-      // application API
-      .service(api::write)
-      .service(api::read)
-      .service(api::linearizable_read)
-      .service(api::follower_read)
-  });
+  let router = Router::new()
+    // raft internal RPC
+    .route("/append", post(raft::append))
+    .route("/snapshot", post(raft::snapshot))
+    .route("/transfer-leader", post(raft::transfer_leader))
+    .route("/vote", post(raft::vote))
+    // admin API
+    .route("/init", post(management::init))
+    .route("/add-learner", post(management::add_learner))
+    .route("/change-membership", post(management::change_membership))
+    .route("/metrics", get(management::metrics))
+    .route("/get_linearizer", post(management::get_linearizer))
+    // application API
+    .route("/write", post(api::write))
+    .route("/read", post(api::read))
+    .route("/linearizable_read", post(api::linearizable_read))
+    .route("/follower_read", post(api::follower_read))
+    .with_state(app_data);
 
-  let x = server.bind(http_addr)?;
-
-  x.run().await
+  let listener = TcpListener::bind(&http_addr).await?;
+  axum::serve(listener, router).await
 }

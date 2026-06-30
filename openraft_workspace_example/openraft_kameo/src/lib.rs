@@ -2,15 +2,19 @@ use std::{
   collections::{BTreeMap, BTreeSet},
   fmt,
   io::{self, Cursor},
+  net::SocketAddr,
   sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
 };
 
-use actix_web::{
-  HttpServer, Responder, get, middleware, post,
-  web::{Data, Json},
+use axum::{
+  Json, Router,
+  extract::State,
+  http::StatusCode,
+  response::{IntoResponse, Response},
+  routing::{get, post},
 };
 use futures::{Stream, TryStreamExt, lock::Mutex};
 use kameo::{
@@ -20,15 +24,18 @@ use kameo::{
   message::{Context, Message},
 };
 use openraft::{
-  BasicNode, Config, EntryPayload, OptionalSend, RaftSnapshotBuilder, ReadPolicy,
-  alias::{LogIdOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf},
+  Config, EntryPayload, NodeInfo, OptionalSend, RaftSnapshotBuilder, ReadPolicy, Snapshot,
+  alias::{LogIdOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf, VoteOf},
   async_runtime::WatchReceiver,
   errors::{ClientWriteError, ForwardToLeader, RaftError},
-  raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest},
+  raft::{
+    AppendEntriesRequest, SnapshotResponse, TransferLeaderRequest, TransferLeaderResponse,
+    VoteRequest,
+  },
   storage::{EntryResponder, RaftStateMachine},
 };
-use openraft_legacy::prelude::*;
 use serde::{Deserialize, Serialize};
+use tokio::net::TcpListener;
 
 pub type NodeId = u64;
 pub type LogStore = mem_log::LogStore<TypeConfig>;
@@ -126,6 +133,8 @@ openraft::declare_raft_types!(
     pub TypeConfig:
         D = SetCommand,
         R = Option<String>,
+        Node = NodeInfo,
+        SnapshotData = Cursor<Vec<u8>>,
 );
 
 pub type KameoRaft<SM = RaftStateMachineStore> = openraft::Raft<TypeConfig, SM>;
@@ -382,7 +391,7 @@ fn current_leader_info(app: &AppState) -> LeaderInfo {
     raft_metrics
       .membership_config
       .get_node(&id)
-      .map(|node| node.addr.clone())
+      .map(|node| node.raft_addr.clone())
   });
 
   LeaderInfo {
@@ -399,7 +408,7 @@ fn leader_addr_from_forward(
   forward: &ForwardToLeader<TypeConfig>,
 ) -> Option<String> {
   if let Some(node) = &forward.leader_node {
-    return Some(node.addr.clone());
+    return Some(node.raft_addr.clone());
   }
 
   let raft_metrics = app.raft.metrics().borrow_watched().clone();
@@ -407,7 +416,7 @@ fn leader_addr_from_forward(
     raft_metrics
       .membership_config
       .get_node(&id)
-      .map(|node| node.addr.clone())
+      .map(|node| node.raft_addr.clone())
   })
 }
 
@@ -453,7 +462,7 @@ pub async fn start_kameo_raft_node(node_id: NodeId, http_addr: String) -> io::Re
 
   let log_store = LogStore::default();
   let state_machine_store = RaftStateMachineStore::spawn_actor();
-  let network = network_v1_http::NetworkFactory {};
+  let network = network_v2_http::NetworkFactory::new();
   let http_client = reqwest::Client::builder()
     .no_proxy()
     .build()
@@ -469,7 +478,7 @@ pub async fn start_kameo_raft_node(node_id: NodeId, http_addr: String) -> io::Re
   .await
   .map_err(|e| io::Error::other(format!("{e:?}")))?;
 
-  let app_data = Data::new(AppState {
+  let app_data = Arc::new(AppState {
     id: node_id,
     addr: http_addr.clone(),
     raft,
@@ -477,160 +486,166 @@ pub async fn start_kameo_raft_node(node_id: NodeId, http_addr: String) -> io::Re
     http_client,
   });
 
-  let server = HttpServer::new(move || {
-    actix_web::App::new()
-      .wrap(middleware::Compress::default())
-      .app_data(app_data.clone())
-      .service(vote)
-      .service(append)
-      .service(snapshot_rpc)
-      .service(init)
-      .service(add_learner)
-      .service(change_membership)
-      .service(metrics)
-      .service(leader)
-      .service(write)
-      .service(write_local)
-      .service(read)
-      .service(linearizable_read)
-  });
+  let router = Router::new()
+    .route("/vote", post(vote))
+    .route("/append", post(append))
+    .route("/snapshot", post(snapshot_rpc))
+    .route("/transfer-leader", post(transfer_leader))
+    .route("/init", post(init))
+    .route("/add-learner", post(add_learner))
+    .route("/change-membership", post(change_membership))
+    .route("/metrics", get(metrics))
+    .route("/leader", get(leader))
+    .route("/write", post(write))
+    .route("/write-local", post(write_local))
+    .route("/read", post(read))
+    .route("/linearizable-read", post(linearizable_read))
+    .with_state(app_data);
 
-  server.bind(http_addr)?.run().await
+  let addr: SocketAddr = http_addr
+    .parse()
+    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{e:?}")))?;
+  let listener = TcpListener::bind(addr).await?;
+  axum::serve(listener, router).await
 }
 
-#[post("/vote")]
 async fn vote(
-  app: Data<AppState>,
+  State(app): State<Arc<AppState>>,
   req: Json<VoteRequest<TypeConfig>>,
-) -> actix_web::Result<impl Responder> {
-  let res = app.raft.vote(req.into_inner()).await;
-  Ok(Json(res))
+) -> impl IntoResponse {
+  let res = app.raft.vote(req.0).await;
+  Json(res)
 }
 
-#[post("/append")]
 async fn append(
-  app: Data<AppState>,
+  State(app): State<Arc<AppState>>,
   req: Json<AppendEntriesRequest<TypeConfig>>,
-) -> actix_web::Result<impl Responder> {
-  let res = app.raft.append_entries(req.into_inner()).await;
-  Ok(Json(res))
+) -> impl IntoResponse {
+  let res = app.raft.append_entries(req.0).await;
+  Json(res)
 }
 
-#[post("/snapshot")]
 async fn snapshot_rpc(
-  app: Data<AppState>,
-  req: Json<InstallSnapshotRequest<TypeConfig>>,
-) -> actix_web::Result<impl Responder> {
-  let res = app.raft.install_snapshot(req.into_inner()).await;
-  Ok(Json(res))
+  State(app): State<Arc<AppState>>,
+  req: Json<(VoteOf<TypeConfig>, SnapshotMetaOf<TypeConfig>, Vec<u8>)>,
+) -> impl IntoResponse {
+  let (vote, meta, data) = req.0;
+  let snapshot = Snapshot {
+    meta,
+    snapshot: Cursor::new(data),
+  };
+  let res: Result<SnapshotResponse<TypeConfig>, RaftError<TypeConfig>> = app
+    .raft
+    .install_full_snapshot(vote, snapshot)
+    .await
+    .map_err(RaftError::Fatal);
+  Json(res)
 }
 
-#[post("/init")]
+async fn transfer_leader(
+  State(app): State<Arc<AppState>>,
+  req: Json<TransferLeaderRequest<TypeConfig>>,
+) -> impl IntoResponse {
+  let res: Result<TransferLeaderResponse<TypeConfig>, RaftError<TypeConfig>> = app
+    .raft
+    .handle_transfer_leader(req.0)
+    .await
+    .map_err(RaftError::Fatal);
+  Json(res)
+}
+
 async fn init(
-  app: Data<AppState>,
+  State(app): State<Arc<AppState>>,
   req: Json<Vec<(NodeId, String)>>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let mut nodes = BTreeMap::new();
   if req.is_empty() {
-    nodes.insert(app.id, BasicNode::new(app.addr.clone()));
+    nodes.insert(app.id, NodeInfo::new(app.addr.clone(), app.addr.clone()));
   } else {
-    for (id, addr) in req.into_inner() {
-      nodes.insert(id, BasicNode::new(addr));
+    for (id, addr) in req.0 {
+      nodes.insert(id, NodeInfo::new(addr.clone(), addr));
     }
   }
 
   let res = app.raft.initialize(nodes).await;
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/add-learner")]
 async fn add_learner(
-  app: Data<AppState>,
+  State(app): State<Arc<AppState>>,
   req: Json<(NodeId, String)>,
-) -> actix_web::Result<impl Responder> {
-  let (node_id, addr) = req.into_inner();
+) -> impl IntoResponse {
+  let (node_id, addr) = req.0;
   let res = app
     .raft
-    .add_learner(node_id, BasicNode::new(addr), true)
+    .add_learner(node_id, NodeInfo::new(addr.clone(), addr), true)
     .await;
-  Ok(Json(res))
+  Json(res)
 }
 
-#[post("/change-membership")]
 async fn change_membership(
-  app: Data<AppState>,
+  State(app): State<Arc<AppState>>,
   req: Json<BTreeSet<NodeId>>,
-) -> actix_web::Result<impl Responder> {
-  let res = app.raft.change_membership(req.into_inner(), false).await;
-  Ok(Json(res))
+) -> impl IntoResponse {
+  let res = app.raft.change_membership(req.0, false).await;
+  Json(res)
 }
 
-#[get("/metrics")]
-async fn metrics(app: Data<AppState>) -> actix_web::Result<impl Responder> {
-  Ok(Json(app.raft.metrics().borrow_watched().clone()))
+async fn metrics(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+  Json(app.raft.metrics().borrow_watched().clone())
 }
 
-#[get("/leader")]
-async fn leader(app: Data<AppState>) -> actix_web::Result<impl Responder> {
-  Ok(Json(current_leader_info(&app)))
+async fn leader(State(app): State<Arc<AppState>>) -> impl IntoResponse {
+  Json(current_leader_info(&app))
 }
 
-#[post("/write")]
-async fn write(
-  app: Data<AppState>,
-  req: Json<SetCommand>,
-) -> actix_web::Result<Json<HttpWriteResult>> {
-  let command = req.into_inner();
+async fn write(State(app): State<Arc<AppState>>, req: Json<SetCommand>) -> Response {
+  let command = req.0;
   let local_res = app.raft.client_write(command.clone()).await;
 
   let Err(err) = local_res else {
-    return Ok(Json(local_res));
+    return Json(local_res).into_response();
   };
 
   let Some(forward) = err.forward_to_leader() else {
-    return Ok(Json(Err(err)));
+    let res: HttpWriteResult = Err(err);
+    return Json(res).into_response();
   };
 
   let Some(leader_addr) = leader_addr_from_forward(&app, forward) else {
-    return Ok(Json(Err(err)));
+    let res: HttpWriteResult = Err(err);
+    return Json(res).into_response();
   };
 
   if leader_addr == app.addr {
-    return Ok(Json(Err(err)));
+    let res: HttpWriteResult = Err(err);
+    return Json(res).into_response();
   }
 
-  forward_write_to_leader(&app, &leader_addr, &command)
-    .await
-    .map(Json)
-    .map_err(actix_web::error::ErrorBadGateway)
+  match forward_write_to_leader(&app, &leader_addr, &command).await {
+    Ok(res) => Json(res).into_response(),
+    Err(message) => (StatusCode::BAD_GATEWAY, message).into_response(),
+  }
 }
 
-#[post("/write-local")]
-async fn write_local(
-  app: Data<AppState>,
-  req: Json<SetCommand>,
-) -> actix_web::Result<Json<HttpWriteResult>> {
-  let res = app.raft.client_write(req.into_inner()).await;
-  Ok(Json(res))
+async fn write_local(State(app): State<Arc<AppState>>, req: Json<SetCommand>) -> impl IntoResponse {
+  let res = app.raft.client_write(req.0).await;
+  Json(res)
 }
 
-#[post("/read")]
-async fn read(app: Data<AppState>, req: Json<String>) -> actix_web::Result<impl Responder> {
-  let key = req.into_inner();
-  let state = app
-    .state_machine_store
-    .dump_state()
-    .await
-    .map_err(actix_web::error::ErrorInternalServerError)?;
-
-  Ok(Json(state.get(&key).cloned()))
+async fn read(State(app): State<Arc<AppState>>, req: Json<String>) -> Response {
+  let key = req.0;
+  match app.state_machine_store.dump_state().await {
+    Ok(state) => Json(state.get(&key).cloned()).into_response(),
+    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+  }
 }
 
-#[post("/linearizable-read")]
 async fn linearizable_read(
-  app: Data<AppState>,
+  State(app): State<Arc<AppState>>,
   req: Json<String>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
+  let key = req.0;
   let res = async {
     let linearizer = app
       .raft
@@ -647,11 +662,11 @@ async fn linearizable_read(
       .dump_state()
       .await
       .map_err(|e| e.to_string())?;
-    Ok::<_, String>(state.get(&req.into_inner()).cloned())
+    Ok::<_, String>(state.get(&key).cloned())
   }
   .await;
 
-  Ok(Json(res))
+  Json(res)
 }
 
 #[cfg(test)]

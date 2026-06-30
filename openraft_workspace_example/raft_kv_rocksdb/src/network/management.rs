@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
-
-use actix_web::{
-  Responder, get, post,
-  web::{Data, Json},
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  sync::Arc,
 };
+
+use axum::{Json, extract::State, response::IntoResponse};
 use openraft::{
   NodeInfo,
   async_runtime::WatchReceiver,
@@ -19,11 +19,10 @@ use crate::{NodeId, app::App, typ::*};
 /// A Learner receives log replication from the leader but does not vote.
 /// This should be done before adding a node as a member into the cluster
 /// (by calling `change-membership`)
-#[post("/add-learner")]
 pub async fn add_learner(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<(NodeId, String)>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let (node_id, api_addr) = req.0;
   let node = NodeInfo::new(api_addr, "");
   let res = app
@@ -32,15 +31,14 @@ pub async fn add_learner(
     .await
     .decompose()
     .unwrap();
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Changes specified learners to members, or remove members.
-#[post("/change-membership")]
 pub async fn change_membership(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<BTreeSet<NodeId>>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let body = req.0;
   let res = app
     .raft
@@ -48,15 +46,14 @@ pub async fn change_membership(
     .await
     .decompose()
     .unwrap();
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Initialize a cluster.
-#[post("/init")]
 pub async fn init(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<Vec<(NodeId, String)>>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let mut nodes = BTreeMap::new();
   if req.0.is_empty() {
     nodes.insert(app.id, NodeInfo::new(app.addr.clone(), ""));
@@ -66,14 +63,13 @@ pub async fn init(
     }
   };
   let res = app.raft.initialize(nodes).await.decompose().unwrap();
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Get the latest metrics of the cluster
-#[get("/metrics")]
-pub async fn metrics(app: Data<App>) -> actix_web::Result<impl Responder> {
+pub async fn metrics(State(app): State<Arc<App>>) -> impl IntoResponse {
   let metrics = app.raft.metrics().borrow_watched().clone();
 
   let res: Result<RaftMetrics, Infallible> = Ok(metrics);
-  Ok(Json(res))
+  Json(res)
 }

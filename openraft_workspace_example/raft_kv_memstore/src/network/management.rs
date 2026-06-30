@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
-
-use actix_web::{
-  Responder, get, post,
-  web::{Data, Json},
+use std::{
+  collections::{BTreeMap, BTreeSet},
+  sync::Arc,
 };
+
+use axum::{Json, extract::State, response::IntoResponse};
 use openraft::{
   NodeInfo, RaftMetrics, ReadPolicy,
   alias::LogIdOf,
@@ -29,11 +29,10 @@ pub struct LinearizerData {
 /// A Learner receives log replication from the leader but does not vote.
 /// This should be done before adding a node as a member into the cluster
 /// (by calling `change-membership`)
-#[post("/add-learner")]
 pub async fn add_learner(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<(NodeId, String)>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let (node_id, addr) = req.0.clone();
   let node = NodeInfo::new(addr.clone(), addr);
   let res = app
@@ -42,31 +41,29 @@ pub async fn add_learner(
     .await
     .decompose()
     .unwrap();
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Changes specified learners to members, or remove members.
-#[post("/change-membership")]
 pub async fn change_membership(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<BTreeSet<NodeId>>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let res = app
     .raft
     .change_membership(req.0, false)
     .await
     .decompose()
     .unwrap();
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Initialize a single-node cluster if the `req` is empty vec.
 /// Otherwise initialize a cluster with the `req` specified vec of node-id and node-address
-#[post("/init")]
 pub async fn init(
-  app: Data<App>,
+  State(app): State<Arc<App>>,
   req: Json<Vec<(NodeId, String)>>,
-) -> actix_web::Result<impl Responder> {
+) -> impl IntoResponse {
   let mut nodes = BTreeMap::new();
   if req.0.is_empty() {
     nodes.insert(app.id, NodeInfo::new(app.addr.clone(), app.addr.clone()));
@@ -76,16 +73,15 @@ pub async fn init(
     }
   };
   let res = app.raft.initialize(nodes).await.decompose().unwrap();
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Get the latest metrics of the cluster
-#[get("/metrics")]
-pub async fn metrics(app: Data<App>) -> actix_web::Result<impl Responder> {
+pub async fn metrics(State(app): State<Arc<App>>) -> impl IntoResponse {
   let metrics = app.raft.metrics().borrow_watched().clone();
 
   let res: Result<RaftMetrics<TypeConfig>, Infallible> = Ok(metrics);
-  Ok(Json(res))
+  Json(res)
 }
 
 /// Get linearizer data for performing linearizable reads on followers
@@ -93,8 +89,7 @@ pub async fn metrics(app: Data<App>) -> actix_web::Result<impl Responder> {
 /// This endpoint is used by followers to obtain linearizer data from the leader.
 /// The follower can then reconstruct a Linearizer and wait for its local state
 /// machine to catch up before performing a linearizable read.
-#[post("/get_linearizer")]
-pub async fn get_linearizer(app: Data<App>) -> actix_web::Result<impl Responder> {
+pub async fn get_linearizer(State(app): State<Arc<App>>) -> impl IntoResponse {
   let linearizer = app
     .raft
     .get_read_linearizer(ReadPolicy::ReadIndex)
@@ -114,5 +109,5 @@ pub async fn get_linearizer(app: Data<App>) -> actix_web::Result<impl Responder>
     Err(e) => Err(e),
   };
 
-  Ok(Json(data))
+  Json(data)
 }
