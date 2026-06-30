@@ -246,6 +246,10 @@ impl ModuleLoaderFactory for CliInspiredModuleLoaderFactory {
     &self,
     parent_permissions: PermissionsContainer,
     permissions: PermissionsContainer,
+    _maybe_main_module_blob: Option<(
+      ModuleSpecifier,
+      std::sync::Arc<deno_runtime::deno_web::Blob>,
+    )>,
   ) -> CreateModuleLoaderResult {
     let loader = Rc::new(CliInspiredModuleLoader::new(
       self.in_npm_pkg_checker.clone(),

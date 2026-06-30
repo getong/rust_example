@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 deno_ast = "=0.53.2"
-deno_cache_dir = "0.42.0"
-deno_crypto = "0.264.0"
+deno_cache_dir = "0.44.0"
+deno_crypto = "0.266.0"
 deno_error = "=0.7.1"
-deno_resolver = "0.81.0"
-deno_runtime = { version = "0.258.0", features = ["transpile", "hmr"] }
+deno_resolver = "0.83.0"
+deno_runtime = { version = "0.260.0", features = ["transpile", "hmr"] }
 deno_terminal = "=0.2.3"
 env_logger = "0.11"
-log = "0.4.32"
+log = "0.4.33"
 rustls = "0.23"
 sys_traits = { version = "0.1.28", features = ["real"] }
 tokio = { version = "1.52.3", features = ["full"] }

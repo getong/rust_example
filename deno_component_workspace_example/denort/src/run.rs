@@ -63,7 +63,7 @@ use deno_runtime::{
   deno_node::{NodeRequireLoader, create_host_defined_options},
   deno_permissions::{Permissions, PermissionsContainer},
   deno_tls::{RootCertStoreProvider, rustls::RootCertStore},
-  deno_web::BlobStore,
+  deno_web::{Blob, BlobStore},
   permissions::RuntimePermissionDescriptorParser,
 };
 use deno_semver::npm::NpmPackageReqReference;
@@ -228,7 +228,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
             .map_err(JsErrorBox::from_err)
             .and_then(|url_or_path| url_or_path.into_url().map_err(JsErrorBox::from_err))?,
         ),
-        PackageJsonDepValue::Workspace(version_req) => {
+        PackageJsonDepValue::Workspace { version_req, .. } => {
           let pkg_folder = self
             .shared
             .workspace_resolver
@@ -662,6 +662,7 @@ impl ModuleLoaderFactory for StandaloneModuleLoaderFactory {
     &self,
     _parent_permissions: PermissionsContainer,
     _permissions: PermissionsContainer,
+    _maybe_main_module_blob: Option<(deno_core::ModuleSpecifier, Arc<Blob>)>,
   ) -> CreateModuleLoaderResult {
     self.create_result()
   }
@@ -745,6 +746,9 @@ pub async fn run(
         scopes: Default::default(),
         registry_configs: Default::default(),
         min_release_age_days: None,
+        trust_policy: Default::default(),
+        trust_policy_ignore_after_minutes: None,
+        trust_policy_exclude: Default::default(),
       });
       let npm_cache_dir = Arc::new(NpmCacheDir::new(
         &sys,
@@ -1018,6 +1022,8 @@ pub async fn run(
     residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
     enable_raw_imports: metadata.unstable_config.raw_imports,
     maybe_initial_cwd: None,
+    close_on_idle: false,
+    disable_offscreen_canvas: false,
   };
   let worker_factory = LibMainWorkerFactory::new(
     Arc::new(BlobStore::default()),
@@ -1091,5 +1097,8 @@ fn create_default_npmrc() -> Arc<ResolvedNpmRc> {
     scopes: Default::default(),
     registry_configs: Default::default(),
     min_release_age_days: None,
+    trust_policy: Default::default(),
+    trust_policy_ignore_after_minutes: None,
+    trust_policy_exclude: Default::default(),
   })
 }

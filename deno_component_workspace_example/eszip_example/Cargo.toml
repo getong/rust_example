@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-deno_core = "0.403.0"
+deno_core = "0.405.0"
 deno_error = "=0.7.1"
-eszip = "0.128.0"
+eszip = "0.130.0"
 tokio = { version = "1.52.3", features = ["full"] }

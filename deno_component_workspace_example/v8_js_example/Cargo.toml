@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 thiserror = "2.0.18"
-v8 = "149.3.0"
+v8 = "150.0.0"

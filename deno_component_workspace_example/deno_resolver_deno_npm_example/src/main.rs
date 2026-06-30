@@ -486,7 +486,7 @@ async fn main() -> Result<(), AnyError> {
     WorkerServiceOptions {
       module_loader,
       permissions: permission_container,
-      blob_store: Default::default(),
+      blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
       broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       node_services: None,

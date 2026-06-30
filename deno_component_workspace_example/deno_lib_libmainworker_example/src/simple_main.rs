@@ -22,7 +22,7 @@ use deno_runtime::{
   deno_node::NodeRequireLoader,
   deno_permissions::{Permissions, PermissionsContainer},
   deno_tls::{rustls::RootCertStore, RootCertStoreProvider},
-  deno_web::BlobStore,
+  deno_web::{Blob, BlobStore},
   permissions::RuntimePermissionDescriptorParser,
   FeatureChecker, WorkerExecutionMode, WorkerLogLevel,
 };
@@ -130,6 +130,7 @@ impl ModuleLoaderFactory for SimpleModuleLoaderFactory {
     &self,
     _parent_permissions: PermissionsContainer,
     _permissions: PermissionsContainer,
+    _maybe_main_module_blob: Option<(deno_core::ModuleSpecifier, Arc<Blob>)>,
   ) -> CreateModuleLoaderResult {
     self.create_for_main(_permissions)
   }
@@ -231,6 +232,8 @@ console.log("JavaScript execution successful!");
     residual_lazy_esm_sources: deno_snapshots::RESIDUAL_LAZY_ESM,
     enable_raw_imports: false,
     maybe_initial_cwd: None,
+    close_on_idle: false,
+    disable_offscreen_canvas: false,
   };
 
   // Create permissions

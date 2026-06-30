@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 deno_ast = { version = "=0.53.2", features = ["transpiling"] }
-deno_core = "0.403.0"
+deno_core = "0.405.0"
 deno_error = "=0.7.1"
 reqwest = "0.13.4"
 tokio = { version = "1.52.3", features = ["fs"] }

@@ -14,5 +14,8 @@ pub fn create_default_npmrc() -> Arc<deno_npmrc::ResolvedNpmRc> {
     scopes: Default::default(),
     registry_configs: Default::default(),
     min_release_age_days: None,
+    trust_policy: Default::default(),
+    trust_policy_ignore_after_minutes: None,
+    trust_policy_exclude: Default::default(),
   })
 }

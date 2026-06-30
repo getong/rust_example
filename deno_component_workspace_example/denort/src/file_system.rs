@@ -10,7 +10,7 @@ use std::{
   ops::Range,
   path::{Path, PathBuf},
   rc::Rc,
-  sync::Arc,
+  sync::{Arc, Mutex},
   time::{Duration, SystemTime},
 };
 
@@ -19,7 +19,9 @@ use deno_lib::standalone::virtual_fs::{
   FileSystemCaseSensitivity, OffsetWithLength, VfsEntry, VfsEntryRef, VirtualDirectory, VirtualFile,
 };
 use deno_runtime::{
-  deno_fs::{FileSystem, FsDirEntry, FsFileType, OpenOptions, RealFs},
+  deno_fs::{
+    FileSystem, FsDirEntry, FsFileType, FsReadDir, FsReadDirRc, OpenOptions, RealFs,
+  },
   deno_io,
   deno_io::fs::{File as DenoFile, FsError, FsResult, FsStat, FsStatFs},
   deno_napi::{DenoRtNativeAddonLoader, DenoRtNativeAddonLoaderRc},
@@ -111,6 +113,19 @@ impl DenoRtSys {
       )
       .map_err(|err| err.into_io_error())?;
     Ok(len)
+  }
+}
+
+#[derive(Debug)]
+struct VfsReadDir {
+  entries: Mutex<std::vec::IntoIter<FsDirEntry>>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl FsReadDir for VfsReadDir {
+  async fn next(&self) -> FsResult<Option<FsDirEntry>> {
+    let mut entries = self.entries.lock().map_err(|_| FsError::FileBusy)?;
+    Ok(entries.next())
   }
 }
 
@@ -370,9 +385,11 @@ impl FileSystem for DenoRtSys {
       RealFs.read_dir_sync(path)
     }
   }
-  async fn read_dir_async(&self, path: CheckedPathBuf) -> FsResult<Vec<FsDirEntry>> {
+  async fn read_dir_async(&self, path: CheckedPathBuf) -> FsResult<FsReadDirRc> {
     if self.is_vfs_path(&path) {
-      Ok(self.vfs.read_dir(&path)?)
+      Ok(deno_runtime::deno_fs::sync::new_rc(VfsReadDir {
+        entries: Mutex::new(self.vfs.read_dir(&path)?.into_iter()),
+      }))
     } else {
       RealFs.read_dir_async(path).await
     }

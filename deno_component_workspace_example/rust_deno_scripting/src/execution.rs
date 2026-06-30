@@ -107,7 +107,7 @@ pub async fn run_js(
     permissions: PermissionsContainer::allow_all(Arc::new(
       deno_runtime::permissions::RuntimePermissionDescriptorParser::new(sys_traits::impls::RealSys),
     )),
-    blob_store: Default::default(),
+    blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
     broadcast_channel: Default::default(),
     compiled_wasm_module_store: Default::default(),
     feature_checker: Default::default(),

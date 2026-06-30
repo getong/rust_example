@@ -115,7 +115,7 @@ async fn create_main_worker(main_module: &ModuleSpecifier) -> Result<MainWorker,
   let services = WorkerServiceOptions::<DenoInNpmPackageChecker, NpmResolver<RealSys>, RealSys> {
     module_loader: Rc::new(module_loader),
     permissions,
-    blob_store: Default::default(),
+    blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
     broadcast_channel: Default::default(),
     feature_checker: Default::default(),
     fs: fs.clone(),

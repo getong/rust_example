@@ -212,6 +212,10 @@ impl ModuleLoaderFactory for IntegratedModuleLoaderFactory {
     &self,
     _parent_permissions: PermissionsContainer,
     permissions: PermissionsContainer,
+    _maybe_main_module_blob: Option<(
+      ModuleSpecifier,
+      std::sync::Arc<deno_runtime::deno_web::Blob>,
+    )>,
   ) -> CreateModuleLoaderResult {
     // For workers, create a new graph container
     let graph_container = MainModuleGraphContainer::new(deno_graph::GraphKind::CodeOnly);

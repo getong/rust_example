@@ -62,7 +62,7 @@ async fn async_main() {
     deno_webidl::deno_webidl::init(),
     // deno_console/deno_url are deprecated stubs in current versions
     deno_web::deno_web::init(
-      Default::default(),
+      deno_web::BlobStore::default_arc(),
       Default::default(),
       false,
       InMemoryBroadcastChannel::default(),

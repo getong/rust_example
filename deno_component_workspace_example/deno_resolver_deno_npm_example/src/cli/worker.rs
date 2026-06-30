@@ -532,7 +532,7 @@ mod tests {
           permission_desc_parser,
           Permissions::none_without_prompt(),
         ),
-        blob_store: Default::default(),
+        blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
         broadcast_channel: Default::default(),
         feature_checker: Default::default(),
         node_services: Default::default(),

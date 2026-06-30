@@ -149,7 +149,7 @@ async fn main() -> Result<(), AnyError> {
       },
       {
         let mut ext = deno_web::deno_web::init(
-          Default::default(), // BlobStore
+          deno_web::BlobStore::default_arc(),
           None,               // Base URL
           false,              // CSS parser features
           Default::default(), // InMemoryBroadcastChannel

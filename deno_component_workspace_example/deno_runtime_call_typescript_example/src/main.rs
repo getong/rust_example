@@ -53,7 +53,7 @@ async fn main() -> Result<(), AnyError> {
         source_maps: source_map_store,
       }),
       permissions: PermissionsContainer::allow_all(permission_desc_parser),
-      blob_store: Default::default(),
+      blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
       broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       fs: fs.clone(),

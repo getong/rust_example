@@ -49,7 +49,7 @@ async fn main() -> Result<(), AnyError> {
       deno_rt_native_addon_loader: Default::default(),
       module_loader: Rc::new(FsModuleLoader),
       permissions: PermissionsContainer::allow_all(permission_desc_parser),
-      blob_store: Default::default(),
+      blob_store: deno_runtime::deno_web::BlobStore::default_arc(),
       broadcast_channel: Default::default(),
       feature_checker: Default::default(),
       node_services: None,
