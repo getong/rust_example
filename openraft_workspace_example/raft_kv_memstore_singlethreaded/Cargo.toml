@@ -11,7 +11,6 @@ openraft = { version = "0.10.0-alpha.27", features = [
   "serde",
   "type-alias",
 ] }
-openraft-legacy = { version = "0.10.0-alpha.27" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", default-features = false, features = ["sync"] }

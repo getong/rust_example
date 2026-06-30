@@ -3,9 +3,12 @@
 resolver = "2"
 
 members = [
-  "raft_kv_rocksdb",
-  "raft_kv_memstore",
-  "raft_kv_memstore_singlethreaded",
+  # Uses openraft legacy network/snapshot APIs.
+  # "raft_kv_rocksdb",
+  # Uses network-v1-http/openraft legacy APIs.
+  # "raft_kv_memstore",
+  # Uses openraft legacy network/snapshot APIs.
+  # "raft_kv_memstore_singlethreaded",
   "raft_kv_memstore_network_v2",
   "raft_kv_memstore_grpc",
   "rocksstore",
@@ -13,16 +16,21 @@ members = [
   "sm-mem",
   "log-mem",
   "types-kv",
-  "raft_poem_tarpc_rocksdb",
-  "chitchat_poem_tarpc_rocksdb_example",
-  "chitchat_openraft_axum_example",
-  "crabcluster",
+  # Uses openraft legacy network/snapshot APIs.
+  # "raft_poem_tarpc_rocksdb",
+  # Uses openraft legacy network/snapshot APIs.
+  # "chitchat_poem_tarpc_rocksdb_example",
+  # Uses openraft legacy network/snapshot APIs.
+  # "chitchat_openraft_axum_example",
+  # Uses openraft legacy snapshot APIs.
+  # "crabcluster",
   "multi_raft_kv",
   "rocksstore_crud",
   "libp2p_openraft_rocksdb",
   "libp2p_openraft_multi_raft_rocksdb",
   "multi_raft_kv_string_node_id",
   "openraft_libp2p_cluster",
-  "openraft_kameo",
+  # Uses network-v1-http/openraft legacy APIs.
+  # "openraft_kameo",
   "openraft_task",
 ]
