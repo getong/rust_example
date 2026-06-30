@@ -3,13 +3,12 @@
 resolver = "2"
 
 members = [
-  # Uses openraft legacy network/snapshot APIs.
-  # "raft_kv_rocksdb",
-  # Uses network-v1-http/openraft legacy APIs.
-  # "raft_kv_memstore",
+  "raft_kv_rocksdb",
+  "raft_kv_memstore",
   # Uses openraft legacy network/snapshot APIs.
   # "raft_kv_memstore_singlethreaded",
   "raft_kv_memstore_network_v2",
+  "network-v2-http",
   "raft_kv_memstore_grpc",
   "rocksstore",
   "memstore",

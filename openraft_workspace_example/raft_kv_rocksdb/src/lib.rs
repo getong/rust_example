@@ -22,6 +22,8 @@ openraft::declare_raft_types!(
     pub TypeConfig:
         D = types_kv::Request,
         R = types_kv::Response,
+        Node = openraft::NodeInfo,
+        SnapshotData = std::io::Cursor<Vec<u8>>,
 );
 
 pub type LogStore = openraft_rocksstore::log_store::RocksLogStore<TypeConfig>;
@@ -51,8 +53,7 @@ where
 
   let kvs = state_machine_store.data.kvs.clone();
 
-  // Create the network layer using network-v1 crate
-  let network = network_v1_http::NetworkFactory {};
+  let network = network_v2_http::NetworkFactory::new();
 
   // Create a local raft instance.
   let raft = openraft::Raft::new(
@@ -85,6 +86,7 @@ where
       // raft internal RPC
       .service(raft::append)
       .service(raft::snapshot)
+      .service(raft::transfer_leader)
       .service(raft::vote)
       // admin API
       .service(management::init)

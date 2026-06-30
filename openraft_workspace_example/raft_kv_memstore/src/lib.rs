@@ -24,6 +24,8 @@ openraft::declare_raft_types!(
     pub TypeConfig:
         D = types_kv::Request,
         R = types_kv::Response,
+        Node = openraft::NodeInfo,
+        SnapshotData = std::io::Cursor<Vec<u8>>,
 );
 
 pub type LogStore = store::LogStore<TypeConfig>;
@@ -50,7 +52,7 @@ pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std:
 
   // Create the network layer that will connect and communicate the raft instances and
   // will be used in conjunction with the store created above.
-  let network = network_v1_http::NetworkFactory {};
+  let network = network_v2_http::NetworkFactory::new();
 
   // Create a local raft instance.
   let raft = openraft::Raft::new(
@@ -82,6 +84,7 @@ pub async fn start_example_raft_node(node_id: NodeId, http_addr: String) -> std:
       // raft internal RPC
       .service(raft::append)
       .service(raft::snapshot)
+      .service(raft::transfer_leader)
       .service(raft::vote)
       // admin API
       .service(management::init)

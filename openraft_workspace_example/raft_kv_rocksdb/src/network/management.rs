@@ -5,7 +5,7 @@ use actix_web::{
   web::{Data, Json},
 };
 use openraft::{
-  BasicNode,
+  NodeInfo,
   async_runtime::WatchReceiver,
   error::{Infallible, decompose::DecomposeResult},
 };
@@ -25,7 +25,7 @@ pub async fn add_learner(
   req: Json<(NodeId, String)>,
 ) -> actix_web::Result<impl Responder> {
   let (node_id, api_addr) = req.0;
-  let node = Node { addr: api_addr };
+  let node = NodeInfo::new(api_addr, "");
   let res = app
     .raft
     .add_learner(node_id, node, true)
@@ -59,15 +59,10 @@ pub async fn init(
 ) -> actix_web::Result<impl Responder> {
   let mut nodes = BTreeMap::new();
   if req.0.is_empty() {
-    nodes.insert(
-      app.id,
-      BasicNode {
-        addr: app.addr.clone(),
-      },
-    );
+    nodes.insert(app.id, NodeInfo::new(app.addr.clone(), ""));
   } else {
     for (id, addr) in req.0.into_iter() {
-      nodes.insert(id, BasicNode { addr });
+      nodes.insert(id, NodeInfo::new(addr, ""));
     }
   };
   let res = app.raft.initialize(nodes).await.decompose().unwrap();

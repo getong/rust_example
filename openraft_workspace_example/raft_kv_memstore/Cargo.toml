@@ -13,7 +13,7 @@ env_logger = "0.11.10"
 futures = "0.3.32"
 log-mem = { path = "../log-mem" }
 mem-log = { path = "../mem-log" }
-network-v1-http = { path = "../network-v1-http" }
+network-v2-http = { path = "../network-v2-http" }
 openraft = { version = "0.10.0-alpha.27", features = [
   "serde",
   "type-alias",

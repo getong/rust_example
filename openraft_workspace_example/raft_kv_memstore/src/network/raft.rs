@@ -2,10 +2,17 @@ use actix_web::{
   Responder, post,
   web::{Data, Json},
 };
-use openraft::raft::{AppendEntriesRequest, InstallSnapshotRequest, VoteRequest};
-use openraft_legacy::prelude::*;
+use openraft::{
+  Snapshot,
+  errors::RaftError,
+  raft::{AppendEntriesRequest, TransferLeaderRequest, TransferLeaderResponse, VoteRequest},
+};
 
-use crate::{TypeConfig, app::App};
+use crate::{
+  TypeConfig,
+  app::App,
+  typ::{SnapshotMeta, SnapshotResponse, Vote},
+};
 
 // --- Raft communication
 
@@ -30,8 +37,30 @@ pub async fn append(
 #[post("/snapshot")]
 pub async fn snapshot(
   app: Data<App>,
-  req: Json<InstallSnapshotRequest<TypeConfig>>,
+  req: Json<(Vote, SnapshotMeta, Vec<u8>)>,
 ) -> actix_web::Result<impl Responder> {
-  let res = app.raft.install_snapshot(req.0).await;
+  let (snapshot_vote, meta, data) = req.0;
+  let snapshot = Snapshot {
+    meta,
+    snapshot: std::io::Cursor::new(data),
+  };
+  let res: Result<SnapshotResponse, RaftError<TypeConfig>> = app
+    .raft
+    .install_full_snapshot(snapshot_vote, snapshot)
+    .await
+    .map_err(RaftError::Fatal);
+  Ok(Json(res))
+}
+
+#[post("/transfer-leader")]
+pub async fn transfer_leader(
+  app: Data<App>,
+  req: Json<TransferLeaderRequest<TypeConfig>>,
+) -> actix_web::Result<impl Responder> {
+  let res: Result<TransferLeaderResponse<TypeConfig>, RaftError<TypeConfig>> = app
+    .raft
+    .handle_transfer_leader(req.0)
+    .await
+    .map_err(RaftError::Fatal);
   Ok(Json(res))
 }

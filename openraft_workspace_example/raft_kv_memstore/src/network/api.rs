@@ -93,7 +93,11 @@ pub async fn follower_read(app: Data<App>, req: Json<String>) -> actix_web::Resu
       })));
     }
   };
-  let leader_addr = &leader_node.addr;
+  let leader_addr = if leader_node.data.is_empty() {
+    &leader_node.raft_addr
+  } else {
+    &leader_node.data
+  };
 
   // 3. Get linearizer from leader via HTTP
   let client = reqwest::Client::new();
