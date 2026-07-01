@@ -25,6 +25,9 @@ const JOBS_ENV: &str = "MP4S_TO_SRT_JOBS";
 const WHISPER_THREADS_ENV: &str = "WHISPER_THREADS";
 const WHISPER_PROMPT_ENV: &str = "WHISPER_PROMPT";
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
+const LARGE_MEDIA_THRESHOLD_BYTES: u64 = 200 * 1024 * 1024;
+const LARGE_MEDIA_DEFAULT_JOBS: usize = 2;
+const LARGE_MEDIA_DEFAULT_WHISPER_THREADS: usize = 4;
 const DEFAULT_MAX_WHISPER_THREADS_PER_TASK: usize = 4;
 const COMMAND_ERROR_TAIL_LINES: usize = 8;
 const WHISPER_CLI_BEAM_SIZE: c_int = 5;
@@ -47,7 +50,7 @@ struct Config {
   backup_dir: PathBuf,
   model: PathBuf,
   language: String,
-  jobs: usize,
+  jobs: Option<usize>,
   whisper_threads: Option<usize>,
 }
 
@@ -55,6 +58,7 @@ struct Config {
 struct Task {
   input: PathBuf,
   output: PathBuf,
+  input_size_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -92,13 +96,19 @@ fn main() -> Result<()> {
     return Ok(());
   }
 
-  let jobs = config.jobs.min(tasks.len());
-  let whisper_threads = config
-    .whisper_threads
-    .unwrap_or_else(|| default_whisper_threads(jobs));
+  let has_large_media_file = has_large_media_file(&tasks);
+  let default_jobs = default_jobs(has_large_media_file);
+  let jobs = config.jobs.unwrap_or(default_jobs).min(tasks.len());
+  let default_whisper_threads = default_whisper_threads(has_large_media_file, jobs);
+  let whisper_threads = config.whisper_threads.unwrap_or(default_whisper_threads);
+  let size_policy = if has_large_media_file {
+    "large media mode: default MP4S_TO_SRT_JOBS=2, WHISPER_THREADS=4"
+  } else {
+    "small media mode: default worker threads from many_cpus"
+  };
   eprintln!(
     "Processing {} media file(s) with {jobs} worker thread(s), {whisper_threads} whisper thread(s)
-      per worker",
+      per worker ({size_policy})",
     tasks.len()
   );
 
@@ -123,7 +133,7 @@ impl Config {
       .unwrap_or_else(|| PathBuf::from(DEFAULT_WHISPER_MODEL));
     let model = expand_home_path(model_path)?;
     let language = env::var("WHISPER_LANG").unwrap_or_else(|_| String::from("en"));
-    let jobs = parallel_jobs()?;
+    let jobs = optional_positive_usize(JOBS_ENV)?;
     let whisper_threads = optional_positive_usize(WHISPER_THREADS_ENV)?;
 
     Ok(Self {
@@ -164,19 +174,6 @@ fn expand_home_path(path: PathBuf) -> Result<PathBuf> {
   Ok(path)
 }
 
-fn parallel_jobs() -> Result<usize> {
-  if let Some(jobs) = env::var_os(JOBS_ENV) {
-    let jobs = jobs
-      .to_string_lossy()
-      .parse::<usize>()
-      .with_context(|| format!("{JOBS_ENV} must be a positive integer"))?;
-    ensure!(jobs > 0, "{JOBS_ENV} must be a positive integer");
-    return Ok(jobs);
-  }
-
-  Ok(SystemHardware::current().processors().len().max(1))
-}
-
 fn optional_positive_usize(env_name: &str) -> Result<Option<usize>> {
   let Some(value) = env::var_os(env_name) else {
     return Ok(None);
@@ -190,7 +187,25 @@ fn optional_positive_usize(env_name: &str) -> Result<Option<usize>> {
   Ok(Some(value))
 }
 
-fn default_whisper_threads(worker_count: usize) -> usize {
+fn has_large_media_file(tasks: &[Task]) -> bool {
+  tasks
+    .iter()
+    .any(|task| task.input_size_bytes > LARGE_MEDIA_THRESHOLD_BYTES)
+}
+
+fn default_jobs(has_large_media_file: bool) -> usize {
+  if has_large_media_file {
+    LARGE_MEDIA_DEFAULT_JOBS
+  } else {
+    SystemHardware::current().processors().len().max(1)
+  }
+}
+
+fn default_whisper_threads(has_large_media_file: bool, worker_count: usize) -> usize {
+  if has_large_media_file {
+    return LARGE_MEDIA_DEFAULT_WHISPER_THREADS;
+  }
+
   let cpu_count = SystemHardware::current().processors().len().max(1);
   let threads = (cpu_count / worker_count.max(1)).max(1);
   threads.min(DEFAULT_MAX_WHISPER_THREADS_PER_TASK)
@@ -269,9 +284,15 @@ fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
     backup_base.with_extension("srt")
   };
 
+  let input_size_bytes = input
+    .metadata()
+    .with_context(|| format!("failed to read metadata for {}", input.display()))?
+    .len();
+
   Ok(Some(Task {
     input: input.to_path_buf(),
     output,
+    input_size_bytes,
   }))
 }
 
@@ -966,4 +987,38 @@ fn output_tail(output: &[u8], max_lines: usize) -> String {
   let mut lines = text.lines().rev().take(max_lines).collect::<Vec<_>>();
   lines.reverse();
   lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn task_with_size(input_size_bytes: u64) -> Task {
+    Task {
+      input: PathBuf::from("input.mp4"),
+      output: PathBuf::from("input.srt"),
+      input_size_bytes,
+    }
+  }
+
+  #[test]
+  fn large_media_defaults_to_conservative_parallelism() {
+    let tasks = [task_with_size(LARGE_MEDIA_THRESHOLD_BYTES + 1)];
+
+    assert!(has_large_media_file(&tasks));
+    assert_eq!(default_jobs(true), LARGE_MEDIA_DEFAULT_JOBS);
+    assert_eq!(
+      default_whisper_threads(true, 99),
+      LARGE_MEDIA_DEFAULT_WHISPER_THREADS
+    );
+  }
+
+  #[test]
+  fn small_media_defaults_to_all_processors_for_jobs() {
+    let tasks = [task_with_size(LARGE_MEDIA_THRESHOLD_BYTES)];
+    let cpu_count = SystemHardware::current().processors().len().max(1);
+
+    assert!(!has_large_media_file(&tasks));
+    assert_eq!(default_jobs(false), cpu_count);
+  }
 }
