@@ -2,7 +2,7 @@ use std::{
   env, fs,
   io::{ErrorKind, Write},
   path::{Path, PathBuf},
-  process::{Command, ExitStatus, Stdio},
+  process::{Command, Output, Stdio},
   sync::{Arc, mpsc},
   thread,
 };
@@ -16,11 +16,12 @@ use whisper_rs::{
 };
 
 const DEFAULT_BACKUP_DIR: &str = "backup-20251212";
-const DEFAULT_WHISPER_MODEL: &str = "/Users/gerald/test/cpp/whisper.cpp/models/ggml-base.en.bin";
+const DEFAULT_WHISPER_MODEL: &str = "~/test/cpp/whisper.cpp/models/ggml-base.en.bin";
 const JOBS_ENV: &str = "MP4S_TO_SRT_JOBS";
 const WHISPER_THREADS_ENV: &str = "WHISPER_THREADS";
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
 const DEFAULT_MAX_WHISPER_THREADS_PER_TASK: usize = 4;
+const COMMAND_ERROR_TAIL_LINES: usize = 8;
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -42,7 +43,13 @@ struct Task {
 struct TaskResult {
   input: PathBuf,
   output: PathBuf,
-  result: Result<()>,
+  result: Result<TaskOutcome>,
+}
+
+#[derive(Debug)]
+enum TaskOutcome {
+  Generated,
+  Skipped(String),
 }
 
 fn main() -> Result<()> {
@@ -91,9 +98,10 @@ impl Config {
     .context("failed to canonicalize scan directory")?;
 
     let backup_dir = backup_dir()?;
-    let model = env::var_os("WHISPER_MODEL")
+    let model_path = env::var_os("WHISPER_MODEL")
       .map(PathBuf::from)
       .unwrap_or_else(|| PathBuf::from(DEFAULT_WHISPER_MODEL));
+    let model = expand_home_path(model_path)?;
     let language = env::var("WHISPER_LANG").unwrap_or_else(|_| String::from("en"));
     let jobs = parallel_jobs()?;
     let whisper_threads = optional_positive_usize(WHISPER_THREADS_ENV)?;
@@ -111,11 +119,29 @@ impl Config {
 
 fn backup_dir() -> Result<PathBuf> {
   if let Some(path) = env::var_os("MP4S_TO_SRT_BACKUP_DIR") {
-    return Ok(PathBuf::from(path));
+    return expand_home_path(PathBuf::from(path));
   }
 
   let home = env::var_os("HOME").context("HOME is not set")?;
   Ok(PathBuf::from(home).join(DEFAULT_BACKUP_DIR))
+}
+
+fn expand_home_path(path: PathBuf) -> Result<PathBuf> {
+  let Some(path_str) = path.to_str() else {
+    return Ok(path);
+  };
+
+  if path_str == "~" {
+    let home = env::var_os("HOME").context("HOME is not set")?;
+    return Ok(PathBuf::from(home));
+  }
+
+  if let Some(path_without_home) = path_str.strip_prefix("~/") {
+    let home = env::var_os("HOME").context("HOME is not set")?;
+    return Ok(PathBuf::from(home).join(path_without_home));
+  }
+
+  Ok(path)
 }
 
 fn parallel_jobs() -> Result<usize> {
@@ -177,10 +203,28 @@ fn collect_tasks(config: &Config) -> Result<Vec<Task>> {
 }
 
 fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
-  let sibling_output = input.with_extension("srt");
-  if sibling_output.is_file() {
-    eprintln!("Skipping existing SRT: {}", sibling_output.display());
+  if let Some(existing_subtitle) = existing_subtitle_for(input) {
+    eprintln!(
+      "Skipping existing subtitle: {}",
+      existing_subtitle.display()
+    );
     return Ok(None);
+  }
+
+  match has_audio_stream(input) {
+    Ok(true) => {}
+    Ok(false) => {
+      eprintln!("Skipping mp4 without an audio stream: {}", input.display());
+      return Ok(None);
+    }
+    Err(err) => {
+      eprintln!(
+        "Skipping mp4 with unreadable audio stream info: {}",
+        input.display()
+      );
+      eprintln!("  {err:#}");
+      return Ok(None);
+    }
   }
 
   let input_dir = input
@@ -188,21 +232,31 @@ fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
     .with_context(|| format!("failed to read parent directory for {}", input.display()))?;
 
   let output = if can_create_file_in(input_dir) {
-    sibling_output
+    input.with_extension("srt")
   } else {
     let relative_input = input.strip_prefix(&config.scan_dir).unwrap_or(input);
-    let output = config.backup_dir.join(relative_input).with_extension("srt");
-    if output.is_file() {
-      eprintln!("Skipping existing SRT: {}", output.display());
+    let backup_base = config.backup_dir.join(relative_input);
+    if let Some(existing_subtitle) = existing_subtitle_for(&backup_base) {
+      eprintln!(
+        "Skipping existing subtitle: {}",
+        existing_subtitle.display()
+      );
       return Ok(None);
     }
-    output
+    backup_base.with_extension("srt")
   };
 
   Ok(Some(Task {
     input: input.to_path_buf(),
     output,
   }))
+}
+
+fn existing_subtitle_for(input: &Path) -> Option<PathBuf> {
+  ["srt", "vtt"]
+    .into_iter()
+    .map(|extension| input.with_extension(extension))
+    .find(|subtitle| subtitle.is_file())
 }
 
 fn is_mp4(path: &Path) -> bool {
@@ -286,7 +340,11 @@ fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usi
   let mut failed = 0usize;
   for task_result in result_rx {
     match task_result.result {
-      Ok(()) => eprintln!("Generated: {}", task_result.output.display()),
+      Ok(TaskOutcome::Generated) => eprintln!("Generated: {}", task_result.output.display()),
+      Ok(TaskOutcome::Skipped(reason)) => {
+        eprintln!("Skipped: {}", task_result.input.display());
+        eprintln!("  {reason}");
+      }
       Err(err) => {
         failed += 1;
         eprintln!("Failed: {}", task_result.input.display());
@@ -311,7 +369,7 @@ fn process_task(
   whisper_context: &WhisperContext,
   task: &Task,
   whisper_threads: usize,
-) -> Result<()> {
+) -> Result<TaskOutcome> {
   if let Some(parent) = task.output.parent() {
     fs::create_dir_all(parent)
       .with_context(|| format!("failed to create output directory {}", parent.display()))?;
@@ -330,8 +388,16 @@ fn process_task(
   let generated_srt = temp_dir.path().join("output.srt");
 
   eprintln!("Extracting audio: {}", task.input.display());
-  extract_audio(&task.input, &wav_path)?;
-  ensure_complete_audio(&task.input, &wav_path)?;
+  if let Err(err) = extract_audio(&task.input, &wav_path) {
+    return Ok(TaskOutcome::Skipped(format!(
+      "failed to extract audio with whisper.cpp script ffmpeg arguments: {err:#}"
+    )));
+  }
+  if let Err(err) = ensure_complete_audio(&task.input, &wav_path) {
+    return Ok(TaskOutcome::Skipped(format!(
+      "extracted audio is incomplete, not generating a short SRT: {err:#}"
+    )));
+  }
 
   eprintln!("Transcribing to SRT: {}", task.output.display());
   transcribe_to_srt(
@@ -355,11 +421,29 @@ fn process_task(
     )
   })?;
 
-  Ok(())
+  Ok(TaskOutcome::Generated)
 }
 
 fn extract_audio(input: &Path, wav_file: &Path) -> Result<()> {
-  let status = Command::new("ffmpeg")
+  match extract_audio_whisper_cpp_script(input, wav_file) {
+    Ok(()) => Ok(()),
+    Err(err) => {
+      let script_error = format!("{err:#}");
+      eprintln!(
+        "Script-compatible ffmpeg extraction failed, trying damaged-AAC channel fallback: {}",
+        input.display()
+      );
+      extract_audio_damaged_aac_channel(input, wav_file).with_context(|| {
+        format!("script-compatible ffmpeg extraction failed first:\n{script_error}")
+      })
+    }
+  }
+}
+
+fn extract_audio_whisper_cpp_script(input: &Path, wav_file: &Path) -> Result<()> {
+  // Keep this command in lockstep with whisper.cpp/scripts/mp4-to-srt.sh.
+  let mut command = Command::new("ffmpeg");
+  command
     .arg("-hide_banner")
     .arg("-loglevel")
     .arg("error")
@@ -373,11 +457,32 @@ fn extract_audio(input: &Path, wav_file: &Path) -> Result<()> {
     .arg("1")
     .arg("-c:a")
     .arg("pcm_s16le")
-    .arg(wav_file)
-    .status()
-    .with_context(|| "failed to run ffmpeg")?;
+    .arg(wav_file);
 
-  ensure_success(status, "ffmpeg")
+  run_command(&mut command, "ffmpeg")
+}
+
+fn extract_audio_damaged_aac_channel(input: &Path, wav_file: &Path) -> Result<()> {
+  // Corrupt AAC frames can report impossible channel layouts, which breaks
+  // ffmpeg's automatic mono remix. Pin the first channel and keep decoding.
+  let mut command = Command::new("ffmpeg");
+  command
+    .arg("-hide_banner")
+    .arg("-loglevel")
+    .arg("fatal")
+    .arg("-y")
+    .arg("-max_error_rate")
+    .arg("1")
+    .arg("-i")
+    .arg(input)
+    .arg("-vn")
+    .arg("-af")
+    .arg(format!("pan=mono|c0=c0,aresample={WHISPER_SAMPLE_RATE}"))
+    .arg("-c:a")
+    .arg("pcm_s16le")
+    .arg(wav_file);
+
+  run_command(&mut command, "ffmpeg")
 }
 
 fn ensure_complete_audio(input: &Path, wav_file: &Path) -> Result<()> {
@@ -405,6 +510,28 @@ fn media_duration(path: &Path) -> Result<f64> {
   ffprobe_duration(path, &["-show_entries", "format=duration"])
 }
 
+fn has_audio_stream(path: &Path) -> Result<bool> {
+  let output = Command::new("ffprobe")
+    .arg("-hide_banner")
+    .arg("-v")
+    .arg("error")
+    .arg("-select_streams")
+    .arg("a:0")
+    .arg("-show_entries")
+    .arg("stream=index")
+    .arg("-of")
+    .arg("csv=p=0")
+    .arg(path)
+    .output()
+    .with_context(|| format!("failed to run ffprobe for {}", path.display()))?;
+
+  ensure_success_output(&output, "ffprobe")?;
+
+  let stdout = String::from_utf8(output.stdout)
+    .with_context(|| format!("ffprobe output was not UTF-8 for {}", path.display()))?;
+  Ok(!stdout.trim().is_empty())
+}
+
 fn ffprobe_duration(path: &Path, args: &[&str]) -> Result<f64> {
   let mut command = Command::new("ffprobe");
   command.arg("-hide_banner").arg("-v").arg("error");
@@ -418,7 +545,7 @@ fn ffprobe_duration(path: &Path, args: &[&str]) -> Result<f64> {
     .output()
     .with_context(|| format!("failed to run ffprobe for {}", path.display()))?;
 
-  ensure_success(output.status, "ffprobe")?;
+  ensure_success_output(&output, "ffprobe")?;
 
   let stdout = String::from_utf8(output.stdout)
     .with_context(|| format!("ffprobe output was not UTF-8 for {}", path.display()))?;
@@ -562,10 +689,32 @@ fn ensure_command_available(name: &str) -> Result<()> {
   }
 }
 
-fn ensure_success(status: ExitStatus, command_name: &str) -> Result<()> {
-  if status.success() {
+fn run_command(command: &mut Command, command_name: &str) -> Result<()> {
+  let output = command
+    .output()
+    .with_context(|| format!("failed to run {command_name}"))?;
+  ensure_success_output(&output, command_name)
+}
+
+fn ensure_success_output(output: &Output, command_name: &str) -> Result<()> {
+  if output.status.success() {
     Ok(())
   } else {
-    bail!("{command_name} exited with status {status}")
+    let stderr = output_tail(&output.stderr, COMMAND_ERROR_TAIL_LINES);
+    if stderr.is_empty() {
+      bail!("{command_name} exited with status {}", output.status)
+    }
+
+    bail!(
+      "{command_name} exited with status {}\n{stderr}",
+      output.status
+    )
   }
+}
+
+fn output_tail(output: &[u8], max_lines: usize) -> String {
+  let text = String::from_utf8_lossy(output);
+  let mut lines = text.lines().rev().take(max_lines).collect::<Vec<_>>();
+  lines.reverse();
+  lines.join("\n")
 }
