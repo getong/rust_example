@@ -52,8 +52,8 @@ struct Task {
 }
 
 #[derive(Debug)]
-struct TaskResult {
-  input: PathBuf,
+pub struct TaskResult {
+  pub input: PathBuf,
   output: PathBuf,
   result: Result<TaskOutcome>,
 }
@@ -79,10 +79,10 @@ fn main() -> Result<()> {
 
   let tasks = collect_tasks(&config)?;
   if tasks.is_empty() {
-    eprintln!(
-      "No mp4 files need SRT generation under: {}",
-      config.scan_dir.display()
-    );
+    // eprintln!(
+    //   "No mp4 files need SRT generation under: {}",
+    //   config.scan_dir.display()
+    // );
     return Ok(());
   }
 
@@ -90,11 +90,11 @@ fn main() -> Result<()> {
   let whisper_threads = config
     .whisper_threads
     .unwrap_or_else(|| default_whisper_threads(jobs));
-  eprintln!(
-    "Processing {} mp4 file(s) with {jobs} worker thread(s), {whisper_threads} whisper thread(s) \
-     per worker",
-    tasks.len()
-  );
+  // eprintln!(
+  //   "Processing {} mp4 file(s) with {jobs} worker thread(s), {whisper_threads} whisper thread(s)
+  // \    per worker",
+  //   tasks.len()
+  // );
 
   run_tasks(tasks, config, jobs, whisper_threads)
 }
@@ -217,26 +217,26 @@ fn collect_tasks(config: &Config) -> Result<Vec<Task>> {
 }
 
 fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
-  if let Some(existing_subtitle) = existing_subtitle_for(input) {
-    eprintln!(
-      "Skipping existing subtitle: {}",
-      existing_subtitle.display()
-    );
+  if let Some(_existing_subtitle) = existing_subtitle_for(input) {
+    // eprintln!(
+    //   "Skipping existing subtitle: {}",
+    //   existing_subtitle.display()
+    // );
     return Ok(None);
   }
 
   match has_audio_stream(input) {
     Ok(true) => {}
     Ok(false) => {
-      eprintln!("Skipping mp4 without an audio stream: {}", input.display());
+      // eprintln!("Skipping mp4 without an audio stream: {}", input.display());
       return Ok(None);
     }
-    Err(err) => {
-      eprintln!(
-        "Skipping mp4 with unreadable audio stream info: {}",
-        input.display()
-      );
-      eprintln!("  {err:#}");
+    Err(_err) => {
+      // eprintln!(
+      //   "Skipping mp4 with unreadable audio stream info: {}",
+      //   input.display()
+      // );
+      // eprintln!("  {err:#}");
       return Ok(None);
     }
   }
@@ -250,11 +250,11 @@ fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
   } else {
     let relative_input = input.strip_prefix(&config.scan_dir).unwrap_or(input);
     let backup_base = config.backup_dir.join(relative_input);
-    if let Some(existing_subtitle) = existing_subtitle_for(&backup_base) {
-      eprintln!(
-        "Skipping existing subtitle: {}",
-        existing_subtitle.display()
-      );
+    if let Some(_existing_subtitle) = existing_subtitle_for(&backup_base) {
+      // eprintln!(
+      //   "Skipping existing subtitle: {}",
+      //   existing_subtitle.display()
+      // );
       return Ok(None);
     }
     backup_base.with_extension("srt")
@@ -298,7 +298,7 @@ fn can_create_file_in(dir: &Path) -> bool {
 }
 
 fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usize) -> Result<()> {
-  eprintln!("Loading whisper model: {}", config.model.display());
+  // eprintln!("Loading whisper model: {}", config.model.display());
   let whisper_context = Arc::new(RawWhisperContext::new(&config.model)?);
 
   let (task_tx, task_rx) = mpsc::channel::<Task>();
@@ -352,14 +352,14 @@ fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usi
   for task_result in result_rx {
     match task_result.result {
       Ok(TaskOutcome::Generated) => eprintln!("Generated: {}", task_result.output.display()),
-      Ok(TaskOutcome::Skipped(reason)) => {
-        eprintln!("Skipped: {}", task_result.input.display());
-        eprintln!("  {reason}");
+      Ok(TaskOutcome::Skipped(_reason)) => {
+        // eprintln!("Skipped: {}", task_result.input.display());
+        // eprintln!("  {reason}");
       }
-      Err(err) => {
+      Err(_err) => {
         failed += 1;
-        eprintln!("Failed: {}", task_result.input.display());
-        eprintln!("  {err:#}");
+        // eprintln!("Failed: {}", task_result.input.display());
+        // eprintln!("  {err:#}");
       }
     }
   }
@@ -367,7 +367,7 @@ fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usi
   for worker in workers {
     if worker.join().is_err() {
       failed += 1;
-      eprintln!("worker thread panicked");
+      // eprintln!("worker thread panicked");
     }
   }
 
@@ -398,7 +398,7 @@ fn process_task(
   let wav_path = wav_file.path().to_path_buf();
   let generated_srt = temp_dir.path().join("output.srt");
 
-  eprintln!("Extracting audio: {}", task.input.display());
+  // eprintln!("Extracting audio: {}", task.input.display());
   if let Err(err) = extract_audio(&task.input, &wav_path) {
     return Ok(TaskOutcome::Skipped(format!(
       "failed to extract audio with whisper.cpp script ffmpeg arguments: {err:#}"
@@ -410,7 +410,7 @@ fn process_task(
     )));
   }
 
-  eprintln!("Transcribing to SRT: {}", task.output.display());
+  // eprintln!("Transcribing to SRT: {}", task.output.display());
   transcribe_to_srt(
     config,
     whisper_context,
@@ -424,15 +424,68 @@ fn process_task(
     "whisper-rs did not produce an SRT file: {}",
     generated_srt.display()
   );
-  fs::rename(&generated_srt, &task.output).with_context(|| {
+  move_generated_srt(&generated_srt, &task.output)?;
+
+  Ok(TaskOutcome::Generated)
+}
+
+fn move_generated_srt(source: &Path, target: &Path) -> Result<()> {
+  match fs::rename(source, target) {
+    Ok(()) => Ok(()),
+    Err(err) if is_cross_device_link(&err) => copy_generated_srt_across_filesystems(source, target),
+    Err(err) => Err(err).with_context(|| {
+      format!(
+        "failed to move generated SRT from {} to {}",
+        source.display(),
+        target.display()
+      )
+    }),
+  }
+}
+
+fn copy_generated_srt_across_filesystems(source: &Path, target: &Path) -> Result<()> {
+  let target_dir = target
+    .parent()
+    .with_context(|| format!("failed to read target directory for {}", target.display()))?;
+  let temp_file = Builder::new()
+    .prefix(".whisper-mp4-to-srt.")
+    .suffix(".srt")
+    .tempfile_in(target_dir)
+    .with_context(|| {
+      format!(
+        "failed to create temporary SRT file next to {}",
+        target.display()
+      )
+    })?;
+
+  fs::copy(source, temp_file.path()).with_context(|| {
     format!(
-      "failed to move generated SRT from {} to {}",
-      generated_srt.display(),
-      task.output.display()
+      "failed to copy generated SRT from {} to {}",
+      source.display(),
+      temp_file.path().display()
     )
   })?;
 
-  Ok(TaskOutcome::Generated)
+  temp_file
+    .persist(target)
+    .map(|_| ())
+    .map_err(|err| err.error)
+    .with_context(|| {
+      format!(
+        "failed to move copied SRT from temporary file to {}",
+        target.display()
+      )
+    })
+}
+
+#[cfg(unix)]
+fn is_cross_device_link(err: &std::io::Error) -> bool {
+  err.raw_os_error() == Some(18)
+}
+
+#[cfg(not(unix))]
+fn is_cross_device_link(_err: &std::io::Error) -> bool {
+  false
 }
 
 fn extract_audio(input: &Path, wav_file: &Path) -> Result<()> {
@@ -440,10 +493,10 @@ fn extract_audio(input: &Path, wav_file: &Path) -> Result<()> {
     Ok(()) => Ok(()),
     Err(err) => {
       let script_error = format!("{err:#}");
-      eprintln!(
-        "Script-compatible ffmpeg extraction failed, trying damaged-AAC channel fallback: {}",
-        input.display()
-      );
+      // eprintln!(
+      //   "Script-compatible ffmpeg extraction failed, trying damaged-AAC channel fallback: {}",
+      //   input.display()
+      // );
       extract_audio_damaged_aac_channel(input, wav_file).with_context(|| {
         format!("script-compatible ffmpeg extraction failed first:\n{script_error}")
       })
