@@ -4,4 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.100"
+hound = "3.5.1"
+many_cpus = "=2.4.9"
+tempfile = "3.27.0"
+walkdir = "2.5.0"
 whisper-rs = "0.16.0"
