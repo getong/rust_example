@@ -20,7 +20,7 @@ use walkdir::WalkDir;
 use whisper_rs::whisper_rs_sys;
 
 const DEFAULT_BACKUP_DIR: &str = "backup-20251212";
-const DEFAULT_WHISPER_MODEL: &str = "~/test/cpp/whisper.cpp/models/ggml-base.en.bin";
+const WHISPER_MODEL_ENV: &str = "WHISPER_MODEL";
 const JOBS_ENV: &str = "MP4S_TO_SRT_JOBS";
 const WHISPER_THREADS_ENV: &str = "WHISPER_THREADS";
 const WHISPER_PROMPT_ENV: &str = "WHISPER_PROMPT";
@@ -128,9 +128,9 @@ impl Config {
     .context("failed to canonicalize scan directory")?;
 
     let backup_dir = backup_dir()?;
-    let model_path = env::var_os("WHISPER_MODEL")
+    let model_path = env::var_os(WHISPER_MODEL_ENV)
       .map(PathBuf::from)
-      .unwrap_or_else(|| PathBuf::from(DEFAULT_WHISPER_MODEL));
+      .with_context(|| format!("{WHISPER_MODEL_ENV} is not set"))?;
     let model = expand_home_path(model_path)?;
     let language = env::var("WHISPER_LANG").unwrap_or_else(|_| String::from("en"));
     let jobs = optional_positive_usize(JOBS_ENV)?;
@@ -1020,5 +1020,26 @@ mod tests {
 
     assert!(!has_large_media_file(&tasks));
     assert_eq!(default_jobs(false), cpu_count);
+  }
+
+  #[test]
+  fn expand_home_path_expands_bare_tilde() -> Result<()> {
+    let home = env::var_os("HOME").context("HOME is not set")?;
+
+    assert_eq!(expand_home_path(PathBuf::from("~"))?, PathBuf::from(home));
+    Ok(())
+  }
+
+  #[test]
+  fn expand_home_path_expands_tilde_prefix() -> Result<()> {
+    let home = env::var_os("HOME").context("HOME is not set")?;
+
+    assert_eq!(
+      expand_home_path(PathBuf::from(
+        "~/test/cpp/whisper.cpp/models/ggml-base.en.bin"
+      ))?,
+      PathBuf::from(home).join("test/cpp/whisper.cpp/models/ggml-base.en.bin")
+    );
+    Ok(())
   }
 }
