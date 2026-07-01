@@ -9,4 +9,4 @@ hound = "3.5.1"
 many_cpus = "=2.4.9"
 tempfile = "3.27.0"
 walkdir = "2.5.0"
-whisper-rs = "0.16.0"
+whisper-rs = { version = "0.16.0", features = ["raw-api"] }

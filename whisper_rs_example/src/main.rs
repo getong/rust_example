@@ -1,6 +1,12 @@
 use std::{
-  env, fs,
+  env,
+  ffi::{CStr, CString},
+  fs,
   io::{ErrorKind, Write},
+  os::{
+    raw::{c_char, c_int},
+    unix::ffi::OsStrExt,
+  },
   path::{Path, PathBuf},
   process::{Command, Output, Stdio},
   sync::{Arc, mpsc},
@@ -11,17 +17,23 @@ use anyhow::{Context, Result, bail, ensure};
 use many_cpus::SystemHardware;
 use tempfile::Builder;
 use walkdir::WalkDir;
-use whisper_rs::{
-  FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
-};
+use whisper_rs::whisper_rs_sys;
 
 const DEFAULT_BACKUP_DIR: &str = "backup-20251212";
 const DEFAULT_WHISPER_MODEL: &str = "~/test/cpp/whisper.cpp/models/ggml-base.en.bin";
 const JOBS_ENV: &str = "MP4S_TO_SRT_JOBS";
 const WHISPER_THREADS_ENV: &str = "WHISPER_THREADS";
+const WHISPER_PROMPT_ENV: &str = "WHISPER_PROMPT";
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
 const DEFAULT_MAX_WHISPER_THREADS_PER_TASK: usize = 4;
 const COMMAND_ERROR_TAIL_LINES: usize = 8;
+const WHISPER_CLI_BEAM_SIZE: c_int = 5;
+const WHISPER_CLI_BEST_OF: c_int = 5;
+const WHISPER_TEMPERATURE: f32 = 0.0;
+const WHISPER_TEMPERATURE_INC: f32 = 0.2;
+const WHISPER_ENTROPY_THOLD: f32 = 2.4;
+const WHISPER_LOGPROB_THOLD: f32 = -1.0;
+const WHISPER_NO_SPEECH_THOLD: f32 = 0.6;
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -53,6 +65,8 @@ enum TaskOutcome {
 }
 
 fn main() -> Result<()> {
+  whisper_rs::install_logging_hooks();
+
   let config = Config::from_env()?;
 
   ensure_command_available("ffmpeg")?;
@@ -285,10 +299,7 @@ fn can_create_file_in(dir: &Path) -> bool {
 
 fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usize) -> Result<()> {
   eprintln!("Loading whisper model: {}", config.model.display());
-  let whisper_context = Arc::new(
-    WhisperContext::new_with_params(&config.model, WhisperContextParameters::default())
-      .with_context(|| format!("failed to load whisper model {}", config.model.display()))?,
-  );
+  let whisper_context = Arc::new(RawWhisperContext::new(&config.model)?);
 
   let (task_tx, task_rx) = mpsc::channel::<Task>();
   let (result_tx, result_rx) = mpsc::channel::<TaskResult>();
@@ -366,7 +377,7 @@ fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usi
 
 fn process_task(
   config: &Config,
-  whisper_context: &WhisperContext,
+  whisper_context: &RawWhisperContext,
   task: &Task,
   whisper_threads: usize,
 ) -> Result<TaskOutcome> {
@@ -562,38 +573,213 @@ fn ffprobe_duration(path: &Path, args: &[&str]) -> Result<f64> {
 
 fn transcribe_to_srt(
   config: &Config,
-  whisper_context: &WhisperContext,
+  whisper_context: &RawWhisperContext,
   wav_file: &Path,
   output: &Path,
   whisper_threads: usize,
 ) -> Result<()> {
   let audio = read_wav_samples(wav_file)?;
-  let mut state = whisper_context
-    .create_state()
-    .context("failed to create whisper state")?;
+  let mut state = whisper_context.create_state()?;
+  let language = whisper_language(&config.language)?;
+  let initial_prompt = whisper_initial_prompt()?;
+  let whisper_threads =
+    c_int::try_from(whisper_threads).context("WHISPER_THREADS is too large for whisper-rs")?;
 
-  let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-    beam_size: 5,
-    patience: -1.0,
-  });
-  params.set_n_threads(
-    i32::try_from(whisper_threads).context("WHISPER_THREADS is too large for whisper-rs")?,
+  let params = whisper_cli_full_params(
+    whisper_threads,
+    language.as_deref(),
+    initial_prompt.as_c_str(),
   );
-  if config.language.eq_ignore_ascii_case("auto") {
-    params.set_language(None);
-    params.set_detect_language(true);
-  } else {
-    params.set_language(Some(&config.language));
-  }
-  params.set_print_special(false);
-  params.set_print_progress(false);
-  params.set_print_realtime(false);
-  params.set_print_timestamps(false);
-
   state
     .full(params, &audio)
     .with_context(|| format!("failed to transcribe {}", wav_file.display()))?;
   write_srt(&state, output)
+}
+
+struct RawWhisperContext {
+  ctx: *mut whisper_rs_sys::whisper_context,
+}
+
+// SAFETY: whisper.cpp contexts are designed to be shared across threads when
+// each transcription uses its own whisper_state. This wrapper never mutates the
+// context directly after construction and every worker creates a fresh state.
+unsafe impl Send for RawWhisperContext {}
+// SAFETY: see the Send impl above. Shared access is limited to whisper.cpp calls
+// that take the context plus a per-task state.
+unsafe impl Sync for RawWhisperContext {}
+
+impl RawWhisperContext {
+  fn new(model: &Path) -> Result<Self> {
+    let model = CString::new(model.as_os_str().as_bytes())
+      .with_context(|| format!("model path contains a null byte: {}", model.display()))?;
+    // SAFETY: returns a plain value and requires no preconditions.
+    let params = unsafe { whisper_rs_sys::whisper_context_default_params() };
+    // SAFETY: model is a live NUL-terminated path for the duration of the call.
+    // params was produced by whisper.cpp. A null return is checked below.
+    let ctx = unsafe {
+      whisper_rs_sys::whisper_init_from_file_with_params_no_state(model.as_ptr(), params)
+    };
+    ensure!(!ctx.is_null(), "failed to load whisper model");
+    Ok(Self { ctx })
+  }
+
+  fn create_state(&self) -> Result<RawWhisperState<'_>> {
+    // SAFETY: self.ctx is a non-null context created by whisper.cpp and freed
+    // only when RawWhisperContext is dropped, after all borrowed states.
+    let state = unsafe { whisper_rs_sys::whisper_init_state(self.ctx) };
+    ensure!(!state.is_null(), "failed to create whisper state");
+    Ok(RawWhisperState {
+      context: self,
+      state,
+    })
+  }
+}
+
+impl Drop for RawWhisperContext {
+  fn drop(&mut self) {
+    // SAFETY: ctx was returned by whisper_init_from_file_with_params_no_state
+    // and is freed exactly once here.
+    unsafe {
+      whisper_rs_sys::whisper_free(self.ctx);
+    }
+  }
+}
+
+struct RawWhisperState<'a> {
+  context: &'a RawWhisperContext,
+  state: *mut whisper_rs_sys::whisper_state,
+}
+
+impl RawWhisperState<'_> {
+  fn full(&mut self, params: whisper_rs_sys::whisper_full_params, audio: &[f32]) -> Result<()> {
+    ensure!(!audio.is_empty(), "wav did not contain any audio samples");
+    let sample_count = c_int::try_from(audio.len()).context("audio is too long for whisper-rs")?;
+    // SAFETY: context and state are live; params contains pointers to values
+    // that outlive this synchronous call; audio points to sample_count f32s.
+    let status = unsafe {
+      whisper_rs_sys::whisper_full_with_state(
+        self.context.ctx,
+        self.state,
+        params,
+        audio.as_ptr(),
+        sample_count,
+      )
+    };
+    ensure!(status == 0, "whisper-rs returned error status {status}");
+    Ok(())
+  }
+
+  fn segments(&self) -> Result<Vec<TranscribedSegment>> {
+    // SAFETY: state is live and was successfully transcribed before this call.
+    let segment_count = unsafe { whisper_rs_sys::whisper_full_n_segments_from_state(self.state) };
+    ensure!(
+      segment_count >= 0,
+      "whisper-rs returned a negative segment count"
+    );
+
+    let mut segments = Vec::with_capacity(segment_count as usize);
+    for index in 0 .. segment_count {
+      // SAFETY: index is within 0..segment_count. whisper.cpp returns a pointer
+      // valid until the next transcription on this state, and we copy it.
+      let text = unsafe {
+        let text_ptr = whisper_rs_sys::whisper_full_get_segment_text_from_state(self.state, index);
+        ensure!(
+          !text_ptr.is_null(),
+          "whisper-rs returned null text for segment {index}"
+        );
+        CStr::from_ptr(text_ptr)
+          .to_str()
+          .context("failed to read whisper segment text")?
+          .to_owned()
+      };
+      // SAFETY: index is within 0..segment_count for this live state.
+      let start_timestamp =
+        unsafe { whisper_rs_sys::whisper_full_get_segment_t0_from_state(self.state, index) };
+      // SAFETY: index is within 0..segment_count for this live state.
+      let end_timestamp =
+        unsafe { whisper_rs_sys::whisper_full_get_segment_t1_from_state(self.state, index) };
+      segments.push(TranscribedSegment {
+        start_timestamp,
+        end_timestamp,
+        text,
+      });
+    }
+
+    Ok(segments)
+  }
+}
+
+impl Drop for RawWhisperState<'_> {
+  fn drop(&mut self) {
+    // SAFETY: state was returned by whisper_init_state and is freed exactly
+    // once here before the borrowed context can be dropped.
+    unsafe {
+      whisper_rs_sys::whisper_free_state(self.state);
+    }
+  }
+}
+
+struct TranscribedSegment {
+  start_timestamp: i64,
+  end_timestamp: i64,
+  text: String,
+}
+
+fn whisper_language(language: &str) -> Result<Option<CString>> {
+  if language.eq_ignore_ascii_case("auto") {
+    return Ok(None);
+  }
+
+  CString::new(language)
+    .with_context(|| format!("WHISPER_LANG contains a null byte: {language}"))
+    .map(Some)
+}
+
+fn whisper_initial_prompt() -> Result<CString> {
+  let prompt = env::var(WHISPER_PROMPT_ENV).unwrap_or_default();
+  CString::new(prompt).with_context(|| format!("{WHISPER_PROMPT_ENV} contains a null byte"))
+}
+
+fn whisper_cli_full_params(
+  whisper_threads: c_int,
+  language: Option<&CStr>,
+  initial_prompt: &CStr,
+) -> whisper_rs_sys::whisper_full_params {
+  // SAFETY: returns a plain parameter value initialized by whisper.cpp.
+  let mut params = unsafe {
+    whisper_rs_sys::whisper_full_default_params(
+      whisper_rs_sys::whisper_sampling_strategy_WHISPER_SAMPLING_GREEDY,
+    )
+  };
+
+  params.strategy = whisper_rs_sys::whisper_sampling_strategy_WHISPER_SAMPLING_BEAM_SEARCH;
+  params.print_realtime = false;
+  params.print_progress = false;
+  params.print_timestamps = true;
+  params.print_special = false;
+  params.initial_prompt = initial_prompt.as_ptr();
+  params.language = language.map_or(std::ptr::null(), |language| {
+    language.as_ptr() as *const c_char
+  });
+  params.detect_language = language.is_none();
+  params.n_threads = whisper_threads;
+  params.token_timestamps = false;
+  params.thold_pt = 0.01;
+  params.max_len = 0;
+  params.split_on_word = false;
+  params.audio_ctx = 0;
+  params.greedy.best_of = WHISPER_CLI_BEST_OF;
+  params.beam_search.beam_size = WHISPER_CLI_BEAM_SIZE;
+  params.beam_search.patience = -1.0;
+  params.temperature = WHISPER_TEMPERATURE;
+  params.temperature_inc = WHISPER_TEMPERATURE_INC;
+  params.entropy_thold = WHISPER_ENTROPY_THOLD;
+  params.logprob_thold = WHISPER_LOGPROB_THOLD;
+  params.no_speech_thold = WHISPER_NO_SPEECH_THOLD;
+  params.no_timestamps = false;
+  params.suppress_nst = false;
+
+  params
 }
 
 fn read_wav_samples(wav_file: &Path) -> Result<Vec<f32>> {
@@ -631,31 +817,30 @@ fn read_wav_samples(wav_file: &Path) -> Result<Vec<f32>> {
   Ok(audio)
 }
 
-fn write_srt(state: &WhisperState, output: &Path) -> Result<()> {
+fn write_srt(state: &RawWhisperState<'_>, output: &Path) -> Result<()> {
   let mut file = fs::File::create(output)
     .with_context(|| format!("failed to create SRT file {}", output.display()))?;
-  let mut segment_count = 0usize;
+  let segments = state.segments()?;
 
-  for (index, segment) in state.as_iter().enumerate() {
-    segment_count += 1;
-    let text = segment
-      .to_str_lossy()
-      .context("failed to read whisper segment text")?;
+  for (index, segment) in segments.iter().enumerate() {
     writeln!(file, "{}", index + 1)
       .with_context(|| format!("failed to write SRT file {}", output.display()))?;
     writeln!(
       file,
       "{} --> {}",
-      format_srt_timestamp(segment.start_timestamp()),
-      format_srt_timestamp(segment.end_timestamp())
+      format_srt_timestamp(segment.start_timestamp),
+      format_srt_timestamp(segment.end_timestamp)
     )
     .with_context(|| format!("failed to write SRT file {}", output.display()))?;
-    writeln!(file, "{text}")
+    writeln!(file, "{}", segment.text)
       .with_context(|| format!("failed to write SRT file {}", output.display()))?;
     writeln!(file).with_context(|| format!("failed to write SRT file {}", output.display()))?;
   }
 
-  ensure!(segment_count > 0, "whisper-rs did not produce any segments");
+  ensure!(
+    !segments.is_empty(),
+    "whisper-rs did not produce any segments"
+  );
   Ok(())
 }
 
