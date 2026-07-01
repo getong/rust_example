@@ -34,6 +34,12 @@ const WHISPER_TEMPERATURE_INC: f32 = 0.2;
 const WHISPER_ENTROPY_THOLD: f32 = 2.4;
 const WHISPER_LOGPROB_THOLD: f32 = -1.0;
 const WHISPER_NO_SPEECH_THOLD: f32 = 0.6;
+const SUPPORTED_MEDIA_EXTENSIONS: &[&str] = &[
+  "3g2", "3gp", "aac", "ac3", "aif", "aiff", "amr", "asf", "avi", "divx", "dv", "f4v", "flac",
+  "flv", "m2ts", "m4a", "m4b", "m4v", "mka", "mkv", "mov", "mp2", "mp3", "mp4", "mpeg", "mpg",
+  "mts", "mxf", "oga", "ogg", "ogm", "ogv", "opus", "ra", "rm", "rmvb", "ts", "vob", "wav", "webm",
+  "wma", "wmv",
+];
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -80,7 +86,7 @@ fn main() -> Result<()> {
   let tasks = collect_tasks(&config)?;
   if tasks.is_empty() {
     eprintln!(
-      "No mp4 files need SRT generation under: {}",
+      "No supported media files need SRT generation under: {}",
       config.scan_dir.display()
     );
     return Ok(());
@@ -91,7 +97,7 @@ fn main() -> Result<()> {
     .whisper_threads
     .unwrap_or_else(|| default_whisper_threads(jobs));
   eprintln!(
-    "Processing {} mp4 file(s) with {jobs} worker thread(s), {whisper_threads} whisper thread(s)
+    "Processing {} media file(s) with {jobs} worker thread(s), {whisper_threads} whisper thread(s)
       per worker",
     tasks.len()
   );
@@ -204,7 +210,7 @@ fn collect_tasks(config: &Config) -> Result<Vec<Task>> {
       )
     })?;
     let path = entry.path();
-    if !entry.file_type().is_file() || !is_mp4(path) {
+    if !entry.file_type().is_file() || !is_supported_media(path) {
       continue;
     }
 
@@ -228,12 +234,15 @@ fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
   match has_audio_stream(input) {
     Ok(true) => {}
     Ok(false) => {
-      eprintln!("Skipping mp4 without an audio stream: {}", input.display());
+      eprintln!(
+        "Skipping media file without an audio stream: {}",
+        input.display()
+      );
       return Ok(None);
     }
     Err(err) => {
       eprintln!(
-        "Skipping mp4 with unreadable audio stream info: {}",
+        "Skipping media file with unreadable audio stream info: {}",
         input.display()
       );
       eprintln!("  {err:#}");
@@ -273,11 +282,15 @@ fn existing_subtitle_for(input: &Path) -> Option<PathBuf> {
     .find(|subtitle| subtitle.is_file())
 }
 
-fn is_mp4(path: &Path) -> bool {
+fn is_supported_media(path: &Path) -> bool {
   path
     .extension()
     .and_then(|extension| extension.to_str())
-    .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+    .is_some_and(|extension| {
+      SUPPORTED_MEDIA_EXTENSIONS
+        .iter()
+        .any(|supported_extension| extension.eq_ignore_ascii_case(supported_extension))
+    })
 }
 
 fn can_create_file_in(dir: &Path) -> bool {
