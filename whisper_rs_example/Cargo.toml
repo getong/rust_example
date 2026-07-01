@@ -1,0 +1,7 @@
+[package]
+name = "whisper_rs_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+whisper-rs = "0.16.0"
