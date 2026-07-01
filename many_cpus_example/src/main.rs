@@ -1,7 +1,7 @@
-use many_cpus::ProcessorSet;
+use many_cpus::SystemHardware;
 
 fn main() {
-  let all_processors = ProcessorSet::all();
+  let all_processors = SystemHardware::current().processors();
   let num_workers = all_processors.len();
   println!("Starting {} worker threads", num_workers);
 }
