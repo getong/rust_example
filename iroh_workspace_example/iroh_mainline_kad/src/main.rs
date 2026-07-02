@@ -2,9 +2,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use clap::{Parser, Subcommand};
 use iroh_mainline_kad::{
-  ClientOptions, ClusterIdentity, DhtOptions, IrohOptions, KadServerOptions, LocalDemoOptions,
-  ServerOptions, default_cluster_salt, parse_bootstrap, parse_dht_port, parse_duration_secs,
-  run_client, run_kad_server, run_local_demo, run_server,
+  BlobGetOptions, BlobSeedOptions, ClientOptions, ClusterIdentity, DEFAULT_GOSSIP_TOPIC_HEX,
+  DhtOptions, GossipOptions, IrohOptions, KadServerOptions, LocalDemoOptions, ServerOptions,
+  default_cluster_salt, parse_blob_hash, parse_bootstrap, parse_dht_port, parse_duration_secs,
+  parse_gossip_topic, run_blob_get, run_blob_seed, run_client, run_gossip, run_kad_server,
+  run_local_demo, run_server,
 };
 use n0_error::Result;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -24,6 +26,12 @@ enum Command {
   Client(ClientArgs),
   /// Run a local Mainline KAD bootstrap network for multi-process examples.
   KadServer(KadServerArgs),
+  /// Run an iroh-gossip pubsub peer discovered through Mainline KAD.
+  Gossip(GossipArgs),
+  /// Seed a local file over iroh-blobs and publish provider info into Mainline KAD.
+  BlobSeed(BlobSeedArgs),
+  /// Download a blob from discovered iroh-blobs providers and export it to a file.
+  BlobGet(BlobGetArgs),
   /// Run a local Mainline testnet plus iroh servers and client in one process.
   LocalDemo(LocalDemoArgs),
 }
@@ -102,6 +110,102 @@ struct KadServerArgs {
   bind: Ipv4Addr,
 }
 
+#[derive(Debug, Parser)]
+struct GossipArgs {
+  #[arg(long, default_value = "iroh-gossip-node")]
+  name: String,
+  #[arg(long)]
+  cluster_secret: Option<String>,
+  #[arg(long)]
+  cluster_salt: Option<String>,
+  #[arg(long, default_value_t = Ipv4Addr::UNSPECIFIED)]
+  dht_bind: Ipv4Addr,
+  #[arg(long, default_value_t = 0)]
+  dht_port: u16,
+  #[arg(long, value_delimiter = ',')]
+  bootstrap: Vec<String>,
+  #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
+  iroh_bind: SocketAddr,
+  #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+  relay: bool,
+  #[arg(long, default_value = DEFAULT_GOSSIP_TOPIC_HEX)]
+  topic: String,
+  #[arg(long)]
+  message: Option<String>,
+  #[arg(long, default_value_t = 15)]
+  wait_online_secs: u64,
+  #[arg(long, default_value_t = 20)]
+  discover_timeout_secs: u64,
+  #[arg(long, default_value_t = 10)]
+  wait_joined_secs: u64,
+  #[arg(long, default_value_t = 4)]
+  request_timeout_secs: u64,
+  #[arg(long, default_value_t = 300)]
+  republish_secs: u64,
+  #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+  exit_after_broadcast: bool,
+}
+
+#[derive(Debug, Parser)]
+struct BlobSeedArgs {
+  #[arg(long, default_value = "iroh-blob-seed")]
+  name: String,
+  #[arg(long)]
+  cluster_secret: Option<String>,
+  #[arg(long)]
+  cluster_salt: Option<String>,
+  #[arg(long, default_value_t = Ipv4Addr::UNSPECIFIED)]
+  dht_bind: Ipv4Addr,
+  #[arg(long, default_value_t = 0)]
+  dht_port: u16,
+  #[arg(long, value_delimiter = ',')]
+  bootstrap: Vec<String>,
+  #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
+  iroh_bind: SocketAddr,
+  #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+  relay: bool,
+  #[arg(long)]
+  file: std::path::PathBuf,
+  #[arg(long, default_value = ".iroh-blobs-seed")]
+  store_path: std::path::PathBuf,
+  #[arg(long, default_value_t = 15)]
+  wait_online_secs: u64,
+  #[arg(long, default_value_t = 4)]
+  request_timeout_secs: u64,
+  #[arg(long, default_value_t = 300)]
+  republish_secs: u64,
+}
+
+#[derive(Debug, Parser)]
+struct BlobGetArgs {
+  #[arg(long)]
+  cluster_secret: Option<String>,
+  #[arg(long)]
+  cluster_salt: Option<String>,
+  #[arg(long, default_value_t = Ipv4Addr::UNSPECIFIED)]
+  dht_bind: Ipv4Addr,
+  #[arg(long, default_value_t = 0)]
+  dht_port: u16,
+  #[arg(long, value_delimiter = ',')]
+  bootstrap: Vec<String>,
+  #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
+  iroh_bind: SocketAddr,
+  #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+  relay: bool,
+  #[arg(long)]
+  hash: String,
+  #[arg(long)]
+  output: std::path::PathBuf,
+  #[arg(long, default_value = ".iroh-blobs-get")]
+  store_path: std::path::PathBuf,
+  #[arg(long, default_value_t = 15)]
+  wait_online_secs: u64,
+  #[arg(long, default_value_t = 20)]
+  discover_timeout_secs: u64,
+  #[arg(long, default_value_t = 60)]
+  request_timeout_secs: u64,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
   setup_logging();
@@ -111,6 +215,9 @@ async fn main() -> Result<()> {
     Command::Server(args) => run_server(args.into_options()?).await,
     Command::Client(args) => run_client(args.into_options()?).await,
     Command::KadServer(args) => run_kad_server(args.into_options()).await,
+    Command::Gossip(args) => run_gossip(args.into_options()?).await,
+    Command::BlobSeed(args) => run_blob_seed(args.into_options()?).await,
+    Command::BlobGet(args) => run_blob_get(args.into_options()?).await,
     Command::LocalDemo(args) => run_local_demo(args.into_options()).await,
   }
 }
@@ -177,6 +284,82 @@ impl KadServerArgs {
       nodes: self.nodes,
       bind: self.bind,
     }
+  }
+}
+
+impl GossipArgs {
+  fn into_options(self) -> Result<GossipOptions> {
+    Ok(GossipOptions {
+      cluster: cluster_identity(self.cluster_secret.as_deref(), self.cluster_salt)?,
+      dht: DhtOptions {
+        server_mode: false,
+        bind: self.dht_bind,
+        port: parse_dht_port(self.dht_port),
+        bootstrap: parse_bootstrap(&self.bootstrap),
+        request_timeout: parse_duration_secs(self.request_timeout_secs),
+      },
+      iroh: IrohOptions {
+        bind: self.iroh_bind,
+        relay: self.relay,
+        wait_online: parse_duration_secs(self.wait_online_secs),
+      },
+      name: self.name,
+      topic: parse_gossip_topic(&self.topic)?,
+      message: self.message,
+      discover_timeout: parse_duration_secs(self.discover_timeout_secs),
+      wait_joined: parse_duration_secs(self.wait_joined_secs),
+      republish_every: parse_duration_secs(self.republish_secs),
+      exit_after_broadcast: self.exit_after_broadcast,
+    })
+  }
+}
+
+impl BlobSeedArgs {
+  fn into_options(self) -> Result<BlobSeedOptions> {
+    Ok(BlobSeedOptions {
+      cluster: cluster_identity(self.cluster_secret.as_deref(), self.cluster_salt)?,
+      dht: DhtOptions {
+        server_mode: false,
+        bind: self.dht_bind,
+        port: parse_dht_port(self.dht_port),
+        bootstrap: parse_bootstrap(&self.bootstrap),
+        request_timeout: parse_duration_secs(self.request_timeout_secs),
+      },
+      iroh: IrohOptions {
+        bind: self.iroh_bind,
+        relay: self.relay,
+        wait_online: parse_duration_secs(self.wait_online_secs),
+      },
+      name: self.name,
+      file: self.file,
+      store_path: self.store_path,
+      republish_every: parse_duration_secs(self.republish_secs),
+    })
+  }
+}
+
+impl BlobGetArgs {
+  fn into_options(self) -> Result<BlobGetOptions> {
+    Ok(BlobGetOptions {
+      cluster: cluster_identity(self.cluster_secret.as_deref(), self.cluster_salt)?,
+      dht: DhtOptions {
+        server_mode: false,
+        bind: self.dht_bind,
+        port: parse_dht_port(self.dht_port),
+        bootstrap: parse_bootstrap(&self.bootstrap),
+        request_timeout: parse_duration_secs(self.request_timeout_secs),
+      },
+      iroh: IrohOptions {
+        bind: self.iroh_bind,
+        relay: self.relay,
+        wait_online: parse_duration_secs(self.wait_online_secs),
+      },
+      hash: parse_blob_hash(&self.hash)?,
+      output: self.output,
+      store_path: self.store_path,
+      discover_timeout: parse_duration_secs(self.discover_timeout_secs),
+      request_timeout: parse_duration_secs(self.request_timeout_secs),
+    })
   }
 }
 
