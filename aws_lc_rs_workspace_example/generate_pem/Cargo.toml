@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aws-lc-rs = "1.16.3"
-aws-lc-sys = "0.40.0"
+aws-lc-rs = "1.17.1"
+aws-lc-sys = "0.42.0"
