@@ -11,7 +11,7 @@ use crate::{
   options::GossipOptions,
   protocols::GOSSIP_PROTOCOL,
   records::{MemberRecord, member_from_endpoint},
-  util::display_values,
+  util::{display_values, hex_encode},
 };
 
 pub async fn run_gossip(options: GossipOptions) -> Result<()> {
@@ -52,7 +52,7 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
   println!(
     "mainline target: {} (salt: {})",
     options.cluster.target(),
-    String::from_utf8_lossy(options.cluster.salt())
+    hex_encode(options.cluster.salt())
   );
   println!(
     "discovered {} gossip bootstrap peer(s)",
@@ -167,7 +167,7 @@ fn gossip_bootstrap_peers(
   self_id: EndpointId,
   address_lookup: &MemoryLookup,
 ) -> Vec<EndpointId> {
-  let mut peers = Vec::new();
+  let mut peers = Vec::with_capacity(members.len());
 
   for member in members {
     if !member.supports_gossip() {

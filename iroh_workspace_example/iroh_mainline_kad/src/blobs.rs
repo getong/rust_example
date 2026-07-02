@@ -15,10 +15,10 @@ use crate::{
   dht::{build_dht, discover_members, publish_member},
   endpoint::{build_endpoint, build_endpoint_with_address_lookup, endpoint_ready},
   options::{BlobGetOptions, BlobSeedOptions},
-  parsing::blob_format_name,
+  parsing::{blob_format_name, validate_output_path},
   protocols::BLOB_PROTOCOL,
   records::{MemberRecord, member_from_endpoint_with_blobs, provider_record},
-  util::display_values,
+  util::{display_values, hex_encode},
 };
 
 pub async fn run_blob_seed(options: BlobSeedOptions) -> Result<()> {
@@ -93,7 +93,7 @@ pub async fn run_blob_seed(options: BlobSeedOptions) -> Result<()> {
   println!(
     "mainline target: {} (salt: {})",
     options.cluster.target(),
-    String::from_utf8_lossy(options.cluster.salt())
+    hex_encode(options.cluster.salt())
   );
   println!("blob seed is running. press ctrl-c to stop.");
   tokio::signal::ctrl_c().await.anyerr()?;
@@ -128,6 +128,8 @@ pub async fn run_blob_get(options: BlobGetOptions) -> Result<()> {
       options.cluster.target()
     ));
   }
+
+  validate_output_path(&options.output, &options.store_path)?;
 
   let store = FsStore::load(&options.store_path).await.anyerr()?;
   let request = HashAndFormat::raw(options.hash);
@@ -207,7 +209,7 @@ fn blob_providers(
   hash: Hash,
   address_lookup: &MemoryLookup,
 ) -> Vec<EndpointId> {
-  let mut providers = Vec::new();
+  let mut providers = Vec::with_capacity(members.len());
 
   for member in members {
     if !member.supports_blob() {

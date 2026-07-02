@@ -65,6 +65,11 @@ pub fn parse_duration_secs(seconds: u64) -> Duration {
   Duration::from_secs(seconds)
 }
 
+/// Parse and validate republish interval; must be at least 30 seconds.
+pub fn parse_republish_interval(seconds: u64) -> Duration {
+  Duration::from_secs(seconds.max(30))
+}
+
 pub fn parse_socket_addr(value: &str) -> Result<SocketAddr> {
   SocketAddr::from_str(value).anyerr()
 }
@@ -75,4 +80,37 @@ pub fn parse_ipv4(value: &str) -> Result<Ipv4Addr> {
 
 pub fn parse_dht_port(port: u16) -> Option<u16> {
   (port != 0).then_some(port)
+}
+
+/// Validate the output path has no path-traversal components and its parent exists.
+pub(crate) fn validate_output_path(
+  output: &std::path::Path,
+  store_path: &std::path::Path,
+) -> Result<()> {
+  if output
+    .components()
+    .any(|c| c == std::path::Component::ParentDir)
+  {
+    return Err(n0_error::anyerr!(
+      "output path '{}' contains '..' traversal component",
+      output.display()
+    ));
+  }
+  if output.is_absolute() && !output.starts_with(store_path) {
+    return Err(n0_error::anyerr!(
+      "output path '{}' is outside store directory '{}'; use a path inside the store directory",
+      output.display(),
+      store_path.display()
+    ));
+  }
+  if let Some(parent) = output.parent()
+    && !parent.as_os_str().is_empty()
+    && !parent.exists()
+  {
+    return Err(n0_error::anyerr!(
+      "output parent directory does not exist: {}",
+      parent.display()
+    ));
+  }
+  Ok(())
 }

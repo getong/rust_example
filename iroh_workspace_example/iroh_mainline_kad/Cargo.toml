@@ -3,9 +3,18 @@ name = "iroh_mainline_kad"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["tls-ring"]
+tls-ring = ["iroh/tls-ring"]
+tls-aws-lc-rs = ["iroh/tls-aws-lc-rs"]
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
-iroh = "1.0.1"
+iroh = { version = "1.0.1", default-features = false, features = [
+  "metrics",
+  "fast-apple-datapath",
+  "portmapper",
+] }
 iroh-blobs = "0.103.0"
 iroh-gossip = "0.101.0"
 mainline = "7.0.0"

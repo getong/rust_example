@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use iroh::{Endpoint, EndpointId, endpoint::ConnectionError};
 use n0_error::{Result, StdResultExt};
+use tokio::sync::Semaphore;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
 
@@ -11,7 +12,10 @@ use crate::{
   options::{ClientOptions, ServerOptions},
   protocols::{CLUSTER_ALPN, REQUEST_PROTOCOL},
   records::{MemberRecord, member_from_endpoint},
+  util::hex_encode,
 };
+
+const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 pub async fn run_server(options: ServerOptions) -> Result<()> {
   let dht = build_dht(&options.dht)?.as_async();
@@ -55,7 +59,7 @@ pub async fn run_server(options: ServerOptions) -> Result<()> {
   println!(
     "mainline target: {} (salt: {})",
     options.cluster.target(),
-    String::from_utf8_lossy(options.cluster.salt())
+    hex_encode(options.cluster.salt())
   );
   println!("server is running. press ctrl-c to stop.");
   tokio::signal::ctrl_c().await.anyerr()?;
@@ -132,6 +136,8 @@ async fn request(endpoint: &Endpoint, member: &MemberRecord, message: &str) -> R
 }
 
 pub(crate) async fn accept_loop(endpoint: Endpoint) -> Result<()> {
+  let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
+
   while let Some(incoming) = endpoint.accept().await {
     let accepting = match incoming.accept() {
       Ok(accepting) => accepting,
@@ -141,8 +147,16 @@ pub(crate) async fn accept_loop(endpoint: Endpoint) -> Result<()> {
       }
     };
 
+    let permit = match semaphore.clone().try_acquire_owned() {
+      Ok(p) => p,
+      Err(_) => {
+        warn!("too many concurrent connections, rejecting incoming");
+        continue;
+      }
+    };
     let me = endpoint.id();
     tokio::spawn(async move {
+      let _permit = permit;
       if let Err(err) = handle_connection(accepting, me).await {
         warn!("connection handler failed: {err:#}");
       }
@@ -172,10 +186,10 @@ async fn handle_connection(mut accepting: iroh::endpoint::Accepting, me: Endpoin
   send.finish().anyerr()?;
 
   let closed = timeout(Duration::from_secs(3), conn.closed()).await;
-  if let Ok(closed) = closed {
-    if !matches!(closed, ConnectionError::ApplicationClosed(_)) {
-      debug!("remote {remote} closed with: {closed:#}");
-    }
+  if let Ok(closed) = closed
+    && !matches!(closed, ConnectionError::ApplicationClosed(_))
+  {
+    debug!("remote {remote} closed with: {closed:#}");
   }
 
   Ok(())

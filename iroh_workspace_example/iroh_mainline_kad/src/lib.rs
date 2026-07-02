@@ -22,7 +22,7 @@ pub use options::{
 };
 pub use parsing::{
   parse_blob_hash, parse_bootstrap, parse_dht_port, parse_duration_secs, parse_gossip_topic,
-  parse_ipv4, parse_socket_addr,
+  parse_ipv4, parse_republish_interval, parse_socket_addr,
 };
 pub use protocols::{CLUSTER_ALPN, DEFAULT_GOSSIP_TOPIC_HEX};
 pub use records::{BlobProviderRecord, ClusterRecord, MemberRecord};

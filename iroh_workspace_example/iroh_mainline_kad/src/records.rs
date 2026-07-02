@@ -38,7 +38,7 @@ impl ClusterRecord {
     self.members = members.into_values().collect();
     self
       .members
-      .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+      .sort_by_key(|right| std::cmp::Reverse(right.updated_at));
     self.members.truncate(max_members);
     self.updated_at = now_unix_secs();
   }
@@ -60,7 +60,7 @@ pub struct MemberRecord {
 impl MemberRecord {
   pub fn endpoint_addr(&self) -> Result<EndpointAddr> {
     let id = EndpointId::from_str(&self.endpoint_id).anyerr()?;
-    let mut addrs = Vec::new();
+    let mut addrs = Vec::with_capacity(self.addrs.len() + self.relay_urls.len());
 
     for addr in &self.addrs {
       addrs.push(TransportAddr::Ip(SocketAddr::from_str(addr).anyerr()?));

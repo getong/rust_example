@@ -5,7 +5,7 @@ use iroh_mainline_kad::{
   BlobGetOptions, BlobSeedOptions, ClientOptions, ClusterIdentity, DEFAULT_GOSSIP_TOPIC_HEX,
   DhtOptions, GossipOptions, IrohOptions, KadServerOptions, LocalDemoOptions, ServerOptions,
   default_cluster_salt, parse_blob_hash, parse_bootstrap, parse_dht_port, parse_duration_secs,
-  parse_gossip_topic,
+  parse_gossip_topic, parse_republish_interval,
 };
 use n0_error::Result;
 
@@ -221,7 +221,7 @@ impl ServerArgs {
         wait_online: parse_duration_secs(self.wait_online_secs),
       },
       name: self.name,
-      republish_every: parse_duration_secs(self.republish_secs),
+      republish_every: parse_republish_interval(self.republish_secs),
     })
   }
 }
@@ -290,7 +290,7 @@ impl GossipArgs {
       message: self.message,
       discover_timeout: parse_duration_secs(self.discover_timeout_secs),
       wait_joined: parse_duration_secs(self.wait_joined_secs),
-      republish_every: parse_duration_secs(self.republish_secs),
+      republish_every: parse_republish_interval(self.republish_secs),
       exit_after_broadcast: self.exit_after_broadcast,
     })
   }
@@ -315,7 +315,7 @@ impl BlobSeedArgs {
       name: self.name,
       file: self.file,
       store_path: self.store_path,
-      republish_every: parse_duration_secs(self.republish_secs),
+      republish_every: parse_republish_interval(self.republish_secs),
     })
   }
 }

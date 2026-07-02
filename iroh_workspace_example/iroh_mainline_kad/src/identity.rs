@@ -1,5 +1,6 @@
 use mainline::{Id, MutableItem, SigningKey};
 use n0_error::Result;
+use tracing::warn;
 
 use crate::parsing::parse_secret_key;
 
@@ -16,7 +17,10 @@ impl ClusterIdentity {
   pub fn from_secret_hex(secret_hex: Option<&str>, salt: impl Into<Vec<u8>>) -> Result<Self> {
     let bytes = match secret_hex {
       Some(value) => parse_secret_key(value)?,
-      None => DEFAULT_CLUSTER_KEY_BYTES,
+      None => {
+        warn!("using default cluster secret; set --cluster-secret for production use");
+        DEFAULT_CLUSTER_KEY_BYTES
+      }
     };
 
     Ok(Self {

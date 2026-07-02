@@ -8,9 +8,11 @@ use crate::{
   identity::ClusterIdentity,
   options::{DhtOptions, KadServerOptions},
   records::{ClusterRecord, MemberRecord},
+  util::backoff_duration,
 };
 
 const DHT_VALUE_LIMIT: usize = 1000;
+const MAX_DISCOVER_POLL_MS: u64 = 4000;
 
 pub async fn run_kad_server(options: KadServerOptions) -> Result<()> {
   let testnet = Testnet::builder(options.nodes)
@@ -60,15 +62,15 @@ pub(crate) async fn publish_member(
   member: MemberRecord,
   max_members: usize,
 ) -> Result<()> {
-  let mut last_error = None;
+  let mut errors = Vec::new();
 
   for attempt in 1..=3 {
     match publish_member_once(dht, cluster, member.clone(), max_members).await {
       Ok(()) => return Ok(()),
       Err(err) => {
-        last_error = Some(err.to_string());
+        errors.push(err.to_string());
         if attempt < 3 {
-          sleep(Duration::from_millis(250 * attempt)).await;
+          sleep(backoff_duration(125, attempt)).await;
         }
       }
     }
@@ -76,7 +78,7 @@ pub(crate) async fn publish_member(
 
   Err(n0_error::anyerr!(
     "failed to publish cluster member after retries: {}",
-    last_error.unwrap_or_else(|| "unknown error".to_string())
+    errors.join("; ")
   ))
 }
 
@@ -132,12 +134,21 @@ pub(crate) async fn discover_members(
   let salt = Some(cluster.salt());
 
   let deadline = Instant::now() + discover_timeout;
+  let mut poll_attempt = 0;
   loop {
     if let Some(item) = dht.get_mutable_most_recent(&public_key, salt).await {
-      let mut record = serde_json::from_slice::<ClusterRecord>(item.value()).anyerr()?;
+      let value = item.value();
+      if value.len() > DHT_VALUE_LIMIT {
+        return Err(n0_error::anyerr!(
+          "discovered cluster record exceeds size limit ({} > {} bytes)",
+          value.len(),
+          DHT_VALUE_LIMIT
+        ));
+      }
+      let mut record = serde_json::from_slice::<ClusterRecord>(value).anyerr()?;
       record
         .members
-        .sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        .sort_by_key(|right| std::cmp::Reverse(right.updated_at));
 
       if !record.members.is_empty() {
         return Ok(record.members);
@@ -151,7 +162,10 @@ pub(crate) async fn discover_members(
       ));
     }
 
-    sleep(Duration::from_millis(500)).await;
+    let delay =
+      backoff_duration(100, poll_attempt).min(Duration::from_millis(MAX_DISCOVER_POLL_MS));
+    sleep(delay).await;
+    poll_attempt += 1;
   }
 }
 
