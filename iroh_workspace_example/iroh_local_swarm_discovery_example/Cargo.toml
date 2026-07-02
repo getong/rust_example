@@ -1,16 +1,16 @@
 [package]
 name = "iroh_local_swarm_discovery_example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-anyhow = "1.0.102"
+anyhow = "1.0.103"
 clap = { version = "4.6.1", features = ["derive"] }
-console = "0.16.3"
+console = "0.16.4"
 futures-lite = "2.6.1"
-indicatif = "0.18.4"
-iroh = "1.0.0-rc.0"
-iroh-blobs = "0.101.0"
+indicatif = "0.18.6"
+iroh = "1.0.1"
+iroh-blobs = "0.103.0"
 iroh-net = "0.28.2"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
