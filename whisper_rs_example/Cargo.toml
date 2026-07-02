@@ -9,4 +9,12 @@ hound = "3.5.1"
 many_cpus = "=2.4.9"
 tempfile = "3.27.0"
 walkdir = "2.5.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16.0", features = ["raw-api", "metal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+whisper-rs = { version = "0.16.0", features = ["raw-api", "openmp"] }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "linux")))'.dependencies]
 whisper-rs = { version = "0.16.0", features = ["raw-api"] }

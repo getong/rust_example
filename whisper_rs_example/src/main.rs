@@ -24,10 +24,9 @@ const WHISPER_MODEL_ENV: &str = "WHISPER_MODEL";
 const JOBS_ENV: &str = "MP4S_TO_SRT_JOBS";
 const WHISPER_THREADS_ENV: &str = "WHISPER_THREADS";
 const WHISPER_PROMPT_ENV: &str = "WHISPER_PROMPT";
+const WHISPER_NO_GPU_ENV: &str = "WHISPER_NO_GPU";
+const VALIDATE_AUDIO_ENV: &str = "MP4S_TO_SRT_VALIDATE_AUDIO";
 const WHISPER_SAMPLE_RATE: u32 = 16_000;
-const LARGE_MEDIA_THRESHOLD_BYTES: u64 = 200 * 1024 * 1024;
-const LARGE_MEDIA_DEFAULT_JOBS: usize = 2;
-const LARGE_MEDIA_DEFAULT_WHISPER_THREADS: usize = 4;
 const DEFAULT_MAX_WHISPER_THREADS_PER_TASK: usize = 4;
 const COMMAND_ERROR_TAIL_LINES: usize = 8;
 const WHISPER_CLI_BEAM_SIZE: c_int = 5;
@@ -52,13 +51,14 @@ struct Config {
   language: String,
   jobs: Option<usize>,
   whisper_threads: Option<usize>,
+  use_gpu: bool,
+  validate_audio: bool,
 }
 
 #[derive(Debug, Clone)]
 struct Task {
   input: PathBuf,
   output: PathBuf,
-  input_size_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -80,7 +80,9 @@ fn main() -> Result<()> {
   let config = Config::from_env()?;
 
   ensure_command_available("ffmpeg")?;
-  ensure_command_available("ffprobe")?;
+  if config.validate_audio {
+    ensure_command_available("ffprobe")?;
+  }
   ensure!(
     config.model.is_file(),
     "model file not found: {}",
@@ -96,19 +98,23 @@ fn main() -> Result<()> {
     return Ok(());
   }
 
-  let has_large_media_file = has_large_media_file(&tasks);
-  let default_jobs = default_jobs(has_large_media_file);
+  let default_jobs = default_jobs();
   let jobs = config.jobs.unwrap_or(default_jobs).min(tasks.len());
-  let default_whisper_threads = default_whisper_threads(has_large_media_file, jobs);
+  let default_whisper_threads = default_whisper_threads();
   let whisper_threads = config.whisper_threads.unwrap_or(default_whisper_threads);
-  let size_policy = if has_large_media_file {
-    "large media mode: default MP4S_TO_SRT_JOBS=2, WHISPER_THREADS=4"
+  let validation_policy = if config.validate_audio {
+    "strict audio validation enabled"
   } else {
-    "small media mode: default worker threads from many_cpus"
+    "script-compatible fast path; set MP4S_TO_SRT_VALIDATE_AUDIO=1 for ffprobe checks"
+  };
+  let gpu_policy = if config.use_gpu {
+    "GPU enabled"
+  } else {
+    "GPU disabled by WHISPER_NO_GPU"
   };
   eprintln!(
     "Processing {} media file(s) with {jobs} worker thread(s), {whisper_threads} whisper thread(s)
-      per worker ({size_policy})",
+      per worker ({validation_policy}; {gpu_policy})",
     tasks.len()
   );
 
@@ -135,6 +141,8 @@ impl Config {
     let language = env::var("WHISPER_LANG").unwrap_or_else(|_| String::from("en"));
     let jobs = optional_positive_usize(JOBS_ENV)?;
     let whisper_threads = optional_positive_usize(WHISPER_THREADS_ENV)?;
+    let use_gpu = !env_flag_enabled(WHISPER_NO_GPU_ENV);
+    let validate_audio = env_flag_enabled(VALIDATE_AUDIO_ENV);
 
     Ok(Self {
       scan_dir,
@@ -143,6 +151,8 @@ impl Config {
       language,
       jobs,
       whisper_threads,
+      use_gpu,
+      validate_audio,
     })
   }
 }
@@ -187,28 +197,28 @@ fn optional_positive_usize(env_name: &str) -> Result<Option<usize>> {
   Ok(Some(value))
 }
 
-fn has_large_media_file(tasks: &[Task]) -> bool {
-  tasks
-    .iter()
-    .any(|task| task.input_size_bytes > LARGE_MEDIA_THRESHOLD_BYTES)
+fn env_flag_enabled(env_name: &str) -> bool {
+  let Ok(value) = env::var(env_name) else {
+    return false;
+  };
+  let value = value.trim();
+  !(value.is_empty()
+    || value == "0"
+    || value.eq_ignore_ascii_case("false")
+    || value.eq_ignore_ascii_case("no")
+    || value.eq_ignore_ascii_case("off"))
 }
 
-fn default_jobs(has_large_media_file: bool) -> usize {
-  if has_large_media_file {
-    LARGE_MEDIA_DEFAULT_JOBS
-  } else {
-    SystemHardware::current().processors().len().max(1)
-  }
+fn default_jobs() -> usize {
+  processor_count()
 }
 
-fn default_whisper_threads(has_large_media_file: bool, worker_count: usize) -> usize {
-  if has_large_media_file {
-    return LARGE_MEDIA_DEFAULT_WHISPER_THREADS;
-  }
+fn default_whisper_threads() -> usize {
+  processor_count().min(DEFAULT_MAX_WHISPER_THREADS_PER_TASK)
+}
 
-  let cpu_count = SystemHardware::current().processors().len().max(1);
-  let threads = (cpu_count / worker_count.max(1)).max(1);
-  threads.min(DEFAULT_MAX_WHISPER_THREADS_PER_TASK)
+fn processor_count() -> usize {
+  SystemHardware::current().processors().len().max(1)
 }
 
 fn collect_tasks(config: &Config) -> Result<Vec<Task>> {
@@ -246,22 +256,24 @@ fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
     return Ok(None);
   }
 
-  match has_audio_stream(input) {
-    Ok(true) => {}
-    Ok(false) => {
-      eprintln!(
-        "Skipping media file without an audio stream: {}",
-        input.display()
-      );
-      return Ok(None);
-    }
-    Err(err) => {
-      eprintln!(
-        "Skipping media file with unreadable audio stream info: {}",
-        input.display()
-      );
-      eprintln!("  {err:#}");
-      return Ok(None);
+  if config.validate_audio {
+    match has_audio_stream(input) {
+      Ok(true) => {}
+      Ok(false) => {
+        eprintln!(
+          "Skipping media file without an audio stream: {}",
+          input.display()
+        );
+        return Ok(None);
+      }
+      Err(err) => {
+        eprintln!(
+          "Skipping media file with unreadable audio stream info: {}",
+          input.display()
+        );
+        eprintln!("  {err:#}");
+        return Ok(None);
+      }
     }
   }
 
@@ -284,15 +296,9 @@ fn task_for_input(input: &Path, config: &Config) -> Result<Option<Task>> {
     backup_base.with_extension("srt")
   };
 
-  let input_size_bytes = input
-    .metadata()
-    .with_context(|| format!("failed to read metadata for {}", input.display()))?
-    .len();
-
   Ok(Some(Task {
     input: input.to_path_buf(),
     output,
-    input_size_bytes,
   }))
 }
 
@@ -333,7 +339,7 @@ fn can_create_file_in(dir: &Path) -> bool {
 
 fn run_tasks(tasks: Vec<Task>, config: Config, jobs: usize, whisper_threads: usize) -> Result<()> {
   eprintln!("Loading whisper model: {}", config.model.display());
-  let whisper_context = Arc::new(RawWhisperContext::new(&config.model)?);
+  let whisper_context = Arc::new(RawWhisperContext::new(&config.model, config.use_gpu)?);
 
   let (task_tx, task_rx) = mpsc::channel::<Task>();
   let (result_tx, result_rx) = mpsc::channel::<TaskResult>();
@@ -436,10 +442,12 @@ fn process_task(
       "failed to extract audio with whisper.cpp script ffmpeg arguments: {err:#}"
     )));
   }
-  if let Err(err) = ensure_complete_audio(&task.input, &wav_path) {
-    return Ok(TaskOutcome::Skipped(format!(
-      "extracted audio is incomplete, not generating a short SRT: {err:#}"
-    )));
+  if config.validate_audio {
+    if let Err(err) = ensure_complete_audio(&task.input, &wav_path) {
+      return Ok(TaskOutcome::Skipped(format!(
+        "extracted audio is incomplete, not generating a short SRT: {err:#}"
+      )));
+    }
   }
 
   eprintln!("Transcribing to SRT: {}", task.output.display());
@@ -694,11 +702,15 @@ unsafe impl Send for RawWhisperContext {}
 unsafe impl Sync for RawWhisperContext {}
 
 impl RawWhisperContext {
-  fn new(model: &Path) -> Result<Self> {
+  fn new(model: &Path, use_gpu: bool) -> Result<Self> {
     let model = CString::new(model.as_os_str().as_bytes())
       .with_context(|| format!("model path contains a null byte: {}", model.display()))?;
     // SAFETY: returns a plain value and requires no preconditions.
-    let params = unsafe { whisper_rs_sys::whisper_context_default_params() };
+    let mut params = unsafe { whisper_rs_sys::whisper_context_default_params() };
+    params.use_gpu = use_gpu;
+    if !use_gpu {
+      params.flash_attn = false;
+    }
     // SAFETY: model is a live NUL-terminated path for the duration of the call.
     // params was produced by whisper.cpp. A null return is checked below.
     let ctx = unsafe {
@@ -891,13 +903,12 @@ fn read_wav_samples(wav_file: &Path) -> Result<Vec<f32>> {
     spec.bits_per_sample
   );
 
-  let samples = reader
-    .into_samples::<i16>()
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .with_context(|| format!("failed to read wav samples from {}", wav_file.display()))?;
-  let mut audio = vec![0.0f32; samples.len()];
-  whisper_rs::convert_integer_to_float_audio(&samples, &mut audio)
-    .map_err(|err| anyhow::anyhow!("failed to convert wav samples to f32: {err}"))?;
+  let mut audio = Vec::with_capacity(reader.duration() as usize);
+  for sample in reader.into_samples::<i16>() {
+    let sample =
+      sample.with_context(|| format!("failed to read wav samples from {}", wav_file.display()))?;
+    audio.push(f32::from(sample) / 32768.0);
+  }
 
   Ok(audio)
 }
@@ -993,33 +1004,17 @@ fn output_tail(output: &[u8], max_lines: usize) -> String {
 mod tests {
   use super::*;
 
-  fn task_with_size(input_size_bytes: u64) -> Task {
-    Task {
-      input: PathBuf::from("input.mp4"),
-      output: PathBuf::from("input.srt"),
-      input_size_bytes,
-    }
+  #[test]
+  fn default_parallelism_matches_processor_count() {
+    assert_eq!(default_jobs(), processor_count());
   }
 
   #[test]
-  fn large_media_defaults_to_conservative_parallelism() {
-    let tasks = [task_with_size(LARGE_MEDIA_THRESHOLD_BYTES + 1)];
-
-    assert!(has_large_media_file(&tasks));
-    assert_eq!(default_jobs(true), LARGE_MEDIA_DEFAULT_JOBS);
+  fn default_whisper_threads_match_whisper_cli_limit() {
     assert_eq!(
-      default_whisper_threads(true, 99),
-      LARGE_MEDIA_DEFAULT_WHISPER_THREADS
+      default_whisper_threads(),
+      processor_count().min(DEFAULT_MAX_WHISPER_THREADS_PER_TASK)
     );
-  }
-
-  #[test]
-  fn small_media_defaults_to_all_processors_for_jobs() {
-    let tasks = [task_with_size(LARGE_MEDIA_THRESHOLD_BYTES)];
-    let cpu_count = SystemHardware::current().processors().len().max(1);
-
-    assert!(!has_large_media_file(&tasks));
-    assert_eq!(default_jobs(false), cpu_count);
   }
 
   #[test]
