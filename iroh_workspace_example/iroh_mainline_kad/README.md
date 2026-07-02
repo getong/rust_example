@@ -27,7 +27,9 @@ Mainline DHT and iroh solve different parts of the problem:
 - `iroh-blobs` provides BLAKE3 verified blob transfer. Its downloader can split blob requests into
   ranges and fetch them from multiple providers concurrently.
 
-The DHT record is a JSON value stored as a BEP44 mutable item. It is addressed by:
+The DHT record is stored as a BEP44 mutable item. New records use a compact `postcard` binary
+payload with a small format marker; older JSON records are still accepted while nodes migrate. It
+is addressed by:
 
 - `cluster_secret`: a 32-byte Ed25519 signing key, passed as 64 hex characters
 - `cluster_salt`: a namespace string, defaulting to `iroh-mainline-kad/v0`
@@ -41,10 +43,11 @@ Every server updates the same mutable record with its current iroh endpoint data
 - direct socket addresses
 - relay URLs
 - update timestamp
+- record nonce used with the timestamp to reject stale record regressions
 
 The record is kept under Mainline's BEP44 value limit of 1000 bytes. If needed, older members are
-trimmed. Writes use CAS and retry a few times to reduce conflicts when multiple servers publish
-around the same time.
+trimmed with a bounded-size search instead of repeated one-by-one JSON serialization. Writes use
+CAS and retry a few times to reduce conflicts when multiple servers publish around the same time.
 
 The iroh application protocol uses this ALPN:
 
@@ -380,6 +383,7 @@ Server options:
 - `--dht-bind`: IPv4 bind address for the Mainline node
 - `--dht-port`: Mainline UDP port; `0` means random
 - `--iroh-bind`: iroh socket bind address
+- `--iroh-secret-path`: optional hex secret-key file for a stable iroh endpoint id across restarts
 - `--relay`: enable or disable iroh relay support
 - `--republish-secs`: interval for refreshing this server's DHT member record
 
@@ -389,6 +393,7 @@ Client options:
 - `--cluster-salt`: must match the server salt if set
 - `--bootstrap`: comma-separated Mainline bootstrap nodes
 - `--message`: payload sent over the iroh stream
+- `--iroh-secret-path`: optional hex secret-key file for a stable iroh endpoint id
 - `--discover-timeout-secs`: how long to poll the DHT for members
 - `--connect-timeout-secs`: per-member iroh dial/request timeout
 
@@ -402,6 +407,7 @@ Gossip options:
 - `--message`: optional message to broadcast after joining
 - `--wait-joined-secs`: how long to wait for at least one gossip neighbor before broadcasting
 - `--exit-after-broadcast`: send `--message` and then shut down instead of staying subscribed
+- `--iroh-secret-path`: optional hex secret-key file for a stable iroh endpoint id across restarts
 - `--relay`: enable or disable iroh relay support
 
 Blob seed options:
@@ -411,6 +417,7 @@ Blob seed options:
 - `--name`: provider name stored in the DHT record
 - `--cluster-secret`: shared DHT record key; use the same value for seeds and downloaders
 - `--bootstrap`: comma-separated Mainline bootstrap nodes
+- `--iroh-secret-path`: optional hex secret-key file for a stable provider endpoint id
 - `--republish-secs`: interval for refreshing this provider in the DHT record
 
 Blob get options:
@@ -420,6 +427,7 @@ Blob get options:
 - `--store-path`: local `iroh-blobs` store used for downloaded verified chunks
 - `--cluster-secret`: must match the seed cluster secret
 - `--bootstrap`: comma-separated Mainline bootstrap nodes
+- `--iroh-secret-path`: optional hex secret-key file for a stable iroh endpoint id
 - `--discover-timeout-secs`: how long to poll the DHT for providers
 - `--request-timeout-secs`: timeout while waiting for downloader progress
 
@@ -427,6 +435,14 @@ Blob get options:
 
 The default cluster secret is fixed for easy local demos. Use `--cluster-secret` for real runs so
 unrelated processes do not publish into the same record.
+
+By default iroh endpoints use an ephemeral identity. Long-running servers, gossip peers, and blob
+seeds should pass `--iroh-secret-path`; the file is read on restart or created with a new 32-byte
+secret if missing, keeping the endpoint id stable.
+
+Gossip subscribes to its topic immediately and discovers peers in the background. Discovered relay
+addresses are accepted by default; private, loopback, link-local, and other non-public direct IP
+addresses are ignored unless the local iroh bind address is loopback for local testing.
 
 Public Mainline DHT publication depends on UDP reachability and DHT convergence. For deterministic
 testing, use `local-demo` or pass your own bootstrap nodes.

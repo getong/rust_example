@@ -7,6 +7,19 @@ pub(crate) fn now_unix_secs() -> u64 {
     .as_secs()
 }
 
+pub(crate) fn now_unix_nanos() -> u128 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_nanos()
+}
+
+pub(crate) fn new_nonce() -> u64 {
+  let nanos = now_unix_nanos();
+  let mixed = nanos ^ nanos.rotate_left(64) ^ u128::from(std::process::id());
+  mixed as u64 ^ (mixed >> 64) as u64
+}
+
 pub(crate) fn display_values(values: &[String]) -> String {
   if values.is_empty() {
     "-".to_string()

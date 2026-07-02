@@ -1,5 +1,12 @@
-use iroh::{EndpointId, address_lookup::memory::MemoryLookup, protocol::Router};
-use iroh_gossip::{Gossip, api::Event};
+use std::net::{IpAddr, SocketAddr};
+
+use iroh::{
+  EndpointAddr, EndpointId, TransportAddr, address_lookup::memory::MemoryLookup, protocol::Router,
+};
+use iroh_gossip::{
+  Gossip,
+  api::{Event, GossipSender},
+};
 use n0_error::{Result, StdResultExt};
 use n0_future::StreamExt;
 use tokio::time::{sleep, timeout};
@@ -11,7 +18,7 @@ use crate::{
   options::GossipOptions,
   protocols::GOSSIP_PROTOCOL,
   records::{MemberRecord, member_from_endpoint},
-  util::{display_values, hex_encode},
+  util::{backoff_duration, display_values, hex_encode},
 };
 
 pub async fn run_gossip(options: GossipOptions) -> Result<()> {
@@ -38,31 +45,14 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
     return Err(err);
   }
 
-  let discovered = match discover_members(&dht, &options.cluster, options.discover_timeout).await {
-    Ok(members) => members,
-    Err(err) => {
-      router.shutdown().await.std_context("shutdown router")?;
-      return Err(err);
-    }
-  };
-  let bootstrap_peers =
-    gossip_bootstrap_peers(&discovered, router.endpoint().id(), &address_lookup);
-
   println!("gossip topic: {}", options.topic);
   println!(
     "mainline target: {} (salt: {})",
     options.cluster.target(),
     hex_encode(options.cluster.salt())
   );
-  println!(
-    "discovered {} gossip bootstrap peer(s)",
-    bootstrap_peers.len()
-  );
 
-  let (sender, mut receiver) = match gossip
-    .subscribe(options.topic, bootstrap_peers.clone())
-    .await
-  {
+  let (sender, mut receiver) = match gossip.subscribe(options.topic, Vec::new()).await {
     Ok(topic) => topic.split(),
     Err(err) => {
       router.shutdown().await.std_context("shutdown router")?;
@@ -70,7 +60,18 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
     }
   };
 
-  if !bootstrap_peers.is_empty() && !options.wait_joined.is_zero() {
+  let allow_private_addrs = options.iroh.bind.ip().is_loopback();
+  let discover_task = spawn_gossip_discovery(
+    dht.clone(),
+    options.cluster.clone(),
+    options.discover_timeout,
+    router.endpoint().id(),
+    address_lookup.clone(),
+    sender.clone(),
+    allow_private_addrs,
+  );
+
+  if !options.wait_joined.is_zero() {
     match timeout(options.wait_joined, receiver.joined()).await {
       Ok(Ok(())) => {
         let neighbors = receiver
@@ -93,8 +94,8 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
   }
 
   if let Some(message) = options.message.as_deref() {
-    if bootstrap_peers.is_empty() {
-      warn!("no gossip bootstrap peers discovered; broadcast has no current recipients");
+    if receiver.neighbors().next().is_none() {
+      warn!("no gossip neighbors joined yet; broadcast has no current recipients");
     }
     sender
       .broadcast(message.as_bytes().to_vec().into())
@@ -103,6 +104,7 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
     println!("gossip broadcast sent: {message}");
 
     if options.exit_after_broadcast {
+      discover_task.abort();
       router.shutdown().await.std_context("shutdown router")?;
       return Ok(());
     }
@@ -145,6 +147,7 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
             warn!("gossip receiver lagged and missed messages");
           }
           Some(Err(err)) => {
+            discover_task.abort();
             republish_task.abort();
             router.shutdown().await.std_context("shutdown router")?;
             return Err(n0_error::anyerr!(err, "gossip receiver failed"));
@@ -157,15 +160,56 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
     }
   }
 
+  discover_task.abort();
   republish_task.abort();
   router.shutdown().await.std_context("shutdown router")?;
   Ok(())
+}
+
+fn spawn_gossip_discovery(
+  dht: mainline::async_dht::AsyncDht,
+  cluster: crate::identity::ClusterIdentity,
+  discover_timeout: std::time::Duration,
+  self_id: EndpointId,
+  address_lookup: MemoryLookup,
+  sender: GossipSender,
+  allow_private_addrs: bool,
+) -> tokio::task::JoinHandle<()> {
+  tokio::spawn(async move {
+    let mut attempt = 0;
+    loop {
+      match discover_members(&dht, &cluster, discover_timeout).await {
+        Ok(members) => {
+          let peers =
+            gossip_bootstrap_peers(&members, self_id, &address_lookup, allow_private_addrs);
+          if peers.is_empty() {
+            attempt += 1;
+          } else {
+            println!("discovered {} gossip bootstrap peer(s)", peers.len());
+            if let Err(err) = sender.join_peers(peers).await {
+              warn!("failed to join discovered gossip peers: {err:#}");
+            }
+            attempt = 0;
+          }
+        }
+        Err(err) => {
+          warn!("gossip discovery attempt failed: {err:#}");
+          attempt += 1;
+        }
+      }
+
+      let delay =
+        backoff_duration(500, attempt).min(discover_timeout.max(std::time::Duration::from_secs(5)));
+      sleep(delay).await;
+    }
+  })
 }
 
 fn gossip_bootstrap_peers(
   members: &[MemberRecord],
   self_id: EndpointId,
   address_lookup: &MemoryLookup,
+  allow_private_addrs: bool,
 ) -> Vec<EndpointId> {
   let mut peers = Vec::with_capacity(members.len());
 
@@ -177,9 +221,17 @@ fn gossip_bootstrap_peers(
     match member.endpoint_addr() {
       Ok(addr) if addr.id == self_id => {}
       Ok(addr) => {
-        println!("gossip bootstrap peer: {} ({})", member.name, addr.id);
-        address_lookup.add_endpoint_info(addr.clone());
-        peers.push(addr.id);
+        let filtered = filter_endpoint_addr(addr, allow_private_addrs);
+        if filtered.is_empty() {
+          warn!(
+            "skipping gossip member {} ({}) with no allowed transport addresses",
+            member.name, filtered.id
+          );
+          continue;
+        }
+        println!("gossip bootstrap peer: {} ({})", member.name, filtered.id);
+        address_lookup.add_endpoint_info(filtered.clone());
+        peers.push(filtered.id);
       }
       Err(err) => {
         warn!("skipping invalid gossip member {}: {err:#}", member.name);
@@ -188,4 +240,101 @@ fn gossip_bootstrap_peers(
   }
 
   peers
+}
+
+fn filter_endpoint_addr(addr: EndpointAddr, allow_private_addrs: bool) -> EndpointAddr {
+  let id = addr.id;
+  let allowed = addr
+    .addrs
+    .into_iter()
+    .filter(|transport| is_allowed_transport_addr(transport, allow_private_addrs));
+  EndpointAddr::from_parts(id, allowed)
+}
+
+fn is_allowed_transport_addr(transport: &TransportAddr, allow_private_addrs: bool) -> bool {
+  match transport {
+    TransportAddr::Relay(_) => true,
+    TransportAddr::Ip(addr) => is_allowed_socket_addr(addr, allow_private_addrs),
+    TransportAddr::Custom(_) => false,
+    _ => false,
+  }
+}
+
+fn is_allowed_socket_addr(addr: &SocketAddr, allow_private_addrs: bool) -> bool {
+  if allow_private_addrs {
+    return true;
+  }
+
+  is_global_ip(addr.ip())
+}
+
+fn is_global_ip(ip: IpAddr) -> bool {
+  match ip {
+    IpAddr::V4(ip) => {
+      !(ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || ip.is_unspecified())
+    }
+    IpAddr::V6(ip) => {
+      !(ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_unique_local()
+        || ip.is_unicast_link_local()
+        || ip.is_multicast())
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::str::FromStr;
+
+  use iroh::{RelayUrl, SecretKey};
+
+  #[test]
+  fn address_filter_rejects_private_direct_addresses_by_default() {
+    let id = SecretKey::from_bytes(&[1; 32]).public();
+    let relay = RelayUrl::from_str("https://relay.example.com").unwrap();
+    let addr = EndpointAddr::from_parts(
+      id,
+      [
+        TransportAddr::Ip("10.1.2.3:1234".parse().unwrap()),
+        TransportAddr::Ip("8.8.8.8:1234".parse().unwrap()),
+        TransportAddr::Relay(relay.clone()),
+      ],
+    );
+
+    let filtered = filter_endpoint_addr(addr, false);
+    assert!(
+      filtered
+        .addrs
+        .contains(&TransportAddr::Ip("8.8.8.8:1234".parse().unwrap()))
+    );
+    assert!(filtered.addrs.contains(&TransportAddr::Relay(relay)));
+    assert!(
+      !filtered
+        .addrs
+        .contains(&TransportAddr::Ip("10.1.2.3:1234".parse().unwrap()))
+    );
+  }
+
+  #[test]
+  fn address_filter_allows_private_addresses_for_local_mode() {
+    let id = SecretKey::from_bytes(&[2; 32]).public();
+    let addr = EndpointAddr::from_parts(
+      id,
+      [
+        TransportAddr::Ip("127.0.0.1:1234".parse().unwrap()),
+        TransportAddr::Ip("10.1.2.3:1234".parse().unwrap()),
+      ],
+    );
+
+    let filtered = filter_endpoint_addr(addr, true);
+    assert_eq!(filtered.addrs.len(), 2);
+  }
 }

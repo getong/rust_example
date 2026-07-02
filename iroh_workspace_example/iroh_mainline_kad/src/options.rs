@@ -35,6 +35,7 @@ pub struct IrohOptions {
   pub bind: SocketAddr,
   pub relay: bool,
   pub wait_online: Duration,
+  pub secret_path: Option<PathBuf>,
 }
 
 impl Default for IrohOptions {
@@ -43,6 +44,7 @@ impl Default for IrohOptions {
       bind: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
       relay: true,
       wait_online: Duration::from_secs(15),
+      secret_path: None,
     }
   }
 }

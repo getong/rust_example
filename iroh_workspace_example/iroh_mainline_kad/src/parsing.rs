@@ -12,7 +12,11 @@ pub(crate) fn parse_secret_key(input: &str) -> Result<[u8; 32]> {
   parse_hex_32(input, "cluster secret")
 }
 
-fn parse_hex_32(input: &str, field: &str) -> Result<[u8; 32]> {
+pub(crate) fn parse_iroh_secret_key(input: &str) -> Result<[u8; 32]> {
+  parse_hex_32(input, "iroh secret key")
+}
+
+pub(crate) fn parse_hex_32(input: &str, field: &str) -> Result<[u8; 32]> {
   let input = input.trim();
   let mut bytes = [0u8; 32];
 

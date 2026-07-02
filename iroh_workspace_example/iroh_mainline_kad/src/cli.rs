@@ -1,4 +1,7 @@
-use std::net::{Ipv4Addr, SocketAddr};
+use std::{
+  net::{Ipv4Addr, SocketAddr},
+  path::PathBuf,
+};
 
 use clap::{Parser, Subcommand};
 use iroh_mainline_kad::{
@@ -50,6 +53,8 @@ pub struct ServerArgs {
   bootstrap: Vec<String>,
   #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
   iroh_bind: SocketAddr,
+  #[arg(long)]
+  iroh_secret_path: Option<PathBuf>,
   #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
   relay: bool,
   #[arg(long, default_value_t = 15)]
@@ -74,6 +79,8 @@ pub struct ClientArgs {
   bootstrap: Vec<String>,
   #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
   iroh_bind: SocketAddr,
+  #[arg(long)]
+  iroh_secret_path: Option<PathBuf>,
   #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
   relay: bool,
   #[arg(long, default_value_t = 15)]
@@ -124,6 +131,8 @@ pub struct GossipArgs {
   bootstrap: Vec<String>,
   #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
   iroh_bind: SocketAddr,
+  #[arg(long)]
+  iroh_secret_path: Option<PathBuf>,
   #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
   relay: bool,
   #[arg(long, default_value = DEFAULT_GOSSIP_TOPIC_HEX)]
@@ -160,6 +169,8 @@ pub struct BlobSeedArgs {
   bootstrap: Vec<String>,
   #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
   iroh_bind: SocketAddr,
+  #[arg(long)]
+  iroh_secret_path: Option<PathBuf>,
   #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
   relay: bool,
   #[arg(long)]
@@ -188,6 +199,8 @@ pub struct BlobGetArgs {
   bootstrap: Vec<String>,
   #[arg(long, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)))]
   iroh_bind: SocketAddr,
+  #[arg(long)]
+  iroh_secret_path: Option<PathBuf>,
   #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
   relay: bool,
   #[arg(long)]
@@ -219,6 +232,7 @@ impl ServerArgs {
         bind: self.iroh_bind,
         relay: self.relay,
         wait_online: parse_duration_secs(self.wait_online_secs),
+        secret_path: self.iroh_secret_path,
       },
       name: self.name,
       republish_every: parse_republish_interval(self.republish_secs),
@@ -241,6 +255,7 @@ impl ClientArgs {
         bind: self.iroh_bind,
         relay: self.relay,
         wait_online: parse_duration_secs(self.wait_online_secs),
+        secret_path: self.iroh_secret_path,
       },
       message: self.message,
       discover_timeout: parse_duration_secs(self.discover_timeout_secs),
@@ -284,6 +299,7 @@ impl GossipArgs {
         bind: self.iroh_bind,
         relay: self.relay,
         wait_online: parse_duration_secs(self.wait_online_secs),
+        secret_path: self.iroh_secret_path,
       },
       name: self.name,
       topic: parse_gossip_topic(&self.topic)?,
@@ -311,6 +327,7 @@ impl BlobSeedArgs {
         bind: self.iroh_bind,
         relay: self.relay,
         wait_online: parse_duration_secs(self.wait_online_secs),
+        secret_path: self.iroh_secret_path,
       },
       name: self.name,
       file: self.file,
@@ -335,6 +352,7 @@ impl BlobGetArgs {
         bind: self.iroh_bind,
         relay: self.relay,
         wait_online: parse_duration_secs(self.wait_online_secs),
+        secret_path: self.iroh_secret_path,
       },
       hash: parse_blob_hash(&self.hash)?,
       output: self.output,

@@ -77,5 +77,6 @@ fn local_iroh_options(_accept: bool) -> IrohOptions {
     bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
     relay: false,
     wait_online: Duration::from_secs(0),
+    secret_path: None,
   }
 }

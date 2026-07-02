@@ -8,13 +8,15 @@ use serde::{Deserialize, Serialize};
 use crate::{
   parsing::{blob_format_name, parse_blob_format},
   protocols::{BLOB_PROTOCOL, GOSSIP_PROTOCOL, REQUEST_PROTOCOL},
-  util::now_unix_secs,
+  util::{new_nonce, now_unix_secs},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterRecord {
   pub version: u8,
   pub updated_at: u64,
+  #[serde(default)]
+  pub nonce: u64,
   pub members: Vec<MemberRecord>,
 }
 
@@ -23,6 +25,7 @@ impl ClusterRecord {
     Self {
       version: 1,
       updated_at: now_unix_secs(),
+      nonce: new_nonce(),
       members: Vec::new(),
     }
   }
@@ -41,6 +44,11 @@ impl ClusterRecord {
       .sort_by_key(|right| std::cmp::Reverse(right.updated_at));
     self.members.truncate(max_members);
     self.updated_at = now_unix_secs();
+    self.nonce = new_nonce();
+  }
+
+  pub(crate) fn is_newer_than(&self, other: &Self) -> bool {
+    (self.updated_at, self.nonce) > (other.updated_at, other.nonce)
   }
 }
 
@@ -48,9 +56,9 @@ impl ClusterRecord {
 pub struct MemberRecord {
   pub endpoint_id: String,
   pub name: String,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
   pub protocols: Vec<String>,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
   pub blobs: Vec<BlobProviderRecord>,
   pub addrs: Vec<String>,
   pub relay_urls: Vec<String>,
