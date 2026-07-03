@@ -36,6 +36,15 @@ pub enum QueueCommand {
     /// Caller-supplied current Unix timestamp (keeps the state machine deterministic).
     now: u64,
   },
+  /// Leader-owned scheduler tick. The state machine stores scheduler progress
+  /// and inserts only tasks that have not already been generated.
+  ScheduleBatch {
+    scheduler_id: String,
+    now: u64,
+    interval_secs: u64,
+    max_tasks: Option<usize>,
+    tasks: Vec<TaskRecord>,
+  },
 }
 
 impl fmt::Display for QueueCommand {
@@ -48,6 +57,11 @@ impl fmt::Display for QueueCommand {
       Self::Fail { task_id, retry, .. } => write!(f, "fail({task_id}, retry={retry})"),
       Self::Kill { task_id } => write!(f, "kill({task_id})"),
       Self::Reclaim { timeout_secs, .. } => write!(f, "reclaim(timeout={timeout_secs}s)"),
+      Self::ScheduleBatch {
+        scheduler_id,
+        tasks,
+        ..
+      } => write!(f, "schedule_batch({scheduler_id}, count={})", tasks.len()),
     }
   }
 }
@@ -110,13 +124,35 @@ pub struct TaskResult {
   pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SchedulerState {
+  pub last_tick: Option<u64>,
+  pub runs: u64,
+  pub generated_task_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum QueueResponse {
-  Submitted { task_id: String },
-  SubmittedBatch { count: usize },
+  Submitted {
+    task_id: String,
+  },
+  SubmittedBatch {
+    count: usize,
+  },
   Claimed(Option<TaskRecord>),
-  Updated { task_id: String },
-  Reclaimed { count: usize },
+  Updated {
+    task_id: String,
+  },
+  Reclaimed {
+    count: usize,
+  },
+  Scheduled {
+    scheduler_id: String,
+    count: usize,
+    total_generated: usize,
+    last_tick: Option<u64>,
+    generated_task_ids: Vec<String>,
+  },
   None,
 }
 

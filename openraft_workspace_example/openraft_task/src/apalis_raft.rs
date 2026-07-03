@@ -53,6 +53,30 @@ pub struct DemoTask {
   pub payload: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct DemoTaskSchedulerConfig {
+  pub scheduler_id: String,
+  pub interval: Duration,
+  pub batch_size: usize,
+  pub max_tasks: usize,
+}
+
+impl DemoTaskSchedulerConfig {
+  pub fn new(
+    scheduler_id: impl Into<String>,
+    interval: Duration,
+    batch_size: usize,
+    max_tasks: usize,
+  ) -> Self {
+    Self {
+      scheduler_id: scheduler_id.into(),
+      interval,
+      batch_size,
+      max_tasks,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RaftTaskContext {
   pub lock_by: Option<String>,
@@ -100,7 +124,7 @@ pub struct RaftApalisStorage<Args, C = SonicCodec<Vec<u8>>> {
   reclaim_timeout: Duration,
   /// Maximum time a single task execution attempt may run.
   task_timeout: Duration,
-  /// How often the background monitor logs status counts and checks reclaim.
+  /// How often the background monitor logs status counts and leader tasks check reclaim.
   monitor_interval: Duration,
   _args: PhantomData<Args>,
   _codec: PhantomData<C>,
@@ -155,14 +179,10 @@ impl<Args, C> RaftApalisStorage<Args, C> {
     self
   }
 
-  /// Spawn a background monitor that periodically logs task status counts and
-  /// re-queues Running tasks whose worker has exceeded `reclaim_timeout`.
-  /// Abort the returned handle when the worker shuts down.
-  pub fn spawn_monitor_task(&self) -> tokio::task::JoinHandle<()> {
-    let raft = self.raft.clone();
-    let router = self.router.clone();
+  /// Spawn a background monitor that periodically logs local task status counts.
+  /// Abort the returned handle when the node shuts down.
+  pub fn spawn_task_monitor(&self) -> tokio::task::JoinHandle<()> {
     let state_machine = self.state_machine.clone();
-    let timeout_secs = self.reclaim_timeout.as_secs().max(1);
     let monitor_interval = non_zero_duration(self.monitor_interval, Duration::from_secs(1));
     tokio::spawn(async move {
       loop {
@@ -185,26 +205,134 @@ impl<Args, C> RaftApalisStorage<Args, C> {
             tracing::warn!(error = ?err, "task monitor status scan failed");
           }
         }
+      }
+    })
+  }
 
+  /// Backwards-compatible alias for callers that used the old monitor name.
+  pub fn spawn_monitor_task(&self) -> tokio::task::JoinHandle<()> {
+    self.spawn_task_monitor()
+  }
+
+  /// Spawn a leader-only reclaim loop. Every node may run this task, but only
+  /// the node that currently believes it is Raft leader writes Reclaim entries.
+  pub fn spawn_reclaim_task(&self) -> tokio::task::JoinHandle<()> {
+    let raft = self.raft.clone();
+    let timeout_secs = self.reclaim_timeout.as_secs().max(1);
+    let monitor_interval = non_zero_duration(self.monitor_interval, Duration::from_secs(1));
+    tokio::spawn(async move {
+      loop {
+        sleep(monitor_interval).await;
+        if !is_local_leader(&raft) {
+          continue;
+        }
         let now = current_unix_secs();
-        match raft_write_inner(&raft, &router, QueueCommand::Reclaim { timeout_secs, now }).await {
-          Ok(QueueResponse::Reclaimed { count }) if count > 0 => {
+        match raft_leader_write_inner(&raft, QueueCommand::Reclaim { timeout_secs, now }).await {
+          Ok(Some(QueueResponse::Reclaimed { count })) if count > 0 => {
             tracing::info!(count, "reclaimed stalled Running tasks back to Pending");
           }
           Err(err) => {
-            tracing::warn!(error = ?err, "periodic reclaim write failed");
+            tracing::warn!(error = ?err, "leader reclaim write failed");
           }
           _ => {}
         }
       }
     })
   }
+}
 
-  /// Backwards-compatible alias for code that only needs the reclaim behavior.
-  pub fn spawn_reclaim_task(&self) -> tokio::task::JoinHandle<()> {
-    self.spawn_monitor_task()
+impl<C> RaftApalisStorage<DemoTask, C>
+where
+  C: Codec<DemoTask, Compact = Vec<u8>> + Send + Sync + 'static,
+  C::Error: Error + Send + Sync + 'static,
+{
+  /// Spawn a leader-only demo scheduler. Every node may run this task, but only
+  /// the current Raft leader proposes ScheduleBatch entries.
+  pub fn spawn_task_scheduler(
+    &self,
+    config: DemoTaskSchedulerConfig,
+  ) -> tokio::task::JoinHandle<()> {
+    let raft = self.raft.clone();
+    tokio::spawn(async move {
+      let scheduler_id = config.scheduler_id;
+      let interval = non_zero_duration(config.interval, Duration::from_secs(1));
+      let interval_secs = interval.as_secs().max(1);
+      let batch_size = config.batch_size.max(1);
+      let max_tasks = config.max_tasks;
+      let mut next_index = 0;
+
+      loop {
+        sleep(interval).await;
+        if max_tasks == 0 || !is_local_leader(&raft) {
+          continue;
+        }
+
+        let remaining = max_tasks.saturating_sub(next_index);
+        if remaining == 0 {
+          continue;
+        }
+
+        let now = current_unix_secs();
+        let tasks = (next_index .. next_index + batch_size.min(remaining))
+          .map(|index| {
+            let task_id = format!("{scheduler_id}-{index}");
+            C::encode(&DemoTask {
+              task_id: task_id.clone(),
+              payload: format!("scheduled-payload-{index}"),
+            })
+            .map(|payload| TaskRecord::pending(task_id, payload, now))
+            .map_err(RaftApalisError::codec)
+          })
+          .collect::<Result<Vec<_>, _>>();
+
+        let tasks = match tasks {
+          Ok(tasks) => tasks,
+          Err(err) => {
+            tracing::warn!(error = ?err, "task scheduler encode failed");
+            continue;
+          }
+        };
+
+        let command = QueueCommand::ScheduleBatch {
+          scheduler_id: scheduler_id.clone(),
+          now,
+          interval_secs,
+          max_tasks: Some(max_tasks),
+          tasks,
+        };
+
+        match raft_leader_write_inner(&raft, command).await {
+          Ok(Some(QueueResponse::Scheduled {
+            count,
+            total_generated,
+            generated_task_ids,
+            ..
+          })) => {
+            next_index = total_generated;
+            if count > 0 {
+              tracing::info!(
+                scheduler_id = %scheduler_id,
+                count,
+                total_generated,
+                generated_task_ids = ?generated_task_ids,
+                "scheduled demo tasks"
+              );
+            }
+          }
+          Ok(Some(other)) => {
+            tracing::warn!(scheduler_id = %scheduler_id, response = ?other, "unexpected scheduler response");
+          }
+          Err(err) => {
+            tracing::warn!(scheduler_id = %scheduler_id, error = ?err, "leader scheduler write failed");
+          }
+          _ => {}
+        }
+      }
+    })
   }
+}
 
+impl<Args, C> RaftApalisStorage<Args, C> {
   pub async fn list_tasks(&self) -> Result<Vec<TaskRecordView>, RaftApalisError> {
     let mut tasks = self.state_machine.tasks().await?;
     tasks.sort_by(|a, b| a.task_id.cmp(&b.task_id));
@@ -649,23 +777,20 @@ pub async fn run_demo_worker(
   storage: RaftApalisStorage<DemoTask>,
   stop_after: Duration,
 ) -> anyhow::Result<()> {
-  let monitor_handle = storage.spawn_monitor_task();
   let task_timeout = storage.task_timeout;
 
   let worker = WorkerBuilder::new(worker_name.as_ref())
     .backend(storage)
     .build(move |task| execute_demo_task_with_timeout(task, task_timeout));
 
-  let result = worker
+  worker
     .run_until(async move {
       sleep(stop_after).await;
       Ok::<(), apalis::prelude::WorkerError>(())
     })
     .await
-    .map_err(|err| anyhow::anyhow!("apalis worker failed: {err}"));
-
-  monitor_handle.abort();
-  result
+    .map_err(|err| anyhow::anyhow!("apalis worker failed: {err}"))?;
+  Ok(())
 }
 
 /// Write a command through the Raft cluster, forwarding to the leader if this
@@ -695,6 +820,24 @@ async fn raft_write_inner(
     .await
     .map(|r| r.data)
     .map_err(|err| RaftApalisError::new(format!("{err:?}")))
+}
+
+async fn raft_leader_write_inner(
+  raft: &Raft,
+  command: QueueCommand,
+) -> Result<Option<QueueResponse>, RaftApalisError> {
+  if !is_local_leader(raft) {
+    return Ok(None);
+  }
+  raft
+    .client_write(command)
+    .await
+    .map(|r| Some(r.data))
+    .map_err(|err| RaftApalisError::new(format!("{err:?}")))
+}
+
+fn is_local_leader(raft: &Raft) -> bool {
+  raft.metrics().borrow_watched().state.is_leader()
 }
 
 fn current_unix_secs() -> u64 {

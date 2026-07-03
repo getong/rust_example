@@ -9,7 +9,47 @@ This project is a compact task-queue demo modeled after
 
 The binary starts a local three-node OpenRaft cluster in one process, persists
 each node under its own RocksDB directory, submits demo tasks through the
-Apalis storage, runs one worker, and prints final task state.
+Apalis storage, runs one worker plus monitor/reclaim/scheduler tasks per node,
+and prints final task state.  Reclaim and scheduling are leader-only writes, so
+every node can run the background task without duplicating task ownership.
+
+** Design
+
+The current demo runs three OpenRaft nodes inside one OS process.  Nodes talk
+through an in-memory =Router=, so this is not yet a one-node-per-process
+deployment.  Each node still has its own Raft handle, log store, RocksDB state
+machine, and background tasks.
+
+Task state is replicated through Raft commands:
+
+- =Submit= and =SubmitBatch= add pending tasks.
+- =Claim= is proposed by workers and applied by the Raft state machine, so
+  multiple workers can compete safely.
+- =Complete= and =Fail= acknowledge task execution through Raft.
+- =Reclaim= moves expired =Running= tasks back to =Pending=.
+- =ScheduleBatch= records scheduler progress and inserts generated tasks
+  idempotently.
+
+Each node starts the same background task set:
+
+- Worker: runs on every node and proposes =Claim= for available work.
+- Monitor: runs on every node and logs local replicated task status counts.
+- Reclaim task: runs on every node, but only the current leader proposes
+  =Reclaim=.
+- Scheduler task: runs on every node, but only the current leader proposes
+  =ScheduleBatch=.
+
+The scheduler stores progress in the replicated state machine.  It uses stable
+task IDs derived from =scheduler_id= and the task index, skips tasks that already
+exist, honors the replicated =max_tasks= limit, and persists its cursor through
+normal RocksDB state plus snapshots.  After a leader change, a new leader may
+submit one catch-up scheduler tick, but the state machine prevents duplicate
+task creation.
+
+The compatibility boundary is the network layer: the per-node worker,
+monitor, reclaim, and scheduler model is compatible with the current in-process
+cluster.  Running each Raft node as a separate OS process would require
+replacing the in-memory =Router= with a real RPC transport first.
 
 ** Run
 
@@ -19,13 +59,88 @@ cargo run -- --db /tmp/openraft-task-demo --tasks 3 --worker-seconds 2
 
 Expected output:
 
-#+begin_src text
+#+begin_example
 task-0 status=done attempts=1 worker=Some("worker-node-1") result_ok=Some(true) error=None
 task-1 status=done attempts=1 worker=Some("worker-node-1") result_ok=Some(true) error=None
 task-2 status=done attempts=1 worker=Some("worker-node-1") result_ok=Some(true) error=None
-#+end_src
+#+end_example
 
 Use a fresh =--db= directory for a fresh cluster run.
+
+The replicated demo scheduler is disabled by default.  Enable it by setting a
+non-zero =--scheduled-tasks= value:
+
+#+begin_src shell
+cargo run -- --db /tmp/openraft-task-demo --tasks 1 --scheduled-tasks 2 --scheduler-batch 2
+#+end_src
+
+** CLI
+
+#+begin_example
+--db <PATH>
+  RocksDB base directory.  Each Raft node stores data under node-specific
+  subdirectories.  Default: target/openraft-task-data
+
+--tasks <N>
+  Number of immediate demo tasks submitted before workers start.
+  Default: 5
+
+--worker-seconds <SECONDS>
+  How long workers and background tasks run before the demo prints final state.
+  Default: 3
+
+--task-timeout-seconds <SECONDS>
+  Maximum duration for one task execution attempt before it is failed and
+  retried according to the attempt policy.
+  Default: 5
+
+--reclaim-timeout-seconds <SECONDS>
+  How long a task may remain Running before leader-only reclaim can move it
+  back to Pending.
+  Default: 30
+
+--monitor-seconds <SECONDS>
+  Interval for per-node monitor logs and leader-only reclaim checks.
+  Default: 2
+
+--scheduler-seconds <SECONDS>
+  Interval for leader-only demo scheduler ticks.
+  Default: 1
+
+--scheduler-batch <N>
+  Maximum number of scheduled demo tasks to generate per scheduler tick.
+  Default: 1
+
+--scheduled-tasks <N>
+  Total number of demo tasks the replicated scheduler may generate.
+  The scheduler is disabled when this is 0.
+  Default: 0
+#+end_example
+
+** Examples
+
+Run only immediate submitted tasks:
+
+#+begin_src shell
+cargo run -- --db /tmp/openraft-task-demo --tasks 3 --worker-seconds 2
+#+end_src
+
+Run one immediate task plus two replicated scheduled tasks:
+
+#+begin_src shell
+cargo run -- \
+  --db /tmp/openraft-task-scheduler-demo \
+  --tasks 1 \
+  --scheduled-tasks 2 \
+  --scheduler-seconds 1 \
+  --scheduler-batch 2 \
+  --worker-seconds 3 \
+  --monitor-seconds 1
+#+end_src
+
+Use a fresh =--db= directory when you want a fresh cluster.  Reusing an existing
+directory keeps the previous Raft log, membership, scheduler cursor, and task
+state.
 
 ** Verify
 

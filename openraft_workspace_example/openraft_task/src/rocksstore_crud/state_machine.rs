@@ -21,11 +21,14 @@ use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 
 use super::TypeConfig;
-use crate::types_kv::{QueueCommand, QueueResponse, TaskRecord, TaskResult, TaskStatus};
+use crate::types_kv::{
+  QueueCommand, QueueResponse, SchedulerState, TaskRecord, TaskResult, TaskStatus,
+};
 
 const LAST_APPLIED_LOG_KEY: &str = "last_applied_log";
 const LAST_MEMBERSHIP_KEY: &str = "last_membership";
 const PENDING_QUEUE_KEY: &str = "pending_queue";
+const SCHEDULER_STATES_KEY: &str = "scheduler_states";
 
 #[derive(Debug, Clone)]
 pub struct RocksStateMachine {
@@ -36,6 +39,8 @@ pub struct RocksStateMachine {
   pending: VecDeque<String>,
   /// Set of IDs currently in `pending` for O(1) duplicate checks.
   pending_ids: HashSet<String>,
+  /// Replicated task scheduler progress by scheduler id.
+  scheduler_states: BTreeMap<String, SchedulerState>,
 }
 
 impl RocksStateMachine {
@@ -60,12 +65,24 @@ impl RocksStateMachine {
         .unwrap_or_default()
     };
     let pending_ids: HashSet<String> = pending.iter().cloned().collect();
+    let scheduler_states: BTreeMap<String, SchedulerState> = {
+      let cf = db.cf_handle("sm_meta").unwrap();
+      db.get_cf(cf, SCHEDULER_STATES_KEY)
+        .map_err(io::Error::other)?
+        .map(|bytes| {
+          sonic_rs::from_slice::<BTreeMap<String, SchedulerState>>(&bytes)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        })
+        .transpose()?
+        .unwrap_or_default()
+    };
 
     Ok(Self {
       db,
       snapshot_dir,
       pending,
       pending_ids,
+      scheduler_states,
     })
   }
 
@@ -156,6 +173,8 @@ fn decode_task(bytes: &[u8]) -> Result<TaskRecord, io::Error> {
 struct SnapshotFile {
   meta: SnapshotMetaOf<TypeConfig>,
   pending: VecDeque<String>,
+  #[serde(default)]
+  scheduler_states: BTreeMap<String, SchedulerState>,
   tasks: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
@@ -165,6 +184,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let (last_applied_log, last_membership) = self.get_meta()?;
     // Use the in-memory pending queue — no extra RocksDB round-trip.
     let pending = self.pending.clone();
+    let scheduler_states = self.scheduler_states.clone();
 
     let snapshot_idx: u64 = SystemTime::now()
       .duration_since(UNIX_EPOCH)
@@ -206,6 +226,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let snapshot_file = SnapshotFile {
       meta: meta.clone(),
       pending,
+      scheduler_states,
       tasks,
     };
     let file_bytes = serialize(&snapshot_file).map_err(|e| {
@@ -247,6 +268,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     // Clone the in-memory pending state — avoids a RocksDB read on every apply.
     let mut pending = self.pending.clone();
     let mut pending_ids = self.pending_ids.clone();
+    let mut scheduler_states = self.scheduler_states.clone();
     let mut staged_tasks = BTreeMap::new();
     let mut last_applied_log = None;
     let mut last_membership: Option<StoredMembershipOf<TypeConfig>> = None;
@@ -262,6 +284,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
           &mut staged_tasks,
           &mut pending,
           &mut pending_ids,
+          &mut scheduler_states,
           command,
         )?,
         EntryPayload::Membership(ref mem) => {
@@ -286,6 +309,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       batch.put_cf(cf_meta, LAST_MEMBERSHIP_KEY, serialize(membership)?);
     }
     batch.put_cf(cf_meta, PENDING_QUEUE_KEY, serialize(&pending)?);
+    batch.put_cf(cf_meta, SCHEDULER_STATES_KEY, serialize(&scheduler_states)?);
 
     self
       .db
@@ -295,6 +319,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     // Commit the updated in-memory state only after the durable write succeeds.
     self.pending = pending;
     self.pending_ids = pending_ids;
+    self.scheduler_states = scheduler_states;
 
     for (responder, response) in responses {
       responder.send(response);
@@ -321,7 +346,10 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     let new_pending: VecDeque<String> = snapshot_file.pending.clone();
+    let new_scheduler_states = snapshot_file.scheduler_states.clone();
     let pending_bytes = serialize(&snapshot_file.pending)
+      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let scheduler_states_bytes = serialize(&snapshot_file.scheduler_states)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     let last_applied_bytes = meta
       .last_log_id
@@ -357,6 +385,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       }
       batch.put_cf(cf_meta, LAST_MEMBERSHIP_KEY, last_membership_bytes);
       batch.put_cf(cf_meta, PENDING_QUEUE_KEY, pending_bytes);
+      batch.put_cf(cf_meta, SCHEDULER_STATES_KEY, scheduler_states_bytes);
 
       db.write(batch)
         .map_err(|e| io::Error::other(e.to_string()))?;
@@ -371,6 +400,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     // Update in-memory pending state to match the installed snapshot.
     self.pending_ids = new_pending.iter().cloned().collect();
     self.pending = new_pending;
+    self.scheduler_states = new_scheduler_states;
 
     Ok(())
   }
@@ -414,6 +444,7 @@ impl RocksStateMachine {
     staged_tasks: &mut BTreeMap<String, TaskRecord>,
     pending: &mut VecDeque<String>,
     pending_ids: &mut HashSet<String>,
+    scheduler_states: &mut BTreeMap<String, SchedulerState>,
     command: &QueueCommand,
   ) -> Result<QueueResponse, io::Error> {
     match command {
@@ -564,7 +595,80 @@ impl RocksStateMachine {
         }
         Ok(QueueResponse::Reclaimed { count })
       }
+      QueueCommand::ScheduleBatch {
+        scheduler_id,
+        now,
+        interval_secs,
+        max_tasks,
+        tasks,
+      } => {
+        let state = scheduler_states.entry(scheduler_id.clone()).or_default();
+        if state
+          .last_tick
+          .is_some_and(|last_tick| now.saturating_sub(last_tick) < *interval_secs)
+        {
+          return Ok(QueueResponse::Scheduled {
+            scheduler_id: scheduler_id.clone(),
+            count: 0,
+            total_generated: state.generated_task_ids.len(),
+            last_tick: state.last_tick,
+            generated_task_ids: Vec::new(),
+          });
+        }
+
+        let mut generated_task_ids = Vec::new();
+        for task in tasks {
+          if max_tasks.is_some_and(|limit| state.generated_task_ids.len() >= limit) {
+            break;
+          }
+          if self.load_task(staged_tasks, &task.task_id)?.is_some() {
+            continue;
+          }
+          if state.generated_task_ids.contains(&task.task_id) {
+            continue;
+          }
+          let mut task = task.clone();
+          task.status = TaskStatus::Pending;
+          task.lock_by = None;
+          task.result = None;
+          task.claimed_at = None;
+          self.insert_pending_task(batch, staged_tasks, pending, pending_ids, task.clone())?;
+          state.generated_task_ids.push(task.task_id.clone());
+          generated_task_ids.push(task.task_id);
+        }
+
+        state.last_tick = Some(*now);
+        state.runs = state.runs.saturating_add(1);
+
+        Ok(QueueResponse::Scheduled {
+          scheduler_id: scheduler_id.clone(),
+          count: generated_task_ids.len(),
+          total_generated: state.generated_task_ids.len(),
+          last_tick: state.last_tick,
+          generated_task_ids,
+        })
+      }
     }
+  }
+
+  fn insert_pending_task(
+    &self,
+    batch: &mut rocksdb::WriteBatch,
+    staged_tasks: &mut BTreeMap<String, TaskRecord>,
+    pending: &mut VecDeque<String>,
+    pending_ids: &mut HashSet<String>,
+    task: TaskRecord,
+  ) -> Result<(), io::Error> {
+    batch.put_cf(
+      self.cf_sm_data(),
+      task.task_id.as_bytes(),
+      serialize_task(&task)?,
+    );
+    staged_tasks.insert(task.task_id.clone(), task.clone());
+    if pending_ids.insert(task.task_id.clone()) {
+      pending.push_back(task.task_id);
+    }
+    Ok(())
   }
 
   fn claim_next(
@@ -633,4 +737,123 @@ impl RocksStateMachine {
 
 fn serialize_task(task: &TaskRecord) -> Result<Vec<u8>, io::Error> {
   sonic_rs::to_vec(task).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn pending_task(task_id: &str) -> TaskRecord {
+    TaskRecord::pending(task_id, vec![1, 2, 3], 0)
+  }
+
+  fn schedule(
+    state_machine: &RocksStateMachine,
+    staged_tasks: &mut BTreeMap<String, TaskRecord>,
+    pending: &mut VecDeque<String>,
+    pending_ids: &mut HashSet<String>,
+    scheduler_states: &mut BTreeMap<String, SchedulerState>,
+    now: u64,
+    tasks: Vec<TaskRecord>,
+  ) -> QueueResponse {
+    let mut batch = rocksdb::WriteBatch::default();
+    state_machine
+      .apply_command(
+        &mut batch,
+        staged_tasks,
+        pending,
+        pending_ids,
+        scheduler_states,
+        &QueueCommand::ScheduleBatch {
+          scheduler_id: "demo-scheduler".to_string(),
+          now,
+          interval_secs: 10,
+          max_tasks: Some(3),
+          tasks,
+        },
+      )
+      .expect("schedule batch")
+  }
+
+  #[tokio::test]
+  async fn schedule_batch_is_idempotent_rate_limited_and_bounded() {
+    let temp_dir = tempfile::TempDir::new().expect("temp dir");
+    let (_, state_machine) = crate::rocksstore_crud::new::<TypeConfig, _>(temp_dir.path())
+      .await
+      .expect("state machine");
+    let mut staged_tasks = BTreeMap::new();
+    let mut pending = VecDeque::new();
+    let mut pending_ids = HashSet::new();
+    let mut scheduler_states = BTreeMap::new();
+
+    let first = schedule(
+      &state_machine,
+      &mut staged_tasks,
+      &mut pending,
+      &mut pending_ids,
+      &mut scheduler_states,
+      100,
+      vec![pending_task("scheduled-0"), pending_task("scheduled-1")],
+    );
+    assert!(matches!(
+      first,
+      QueueResponse::Scheduled {
+        count: 2,
+        total_generated: 2,
+        ..
+      }
+    ));
+
+    let too_soon = schedule(
+      &state_machine,
+      &mut staged_tasks,
+      &mut pending,
+      &mut pending_ids,
+      &mut scheduler_states,
+      105,
+      vec![pending_task("scheduled-2")],
+    );
+    assert!(matches!(
+      too_soon,
+      QueueResponse::Scheduled {
+        count: 0,
+        total_generated: 2,
+        last_tick: Some(100),
+        ..
+      }
+    ));
+
+    let bounded = schedule(
+      &state_machine,
+      &mut staged_tasks,
+      &mut pending,
+      &mut pending_ids,
+      &mut scheduler_states,
+      110,
+      vec![
+        pending_task("scheduled-1"),
+        pending_task("scheduled-2"),
+        pending_task("scheduled-3"),
+      ],
+    );
+    match bounded {
+      QueueResponse::Scheduled {
+        count,
+        total_generated,
+        generated_task_ids,
+        ..
+      } => {
+        assert_eq!(count, 1);
+        assert_eq!(total_generated, 3);
+        assert_eq!(generated_task_ids, vec!["scheduled-2".to_string()]);
+      }
+      other => panic!("unexpected response: {other:?}"),
+    }
+
+    assert_eq!(pending.len(), 3);
+    assert!(pending_ids.contains("scheduled-0"));
+    assert!(pending_ids.contains("scheduled-1"));
+    assert!(pending_ids.contains("scheduled-2"));
+    assert!(!pending_ids.contains("scheduled-3"));
+  }
 }
