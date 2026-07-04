@@ -1,0 +1,7 @@
+[package]
+name = "memmap2_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+memmap2 = "0.9.11"
