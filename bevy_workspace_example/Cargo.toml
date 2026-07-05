@@ -1,15 +1,15 @@
 [workspace]
-resolver = "2" # Important! wgpu/Bevy needs this!
+resolver = "3"
 
 members = [
-        "bevy_ecs_example",
-        "bevy_setup_example",
-        "bevy_arpg_example",
-        "bevy_single_player_example",
-        "bevy_quinnet_chat_server_example",
-        "bevy_quinnet_chat_client_example",
-        "bevy_quinnet_breakout_server_example",
-        "naia-bevy-demo-shared",
-        "bevy_naia_server_example",
-        "bevy_naia_client_example",
+  "bevy_ecs_example",
+  "bevy_setup_example",
+  "bevy_arpg_example",
+  "bevy_single_player_example",
+  "bevy_quinnet_chat_server_example",
+  "bevy_quinnet_chat_client_example",
+  "bevy_quinnet_breakout_server_example",
+  # "naia-bevy-demo-shared",
+  # "bevy_naia_server_example",
+  # "bevy_naia_client_example",
 ]
