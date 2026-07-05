@@ -1,65 +1,79 @@
-use std::{fmt, fmt::Debug, io, marker::PhantomData, ops::RangeBounds};
+use std::{fmt, fmt::Debug, io, marker::PhantomData, ops::RangeBounds, sync::Arc};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use fjall::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
 use openraft::{
   LogState, OptionalSend, RaftLogReader, RaftTypeConfig,
   alias::{EntryOf, LogIdOf, VoteOf},
   entry::RaftEntry,
   storage::{IOFlushed, RaftLogStorage},
-  type_config::TypeConfigExt,
 };
+use rocksdb::{ColumnFamily, DB, Direction, WriteOptions};
+
+const META_CF: &str = "meta";
+const LOGS_CF: &str = "logs";
 
 #[derive(Clone)]
-pub struct FjallLogStore<C>
+pub struct RocksLogStore<C>
 where
   C: RaftTypeConfig,
 {
-  db: Database,
-  meta: Keyspace,
-  logs: Keyspace,
+  db: Arc<DB>,
   _p: PhantomData<C>,
 }
 
-impl<C> Debug for FjallLogStore<C>
+impl<C> Debug for RocksLogStore<C>
 where
   C: RaftTypeConfig,
 {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("FjallLogStore").finish_non_exhaustive()
+    f.debug_struct("RocksLogStore").finish_non_exhaustive()
   }
 }
 
-impl<C> FjallLogStore<C>
+impl<C> RocksLogStore<C>
 where
   C: RaftTypeConfig,
 {
-  pub fn new(db: Database) -> Result<Self, io::Error> {
-    let meta = db
-      .keyspace("meta", KeyspaceCreateOptions::default)
-      .map_err(read_logs_err)?;
-    let logs = db
-      .keyspace("logs", KeyspaceCreateOptions::default)
-      .map_err(read_logs_err)?;
+  pub fn new(db: Arc<DB>) -> Result<Self, io::Error> {
+    db.cf_handle(META_CF)
+      .ok_or_else(|| io::Error::other(format!("column family `{META_CF}` not found")))?;
+    db.cf_handle(LOGS_CF)
+      .ok_or_else(|| io::Error::other(format!("column family `{LOGS_CF}` not found")))?;
 
     Ok(Self {
       db,
-      meta,
-      logs,
       _p: PhantomData,
     })
+  }
+
+  fn cf_meta(&self) -> &ColumnFamily {
+    self
+      .db
+      .cf_handle(META_CF)
+      .expect("column family `meta` not found")
+  }
+
+  fn cf_logs(&self) -> &ColumnFamily {
+    self
+      .db
+      .cf_handle(LOGS_CF)
+      .expect("column family `logs` not found")
   }
 
   /// Get a store metadata.
   ///
   /// It returns `None` if the store does not have such a metadata stored.
   fn get_meta<M: StoreMeta<C>>(&self) -> Result<Option<M::Value>, io::Error> {
-    let Some(bytes) = self.meta.get(M::KEY).map_err(read_logs_err)? else {
+    let Some(bytes) = self
+      .db
+      .get_cf(self.cf_meta(), M::KEY)
+      .map_err(read_logs_err)?
+    else {
       return Ok(None);
     };
 
-    let t = sonic_rs::from_slice(bytes.as_ref())
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let t =
+      sonic_rs::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     Ok(Some(t))
   }
@@ -69,22 +83,17 @@ where
     let value =
       sonic_rs::to_vec(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    self.meta.insert(M::KEY, value).map_err(read_logs_err)
+    self
+      .db
+      .put_cf_opt(self.cf_meta(), M::KEY, value, &durable_write_options())
+      .map_err(read_logs_err)
   }
 
   fn remove_meta<M: StoreMeta<C>>(&self) -> Result<(), io::Error> {
-    self.meta.remove(M::KEY).map_err(read_logs_err)
-  }
-
-  async fn persist_sync(&self) -> Result<(), io::Error> {
-    let db = self.db.clone();
-    C::spawn_blocking(move || {
-      db.persist(PersistMode::SyncAll)
-        .map_err(|e| io::Error::other(e.to_string()))
-    })
-    .await??;
-
-    Ok(())
+    self
+      .db
+      .delete_cf_opt(self.cf_meta(), M::KEY, &durable_write_options())
+      .map_err(read_logs_err)
   }
 
   fn remove_logs_from(&self, start_index: u64) -> Result<(), io::Error> {
@@ -94,31 +103,54 @@ where
 
   fn purge_logs_through(&self, log_id: &LogIdOf<C>) -> Result<(), io::Error> {
     let keys = self.collect_log_keys(id_to_bin(0) ..= id_to_bin(log_id.index()))?;
-    let mut batch = self.db.batch();
+    let mut batch = rocksdb::WriteBatch::default();
     let value =
       sonic_rs::to_vec(log_id).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    batch.insert(&self.meta, <meta::LastPurged as StoreMeta<C>>::KEY, value);
+    batch.put_cf(
+      self.cf_meta(),
+      <meta::LastPurged as StoreMeta<C>>::KEY,
+      value,
+    );
 
     for key in keys {
-      batch.remove(&self.logs, key);
+      batch.delete_cf(self.cf_logs(), key);
     }
 
-    batch.commit().map_err(read_logs_err)
+    write_batch_sync(&self.db, batch)
   }
 
   fn collect_log_keys<R>(&self, range: R) -> Result<Vec<Vec<u8>>, io::Error>
   where
     R: RangeBounds<Vec<u8>>,
   {
-    self
-      .logs
-      .range(range)
-      .map(|item| {
-        let (key, _) = item.into_inner().map_err(read_logs_err)?;
-        Ok(key.as_ref().to_vec())
-      })
-      .collect()
+    let start = match range.start_bound() {
+      std::ops::Bound::Included(key) => key.clone(),
+      std::ops::Bound::Excluded(key) => {
+        let Some(start) = bin_to_id(key).checked_add(1) else {
+          return Ok(Vec::new());
+        };
+        id_to_bin(start)
+      }
+      std::ops::Bound::Unbounded => id_to_bin(0),
+    };
+
+    let iter = self.db.iterator_cf(
+      self.cf_logs(),
+      rocksdb::IteratorMode::From(&start, Direction::Forward),
+    );
+    let mut keys = Vec::new();
+
+    for item in iter {
+      let (key, _) = item.map_err(read_logs_err)?;
+      let key = key.to_vec();
+      if !range.contains(&key) {
+        break;
+      }
+      keys.push(key);
+    }
+
+    Ok(keys)
   }
 
   fn remove_log_keys(&self, keys: Vec<Vec<u8>>) -> Result<(), io::Error> {
@@ -126,16 +158,16 @@ where
       return Ok(());
     }
 
-    let mut batch = self.db.batch();
+    let mut batch = rocksdb::WriteBatch::default();
     for key in keys {
-      batch.remove(&self.logs, key);
+      batch.delete_cf(self.cf_logs(), key);
     }
 
-    batch.commit().map_err(read_logs_err)
+    write_batch_sync(&self.db, batch)
   }
 }
 
-impl<C> RaftLogReader<C> for FjallLogStore<C>
+impl<C> RaftLogReader<C> for RocksLogStore<C>
 where
   C: RaftTypeConfig,
 {
@@ -155,9 +187,13 @@ where
     };
 
     let mut res = Vec::new();
+    let iter = self.db.iterator_cf(
+      self.cf_logs(),
+      rocksdb::IteratorMode::From(&start, Direction::Forward),
+    );
 
-    for item in self.logs.range(start ..) {
-      let (id, val) = item.into_inner().map_err(read_logs_err)?;
+    for item in iter {
+      let (id, val) = item.map_err(read_logs_err)?;
 
       let id = bin_to_id(id.as_ref());
       if !range.contains(&id) {
@@ -178,19 +214,22 @@ where
   }
 }
 
-impl<C> RaftLogStorage<C> for FjallLogStore<C>
+impl<C> RaftLogStorage<C> for RocksLogStore<C>
 where
   C: RaftTypeConfig,
 {
   type LogReader = Self;
 
   async fn get_log_state(&mut self) -> Result<LogState<C>, io::Error> {
-    let last = self.logs.iter().next_back();
+    let last = self
+      .db
+      .iterator_cf(self.cf_logs(), rocksdb::IteratorMode::End)
+      .next();
 
     let last_log_id = match last {
       None => None,
       Some(item) => {
-        let (_log_index, entry_bytes) = item.into_inner().map_err(read_logs_err)?;
+        let (_log_index, entry_bytes) = item.map_err(read_logs_err)?;
         let ent =
           sonic_rs::from_slice::<EntryOf<C>>(entry_bytes.as_ref()).map_err(read_logs_err)?;
         Some(ent.log_id())
@@ -215,17 +254,14 @@ where
   }
 
   async fn save_vote(&mut self, vote: &VoteOf<C>) -> Result<(), io::Error> {
-    self.put_meta::<meta::Vote>(vote)?;
-    self.persist_sync().await
+    self.put_meta::<meta::Vote>(vote)
   }
 
   async fn save_committed(&mut self, committed: Option<LogIdOf<C>>) -> Result<(), io::Error> {
     match committed {
-      Some(log_id) => self.put_meta::<meta::Committed>(&log_id)?,
-      None => self.remove_meta::<meta::Committed>()?,
+      Some(log_id) => self.put_meta::<meta::Committed>(&log_id),
+      None => self.remove_meta::<meta::Committed>(),
     }
-
-    self.persist_sync().await
   }
 
   async fn read_committed(&mut self) -> Result<Option<LogIdOf<C>>, io::Error> {
@@ -236,27 +272,16 @@ where
   where
     I: IntoIterator<Item = EntryOf<C>> + Send,
   {
-    let mut batch = self.db.batch();
+    let mut batch = rocksdb::WriteBatch::default();
     for entry in entries {
       let id = id_to_bin(entry.index());
       let value =
         sonic_rs::to_vec(&entry).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-      batch.insert(&self.logs, id, value);
+      batch.put_cf(self.cf_logs(), id, value);
     }
 
-    batch.commit().map_err(read_logs_err)?;
-
-    // Make sure the logs are persisted to disk before invoking the callback.
-    //
-    // The batch commit happens in this function so the appended entries are
-    // readable before returning, while the durable sync can complete later.
-    let db = self.db.clone();
-    std::thread::spawn(move || {
-      let res = db
-        .persist(PersistMode::SyncAll)
-        .map_err(|e| io::Error::other(e.to_string()));
-      callback.io_completed(res);
-    });
+    write_batch_sync(&self.db, batch)?;
+    callback.io_completed(Ok(()));
 
     Ok(())
   }
@@ -271,15 +296,13 @@ where
       return Ok(());
     };
 
-    self.remove_logs_from(start_index)?;
-    self.persist_sync().await
+    self.remove_logs_from(start_index)
   }
 
   async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
     tracing::debug!("delete_log: [0, {:?}]", log_id);
 
-    self.purge_logs_through(&log_id)?;
-    self.persist_sync().await
+    self.purge_logs_through(&log_id)
   }
 }
 
@@ -298,7 +321,7 @@ mod meta {
   where
     C: RaftTypeConfig,
   {
-    /// The key used to store in fjall.
+    /// The key used to store in RocksDB.
     const KEY: &'static str;
 
     /// The type of the value to store.
@@ -351,14 +374,26 @@ fn bin_to_id(buf: &[u8]) -> u64 {
     .expect("log keys are always encoded as 8-byte u64")
 }
 
+fn durable_write_options() -> WriteOptions {
+  let mut opts = WriteOptions::default();
+  opts.set_sync(true);
+  opts.disable_wal(false);
+  opts
+}
+
+fn write_batch_sync(db: &DB, batch: rocksdb::WriteBatch) -> Result<(), io::Error> {
+  db.write_opt(batch, &durable_write_options())
+    .map_err(read_logs_err)
+}
+
 fn read_logs_err(e: impl std::error::Error + 'static) -> io::Error {
   io::Error::other(e.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-  use fjall::Database;
   use openraft::{RaftTypeConfig, alias::LogIdOf, storage::RaftLogStorage, vote::RaftLeaderIdExt};
+  use rocksdb::{ColumnFamilyDescriptor, Options};
 
   use super::*;
   use crate::rocksstore_crud::{RocksNodeId, TypeConfig};
@@ -371,15 +406,13 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn fjall_log_store_reopens_committed_log_id() {
+  async fn rocks_log_store_reopens_committed_log_id() {
     let temp = tempfile::tempdir().expect("create temp dir");
     let committed = log_id(7);
 
     {
-      let db = Database::builder(temp.path())
-        .open()
-        .expect("open fjall db");
-      let mut store = FjallLogStore::<TypeConfig>::new(db).expect("create log store");
+      let db = open_test_db(temp.path());
+      let mut store = RocksLogStore::<TypeConfig>::new(db).expect("create log store");
       store
         .save_committed(Some(committed.clone()))
         .await
@@ -387,10 +420,8 @@ mod tests {
     }
 
     {
-      let db = Database::builder(temp.path())
-        .open()
-        .expect("reopen fjall db");
-      let mut store = FjallLogStore::<TypeConfig>::new(db).expect("recreate log store");
+      let db = open_test_db(temp.path());
+      let mut store = RocksLogStore::<TypeConfig>::new(db).expect("recreate log store");
       assert_eq!(
         Some(committed.clone()),
         store.read_committed().await.expect("read committed")
@@ -399,10 +430,8 @@ mod tests {
     }
 
     {
-      let db = Database::builder(temp.path())
-        .open()
-        .expect("reopen fjall db again");
-      let mut store = FjallLogStore::<TypeConfig>::new(db).expect("recreate log store again");
+      let db = open_test_db(temp.path());
+      let mut store = RocksLogStore::<TypeConfig>::new(db).expect("recreate log store again");
       assert_eq!(
         None,
         store
@@ -411,5 +440,14 @@ mod tests {
           .expect("read cleared committed")
       );
     }
+  }
+
+  fn open_test_db(path: &std::path::Path) -> Arc<DB> {
+    let mut opts = Options::default();
+    opts.create_missing_column_families(true);
+    opts.create_if_missing(true);
+    let meta = ColumnFamilyDescriptor::new(META_CF, Options::default());
+    let logs = ColumnFamilyDescriptor::new(LOGS_CF, Options::default());
+    Arc::new(DB::open_cf_descriptors(&opts, path, vec![meta, logs]).expect("open rocksdb"))
   }
 }

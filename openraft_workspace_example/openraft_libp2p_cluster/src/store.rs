@@ -1,4 +1,4 @@
-//! Hybrid storage: Fjall-backed Raft logs with a RocksDB-backed state machine.
+//! RocksDB-backed Raft logs and state machine.
 
 use std::{
   ffi::OsString,
@@ -13,13 +13,13 @@ use rocksdb::{ColumnFamilyRef, DB, Options};
 
 use crate::{
   rocksstore_crud::{
-    RocksStateMachine, TypeConfig, log_store::FjallLogStore,
+    RocksStateMachine, TypeConfig, log_store::RocksLogStore,
     state_machine::read_latest_snapshot_meta,
   },
   typ::{LinearizableReadError, Raft, RaftError, StoredMembership},
 };
 
-pub type LogStore = FjallLogStore<TypeConfig>;
+pub type LogStore = RocksLogStore<TypeConfig>;
 pub type StateMachineStore = RocksStateMachine;
 
 const SM_DATA_CF: &str = "sm_data";
@@ -121,7 +121,7 @@ pub async fn open_store<P: AsRef<Path>>(
 ) -> anyhow::Result<(LogStore, StateMachineStore)> {
   crate::rocksstore_crud::new::<TypeConfig, _>(db_dir)
     .await
-    .context("open fjall log and rocksdb state store")
+    .context("open rocksdb log and state store")
 }
 
 pub fn group_db_dir(base_dir: &Path, group_id: &str) -> PathBuf {

@@ -268,6 +268,7 @@ fn deserialize_io<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, io::E
 fn durable_write_options() -> WriteOptions {
   let mut opts = WriteOptions::default();
   opts.set_sync(true);
+  opts.disable_wal(false);
   opts
 }
 
