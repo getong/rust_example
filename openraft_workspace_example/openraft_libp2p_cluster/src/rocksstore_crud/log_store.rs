@@ -1,7 +1,7 @@
-use std::{error::Error, fmt::Debug, io, marker::PhantomData, ops::RangeBounds, sync::Arc};
+use std::{fmt, fmt::Debug, io, marker::PhantomData, ops::RangeBounds};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use meta::StoreMeta;
+use fjall::{Database, Keyspace, KeyspaceCreateOptions, PersistMode};
 use openraft::{
   LogState, OptionalSend, RaftLogReader, RaftTypeConfig,
   alias::{EntryOf, LogIdOf, VoteOf},
@@ -9,75 +9,108 @@ use openraft::{
   storage::{IOFlushed, RaftLogStorage},
   type_config::TypeConfigExt,
 };
-use rocksdb::{ColumnFamily, DB, Direction};
 
-#[derive(Debug, Clone)]
-pub struct RocksLogStore<C>
+#[derive(Clone)]
+pub struct FjallLogStore<C>
 where
   C: RaftTypeConfig,
 {
-  db: Arc<DB>,
+  db: Database,
+  meta: Keyspace,
+  logs: Keyspace,
   _p: PhantomData<C>,
 }
 
-impl<C> RocksLogStore<C>
+impl<C> Debug for FjallLogStore<C>
 where
   C: RaftTypeConfig,
 {
-  pub fn new(db: Arc<DB>) -> Self {
-    db.cf_handle("meta")
-      .expect("column family `meta` not found");
-    db.cf_handle("logs")
-      .expect("column family `logs` not found");
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("FjallLogStore").finish_non_exhaustive()
+  }
+}
 
-    Self {
+impl<C> FjallLogStore<C>
+where
+  C: RaftTypeConfig,
+{
+  pub fn new(db: Database) -> Result<Self, io::Error> {
+    let meta = db
+      .keyspace("meta", KeyspaceCreateOptions::default)
+      .map_err(read_logs_err)?;
+    let logs = db
+      .keyspace("logs", KeyspaceCreateOptions::default)
+      .map_err(read_logs_err)?;
+
+    Ok(Self {
       db,
-      _p: Default::default(),
-    }
-  }
-
-  fn cf_meta(&self) -> &ColumnFamily {
-    self.db.cf_handle("meta").unwrap()
-  }
-
-  fn cf_logs(&self) -> &ColumnFamily {
-    self.db.cf_handle("logs").unwrap()
+      meta,
+      logs,
+      _p: PhantomData,
+    })
   }
 
   /// Get a store metadata.
   ///
   /// It returns `None` if the store does not have such a metadata stored.
   fn get_meta<M: StoreMeta<C>>(&self) -> Result<Option<M::Value>, io::Error> {
-    let bytes = self
-      .db
-      .get_cf(self.cf_meta(), M::KEY)
-      .map_err(|e| io::Error::other(e.to_string()))?;
-
-    let Some(bytes) = bytes else {
+    let Some(bytes) = self.meta.get(M::KEY).map_err(read_logs_err)? else {
       return Ok(None);
     };
 
-    let t =
-      sonic_rs::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let t = sonic_rs::from_slice(bytes.as_ref())
+      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     Ok(Some(t))
   }
 
   /// Save a store metadata.
   fn put_meta<M: StoreMeta<C>>(&self, value: &M::Value) -> Result<(), io::Error> {
-    let json_value =
+    let value =
       sonic_rs::to_vec(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    self
-      .db
-      .put_cf(self.cf_meta(), M::KEY, json_value)
-      .map_err(|e| io::Error::other(e.to_string()))?;
+    self.meta.insert(M::KEY, value).map_err(read_logs_err)
+  }
 
-    Ok(())
+  fn remove_logs_from(&self, start_index: u64) -> Result<(), io::Error> {
+    let keys = self.collect_log_keys(id_to_bin(start_index) ..)?;
+    self.remove_log_keys(keys)
+  }
+
+  fn remove_logs_through(&self, end_index: u64) -> Result<(), io::Error> {
+    let keys = self.collect_log_keys(id_to_bin(0) ..= id_to_bin(end_index))?;
+    self.remove_log_keys(keys)
+  }
+
+  fn collect_log_keys<R>(&self, range: R) -> Result<Vec<Vec<u8>>, io::Error>
+  where
+    R: RangeBounds<Vec<u8>>,
+  {
+    self
+      .logs
+      .range(range)
+      .map(|item| {
+        let (key, _) = item.into_inner().map_err(read_logs_err)?;
+        Ok(key.as_ref().to_vec())
+      })
+      .collect()
+  }
+
+  fn remove_log_keys(&self, keys: Vec<Vec<u8>>) -> Result<(), io::Error> {
+    if keys.is_empty() {
+      return Ok(());
+    }
+
+    let mut batch = self.db.batch();
+    for key in keys {
+      batch.remove(&self.logs, key);
+    }
+
+    batch.commit().map_err(read_logs_err)
   }
 }
 
-impl<C> RaftLogReader<C> for RocksLogStore<C>
+impl<C> RaftLogReader<C> for FjallLogStore<C>
 where
   C: RaftTypeConfig,
 {
@@ -87,25 +120,26 @@ where
   ) -> Result<Vec<C::Entry>, io::Error> {
     let start = match range.start_bound() {
       std::ops::Bound::Included(x) => id_to_bin(*x),
-      std::ops::Bound::Excluded(x) => id_to_bin(*x + 1),
+      std::ops::Bound::Excluded(x) => {
+        let Some(start) = x.checked_add(1) else {
+          return Ok(Vec::new());
+        };
+        id_to_bin(start)
+      }
       std::ops::Bound::Unbounded => id_to_bin(0),
     };
 
     let mut res = Vec::new();
 
-    let it = self.db.iterator_cf(
-      self.cf_logs(),
-      rocksdb::IteratorMode::From(&start, Direction::Forward),
-    );
-    for item_res in it {
-      let (id, val) = item_res.map_err(read_logs_err)?;
+    for item in self.logs.range(start ..) {
+      let (id, val) = item.into_inner().map_err(read_logs_err)?;
 
-      let id = bin_to_id(&id);
+      let id = bin_to_id(id.as_ref());
       if !range.contains(&id) {
         break;
       }
 
-      let entry: EntryOf<C> = sonic_rs::from_slice(&val).map_err(read_logs_err)?;
+      let entry: EntryOf<C> = sonic_rs::from_slice(val.as_ref()).map_err(read_logs_err)?;
 
       assert_eq!(id, entry.index());
 
@@ -119,23 +153,21 @@ where
   }
 }
 
-impl<C> RaftLogStorage<C> for RocksLogStore<C>
+impl<C> RaftLogStorage<C> for FjallLogStore<C>
 where
   C: RaftTypeConfig,
 {
   type LogReader = Self;
 
   async fn get_log_state(&mut self) -> Result<LogState<C>, io::Error> {
-    let last = self
-      .db
-      .iterator_cf(self.cf_logs(), rocksdb::IteratorMode::End)
-      .next();
+    let last = self.logs.iter().next_back();
 
     let last_log_id = match last {
       None => None,
-      Some(res) => {
-        let (_log_index, entry_bytes) = res.map_err(read_logs_err)?;
-        let ent = sonic_rs::from_slice::<EntryOf<C>>(&entry_bytes).map_err(read_logs_err)?;
+      Some(item) => {
+        let (_log_index, entry_bytes) = item.into_inner().map_err(read_logs_err)?;
+        let ent =
+          sonic_rs::from_slice::<EntryOf<C>>(entry_bytes.as_ref()).map_err(read_logs_err)?;
         Some(ent.log_id())
       }
     };
@@ -163,7 +195,7 @@ where
     // Vote must be persisted to disk before returning.
     let db = self.db.clone();
     C::spawn_blocking(move || {
-      db.flush_wal(true)
+      db.persist(PersistMode::SyncAll)
         .map_err(|e| io::Error::other(e.to_string()))
     })
     .await??;
@@ -175,49 +207,42 @@ where
   where
     I: IntoIterator<Item = EntryOf<C>> + Send,
   {
+    let mut batch = self.db.batch();
     for entry in entries {
       let id = id_to_bin(entry.index());
-      self
-        .db
-        .put_cf(
-          self.cf_logs(),
-          id,
-          sonic_rs::to_vec(&entry).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-        )
-        .map_err(|e| io::Error::other(e.to_string()))?;
+      let value =
+        sonic_rs::to_vec(&entry).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+      batch.insert(&self.logs, id, value);
     }
+
+    batch.commit().map_err(read_logs_err)?;
 
     // Make sure the logs are persisted to disk before invoking the callback.
     //
-    // But the above `pub_cf()` must be called in this function, not in another task.
-    // Because when the function returns, it requires the log entries can be read.
+    // The batch commit happens in this function so the appended entries are
+    // readable before returning, while the durable sync can complete later.
     let db = self.db.clone();
     std::thread::spawn(move || {
-      let res = db.flush_wal(true).map_err(io::Error::other);
+      let res = db
+        .persist(PersistMode::SyncAll)
+        .map_err(|e| io::Error::other(e.to_string()));
       callback.io_completed(res);
     });
 
-    // Return now, and the callback will be invoked later when IO is done.
     Ok(())
   }
 
   async fn truncate_after(&mut self, last_log_id: Option<LogIdOf<C>>) -> Result<(), io::Error> {
     tracing::debug!("truncate_after: ({:?}, +oo)", last_log_id);
 
-    let start_index = match last_log_id {
-      Some(log_id) => log_id.index() + 1,
-      None => 0,
+    let Some(start_index) = last_log_id
+      .map(|log_id| log_id.index().checked_add(1))
+      .unwrap_or(Some(0))
+    else {
+      return Ok(());
     };
 
-    let from = id_to_bin(start_index);
-    let to = id_to_bin(u64::MAX);
-    self
-      .db
-      .delete_range_cf(self.cf_logs(), &from, &to)
-      .map_err(|e| io::Error::other(e.to_string()))?;
-
-    // Truncating does not need to be persisted.
-    Ok(())
+    self.remove_logs_from(start_index)
   }
 
   async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
@@ -225,18 +250,9 @@ where
 
     // Write the last-purged log id before purging the logs.
     // The logs at and before last-purged log id will be ignored by openraft.
-    // Therefore, there is no need to do it in a transaction.
+    // Therefore, there is no need to force a synchronous disk flush here.
     self.put_meta::<meta::LastPurged>(&log_id)?;
-
-    let from = id_to_bin(0);
-    let to = id_to_bin(log_id.index() + 1);
-    self
-      .db
-      .delete_range_cf(self.cf_logs(), &from, &to)
-      .map_err(|e| io::Error::other(e.to_string()))?;
-
-    // Purging does not need to be persistent.
-    Ok(())
+    self.remove_logs_through(log_id.index())
   }
 }
 
@@ -255,10 +271,10 @@ mod meta {
   where
     C: RaftTypeConfig,
   {
-    /// The key used to store in rocksdb
+    /// The key used to store in fjall.
     const KEY: &'static str;
 
-    /// The type of the value to store
+    /// The type of the value to store.
     type Value: serde::Serialize + serde::de::DeserializeOwned;
   }
 
@@ -281,18 +297,24 @@ mod meta {
   }
 }
 
-/// converts an id to a byte vector for storing in the database.
-/// Note that we're using big endian encoding to ensure correct sorting of keys
+use meta::StoreMeta;
+
+/// Converts an id to a byte vector for storing in the database.
+/// Big-endian encoding preserves numeric ordering in lexicographic key scans.
 fn id_to_bin(id: u64) -> Vec<u8> {
   let mut buf = Vec::with_capacity(8);
-  buf.write_u64::<BigEndian>(id).unwrap();
+  buf
+    .write_u64::<BigEndian>(id)
+    .expect("writing u64 into Vec cannot fail");
   buf
 }
 
 fn bin_to_id(buf: &[u8]) -> u64 {
-  (&buf[0 .. 8]).read_u64::<BigEndian>().unwrap()
+  (&buf[0 .. 8])
+    .read_u64::<BigEndian>()
+    .expect("log keys are always encoded as 8-byte u64")
 }
 
-fn read_logs_err(e: impl Error + 'static) -> io::Error {
+fn read_logs_err(e: impl std::error::Error + 'static) -> io::Error {
   io::Error::other(e.to_string())
 }

@@ -1,7 +1,7 @@
-//! This rocks-db backed storage implement the v2 storage API: [`RaftLogStorage`] and
-//! [`RaftStateMachine`] traits. The state machine stores all data directly in RocksDB,
-//! providing full persistence. Log entries are applied directly to disk, and snapshots
-//! use RocksDB's snapshot mechanism for consistent point-in-time views.
+//! Storage implementation for the v2 storage API: [`RaftLogStorage`] and
+//! [`RaftStateMachine`] traits. Raft logs are backed by Fjall, while the state
+//! machine stores application data directly in RocksDB and uses RocksDB's snapshot
+//! mechanism for consistent point-in-time views.
 #![allow(clippy::uninlined_format_args)]
 
 pub mod log_store;
@@ -12,11 +12,12 @@ mod test;
 
 use std::{convert::Infallible, fmt, io, path::Path, str::FromStr, sync::Arc};
 
+use fjall::Database as FjallDatabase;
 use openraft::RaftTypeConfig;
 use rocksdb::{ColumnFamilyDescriptor, DB, Options};
 use serde::{Deserialize, Serialize};
 
-use self::log_store::RocksLogStore;
+use self::log_store::FjallLogStore;
 pub use self::state_machine::RocksStateMachine;
 use crate::types_kv;
 
@@ -139,11 +140,10 @@ impl From<RocksRequest> for types_kv::Request {
   }
 }
 
-/// Create a pair of `RocksLogStore` and `RocksStateMachine` that are backed by a same rocks db
-/// instance.
+/// Create a pair of `FjallLogStore` and `RocksStateMachine`.
 pub async fn new<C, P: AsRef<Path>>(
   db_path: P,
-) -> Result<(RocksLogStore<C>, RocksStateMachine), io::Error>
+) -> Result<(FjallLogStore<C>, RocksStateMachine), io::Error>
 where
   C: RaftTypeConfig,
 {
@@ -162,9 +162,17 @@ where
   let db = DB::open_cf_descriptors(&db_opts, db_path, vec![meta, sm_meta, sm_data, logs])
     .map_err(io::Error::other)?;
 
+  let log_db = FjallDatabase::builder(db_path.join("fjall-log"))
+    .open()
+    .map_err(read_fjall_err)?;
+
   let db = Arc::new(db);
   Ok((
-    RocksLogStore::new(db.clone()),
+    FjallLogStore::new(log_db)?,
     RocksStateMachine::new(db, snapshot_dir).await?,
   ))
+}
+
+fn read_fjall_err(e: impl std::error::Error + 'static) -> io::Error {
+  io::Error::other(e.to_string())
 }

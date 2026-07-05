@@ -174,7 +174,7 @@ pub struct Opt {
   #[arg(long, default_value = "0.0.0.0:3000")]
   pub http: String,
 
-  /// Directory for RocksDB data.
+  /// Directory for persistent storage data.
   #[arg(long)]
   pub db: PathBuf,
 
