@@ -7,9 +7,9 @@ edition = "2024"
 [dependencies]
 openraft = { version = "0.10.0-alpha.27", features = ["serde", "type-alias"] }
 
-bytes = "1.0"
+bytes = "1.12"
 http-body-util = "0.1"
-hyper = { version = "1.0", features = ["http1", "server"] }
+hyper = { version = "1.10", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 log = "0.4"
 reqwest = { version = "0.13", features = ["json"] }
