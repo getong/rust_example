@@ -5,8 +5,9 @@
 Raft groups: `users`, `orders`, `products`. Default group is `users`.
 Use `group_id` in HTTP bodies, `--group` in CLI tools, or `?group=` on `/cluster`.
 
-Three-node local runs enable =console-subscriber= for tokio-console. Each node
-binds a different console port to avoid conflicts:
+Five-node local runs use the legacy =./run-3nodes.sh= launcher and enable
+=console-subscriber= for tokio-console. Each node binds a different console port
+to avoid conflicts:
 
 #+begin_src shell
 ./run-3nodes.sh
@@ -14,10 +15,13 @@ binds a different console port to avoid conflicts:
 tokio-console http://127.0.0.1:6669 # node1
 tokio-console http://127.0.0.1:6670 # node2
 tokio-console http://127.0.0.1:6671 # node3
+tokio-console http://127.0.0.1:6672 # node4
+tokio-console http://127.0.0.1:6673 # node5
 #+end_src
 
 Override the defaults with =NODE1_TOKIO_CONSOLE_BIND=,
-=NODE2_TOKIO_CONSOLE_BIND=, or =NODE3_TOKIO_CONSOLE_BIND= when needed.
+=NODE2_TOKIO_CONSOLE_BIND=, =NODE3_TOKIO_CONSOLE_BIND=,
+=NODE4_TOKIO_CONSOLE_BIND=, or =NODE5_TOKIO_CONSOLE_BIND= when needed.
 
 #+begin_src shell
 # set (default group: users)
@@ -92,8 +96,10 @@ Nodes start as libp2p workers by default. The node whose =--id= matches the
 configured =--bootstrap-node= id creates the initial OpenRaft cluster. Other
 nodes dial =--bootstrap-node= and ask the current OpenRaft leader to join;
 automatic startup join stops when the control membership reaches
-=--max-control-nodes=, which defaults to 3. Nodes accepted into OpenRaft
-membership promote to control nodes, and later nodes stay as workers.
+=--max-control-nodes=. The binary default is 3, while the local five-node
+launcher sets ~MAX_CONTROL_NODES=5~ and passes =--max-control-nodes 5=. Nodes
+accepted into OpenRaft membership promote to control nodes, and later nodes stay
+as workers.
 
 Tasks are stored in the =apalis= raft group under
 =apalis:apalis:task:<task-id>=. Worker lease records are stored under
@@ -102,7 +108,7 @@ active worker leases, writes the assigned worker and lease epoch through
 OpenRaft, and the target worker executes the task locally with apalis. Final
 task state is acknowledged back through the Raft-backed KV protocol.
 
-Start the control plane:
+Start the five-node control plane:
 
 #+begin_src shell
 ./run-3nodes.sh
@@ -239,7 +245,7 @@ Notes:
   is not configured by default.
 - You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
 
-- 用 ./run-3nodes.sh 启动三节点后验证：
+- 用 ./run-3nodes.sh 启动五节点后验证：
 - http://127.0.0.1:3001/graph
 - http://127.0.0.1:3001/graph.svg
 - http://127.0.0.1:3001/graph.dot

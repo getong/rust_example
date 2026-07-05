@@ -44,18 +44,27 @@ fi
 NODE1_NAME="${NODE1_NAME:-node1}"
 NODE2_NAME="${NODE2_NAME:-node2}"
 NODE3_NAME="${NODE3_NAME:-node3}"
+NODE4_NAME="${NODE4_NAME:-node4}"
+NODE5_NAME="${NODE5_NAME:-node5}"
 NODE1_DB="$DB_ROOT/${NODE1_NAME}-1"
 NODE2_DB="$DB_ROOT/${NODE2_NAME}-2"
 NODE3_DB="$DB_ROOT/${NODE3_NAME}-3"
+NODE4_DB="$DB_ROOT/${NODE4_NAME}-4"
+NODE5_DB="$DB_ROOT/${NODE5_NAME}-5"
 
 NODE1_LISTEN="${NODE1_LISTEN:-/ip4/127.0.0.1/tcp/4001/wss}"
 NODE2_LISTEN="${NODE2_LISTEN:-/ip4/127.0.0.1/tcp/4002/wss}"
 NODE3_LISTEN="${NODE3_LISTEN:-/ip4/127.0.0.1/tcp/4003/wss}"
+NODE4_LISTEN="${NODE4_LISTEN:-/ip4/127.0.0.1/tcp/4004/wss}"
+NODE5_LISTEN="${NODE5_LISTEN:-/ip4/127.0.0.1/tcp/4005/wss}"
 
 NODE1_HTTP="${NODE1_HTTP:-127.0.0.1:3001}"
 NODE2_HTTP="${NODE2_HTTP:-127.0.0.1:3002}"
 NODE3_HTTP="${NODE3_HTTP:-127.0.0.1:3003}"
+NODE4_HTTP="${NODE4_HTTP:-127.0.0.1:3004}"
+NODE5_HTTP="${NODE5_HTTP:-127.0.0.1:3005}"
 
+MAX_CONTROL_NODES="${MAX_CONTROL_NODES:-5}"
 NODE3_TOKIO_CONSOLE_BIND="${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
 
 LOG_DIR="$DB_ROOT/logs"
@@ -63,6 +72,8 @@ NODE3_LOG="$LOG_DIR/node3.log"
 NODE1_PEER_ID_FILE="$NODE1_DB/peer.id"
 NODE2_PEER_ID_FILE="$NODE2_DB/peer.id"
 NODE3_PEER_ID_FILE="$NODE3_DB/peer.id"
+NODE4_PEER_ID_FILE="$NODE4_DB/peer.id"
+NODE5_PEER_ID_FILE="$NODE5_DB/peer.id"
 
 WSS_CERT_DIR="${WSS_CERT_DIR:-$DB_ROOT/certs}"
 WSS_DNS_NAME="${WSS_DNS_NAME:-localhost}"
@@ -125,12 +136,12 @@ CERT_META="$WSS_CERT_DIR/params.txt"
 CERT_PROFILE="wss-v2"
 CERT_PARAMS="profile=$CERT_PROFILE;dns=$WSS_DNS_NAMES;ips=$WSS_IP_ADDRS"
 
-mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$LOG_DIR" "$WSS_CERT_DIR"
+mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$NODE4_DB" "$NODE5_DB" "$LOG_DIR" "$WSS_CERT_DIR"
 
 if [[ "${RESET:-0}" == "1" ]]; then
 	# Only makes sense when user explicitly sets DB_ROOT. With default unique DB_ROOT it is harmless.
 	rm -rf "$DB_ROOT"
-	mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$LOG_DIR" "$WSS_CERT_DIR"
+	mkdir -p "$NODE1_DB" "$NODE2_DB" "$NODE3_DB" "$NODE4_DB" "$NODE5_DB" "$LOG_DIR" "$WSS_CERT_DIR"
 fi
 
 echo "Workspace: $WS_DIR"
@@ -138,6 +149,8 @@ echo "DB root:   $DB_ROOT"
 echo "Node1 name: $NODE1_NAME"
 echo "Node2 name: $NODE2_NAME"
 echo "Node3 name: $NODE3_NAME"
+echo "Node4 name: $NODE4_NAME"
+echo "Node5 name: $NODE5_NAME"
 
 PEER_ID_WAIT_SECS="${PEER_ID_WAIT_SECS:-120}"
 GEN_SCRIPT="$ROOT_DIR/generate_libp2p_id.sh"
@@ -276,7 +289,7 @@ port_in_use() {
 if [[ "$NODE3_LISTEN" =~ /tcp/([0-9]+) ]]; then
 	if port_in_use "${BASH_REMATCH[1]}"; then
 		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE3_LISTEN=$NODE3_LISTEN)."
-		echo "Hint: stop the previous nodes, or set NODE1_LISTEN/NODE2_LISTEN/NODE3_LISTEN to other ports."
+		echo "Hint: stop the previous nodes, or set NODE*_LISTEN to other ports."
 		exit 1
 	fi
 fi
@@ -307,6 +320,7 @@ cmd=(
 	--listen "$NODE3_LISTEN"
 	--http "$NODE3_HTTP"
 	--db "$NODE3_DB"
+	--max-control-nodes "$MAX_CONTROL_NODES"
 	--ws-tls-key "$WS_TLS_KEY"
 	--ws-tls-cert "$WS_TLS_CERT"
 )

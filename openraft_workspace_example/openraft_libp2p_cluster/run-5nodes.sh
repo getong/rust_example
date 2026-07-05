@@ -50,6 +50,7 @@ REDIS_PORT="${REDIS_PORT:-6380}"
 REDIS_URL="${REDIS_URL:-redis://127.0.0.1:${REDIS_PORT}/}"
 DISABLE_SQLITE_CACHE="${DISABLE_SQLITE_CACHE:-0}"
 AUTO_START_REDIS="${AUTO_START_REDIS:-auto}"
+MAX_CONTROL_NODES="${MAX_CONTROL_NODES:-5}"
 REDIS_DIR="${REDIS_DIR:-$DB_ROOT/redis}"
 REDIS_LOG="${REDIS_LOG:-$DB_ROOT/logs/redis.log}"
 REDIS_SERVER_BIN="${REDIS_SERVER_BIN:-}"
@@ -290,7 +291,7 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 start_demo_redis
-export REDIS_URL DISABLE_SQLITE_CACHE
+export REDIS_URL DISABLE_SQLITE_CACHE MAX_CONTROL_NODES
 
 echo "Building..."
 cd "$WS_DIR"
@@ -298,19 +299,26 @@ cargo build -p openraft_libp2p_cluster >/dev/null
 
 export SKIP_BUILD=1
 
-echo "Starting 3 nodes (Ctrl-C to stop)..."
+echo "Starting 5 nodes (Ctrl-C to stop)..."
+echo "Max control nodes: $MAX_CONTROL_NODES"
 echo "Tokio console:"
 echo "  node1: ${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
 echo "  node2: ${NODE2_TOKIO_CONSOLE_BIND:-127.0.0.1:6670}"
 echo "  node3: ${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
+echo "  node4: ${NODE4_TOKIO_CONSOLE_BIND:-127.0.0.1:6672}"
+echo "  node5: ${NODE5_TOKIO_CONSOLE_BIND:-127.0.0.1:6673}"
 echo "Connect with:"
-echo "  tokio-console http://127.0.0.1:6669"
-echo "  tokio-console http://127.0.0.1:6670"
-echo "  tokio-console http://127.0.0.1:6671"
+echo "  tokio-console http://${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
+echo "  tokio-console http://${NODE2_TOKIO_CONSOLE_BIND:-127.0.0.1:6670}"
+echo "  tokio-console http://${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
+echo "  tokio-console http://${NODE4_TOKIO_CONSOLE_BIND:-127.0.0.1:6672}"
+echo "  tokio-console http://${NODE5_TOKIO_CONSOLE_BIND:-127.0.0.1:6673}"
 echo "Cluster graph:"
 echo "  http://${NODE1_HTTP:-127.0.0.1:3001}/graph"
 echo "  http://${NODE2_HTTP:-127.0.0.1:3002}/graph"
 echo "  http://${NODE3_HTTP:-127.0.0.1:3003}/graph"
+echo "  http://${NODE4_HTTP:-127.0.0.1:3004}/graph"
+echo "  http://${NODE5_HTTP:-127.0.0.1:3005}/graph"
 echo "External workers:"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
@@ -327,5 +335,15 @@ sleep 1
 sleep 1
 
 "$ROOT_DIR/run-node3.sh" &
+
+# Give node3 a moment to start listening.
+sleep 1
+
+"$ROOT_DIR/run-node4.sh" &
+
+# Give node4 a moment to start listening.
+sleep 1
+
+"$ROOT_DIR/run-node5.sh" &
 
 wait
