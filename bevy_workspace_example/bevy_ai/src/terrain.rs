@@ -58,30 +58,31 @@ impl VoxelWorldConfig for GameVoxelWorld {
   type ChunkUserBundle = ();
 
   fn spawning_distance(&self) -> u32 {
-    6
+    16
   }
 
   fn min_despawn_distance(&self) -> u32 {
-    3
-  }
-
-  fn max_spawn_per_frame(&self) -> usize {
-    96
+    1
   }
 
   fn spawning_rays(&self) -> usize {
-    240
+    400
   }
 
   fn spawning_ray_margin(&self) -> u32 {
-    160
+    80
   }
 
   fn chunk_despawn_strategy(&self) -> ChunkDespawnStrategy {
+    // Only despawn when truly far; never cull by frustum so the fixed
+    // overhead camera never creates black corners.
     ChunkDespawnStrategy::FarAway
   }
 
   fn chunk_spawn_strategy(&self) -> ChunkSpawnStrategy {
+    // Flood-fill outward from the camera instead of relying on the frustum
+    // corner test, which fails for steeply-angled cameras where far ground
+    // chunks have all 8 AABB corners outside the view frustum.
     ChunkSpawnStrategy::Close
   }
 

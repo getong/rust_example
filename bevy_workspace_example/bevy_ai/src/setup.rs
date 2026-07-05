@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{camera::ScalingMode, prelude::*};
 use bevy_voxel_world::prelude::VoxelWorldCamera;
 
 use crate::{
@@ -21,7 +21,14 @@ pub(crate) fn setup(
 fn spawn_camera_and_light(commands: &mut Commands) {
   commands.spawn((
     Camera3d::default(),
-    Transform::from_xyz(-24.0, 30.0, 28.0).looking_at(Vec3::ZERO, Vec3::Y),
+    Projection::from(OrthographicProjection {
+      scaling_mode: ScalingMode::Fixed {
+        width: 42.0,
+        height: 28.0,
+      },
+      ..OrthographicProjection::default_3d()
+    }),
+    Transform::from_xyz(0.0, 28.887, 12.243).looking_at(Vec3::new(0.0, 1.5, 0.0), Vec3::Y),
     VoxelWorldCamera::<GameVoxelWorld>::default(),
     IsDefaultUiCamera,
     AmbientLight {
