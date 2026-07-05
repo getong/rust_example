@@ -12,7 +12,10 @@ use openraft::{ReadPolicy, type_config::TypeConfigExt};
 use rocksdb::{ColumnFamilyRef, DB, Options};
 
 use crate::{
-  rocksstore_crud::{RocksStateMachine, TypeConfig, log_store::FjallLogStore},
+  rocksstore_crud::{
+    RocksStateMachine, TypeConfig, log_store::FjallLogStore,
+    state_machine::read_latest_snapshot_meta,
+  },
   typ::{LinearizableReadError, Raft, RaftError, StoredMembership},
 };
 
@@ -131,7 +134,7 @@ pub fn read_persisted_membership_for_group(
 ) -> anyhow::Result<Option<StoredMembership>> {
   let db_path = group_db_dir(db_dir, group_id);
   if !db_path.join("CURRENT").exists() {
-    return Ok(None);
+    return read_persisted_snapshot_membership(&db_path);
   }
 
   let mut opts = Options::default();
@@ -146,11 +149,30 @@ pub fn read_persisted_membership_for_group(
     .get_cf(&cf, "last_membership")
     .context("read persisted openraft membership")?
   else {
-    return Ok(None);
+    return read_persisted_snapshot_membership(&db_path);
   };
 
   let membership = sonic_rs::from_slice(&bytes).context("decode persisted openraft membership")?;
   Ok(Some(membership))
+}
+
+fn read_persisted_snapshot_membership(db_path: &Path) -> anyhow::Result<Option<StoredMembership>> {
+  let snapshot_dir = db_path.join("snapshots");
+  if !snapshot_dir.exists() {
+    return Ok(None);
+  }
+
+  let Some(meta) = read_latest_snapshot_meta(&snapshot_dir).with_context(|| {
+    format!(
+      "read persisted openraft snapshot: {}",
+      snapshot_dir.display()
+    )
+  })?
+  else {
+    return Ok(None);
+  };
+
+  Ok(Some(meta.last_membership))
 }
 
 pub fn remove_group_store(db_dir: &Path, group_id: &str) -> anyhow::Result<()> {
@@ -199,9 +221,50 @@ fn secondary_db_dir(primary_path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+  use std::{collections::BTreeSet, fs, path::Path};
+
+  use openraft::{
+    EntryPayload, Membership, RaftTypeConfig,
+    alias::LogIdOf,
+    entry::RaftEntry,
+    storage::{RaftSnapshotBuilder, RaftStateMachine},
+    vote::RaftLeaderIdExt,
+  };
   use rocksdb::{ColumnFamilyDescriptor, Options};
 
   use super::*;
+  use crate::NodeId;
+
+  fn log_id(node_id: &NodeId) -> LogIdOf<TypeConfig> {
+    LogIdOf::<TypeConfig>::new(
+      <TypeConfig as RaftTypeConfig>::LeaderId::new_committed(1, node_id.clone()),
+      1,
+    )
+  }
+
+  fn membership_entry(node_id: NodeId) -> <TypeConfig as RaftTypeConfig>::Entry {
+    let voters = BTreeSet::from([node_id.clone()]);
+    <TypeConfig as RaftTypeConfig>::Entry::new(
+      log_id(&node_id),
+      EntryPayload::Membership(Membership::new_with_defaults(vec![voters], [])),
+    )
+  }
+
+  fn remove_non_snapshot_files(path: &Path) {
+    for entry in fs::read_dir(path).expect("read db dir") {
+      let entry = entry.expect("db dir entry");
+      if entry.file_name().to_string_lossy() == "snapshots" {
+        continue;
+      }
+
+      let path = entry.path();
+      if path.is_dir() {
+        fs::remove_dir_all(&path).expect("remove db child dir");
+      } else {
+        fs::remove_file(&path).expect("remove db child file");
+      }
+    }
+  }
 
   #[tokio::test]
   async fn kv_data_reads_from_rocksdb_secondary() {
@@ -239,5 +302,37 @@ mod tests {
         ("beta".to_string(), "three".to_string())
       ]
     );
+  }
+
+  #[tokio::test]
+  async fn read_persisted_membership_falls_back_to_snapshot() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let group_id = "users";
+    let node_id = NodeId::from("node-a");
+    let db_path = group_db_dir(temp.path(), group_id);
+
+    {
+      let (_log_store, mut state_machine, _kv_data) = open_store_for_group(temp.path(), group_id)
+        .await
+        .expect("open group store");
+      state_machine
+        .apply(futures::stream::iter([Ok((
+          membership_entry(node_id.clone()),
+          None,
+        ))]))
+        .await
+        .expect("apply membership");
+      state_machine
+        .build_snapshot()
+        .await
+        .expect("build membership snapshot");
+    }
+
+    remove_non_snapshot_files(&db_path);
+
+    let membership = read_persisted_membership_for_group(temp.path(), group_id)
+      .expect("read persisted membership")
+      .expect("membership from snapshot");
+    assert!(membership.membership().get_node(&node_id).is_some());
   }
 }

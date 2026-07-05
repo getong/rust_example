@@ -72,14 +72,39 @@ where
     self.meta.insert(M::KEY, value).map_err(read_logs_err)
   }
 
+  fn remove_meta<M: StoreMeta<C>>(&self) -> Result<(), io::Error> {
+    self.meta.remove(M::KEY).map_err(read_logs_err)
+  }
+
+  async fn persist_sync(&self) -> Result<(), io::Error> {
+    let db = self.db.clone();
+    C::spawn_blocking(move || {
+      db.persist(PersistMode::SyncAll)
+        .map_err(|e| io::Error::other(e.to_string()))
+    })
+    .await??;
+
+    Ok(())
+  }
+
   fn remove_logs_from(&self, start_index: u64) -> Result<(), io::Error> {
     let keys = self.collect_log_keys(id_to_bin(start_index) ..)?;
     self.remove_log_keys(keys)
   }
 
-  fn remove_logs_through(&self, end_index: u64) -> Result<(), io::Error> {
-    let keys = self.collect_log_keys(id_to_bin(0) ..= id_to_bin(end_index))?;
-    self.remove_log_keys(keys)
+  fn purge_logs_through(&self, log_id: &LogIdOf<C>) -> Result<(), io::Error> {
+    let keys = self.collect_log_keys(id_to_bin(0) ..= id_to_bin(log_id.index()))?;
+    let mut batch = self.db.batch();
+    let value =
+      sonic_rs::to_vec(log_id).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+    batch.insert(&self.meta, <meta::LastPurged as StoreMeta<C>>::KEY, value);
+
+    for key in keys {
+      batch.remove(&self.logs, key);
+    }
+
+    batch.commit().map_err(read_logs_err)
   }
 
   fn collect_log_keys<R>(&self, range: R) -> Result<Vec<Vec<u8>>, io::Error>
@@ -191,16 +216,20 @@ where
 
   async fn save_vote(&mut self, vote: &VoteOf<C>) -> Result<(), io::Error> {
     self.put_meta::<meta::Vote>(vote)?;
+    self.persist_sync().await
+  }
 
-    // Vote must be persisted to disk before returning.
-    let db = self.db.clone();
-    C::spawn_blocking(move || {
-      db.persist(PersistMode::SyncAll)
-        .map_err(|e| io::Error::other(e.to_string()))
-    })
-    .await??;
+  async fn save_committed(&mut self, committed: Option<LogIdOf<C>>) -> Result<(), io::Error> {
+    match committed {
+      Some(log_id) => self.put_meta::<meta::Committed>(&log_id)?,
+      None => self.remove_meta::<meta::Committed>()?,
+    }
 
-    Ok(())
+    self.persist_sync().await
+  }
+
+  async fn read_committed(&mut self) -> Result<Option<LogIdOf<C>>, io::Error> {
+    self.get_meta::<meta::Committed>()
   }
 
   async fn append<I>(&mut self, entries: I, callback: IOFlushed<C>) -> Result<(), io::Error>
@@ -242,17 +271,15 @@ where
       return Ok(());
     };
 
-    self.remove_logs_from(start_index)
+    self.remove_logs_from(start_index)?;
+    self.persist_sync().await
   }
 
   async fn purge(&mut self, log_id: LogIdOf<C>) -> Result<(), io::Error> {
     tracing::debug!("delete_log: [0, {:?}]", log_id);
 
-    // Write the last-purged log id before purging the logs.
-    // The logs at and before last-purged log id will be ignored by openraft.
-    // Therefore, there is no need to force a synchronous disk flush here.
-    self.put_meta::<meta::LastPurged>(&log_id)?;
-    self.remove_logs_through(log_id.index())
+    self.purge_logs_through(&log_id)?;
+    self.persist_sync().await
   }
 }
 
@@ -279,6 +306,7 @@ mod meta {
   }
 
   pub(crate) struct LastPurged {}
+  pub(crate) struct Committed {}
   pub(crate) struct Vote {}
 
   impl<C> StoreMeta<C> for LastPurged
@@ -294,6 +322,14 @@ mod meta {
   {
     const KEY: &'static str = "vote";
     type Value = VoteOf<C>;
+  }
+
+  impl<C> StoreMeta<C> for Committed
+  where
+    C: RaftTypeConfig,
+  {
+    const KEY: &'static str = "committed";
+    type Value = LogIdOf<C>;
   }
 }
 
@@ -317,4 +353,63 @@ fn bin_to_id(buf: &[u8]) -> u64 {
 
 fn read_logs_err(e: impl std::error::Error + 'static) -> io::Error {
   io::Error::other(e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+  use fjall::Database;
+  use openraft::{RaftTypeConfig, alias::LogIdOf, storage::RaftLogStorage, vote::RaftLeaderIdExt};
+
+  use super::*;
+  use crate::rocksstore_crud::{RocksNodeId, TypeConfig};
+
+  fn log_id(index: u64) -> LogIdOf<TypeConfig> {
+    LogIdOf::<TypeConfig>::new(
+      <TypeConfig as RaftTypeConfig>::LeaderId::new_committed(1, RocksNodeId::new("node-a")),
+      index,
+    )
+  }
+
+  #[tokio::test]
+  async fn fjall_log_store_reopens_committed_log_id() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let committed = log_id(7);
+
+    {
+      let db = Database::builder(temp.path())
+        .open()
+        .expect("open fjall db");
+      let mut store = FjallLogStore::<TypeConfig>::new(db).expect("create log store");
+      store
+        .save_committed(Some(committed.clone()))
+        .await
+        .expect("save committed");
+    }
+
+    {
+      let db = Database::builder(temp.path())
+        .open()
+        .expect("reopen fjall db");
+      let mut store = FjallLogStore::<TypeConfig>::new(db).expect("recreate log store");
+      assert_eq!(
+        Some(committed.clone()),
+        store.read_committed().await.expect("read committed")
+      );
+      store.save_committed(None).await.expect("clear committed");
+    }
+
+    {
+      let db = Database::builder(temp.path())
+        .open()
+        .expect("reopen fjall db again");
+      let mut store = FjallLogStore::<TypeConfig>::new(db).expect("recreate log store again");
+      assert_eq!(
+        None,
+        store
+          .read_committed()
+          .await
+          .expect("read cleared committed")
+      );
+    }
+  }
 }

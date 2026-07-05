@@ -1,6 +1,15 @@
 //! RocksDB-backed state machine implementation.
 
-use std::{collections::BTreeMap, fmt::Debug, fs, io, io::Cursor, path::PathBuf, sync::Arc};
+use std::{
+  collections::BTreeMap,
+  fmt::Debug,
+  fs,
+  fs::File,
+  io,
+  io::{Cursor, Write},
+  path::{Path, PathBuf},
+  sync::Arc,
+};
 
 use futures::{Stream, TryStreamExt};
 use openraft::{
@@ -11,12 +20,18 @@ use openraft::{
   type_config::TypeConfigExt,
 };
 use rand::RngExt;
-use rocksdb::DB;
+use rocksdb::{DB, WriteOptions};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use super::TypeConfig;
 use crate::types_kv;
+
+const SM_META_CF: &str = "sm_meta";
+const SM_DATA_CF: &str = "sm_data";
+const LAST_APPLIED_LOG_KEY: &str = "last_applied_log";
+const LAST_MEMBERSHIP_KEY: &str = "last_membership";
+const SNAPSHOT_TMP_SUFFIX: &str = ".tmp";
 
 /// State machine backed by RocksDB for full persistence.
 /// All application data is stored directly in the `sm_data` column family.
@@ -28,32 +43,39 @@ pub struct RocksStateMachine {
   data: Arc<RwLock<BTreeMap<String, String>>>,
 }
 
+#[derive(Debug, Clone)]
+enum DataChange {
+  Set { key: String, value: String },
+  Delete { key: String },
+}
+
 impl RocksStateMachine {
   pub(crate) async fn new(
     db: Arc<DB>,
     snapshot_dir: PathBuf,
   ) -> Result<RocksStateMachine, io::Error> {
     // Validate column families exist at construction time
-    db.cf_handle("sm_meta")
-      .ok_or_else(|| io::Error::other("column family `sm_meta` not found"))?;
-    db.cf_handle("sm_data")
-      .ok_or_else(|| io::Error::other("column family `sm_data` not found"))?;
+    db.cf_handle(SM_META_CF)
+      .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
+    db.cf_handle(SM_DATA_CF)
+      .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
 
     // Create snapshot directory if it doesn't exist
     fs::create_dir_all(&snapshot_dir)?;
+    recover_from_latest_snapshot_if_newer(db.clone(), &snapshot_dir).await?;
 
     let data = TypeConfig::spawn_blocking({
       let db = db.clone();
       move || -> Result<BTreeMap<String, String>, io::Error> {
         let cf_data = db
-          .cf_handle("sm_data")
-          .ok_or_else(|| io::Error::other("column family `sm_data` not found"))?;
+          .cf_handle(SM_DATA_CF)
+          .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
         let iter = db.iterator_cf(cf_data, rocksdb::IteratorMode::Start);
         let mut map = BTreeMap::new();
         for item in iter {
           let (key, value) = item.map_err(|e| io::Error::other(e.to_string()))?;
-          let key = String::from_utf8_lossy(&key).to_string();
-          let value = String::from_utf8_lossy(&value).to_string();
+          let key = decode_utf8(key.to_vec(), "snapshot key")?;
+          let value = decode_utf8(value.to_vec(), "snapshot value")?;
           map.insert(key, value);
         }
         Ok(map)
@@ -69,11 +91,10 @@ impl RocksStateMachine {
   }
 
   fn cf_sm_meta(&self) -> &rocksdb::ColumnFamily {
-    self.db.cf_handle("sm_meta").unwrap()
-  }
-
-  fn cf_sm_data(&self) -> &rocksdb::ColumnFamily {
-    self.db.cf_handle("sm_data").unwrap()
+    self
+      .db
+      .cf_handle(SM_META_CF)
+      .expect("column family `sm_meta` not found")
   }
 
   pub fn kvs(&self) -> Arc<RwLock<BTreeMap<String, String>>> {
@@ -89,20 +110,142 @@ impl RocksStateMachine {
 
     let last_applied_log = self
       .db
-      .get_cf(cf, "last_applied_log")
+      .get_cf(cf, LAST_APPLIED_LOG_KEY)
       .map_err(|e| StorageError::read(TypeConfig::err_from_error(&e)))?
       .map(|bytes| deserialize(&bytes))
       .transpose()?;
 
     let last_membership = self
       .db
-      .get_cf(cf, "last_membership")
+      .get_cf(cf, LAST_MEMBERSHIP_KEY)
       .map_err(|e| StorageError::read(TypeConfig::err_from_error(&e)))?
       .map(|bytes| deserialize(&bytes))
       .transpose()?
       .unwrap_or_default();
 
     Ok((last_applied_log, last_membership))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::Path;
+
+  use openraft::{
+    EntryPayload, RaftTypeConfig,
+    alias::LogIdOf,
+    entry::RaftEntry,
+    storage::{RaftSnapshotBuilder, RaftStateMachine},
+    vote::RaftLeaderIdExt,
+  };
+
+  use super::*;
+  use crate::rocksstore_crud;
+
+  fn log_id(index: u64) -> LogIdOf<TypeConfig> {
+    LogIdOf::<TypeConfig>::new(
+      <TypeConfig as RaftTypeConfig>::LeaderId::new_committed(
+        1,
+        rocksstore_crud::RocksNodeId::new("node-a"),
+      ),
+      index,
+    )
+  }
+
+  fn set_entry(
+    index: u64,
+    key: impl Into<String>,
+    value: impl Into<String>,
+  ) -> <TypeConfig as RaftTypeConfig>::Entry {
+    <TypeConfig as RaftTypeConfig>::Entry::new(
+      log_id(index),
+      EntryPayload::Normal(types_kv::Request::Set {
+        key: key.into(),
+        value: value.into(),
+      }),
+    )
+  }
+
+  async fn apply_entries(
+    sm: &mut RocksStateMachine,
+    entries: Vec<<TypeConfig as RaftTypeConfig>::Entry>,
+  ) {
+    sm.apply(futures::stream::iter(
+      entries.into_iter().map(|entry| Ok((entry, None))),
+    ))
+    .await
+    .expect("apply entries");
+  }
+
+  fn remove_non_snapshot_files(path: &Path) {
+    for entry in fs::read_dir(path).expect("read db dir") {
+      let entry = entry.expect("db dir entry");
+      if entry.file_name() == "snapshots" {
+        continue;
+      }
+
+      let path = entry.path();
+      if path.is_dir() {
+        fs::remove_dir_all(&path).expect("remove db child dir");
+      } else {
+        fs::remove_file(&path).expect("remove db child file");
+      }
+    }
+  }
+
+  #[tokio::test]
+  async fn rocks_state_machine_reopens_rocksdb_data_and_meta() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let expected_log_id = log_id(1);
+
+    {
+      let (_log_store, mut sm) = rocksstore_crud::new::<TypeConfig, _>(temp.path())
+        .await
+        .expect("open store");
+      apply_entries(&mut sm, vec![set_entry(1, "alpha", "one")]).await;
+      let (last_applied, _) = sm.applied_state().await.expect("applied state");
+      assert_eq!(Some(expected_log_id.clone()), last_applied);
+    }
+
+    {
+      let (_log_store, mut sm) = rocksstore_crud::new::<TypeConfig, _>(temp.path())
+        .await
+        .expect("reopen store");
+      let (last_applied, _) = sm.applied_state().await.expect("reopened applied state");
+      assert_eq!(Some(expected_log_id), last_applied);
+      assert_eq!(
+        Some("one".to_string()),
+        sm.kvs().read().await.get("alpha").cloned()
+      );
+    }
+  }
+
+  #[tokio::test]
+  async fn rocks_state_machine_restores_from_snapshot_when_rocksdb_is_missing() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let expected_log_id = log_id(1);
+
+    {
+      let (_log_store, mut sm) = rocksstore_crud::new::<TypeConfig, _>(temp.path())
+        .await
+        .expect("open store");
+      apply_entries(&mut sm, vec![set_entry(1, "alpha", "one")]).await;
+      sm.build_snapshot().await.expect("build snapshot");
+    }
+
+    remove_non_snapshot_files(temp.path());
+
+    {
+      let (_log_store, mut sm) = rocksstore_crud::new::<TypeConfig, _>(temp.path())
+        .await
+        .expect("reopen store from snapshot");
+      let (last_applied, _) = sm.applied_state().await.expect("restored applied state");
+      assert_eq!(Some(expected_log_id), last_applied);
+      assert_eq!(
+        Some("one".to_string()),
+        sm.kvs().read().await.get("alpha").cloned()
+      );
+    }
   }
 }
 
@@ -114,11 +257,238 @@ fn deserialize<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, StorageE
   sonic_rs::from_slice(bytes).map_err(|e| StorageError::read(TypeConfig::err_from_error(&e)))
 }
 
+fn serialize_io<T: Serialize>(value: &T) -> Result<Vec<u8>, io::Error> {
+  sonic_rs::to_vec(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+fn deserialize_io<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, io::Error> {
+  sonic_rs::from_slice(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+fn durable_write_options() -> WriteOptions {
+  let mut opts = WriteOptions::default();
+  opts.set_sync(true);
+  opts
+}
+
+fn write_batch_sync(db: &DB, batch: rocksdb::WriteBatch) -> Result<(), io::Error> {
+  db.write_opt(batch, &durable_write_options())
+    .map_err(|e| io::Error::other(e.to_string()))
+}
+
+fn decode_utf8(bytes: Vec<u8>, what: &str) -> Result<String, io::Error> {
+  String::from_utf8(bytes)
+    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{what}: {e}")))
+}
+
+fn snapshot_data_to_map(
+  data: &[(Vec<u8>, Vec<u8>)],
+) -> Result<BTreeMap<String, String>, io::Error> {
+  let mut map = BTreeMap::new();
+  for (key, value) in data {
+    map.insert(
+      decode_utf8(key.clone(), "snapshot key")?,
+      decode_utf8(value.clone(), "snapshot value")?,
+    );
+  }
+  Ok(map)
+}
+
+fn apply_memory_changes(map: &mut BTreeMap<String, String>, changes: Vec<DataChange>) {
+  for change in changes {
+    match change {
+      DataChange::Set { key, value } => {
+        map.insert(key, value);
+      }
+      DataChange::Delete { key } => {
+        map.remove(&key);
+      }
+    }
+  }
+}
+
 /// Snapshot file format: metadata + data stored together
 #[derive(Serialize, Deserialize)]
 struct SnapshotFile {
   meta: SnapshotMetaOf<TypeConfig>,
   data: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+fn snapshot_is_newer(candidate: &SnapshotFile, current: &SnapshotFile) -> bool {
+  match (&candidate.meta.last_log_id, &current.meta.last_log_id) {
+    (Some(candidate_log), Some(current_log)) => {
+      candidate_log > current_log
+        || (candidate_log == current_log && candidate.meta.snapshot_id > current.meta.snapshot_id)
+    }
+    (Some(_), None) => true,
+    (None, Some(_)) => false,
+    (None, None) => candidate.meta.snapshot_id > current.meta.snapshot_id,
+  }
+}
+
+fn is_snapshot_candidate(path: &Path) -> bool {
+  if !path.is_file() {
+    return false;
+  }
+
+  path
+    .file_name()
+    .and_then(|name| name.to_str())
+    .is_some_and(|name| !name.ends_with(SNAPSHOT_TMP_SUFFIX))
+}
+
+fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, io::Error> {
+  let file_bytes = fs::read(path)?;
+  deserialize_io(&file_bytes)
+}
+
+fn read_latest_snapshot_file(snapshot_dir: &Path) -> Result<Option<SnapshotFile>, io::Error> {
+  let mut latest: Option<SnapshotFile> = None;
+
+  for entry in fs::read_dir(snapshot_dir)? {
+    let entry = entry?;
+    let path = entry.path();
+    if !is_snapshot_candidate(&path) {
+      continue;
+    }
+
+    match read_snapshot_file(&path) {
+      Ok(snapshot_file) => {
+        if latest
+          .as_ref()
+          .is_none_or(|current| snapshot_is_newer(&snapshot_file, current))
+        {
+          latest = Some(snapshot_file);
+        }
+      }
+      Err(err) => {
+        tracing::warn!(
+          path = %path.display(),
+          error = ?err,
+          "skip unreadable persisted rocksdb snapshot"
+        );
+      }
+    }
+  }
+
+  Ok(latest)
+}
+
+pub(crate) fn read_latest_snapshot_meta(
+  snapshot_dir: &Path,
+) -> Result<Option<SnapshotMetaOf<TypeConfig>>, io::Error> {
+  Ok(read_latest_snapshot_file(snapshot_dir)?.map(|snapshot| snapshot.meta))
+}
+
+fn sync_dir(path: &Path) -> Result<(), io::Error> {
+  match File::open(path) {
+    Ok(dir) => dir.sync_all(),
+    Err(err) if err.kind() == io::ErrorKind::PermissionDenied => Ok(()),
+    Err(err) => Err(err),
+  }
+}
+
+fn write_snapshot_file(
+  snapshot_dir: &Path,
+  snapshot_id: &str,
+  snapshot_file: &SnapshotFile,
+) -> Result<(), io::Error> {
+  fs::create_dir_all(snapshot_dir)?;
+
+  let snapshot_path = snapshot_dir.join(snapshot_id);
+  let tmp_path = snapshot_dir.join(format!(
+    "{snapshot_id}.{}{}",
+    std::process::id(),
+    SNAPSHOT_TMP_SUFFIX
+  ));
+  let file_bytes = serialize_io(snapshot_file)?;
+
+  {
+    let mut file = File::create(&tmp_path)?;
+    file.write_all(&file_bytes)?;
+    file.sync_all()?;
+  }
+
+  fs::rename(&tmp_path, &snapshot_path)?;
+  sync_dir(snapshot_dir)?;
+
+  Ok(())
+}
+
+fn read_last_applied_log(db: &DB) -> Result<Option<LogIdOf<TypeConfig>>, io::Error> {
+  let cf = db
+    .cf_handle(SM_META_CF)
+    .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
+
+  db.get_cf(cf, LAST_APPLIED_LOG_KEY)
+    .map_err(|e| io::Error::other(e.to_string()))?
+    .map(|bytes| deserialize_io(&bytes))
+    .transpose()
+}
+
+fn restore_snapshot_to_db(db: &DB, snapshot_file: SnapshotFile) -> Result<(), io::Error> {
+  let cf_data = db
+    .cf_handle(SM_DATA_CF)
+    .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
+  let cf_meta = db
+    .cf_handle(SM_META_CF)
+    .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
+
+  let last_applied_bytes = snapshot_file
+    .meta
+    .last_log_id
+    .as_ref()
+    .map(serialize_io)
+    .transpose()?;
+  let last_membership_bytes = serialize_io(&snapshot_file.meta.last_membership)?;
+
+  let mut batch = rocksdb::WriteBatch::default();
+  let iter = db.iterator_cf(cf_data, rocksdb::IteratorMode::Start);
+  for item in iter {
+    let (key, _) = item.map_err(|e| io::Error::other(e.to_string()))?;
+    batch.delete_cf(cf_data, &key);
+  }
+
+  for (key, value) in snapshot_file.data {
+    batch.put_cf(cf_data, key, value);
+  }
+
+  if let Some(bytes) = last_applied_bytes {
+    batch.put_cf(cf_meta, LAST_APPLIED_LOG_KEY, bytes);
+  } else {
+    batch.delete_cf(cf_meta, LAST_APPLIED_LOG_KEY);
+  }
+  batch.put_cf(cf_meta, LAST_MEMBERSHIP_KEY, last_membership_bytes);
+
+  write_batch_sync(db, batch)
+}
+
+async fn recover_from_latest_snapshot_if_newer(
+  db: Arc<DB>,
+  snapshot_dir: &Path,
+) -> Result<(), io::Error> {
+  let Some(snapshot_file) = read_latest_snapshot_file(snapshot_dir)? else {
+    return Ok(());
+  };
+
+  let current_last_applied = read_last_applied_log(&db)?;
+  if snapshot_file.meta.last_log_id <= current_last_applied {
+    return Ok(());
+  }
+
+  let snapshot_id = snapshot_file.meta.snapshot_id.clone();
+  let snapshot_last_log_id = snapshot_file.meta.last_log_id.clone();
+
+  TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, snapshot_file)).await??;
+
+  tracing::info!(
+    snapshot_id,
+    ?snapshot_last_log_id,
+    ?current_last_applied,
+    "restored rocksdb state machine from persisted snapshot"
+  );
+
+  Ok(())
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
@@ -153,7 +523,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let data = TypeConfig::spawn_blocking(move || -> Result<Vec<(Vec<u8>, Vec<u8>)>, io::Error> {
       let snapshot = db.snapshot();
       let cf_data = db
-        .cf_handle("sm_data")
+        .cf_handle(SM_DATA_CF)
         .expect("column family `sm_data` not found");
 
       let mut snapshot_data = Vec::new();
@@ -173,16 +543,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       meta: meta.clone(),
       data: data.clone(),
     };
-    let file_bytes = serialize(&snapshot_file).map_err(|e| {
-      StorageError::<TypeConfig>::write_snapshot(
-        Some(meta.signature()),
-        TypeConfig::err_from_error(&e),
-      )
-    })?;
-
-    // Write complete snapshot to file
-    let snapshot_path = self.snapshot_dir.join(&snapshot_id);
-    fs::write(&snapshot_path, &file_bytes).map_err(|e| {
+    write_snapshot_file(&self.snapshot_dir, &snapshot_id, &snapshot_file).map_err(|e| {
       StorageError::<TypeConfig>::write_snapshot(
         Some(meta.signature()),
         TypeConfig::err_from_error(&e),
@@ -217,7 +578,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
   where
     Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
-    let mut batch = rocksdb::WriteBatch::default();
+    let mut data_changes = Vec::new();
     let mut last_applied_log = None;
     let mut last_membership: Option<StoredMembershipOf<TypeConfig>> = None;
     let mut responses = Vec::new();
@@ -231,15 +592,14 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
         EntryPayload::Blank => types_kv::Response::none(),
         EntryPayload::Normal(ref req) => match req {
           types_kv::Request::Set { key, value } => {
-            let cf_data = self.cf_sm_data();
-
-            batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
+            data_changes.push(DataChange::Set {
+              key: key.clone(),
+              value: value.clone(),
+            });
             types_kv::Response::new(value.clone())
           }
           types_kv::Request::Delete { key } => {
-            let cf_data = self.cf_sm_data();
-
-            batch.delete_cf(cf_data, key.as_bytes());
+            data_changes.push(DataChange::Delete { key: key.clone() });
             types_kv::Response::none()
           }
         },
@@ -257,22 +617,45 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       }
     }
 
-    let cf_meta = self.cf_sm_meta();
+    let db = self.db.clone();
+    let write_changes = data_changes.clone();
 
-    // Add metadata writes to the batch for atomic commit
-    if let Some(ref log_id) = last_applied_log {
-      batch.put_cf(cf_meta, "last_applied_log", serialize(log_id)?);
+    TypeConfig::spawn_blocking(move || -> Result<(), io::Error> {
+      let cf_data = db
+        .cf_handle(SM_DATA_CF)
+        .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
+      let cf_meta = db
+        .cf_handle(SM_META_CF)
+        .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
+      let mut batch = rocksdb::WriteBatch::default();
+
+      for change in write_changes {
+        match change {
+          DataChange::Set { key, value } => {
+            batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
+          }
+          DataChange::Delete { key } => {
+            batch.delete_cf(cf_data, key.as_bytes());
+          }
+        }
+      }
+
+      if let Some(ref log_id) = last_applied_log {
+        batch.put_cf(cf_meta, LAST_APPLIED_LOG_KEY, serialize_io(log_id)?);
+      }
+
+      if let Some(ref membership) = last_membership {
+        batch.put_cf(cf_meta, LAST_MEMBERSHIP_KEY, serialize_io(membership)?);
+      }
+
+      write_batch_sync(&db, batch)
+    })
+    .await??;
+
+    if !data_changes.is_empty() {
+      let mut data = self.data.write().await;
+      apply_memory_changes(&mut data, data_changes);
     }
-
-    if let Some(ref membership) = last_membership {
-      batch.put_cf(cf_meta, "last_membership", serialize(membership)?);
-    }
-
-    // Atomic write of all data + metadata - fail fast before sending any responses
-    self
-      .db
-      .write(batch)
-      .map_err(|e| io::Error::other(e.to_string()))?;
 
     // Only send responses after successful write
     for (responder, response) in responses {
@@ -304,110 +687,33 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let snapshot_data: Vec<(Vec<u8>, Vec<u8>)> = deserialize(snapshot.get_ref())
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    // Clone data for file writing later
-    let snapshot_data_clone = snapshot_data.clone();
-
-    // Prepare metadata to restore
-    let last_applied_bytes = meta
-      .last_log_id
-      .as_ref()
-      .map(|log_id| {
-        serialize(log_id).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
-      })
-      .transpose()?;
-
-    let last_membership_bytes = serialize(&meta.last_membership)
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-
-    // Restore data and metadata atomically to RocksDB
-    let db = self.db.clone();
-
-    TypeConfig::spawn_blocking(move || -> Result<(), io::Error> {
-      let cf_data = db
-        .cf_handle("sm_data")
-        .expect("column family `sm_data` not found");
-      let cf_meta = db
-        .cf_handle("sm_meta")
-        .expect("column family `sm_meta` not found");
-
-      let mut batch = rocksdb::WriteBatch::default();
-
-      // Clear existing data in sm_data
-      let iter = db.iterator_cf(cf_data, rocksdb::IteratorMode::Start);
-      for item in iter {
-        let (key, _) = item.map_err(|e| io::Error::other(e.to_string()))?;
-        batch.delete_cf(cf_data, &key);
-      }
-
-      // Restore snapshot data to sm_data
-      for (key, value) in snapshot_data {
-        batch.put_cf(cf_data, &key, &value);
-      }
-
-      // Restore metadata to sm_meta
-      if let Some(bytes) = last_applied_bytes {
-        batch.put_cf(cf_meta, "last_applied_log", bytes);
-      }
-      batch.put_cf(cf_meta, "last_membership", last_membership_bytes);
-
-      // Atomic write of all changes
-      db.write(batch)
-        .map_err(|e| io::Error::other(e.to_string()))?;
-
-      db.flush_wal(true)
-        .map_err(|e| io::Error::other(e.to_string()))
-    })
-    .await??;
-
-    // Write snapshot file with metadata for get_current_snapshot
+    let data_map = snapshot_data_to_map(&snapshot_data)?;
     let snapshot_file = SnapshotFile {
       meta: meta.clone(),
-      data: snapshot_data_clone,
+      data: snapshot_data.clone(),
     };
-    let file_bytes = serialize(&snapshot_file)
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let snapshot_file_for_db = SnapshotFile {
+      meta: meta.clone(),
+      data: snapshot_data,
+    };
+    let db = self.db.clone();
 
-    let snapshot_path = self.snapshot_dir.join(&meta.snapshot_id);
-    fs::write(&snapshot_path, &file_bytes)?;
+    TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, snapshot_file_for_db)).await??;
+
+    write_snapshot_file(&self.snapshot_dir, &meta.snapshot_id, &snapshot_file)?;
+
+    {
+      let mut data = self.data.write().await;
+      *data = data_map;
+    }
 
     Ok(())
   }
 
   async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
-    // Find the latest snapshot file by comparing filenames lexicographically
-    let mut latest_snapshot_id: Option<String> = None;
-
-    for entry in fs::read_dir(&self.snapshot_dir)? {
-      let entry = entry?;
-      let path = entry.path();
-
-      if !path.is_file() {
-        continue;
-      }
-
-      if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-        let snapshot_id = filename.to_string();
-
-        // Update latest if this is the first snapshot or if it's newer
-        if latest_snapshot_id
-          .as_ref()
-          .is_none_or(|current| snapshot_id > *current)
-        {
-          latest_snapshot_id = Some(snapshot_id);
-        }
-      }
-    }
-
-    let Some(snapshot_id) = latest_snapshot_id else {
+    let Some(snapshot_file) = read_latest_snapshot_file(&self.snapshot_dir)? else {
       return Ok(None);
     };
-
-    let snapshot_path = self.snapshot_dir.join(&snapshot_id);
-
-    // Read and deserialize snapshot file
-    let file_bytes = fs::read(&snapshot_path)?;
-    let snapshot_file: SnapshotFile = deserialize(&file_bytes)
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     // Serialize data for snapshot field
     let data_bytes = serialize(&snapshot_file.data)
