@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "rocksdb_example",
+  "rocksdb_wal_example",
+]

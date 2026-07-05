@@ -1,0 +1,7 @@
+[package]
+name = "rocksdb_wal_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rocksdb = "0.24.0"
