@@ -1,0 +1,9 @@
+[package]
+name = "bevy_ai"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.19.0"
+bevy_ecs = "0.19.0"
+bevy_voxel_world = "0.17.0"
