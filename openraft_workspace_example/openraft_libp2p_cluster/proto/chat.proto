@@ -7,3 +7,8 @@ message ChatMessage {
   string text = 2;
   int64 ts_unix_ms = 3;
 }
+
+message TaskAssignedMessage {
+  string task_id = 1;
+  string worker_id = 2;
+}

@@ -8,8 +8,6 @@ use crate::{
   network::{
     dispatcher::SwarmRequestDispatcher,
     rpc::{JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
-    swarm::KvClient,
-    transport::parse_p2p_addr,
   },
   openraft_group,
   proto::raft_kv::{
@@ -23,13 +21,11 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct OpenRaftDispatcher {
-  kv_client: KvClient,
-}
+pub struct OpenRaftDispatcher;
 
 impl OpenRaftDispatcher {
-  pub fn new(kv_client: KvClient) -> Self {
-    Self { kv_client }
+  pub fn new() -> Self {
+    Self
   }
 }
 
@@ -54,7 +50,7 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
       return kv_error_response(format!("unknown group_id={group_id}"));
     };
 
-    process_kv_request(group.raft, group.kv_data, self.kv_client.clone(), request).await
+    process_kv_request(group.raft, group.kv_data, request).await
   }
 
   async fn handle_sqlite_sync(
@@ -68,7 +64,6 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
 pub async fn process_kv_request(
   raft: Raft,
   kv_data: KvData,
-  kv_client: KvClient,
   request: RaftKvRequest,
 ) -> RaftKvResponse {
   if request.group_id.is_empty() {
@@ -80,19 +75,7 @@ pub async fn process_kv_request(
     let Some(leader_id) = metrics.current_leader else {
       return kv_error_response("no leader available");
     };
-    let Some(node) = metrics.membership_config.membership().get_node(&leader_id) else {
-      return kv_error_response("leader node not found in membership");
-    };
-    let Ok((peer, addr)) = parse_p2p_addr(&node.addr) else {
-      return kv_error_response("invalid leader address");
-    };
-    if let Err(err) = kv_client.connect(peer, addr).await {
-      return kv_error_response(format!("connect to leader failed: {err}"));
-    }
-    return match kv_client.request(peer, request).await {
-      Ok(resp) => resp,
-      Err(err) => kv_error_response(format!("forward to leader failed: {err}")),
-    };
+    return kv_error_response_with_leader("forward_to_leader", leader_id.to_string());
   }
 
   let Some(op) = request.op else {
@@ -281,6 +264,19 @@ fn kv_error_response(message: impl Into<String>) -> RaftKvResponse {
   RaftKvResponse {
     op: Some(KvResponseOp::Error(ErrorResponse {
       message: message.into(),
+      leader_id: String::new(),
+    })),
+  }
+}
+
+fn kv_error_response_with_leader(
+  message: impl Into<String>,
+  leader_id: impl Into<String>,
+) -> RaftKvResponse {
+  RaftKvResponse {
+    op: Some(KvResponseOp::Error(ErrorResponse {
+      message: message.into(),
+      leader_id: leader_id.into(),
     })),
   }
 }

@@ -6,7 +6,7 @@ use std::{
   hash::{Hash, Hasher},
   marker::PhantomData,
   str::FromStr,
-  sync::Arc,
+  sync::{Arc, OnceLock},
   time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -18,7 +18,12 @@ use apalis_core::backend::queue::Queue;
 use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream};
 use openraft::async_runtime::WatchReceiver;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{
+  sync::{Mutex, broadcast},
+  time::sleep,
+};
+
+pub static APALIS_WAKE_TX: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 
 use crate::{
   GroupHandle, NodeId,
@@ -118,15 +123,41 @@ pub struct RaftApalisStorage<Args, C = SonicCodec<Vec<u8>>> {
   _codec: PhantomData<C>,
 }
 
+#[derive(Clone, Default)]
+pub struct ControlNodesState {
+  pub known_nodes: Vec<NodeId>,
+  pub leader_id: Option<NodeId>,
+}
+
+impl ControlNodesState {
+  pub fn get_target_nodes(&self) -> Vec<NodeId> {
+    let mut targets = self.known_nodes.clone();
+    if let Some(leader) = &self.leader_id {
+      if let Some(pos) = targets.iter().position(|id| id == leader) {
+        targets.swap(0, pos);
+      }
+    }
+    targets
+  }
+
+  pub fn report_leader(&mut self, leader: NodeId) {
+    if !self.known_nodes.contains(&leader) {
+      self.known_nodes.push(leader.clone());
+    }
+    self.leader_id = Some(leader);
+  }
+}
+
 #[derive(Clone)]
 enum RaftApalisBackend {
   Control {
     raft: Raft,
     kv_data: KvData,
+    network: Libp2pNetworkFactory,
   },
   Worker {
     network: Libp2pNetworkFactory,
-    control_nodes: Arc<Vec<NodeId>>,
+    control_nodes: Arc<Mutex<ControlNodesState>>,
   },
 }
 
@@ -136,6 +167,7 @@ impl<Args> RaftApalisStorage<Args> {
     group_id: impl Into<String>,
     group: GroupHandle,
     kv_client: KvClient,
+    network: Libp2pNetworkFactory,
   ) -> Self {
     let group_id = group_id.into();
     Self {
@@ -145,6 +177,7 @@ impl<Args> RaftApalisStorage<Args> {
       backend: RaftApalisBackend::Control {
         raft: group.raft,
         kv_data: group.kv_data,
+        network,
       },
       kv_client,
       poll_interval: POLL_INTERVAL,
@@ -162,13 +195,17 @@ impl<Args> RaftApalisStorage<Args> {
     kv_client: KvClient,
   ) -> Self {
     let group_id = group_id.into();
+    let control_nodes_state = ControlNodesState {
+      known_nodes: control_nodes,
+      leader_id: None,
+    };
     Self {
       node_id,
       queue: Queue::from(group_id.clone()),
       group_id,
       backend: RaftApalisBackend::Worker {
         network,
-        control_nodes: Arc::new(control_nodes),
+        control_nodes: Arc::new(Mutex::new(control_nodes_state)),
       },
       kv_client,
       poll_interval: POLL_INTERVAL,
@@ -265,7 +302,7 @@ impl RaftApalisBackend {
     prefix: &str,
   ) -> Result<Vec<(String, String)>, RaftApalisError> {
     match self {
-      Self::Control { raft, kv_data } => {
+      Self::Control { raft, kv_data, .. } => {
         ensure_linearizable_read(raft)
           .await
           .map_err(|err| RaftApalisError::new(format!("{err:?}")))?;
@@ -350,10 +387,25 @@ where
 
   fn poll_compact(self, worker: &WorkerContext) -> Self::CompactStream {
     let worker_id = worker.name().clone();
+
+    // ensure channel exists
+    let tx = APALIS_WAKE_TX.get_or_init(|| {
+      let (tx, _) = broadcast::channel(100);
+      tx
+    });
+    let rx = tx.subscribe();
+
     stream::unfold(
-      (self, worker_id, false),
-      |(storage, worker_id, was_erroring)| async move {
-        sleep(storage.poll_interval).await;
+      (self, worker_id, false, rx),
+      |(storage, worker_id, was_erroring, mut rx)| async move {
+        tokio::select! {
+            _ = sleep(storage.poll_interval) => {}
+            Ok(notified_worker_id) = rx.recv() => {
+                if notified_worker_id != worker_id {
+                    return Some((Ok(None), (storage, worker_id, was_erroring, rx)));
+                }
+            }
+        }
         let (item, is_erroring) = match storage.try_claim_next(&worker_id).await {
           Ok(item) => {
             if was_erroring {
@@ -381,7 +433,7 @@ where
             (Ok(None), true)
           }
         };
-        Some((item, (storage, worker_id, is_erroring)))
+        Some((item, (storage, worker_id, is_erroring, rx)))
       },
     )
     .boxed()
@@ -526,6 +578,18 @@ impl<Args, C> RaftApalisStorage<Args, C> {
         lease_epoch = target_worker.lease_epoch,
         "scheduled apalis task to libp2p worker"
       );
+      // notify worker using gossipsub
+      let msg = crate::proto::raft_kv::TaskAssignedMessage {
+        task_id: task_id.clone(),
+        worker_id: target_worker_id.clone(),
+      };
+      use prost::Message;
+      let data = msg.encode_to_vec();
+      self
+        .kv_client
+        .publish_gossipsub(crate::network::swarm::GOSSIP_TOPIC, data)
+        .await;
+
       return Ok(());
     }
 
@@ -586,6 +650,11 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   }
 
   async fn active_workers(&self) -> Result<Vec<WorkerRecord>, RaftApalisError> {
+    let network = match &self.backend {
+      RaftApalisBackend::Control { network, .. } => Some(network),
+      _ => None,
+    };
+
     let prefix = worker_key_prefix(self.queue.as_ref());
     let now = current_unix_secs();
     let mut workers = Vec::new();
@@ -597,7 +666,21 @@ impl<Args, C> RaftApalisStorage<Args, C> {
           continue;
         }
       };
-      if worker.expires_at >= now {
+
+      let mut is_active = worker.expires_at >= now;
+
+      if is_active {
+        if let Some(net) = network {
+          if let Ok(peer_id) = libp2p::PeerId::from_str(&worker.node_id) {
+            if !net.is_peer_connected(&peer_id).await {
+              is_active = false;
+              tracing::warn!(worker_id = %worker.node_id, "worker disconnected via libp2p, marking inactive");
+            }
+          }
+        }
+      }
+
+      if is_active {
         workers.push(worker);
       }
     }
@@ -837,7 +920,7 @@ async fn raft_set(
 
   match response.op {
     Some(KvResponseOp::Set(resp)) if resp.ok => Ok(()),
-    Some(KvResponseOp::Error(ErrorResponse { message })) => Err(RaftApalisError::new(message)),
+    Some(KvResponseOp::Error(ErrorResponse { message, .. })) => Err(RaftApalisError::new(message)),
     other => Err(RaftApalisError::new(format!(
       "unexpected raft kv response: {other:?}"
     ))),
@@ -846,13 +929,13 @@ async fn raft_set(
 
 async fn write_raw_to_control_nodes(
   network: &Libp2pNetworkFactory,
-  control_nodes: &[NodeId],
+  control_nodes: &Mutex<ControlNodesState>,
   group_id: String,
   key: String,
   value: String,
 ) -> Result<(), RaftApalisError> {
   let mut last_error = None;
-  for node_id in control_nodes {
+  for node_id in control_nodes.lock().await.get_target_nodes() {
     let response = network
       .request_kv(
         node_id.clone(),
@@ -869,7 +952,13 @@ async fn write_raw_to_control_nodes(
     match response {
       Ok(response) => match response.op {
         Some(KvResponseOp::Set(resp)) if resp.ok => return Ok(()),
-        Some(KvResponseOp::Error(ErrorResponse { message })) => {
+        Some(KvResponseOp::Error(ErrorResponse { message, leader_id })) => {
+          if !leader_id.is_empty() {
+            control_nodes
+              .lock()
+              .await
+              .report_leader(NodeId::new(&leader_id));
+          }
           last_error = Some(message);
         }
         other => {
@@ -890,14 +979,14 @@ async fn write_raw_to_control_nodes(
 
 async fn claim_apalis_task_from_control_nodes(
   network: &Libp2pNetworkFactory,
-  control_nodes: &[NodeId],
+  control_nodes: &Mutex<ControlNodesState>,
   group_id: &str,
   prefix: &str,
   local_node_id: &str,
   worker_id: &str,
 ) -> Result<Option<(String, String)>, RaftApalisError> {
   let mut last_error = None;
-  for node_id in control_nodes {
+  for node_id in control_nodes.lock().await.get_target_nodes() {
     let response = network
       .request_kv(
         node_id.clone(),
@@ -923,8 +1012,14 @@ async fn claim_apalis_task_from_control_nodes(
             return Ok(None);
           }
         }
-        Some(KvResponseOp::Error(err)) => {
-          last_error = Some(err.message);
+        Some(KvResponseOp::Error(ErrorResponse { message, leader_id })) => {
+          if !leader_id.is_empty() {
+            control_nodes
+              .lock()
+              .await
+              .report_leader(NodeId::new(&leader_id));
+          }
+          last_error = Some(message);
         }
         _ => {
           last_error = Some("unexpected response".to_string());
@@ -944,12 +1039,12 @@ async fn claim_apalis_task_from_control_nodes(
 
 async fn list_prefix_from_control_nodes(
   network: &Libp2pNetworkFactory,
-  control_nodes: &[NodeId],
+  control_nodes: &Mutex<ControlNodesState>,
   group_id: &str,
   prefix: &str,
 ) -> Result<Vec<(String, String)>, RaftApalisError> {
   let mut last_error = None;
-  for node_id in control_nodes {
+  for node_id in control_nodes.lock().await.get_target_nodes() {
     let response = network
       .request_kv(
         node_id.clone(),
@@ -973,7 +1068,13 @@ async fn list_prefix_from_control_nodes(
           entries.sort_by(|a, b| a.0.cmp(&b.0));
           return Ok(entries);
         }
-        Some(KvResponseOp::Error(ErrorResponse { message })) => {
+        Some(KvResponseOp::Error(ErrorResponse { message, leader_id })) => {
+          if !leader_id.is_empty() {
+            control_nodes
+              .lock()
+              .await
+              .report_leader(NodeId::new(&leader_id));
+          }
           last_error = Some(message);
         }
         other => {
@@ -1207,8 +1308,9 @@ pub fn build_email_storage(
   group_id: impl Into<String>,
   group: GroupHandle,
   kv_client: KvClient,
+  network: Libp2pNetworkFactory,
 ) -> RaftApalisStorage<Email> {
-  RaftApalisStorage::new(node_id, group_id, group, kv_client)
+  RaftApalisStorage::new(node_id, group_id, group, kv_client, network)
 }
 
 pub fn build_worker_email_storage(

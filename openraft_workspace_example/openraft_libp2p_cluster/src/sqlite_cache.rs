@@ -421,7 +421,7 @@ pub async fn record_pending_key(
 
   match response.op {
     Some(KvResponseOp::Set(resp)) if resp.ok => Ok(target_node_id),
-    Some(KvResponseOp::Error(ErrorResponse { message })) => Err(anyhow::anyhow!(message)),
+    Some(KvResponseOp::Error(ErrorResponse { message, .. })) => Err(anyhow::anyhow!(message)),
     other => Err(anyhow::anyhow!(
       "unexpected raft kv pending-key response: {other:?}"
     )),
@@ -451,7 +451,7 @@ async fn delete_pending_key(
       tracing::debug!(group = group_id, key = %openraft_key, "sqlite pending key already deleted");
       Ok(())
     }
-    Some(KvResponseOp::Error(ErrorResponse { message })) => Err(anyhow::anyhow!(message)),
+    Some(KvResponseOp::Error(ErrorResponse { message, .. })) => Err(anyhow::anyhow!(message)),
     other => Err(anyhow::anyhow!(
       "unexpected raft kv pending-key delete response: {other:?}"
     )),

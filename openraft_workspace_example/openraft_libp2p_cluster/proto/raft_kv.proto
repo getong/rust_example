@@ -66,6 +66,7 @@ message ClaimApalisTaskResponse {
 
 message ErrorResponse {
   string message = 1;
+  string leader_id = 2;
 }
 
 message RaftKvRequest {

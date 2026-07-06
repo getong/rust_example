@@ -2010,8 +2010,7 @@ async fn send_kv_request(
   match resolve_kv_target(state, group_id, target_node_id).await? {
     KvTarget::Local { node_id } => {
       let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
-      let resp =
-        process_kv_request(group.raft, group.kv_data, state.kv_client.clone(), request).await;
+      let resp = process_kv_request(group.raft, group.kv_data, request).await;
       Ok((node_id, resp))
     }
     KvTarget::Remote {

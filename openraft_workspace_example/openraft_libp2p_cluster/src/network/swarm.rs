@@ -140,6 +140,17 @@ impl From<kad::Event> for BehaviourEvent {
 }
 
 pub enum Command {
+  SetKadMode {
+    mode: kad::Mode,
+  },
+  StartProviding {
+    key: String,
+    resp: oneshot::Sender<Result<(), NetErr>>,
+  },
+  GetProviders {
+    key: String,
+    resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
+  },
   Dial {
     addr: Multiaddr,
   },
@@ -198,6 +209,40 @@ pub struct Libp2pClient {
 impl Libp2pClient {
   pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
     Self { tx, timeout }
+  }
+
+  pub async fn set_kad_mode(&self, mode: kad::Mode) {
+    let _ = self.tx.send(Command::SetKadMode { mode }).await;
+  }
+
+  pub async fn start_providing(&self, key: String) -> Result<(), NetErr> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::StartProviding { key, resp: resp_tx })
+      .await
+      .map_err(|e| NetErr(format!("command channel closed: {e}")))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| NetErr(format!("timeout: {e}")))
+      .and_then(|r| r.map_err(|e| NetErr(format!("connect dropped: {e}"))))?;
+    resp
+  }
+
+  pub async fn get_providers(&self, key: String) -> Result<HashSet<PeerId>, NetErr> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::GetProviders { key, resp: resp_tx })
+      .await
+      .map_err(|e| NetErr(format!("command channel closed: {e}")))?;
+
+    let resp = tokio::time::timeout(self.timeout * 5, resp_rx)
+      .await
+      .map_err(|e| NetErr(format!("timeout: {e}")))
+      .and_then(|r| r.map_err(|e| NetErr(format!("connect dropped: {e}"))))?;
+    resp
   }
 
   pub async fn dial(&self, addr: Multiaddr) {
@@ -306,6 +351,16 @@ pub struct KvClient {
 impl KvClient {
   pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
     Self { tx, timeout }
+  }
+
+  pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) {
+    let _ = self
+      .tx
+      .send(Command::GossipsubPublish {
+        topic: topic.to_string(),
+        data,
+      })
+      .await;
   }
 
   pub async fn dial(&self, addr: Multiaddr) {
@@ -478,6 +533,9 @@ pub async fn run_swarm(
   let mut openraft_sync = OpenRaftSyncState::default();
   let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
+  let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
+    HashMap::new();
+  let mut pending_get_providers: HashMap<kad::QueryId, GetProvidersState> = HashMap::new();
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
   let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
   reconnect_tick.tick().await;
@@ -512,6 +570,8 @@ pub async fn run_swarm(
           &mut pending_sqlite_sync,
           &mut pending_connect,
           &mut dial_backoff_until,
+          &mut pending_start_providing,
+          &mut pending_get_providers,
         );
       }
 
@@ -529,6 +589,8 @@ pub async fn run_swarm(
           &mut openraft_sync,
           &mut connected_peers,
           &mut dial_backoff_until,
+            &mut pending_start_providing,
+            &mut pending_get_providers,
         )
         .await;
       }
@@ -581,6 +643,11 @@ async fn next_swarm_event(swarm: &SharedSwarm) -> SwarmEvent<BehaviourEvent> {
   }
 }
 
+struct GetProvidersState {
+  providers: HashSet<PeerId>,
+  resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
+}
+
 fn handle_command(
   swarm: &mut Swarm<Behaviour>,
   cmd: Command,
@@ -592,8 +659,36 @@ fn handle_command(
   >,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
+  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
+  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
 ) {
   match cmd {
+    Command::SetKadMode { mode } => {
+      swarm.behaviour_mut().kad.set_mode(Some(mode));
+      tracing::info!(mode = ?mode, "set kademlia mode");
+    }
+    Command::StartProviding { key, resp } => {
+      let record_key = kad::RecordKey::new(&key);
+      match swarm.behaviour_mut().kad.start_providing(record_key) {
+        Ok(query_id) => {
+          pending_start_providing.insert(query_id, resp);
+        }
+        Err(e) => {
+          let _ = resp.send(Err(NetErr(format!("start_providing failed: {:?}", e))));
+        }
+      }
+    }
+    Command::GetProviders { key, resp } => {
+      let record_key = kad::RecordKey::new(&key);
+      let query_id = swarm.behaviour_mut().kad.get_providers(record_key);
+      pending_get_providers.insert(
+        query_id,
+        GetProvidersState {
+          providers: HashSet::new(),
+          resp,
+        },
+      );
+    }
     Command::Dial { addr } => {
       dial_peer_addr(swarm, addr.clone());
       add_kad_address_from_p2p(swarm, &addr);
@@ -719,6 +814,8 @@ async fn handle_swarm_event(
   openraft_sync: &mut OpenRaftSyncState,
   connected_peers: &mut HashSet<PeerId>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
+  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
+  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
@@ -741,7 +838,14 @@ async fn handle_swarm_event(
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
       let mut swarm = lock_swarm(swarm).await;
-      handle_kad_event(&mut swarm, Some(network), Some(connected_peers), event);
+      handle_kad_event(
+        &mut swarm,
+        Some(network),
+        Some(connected_peers),
+        event,
+        pending_start_providing,
+        pending_get_providers,
+      );
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
       {
@@ -1202,6 +1306,9 @@ pub async fn run_swarm_client_with_shutdown(
     HashMap::new();
   let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
+  let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
+    HashMap::new();
+  let mut pending_get_providers: HashMap<kad::QueryId, GetProvidersState> = HashMap::new();
   let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
   kad_discovery_tick.tick().await;
 
@@ -1224,6 +1331,8 @@ pub async fn run_swarm_client_with_shutdown(
           &mut pending_sqlite_sync,
           &mut pending_connect,
           &mut dial_backoff_until,
+          &mut pending_start_providing,
+          &mut pending_get_providers,
         );
       }
 
@@ -1337,7 +1446,7 @@ pub async fn run_swarm_client_with_shutdown(
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-            handle_kad_event(&mut swarm, None, None, event);
+            handle_kad_event(&mut swarm, None, None, event, &mut pending_start_providing, &mut pending_get_providers);
           }
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
@@ -1515,6 +1624,8 @@ fn handle_kad_event(
   network: Option<&Libp2pNetworkFactory>,
   connected_peers: Option<&HashSet<PeerId>>,
   event: kad::Event,
+  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
+  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
 ) {
   match event {
     kad::Event::RoutingUpdated {
@@ -1545,22 +1656,56 @@ fn handle_kad_event(
         return;
       }
     }
-    kad::Event::OutboundQueryProgressed { result, .. } => {
-      if let kad::QueryResult::GetClosestPeers(result) = result {
-        match result {
-          Ok(ok) => {
-            if ok.peers.is_empty() {
-              tracing::debug!("kad get_closest_peers complete: no peers");
-            } else {
-              tracing::debug!(peers = ?ok.peers, "kad get_closest_peers complete");
-            }
+    kad::Event::OutboundQueryProgressed { id, result, .. } => match result {
+      kad::QueryResult::GetClosestPeers(result) => match result {
+        Ok(ok) => {
+          if ok.peers.is_empty() {
+            tracing::debug!("kad get_closest_peers complete: no peers");
+          } else {
+            tracing::debug!(peers = ?ok.peers, "kad get_closest_peers complete");
           }
-          Err(err) => {
-            tracing::debug!(error = ?err, "kad get_closest_peers failed");
+        }
+        Err(err) => {
+          tracing::debug!(error = ?err, "kad get_closest_peers failed");
+        }
+      },
+      kad::QueryResult::StartProviding(result) => {
+        if let Some(resp) = pending_start_providing.remove(&id) {
+          match result {
+            Ok(_) => {
+              let _ = resp.send(Ok(()));
+            }
+            Err(e) => {
+              let _ = resp.send(Err(NetErr(format!(
+                "kademlia start_providing failed: {:?}",
+                e
+              ))));
+            }
           }
         }
       }
-    }
+      kad::QueryResult::GetProviders(result) => match result {
+        Ok(kad::GetProvidersOk::FoundProviders { key: _, providers }) => {
+          if let Some(state) = pending_get_providers.get_mut(&id) {
+            state.providers.extend(providers);
+          }
+        }
+        Ok(kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. }) => {
+          if let Some(state) = pending_get_providers.remove(&id) {
+            let _ = state.resp.send(Ok(state.providers));
+          }
+        }
+        Err(e) => {
+          if let Some(state) = pending_get_providers.remove(&id) {
+            let _ = state.resp.send(Err(NetErr(format!(
+              "kademlia get_providers failed: {:?}",
+              e
+            ))));
+          }
+        }
+      },
+      _ => {}
+    },
     other => {
       tracing::debug!("kad event: {:?}", other);
     }
@@ -1571,6 +1716,7 @@ fn kv_error_response(message: impl Into<String>) -> RaftKvResponse {
   RaftKvResponse {
     op: Some(KvResponseOp::Error(ErrorResponse {
       message: message.into(),
+      leader_id: String::new(),
     })),
   }
 }
