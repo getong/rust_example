@@ -269,9 +269,7 @@ impl RaftApalisBackend {
         ensure_linearizable_read(raft)
           .await
           .map_err(|err| RaftApalisError::new(format!("{err:?}")))?;
-        let mut entries = kv_data.entries().await?;
-        entries.retain(|(key, _)| key.starts_with(prefix));
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        let entries = kv_data.entries_with_prefix(prefix.to_string()).await?;
         Ok(entries)
       }
       Self::Worker {
@@ -540,51 +538,51 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   ) -> Result<Option<Task<Vec<u8>, RaftTaskContext, RaftTaskId>>, RaftApalisError> {
     let local_node_id = self.node_id.to_string();
     let prefix = task_key_prefix(self.queue.as_ref());
-    let entries = self.entries_with_prefix(&prefix).await?;
-    for (key, value) in entries {
-      let mut record = match StoredTask::decode(&value) {
-        Ok(record) => record,
-        Err(err) => {
-          tracing::warn!(%key, error = ?err, "skipping invalid apalis task record");
-          continue;
-        }
-      };
 
-      if record.status != StoredStatus::Running {
-        continue;
+    let entry = match &self.backend {
+      RaftApalisBackend::Worker {
+        network,
+        control_nodes,
+      } => {
+        claim_apalis_task_from_control_nodes(
+          network,
+          control_nodes,
+          &self.group_id,
+          &prefix,
+          &local_node_id,
+          worker_id,
+        )
+        .await?
       }
-      if record.assigned_node_id.as_deref() != Some(local_node_id.as_str()) {
-        continue;
-      }
-      if let Some(lock_by) = record.lock_by.as_deref()
-        && lock_by != worker_id
-      {
-        continue;
-      }
+      _ => None,
+    };
 
-      let task_id = record.task_id.clone();
-      if !self.insert_local_claim(&task_id).await {
-        continue;
-      }
+    let Some((key, value)) = entry else {
+      return Ok(None);
+    };
 
-      record.lock_by = Some(worker_id.to_string());
-      let task = match record.clone().into_compact_task() {
-        Ok(task) => task,
-        Err(err) => {
-          self.remove_local_claim(&task_id).await;
-          return Err(err);
-        }
-      };
+    let mut record = StoredTask::decode(&value).map_err(|e| RaftApalisError::new(e.to_string()))?;
 
-      if let Err(err) = self.write_record(key, record).await {
+    let task_id = record.task_id.clone();
+    if !self.insert_local_claim(&task_id).await {
+      return Ok(None);
+    }
+
+    record.lock_by = Some(worker_id.to_string());
+    let task = match record.clone().into_compact_task() {
+      Ok(task) => task,
+      Err(err) => {
         self.remove_local_claim(&task_id).await;
         return Err(err);
       }
+    };
 
-      return Ok(Some(task));
+    if let Err(err) = self.write_record(key, record).await {
+      self.remove_local_claim(&task_id).await;
+      return Err(err);
     }
 
-    Ok(None)
+    Ok(Some(task))
   }
 
   async fn active_workers(&self) -> Result<Vec<WorkerRecord>, RaftApalisError> {
@@ -890,6 +888,60 @@ async fn write_raw_to_control_nodes(
   )))
 }
 
+async fn claim_apalis_task_from_control_nodes(
+  network: &Libp2pNetworkFactory,
+  control_nodes: &[NodeId],
+  group_id: &str,
+  prefix: &str,
+  local_node_id: &str,
+  worker_id: &str,
+) -> Result<Option<(String, String)>, RaftApalisError> {
+  let mut last_error = None;
+  for node_id in control_nodes {
+    let response = network
+      .request_kv(
+        node_id.clone(),
+        RaftKvRequest {
+          group_id: group_id.to_string(),
+          op: Some(KvRequestOp::ClaimApalisTask(
+            crate::proto::raft_kv::ClaimApalisTaskRequest {
+              prefix: prefix.to_string(),
+              local_node_id: local_node_id.to_string(),
+              worker_id: worker_id.to_string(),
+            },
+          )),
+        },
+      )
+      .await;
+
+    match response {
+      Ok(req_res) => match req_res.op {
+        Some(KvResponseOp::ClaimApalisTask(res)) => {
+          if res.found {
+            return Ok(Some((res.key, res.value)));
+          } else {
+            return Ok(None);
+          }
+        }
+        Some(KvResponseOp::Error(err)) => {
+          last_error = Some(err.message);
+        }
+        _ => {
+          last_error = Some("unexpected response".to_string());
+        }
+      },
+      Err(err) => {
+        last_error = Some(format!("network error: {err}"));
+      }
+    }
+  }
+
+  Err(RaftApalisError::new(format!(
+    "failed to claim apalis task from control nodes: {:?}",
+    last_error
+  )))
+}
+
 async fn list_prefix_from_control_nodes(
   network: &Libp2pNetworkFactory,
   control_nodes: &[NodeId],
@@ -941,19 +993,19 @@ async fn list_prefix_from_control_nodes(
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredTask {
-  task_id: String,
-  payload: Vec<u8>,
-  attempts: usize,
-  status: StoredStatus,
-  run_at: u64,
-  idempotency_key: Option<String>,
-  lock_by: Option<String>,
+pub struct StoredTask {
+  pub task_id: String,
+  pub payload: Vec<u8>,
+  pub attempts: usize,
+  pub status: StoredStatus,
+  pub run_at: u64,
+  pub idempotency_key: Option<String>,
+  pub lock_by: Option<String>,
   #[serde(default)]
-  assigned_node_id: Option<String>,
+  pub assigned_node_id: Option<String>,
   #[serde(default)]
-  lease_epoch: Option<u64>,
-  result: Option<TaskResultRecord>,
+  pub lease_epoch: Option<u64>,
+  pub result: Option<TaskResultRecord>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1038,10 +1090,10 @@ impl StoredTask {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct TaskResultRecord {
-  ok: bool,
-  payload: Vec<u8>,
-  error: Option<String>,
+pub struct TaskResultRecord {
+  pub ok: bool,
+  pub payload: Vec<u8>,
+  pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1059,7 +1111,7 @@ impl WorkerRecord {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
-enum StoredStatus {
+pub enum StoredStatus {
   Pending,
   Queued,
   Running,

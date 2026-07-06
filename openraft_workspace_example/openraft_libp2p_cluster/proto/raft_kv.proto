@@ -43,6 +43,12 @@ message ListPrefixRequest {
   string prefix = 1;
 }
 
+message ClaimApalisTaskRequest {
+  string prefix = 1;
+  string local_node_id = 2;
+  string worker_id = 3;
+}
+
 message KeyValue {
   string key = 1;
   string value = 2;
@@ -50,6 +56,12 @@ message KeyValue {
 
 message ListPrefixResponse {
   repeated KeyValue entries = 1;
+}
+
+message ClaimApalisTaskResponse {
+  bool found = 1;
+  string key = 2;
+  string value = 3;
 }
 
 message ErrorResponse {
@@ -64,6 +76,7 @@ message RaftKvRequest {
     UpdateValueRequest update = 3;
     DeleteValueRequest delete = 4;
     ListPrefixRequest list_prefix = 5;
+    ClaimApalisTaskRequest claim_apalis_task = 6;
   }
 }
 
@@ -74,6 +87,7 @@ message RaftKvResponse {
     UpdateValueResponse update = 3;
     DeleteValueResponse delete = 4;
     ListPrefixResponse list_prefix = 5;
+    ClaimApalisTaskResponse claim_apalis_task = 6;
     ErrorResponse error = 10;
   }
 }

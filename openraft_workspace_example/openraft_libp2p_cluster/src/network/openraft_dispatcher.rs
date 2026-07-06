@@ -212,18 +212,65 @@ pub async fn process_kv_request(
         return kv_error_response(format!("{err:?}"));
       }
 
-      let entries = match kv_data.entries().await {
+      let entries = match kv_data.entries_with_prefix(req.prefix).await {
         Ok(entries) => entries,
         Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
       };
       let entries = entries
         .into_iter()
-        .filter(|(key, _)| key.starts_with(&req.prefix))
         .map(|(key, value)| crate::proto::raft_kv::KeyValue { key, value })
         .collect();
       RaftKvResponse {
         op: Some(KvResponseOp::ListPrefix(
           crate::proto::raft_kv::ListPrefixResponse { entries },
+        )),
+      }
+    }
+    KvRequestOp::ClaimApalisTask(req) => {
+      if let Err(err) = ensure_linearizable_read(&raft).await {
+        return kv_error_response(format!("{err:?}"));
+      }
+
+      let entries = match kv_data.entries_with_prefix(req.prefix).await {
+        Ok(entries) => entries,
+        Err(err) => return kv_error_response(format!("read rocksdb kv failed: {err}")),
+      };
+
+      for (key, value) in entries {
+        let Ok(record) = sonic_rs::from_str::<crate::apalis_raft::StoredTask>(&value) else {
+          continue;
+        };
+
+        if record.status != crate::apalis_raft::StoredStatus::Running {
+          continue;
+        }
+        if record.assigned_node_id.as_deref() != Some(req.local_node_id.as_str()) {
+          continue;
+        }
+        if let Some(lock_by) = record.lock_by.as_deref() {
+          if lock_by != req.worker_id {
+            continue;
+          }
+        }
+
+        return RaftKvResponse {
+          op: Some(KvResponseOp::ClaimApalisTask(
+            crate::proto::raft_kv::ClaimApalisTaskResponse {
+              found: true,
+              key,
+              value,
+            },
+          )),
+        };
+      }
+
+      RaftKvResponse {
+        op: Some(KvResponseOp::ClaimApalisTask(
+          crate::proto::raft_kv::ClaimApalisTaskResponse {
+            found: false,
+            key: String::new(),
+            value: String::new(),
+          },
         )),
       }
     }

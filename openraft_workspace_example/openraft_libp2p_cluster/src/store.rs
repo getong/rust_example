@@ -97,6 +97,32 @@ impl KvData {
     .context("join rocksdb kv entries task")?
   }
 
+  pub async fn entries_with_prefix(&self, prefix: String) -> anyhow::Result<Vec<(String, String)>> {
+    let db = self.db.clone();
+    TypeConfig::spawn_blocking(move || {
+      catch_up(&db)?;
+      let cf = sm_data_cf(&db)?;
+      let iter = db.iterator_cf(
+        &cf,
+        rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
+      );
+      let mut entries = Vec::new();
+      for item in iter {
+        let (key, value) = item.context("iterate rocksdb kv data")?;
+        if !key.starts_with(prefix.as_bytes()) {
+          break;
+        }
+        entries.push((
+          decode_utf8(key.as_ref(), "key")?,
+          decode_utf8(value.as_ref(), "value")?,
+        ));
+      }
+      Ok(entries)
+    })
+    .await
+    .context("join rocksdb kv entries_with_prefix task")?
+  }
+
   fn catch_up(&self) -> anyhow::Result<()> {
     catch_up(&self.db)
   }

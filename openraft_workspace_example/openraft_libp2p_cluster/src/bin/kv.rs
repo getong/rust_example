@@ -209,6 +209,12 @@ async fn main() -> anyhow::Result<()> {
         println!("{}={}", entry.key, entry.value);
       }
     }
+    Some(KvResponseOp::ClaimApalisTask(resp)) => {
+      println!(
+        "claim task: found={}, key={}, value={}",
+        resp.found, resp.key, resp.value
+      );
+    }
     Some(KvResponseOp::Error(resp)) => {
       println!("error: {}", resp.message);
     }
