@@ -39,6 +39,8 @@ use crate::{
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
+const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
 const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub type SharedSwarm = Arc<Mutex<Swarm<Behaviour>>>;
@@ -532,6 +534,9 @@ pub async fn run_swarm(
     HashMap::new();
   let mut openraft_sync = OpenRaftSyncState::default();
   let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
+  let mut reconnect_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
+  let mut outgoing_failure_log_backoff_until: HashMap<PeerId, tokio::time::Instant> =
+    HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
   let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
     HashMap::new();
@@ -548,7 +553,12 @@ pub async fn run_swarm(
         break;
       }
       _ = reconnect_tick.tick() => {
-        handle_reconnect_tick(&swarm, &network, &connected_peers).await;
+        handle_reconnect_tick(
+          &swarm,
+          &network,
+          &connected_peers,
+          &mut reconnect_backoff_until,
+        ).await;
       }
       _ = kad_discovery_tick.tick() => {
         let mut swarm = lock_swarm(&swarm).await;
@@ -589,8 +599,10 @@ pub async fn run_swarm(
           &mut openraft_sync,
           &mut connected_peers,
           &mut dial_backoff_until,
-            &mut pending_start_providing,
-            &mut pending_get_providers,
+          &mut reconnect_backoff_until,
+          &mut outgoing_failure_log_backoff_until,
+          &mut pending_start_providing,
+          &mut pending_get_providers,
         )
         .await;
       }
@@ -602,9 +614,11 @@ async fn handle_reconnect_tick(
   swarm: &SharedSwarm,
   network: &Libp2pNetworkFactory,
   connected_peers: &HashSet<PeerId>,
+  reconnect_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
 ) {
   let nodes = network.known_nodes().await;
   let mut swarm = lock_swarm(swarm).await;
+  let now = tokio::time::Instant::now();
   for (_node_id, peer_id, addr) in nodes {
     if peer_id == *swarm.local_peer_id() {
       continue;
@@ -612,13 +626,26 @@ async fn handle_reconnect_tick(
     if connected_peers.contains(&peer_id) {
       continue;
     }
-    tracing::info!(
+    if let Some(until) = reconnect_backoff_until.get(&peer_id).copied() {
+      if now < until {
+        tracing::debug!(
+          peer = %peer_id,
+          addr = %addr,
+          retry_in_ms = (until - now).as_millis(),
+          "automatic reconnect backoff active"
+        );
+        continue;
+      }
+      reconnect_backoff_until.remove(&peer_id);
+    }
+    tracing::debug!(
       peer = %peer_id,
       addr = %addr,
       "reconnecting to peer"
     );
     dial_peer_addr(&mut swarm, addr.clone());
     add_kad_address_from_p2p(&mut swarm, &addr);
+    reconnect_backoff_until.insert(peer_id, now + RECONNECT_RETRY_BACKOFF);
   }
 }
 
@@ -814,6 +841,8 @@ async fn handle_swarm_event(
   openraft_sync: &mut OpenRaftSyncState,
   connected_peers: &mut HashSet<PeerId>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
+  reconnect_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
+  outgoing_failure_log_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
   pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
 ) {
@@ -858,6 +887,8 @@ async fn handle_swarm_event(
           peer_id,
         );
       }
+      reconnect_backoff_until.remove(&peer_id);
+      outgoing_failure_log_backoff_until.remove(&peer_id);
       network.set_peer_connected(peer_id).await;
     }
     SwarmEvent::ConnectionClosed {
@@ -883,6 +914,7 @@ async fn handle_swarm_event(
         &mut swarm,
         pending_connect,
         dial_backoff_until,
+        outgoing_failure_log_backoff_until,
         peer_id,
         error,
       );
@@ -1020,6 +1052,9 @@ async fn handle_mdns_event(
     mdns::Event::Discovered(list) => {
       let mut saw_peer = false;
       for (peer, addr) in list {
+        if crate::network::transport::is_undialable_discovered_addr(&addr) {
+          continue;
+        }
         let mut use_discovered_addr = network.update_peer_addr_from_mdns(peer, addr.clone()).await;
         if network.register_discovered_peer(peer, addr.clone()).await {
           use_discovered_addr = true;
@@ -1257,11 +1292,17 @@ fn handle_outgoing_connection_error<E: fmt::Display>(
   swarm: &mut Swarm<Behaviour>,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
+  failure_log_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   peer_id: Option<PeerId>,
   error: E,
 ) {
   let Some(peer_id) = peer_id else {
-    tracing::warn!(error = %error, "outgoing connection failed");
+    tracing::warn!(
+      error = %error,
+      file = file!(),
+      line = line!(),
+      "outgoing connection failed"
+    );
     return;
   };
 
@@ -1269,13 +1310,46 @@ fn handle_outgoing_connection_error<E: fmt::Display>(
     return;
   }
 
+  let has_waiters = pending_connect.contains_key(&peer_id);
   dial_backoff_until.insert(peer_id, tokio::time::Instant::now() + DIAL_RETRY_BACKOFF);
-  tracing::warn!(peer = %peer_id, error = %error, "outgoing connection failed");
+  if has_waiters && should_log_outgoing_failure(peer_id, failure_log_backoff_until) {
+    tracing::warn!(
+      peer = %peer_id,
+      error = %error,
+      file = file!(),
+      line = line!(),
+      "outgoing connection failed"
+    );
+  } else {
+    tracing::debug!(
+      peer = %peer_id,
+      error = %error,
+      file = file!(),
+      line = line!(),
+      has_waiters,
+      "outgoing connection failed; suppressing warning"
+    );
+  }
   finish_pending_connect(
     pending_connect,
     peer_id,
     Err(NetErr(format!("dial failed: {error}"))),
   );
+}
+
+fn should_log_outgoing_failure(
+  peer_id: PeerId,
+  failure_log_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
+) -> bool {
+  let now = tokio::time::Instant::now();
+  if let Some(until) = failure_log_backoff_until.get(&peer_id).copied() {
+    if now < until {
+      return false;
+    }
+    failure_log_backoff_until.remove(&peer_id);
+  }
+  failure_log_backoff_until.insert(peer_id, now + OUTGOING_FAILURE_LOG_BACKOFF);
+  true
 }
 
 /// Client-only swarm loop.
@@ -1305,6 +1379,8 @@ pub async fn run_swarm_client_with_shutdown(
   let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
     HashMap::new();
   let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
+  let mut outgoing_failure_log_backoff_until: HashMap<PeerId, tokio::time::Instant> =
+    HashMap::new();
   let mut connected_peers: HashSet<PeerId> = HashSet::new();
   let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
     HashMap::new();
@@ -1452,6 +1528,7 @@ pub async fn run_swarm_client_with_shutdown(
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             connected_peers.insert(peer_id);
             dial_backoff_until.remove(&peer_id);
+            outgoing_failure_log_backoff_until.remove(&peer_id);
             finish_pending_connect(&mut pending_connect, peer_id, Ok(()));
             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
             kick_kad_queries(&mut swarm);
@@ -1465,19 +1542,13 @@ pub async fn run_swarm_client_with_shutdown(
           }
 
           SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-            let Some(peer_id) = peer_id else {
-              tracing::warn!(error = %error, "outgoing connection failed");
-              continue;
-            };
-            if connected_peers.contains(&peer_id) || swarm.is_connected(&peer_id) {
-              continue;
-            }
-            dial_backoff_until.insert(peer_id, tokio::time::Instant::now() + DIAL_RETRY_BACKOFF);
-            tracing::warn!(peer = %peer_id, error = %error, "outgoing connection failed");
-            finish_pending_connect(
+            handle_outgoing_connection_error(
+              &mut swarm,
               &mut pending_connect,
+              &mut dial_backoff_until,
+              &mut outgoing_failure_log_backoff_until,
               peer_id,
-              Err(NetErr(format!("dial failed: {error}"))),
+              error,
             );
           }
 

@@ -22,6 +22,7 @@ use openraft_libp2p_cluster::{
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   signal,
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  telemetry,
 };
 use tokio::sync::mpsc;
 
@@ -54,9 +55,7 @@ pub struct Opt {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-  tracing_subscriber::fmt()
-    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-    .init();
+  telemetry::init_tracing(false);
 
   let opt = Opt::parse();
 

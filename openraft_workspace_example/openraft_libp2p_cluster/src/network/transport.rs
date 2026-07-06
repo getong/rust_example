@@ -252,7 +252,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     if let Err(err) = self.client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) {
+      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
         return Err(err);
       }
       tracing::warn!(
@@ -279,7 +279,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     if let Err(err) = self.sqlite_sync_client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) {
+      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
         return Err(err);
       }
       tracing::warn!(
@@ -306,7 +306,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     if let Err(err) = self.kv_client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) {
+      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
         return Err(err);
       }
       tracing::warn!(
@@ -411,7 +411,7 @@ fn is_link_local_addr(addr: &Multiaddr) -> bool {
   }
 }
 
-fn is_undialable_discovered_addr(addr: &Multiaddr) -> bool {
+pub fn is_undialable_discovered_addr(addr: &Multiaddr) -> bool {
   is_unspecified_addr(addr) || is_link_local_addr(addr)
 }
 
@@ -425,6 +425,10 @@ fn should_use_discovered_addr(stored_addr: &Multiaddr, candidate: &Multiaddr) ->
   }
 
   if is_loopback_addr(candidate) {
+    return false;
+  }
+
+  if is_link_local_addr(candidate) {
     return false;
   }
 
