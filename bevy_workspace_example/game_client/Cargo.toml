@@ -7,9 +7,9 @@ edition = "2024"
 anyhow.workspace = true
 bevy = { workspace = true, features = ["2d", "ui"] }
 prost.workspace = true
-quinn.workspace = true
-rustls.workspace = true
 tokio.workspace = true
+lightyear = { workspace = true, features = ["std", "client", "udp", "netcode"] }
+serde.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true

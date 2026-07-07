@@ -15,14 +15,15 @@ pub fn run() {
   let (gateway_sender, gateway_receiver) = mpsc::channel(GATEWAY_EVENT_BUFFER);
   let shards = shard::spawn_shards(shard_count, gateway_sender.clone());
 
-  if let Err(err) = net::run_gateway(
-    DEFAULT_SERVER_ADDR,
-    shards,
-    gateway_sender,
-    gateway_receiver,
-  ) {
+  if let Err(err) = net::run_gateway(bind_addr().as_str(), shards, gateway_receiver) {
     eprintln!("game_server gateway error: {err:#}");
   }
+}
+
+fn bind_addr() -> String {
+  std::env::var("GAME_SERVER_BIND")
+    .or_else(|_| std::env::var("GAME_SERVER_ADDR"))
+    .unwrap_or_else(|_| DEFAULT_SERVER_ADDR.to_string())
 }
 
 fn shard_count() -> usize {

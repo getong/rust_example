@@ -1,6 +1,10 @@
 use anyhow::{Context, Result, bail};
+use bevy::prelude::{App, Plugin};
+use lightyear::prelude::{
+  AppChannelExt, AppMessageExt, ChannelMode, ChannelSettings, NetworkDirection, ReliableSettings,
+};
 use prost::Message;
-use quinn::{ReadExactError, RecvStream, SendStream};
+use serde::{Deserialize, Serialize};
 
 mod generated {
   include!(concat!(env!("OUT_DIR"), "/game.rs"));
@@ -9,83 +13,88 @@ mod generated {
 pub use generated::*;
 
 pub const DEFAULT_SERVER_ADDR: &str = "127.0.0.1:6000";
-pub const ALPN_PROTOCOL: &[u8] = b"bevy-game/0";
+pub const NETCODE_PROTOCOL_ID: u64 = 0x1f2e_3d4c_5b6a_7988;
+pub const NETCODE_PRIVATE_KEY: [u8; 32] = [
+  7, 44, 91, 128, 3, 219, 17, 64, 55, 222, 105, 18, 87, 144, 23, 201, 42, 11, 76, 190, 6, 95, 231,
+  12, 166, 37, 73, 154, 208, 1, 62, 119,
+];
+
 const MAX_FRAME_SIZE: usize = 64 * 1024;
 
-pub async fn read_client_envelope(recv: &mut RecvStream) -> Result<Option<ClientEnvelope>> {
-  read_envelope(recv).await
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClientPacket {
+  payload: Vec<u8>,
 }
 
-pub async fn read_server_envelope(recv: &mut RecvStream) -> Result<Option<ServerEnvelope>> {
-  read_envelope(recv).await
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServerPacket {
+  payload: Vec<u8>,
 }
 
-pub async fn write_client_envelope(send: &mut SendStream, message: &ClientEnvelope) -> Result<()> {
-  write_envelope(send, message).await
+pub struct GameChannel;
+
+pub struct GameProtocolPlugin;
+
+impl Plugin for GameProtocolPlugin {
+  fn build(&self, app: &mut App) {
+    app
+      .add_channel::<GameChannel>(ChannelSettings {
+        mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+        ..Default::default()
+      })
+      .add_direction(NetworkDirection::Bidirectional);
+    app
+      .register_message::<ClientPacket>()
+      .add_direction(NetworkDirection::ClientToServer);
+    app
+      .register_message::<ServerPacket>()
+      .add_direction(NetworkDirection::ServerToClient);
+  }
 }
 
-pub async fn write_server_envelope(send: &mut SendStream, message: &ServerEnvelope) -> Result<()> {
-  write_envelope(send, message).await
+pub fn encode_client_envelope(message: &ClientEnvelope) -> Result<ClientPacket> {
+  Ok(ClientPacket {
+    payload: encode_envelope(message)?,
+  })
 }
 
-async fn read_envelope<M>(recv: &mut RecvStream) -> Result<Option<M>>
-where
-  M: Message + Default,
-{
-  let Some(frame) = read_frame(recv).await? else {
-    return Ok(None);
-  };
-
-  M::decode(frame.as_slice())
-    .map(Some)
-    .context("failed to decode protobuf frame")
+pub fn decode_client_packet(packet: ClientPacket) -> Result<ClientEnvelope> {
+  decode_envelope(&packet.payload)
 }
 
-async fn write_envelope<M>(send: &mut SendStream, message: &M) -> Result<()>
+pub fn encode_server_envelope(message: &ServerEnvelope) -> Result<ServerPacket> {
+  Ok(ServerPacket {
+    payload: encode_envelope(message)?,
+  })
+}
+
+pub fn decode_server_packet(packet: ServerPacket) -> Result<ServerEnvelope> {
+  decode_envelope(&packet.payload)
+}
+
+fn encode_envelope<M>(message: &M) -> Result<Vec<u8>>
 where
   M: Message,
 {
   let payload = message.encode_to_vec();
-  write_frame(send, &payload).await
+  validate_frame_len(payload.len())?;
+  Ok(payload)
 }
 
-async fn read_frame(recv: &mut RecvStream) -> Result<Option<Vec<u8>>> {
-  let mut len_buf = [0_u8; 4];
-  match recv.read_exact(&mut len_buf).await {
-    Ok(()) => {}
-    Err(ReadExactError::FinishedEarly(0)) => return Ok(None),
-    Err(err) => return Err(err).context("failed to read protobuf frame length"),
-  }
-
-  let len = u32::from_be_bytes(len_buf) as usize;
-  if len > MAX_FRAME_SIZE {
-    bail!("protobuf frame length {len} exceeds limit {MAX_FRAME_SIZE}");
-  }
-
-  let mut payload = vec![0_u8; len];
-  recv
-    .read_exact(&mut payload)
-    .await
-    .context("failed to read protobuf frame payload")?;
-  Ok(Some(payload))
+fn decode_envelope<M>(payload: &[u8]) -> Result<M>
+where
+  M: Message + Default,
+{
+  validate_frame_len(payload.len())?;
+  M::decode(payload).context("failed to decode protobuf frame")
 }
 
-async fn write_frame(send: &mut SendStream, payload: &[u8]) -> Result<()> {
-  if payload.len() > MAX_FRAME_SIZE {
+fn validate_frame_len(payload_len: usize) -> Result<()> {
+  if payload_len > MAX_FRAME_SIZE {
     bail!(
       "protobuf frame length {} exceeds limit {MAX_FRAME_SIZE}",
-      payload.len()
+      payload_len
     );
   }
-
-  let len = (payload.len() as u32).to_be_bytes();
-  send
-    .write_all(&len)
-    .await
-    .context("failed to write protobuf frame length")?;
-  send
-    .write_all(payload)
-    .await
-    .context("failed to write protobuf frame payload")?;
   Ok(())
 }

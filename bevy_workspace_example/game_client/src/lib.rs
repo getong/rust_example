@@ -1,7 +1,10 @@
 mod net;
 pub mod protocol;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+  collections::{HashMap, HashSet},
+  time::Duration,
+};
 
 use bevy::{prelude::*, window::PresentMode};
 
@@ -75,6 +78,10 @@ pub fn run() {
       }),
       ..default()
     }))
+    .add_plugins(lightyear::prelude::client::ClientPlugins {
+      tick_duration: Duration::from_secs_f64(INPUT_SEND_SECONDS as f64),
+    })
+    .add_plugins(protocol::GameProtocolPlugin)
     .init_resource::<ClientWorld>()
     .init_resource::<InputSendClock>()
     .add_systems(Startup, (setup_scene, net::start_network_client))

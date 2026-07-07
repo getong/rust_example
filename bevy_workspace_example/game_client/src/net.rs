@@ -1,27 +1,24 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+  net::SocketAddr,
+  time::{SystemTime, UNIX_EPOCH},
+};
 
-use anyhow::{Context, Result, anyhow};
 use bevy::prelude::*;
-use quinn::crypto::rustls::QuicClientConfig;
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use tokio::{runtime::Runtime, sync::mpsc};
+use lightyear::prelude::{
+  Authentication, Client, Connected, Disconnected, LocalAddr, MessageReceiver, MessageSender,
+  UdpIo,
+  client::{Connect, NetcodeClient, NetcodeConfig},
+};
+use tokio::sync::mpsc;
 
 use crate::{
   ClientWorld,
   protocol::{
-    ALPN_PROTOCOL, ClientEnvelope, DEFAULT_SERVER_ADDR, Hello, ServerEnvelope, client_envelope,
-    read_server_envelope, server_envelope, write_client_envelope,
+    ClientEnvelope, ClientPacket, DEFAULT_SERVER_ADDR, GameChannel, Hello, NETCODE_PRIVATE_KEY,
+    NETCODE_PROTOCOL_ID, ServerEnvelope, ServerPacket, client_envelope, decode_server_packet,
+    encode_client_envelope, server_envelope,
   },
 };
-
-#[allow(dead_code)]
-#[derive(Resource)]
-pub(crate) struct NetworkRuntime(Runtime);
-
-#[derive(Resource)]
-pub(crate) struct NetworkEvents {
-  receiver: mpsc::UnboundedReceiver<NetworkEvent>,
-}
 
 #[derive(Resource)]
 pub(crate) struct NetworkClient {
@@ -30,55 +27,116 @@ pub(crate) struct NetworkClient {
   pub(crate) connected: bool,
 }
 
-pub(crate) enum NetworkEvent {
-  Connected,
-  Message(ServerEnvelope),
-  Disconnected(String),
+#[derive(Resource)]
+pub(crate) struct NetworkCommands {
+  receiver: mpsc::UnboundedReceiver<ClientEnvelope>,
 }
 
-pub(crate) fn start_network_client(mut commands: Commands) {
-  let (event_sender, event_receiver) = mpsc::unbounded_channel();
+pub(crate) fn start_network_client(mut commands: Commands, mut world: ResMut<ClientWorld>) {
   let (command_sender, command_receiver) = mpsc::unbounded_channel();
-  let runtime = Runtime::new().expect("tokio runtime should start");
-
-  runtime.spawn(async move {
-    if let Err(err) =
-      run_quic_client(DEFAULT_SERVER_ADDR, event_sender.clone(), command_receiver).await
-    {
-      let _ = event_sender.send(NetworkEvent::Disconnected(format!("{err:#}")));
-    }
-  });
-
-  commands.insert_resource(NetworkRuntime(runtime));
-  commands.insert_resource(NetworkEvents {
-    receiver: event_receiver,
+  commands.insert_resource(NetworkCommands {
+    receiver: command_receiver,
   });
   commands.insert_resource(NetworkClient {
     sender: command_sender,
     sequence: 0,
     connected: false,
   });
+
+  let server_addr = match configured_server_addr() {
+    Ok(server_addr) => server_addr,
+    Err(err) => {
+      world.status = format!("invalid server address: {err}");
+      return;
+    }
+  };
+  world.status = format!("connecting to {server_addr}");
+
+  let auth = Authentication::Manual {
+    server_addr,
+    client_id: configured_client_id(),
+    private_key: NETCODE_PRIVATE_KEY,
+    protocol_id: NETCODE_PROTOCOL_ID,
+  };
+  let netcode_client = match NetcodeClient::new(auth, NetcodeConfig::default()) {
+    Ok(client) => client,
+    Err(err) => {
+      world.status = format!("network init failed: {err}");
+      return;
+    }
+  };
+  let local_addr = "[::]:0"
+    .parse::<SocketAddr>()
+    .expect("client wildcard address should parse");
+  let entity = commands
+    .spawn((UdpIo::default(), LocalAddr(local_addr), netcode_client))
+    .id();
+  commands.trigger(Connect { entity });
 }
 
 pub(crate) fn drain_network_events(
-  mut events: ResMut<NetworkEvents>,
+  mut commands: ResMut<NetworkCommands>,
   mut network: ResMut<NetworkClient>,
   mut world: ResMut<ClientWorld>,
+  mut client_query: Query<
+    (
+      &mut MessageSender<ClientPacket>,
+      &mut MessageReceiver<ServerPacket>,
+      Option<&Connected>,
+      Option<&Disconnected>,
+    ),
+    With<Client>,
+  >,
 ) {
-  while let Ok(event) = events.receiver.try_recv() {
-    match event {
-      NetworkEvent::Connected => {
-        network.connected = true;
-        world.status = "connected".to_string();
-      }
-      NetworkEvent::Message(message) => {
-        handle_server_message(message, &mut world);
-      }
-      NetworkEvent::Disconnected(reason) => {
-        network.connected = false;
-        world.status = format!("disconnected: {reason}");
-      }
+  let Ok((mut sender, mut receiver, connected, disconnected)) = client_query.single_mut() else {
+    return;
+  };
+
+  for packet in receiver.receive() {
+    match decode_server_packet(packet) {
+      Ok(message) => handle_server_message(message, &mut world),
+      Err(err) => world.status = format!("decode error: {err:#}"),
     }
+  }
+
+  if connected.is_some() {
+    if !network.connected {
+      network.connected = true;
+      world.status = "connected".to_string();
+      send_hello(&mut sender, &mut world);
+    }
+  } else if network.connected {
+    network.connected = false;
+    world.status = disconnected
+      .and_then(|state| state.reason.as_ref())
+      .map_or_else(
+        || "disconnected".to_string(),
+        |reason| format!("disconnected: {reason}"),
+      );
+  }
+
+  if !network.connected {
+    return;
+  }
+
+  while let Ok(message) = commands.receiver.try_recv() {
+    match encode_client_envelope(&message) {
+      Ok(packet) => sender.send::<GameChannel>(packet),
+      Err(err) => world.status = format!("encode error: {err:#}"),
+    }
+  }
+}
+
+fn send_hello(sender: &mut MessageSender<ClientPacket>, world: &mut ClientWorld) {
+  let envelope = ClientEnvelope {
+    payload: Some(client_envelope::Payload::Hello(Hello {
+      name: configured_client_name(),
+      room: std::env::var("GAME_ROOM").unwrap_or_default(),
+    })),
+  };
+  match encode_client_envelope(&envelope) {
+    Ok(packet) => sender.send::<GameChannel>(packet),
+    Err(err) => world.status = format!("hello encode error: {err:#}"),
   }
 }
 
@@ -110,140 +168,25 @@ fn handle_server_message(message: ServerEnvelope, world: &mut ClientWorld) {
   }
 }
 
-async fn run_quic_client(
-  server_addr: &str,
-  event_sender: mpsc::UnboundedSender<NetworkEvent>,
-  command_receiver: mpsc::UnboundedReceiver<ClientEnvelope>,
-) -> Result<()> {
-  let remote = server_addr
-    .parse::<SocketAddr>()
-    .with_context(|| format!("invalid server address {server_addr}"))?;
-  let mut endpoint = quinn::Endpoint::client("[::]:0".parse::<SocketAddr>()?)
-    .context("failed to bind quinn client endpoint")?;
-  endpoint.set_default_client_config(client_config()?);
+fn configured_server_addr() -> Result<SocketAddr, std::net::AddrParseError> {
+  std::env::var("GAME_SERVER_ADDR")
+    .unwrap_or_else(|_| DEFAULT_SERVER_ADDR.to_string())
+    .parse()
+}
 
-  let connection = endpoint
-    .connect(remote, "localhost")
-    .context("failed to start quinn connection")?
-    .await
-    .map_err(|err| anyhow!("failed to connect to server: {err}"))?;
-  let (mut send, recv) = connection
-    .open_bi()
-    .await
-    .context("failed to open client stream")?;
+fn configured_client_name() -> String {
+  std::env::var("GAME_CLIENT_NAME").unwrap_or_else(|_| "bevy-client".to_string())
+}
 
-  event_sender
-    .send(NetworkEvent::Connected)
-    .context("failed to publish connection event")?;
-
-  let hello = ClientEnvelope {
-    payload: Some(client_envelope::Payload::Hello(Hello {
-      name: "bevy-client".to_string(),
-      room: std::env::var("GAME_ROOM").unwrap_or_default(),
-    })),
-  };
-  write_client_envelope(&mut send, &hello).await?;
-
-  let reader = tokio::spawn(read_loop(recv, event_sender.clone()));
-  let writer = tokio::spawn(write_loop(send, command_receiver));
-
-  tokio::select! {
-    result = reader => {
-      result.context("client reader task panicked")??;
-    }
-    result = writer => {
-      result.context("client writer task panicked")??;
+fn configured_client_id() -> u64 {
+  if let Ok(client_id) = std::env::var("GAME_CLIENT_ID") {
+    if let Ok(client_id) = client_id.parse::<u64>() {
+      return client_id;
     }
   }
 
-  endpoint.wait_idle().await;
-  Ok(())
-}
-
-async fn read_loop(
-  mut recv: quinn::RecvStream,
-  event_sender: mpsc::UnboundedSender<NetworkEvent>,
-) -> Result<()> {
-  while let Some(message) = read_server_envelope(&mut recv).await? {
-    event_sender
-      .send(NetworkEvent::Message(message))
-      .context("failed to publish server message")?;
-  }
-  Ok(())
-}
-
-async fn write_loop(
-  mut send: quinn::SendStream,
-  mut receiver: mpsc::UnboundedReceiver<ClientEnvelope>,
-) -> Result<()> {
-  while let Some(message) = receiver.recv().await {
-    write_client_envelope(&mut send, &message).await?;
-  }
-  Ok(())
-}
-
-fn client_config() -> Result<quinn::ClientConfig> {
-  let mut client_crypto = rustls::ClientConfig::builder()
-    .dangerous()
-    .with_custom_certificate_verifier(SkipServerVerification::new())
-    .with_no_client_auth();
-  client_crypto.alpn_protocols = vec![ALPN_PROTOCOL.to_vec()];
-
-  Ok(quinn::ClientConfig::new(Arc::new(
-    QuicClientConfig::try_from(client_crypto).context("failed to build quic client config")?,
-  )))
-}
-
-#[derive(Debug)]
-struct SkipServerVerification(Arc<rustls::crypto::CryptoProvider>);
-
-impl SkipServerVerification {
-  fn new() -> Arc<Self> {
-    Arc::new(Self(Arc::new(rustls::crypto::ring::default_provider())))
-  }
-}
-
-impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-  fn verify_server_cert(
-    &self,
-    _end_entity: &CertificateDer<'_>,
-    _intermediates: &[CertificateDer<'_>],
-    _server_name: &ServerName<'_>,
-    _ocsp: &[u8],
-    _now: UnixTime,
-  ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-    Ok(rustls::client::danger::ServerCertVerified::assertion())
-  }
-
-  fn verify_tls12_signature(
-    &self,
-    message: &[u8],
-    cert: &CertificateDer<'_>,
-    dss: &rustls::DigitallySignedStruct,
-  ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-    rustls::crypto::verify_tls12_signature(
-      message,
-      cert,
-      dss,
-      &self.0.signature_verification_algorithms,
-    )
-  }
-
-  fn verify_tls13_signature(
-    &self,
-    message: &[u8],
-    cert: &CertificateDer<'_>,
-    dss: &rustls::DigitallySignedStruct,
-  ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-    rustls::crypto::verify_tls13_signature(
-      message,
-      cert,
-      dss,
-      &self.0.signature_verification_algorithms,
-    )
-  }
-
-  fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-    self.0.signature_verification_algorithms.supported_schemes()
-  }
+  let micros = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_or(0, |duration| duration.as_micros() as u64);
+  micros ^ u64::from(std::process::id())
 }
