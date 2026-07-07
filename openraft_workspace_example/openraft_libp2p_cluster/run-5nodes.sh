@@ -60,6 +60,8 @@ VALKEY_CONFIG_FILE="${VALKEY_CONFIG_FILE:-$VALKEY_CONFIG_DIR/valkey.conf}"
 VALKEY_CONFIG_FILE="$(repo_path "$VALKEY_CONFIG_FILE")"
 REDIS_PID=""
 NODE_PIDS=()
+NODE_NAMES=()
+NODE_LOGS=()
 SHUTTING_DOWN=0
 
 if [[ "${RUSTFLAGS:-}" != *"tokio_unstable"* ]]; then
@@ -297,26 +299,33 @@ cleanup() {
 	if ((${#NODE_PIDS[@]} > 0)); then
 		echo "Sending SIGTERM to node processes: ${NODE_PIDS[*]}"
 		kill -TERM "${NODE_PIDS[@]}" 2>/dev/null || true
+		local i
 		local pid
 		local rc
-		for pid in "${NODE_PIDS[@]}"; do
+		for i in "${!NODE_PIDS[@]}"; do
+			pid="${NODE_PIDS[$i]}"
 			if wait "$pid"; then
 				echo "Node process $pid stopped cleanly."
+				print_node_shutdown_summary "$i" || true
 			else
 				rc=$?
 				case "$rc" in
 				130 | 143)
 					echo "Node process $pid stopped after signal (status $rc)."
+					print_node_shutdown_summary "$i" || true
 					;;
 				127)
 					;;
 				*)
 					echo "Node process $pid exited with status $rc during shutdown." >&2
+					print_node_shutdown_summary "$i" || true
 					;;
 				esac
 			fi
 		done
 		NODE_PIDS=()
+		NODE_NAMES=()
+		NODE_LOGS=()
 	fi
 
 	if [[ -n "${REDIS_PID:-}" ]]; then
@@ -333,31 +342,93 @@ cleanup() {
 
 wait_for_nodes() {
 	local status=0
+	local i
 	local pid
 	local rc
 
-	for pid in "${NODE_PIDS[@]}"; do
+	for i in "${!NODE_PIDS[@]}"; do
+		pid="${NODE_PIDS[$i]}"
 		if wait "$pid"; then
-			:
+			echo "Node process $pid exited cleanly."
+			if ! print_node_shutdown_summary "$i"; then
+				status=1
+			fi
 		else
 			rc=$?
 			echo "Node process $pid exited with status $rc." >&2
+			print_node_shutdown_summary "$i" || true
 			if ((status == 0)); then
 				status="$rc"
 			fi
 		fi
 	done
 	NODE_PIDS=()
+	NODE_NAMES=()
+	NODE_LOGS=()
 	return "$status"
+}
+
+node_shutdown_line() {
+	local log="$1"
+
+	[[ -f "$log" ]] || return 1
+	awk '
+		/shutdown complete/ { line = $0 }
+		END {
+			if (line != "") {
+				print line
+			}
+		}
+	' "$log"
+}
+
+wait_for_node_shutdown_line() {
+	local log="$1"
+	local timeout="${2:-3}"
+	local start=$SECONDS
+	local line
+
+	while true; do
+		line="$(node_shutdown_line "$log" || true)"
+		if [[ -n "$line" ]]; then
+			printf '%s\n' "$line"
+			return 0
+		fi
+		if ((SECONDS - start >= timeout)); then
+			return 1
+		fi
+		sleep 0.1
+	done
+}
+
+print_node_shutdown_summary() {
+	local index="$1"
+	local name="${NODE_NAMES[$index]:-node$((index + 1))}"
+	local log="${NODE_LOGS[$index]:-}"
+	local line
+
+	if [[ -z "$log" ]]; then
+		echo "$name shutdown log path is unknown." >&2
+		return 1
+	fi
+	if line="$(wait_for_node_shutdown_line "$log" "${NODE_SHUTDOWN_LOG_WAIT_SECS:-3}")"; then
+		echo "$name shutdown confirmed: $line"
+	else
+		echo "$name shutdown completion was not found in $log" >&2
+		return 1
+	fi
 }
 
 start_node() {
 	local name="$1"
 	local script="$2"
+	local log="$3"
 
 	"$script" &
 	local pid=$!
 	NODE_PIDS+=("$pid")
+	NODE_NAMES+=("$name")
+	NODE_LOGS+=("$log")
 	echo "$name process pid: $pid"
 }
 
@@ -401,26 +472,26 @@ echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT ./join-4workers.sh"
 
-start_node node1 "$ROOT_DIR/run-node1.sh"
+start_node node1 "$ROOT_DIR/run-node1.sh" "$DB_ROOT/logs/node1.log"
 
 # Give node1 a moment to start listening.
 sleep 1
 
-start_node node2 "$ROOT_DIR/run-node2.sh"
+start_node node2 "$ROOT_DIR/run-node2.sh" "$DB_ROOT/logs/node2.log"
 
 # Give node2 a moment to start listening.
 sleep 1
 
-start_node node3 "$ROOT_DIR/run-node3.sh"
+start_node node3 "$ROOT_DIR/run-node3.sh" "$DB_ROOT/logs/node3.log"
 
 # Give node3 a moment to start listening.
 sleep 1
 
-start_node node4 "$ROOT_DIR/run-node4.sh"
+start_node node4 "$ROOT_DIR/run-node4.sh" "$DB_ROOT/logs/node4.log"
 
 # Give node4 a moment to start listening.
 sleep 1
 
-start_node node5 "$ROOT_DIR/run-node5.sh"
+start_node node5 "$ROOT_DIR/run-node5.sh" "$DB_ROOT/logs/node5.log"
 
 wait_for_nodes

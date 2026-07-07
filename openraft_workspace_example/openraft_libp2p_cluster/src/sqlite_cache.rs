@@ -195,7 +195,23 @@ pub async fn run_sqlite_flush_worker(
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
-        tracing::info!("shutdown signal received, stopping sqlite cache flush worker");
+        tracing::info!(
+          group = %group_id,
+          "shutdown signal received, running final sqlite cache flush"
+        );
+        match flush_once(&local_node_id, &group_id, &network, &kv_client).await {
+          Ok(()) => {
+            tracing::info!(group = %group_id, "final sqlite cache flush completed");
+          }
+          Err(err) => {
+            tracing::warn!(
+              group = %group_id,
+              error = ?err,
+              "final sqlite cache flush failed"
+            );
+          }
+        }
+        tracing::info!("stopping sqlite cache flush worker");
         break;
       }
       _ = tick.tick() => {
