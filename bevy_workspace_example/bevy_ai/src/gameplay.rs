@@ -44,42 +44,6 @@ pub(crate) fn player_input(
   }
 }
 
-pub(crate) fn monster_ai(
-  time: Res<Time>,
-  terrain_map: Res<TerrainMap>,
-  player_query: Query<(&ArenaPosition, &RedBlueValues), With<Player>>,
-  mut monsters: Query<(&mut ArenaPosition, &Monster, &RedBlueValues), Without<Player>>,
-) {
-  let Ok((player_position, player_values)) = player_query.single() else {
-    return;
-  };
-  if player_values.blue <= 0 {
-    return;
-  }
-
-  for (mut monster_position, monster, values) in &mut monsters {
-    if values.blue <= 0 {
-      continue;
-    }
-
-    let to_player = player_position.0 - monster_position.0;
-    if to_player.length() <= MONSTER_ATTACK_RANGE
-      && terrain_map.segment_is_walkable(monster_position.0, player_position.0)
-    {
-      continue;
-    }
-
-    let waypoint = terrain_map.next_waypoint(monster_position.0, player_position.0);
-    let to_waypoint = waypoint - monster_position.0;
-    if to_waypoint.length() <= 1.0 {
-      continue;
-    }
-
-    let movement = to_waypoint.normalize_or_zero() * monster.speed * time.delta_secs();
-    monster_position.0 = terrain_map.try_move(monster_position.0, movement);
-  }
-}
-
 pub(crate) fn resolve_combat(
   time: Res<Time>,
   mut clock: ResMut<CombatClock>,
