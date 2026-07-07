@@ -1,0 +1,13 @@
+[package]
+name = "pathfinding_stack_demo"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+avian3d = { version = "0.2", default-features = false, features = ["3d", "f32", "parry-f32"] }
+bevy = "0.15"
+bevy_landmass = "0.8"
+landmass_oxidized_navigation = "0.2"
+oxidized_navigation = { version = "0.12", features = ["avian", "debug_draw"] }

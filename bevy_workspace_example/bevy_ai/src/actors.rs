@@ -12,6 +12,9 @@ pub(crate) struct RedBlueValues {
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MaxHealth(pub(crate) i32);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActorKind {
   Player,
   Monster,
@@ -24,6 +27,12 @@ pub(crate) struct Player;
 pub(crate) struct Monster {
   pub(crate) speed: f32,
 }
+
+#[derive(Component)]
+pub(crate) struct DamageFlash(pub(crate) Timer);
+
+#[derive(Component)]
+pub(crate) struct InvincibilityTimer(pub(crate) Timer);
 
 #[derive(Bundle)]
 pub(crate) struct ActorBundle {

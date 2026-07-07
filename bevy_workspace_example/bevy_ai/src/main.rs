@@ -1,6 +1,7 @@
 mod actors;
 mod config;
 mod gameplay;
+mod levels;
 mod lighting;
 mod monster_behavior;
 mod player_state;
