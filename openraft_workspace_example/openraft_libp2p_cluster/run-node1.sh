@@ -309,8 +309,14 @@ echo "  tokio-console http://$TOKIO_CONSOLE_BIND"
 
 echo "Starting node1 (Ctrl-C to stop)..."
 
-cmd=(
-	cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster --
+node_bin="${CARGO_TARGET_DIR:-$WS_DIR/target}/debug/openraft_libp2p_cluster"
+if [[ "${SKIP_BUILD:-0}" == "1" && -x "$node_bin" ]]; then
+	cmd=("$node_bin")
+else
+	cmd=(cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster --)
+fi
+
+cmd+=(
 	--id "$P1"
 	--listen "$NODE1_LISTEN"
 	--http "$NODE1_HTTP"
@@ -330,5 +336,10 @@ cmd+=(
 	--bootstrap-node "$P1=$ADDR1"
 	--advertise "$ADDR1"
 )
+
+if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+	exec >>"$NODE1_LOG" 2>&1
+	exec "${cmd[@]}"
+fi
 
 "${cmd[@]}" 2>&1 | tee "$NODE1_LOG"

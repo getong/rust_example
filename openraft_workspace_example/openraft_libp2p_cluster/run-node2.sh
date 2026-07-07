@@ -319,8 +319,14 @@ echo "  tokio-console http://$TOKIO_CONSOLE_BIND"
 echo "Starting node2 (Ctrl-C to stop)..."
 
 # Node2 just joins the network (it will be contacted by the leader during replication).
-cmd=(
-	cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster --
+node_bin="${CARGO_TARGET_DIR:-$WS_DIR/target}/debug/openraft_libp2p_cluster"
+if [[ "${SKIP_BUILD:-0}" == "1" && -x "$node_bin" ]]; then
+	cmd=("$node_bin")
+else
+	cmd=(cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster --)
+fi
+
+cmd+=(
 	--id "$P2"
 	--listen "$NODE2_LISTEN"
 	--http "$NODE2_HTTP"
@@ -340,5 +346,10 @@ cmd+=(
 	--bootstrap-node "$P1=$ADDR1"
 	--advertise "$ADDR2"
 )
+
+if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
+	exec >>"$NODE2_LOG" 2>&1
+	exec "${cmd[@]}"
+fi
 
 "${cmd[@]}" 2>&1 | tee "$NODE2_LOG"

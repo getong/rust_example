@@ -58,6 +58,9 @@ VALKEY_CONFIG_DIR="${VALKEY_CONFIG_DIR:-config/valkey}"
 VALKEY_CONFIG_DIR="$(repo_path "$VALKEY_CONFIG_DIR")"
 VALKEY_CONFIG_FILE="${VALKEY_CONFIG_FILE:-$VALKEY_CONFIG_DIR/valkey.conf}"
 VALKEY_CONFIG_FILE="$(repo_path "$VALKEY_CONFIG_FILE")"
+REDIS_PID=""
+NODE_PIDS=()
+SHUTTING_DOWN=0
 
 if [[ "${RUSTFLAGS:-}" != *"tokio_unstable"* ]]; then
 	export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--cfg tokio_unstable"
@@ -272,6 +275,7 @@ start_demo_redis() {
 			--daemonize no \
 			>"$REDIS_LOG" 2>&1 &
 	fi
+	REDIS_PID="$!"
 
 	if ! wait_for_tcp_port 127.0.0.1 "$REDIS_PORT" "${REDIS_WAIT_SECS:-10}"; then
 		echo "Demo Redis did not start; disabling sqlite cache for this demo run. See $REDIS_LOG"
@@ -281,21 +285,94 @@ start_demo_redis() {
 }
 
 cleanup() {
-	echo "Stopping..."
-	local pids
-	pids="$(jobs -p)"
-	if [[ -n "$pids" ]]; then
-		kill $pids 2>/dev/null || true
+	local status="${1:-0}"
+	trap - INT TERM EXIT
+
+	if ((SHUTTING_DOWN)); then
+		exit "$status"
 	fi
+	SHUTTING_DOWN=1
+
+	echo "Stopping 5 nodes gracefully..."
+	if ((${#NODE_PIDS[@]} > 0)); then
+		echo "Sending SIGTERM to node processes: ${NODE_PIDS[*]}"
+		kill -TERM "${NODE_PIDS[@]}" 2>/dev/null || true
+		local pid
+		local rc
+		for pid in "${NODE_PIDS[@]}"; do
+			if wait "$pid"; then
+				echo "Node process $pid stopped cleanly."
+			else
+				rc=$?
+				case "$rc" in
+				130 | 143)
+					echo "Node process $pid stopped after signal (status $rc)."
+					;;
+				127)
+					;;
+				*)
+					echo "Node process $pid exited with status $rc during shutdown." >&2
+					;;
+				esac
+			fi
+		done
+		NODE_PIDS=()
+	fi
+
+	if [[ -n "${REDIS_PID:-}" ]]; then
+		if kill -0 "$REDIS_PID" 2>/dev/null; then
+			echo "Stopping demo Redis process $REDIS_PID..."
+			kill -TERM "$REDIS_PID" 2>/dev/null || true
+		fi
+		wait "$REDIS_PID" 2>/dev/null || true
+		REDIS_PID=""
+	fi
+	echo "Stopped."
+	exit "$status"
 }
-trap cleanup INT TERM EXIT
+
+wait_for_nodes() {
+	local status=0
+	local pid
+	local rc
+
+	for pid in "${NODE_PIDS[@]}"; do
+		if wait "$pid"; then
+			:
+		else
+			rc=$?
+			echo "Node process $pid exited with status $rc." >&2
+			if ((status == 0)); then
+				status="$rc"
+			fi
+		fi
+	done
+	NODE_PIDS=()
+	return "$status"
+}
+
+start_node() {
+	local name="$1"
+	local script="$2"
+
+	"$script" &
+	local pid=$!
+	NODE_PIDS+=("$pid")
+	echo "$name process pid: $pid"
+}
+
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
+trap 'cleanup $?' EXIT
 
 start_demo_redis
 export REDIS_URL DISABLE_SQLITE_CACHE MAX_CONTROL_NODES
 
-echo "Building..."
 cd "$WS_DIR"
-cargo build -p openraft_libp2p_cluster >/dev/null
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+	echo "Building..."
+	cargo build -p openraft_libp2p_cluster >/dev/null
+fi
 
 export SKIP_BUILD=1
 
@@ -324,26 +401,26 @@ echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT ./join-4workers.sh"
 
-"$ROOT_DIR/run-node1.sh" &
+start_node node1 "$ROOT_DIR/run-node1.sh"
 
 # Give node1 a moment to start listening.
 sleep 1
 
-"$ROOT_DIR/run-node2.sh" &
+start_node node2 "$ROOT_DIR/run-node2.sh"
 
 # Give node2 a moment to start listening.
 sleep 1
 
-"$ROOT_DIR/run-node3.sh" &
+start_node node3 "$ROOT_DIR/run-node3.sh"
 
 # Give node3 a moment to start listening.
 sleep 1
 
-"$ROOT_DIR/run-node4.sh" &
+start_node node4 "$ROOT_DIR/run-node4.sh"
 
 # Give node4 a moment to start listening.
 sleep 1
 
-"$ROOT_DIR/run-node5.sh" &
+start_node node5 "$ROOT_DIR/run-node5.sh"
 
-wait
+wait_for_nodes

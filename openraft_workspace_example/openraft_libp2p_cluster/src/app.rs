@@ -839,8 +839,6 @@ async fn run_control_services(
     }
   }
 
-  leave_openraft_kad(&runtime.libp2p.client).await;
-
   match errors.len() {
     0 => Ok(()),
     1 => Err(errors.remove(0)),
@@ -1568,13 +1566,14 @@ async fn advertise_openraft_kad(client: &Libp2pClient) {
   }
 }
 
-async fn leave_openraft_kad(client: &Libp2pClient) {
+async fn leave_openraft_kad(client: &Libp2pClient) -> anyhow::Result<()> {
   match client.leave_openraft_kad().await {
     Ok(()) => {
       tracing::info!(
         provider_key = OPENRAFT_CLUSTER_PROVIDER_KEY,
         "left openraft kademlia provider before openraft shutdown"
       );
+      Ok(())
     }
     Err(err) => {
       tracing::warn!(
@@ -1582,6 +1581,7 @@ async fn leave_openraft_kad(client: &Libp2pClient) {
         error = ?err,
         "could not leave openraft kademlia provider; swarm may already be stopped"
       );
+      Err(anyhow!("leave openraft kademlia provider failed: {err}"))
     }
   }
 }
@@ -1589,17 +1589,39 @@ async fn leave_openraft_kad(client: &Libp2pClient) {
 async fn shutdown_openraft_groups() -> anyhow::Result<()> {
   let Some(rafts) = openraft_groups().map(|groups| {
     groups
-      .values()
-      .map(|group| group.raft.clone())
+      .iter()
+      .map(|(group_id, group)| (group_id.clone(), group.raft.clone()))
       .collect::<Vec<_>>()
   }) else {
+    tracing::info!("openraft groups are not initialized; skip openraft shutdown");
     return Ok(());
   };
 
+  tracing::info!(
+    groups = rafts.len(),
+    "shutdown phase: stopping openraft groups and waiting"
+  );
+
   let mut errors = Vec::new();
-  for raft in rafts {
-    if let Err(err) = raft.shutdown().await {
-      errors.push(anyhow!("openraft shutdown failed: {err:?}"));
+  for (group_id, raft) in rafts {
+    tracing::info!(group = %group_id, "openraft group shutdown started");
+    match raft.shutdown().await {
+      Ok(()) => {
+        tracing::info!(
+          group = %group_id,
+          "openraft group shutdown completed; raft storage writes use sync wal"
+        );
+      }
+      Err(err) => {
+        tracing::error!(
+          group = %group_id,
+          error = ?err,
+          "openraft group shutdown failed"
+        );
+        errors.push(anyhow!(
+          "openraft group {group_id} shutdown failed: {err:?}"
+        ));
+      }
     }
   }
 
@@ -1616,6 +1638,71 @@ async fn shutdown_openraft_groups() -> anyhow::Result<()> {
       Err(anyhow!(msg))
     }
   }
+}
+
+async fn run_graceful_shutdown(
+  libp2p_client: &Libp2pClient,
+  libp2p_shutdown: crate::signal::ShutdownHandler,
+  swarm_handle: tokio::task::JoinHandle<()>,
+) -> anyhow::Result<()> {
+  let shutdown_started = tokio::time::Instant::now();
+  let mut errors = Vec::new();
+
+  tracing::info!("shutdown phase: leaving libp2p kademlia provider mode");
+  if let Err(err) = leave_openraft_kad(libp2p_client).await {
+    tracing::error!(error = ?err, "shutdown phase failed: leave libp2p kademlia");
+    errors.push(err);
+  }
+
+  tracing::info!("shutdown phase: stopping libp2p swarm and waiting");
+  let (_tx, _rx, results) = libp2p_shutdown.shutdown().await;
+  if let Err(err) = collect_shutdown_errors("libp2p shutdown", results) {
+    tracing::error!(error = ?err, "shutdown phase failed: libp2p service");
+    errors.push(err);
+  }
+
+  match swarm_handle.await {
+    Ok(()) => {
+      tracing::info!("shutdown phase: libp2p swarm task joined");
+    }
+    Err(err) => {
+      tracing::error!(error = ?err, "shutdown phase failed: libp2p swarm task join");
+      errors.push(anyhow!("libp2p swarm task failed: {err}"));
+    }
+  }
+
+  if let Err(err) = shutdown_openraft_groups().await {
+    tracing::error!(error = ?err, "shutdown phase failed: openraft");
+    errors.push(err);
+  }
+
+  if errors.is_empty() {
+    tracing::info!(
+      elapsed = ?shutdown_started.elapsed(),
+      "graceful shutdown phases completed"
+    );
+    return Ok(());
+  }
+
+  combine_errors("graceful shutdown", errors)
+}
+
+fn combine_errors(label: &str, mut errors: Vec<anyhow::Error>) -> anyhow::Result<()> {
+  if errors.is_empty() {
+    return Ok(());
+  }
+
+  if errors.len() == 1 {
+    return Err(errors.remove(0));
+  }
+
+  let mut msg = String::new();
+  use std::fmt::Write as _;
+  let _ = writeln!(&mut msg, "{label} encountered {} errors:", errors.len());
+  for err in errors {
+    let _ = writeln!(&mut msg, "  {err}");
+  }
+  Err(anyhow!(msg))
 }
 
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
@@ -1653,10 +1740,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
   let swarm = Arc::new(tokio::sync::Mutex::new(swarm));
   set_libp2p_swarm(swarm).map_err(|_| anyhow!("global libp2p swarm already initialized"))?;
-  let mut shutdown = crate::signal::spawn_handler();
-  let shutdown_rx_for_ordering = shutdown.shutdown_rx();
+  let signal_shutdown = crate::signal::spawn_handler();
+  let shutdown_rx_for_ordering = signal_shutdown.shutdown_rx();
+  let (libp2p_shutdown_tx, libp2p_shutdown_rx) = crate::signal::channel();
+  let mut libp2p_shutdown =
+    crate::signal::ShutdownHandler::new(libp2p_shutdown_tx, libp2p_shutdown_rx);
 
-  let swarm_handle = spawn_libp2p_swarm(&mut shutdown, cmd_rx, &libp2p);
+  let swarm_handle = spawn_libp2p_swarm(&mut libp2p_shutdown, cmd_rx, &libp2p);
 
   let members = register_members(&libp2p.network, &configured_nodes).await?;
   maybe_bootstrap(&libp2p.client, &configured_bootstrap_nodes, &opt.id).await;
@@ -1699,6 +1789,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     libp2p,
     group_ids,
   };
+  let libp2p_client_for_shutdown = runtime.libp2p.client.clone();
 
   let service_result = match startup_mode {
     StartupMode::Control => {
@@ -1742,16 +1833,27 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     }
   };
 
-  let (_tx, _rx, results) = shutdown.shutdown().await;
-  let shutdown_result = collect_shutdown_errors("shutdown", results);
-  let swarm_join_result = swarm_handle
-    .await
-    .map_err(|err| anyhow!("libp2p swarm task failed: {err}"));
-  let openraft_shutdown_result = shutdown_openraft_groups().await;
-  service_result?;
-  shutdown_result?;
-  swarm_join_result?;
-  openraft_shutdown_result?;
+  if let Err(err) = service_result.as_ref() {
+    tracing::error!(
+      error = ?err,
+      "service loop exited with error; continuing graceful shutdown"
+    );
+  } else {
+    tracing::info!("service loop exited; starting graceful shutdown");
+  }
+
+  let graceful_shutdown_result =
+    run_graceful_shutdown(&libp2p_client_for_shutdown, libp2p_shutdown, swarm_handle).await;
+
+  let mut final_errors = Vec::new();
+  if let Err(err) = service_result {
+    final_errors.push(anyhow!("service loop failed: {err}"));
+  }
+  if let Err(err) = graceful_shutdown_result {
+    final_errors.push(err);
+  }
+  combine_errors("application shutdown", final_errors)?;
+
   tracing::info!("shutdown complete");
   Ok(())
 }
