@@ -8,7 +8,13 @@ use std::{
 };
 
 use anyhow::Context;
-use openraft::{ReadPolicy, type_config::TypeConfigExt};
+use openraft::{
+  RaftLogReader, ReadPolicy,
+  alias::LogIdOf,
+  entry::RaftEntry,
+  storage::{RaftLogStorage, RaftStateMachine},
+  type_config::TypeConfigExt,
+};
 use rocksdb::{ColumnFamilyRef, DB, Options};
 
 use crate::{
@@ -222,9 +228,218 @@ pub async fn open_store_for_group<P: AsRef<Path>>(
   group_id: &str,
 ) -> anyhow::Result<(LogStore, StateMachineStore, KvData)> {
   let db_path = group_db_dir(db_dir.as_ref(), group_id);
-  let (log_store, state_machine) = open_store(&db_path).await?;
+  let (mut log_store, mut state_machine) = open_store(&db_path).await?;
+  verify_openraft_store_integrity(group_id, &mut log_store, &mut state_machine).await?;
   let kv_data = KvData::open(&db_path)?;
   Ok((log_store, state_machine, kv_data))
+}
+
+pub async fn verify_openraft_store_integrity(
+  group_id: &str,
+  log_store: &mut LogStore,
+  state_machine: &mut StateMachineStore,
+) -> anyhow::Result<()> {
+  let vote = log_store
+    .read_vote()
+    .await
+    .with_context(|| format!("verify group {group_id}: read persisted vote"))?;
+  let committed = log_store
+    .read_committed()
+    .await
+    .with_context(|| format!("verify group {group_id}: read persisted committed log id"))?;
+  let log_state = log_store
+    .get_log_state()
+    .await
+    .with_context(|| format!("verify group {group_id}: read persisted log state"))?;
+  let (last_applied, last_membership) = state_machine
+    .applied_state()
+    .await
+    .with_context(|| format!("verify group {group_id}: read persisted state machine metadata"))?;
+  let current_snapshot = state_machine
+    .get_current_snapshot()
+    .await
+    .with_context(|| format!("verify group {group_id}: read persisted snapshot"))?;
+  let snapshot_last_log_id = current_snapshot
+    .as_ref()
+    .and_then(|snapshot| snapshot.meta.last_log_id.clone());
+
+  verify_log_id_order(
+    group_id,
+    "last_purged_log_id",
+    log_state.last_purged_log_id.as_ref(),
+    "last_log_id",
+    log_state.last_log_id.as_ref(),
+  )?;
+
+  let durable_tip = max_log_id(
+    max_log_id(log_state.last_log_id.clone(), last_applied.clone()),
+    snapshot_last_log_id.clone(),
+  );
+  verify_optional_log_id_not_after(
+    group_id,
+    "committed",
+    committed.as_ref(),
+    "durable_tip",
+    durable_tip.as_ref(),
+  )?;
+  verify_optional_log_id_not_after(
+    group_id,
+    "last_applied",
+    last_applied.as_ref(),
+    "durable_tip",
+    durable_tip.as_ref(),
+  )?;
+
+  verify_log_entries(
+    group_id,
+    log_store,
+    log_state.last_purged_log_id,
+    log_state.last_log_id,
+  )
+  .await?;
+
+  tracing::info!(
+    group = group_id,
+    ?vote,
+    ?committed,
+    ?last_applied,
+    ?snapshot_last_log_id,
+    membership_nodes = last_membership.membership().nodes().count(),
+    "verified openraft store after rocksdb wal recovery"
+  );
+
+  Ok(())
+}
+
+async fn verify_log_entries(
+  group_id: &str,
+  log_store: &mut LogStore,
+  last_purged_log_id: Option<LogIdOf<TypeConfig>>,
+  last_log_id: Option<LogIdOf<TypeConfig>>,
+) -> anyhow::Result<()> {
+  let Some(last_log_id) = last_log_id else {
+    return Ok(());
+  };
+
+  let start = last_purged_log_id
+    .as_ref()
+    .and_then(|log_id| log_id.index().checked_add(1))
+    .unwrap_or(0);
+
+  if last_log_id.index() < start {
+    return Ok(());
+  }
+
+  let entries = log_store
+    .try_get_log_entries(start ..= last_log_id.index())
+    .await
+    .with_context(|| {
+      format!(
+        "verify group {group_id}: read log entries {}..={}",
+        start,
+        last_log_id.index()
+      )
+    })?;
+
+  let mut entries = entries.into_iter();
+  let Some(first_entry) = entries.next() else {
+    return Err(anyhow::anyhow!(
+      "verify group {group_id}: log state has last_log_id {last_log_id:?} but no log entries were \
+       readable"
+    ));
+  };
+
+  let mut expected_index = last_purged_log_id
+    .as_ref()
+    .and_then(|log_id| log_id.index().checked_add(1))
+    .unwrap_or_else(|| first_entry.index());
+  let mut previous_log_id: Option<LogIdOf<TypeConfig>> = None;
+  for entry in std::iter::once(first_entry).chain(entries) {
+    let entry_index = entry.index();
+    if entry_index != expected_index {
+      return Err(anyhow::anyhow!(
+        "verify group {group_id}: missing or out-of-order log entry: expected index \
+         {expected_index}, got {entry_index}"
+      ));
+    }
+
+    let entry_log_id = entry.log_id();
+    if let Some(previous) = previous_log_id.as_ref() {
+      if previous >= &entry_log_id {
+        return Err(anyhow::anyhow!(
+          "verify group {group_id}: non-increasing log id: previous={previous:?}, \
+           current={entry_log_id:?}"
+        ));
+      }
+    }
+
+    previous_log_id = Some(entry_log_id);
+    expected_index = expected_index
+      .checked_add(1)
+      .ok_or_else(|| anyhow::anyhow!("verify group {group_id}: log index overflow"))?;
+  }
+
+  if expected_index <= last_log_id.index() {
+    return Err(anyhow::anyhow!(
+      "verify group {group_id}: missing log entries through last_log_id {last_log_id:?}"
+    ));
+  }
+
+  if previous_log_id.as_ref() != Some(&last_log_id) {
+    return Err(anyhow::anyhow!(
+      "verify group {group_id}: last persisted entry {previous_log_id:?} does not match log state \
+       {last_log_id:?}"
+    ));
+  }
+
+  Ok(())
+}
+
+fn verify_log_id_order(
+  group_id: &str,
+  lower_name: &str,
+  lower: Option<&LogIdOf<TypeConfig>>,
+  upper_name: &str,
+  upper: Option<&LogIdOf<TypeConfig>>,
+) -> anyhow::Result<()> {
+  if let (Some(lower), Some(upper)) = (lower, upper) {
+    if lower > upper {
+      return Err(anyhow::anyhow!(
+        "verify group {group_id}: {lower_name} {lower:?} is after {upper_name} {upper:?}"
+      ));
+    }
+  }
+
+  Ok(())
+}
+
+fn verify_optional_log_id_not_after(
+  group_id: &str,
+  value_name: &str,
+  value: Option<&LogIdOf<TypeConfig>>,
+  tip_name: &str,
+  tip: Option<&LogIdOf<TypeConfig>>,
+) -> anyhow::Result<()> {
+  match (value, tip) {
+    (Some(value), Some(tip)) if value > tip => Err(anyhow::anyhow!(
+      "verify group {group_id}: {value_name} {value:?} is after {tip_name} {tip:?}"
+    )),
+    (Some(value), None) => Err(anyhow::anyhow!(
+      "verify group {group_id}: {value_name} {value:?} exists but {tip_name} is empty"
+    )),
+    _ => Ok(()),
+  }
+}
+
+fn max_log_id(
+  left: Option<LogIdOf<TypeConfig>>,
+  right: Option<LogIdOf<TypeConfig>>,
+) -> Option<LogIdOf<TypeConfig>> {
+  match (left, right) {
+    (Some(left), Some(right)) => Some(std::cmp::max(left, right)),
+    (Some(log_id), None) | (None, Some(log_id)) => Some(log_id),
+    (None, None) => None,
+  }
 }
 
 pub async fn ensure_linearizable_read(raft: &Raft) -> Result<(), RaftError<LinearizableReadError>> {

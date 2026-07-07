@@ -149,7 +149,7 @@ where
 
     for item in iter {
       let (key, _) = item.map_err(read_logs_err)?;
-      let id = bin_to_id(key.as_ref());
+      let id = bin_to_id(key.as_ref())?;
       if !range.contains(&id) {
         break;
       }
@@ -184,14 +184,22 @@ where
     for item in iter {
       let (id, val) = item.map_err(read_logs_err)?;
 
-      let id = bin_to_id(id.as_ref());
+      let id = bin_to_id(id.as_ref())?;
       if !range.contains(&id) {
         break;
       }
 
       let entry: EntryOf<C> = sonic_rs::from_slice(val.as_ref()).map_err(read_logs_err)?;
 
-      assert_eq!(id, entry.index());
+      if id != entry.index() {
+        return Err(io::Error::new(
+          io::ErrorKind::InvalidData,
+          format!(
+            "log key index {id} does not match entry index {}",
+            entry.index()
+          ),
+        ));
+      }
 
       res.push(entry);
     }
@@ -218,9 +226,19 @@ where
     let last_log_id = match last {
       None => None,
       Some(item) => {
-        let (_log_index, entry_bytes) = item.map_err(read_logs_err)?;
+        let (log_index, entry_bytes) = item.map_err(read_logs_err)?;
         let ent =
           sonic_rs::from_slice::<EntryOf<C>>(entry_bytes.as_ref()).map_err(read_logs_err)?;
+        let key_index = bin_to_id(log_index.as_ref())?;
+        if key_index != ent.index() {
+          return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+              "last log key index {key_index} does not match entry index {}",
+              ent.index()
+            ),
+          ));
+        }
         Some(ent.log_id())
       }
     };
@@ -360,11 +378,14 @@ fn id_to_bin(id: u64) -> [u8; 8] {
   id.to_be_bytes()
 }
 
-fn bin_to_id(buf: &[u8]) -> u64 {
-  let bytes: [u8; 8] = buf[0 .. 8]
-    .try_into()
-    .expect("log keys are always encoded as 8-byte u64");
-  u64::from_be_bytes(bytes)
+fn bin_to_id(buf: &[u8]) -> Result<u64, io::Error> {
+  let bytes: [u8; 8] = buf.try_into().map_err(|_| {
+    io::Error::new(
+      io::ErrorKind::InvalidData,
+      format!("log key length {} is not 8 bytes", buf.len()),
+    )
+  })?;
+  Ok(u64::from_be_bytes(bytes))
 }
 
 fn range_start<R>(range: &R) -> Option<u64>

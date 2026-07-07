@@ -2,6 +2,7 @@ use std::{
   collections::{HashMap, HashSet},
   error::Error,
   fmt,
+  hash::Hash,
   sync::Arc,
   time::Duration,
 };
@@ -38,6 +39,7 @@ use crate::{
 };
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
+pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
@@ -149,6 +151,10 @@ pub enum Command {
     key: String,
     resp: oneshot::Sender<Result<(), NetErr>>,
   },
+  LeaveKad {
+    provider_keys: Vec<String>,
+    resp: oneshot::Sender<Result<(), NetErr>>,
+  },
   GetProviders {
     key: String,
     resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
@@ -230,6 +236,29 @@ impl Libp2pClient {
       .map_err(|e| NetErr(format!("timeout: {e}")))
       .and_then(|r| r.map_err(|e| NetErr(format!("connect dropped: {e}"))))?;
     resp
+  }
+
+  pub async fn leave_openraft_kad(&self) -> Result<(), NetErr> {
+    self
+      .leave_kad(vec![OPENRAFT_CLUSTER_PROVIDER_KEY.to_string()])
+      .await
+  }
+
+  pub async fn leave_kad(&self, provider_keys: Vec<String>) -> Result<(), NetErr> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::LeaveKad {
+        provider_keys,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| NetErr(format!("command channel closed: {e}")))?;
+
+    tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| NetErr(format!("timeout: {e}")))
+      .and_then(|r| r.map_err(|e| NetErr(format!("leave_kad dropped: {e}"))))?
   }
 
   pub async fn get_providers(&self, key: String) -> Result<HashSet<PeerId>, NetErr> {
@@ -550,6 +579,19 @@ pub async fn run_swarm(
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm");
+        {
+          let mut swarm = lock_swarm(&swarm).await;
+          leave_openraft_kad(&mut swarm);
+        }
+        fail_pending_swarm_requests(
+          &mut pending_raft,
+          &mut pending_kv,
+          &mut pending_sqlite_sync,
+          &mut pending_connect,
+          &mut pending_start_providing,
+          &mut pending_get_providers,
+          "swarm shutting down",
+        );
         break;
       }
       _ = reconnect_tick.tick() => {
@@ -565,7 +607,23 @@ pub async fn run_swarm(
         kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
-        let Some(cmd) = cmd else { return; };
+        let Some(cmd) = cmd else {
+          tracing::warn!("swarm command channel closed; stopping swarm");
+          {
+            let mut swarm = lock_swarm(&swarm).await;
+            leave_openraft_kad(&mut swarm);
+          }
+          fail_pending_swarm_requests(
+            &mut pending_raft,
+            &mut pending_kv,
+            &mut pending_sqlite_sync,
+            &mut pending_connect,
+            &mut pending_start_providing,
+            &mut pending_get_providers,
+            "swarm command channel closed",
+          );
+          return;
+        };
         if let Command::PublishOpenRaftSnapshot { group_id, resp } = cmd {
           handle_publish_openraft_snapshot(&swarm, group_id, resp, &mut openraft_sync).await;
           continue;
@@ -586,6 +644,19 @@ pub async fn run_swarm(
       }
 
       ev = next_swarm_event(&swarm) => {
+        let Some(ev) = ev else {
+          tracing::warn!("swarm stream ended; stopping swarm");
+          fail_pending_swarm_requests(
+            &mut pending_raft,
+            &mut pending_kv,
+            &mut pending_sqlite_sync,
+            &mut pending_connect,
+            &mut pending_start_providing,
+            &mut pending_get_providers,
+            "swarm stream ended",
+          );
+          break;
+        };
         handle_swarm_event(
           &swarm,
           ev,
@@ -649,24 +720,30 @@ async fn handle_reconnect_tick(
   }
 }
 
-async fn next_swarm_event(swarm: &SharedSwarm) -> SwarmEvent<BehaviourEvent> {
+enum NextSwarmPoll {
+  Event(SwarmEvent<BehaviourEvent>),
+  Busy,
+  Ended,
+}
+
+async fn next_swarm_event(swarm: &SharedSwarm) -> Option<SwarmEvent<BehaviourEvent>> {
   loop {
-    if let Some(event) = poll_fn(|cx| {
+    match poll_fn(|cx| {
       let Ok(mut swarm) = swarm.try_lock() else {
-        return std::task::Poll::Ready(None);
+        return std::task::Poll::Ready(NextSwarmPoll::Busy);
       };
       match swarm.poll_next_unpin(cx) {
-        std::task::Poll::Ready(Some(event)) => std::task::Poll::Ready(Some(event)),
-        std::task::Poll::Ready(None) => panic!("swarm stream ended"),
+        std::task::Poll::Ready(Some(event)) => std::task::Poll::Ready(NextSwarmPoll::Event(event)),
+        std::task::Poll::Ready(None) => std::task::Poll::Ready(NextSwarmPoll::Ended),
         std::task::Poll::Pending => std::task::Poll::Pending,
       }
     })
     .await
     {
-      return event;
+      NextSwarmPoll::Event(event) => return Some(event),
+      NextSwarmPoll::Ended => return None,
+      NextSwarmPoll::Busy => tokio::task::yield_now().await,
     }
-
-    tokio::task::yield_now().await;
   }
 }
 
@@ -704,6 +781,13 @@ fn handle_command(
           let _ = resp.send(Err(NetErr(format!("start_providing failed: {:?}", e))));
         }
       }
+    }
+    Command::LeaveKad {
+      provider_keys,
+      resp,
+    } => {
+      leave_kad(swarm, &provider_keys);
+      let _ = resp.send(Ok(()));
     }
     Command::GetProviders { key, resp } => {
       let record_key = kad::RecordKey::new(&key);
@@ -1392,13 +1476,36 @@ pub async fn run_swarm_client_with_shutdown(
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm client");
+        leave_openraft_kad(&mut swarm);
+        fail_pending_swarm_requests(
+          &mut pending_raft,
+          &mut pending_kv,
+          &mut pending_sqlite_sync,
+          &mut pending_connect,
+          &mut pending_start_providing,
+          &mut pending_get_providers,
+          "swarm client shutting down",
+        );
         break;
       }
       _ = kad_discovery_tick.tick() => {
         kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
-        let Some(cmd) = cmd else { return; };
+        let Some(cmd) = cmd else {
+          tracing::warn!("swarm client command channel closed; stopping swarm client");
+          leave_openraft_kad(&mut swarm);
+          fail_pending_swarm_requests(
+            &mut pending_raft,
+            &mut pending_kv,
+            &mut pending_sqlite_sync,
+            &mut pending_connect,
+            &mut pending_start_providing,
+            &mut pending_get_providers,
+            "swarm client command channel closed",
+          );
+          return;
+        };
         handle_command(
           &mut swarm,
           cmd,
@@ -1412,7 +1519,20 @@ pub async fn run_swarm_client_with_shutdown(
         );
       }
 
-      ev = swarm.select_next_some() => {
+      ev = swarm.next() => {
+        let Some(ev) = ev else {
+          tracing::warn!("swarm client stream ended; stopping swarm client");
+          fail_pending_swarm_requests(
+            &mut pending_raft,
+            &mut pending_kv,
+            &mut pending_sqlite_sync,
+            &mut pending_connect,
+            &mut pending_start_providing,
+            &mut pending_get_providers,
+            "swarm client stream ended",
+          );
+          break;
+        };
         match ev {
           SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => match event {
             request_response::Event::Message { message, .. } => match message {
@@ -1688,6 +1808,70 @@ fn kick_kad_queries(swarm: &mut Swarm<Behaviour>) {
   let local_peer_id = swarm.local_peer_id().to_owned();
   let _ = swarm.behaviour_mut().kad.bootstrap();
   swarm.behaviour_mut().kad.get_closest_peers(local_peer_id);
+}
+
+fn leave_openraft_kad(swarm: &mut Swarm<Behaviour>) {
+  leave_kad(swarm, &[OPENRAFT_CLUSTER_PROVIDER_KEY.to_string()]);
+}
+
+fn leave_kad(swarm: &mut Swarm<Behaviour>, provider_keys: &[String]) {
+  for key in provider_keys {
+    let record_key = kad::RecordKey::new(key);
+    swarm.behaviour_mut().kad.stop_providing(&record_key);
+  }
+  swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
+  tracing::info!(provider_keys = ?provider_keys, "left kademlia provider mode");
+}
+
+fn fail_pending_swarm_requests(
+  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
+  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
+  pending_sqlite_sync: &mut HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
+  >,
+  pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
+  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
+  reason: &'static str,
+) {
+  fail_pending_map(pending_raft, reason);
+  fail_pending_map(pending_kv, reason);
+  fail_pending_map(pending_sqlite_sync, reason);
+  fail_pending_map(pending_start_providing, reason);
+  fail_pending_connect(pending_connect, reason);
+  fail_pending_get_providers(pending_get_providers, reason);
+}
+
+fn fail_pending_map<K, T>(
+  pending: &mut HashMap<K, oneshot::Sender<Result<T, NetErr>>>,
+  reason: &'static str,
+) where
+  K: Eq + Hash,
+{
+  for (_, resp) in pending.drain() {
+    let _ = resp.send(Err(NetErr(reason.to_string())));
+  }
+}
+
+fn fail_pending_connect(
+  pending: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  reason: &'static str,
+) {
+  for (_, responses) in pending.drain() {
+    for resp in responses {
+      let _ = resp.send(Err(NetErr(reason.to_string())));
+    }
+  }
+}
+
+fn fail_pending_get_providers(
+  pending: &mut HashMap<kad::QueryId, GetProvidersState>,
+  reason: &'static str,
+) {
+  for (_, state) in pending.drain() {
+    let _ = state.resp.send(Err(NetErr(reason.to_string())));
+  }
 }
 
 fn handle_kad_event(

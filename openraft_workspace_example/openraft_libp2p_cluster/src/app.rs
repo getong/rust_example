@@ -36,8 +36,8 @@ use crate::{
     raft_bridge::P2PNetworkFactoryWrapper,
     rpc::{JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
-      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, SqliteSyncClient, run_swarm,
-      set_libp2p_swarm,
+      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, OPENRAFT_CLUSTER_PROVIDER_KEY,
+      SqliteSyncClient, run_swarm, set_libp2p_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -57,6 +57,8 @@ const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
 const CONTROL_JOIN_POLL_INTERVAL_SECS: u64 = 2;
 const CONTROL_JOIN_CATCH_UP_TIMEOUT_SECS: u64 = 30;
+const OPENRAFT_KAD_PROVIDER_RECORD_TTL: Duration = Duration::from_secs(180);
+const OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_secs(60);
 const DEFAULT_MAX_CONTROL_NODES: usize = 3;
 /// How long to wait for at least one remote peer to become connected before
 /// running the startup "was this node removed?" membership check. Without
@@ -516,7 +518,10 @@ fn build_swarm(
       let cfg = request_response::Config::default();
       let peer_id = PeerId::from(key.public());
       let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
-      let kad_config = kad::Config::new(StreamProtocol::new("/openraft/kad/1"));
+      let mut kad_config = kad::Config::new(StreamProtocol::new("/openraft/kad/1"));
+      kad_config
+        .set_provider_record_ttl(Some(OPENRAFT_KAD_PROVIDER_RECORD_TTL))
+        .set_provider_publication_interval(Some(OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL));
       let kad = kad::Behaviour::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
       let gossipsub_config = gossipsub::ConfigBuilder::default()
         .build()
@@ -791,8 +796,7 @@ async fn run_control_services(
   }
   let sqlite_flush_group_id = default_openraft_group_id();
 
-  let apalis_storage = build_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p)
-    .expect("apalis group should be configured");
+  let apalis_storage = build_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p)?;
   let leader_worker_storage = apalis_storage.clone();
   let leader_controller_groups = openraft_groups()
     .cloned()
@@ -835,18 +839,7 @@ async fn run_control_services(
     }
   }
 
-  if let Some(rafts) = openraft_groups().map(|groups| {
-    groups
-      .values()
-      .map(|group| group.raft.clone())
-      .collect::<Vec<_>>()
-  }) {
-    for raft in rafts {
-      if let Err(err) = raft.shutdown().await {
-        errors.push(anyhow!("openraft shutdown failed: {err:?}"));
-      }
-    }
-  }
+  leave_openraft_kad(&runtime.libp2p.client).await;
 
   match errors.len() {
     0 => Ok(()),
@@ -1561,6 +1554,70 @@ fn collect_shutdown_errors(
   Err(anyhow!(msg))
 }
 
+async fn advertise_openraft_kad(client: &Libp2pClient) {
+  client.set_kad_mode(kad::Mode::Server).await;
+  if let Err(e) = client
+    .start_providing(OPENRAFT_CLUSTER_PROVIDER_KEY.to_string())
+    .await
+  {
+    tracing::warn!(
+      "failed to provide {} capability via Kademlia: {:?}",
+      OPENRAFT_CLUSTER_PROVIDER_KEY,
+      e
+    );
+  }
+}
+
+async fn leave_openraft_kad(client: &Libp2pClient) {
+  match client.leave_openraft_kad().await {
+    Ok(()) => {
+      tracing::info!(
+        provider_key = OPENRAFT_CLUSTER_PROVIDER_KEY,
+        "left openraft kademlia provider before openraft shutdown"
+      );
+    }
+    Err(err) => {
+      tracing::warn!(
+        provider_key = OPENRAFT_CLUSTER_PROVIDER_KEY,
+        error = ?err,
+        "could not leave openraft kademlia provider; swarm may already be stopped"
+      );
+    }
+  }
+}
+
+async fn shutdown_openraft_groups() -> anyhow::Result<()> {
+  let Some(rafts) = openraft_groups().map(|groups| {
+    groups
+      .values()
+      .map(|group| group.raft.clone())
+      .collect::<Vec<_>>()
+  }) else {
+    return Ok(());
+  };
+
+  let mut errors = Vec::new();
+  for raft in rafts {
+    if let Err(err) = raft.shutdown().await {
+      errors.push(anyhow!("openraft shutdown failed: {err:?}"));
+    }
+  }
+
+  match errors.len() {
+    0 => Ok(()),
+    1 => Err(errors.remove(0)),
+    _ => {
+      let mut msg = String::new();
+      use std::fmt::Write as _;
+      let _ = writeln!(&mut msg, "openraft shutdown errors: {}", errors.len());
+      for err in errors {
+        let _ = writeln!(&mut msg, "  {err}");
+      }
+      Err(anyhow!(msg))
+    }
+  }
+}
+
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
   load_env_file();
   let http_addr: SocketAddr = opt.http.parse().context("invalid --http")?;
@@ -1645,18 +1702,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let service_result = match startup_mode {
     StartupMode::Control => {
-      runtime.libp2p.client.set_kad_mode(kad::Mode::Server).await;
-      if let Err(e) = runtime
-        .libp2p
-        .client
-        .start_providing("openraft_cluster".to_string())
-        .await
-      {
-        tracing::warn!(
-          "failed to provide openraft_cluster capability via Kademlia: {:?}",
-          e
-        );
-      }
+      advertise_openraft_kad(&runtime.libp2p.client).await;
       run_control_services(runtime, http_addr, shutdown_rx_for_ordering).await
     }
     StartupMode::Worker {
@@ -1667,7 +1713,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       if let Ok(providers) = runtime
         .libp2p
         .client
-        .get_providers("openraft_cluster".to_string())
+        .get_providers(OPENRAFT_CLUSTER_PROVIDER_KEY.to_string())
         .await
       {
         for peer in providers {
@@ -1687,18 +1733,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
       .await
       {
         Ok(ControlJoinWatchResult::Joined | ControlJoinWatchResult::AlreadyMember) => {
-          runtime.libp2p.client.set_kad_mode(kad::Mode::Server).await;
-          if let Err(e) = runtime
-            .libp2p
-            .client
-            .start_providing("openraft_cluster".to_string())
-            .await
-          {
-            tracing::warn!(
-              "failed to provide openraft_cluster capability via Kademlia: {:?}",
-              e
-            );
-          }
+          advertise_openraft_kad(&runtime.libp2p.client).await;
           run_control_services(runtime, http_addr, shutdown_rx_for_ordering).await
         }
         Ok(ControlJoinWatchResult::Full | ControlJoinWatchResult::Shutdown) => Ok(()),
@@ -1709,9 +1744,14 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   let (_tx, _rx, results) = shutdown.shutdown().await;
   let shutdown_result = collect_shutdown_errors("shutdown", results);
-  let _ = swarm_handle.await;
+  let swarm_join_result = swarm_handle
+    .await
+    .map_err(|err| anyhow!("libp2p swarm task failed: {err}"));
+  let openraft_shutdown_result = shutdown_openraft_groups().await;
   service_result?;
   shutdown_result?;
+  swarm_join_result?;
+  openraft_shutdown_result?;
   tracing::info!("shutdown complete");
   Ok(())
 }
