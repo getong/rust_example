@@ -5,281 +5,300 @@ use std::{
     Arc,
     atomic::{AtomicU64, Ordering},
   },
+  time::Duration,
 };
 
-use anyhow::{Context, Result};
-use bevy::prelude::*;
+use anyhow::{Context, Result, bail};
 use quinn::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
-use tokio::{runtime::Runtime, sync::mpsc};
-
-use crate::{
-  game::{
-    ActorId, ActorType, ArenaPosition, NextActorId, PlayerInputState, ServerTick, SnapshotClock,
-    Vitals, actor_state, spawn_player,
-  },
-  protocol::{
-    ALPN_PROTOCOL, ClientEnvelope, DEFAULT_SERVER_ADDR, ServerEnvelope, Welcome, WorldSnapshot,
-    client_envelope, read_client_envelope, server_envelope, write_server_envelope,
-  },
-  terrain::{LevelMap, map_state},
+use tokio::{
+  runtime::Runtime,
+  sync::{mpsc, oneshot},
+  time::timeout,
 };
 
-#[allow(dead_code)]
-#[derive(Resource)]
-pub(crate) struct NetworkRuntime(Runtime);
-
-#[derive(Resource)]
-pub(crate) struct NetworkEvents {
-  receiver: mpsc::UnboundedReceiver<NetworkEvent>,
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct Clients {
-  clients: HashMap<u64, ClientState>,
-}
-
-struct ClientState {
-  sender: mpsc::UnboundedSender<ServerEnvelope>,
-  player: Option<Entity>,
-  actor_id: Option<ActorId>,
-  name: String,
-}
-
-enum NetworkEvent {
-  Connected {
-    client_id: u64,
-    sender: mpsc::UnboundedSender<ServerEnvelope>,
+use crate::{
+  protocol::{
+    ALPN_PROTOCOL, ClientEnvelope, ServerEnvelope, client_envelope, read_client_envelope,
+    write_server_envelope,
   },
-  Message {
-    client_id: u64,
-    message: ClientEnvelope,
-  },
-  Disconnected {
-    client_id: u64,
-  },
+  routing::{CLIENT_OUTBOUND_BUFFER, GatewayEvent, ShardCommand, ShardHandle},
+};
+
+struct ClientConnection {
+  shard_id: usize,
+  sender: mpsc::Sender<ServerEnvelope>,
 }
 
-pub(crate) fn start_network_server(mut commands: Commands) {
-  let (event_sender, event_receiver) = mpsc::unbounded_channel();
-  let runtime = Runtime::new().expect("tokio runtime should start");
-  runtime.spawn(async move {
-    if let Err(err) = run_quic_server(DEFAULT_SERVER_ADDR, event_sender).await {
-      eprintln!("game_server network error: {err:#}");
-    }
-  });
+const CLIENT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
-  commands.insert_resource(NetworkRuntime(runtime));
-  commands.insert_resource(NetworkEvents {
-    receiver: event_receiver,
-  });
-  info!("game_server listening on {DEFAULT_SERVER_ADDR}");
-}
-
-pub(crate) fn drain_network_events(
-  mut commands: Commands,
-  mut events: ResMut<NetworkEvents>,
-  mut clients: ResMut<Clients>,
-  mut actor_ids: ResMut<NextActorId>,
-  level_map: Res<LevelMap>,
-  tick: Res<ServerTick>,
-  mut player_inputs: Query<&mut PlayerInputState>,
-) {
-  while let Ok(event) = events.receiver.try_recv() {
-    match event {
-      NetworkEvent::Connected { client_id, sender } => {
-        info!("client {client_id} connected");
-        clients.clients.insert(
-          client_id,
-          ClientState {
-            sender,
-            player: None,
-            actor_id: None,
-            name: format!("Player {client_id}"),
-          },
-        );
-      }
-      NetworkEvent::Message { client_id, message } => {
-        handle_client_message(
-          &mut commands,
-          &mut clients,
-          &mut actor_ids,
-          &level_map,
-          &mut player_inputs,
-          tick.0,
-          client_id,
-          message,
-        );
-      }
-      NetworkEvent::Disconnected { client_id } => {
-        if let Some(client) = clients.clients.remove(&client_id) {
-          if let Some(player) = client.player {
-            commands.entity(player).despawn();
-          }
-          info!("client {client_id} disconnected");
-        }
-      }
-    }
-  }
-}
-
-pub(crate) fn broadcast_snapshots(
-  time: Res<Time>,
-  tick: Res<ServerTick>,
-  mut clock: ResMut<SnapshotClock>,
-  level_map: Res<LevelMap>,
-  clients: Res<Clients>,
-  actors: Query<(&ActorId, &ActorType, &ArenaPosition, &Vitals)>,
-) {
-  clock.0.tick(time.delta());
-  if !clock.0.just_finished() {
-    return;
-  }
-
-  let snapshot = WorldSnapshot {
-    tick: tick.0,
-    actors: actors
-      .iter()
-      .map(|(id, kind, position, vitals)| actor_state(*id, *kind, *position, *vitals))
-      .collect(),
-    map: Some(map_state(&level_map)),
-  };
-  let envelope = ServerEnvelope {
-    payload: Some(server_envelope::Payload::Snapshot(snapshot)),
-  };
-
-  for client in clients.clients.values() {
-    let _ = client.sender.send(envelope.clone());
-  }
-}
-
-fn handle_client_message(
-  commands: &mut Commands,
-  clients: &mut Clients,
-  actor_ids: &mut NextActorId,
-  level_map: &LevelMap,
-  player_inputs: &mut Query<&mut PlayerInputState>,
-  tick: u64,
-  client_id: u64,
-  message: ClientEnvelope,
-) {
-  let connected_players = clients
-    .clients
-    .values()
-    .filter(|client| client.player.is_some())
-    .count();
-  let Some(client) = clients.clients.get_mut(&client_id) else {
-    return;
-  };
-
-  match message.payload {
-    Some(client_envelope::Payload::Hello(hello)) => {
-      client.name = hello.name;
-      if client.player.is_none() {
-        let actor_id = actor_ids.next();
-        let player = spawn_player(commands, actor_id, client_id, connected_players, level_map);
-        client.player = Some(player);
-        client.actor_id = Some(actor_id);
-
-        let welcome = ServerEnvelope {
-          payload: Some(server_envelope::Payload::Welcome(Welcome {
-            client_id,
-            actor_id: actor_id.0,
-            tick,
-          })),
-        };
-        let _ = client.sender.send(welcome);
-      }
-    }
-    Some(client_envelope::Payload::Input(input)) => {
-      let Some(player) = client.player else {
-        return;
-      };
-      let Ok(mut player_input) = player_inputs.get_mut(player) else {
-        return;
-      };
-
-      player_input.direction = Vec2::new(input.x, input.y).clamp_length_max(1.0);
-    }
-    Some(client_envelope::Payload::Ping(ping)) => {
-      let pong = ServerEnvelope {
-        payload: Some(server_envelope::Payload::Pong(crate::protocol::Pong {
-          client_time_ms: ping.client_time_ms,
-          server_tick: tick,
-        })),
-      };
-      let _ = client.sender.send(pong);
-    }
-    None => {}
-  }
-}
-
-async fn run_quic_server(
+pub(crate) fn run_gateway(
   bind_addr: &str,
-  event_sender: mpsc::UnboundedSender<NetworkEvent>,
+  shards: Vec<ShardHandle>,
+  gateway_sender: mpsc::Sender<GatewayEvent>,
+  gateway_receiver: mpsc::Receiver<GatewayEvent>,
 ) -> Result<()> {
-  let endpoint = quinn::Endpoint::server(server_config()?, bind_addr.parse::<SocketAddr>()?)
-    .context("failed to bind quinn server endpoint")?;
-  let next_client_id = Arc::new(AtomicU64::new(1));
+  let runtime = Runtime::new().context("tokio runtime should start")?;
+  runtime.block_on(run_quic_gateway(
+    bind_addr,
+    shards,
+    gateway_sender,
+    gateway_receiver,
+  ))
+}
 
-  while let Some(incoming) = endpoint.accept().await {
-    let client_id = next_client_id.fetch_add(1, Ordering::Relaxed);
-    let events = event_sender.clone();
-    tokio::spawn(async move {
-      if let Err(err) = handle_connection(client_id, incoming, events.clone()).await {
-        eprintln!("client {client_id} connection error: {err:#}");
-        let _ = events.send(NetworkEvent::Disconnected { client_id });
+async fn run_quic_gateway(
+  bind_addr: &str,
+  shards: Vec<ShardHandle>,
+  gateway_sender: mpsc::Sender<GatewayEvent>,
+  mut gateway_receiver: mpsc::Receiver<GatewayEvent>,
+) -> Result<()> {
+  if shards.is_empty() {
+    bail!("gateway requires at least one shard");
+  }
+
+  let endpoint = quinn::Endpoint::server(server_config()?, bind_addr.parse::<SocketAddr>()?)
+    .context("failed to bind quinn gateway endpoint")?;
+  let shards = Arc::new(shards);
+  let next_client_id = Arc::new(AtomicU64::new(1));
+  let mut clients = HashMap::new();
+
+  println!(
+    "game_server gateway listening on {bind_addr}, shards={}",
+    shards.len()
+  );
+
+  loop {
+    tokio::select! {
+      incoming = endpoint.accept() => {
+        let Some(incoming) = incoming else {
+          break;
+        };
+
+        let client_id = next_client_id.fetch_add(1, Ordering::Relaxed);
+        let connection_gateway_sender = gateway_sender.clone();
+        let connection_shards = Arc::clone(&shards);
+        tokio::spawn(async move {
+          if let Err(err) =
+            handle_connection(client_id, incoming, connection_gateway_sender, connection_shards).await
+          {
+            eprintln!("client {client_id} connection error: {err:#}");
+          }
+        });
       }
-    });
+      event = gateway_receiver.recv() => {
+        let Some(event) = event else {
+          break;
+        };
+        handle_gateway_event(event, &mut clients);
+      }
+    }
   }
 
   Ok(())
+}
+
+fn handle_gateway_event(event: GatewayEvent, clients: &mut HashMap<u64, ClientConnection>) {
+  match event {
+    GatewayEvent::ClientReady {
+      client_id,
+      shard_id,
+      sender,
+      ack,
+    } => {
+      clients.insert(client_id, ClientConnection { shard_id, sender });
+      let _ = ack.send(());
+    }
+    GatewayEvent::Send { client_id, message } => {
+      let should_remove =
+        clients
+          .get(&client_id)
+          .is_some_and(|client| match client.sender.try_send(message) {
+            Ok(()) => false,
+            Err(mpsc::error::TrySendError::Full(_)) => false,
+            Err(mpsc::error::TrySendError::Closed(_)) => true,
+          });
+
+      if should_remove {
+        clients.remove(&client_id);
+      }
+    }
+    GatewayEvent::ClientDisconnected {
+      client_id,
+      shard_id,
+    } => {
+      if clients
+        .get(&client_id)
+        .is_some_and(|client| client.shard_id == shard_id)
+      {
+        clients.remove(&client_id);
+      }
+    }
+  }
 }
 
 async fn handle_connection(
   client_id: u64,
   incoming: quinn::Incoming,
-  event_sender: mpsc::UnboundedSender<NetworkEvent>,
+  gateway_sender: mpsc::Sender<GatewayEvent>,
+  shards: Arc<Vec<ShardHandle>>,
 ) -> Result<()> {
   let connection = incoming
     .await
     .context("failed to accept quinn connection")?;
-  let (send, mut recv) = connection
-    .accept_bi()
+  let (send, mut recv) = timeout(CLIENT_HANDSHAKE_TIMEOUT, connection.accept_bi())
     .await
+    .context("client timed out before opening stream")?
     .context("failed to accept client stream")?;
-  let (outbound_sender, outbound_receiver) = mpsc::unbounded_channel();
+  let first_message = timeout(CLIENT_HANDSHAKE_TIMEOUT, read_client_envelope(&mut recv))
+    .await
+    .context("client timed out before sending hello")?
+    .context("failed to read client hello")?
+    .context("client disconnected before sending hello")?;
+  let shard = choose_shard(client_id, &first_message, &shards)?.clone();
+  let (outbound_sender, outbound_receiver) = mpsc::channel(CLIENT_OUTBOUND_BUFFER);
 
-  event_sender
-    .send(NetworkEvent::Connected {
+  tokio::spawn(write_loop(
+    client_id,
+    shard.id,
+    send,
+    outbound_receiver,
+    gateway_sender.clone(),
+    shard.sender.clone(),
+  ));
+
+  register_client(&gateway_sender, client_id, shard.id, outbound_sender).await?;
+  if let Err(err) = send_shard_command(&shard.sender, ShardCommand::Connected { client_id }).await {
+    disconnect_client(client_id, shard.id, &gateway_sender, &shard.sender).await;
+    return Err(err);
+  }
+  if let Err(err) = send_shard_command(
+    &shard.sender,
+    ShardCommand::Message {
       client_id,
-      sender: outbound_sender,
-    })
-    .context("failed to publish client connection")?;
-
-  tokio::spawn(write_loop(client_id, send, outbound_receiver));
-
-  while let Some(message) = read_client_envelope(&mut recv).await? {
-    event_sender
-      .send(NetworkEvent::Message { client_id, message })
-      .context("failed to publish client message")?;
+      message: first_message,
+    },
+  )
+  .await
+  {
+    disconnect_client(client_id, shard.id, &gateway_sender, &shard.sender).await;
+    return Err(err);
   }
 
-  let _ = event_sender.send(NetworkEvent::Disconnected { client_id });
+  let result = read_client_messages(client_id, &mut recv, &shard.sender).await;
+  disconnect_client(client_id, shard.id, &gateway_sender, &shard.sender).await;
+  result
+}
+
+async fn read_client_messages(
+  client_id: u64,
+  recv: &mut quinn::RecvStream,
+  shard_sender: &mpsc::Sender<ShardCommand>,
+) -> Result<()> {
+  while let Some(message) = read_client_envelope(recv).await? {
+    match shard_sender.try_send(ShardCommand::Message { client_id, message }) {
+      Ok(()) => {}
+      Err(mpsc::error::TrySendError::Full(_)) => {}
+      Err(mpsc::error::TrySendError::Closed(_)) => bail!("client shard input channel closed"),
+    }
+  }
+
   Ok(())
+}
+
+async fn register_client(
+  gateway_sender: &mpsc::Sender<GatewayEvent>,
+  client_id: u64,
+  shard_id: usize,
+  sender: mpsc::Sender<ServerEnvelope>,
+) -> Result<()> {
+  let (ack, registered) = oneshot::channel();
+  gateway_sender
+    .send(GatewayEvent::ClientReady {
+      client_id,
+      shard_id,
+      sender,
+      ack,
+    })
+    .await
+    .context("failed to register client with gateway")?;
+  registered
+    .await
+    .context("gateway stopped before client registration completed")
+}
+
+async fn send_shard_command(
+  shard_sender: &mpsc::Sender<ShardCommand>,
+  command: ShardCommand,
+) -> Result<()> {
+  shard_sender
+    .send(command)
+    .await
+    .context("failed to send command to shard")
+}
+
+async fn disconnect_client(
+  client_id: u64,
+  shard_id: usize,
+  gateway_sender: &mpsc::Sender<GatewayEvent>,
+  shard_sender: &mpsc::Sender<ShardCommand>,
+) {
+  let _ = shard_sender.try_send(ShardCommand::Disconnected { client_id });
+  let _ = gateway_sender
+    .send(GatewayEvent::ClientDisconnected {
+      client_id,
+      shard_id,
+    })
+    .await;
 }
 
 async fn write_loop(
   client_id: u64,
+  shard_id: usize,
   mut send: quinn::SendStream,
-  mut receiver: mpsc::UnboundedReceiver<ServerEnvelope>,
+  mut receiver: mpsc::Receiver<ServerEnvelope>,
+  gateway_sender: mpsc::Sender<GatewayEvent>,
+  shard_sender: mpsc::Sender<ShardCommand>,
 ) {
   while let Some(message) = receiver.recv().await {
     if let Err(err) = write_server_envelope(&mut send, &message).await {
       eprintln!("client {client_id} write error: {err:#}");
+      disconnect_client(client_id, shard_id, &gateway_sender, &shard_sender).await;
       return;
     }
   }
+}
+
+fn choose_shard<'a>(
+  client_id: u64,
+  first_message: &ClientEnvelope,
+  shards: &'a [ShardHandle],
+) -> Result<&'a ShardHandle> {
+  let route_key = route_key(client_id, first_message);
+  let shard_index = route_key as usize % shards.len();
+  shards
+    .get(shard_index)
+    .context("gateway has no shard for client")
+}
+
+fn route_key(client_id: u64, first_message: &ClientEnvelope) -> u64 {
+  if let Some(client_envelope::Payload::Hello(hello)) = &first_message.payload {
+    let room = hello.room.trim();
+    if !room.is_empty() {
+      return stable_hash(room.as_bytes());
+    }
+  }
+
+  client_id
+}
+
+fn stable_hash(bytes: &[u8]) -> u64 {
+  const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+  const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+  bytes.iter().fold(FNV_OFFSET, |hash, byte| {
+    (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+  })
 }
 
 fn server_config() -> Result<quinn::ServerConfig> {

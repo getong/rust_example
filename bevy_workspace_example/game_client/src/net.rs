@@ -139,6 +139,7 @@ async fn run_quic_client(
   let hello = ClientEnvelope {
     payload: Some(client_envelope::Payload::Hello(Hello {
       name: "bevy-client".to_string(),
+      room: std::env::var("GAME_ROOM").unwrap_or_default(),
     })),
   };
   write_client_envelope(&mut send, &hello).await?;

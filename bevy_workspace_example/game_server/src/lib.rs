@@ -2,44 +2,33 @@ mod behavior;
 mod game;
 mod net;
 pub mod protocol;
+mod routing;
+mod shard;
 mod terrain;
 
-use std::time::Duration;
+use tokio::sync::mpsc;
 
-use bevior_tree::prelude::{BehaviorTreePlugin, BehaviorTreeSystemSet};
-use bevy::{app::ScheduleRunnerPlugin, ecs::schedule::ApplyDeferred, log::LogPlugin, prelude::*};
-
-const SERVER_TICK_SECONDS: f64 = 1.0 / 30.0;
+use crate::{protocol::DEFAULT_SERVER_ADDR, routing::GATEWAY_EVENT_BUFFER};
 
 pub fn run() {
-  App::new()
-    .add_plugins((
-      MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-        SERVER_TICK_SECONDS,
-      ))),
-      LogPlugin::default(),
-      BehaviorTreePlugin::default().in_schedule(Update),
-    ))
-    .init_resource::<game::NextActorId>()
-    .init_resource::<game::ServerTick>()
-    .init_resource::<game::SnapshotClock>()
-    .init_resource::<game::CombatClock>()
-    .init_resource::<terrain::LevelMap>()
-    .init_resource::<terrain::TerrainMap>()
-    .init_resource::<net::Clients>()
-    .add_systems(Startup, (net::start_network_server, game::spawn_monsters))
-    .add_systems(
-      Update,
-      (
-        net::drain_network_events.before(BehaviorTreeSystemSet::Update),
-        ApplyDeferred
-          .after(net::drain_network_events)
-          .before(BehaviorTreeSystemSet::Update),
-        game::apply_player_movement.before(BehaviorTreeSystemSet::Update),
-        behavior::move_chasing_monsters.after(BehaviorTreeSystemSet::Update),
-        game::resolve_combat.after(behavior::move_chasing_monsters),
-        net::broadcast_snapshots.after(game::resolve_combat),
-      ),
-    )
-    .run();
+  let shard_count = shard_count();
+  let (gateway_sender, gateway_receiver) = mpsc::channel(GATEWAY_EVENT_BUFFER);
+  let shards = shard::spawn_shards(shard_count, gateway_sender.clone());
+
+  if let Err(err) = net::run_gateway(
+    DEFAULT_SERVER_ADDR,
+    shards,
+    gateway_sender,
+    gateway_receiver,
+  ) {
+    eprintln!("game_server gateway error: {err:#}");
+  }
+}
+
+fn shard_count() -> usize {
+  std::env::var("GAME_SERVER_SHARDS")
+    .ok()
+    .and_then(|value| value.parse::<usize>().ok())
+    .filter(|count| *count > 0)
+    .unwrap_or(shard::DEFAULT_SHARD_COUNT)
 }

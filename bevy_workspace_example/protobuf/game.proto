@@ -12,6 +12,7 @@ message ClientEnvelope {
 
 message Hello {
   string name = 1;
+  string room = 2;
 }
 
 message PlayerInput {
