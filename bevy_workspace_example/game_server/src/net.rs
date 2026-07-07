@@ -64,6 +64,7 @@ pub(crate) fn run_gateway(
     .add_plugins(ServerPlugins {
       tick_duration: Duration::from_secs_f64(GATEWAY_TICK_SECONDS),
     })
+    .add_plugins(crate::agones::AgonesPlugin)
     .add_plugins(GameProtocolPlugin)
     .insert_resource(GatewayConfig { bind_addr })
     .insert_resource(GatewayState {

@@ -4,14 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+agones.workspace = true
 anyhow.workspace = true
+bevior_tree.workspace = true
 bevy = { workspace = true, features = ["bevy_log", "std"] }
 bevy_ecs.workspace = true
-bevior_tree.workspace = true
-prost.workspace = true
-tokio.workspace = true
 lightyear = { workspace = true, features = ["std", "server", "udp", "netcode"] }
+prost.workspace = true
 serde.workspace = true
+tokio.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true

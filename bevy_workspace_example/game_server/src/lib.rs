@@ -1,3 +1,4 @@
+mod agones;
 mod behavior;
 mod game;
 mod net;
