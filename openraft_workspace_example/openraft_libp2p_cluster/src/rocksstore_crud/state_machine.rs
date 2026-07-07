@@ -43,7 +43,7 @@ pub struct RocksStateMachine {
   data: Arc<RwLock<BTreeMap<String, String>>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum DataChange {
   Set { key: String, value: String },
   Delete { key: String },
@@ -427,7 +427,7 @@ fn read_last_applied_log(db: &DB) -> Result<Option<LogIdOf<TypeConfig>>, io::Err
     .transpose()
 }
 
-fn restore_snapshot_to_db(db: &DB, snapshot_file: SnapshotFile) -> Result<(), io::Error> {
+fn restore_snapshot_to_db(db: &DB, snapshot_file: &SnapshotFile) -> Result<(), io::Error> {
   let cf_data = db
     .cf_handle(SM_DATA_CF)
     .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
@@ -450,7 +450,7 @@ fn restore_snapshot_to_db(db: &DB, snapshot_file: SnapshotFile) -> Result<(), io
     batch.delete_cf(cf_data, &key);
   }
 
-  for (key, value) in snapshot_file.data {
+  for (key, value) in &snapshot_file.data {
     batch.put_cf(cf_data, key, value);
   }
 
@@ -480,7 +480,7 @@ async fn recover_from_latest_snapshot_if_newer(
   let snapshot_id = snapshot_file.meta.snapshot_id.clone();
   let snapshot_last_log_id = snapshot_file.meta.last_log_id.clone();
 
-  TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, snapshot_file)).await??;
+  TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, &snapshot_file)).await??;
 
   tracing::info!(
     snapshot_id,
@@ -542,7 +542,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     // Serialize both metadata and data together
     let snapshot_file = SnapshotFile {
       meta: meta.clone(),
-      data: data.clone(),
+      data,
     };
     write_snapshot_file(&self.snapshot_dir, &snapshot_id, &snapshot_file).map_err(|e| {
       StorageError::<TypeConfig>::write_snapshot(
@@ -552,7 +552,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     })?;
 
     // Return snapshot with data-only for backward compatibility with the data field
-    let data_bytes = serialize(&data).map_err(|e| {
+    let data_bytes = serialize(&snapshot_file.data).map_err(|e| {
       StorageError::<TypeConfig>::write_snapshot(
         Some(meta.signature()),
         TypeConfig::err_from_error(&e),
@@ -583,6 +583,14 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let mut last_applied_log = None;
     let mut last_membership: Option<StoredMembershipOf<TypeConfig>> = None;
     let mut responses = Vec::new();
+    let db = self.db.clone();
+    let cf_data = db
+      .cf_handle(SM_DATA_CF)
+      .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
+    let cf_meta = db
+      .cf_handle(SM_META_CF)
+      .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
+    let mut batch = rocksdb::WriteBatch::default();
 
     while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
@@ -591,16 +599,16 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
       let response = match entry.payload {
         EntryPayload::Blank => types_kv::Response::none(),
-        EntryPayload::Normal(ref req) => match req {
+        EntryPayload::Normal(req) => match req {
           types_kv::Request::Set { key, value } => {
-            data_changes.push(DataChange::Set {
-              key: key.clone(),
-              value: value.clone(),
-            });
-            types_kv::Response::new(value.clone())
+            batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
+            let response = types_kv::Response::new(value.clone());
+            data_changes.push(DataChange::Set { key, value });
+            response
           }
           types_kv::Request::Delete { key } => {
-            data_changes.push(DataChange::Delete { key: key.clone() });
+            batch.delete_cf(cf_data, key.as_bytes());
+            data_changes.push(DataChange::Delete { key });
             types_kv::Response::none()
           }
         },
@@ -618,40 +626,15 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       }
     }
 
-    let db = self.db.clone();
-    let write_changes = data_changes.clone();
+    if let Some(ref log_id) = last_applied_log {
+      batch.put_cf(cf_meta, LAST_APPLIED_LOG_KEY, serialize_io(log_id)?);
+    }
 
-    TypeConfig::spawn_blocking(move || -> Result<(), io::Error> {
-      let cf_data = db
-        .cf_handle(SM_DATA_CF)
-        .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
-      let cf_meta = db
-        .cf_handle(SM_META_CF)
-        .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
-      let mut batch = rocksdb::WriteBatch::default();
+    if let Some(ref membership) = last_membership {
+      batch.put_cf(cf_meta, LAST_MEMBERSHIP_KEY, serialize_io(membership)?);
+    }
 
-      for change in write_changes {
-        match change {
-          DataChange::Set { key, value } => {
-            batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
-          }
-          DataChange::Delete { key } => {
-            batch.delete_cf(cf_data, key.as_bytes());
-          }
-        }
-      }
-
-      if let Some(ref log_id) = last_applied_log {
-        batch.put_cf(cf_meta, LAST_APPLIED_LOG_KEY, serialize_io(log_id)?);
-      }
-
-      if let Some(ref membership) = last_membership {
-        batch.put_cf(cf_meta, LAST_MEMBERSHIP_KEY, serialize_io(membership)?);
-      }
-
-      write_batch_sync(&db, batch)
-    })
-    .await??;
+    TypeConfig::spawn_blocking(move || write_batch_sync(&db, batch)).await??;
 
     if !data_changes.is_empty() {
       let mut data = self.data.write().await;
@@ -691,15 +674,14 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let data_map = snapshot_data_to_map(&snapshot_data)?;
     let snapshot_file = SnapshotFile {
       meta: meta.clone(),
-      data: snapshot_data.clone(),
-    };
-    let snapshot_file_for_db = SnapshotFile {
-      meta: meta.clone(),
       data: snapshot_data,
     };
+    let snapshot_file = Arc::new(snapshot_file);
+    let snapshot_file_for_db = snapshot_file.clone();
     let db = self.db.clone();
 
-    TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, snapshot_file_for_db)).await??;
+    TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, &snapshot_file_for_db))
+      .await??;
 
     write_snapshot_file(&self.snapshot_dir, &meta.snapshot_id, &snapshot_file)?;
 

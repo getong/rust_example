@@ -12,7 +12,7 @@ use openraft::BasicNode;
 use crate::{
   GroupId, NodeId, Unreachable,
   network::{
-    raft_bridge::{P2PNetworkFactory, P2PRaftNetwork, P2PRaftNetworkWrapper},
+    raft_bridge::{P2PNetworkFactory, P2PRaftNetwork},
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{KvClient, Libp2pClient, NetErr, SqliteSyncClient},
   },
@@ -245,7 +245,15 @@ impl Libp2pNetworkFactory {
     node_id: NodeId,
     req: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable> {
-    let (peer, addr) = self.peer_addr_for(&node_id).await?;
+    self.request_ref(&node_id, req).await
+  }
+
+  async fn request_ref(
+    &self,
+    node_id: &NodeId,
+    req: RaftRpcRequest,
+  ) -> Result<RaftRpcResponse, Unreachable> {
+    let (peer, addr) = self.peer_addr_for(node_id).await?;
     if peer == self.local_peer_id {
       return Err(Unreachable::new(&NetErr(format!(
         "self dial blocked: node_id={node_id}, peer={peer}"
@@ -330,7 +338,7 @@ impl Libp2pNetworkFactory {
   }
 }
 
-struct Libp2pRaftNetwork {
+pub struct Libp2pRaftNetwork {
   target: NodeId,
   factory: Libp2pNetworkFactory,
   group_id: GroupId,
@@ -338,25 +346,27 @@ struct Libp2pRaftNetwork {
 
 #[async_trait]
 impl P2PNetworkFactory for Libp2pNetworkFactory {
-  async fn new_p2p_client(&self, target: NodeId, target_info: BasicNode) -> P2PRaftNetworkWrapper {
+  type Network = Libp2pRaftNetwork;
+
+  async fn new_p2p_client(&self, target: NodeId, target_info: &BasicNode) -> Self::Network {
     let _ = self.register_node(target.clone(), &target_info.addr).await;
     let group_id = self
       .group_id
       .clone()
       .expect("group_id required for raft network");
 
-    P2PRaftNetworkWrapper::new(Libp2pRaftNetwork {
+    Libp2pRaftNetwork {
       target,
       factory: self.clone(),
       group_id,
-    })
+    }
   }
 }
 
 #[async_trait]
 impl P2PRaftNetwork for Libp2pRaftNetwork {
-  fn target(&self) -> NodeId {
-    self.target.clone()
+  fn target(&self) -> &NodeId {
+    &self.target
   }
 
   fn group_id(&self) -> &GroupId {
@@ -365,10 +375,10 @@ impl P2PRaftNetwork for Libp2pRaftNetwork {
 
   async fn send_request(
     &self,
-    target: NodeId,
+    target: &NodeId,
     request: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable> {
-    self.factory.request(target, request).await
+    self.factory.request_ref(target, request).await
   }
 }
 

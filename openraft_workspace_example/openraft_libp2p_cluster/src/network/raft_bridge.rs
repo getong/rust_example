@@ -34,42 +34,48 @@ impl Error for BridgeErr {}
 
 #[async_trait]
 pub trait P2PRaftNetwork: Send + Sync + 'static {
-  fn target(&self) -> NodeId;
+  fn target(&self) -> &NodeId;
 
   fn group_id(&self) -> &GroupId;
 
   async fn send_request(
     &self,
-    target: NodeId,
+    target: &NodeId,
     request: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable>;
 }
 
-pub struct P2PRaftNetworkWrapper {
-  inner: Box<dyn P2PRaftNetwork + Send + Sync>,
+pub struct P2PRaftNetworkWrapper<N>
+where
+  N: P2PRaftNetwork,
+{
+  inner: N,
 }
 
-impl P2PRaftNetworkWrapper {
-  pub fn new<N: P2PRaftNetwork>(inner: N) -> Self {
-    Self {
-      inner: Box::new(inner),
-    }
+impl<N> P2PRaftNetworkWrapper<N>
+where
+  N: P2PRaftNetwork,
+{
+  pub fn new(inner: N) -> Self {
+    Self { inner }
   }
 
   async fn send_op(&self, op: RaftRpcOp) -> Result<RaftRpcResponse, Unreachable> {
-    let target = self.inner.target();
     let request = RaftRpcRequest {
       group_id: self.inner.group_id().clone(),
       op,
     };
-    self.inner.send_request(target, request).await
+    self.inner.send_request(self.inner.target(), request).await
   }
 }
 
 #[async_trait]
-impl P2PRaftNetwork for P2PRaftNetworkWrapper {
-  fn target(&self) -> NodeId {
-    self.inner.target().clone()
+impl<N> P2PRaftNetwork for P2PRaftNetworkWrapper<N>
+where
+  N: P2PRaftNetwork,
+{
+  fn target(&self) -> &NodeId {
+    self.inner.target()
   }
 
   fn group_id(&self) -> &GroupId {
@@ -78,14 +84,17 @@ impl P2PRaftNetwork for P2PRaftNetworkWrapper {
 
   async fn send_request(
     &self,
-    target: NodeId,
+    target: &NodeId,
     request: RaftRpcRequest,
   ) -> Result<RaftRpcResponse, Unreachable> {
     self.inner.send_request(target, request).await
   }
 }
 
-impl RaftNetworkV2<TypeConfig> for P2PRaftNetworkWrapper {
+impl<N> RaftNetworkV2<TypeConfig> for P2PRaftNetworkWrapper<N>
+where
+  N: P2PRaftNetwork,
+{
   async fn append_entries(
     &mut self,
     req: AppendEntriesRequest,
@@ -149,16 +158,24 @@ impl RaftNetworkV2<TypeConfig> for P2PRaftNetworkWrapper {
 
 #[async_trait]
 pub trait P2PNetworkFactory: Send + Sync + 'static {
-  async fn new_p2p_client(&self, target: NodeId, target_info: BasicNode) -> P2PRaftNetworkWrapper;
+  type Network: P2PRaftNetwork;
+
+  async fn new_p2p_client(&self, target: NodeId, target_info: &BasicNode) -> Self::Network;
 }
 
 #[derive(Clone)]
-pub struct P2PNetworkFactoryWrapper {
-  inner: Arc<dyn P2PNetworkFactory>,
+pub struct P2PNetworkFactoryWrapper<F>
+where
+  F: P2PNetworkFactory,
+{
+  inner: Arc<F>,
 }
 
-impl P2PNetworkFactoryWrapper {
-  pub fn new<F: P2PNetworkFactory>(factory: F) -> Self {
+impl<F> P2PNetworkFactoryWrapper<F>
+where
+  F: P2PNetworkFactory,
+{
+  pub fn new(factory: F) -> Self {
     Self {
       inner: Arc::new(factory),
     }
@@ -166,16 +183,24 @@ impl P2PNetworkFactoryWrapper {
 }
 
 #[async_trait]
-impl P2PNetworkFactory for P2PNetworkFactoryWrapper {
-  async fn new_p2p_client(&self, target: NodeId, target_info: BasicNode) -> P2PRaftNetworkWrapper {
+impl<F> P2PNetworkFactory for P2PNetworkFactoryWrapper<F>
+where
+  F: P2PNetworkFactory,
+{
+  type Network = F::Network;
+
+  async fn new_p2p_client(&self, target: NodeId, target_info: &BasicNode) -> Self::Network {
     self.inner.new_p2p_client(target, target_info).await
   }
 }
 
-impl RaftNetworkFactory<TypeConfig> for P2PNetworkFactoryWrapper {
-  type Network = P2PRaftNetworkWrapper;
+impl<F> RaftNetworkFactory<TypeConfig> for P2PNetworkFactoryWrapper<F>
+where
+  F: P2PNetworkFactory,
+{
+  type Network = P2PRaftNetworkWrapper<F::Network>;
 
   async fn new_client(&mut self, target: NodeId, target_info: &BasicNode) -> Self::Network {
-    self.inner.new_p2p_client(target, target_info.clone()).await
+    P2PRaftNetworkWrapper::new(self.inner.new_p2p_client(target, target_info).await)
   }
 }

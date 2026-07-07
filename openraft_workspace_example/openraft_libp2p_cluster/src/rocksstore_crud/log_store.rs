@@ -1,6 +1,12 @@
-use std::{fmt, fmt::Debug, io, marker::PhantomData, ops::RangeBounds, sync::Arc};
+use std::{
+  cmp, fmt,
+  fmt::Debug,
+  io,
+  marker::PhantomData,
+  ops::{Bound, RangeBounds},
+  sync::Arc,
+};
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use openraft::{
   LogState, OptionalSend, RaftLogReader, RaftTypeConfig,
   alias::{EntryOf, LogIdOf, VoteOf},
@@ -11,6 +17,7 @@ use rocksdb::{ColumnFamily, DB, Direction, WriteOptions};
 
 const META_CF: &str = "meta";
 const LOGS_CF: &str = "logs";
+const MAX_LOG_READ_PREALLOC: usize = 1024;
 
 #[derive(Clone)]
 pub struct RocksLogStore<C>
@@ -97,12 +104,15 @@ where
   }
 
   fn remove_logs_from(&self, start_index: u64) -> Result<(), io::Error> {
-    let keys = self.collect_log_keys(id_to_bin(start_index) ..)?;
-    self.remove_log_keys(keys)
+    let mut batch = rocksdb::WriteBatch::default();
+    let deleted = self.append_log_deletes(&mut batch, start_index ..)?;
+    if deleted == 0 {
+      return Ok(());
+    }
+    write_batch_sync(&self.db, batch)
   }
 
   fn purge_logs_through(&self, log_id: &LogIdOf<C>) -> Result<(), io::Error> {
-    let keys = self.collect_log_keys(id_to_bin(0) ..= id_to_bin(log_id.index()))?;
     let mut batch = rocksdb::WriteBatch::default();
     let value =
       sonic_rs::to_vec(log_id).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -113,57 +123,42 @@ where
       value,
     );
 
-    for key in keys {
-      batch.delete_cf(self.cf_logs(), key);
-    }
+    self.append_log_deletes(&mut batch, 0 ..= log_id.index())?;
 
     write_batch_sync(&self.db, batch)
   }
 
-  fn collect_log_keys<R>(&self, range: R) -> Result<Vec<Vec<u8>>, io::Error>
+  fn append_log_deletes<R>(
+    &self,
+    batch: &mut rocksdb::WriteBatch,
+    range: R,
+  ) -> Result<usize, io::Error>
   where
-    R: RangeBounds<Vec<u8>>,
+    R: RangeBounds<u64>,
   {
-    let start = match range.start_bound() {
-      std::ops::Bound::Included(key) => key.clone(),
-      std::ops::Bound::Excluded(key) => {
-        let Some(start) = bin_to_id(key).checked_add(1) else {
-          return Ok(Vec::new());
-        };
-        id_to_bin(start)
-      }
-      std::ops::Bound::Unbounded => id_to_bin(0),
+    let Some(start_index) = range_start(&range) else {
+      return Ok(0);
     };
 
+    let start = id_to_bin(start_index);
     let iter = self.db.iterator_cf(
       self.cf_logs(),
       rocksdb::IteratorMode::From(&start, Direction::Forward),
     );
-    let mut keys = Vec::new();
+    let mut deleted = 0;
 
     for item in iter {
       let (key, _) = item.map_err(read_logs_err)?;
-      let key = key.to_vec();
-      if !range.contains(&key) {
+      let id = bin_to_id(key.as_ref());
+      if !range.contains(&id) {
         break;
       }
-      keys.push(key);
+
+      batch.delete_cf(self.cf_logs(), key.as_ref());
+      deleted += 1;
     }
 
-    Ok(keys)
-  }
-
-  fn remove_log_keys(&self, keys: Vec<Vec<u8>>) -> Result<(), io::Error> {
-    if keys.is_empty() {
-      return Ok(());
-    }
-
-    let mut batch = rocksdb::WriteBatch::default();
-    for key in keys {
-      batch.delete_cf(self.cf_logs(), key);
-    }
-
-    write_batch_sync(&self.db, batch)
+    Ok(deleted)
   }
 }
 
@@ -175,18 +170,12 @@ where
     &mut self,
     range: RB,
   ) -> Result<Vec<C::Entry>, io::Error> {
-    let start = match range.start_bound() {
-      std::ops::Bound::Included(x) => id_to_bin(*x),
-      std::ops::Bound::Excluded(x) => {
-        let Some(start) = x.checked_add(1) else {
-          return Ok(Vec::new());
-        };
-        id_to_bin(start)
-      }
-      std::ops::Bound::Unbounded => id_to_bin(0),
+    let Some(start_index) = range_start(&range) else {
+      return Ok(Vec::new());
     };
 
-    let mut res = Vec::new();
+    let start = id_to_bin(start_index);
+    let mut res = Vec::with_capacity(range_len_hint(&range));
     let iter = self.db.iterator_cf(
       self.cf_logs(),
       rocksdb::IteratorMode::From(&start, Direction::Forward),
@@ -273,11 +262,18 @@ where
     I: IntoIterator<Item = EntryOf<C>> + Send,
   {
     let mut batch = rocksdb::WriteBatch::default();
+    let mut appended = 0;
     for entry in entries {
       let id = id_to_bin(entry.index());
       let value =
         sonic_rs::to_vec(&entry).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
       batch.put_cf(self.cf_logs(), id, value);
+      appended += 1;
+    }
+
+    if appended == 0 {
+      callback.io_completed(Ok(()));
+      return Ok(());
     }
 
     write_batch_sync(&self.db, batch)?;
@@ -358,20 +354,49 @@ mod meta {
 
 use meta::StoreMeta;
 
-/// Converts an id to a byte vector for storing in the database.
+/// Converts an id to a fixed-width key for storing in the database.
 /// Big-endian encoding preserves numeric ordering in lexicographic key scans.
-fn id_to_bin(id: u64) -> Vec<u8> {
-  let mut buf = Vec::with_capacity(8);
-  buf
-    .write_u64::<BigEndian>(id)
-    .expect("writing u64 into Vec cannot fail");
-  buf
+fn id_to_bin(id: u64) -> [u8; 8] {
+  id.to_be_bytes()
 }
 
 fn bin_to_id(buf: &[u8]) -> u64 {
-  (&buf[0 .. 8])
-    .read_u64::<BigEndian>()
-    .expect("log keys are always encoded as 8-byte u64")
+  let bytes: [u8; 8] = buf[0 .. 8]
+    .try_into()
+    .expect("log keys are always encoded as 8-byte u64");
+  u64::from_be_bytes(bytes)
+}
+
+fn range_start<R>(range: &R) -> Option<u64>
+where
+  R: RangeBounds<u64>,
+{
+  match range.start_bound() {
+    Bound::Included(x) => Some(*x),
+    Bound::Excluded(x) => x.checked_add(1),
+    Bound::Unbounded => Some(0),
+  }
+}
+
+fn range_len_hint<R>(range: &R) -> usize
+where
+  R: RangeBounds<u64>,
+{
+  let Some(start) = range_start(range) else {
+    return 0;
+  };
+
+  let end_exclusive = match range.end_bound() {
+    Bound::Included(x) => x.checked_add(1),
+    Bound::Excluded(x) => Some(*x),
+    Bound::Unbounded => None,
+  };
+
+  end_exclusive
+    .and_then(|end| end.checked_sub(start))
+    .and_then(|len| usize::try_from(len).ok())
+    .map(|len| cmp::min(len, MAX_LOG_READ_PREALLOC))
+    .unwrap_or(0)
 }
 
 fn durable_write_options() -> WriteOptions {
@@ -392,7 +417,13 @@ fn read_logs_err(e: impl std::error::Error + 'static) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-  use openraft::{RaftTypeConfig, alias::LogIdOf, storage::RaftLogStorage, vote::RaftLeaderIdExt};
+  use openraft::{
+    EntryPayload, RaftLogReader, RaftTypeConfig,
+    alias::LogIdOf,
+    entry::RaftEntry,
+    storage::{IOFlushed, RaftLogStorage},
+    vote::RaftLeaderIdExt,
+  };
   use rocksdb::{ColumnFamilyDescriptor, Options};
 
   use super::*;
@@ -403,6 +434,10 @@ mod tests {
       <TypeConfig as RaftTypeConfig>::LeaderId::new_committed(1, RocksNodeId::new("node-a")),
       index,
     )
+  }
+
+  fn blank_entry(index: u64) -> <TypeConfig as RaftTypeConfig>::Entry {
+    <TypeConfig as RaftTypeConfig>::Entry::new(log_id(index), EntryPayload::Blank)
   }
 
   #[tokio::test]
@@ -440,6 +475,50 @@ mod tests {
           .expect("read cleared committed")
       );
     }
+  }
+
+  #[tokio::test]
+  async fn rocks_log_store_truncates_and_purges_logs() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let db = open_test_db(temp.path());
+    let mut store = RocksLogStore::<TypeConfig>::new(db).expect("create log store");
+
+    store
+      .append(
+        vec![blank_entry(1), blank_entry(2), blank_entry(3)],
+        IOFlushed::noop(),
+      )
+      .await
+      .expect("append logs");
+
+    store
+      .truncate_after(Some(log_id(2)))
+      .await
+      .expect("truncate logs");
+    let entries = store
+      .try_get_log_entries(0 .. 10)
+      .await
+      .expect("read truncated logs");
+    assert_eq!(
+      vec![1, 2],
+      entries
+        .iter()
+        .map(openraft::entry::RaftEntry::index)
+        .collect::<Vec<_>>()
+    );
+
+    store.purge(log_id(1)).await.expect("purge logs");
+    let entries = store
+      .try_get_log_entries(0 .. 10)
+      .await
+      .expect("read purged logs");
+    assert_eq!(
+      vec![2],
+      entries
+        .iter()
+        .map(openraft::entry::RaftEntry::index)
+        .collect::<Vec<_>>()
+    );
   }
 
   fn open_test_db(path: &std::path::Path) -> Arc<DB> {
