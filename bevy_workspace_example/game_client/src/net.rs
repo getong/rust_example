@@ -1,5 +1,5 @@
 use std::{
-  net::SocketAddr,
+  net::{IpAddr, Ipv4Addr, SocketAddr},
   time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -65,9 +65,7 @@ pub(crate) fn start_network_client(mut commands: Commands, mut world: ResMut<Cli
       return;
     }
   };
-  let local_addr = "[::]:0"
-    .parse::<SocketAddr>()
-    .expect("client wildcard address should parse");
+  let local_addr = local_client_addr(server_addr);
   let entity = commands
     .spawn((UdpIo::default(), LocalAddr(local_addr), netcode_client))
     .id();
@@ -169,9 +167,61 @@ fn handle_server_message(message: ServerEnvelope, world: &mut ClientWorld) {
 }
 
 fn configured_server_addr() -> Result<SocketAddr, std::net::AddrParseError> {
-  std::env::var("GAME_SERVER_ADDR")
+  let server_addr = std::env::var("GAME_SERVER_ADDR")
     .unwrap_or_else(|_| DEFAULT_SERVER_ADDR.to_string())
-    .parse()
+    .parse()?;
+
+  rewrite_local_agones_addr(server_addr)
+}
+
+fn local_client_addr(server_addr: SocketAddr) -> SocketAddr {
+  if server_addr.is_ipv4() {
+    SocketAddr::from(([0, 0, 0, 0], 0))
+  } else {
+    SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0))
+  }
+}
+
+fn rewrite_local_agones_addr(
+  server_addr: SocketAddr,
+) -> Result<SocketAddr, std::net::AddrParseError> {
+  if let Ok(host) = std::env::var("GAME_SERVER_PUBLIC_HOST") {
+    let host = host.trim();
+    if !host.is_empty() {
+      return Ok(SocketAddr::new(host.parse::<IpAddr>()?, server_addr.port()));
+    }
+  }
+
+  if should_use_local_agones_forward(server_addr) {
+    return Ok(SocketAddr::new(
+      IpAddr::V4(Ipv4Addr::LOCALHOST),
+      server_addr.port(),
+    ));
+  }
+
+  Ok(server_addr)
+}
+
+fn should_use_local_agones_forward(server_addr: SocketAddr) -> bool {
+  env_bool("GAME_SERVER_AGONES_LOCALHOST").unwrap_or(false)
+    && is_docker_desktop_node_ip(server_addr.ip())
+}
+
+fn is_docker_desktop_node_ip(ip: IpAddr) -> bool {
+  let IpAddr::V4(ip) = ip else {
+    return false;
+  };
+  let [first, second, ..] = ip.octets();
+  first == 172 && (16 ..= 31).contains(&second)
+}
+
+fn env_bool(name: &str) -> Option<bool> {
+  let value = std::env::var(name).ok()?;
+  match value.trim().to_ascii_lowercase().as_str() {
+    "1" | "true" | "yes" | "on" => Some(true),
+    "0" | "false" | "no" | "off" => Some(false),
+    _ => None,
+  }
 }
 
 fn configured_client_name() -> String {

@@ -1,0 +1,63 @@
+apiVersion: agones.dev/v1
+kind: Fleet
+metadata:
+  name: bevy-game-server
+  namespace: default
+  labels:
+    app.kubernetes.io/name: bevy-game-server
+    app.kubernetes.io/component: game-server
+spec:
+  replicas: 2
+  scheduling: Distributed
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bevy-game-server
+        app.kubernetes.io/component: game-server
+    spec:
+      health:
+        disabled: false
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        failureThreshold: 3
+      sdkServer:
+        logLevel: Info
+        grpcPort: 9357
+        httpPort: 9358
+      ports:
+        - name: game
+          portPolicy: Dynamic
+          containerPort: 6000
+          protocol: UDP
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: bevy-game-server
+            app.kubernetes.io/component: game-server
+        spec:
+          containers:
+            - name: game-server
+              image: game-server:dev-20260708054027
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: GAME_SERVER_BIND
+                  value: "0.0.0.0:6000"
+                - name: GAME_SERVER_SHARDS
+                  value: "4"
+                - name: AGONES_ENABLED
+                  value: "true"
+                - name: AGONES_READY_ON_START
+                  value: "true"
+                - name: AGONES_HEALTH_INTERVAL_SECONDS
+                  value: "2"
+                - name: AGONES_WATCH_GAMESERVER
+                  value: "true"
+                - name: RUST_LOG
+                  value: "info,lightyear_udp=debug,lightyear_netcode=debug"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi

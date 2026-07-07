@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use anyhow::{Context, Result, bail};
-use bevy::{app::ScheduleRunnerPlugin, prelude::*};
+use bevy::{app::ScheduleRunnerPlugin, log::LogPlugin, prelude::*};
 use lightyear::prelude::{
   Connected, Disconnected, LocalAddr, MessageReceiver, MessageSender, PeerId, RemoteId,
   server::{ClientOf, NetcodeConfig, NetcodeServer, ServerPlugins, ServerUdpIo, Start},
@@ -61,6 +61,7 @@ pub(crate) fn run_gateway(
         GATEWAY_TICK_SECONDS,
       ))),
     )
+    .add_plugins(LogPlugin::default())
     .add_plugins(ServerPlugins {
       tick_duration: Duration::from_secs_f64(GATEWAY_TICK_SECONDS),
     })
@@ -77,6 +78,7 @@ pub(crate) fn run_gateway(
       Update,
       (drain_client_messages, drain_gateway_events).chain(),
     )
+    .add_observer(connect_client)
     .add_observer(disconnect_client)
     .run();
 
@@ -96,6 +98,16 @@ fn start_lightyear_server(mut commands: Commands, config: Res<GatewayConfig>) {
     ))
     .id();
   commands.trigger(Start { entity: server });
+}
+
+fn connect_client(trigger: On<Add, Connected>, clients: Query<&RemoteId, With<ClientOf>>) {
+  let Ok(remote_id) = clients.get(trigger.entity) else {
+    return;
+  };
+  let Some(client_id) = netcode_client_id(remote_id) else {
+    return;
+  };
+  println!("client {client_id} connected");
 }
 
 fn drain_client_messages(
@@ -166,6 +178,7 @@ fn disconnect_client(
   let Some(client_id) = netcode_client_id(remote_id) else {
     return;
   };
+  println!("client {client_id} disconnected");
   disconnect_client_by_id(&mut state, client_id);
 }
 
