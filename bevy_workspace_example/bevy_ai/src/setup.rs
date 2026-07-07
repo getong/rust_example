@@ -6,6 +6,7 @@ use crate::{
   actors::{ActorBundle, ActorKind, Monster, Player, RedBlueValues},
   lighting::{SunPath, initial_sun_transform},
   monster_behavior::monster_behavior_tree,
+  player_state::{PlayerActive, player_state_machine},
   terrain::GameVoxelWorld,
   ui::{HudText, spawn_actor_label},
 };
@@ -73,6 +74,8 @@ fn spawn_player(
       Mesh3d(meshes.add(Cuboid::new(1.1, 1.4, 1.1))),
       MeshMaterial3d(materials.add(Color::srgb(0.16, 0.38, 1.0))),
       Player,
+      PlayerActive,
+      player_state_machine(),
       Name::new("Player"),
     ))
     .id();

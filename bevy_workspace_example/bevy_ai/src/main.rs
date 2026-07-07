@@ -3,6 +3,7 @@ mod config;
 mod gameplay;
 mod lighting;
 mod monster_behavior;
+mod player_state;
 mod plugin;
 mod setup;
 mod terrain;

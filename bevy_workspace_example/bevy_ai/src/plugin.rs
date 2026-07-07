@@ -1,6 +1,7 @@
 use bevior_tree::prelude::{BehaviorTreePlugin, BehaviorTreeSystemSet};
 use bevy::prelude::*;
 use bevy_voxel_world::prelude::VoxelWorldPlugin;
+use seldom_state::{prelude::StateMachinePlugin, set::StateSet};
 
 use crate::{
   config::COMBAT_TICK_SECONDS,
@@ -20,7 +21,9 @@ impl Plugin for BevyAiPlugin {
       .add_plugins((
         VoxelWorldPlugin::with_config(GameVoxelWorld),
         BehaviorTreePlugin::default().in_schedule(Update),
+        StateMachinePlugin::default().schedule(Update),
       ))
+      .configure_sets(Update, StateSet::Transition.after(resolve_combat))
       .insert_resource(TerrainMap::default())
       .insert_resource(CombatClock(Timer::from_seconds(
         COMBAT_TICK_SECONDS,
@@ -37,7 +40,7 @@ impl Plugin for BevyAiPlugin {
           despawn_defeated.after(resolve_combat),
           sync_transforms.after(move_chasing_monsters),
           update_actor_labels.after(resolve_combat),
-          update_hud.after(resolve_combat),
+          update_hud.after(StateSet::Transition),
         ),
       );
   }

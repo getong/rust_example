@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::{
   actors::{ArenaPosition, Monster, Player, RedBlueValues},
   config::{MONSTER_ATTACK_RANGE, PLAYER_SPEED},
+  player_state::PlayerActive,
   terrain::{TerrainMap, game_to_world_position},
 };
 
@@ -13,7 +14,7 @@ pub(crate) fn player_input(
   keyboard: Res<ButtonInput<KeyCode>>,
   time: Res<Time>,
   terrain_map: Res<TerrainMap>,
-  mut players: Query<(&mut ArenaPosition, &RedBlueValues), With<Player>>,
+  mut players: Query<&mut ArenaPosition, (With<Player>, With<PlayerActive>)>,
 ) {
   let mut direction = Vec2::ZERO;
 
@@ -34,11 +35,7 @@ pub(crate) fn player_input(
     return;
   }
 
-  for (mut position, values) in &mut players {
-    if values.blue <= 0 {
-      continue;
-    }
-
+  for mut position in &mut players {
     let movement = direction.normalize() * PLAYER_SPEED * time.delta_secs();
     position.0 = terrain_map.try_move(position.0, movement);
   }

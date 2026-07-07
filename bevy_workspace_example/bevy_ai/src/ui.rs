@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
   actors::{ActorKind, ArenaPosition, Monster, Player, RedBlueValues},
+  player_state::PlayerDefeated,
   terrain::game_to_world_position,
 };
 
@@ -50,17 +51,17 @@ pub(crate) fn update_actor_labels(
 }
 
 pub(crate) fn update_hud(
-  player_query: Query<&RedBlueValues, With<Player>>,
+  player_query: Query<(&RedBlueValues, Option<&PlayerDefeated>), With<Player>>,
   monsters: Query<&RedBlueValues, With<Monster>>,
   mut hud: Query<&mut Text, With<HudText>>,
   mut window: Single<&mut Window>,
 ) {
-  let Ok(player_values) = player_query.single() else {
+  let Ok((player_values, player_defeated)) = player_query.single() else {
     return;
   };
 
   let alive_monsters = monsters.iter().filter(|values| values.blue > 0).count();
-  let status = if player_values.blue <= 0 {
+  let status = if player_defeated.is_some() {
     "Player defeated"
   } else if alive_monsters == 0 {
     "All monsters defeated"
