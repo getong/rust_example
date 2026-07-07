@@ -64,7 +64,7 @@ impl Libp2pNetworkFactory {
   pub async fn register_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {
     let (peer, maddr) = parse_p2p_addr(addr)?;
     let should_dial = self
-      .register_node_addr(node_id.clone(), peer, maddr.clone())
+      .register_configured_node_addr(node_id.clone(), peer, maddr.clone())
       .await;
     if peer == self.local_peer_id {
       tracing::warn!(
@@ -79,6 +79,44 @@ impl Libp2pNetworkFactory {
       self.client.dial(maddr).await;
     }
     Ok(())
+  }
+
+  async fn register_configured_node_addr(
+    &self,
+    node_id: NodeId,
+    peer: PeerId,
+    addr: Multiaddr,
+  ) -> bool {
+    let mut map = self.node_peers.write().await;
+    let previous = map
+      .get(&node_id)
+      .map(|(stored_peer, stored_addr)| (*stored_peer, stored_addr.clone()));
+
+    match previous {
+      Some((stored_peer, stored_addr)) if stored_peer == peer && stored_addr == addr => false,
+      Some((stored_peer, stored_addr)) => {
+        map.insert(node_id.clone(), (peer, addr.clone()));
+        tracing::info!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %addr,
+          stored_peer = %stored_peer,
+          stored_addr = %stored_addr,
+          "registered configured libp2p node address"
+        );
+        true
+      }
+      None => {
+        map.insert(node_id.clone(), (peer, addr.clone()));
+        tracing::info!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %addr,
+          "registered configured libp2p node"
+        );
+        true
+      }
+    }
   }
 
   pub async fn register_discovered_peer(&self, peer: PeerId, addr: Multiaddr) -> bool {
@@ -556,6 +594,27 @@ mod tests {
 
     let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
     assert!(!registered);
+    assert_eq!(stored_addr.to_string(), configured_addr);
+  }
+
+  #[tokio::test]
+  async fn configured_loopback_replaces_previously_discovered_lan_addr() {
+    let local_peer = peer_id();
+    let peer = peer_id();
+    let network = test_network(local_peer);
+    let node_id = NodeId::from(peer.to_string());
+    let configured_addr = format!("/ip4/127.0.0.1/tcp/4004/wss/p2p/{peer}");
+
+    let registered = network
+      .register_discovered_peer(peer, "/ip4/192.168.31.29/tcp/4004/wss".parse().unwrap())
+      .await;
+    network
+      .register_node(node_id.clone(), &configured_addr)
+      .await
+      .expect("register node");
+
+    let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
+    assert!(registered);
     assert_eq!(stored_addr.to_string(), configured_addr);
   }
 

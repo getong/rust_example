@@ -78,6 +78,7 @@ openraft::declare_raft_types!(
         D = types_kv::Request,
         R = types_kv::Response,
         NodeId = RocksNodeId,
+        AsyncRuntime = openraft::TokioRuntime,
 );
 
 /// Here you will set the types of request that will interact with the raft nodes.
