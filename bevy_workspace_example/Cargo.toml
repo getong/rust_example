@@ -13,4 +13,18 @@ members = [
   # "bevy_naia_server_example",
   # "bevy_naia_client_example",
   "bevy_ai",
+  "game_server",
+  "game_client",
 ]
+
+[workspace.dependencies]
+anyhow = "1.0"
+bevy = { version = "0.19.0", default-features = false }
+bevy_ecs = "0.19.0"
+bevior_tree = { version = "0.11.0", default-features = false }
+prost = "0.14.4"
+prost-build = "0.14.4"
+quinn = "0.11.11"
+rcgen = "0.14.8"
+rustls = { version = "0.23.41", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "sync", "time"] }

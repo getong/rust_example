@@ -1,0 +1,15 @@
+[package]
+name = "game_client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+bevy = { workspace = true, features = ["2d", "ui"] }
+prost.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true

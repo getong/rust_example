@@ -1,0 +1,18 @@
+[package]
+name = "game_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+bevy = { workspace = true, features = ["bevy_log", "std"] }
+bevy_ecs.workspace = true
+bevior_tree.workspace = true
+prost.workspace = true
+quinn.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true

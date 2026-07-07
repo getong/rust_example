@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package game;
+
+message ClientEnvelope {
+  oneof payload {
+    Hello hello = 1;
+    PlayerInput input = 2;
+    Ping ping = 3;
+  }
+}
+
+message Hello {
+  string name = 1;
+}
+
+message PlayerInput {
+  uint64 sequence = 1;
+  float x = 2;
+  float y = 3;
+}
+
+message Ping {
+  uint64 client_time_ms = 1;
+}
+
+message ServerEnvelope {
+  oneof payload {
+    Welcome welcome = 1;
+    WorldSnapshot snapshot = 2;
+    Pong pong = 3;
+    Notice notice = 4;
+  }
+}
+
+message Welcome {
+  uint64 client_id = 1;
+  uint64 actor_id = 2;
+  uint64 tick = 3;
+}
+
+message WorldSnapshot {
+  uint64 tick = 1;
+  repeated ActorState actors = 2;
+  MapState map = 3;
+}
+
+message ActorState {
+  uint64 id = 1;
+  ActorKind kind = 2;
+  float x = 3;
+  float y = 4;
+  int32 red = 5;
+  int32 blue = 6;
+}
+
+message Pong {
+  uint64 client_time_ms = 1;
+  uint64 server_tick = 2;
+}
+
+message Notice {
+  string message = 1;
+}
+
+message MapState {
+  string name = 1;
+  float half_width = 2;
+  float half_height = 3;
+  repeated ObstacleState obstacles = 4;
+}
+
+message ObstacleState {
+  float x = 1;
+  float y = 2;
+  float width = 3;
+  float height = 4;
+  ObstacleShape shape = 5;
+}
+
+enum ActorKind {
+  ACTOR_KIND_UNKNOWN = 0;
+  ACTOR_KIND_PLAYER = 1;
+  ACTOR_KIND_MONSTER = 2;
+}
+
+enum ObstacleShape {
+  OBSTACLE_SHAPE_RECTANGLE = 0;
+  OBSTACLE_SHAPE_DIAMOND = 1;
+  OBSTACLE_SHAPE_ELLIPSE = 2;
+  OBSTACLE_SHAPE_CROSS = 3;
+}
