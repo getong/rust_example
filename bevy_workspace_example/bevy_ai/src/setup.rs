@@ -4,6 +4,7 @@ use bevy_voxel_world::prelude::VoxelWorldCamera;
 
 use crate::{
   actors::{ActorBundle, ActorKind, Monster, Player, RedBlueValues},
+  lighting::{SunPath, initial_sun_transform},
   monster_behavior::monster_behavior_tree,
   terrain::GameVoxelWorld,
   ui::{HudText, spawn_actor_label},
@@ -41,7 +42,7 @@ fn spawn_camera_and_light(commands: &mut Commands) {
     VoxelWorldCamera::<GameVoxelWorld>::default(),
     IsDefaultUiCamera,
     AmbientLight {
-      brightness: 120.0,
+      brightness: 60.0,
       ..default()
     },
   ));
@@ -52,7 +53,8 @@ fn spawn_camera_and_light(commands: &mut Commands) {
       shadow_maps_enabled: true,
       ..default()
     },
-    Transform::from_xyz(-12.0, 18.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
+    initial_sun_transform(),
+    SunPath,
   ));
 }
 

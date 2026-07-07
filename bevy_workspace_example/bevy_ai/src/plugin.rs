@@ -5,6 +5,7 @@ use bevy_voxel_world::prelude::VoxelWorldPlugin;
 use crate::{
   config::COMBAT_TICK_SECONDS,
   gameplay::{CombatClock, despawn_defeated, player_input, resolve_combat, sync_transforms},
+  lighting::animate_sunlight,
   monster_behavior::move_chasing_monsters,
   setup::setup,
   terrain::{GameVoxelWorld, TerrainMap},
@@ -29,6 +30,7 @@ impl Plugin for BevyAiPlugin {
       .add_systems(
         Update,
         (
+          animate_sunlight,
           player_input.before(BehaviorTreeSystemSet::Update),
           move_chasing_monsters.after(BehaviorTreeSystemSet::Update),
           resolve_combat.after(move_chasing_monsters),
