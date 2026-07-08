@@ -37,7 +37,7 @@ spec:
         spec:
           containers:
             - name: game-server
-              image: game-server:dev-20260708054027
+              image: game-server:dev-20260708122441
               imagePullPolicy: IfNotPresent
               env:
                 - name: GAME_SERVER_BIND

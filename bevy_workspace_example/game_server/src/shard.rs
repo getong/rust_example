@@ -1,7 +1,10 @@
 use std::{collections::HashMap, thread, time::Duration};
 
+use avian3d::prelude::{Gravity, PhysicsPlugins};
 use bevior_tree::prelude::{BehaviorTreePlugin, BehaviorTreeSystemSet};
-use bevy::{app::ScheduleRunnerPlugin, ecs::schedule::ApplyDeferred, prelude::*};
+use bevy::{
+  app::ScheduleRunnerPlugin, ecs::schedule::ApplyDeferred, prelude::*, transform::TransformPlugin,
+};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -81,8 +84,11 @@ fn run_shard_app(
       MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
         SERVER_TICK_SECONDS,
       ))),
+      TransformPlugin,
+      PhysicsPlugins::default(),
       BehaviorTreePlugin::default().in_schedule(Update),
     ))
+    .insert_resource(Gravity::ZERO)
     .insert_resource(ShardInfo { id: shard_id })
     .insert_resource(ShardInbox { receiver })
     .insert_resource(GatewaySender {
@@ -95,7 +101,10 @@ fn run_shard_app(
     .init_resource::<terrain::LevelMap>()
     .init_resource::<terrain::TerrainMap>()
     .init_resource::<ShardClients>()
-    .add_systems(Startup, game::spawn_monsters)
+    .add_systems(
+      Startup,
+      (terrain::spawn_static_colliders, game::spawn_monsters).chain(),
+    )
     .add_systems(
       Update,
       (
@@ -105,7 +114,8 @@ fn run_shard_app(
           .before(BehaviorTreeSystemSet::Update),
         game::apply_player_movement.before(BehaviorTreeSystemSet::Update),
         behavior::move_chasing_monsters.after(BehaviorTreeSystemSet::Update),
-        game::resolve_combat.after(behavior::move_chasing_monsters),
+        game::sync_actor_transforms.after(behavior::move_chasing_monsters),
+        game::resolve_combat.after(game::sync_actor_transforms),
         broadcast_shard_snapshots.after(game::resolve_combat),
       ),
     )
@@ -247,7 +257,7 @@ fn handle_client_message(
         return;
       };
 
-      player_input.direction = Vec2::new(input.x, input.y).clamp_length_max(1.0);
+      player_input.direction = Vec3::new(input.x, 0.0, input.z).clamp_length_max(1.0);
     }
     Some(client_envelope::Payload::Ping(ping)) => {
       let pong = ServerEnvelope {

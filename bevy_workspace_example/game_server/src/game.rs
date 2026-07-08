@@ -1,3 +1,4 @@
+use avian3d::prelude::{Collider, LinearVelocity, Position, RigidBody};
 use bevior_tree::prelude::{BehaviorTree, BehaviorTreeRoot};
 use bevy::prelude::*;
 
@@ -7,7 +8,11 @@ use crate::{
   terrain::{LevelMap, TerrainMap, clamp_to_playable_area},
 };
 
-pub(crate) const ARENA_HALF_SIZE: Vec2 = Vec2::new(420.0, 300.0);
+pub(crate) const ARENA_HALF_EXTENTS: Vec3 = Vec3::new(420.0, 0.5, 300.0);
+pub(crate) const PLAYER_SIZE: Vec3 = Vec3::new(28.0, 36.0, 28.0);
+pub(crate) const MONSTER_SIZE: Vec3 = Vec3::new(24.0, 32.0, 24.0);
+pub(crate) const PLAYER_CENTER_Y: f32 = PLAYER_SIZE.y * 0.5;
+pub(crate) const MONSTER_CENTER_Y: f32 = MONSTER_SIZE.y * 0.5;
 pub(crate) const PLAYER_SPEED: f32 = 260.0;
 pub(crate) const MONSTER_ATTACK_RANGE: f32 = 44.0;
 const SNAPSHOT_SECONDS: f32 = 0.1;
@@ -66,7 +71,7 @@ pub(crate) struct ActorId(pub(crate) u64);
 pub(crate) struct ActorType(pub(crate) ActorKind);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub(crate) struct ArenaPosition(pub(crate) Vec2);
+pub(crate) struct ArenaPosition(pub(crate) Vec3);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Vitals {
@@ -76,13 +81,13 @@ pub(crate) struct Vitals {
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PlayerInputState {
-  pub(crate) direction: Vec2,
+  pub(crate) direction: Vec3,
 }
 
 impl Default for PlayerInputState {
   fn default() -> Self {
     Self {
-      direction: Vec2::ZERO,
+      direction: Vec3::ZERO,
     }
   }
 }
@@ -126,13 +131,17 @@ pub(crate) fn spawn_player(
   level_map: &LevelMap,
 ) -> Entity {
   let offset = connected_players as f32 * 56.0;
+  let position = clamp_to_playable_area(level_map.player_spawn + Vec3::new(offset, 0.0, 0.0));
   commands
     .spawn((
       actor_id,
       ActorType(ActorKind::Player),
-      ArenaPosition(clamp_to_playable_area(
-        level_map.player_spawn + Vec2::new(offset, 0.0),
-      )),
+      ArenaPosition(position),
+      Transform::from_translation(position),
+      Position::new(position),
+      RigidBody::Kinematic,
+      Collider::cuboid(PLAYER_SIZE.x, PLAYER_SIZE.y, PLAYER_SIZE.z),
+      LinearVelocity::ZERO,
       Vitals { red: 18, blue: 140 },
       PlayerInputState::default(),
       Player { client_id },
@@ -153,9 +162,20 @@ pub(crate) fn apply_player_movement(
       continue;
     }
 
-    let direction = input.direction.normalize_or_zero();
+    let direction = Vec3::new(input.direction.x, 0.0, input.direction.z).normalize_or_zero();
     let movement = direction * PLAYER_SPEED * time.delta_secs();
     position.0 = terrain_map.try_move(position.0, movement);
+  }
+}
+
+pub(crate) fn sync_actor_transforms(
+  mut actors: Query<(&ArenaPosition, &mut Transform, Option<&mut Position>)>,
+) {
+  for (position, mut transform, physics_position) in &mut actors {
+    transform.translation = position.0;
+    if let Some(mut physics_position) = physics_position {
+      physics_position.0 = position.0;
+    }
   }
 }
 
@@ -180,7 +200,7 @@ pub(crate) fn resolve_combat(
       .iter()
       .filter(|(monster_position, monster_vitals)| {
         monster_vitals.blue > 0
-          && monster_position.0.distance(player_position.0) <= MONSTER_ATTACK_RANGE
+          && horizontal_distance(monster_position.0, player_position.0) <= MONSTER_ATTACK_RANGE
           && terrain_map.segment_is_walkable(monster_position.0, player_position.0)
       })
       .count() as i32;
@@ -202,6 +222,7 @@ pub(crate) fn actor_state(
     kind: actor_type.0 as i32,
     x: position.0.x,
     y: position.0.y,
+    z: position.0.z,
     red: vitals.red,
     blue: vitals.blue,
   }
@@ -210,17 +231,27 @@ pub(crate) fn actor_state(
 fn spawn_monster(
   commands: &mut Commands,
   actor_id: ActorId,
-  position: Vec2,
+  position: Vec3,
   vitals: Vitals,
   speed: f32,
   behavior_tree: BehaviorTree,
 ) {
+  let position = clamp_to_playable_area(position);
   commands.spawn((
     actor_id,
     ActorType(ActorKind::Monster),
-    ArenaPosition(clamp_to_playable_area(position)),
+    ArenaPosition(position),
+    Transform::from_translation(position),
+    Position::new(position),
+    RigidBody::Kinematic,
+    Collider::cuboid(MONSTER_SIZE.x, MONSTER_SIZE.y, MONSTER_SIZE.z),
+    LinearVelocity::ZERO,
     vitals,
     Monster { speed },
     behavior_tree,
   ));
+}
+
+fn horizontal_distance(from: Vec3, to: Vec3) -> f32 {
+  Vec2::new(to.x - from.x, to.z - from.z).length()
 }

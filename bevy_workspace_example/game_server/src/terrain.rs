@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
 
+use avian3d::prelude::{Collider, Position, RigidBody};
 use bevy::prelude::*;
 
 use crate::{
-  game::ARENA_HALF_SIZE,
+  game::{ARENA_HALF_EXTENTS, PLAYER_CENTER_Y},
   protocol::{MapState, ObstacleShape, ObstacleState},
 };
 
@@ -11,11 +12,14 @@ const CELL_SIZE: f32 = 40.0;
 const ACTOR_RADIUS: f32 = 18.0;
 const BOUNDARY_WALL_THICKNESS: f32 = 20.0;
 const PLAYABLE_PADDING: f32 = ACTOR_RADIUS + BOUNDARY_WALL_THICKNESS;
+const FLOOR_THICKNESS: f32 = 2.0;
+const BOUNDARY_WALL_HEIGHT: f32 = 48.0;
+const OBSTACLE_HEIGHT: f32 = 48.0;
 
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct LevelMap {
   pub(crate) name: &'static str,
-  pub(crate) player_spawn: Vec2,
+  pub(crate) player_spawn: Vec3,
   pub(crate) obstacles: Vec<TerrainSpec>,
   pub(crate) monsters: Vec<MonsterSpawn>,
 }
@@ -24,7 +28,7 @@ impl Default for LevelMap {
   fn default() -> Self {
     Self {
       name: "Crossroads",
-      player_spawn: Vec2::ZERO,
+      player_spawn: Vec3::new(0.0, PLAYER_CENTER_Y, 0.0),
       obstacles: CROSSROADS_OBSTACLES.to_vec(),
       monsters: CROSSROADS_MONSTERS.to_vec(),
     }
@@ -47,14 +51,14 @@ impl Default for TerrainMap {
 
 impl TerrainMap {
   pub(crate) fn for_level(map: &LevelMap) -> Self {
-    let columns = ((ARENA_HALF_SIZE.x * 2.0) / CELL_SIZE).ceil() as i32;
-    let rows = ((ARENA_HALF_SIZE.y * 2.0) / CELL_SIZE).ceil() as i32;
+    let columns = ((ARENA_HALF_EXTENTS.x * 2.0) / CELL_SIZE).ceil() as i32;
+    let rows = ((ARENA_HALF_EXTENTS.z * 2.0) / CELL_SIZE).ceil() as i32;
     let obstacles = map.obstacles.clone();
     let mut blocked = Vec::with_capacity((columns * rows) as usize);
 
     for y in 0 .. rows {
       for x in 0 .. columns {
-        let position = cell_center(columns, rows, IVec2::new(x, y));
+        let position = cell_center(columns, rows, IVec2::new(x, y), 0.0);
         blocked.push(
           !inside_playable_area(position)
             || point_overlaps_any_obstacle(position, &obstacles, ACTOR_RADIUS),
@@ -70,37 +74,37 @@ impl TerrainMap {
     }
   }
 
-  pub(crate) fn try_move(&self, from: Vec2, delta: Vec2) -> Vec2 {
+  pub(crate) fn try_move(&self, from: Vec3, delta: Vec3) -> Vec3 {
     let from = clamp_to_playable_area(from);
-    let target = clamp_to_playable_area(from + delta);
+    let target = clamp_to_playable_area(from + Vec3::new(delta.x, 0.0, delta.z));
     if self.segment_is_walkable(from, target) {
       return target;
     }
 
     let mut moved = from;
     if delta.x != 0.0 {
-      let x_target = Vec2::new(target.x, moved.y);
+      let x_target = Vec3::new(target.x, moved.y, moved.z);
       if self.segment_is_walkable(moved, x_target) {
         moved = x_target;
       }
     }
 
-    if delta.y != 0.0 {
-      let y_target = Vec2::new(moved.x, target.y);
-      if self.segment_is_walkable(moved, y_target) {
-        moved = y_target;
+    if delta.z != 0.0 {
+      let z_target = Vec3::new(moved.x, moved.y, target.z);
+      if self.segment_is_walkable(moved, z_target) {
+        moved = z_target;
       }
     }
 
     moved
   }
 
-  pub(crate) fn next_waypoint(&self, from: Vec2, goal: Vec2) -> Vec2 {
+  pub(crate) fn next_waypoint(&self, from: Vec3, goal: Vec3) -> Vec3 {
     let from = clamp_to_playable_area(from);
     let goal = clamp_to_playable_area(goal);
 
     if self.segment_is_walkable(from, goal) {
-      return goal;
+      return Vec3::new(goal.x, from.y, goal.z);
     }
 
     let Some(start) = self.walkable_cell_near(from) else {
@@ -113,25 +117,25 @@ impl TerrainMap {
       return from;
     };
 
-    self.cell_center(next_cell)
+    self.cell_center(next_cell, from.y)
   }
 
-  pub(crate) fn segment_is_walkable(&self, from: Vec2, to: Vec2) -> bool {
-    let distance = from.distance(to);
+  pub(crate) fn segment_is_walkable(&self, from: Vec3, to: Vec3) -> bool {
+    let distance = horizontal_distance(from, to);
     let steps = (distance / (CELL_SIZE * 0.5)).ceil().max(1.0) as usize;
 
     (0 ..= steps).all(|step| {
       let amount = step as f32 / steps as f32;
-      self.is_walkable(from.lerp(to, amount))
+      self.is_walkable(lerp_horizontal(from, to, amount))
     })
   }
 
-  fn is_walkable(&self, position: Vec2) -> bool {
+  fn is_walkable(&self, position: Vec3) -> bool {
     inside_playable_area(position)
       && !point_overlaps_any_obstacle(position, &self.obstacles, ACTOR_RADIUS)
   }
 
-  fn walkable_cell_near(&self, position: Vec2) -> Option<IVec2> {
+  fn walkable_cell_near(&self, position: Vec3) -> Option<IVec2> {
     let origin = self.world_to_cell(position)?;
     if self.cell_is_walkable(origin) {
       return Some(origin);
@@ -220,13 +224,13 @@ impl TerrainMap {
     self.index(cell).is_some_and(|index| !self.blocked[index])
   }
 
-  fn world_to_cell(&self, position: Vec2) -> Option<IVec2> {
+  fn world_to_cell(&self, position: Vec3) -> Option<IVec2> {
     if !inside_playable_area(position) {
       return None;
     }
 
-    let min = -ARENA_HALF_SIZE;
-    let local = position - min;
+    let min = Vec2::new(-ARENA_HALF_EXTENTS.x, -ARENA_HALF_EXTENTS.z);
+    let local = Vec2::new(position.x, position.z) - min;
     let cell = IVec2::new(
       ((local.x / CELL_SIZE).floor() as i32).clamp(0, self.columns - 1),
       ((local.y / CELL_SIZE).floor() as i32).clamp(0, self.rows - 1),
@@ -235,8 +239,8 @@ impl TerrainMap {
     self.index(cell).map(|_| cell)
   }
 
-  fn cell_center(&self, cell: IVec2) -> Vec2 {
-    cell_center(self.columns, self.rows, cell)
+  fn cell_center(&self, cell: IVec2, y: f32) -> Vec3 {
+    cell_center(self.columns, self.rows, cell, y)
   }
 
   fn index(&self, cell: IVec2) -> Option<usize> {
@@ -250,24 +254,24 @@ impl TerrainMap {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct TerrainSpec {
-  pub(crate) center: Vec2,
-  pub(crate) size: Vec2,
+  pub(crate) center: Vec3,
+  pub(crate) size: Vec3,
   pub(crate) shape: ObstacleShape,
 }
 
 impl TerrainSpec {
-  fn contains(&self, position: Vec2, padding: f32) -> bool {
+  fn contains(&self, position: Vec3, padding: f32) -> bool {
     let half_size = Vec2::new(
       (self.size.x * 0.5 + padding).max(1.0),
-      (self.size.y * 0.5 + padding).max(1.0),
+      (self.size.z * 0.5 + padding).max(1.0),
     );
-    let delta = position - self.center;
+    let delta = Vec2::new(position.x - self.center.x, position.z - self.center.z);
     let abs_delta = delta.abs();
 
     match self.shape {
-      ObstacleShape::Rectangle => abs_delta.x <= half_size.x && abs_delta.y <= half_size.y,
-      ObstacleShape::Diamond => abs_delta.x / half_size.x + abs_delta.y / half_size.y <= 1.0,
-      ObstacleShape::Ellipse => {
+      ObstacleShape::Cuboid => abs_delta.x <= half_size.x && abs_delta.y <= half_size.y,
+      ObstacleShape::DiamondPrism => abs_delta.x / half_size.x + abs_delta.y / half_size.y <= 1.0,
+      ObstacleShape::Cylinder => {
         let x = abs_delta.x / half_size.x;
         let y = abs_delta.y / half_size.y;
         x * x + y * y <= 1.0
@@ -283,120 +287,232 @@ impl TerrainSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct MonsterSpawn {
-  pub(crate) position: Vec2,
+  pub(crate) position: Vec3,
   pub(crate) red: i32,
   pub(crate) blue: i32,
   pub(crate) speed: f32,
 }
 
+pub(crate) fn spawn_static_colliders(mut commands: Commands, level_map: Res<LevelMap>) {
+  spawn_floor_collider(&mut commands);
+  spawn_boundary_colliders(&mut commands);
+
+  for obstacle in &level_map.obstacles {
+    commands.spawn((
+      Transform::from_translation(obstacle.center).with_rotation(obstacle_rotation(obstacle)),
+      Position::new(obstacle.center),
+      RigidBody::Static,
+      obstacle_collider(obstacle),
+      Name::new("Obstacle Collider"),
+    ));
+  }
+}
+
 pub(crate) fn map_state(map: &LevelMap) -> MapState {
   MapState {
     name: map.name.to_string(),
-    half_width: ARENA_HALF_SIZE.x,
-    half_height: ARENA_HALF_SIZE.y,
+    half_width: ARENA_HALF_EXTENTS.x,
+    half_depth: ARENA_HALF_EXTENTS.z,
     obstacles: map
       .obstacles
       .iter()
       .map(|obstacle| ObstacleState {
         x: obstacle.center.x,
         y: obstacle.center.y,
+        z: obstacle.center.z,
         width: obstacle.size.x,
         height: obstacle.size.y,
+        depth: obstacle.size.z,
         shape: obstacle.shape as i32,
       })
       .collect(),
   }
 }
 
-pub(crate) fn clamp_to_playable_area(position: Vec2) -> Vec2 {
+pub(crate) fn clamp_to_playable_area(position: Vec3) -> Vec3 {
   let half_size = playable_half_size();
-  Vec2::new(
+  Vec3::new(
     position.x.clamp(-half_size.x, half_size.x),
-    position.y.clamp(-half_size.y, half_size.y),
+    position.y,
+    position.z.clamp(-half_size.y, half_size.y),
   )
 }
 
 fn playable_half_size() -> Vec2 {
-  ARENA_HALF_SIZE - Vec2::splat(PLAYABLE_PADDING)
+  Vec2::new(ARENA_HALF_EXTENTS.x, ARENA_HALF_EXTENTS.z) - Vec2::splat(PLAYABLE_PADDING)
 }
 
-fn inside_playable_area(position: Vec2) -> bool {
+fn inside_playable_area(position: Vec3) -> bool {
   let half_size = playable_half_size();
   position.x >= -half_size.x
     && position.x <= half_size.x
-    && position.y >= -half_size.y
-    && position.y <= half_size.y
+    && position.z >= -half_size.y
+    && position.z <= half_size.y
 }
 
-fn point_overlaps_any_obstacle(position: Vec2, obstacles: &[TerrainSpec], padding: f32) -> bool {
+fn point_overlaps_any_obstacle(position: Vec3, obstacles: &[TerrainSpec], padding: f32) -> bool {
   obstacles
     .iter()
     .any(|obstacle| obstacle.contains(position, padding))
 }
 
-fn cell_center(columns: i32, rows: i32, cell: IVec2) -> Vec2 {
-  let min = -ARENA_HALF_SIZE;
+fn cell_center(columns: i32, rows: i32, cell: IVec2, y: f32) -> Vec3 {
+  let min = Vec2::new(-ARENA_HALF_EXTENTS.x, -ARENA_HALF_EXTENTS.z);
   let x = min.x + (cell.x as f32 + 0.5) * CELL_SIZE;
-  let y = min.y + (cell.y as f32 + 0.5) * CELL_SIZE;
+  let z = min.y + (cell.y as f32 + 0.5) * CELL_SIZE;
 
-  clamp_to_playable_area(Vec2::new(
+  clamp_to_playable_area(Vec3::new(
     x.min(min.x + columns as f32 * CELL_SIZE),
-    y.min(min.y + rows as f32 * CELL_SIZE),
+    y,
+    z.min(min.y + rows as f32 * CELL_SIZE),
   ))
 }
 
-const fn roadblock(center: Vec2, size: Vec2, shape: ObstacleShape) -> TerrainSpec {
+fn horizontal_distance(from: Vec3, to: Vec3) -> f32 {
+  Vec2::new(to.x - from.x, to.z - from.z).length()
+}
+
+fn lerp_horizontal(from: Vec3, to: Vec3, amount: f32) -> Vec3 {
+  Vec3::new(
+    from.x + (to.x - from.x) * amount,
+    from.y,
+    from.z + (to.z - from.z) * amount,
+  )
+}
+
+fn spawn_floor_collider(commands: &mut Commands) {
+  let size = Vec3::new(
+    ARENA_HALF_EXTENTS.x * 2.0,
+    FLOOR_THICKNESS,
+    ARENA_HALF_EXTENTS.z * 2.0,
+  );
+  let center = Vec3::new(0.0, -FLOOR_THICKNESS * 0.5, 0.0);
+  commands.spawn((
+    Transform::from_translation(center),
+    Position::new(center),
+    RigidBody::Static,
+    Collider::cuboid(size.x, size.y, size.z),
+    Name::new("Arena Floor Collider"),
+  ));
+}
+
+fn spawn_boundary_colliders(commands: &mut Commands) {
+  let wall_y = BOUNDARY_WALL_HEIGHT * 0.5;
+  let horizontal_size = Vec3::new(
+    ARENA_HALF_EXTENTS.x * 2.0 + BOUNDARY_WALL_THICKNESS * 2.0,
+    BOUNDARY_WALL_HEIGHT,
+    BOUNDARY_WALL_THICKNESS,
+  );
+  let vertical_size = Vec3::new(
+    BOUNDARY_WALL_THICKNESS,
+    BOUNDARY_WALL_HEIGHT,
+    ARENA_HALF_EXTENTS.z * 2.0,
+  );
+
+  for (center, size) in [
+    (
+      Vec3::new(
+        0.0,
+        wall_y,
+        ARENA_HALF_EXTENTS.z + BOUNDARY_WALL_THICKNESS * 0.5,
+      ),
+      horizontal_size,
+    ),
+    (
+      Vec3::new(
+        0.0,
+        wall_y,
+        -ARENA_HALF_EXTENTS.z - BOUNDARY_WALL_THICKNESS * 0.5,
+      ),
+      horizontal_size,
+    ),
+    (
+      Vec3::new(
+        ARENA_HALF_EXTENTS.x + BOUNDARY_WALL_THICKNESS * 0.5,
+        wall_y,
+        0.0,
+      ),
+      vertical_size,
+    ),
+    (
+      Vec3::new(
+        -ARENA_HALF_EXTENTS.x - BOUNDARY_WALL_THICKNESS * 0.5,
+        wall_y,
+        0.0,
+      ),
+      vertical_size,
+    ),
+  ] {
+    commands.spawn((
+      Transform::from_translation(center),
+      Position::new(center),
+      RigidBody::Static,
+      Collider::cuboid(size.x, size.y, size.z),
+      Name::new("Arena Boundary Collider"),
+    ));
+  }
+}
+
+fn obstacle_collider(obstacle: &TerrainSpec) -> Collider {
+  match obstacle.shape {
+    ObstacleShape::Cylinder => {
+      Collider::cylinder(obstacle.size.x.max(obstacle.size.z) * 0.5, obstacle.size.y)
+    }
+    ObstacleShape::Cuboid | ObstacleShape::DiamondPrism | ObstacleShape::Cross => {
+      Collider::cuboid(obstacle.size.x, obstacle.size.y, obstacle.size.z)
+    }
+  }
+}
+
+fn obstacle_rotation(obstacle: &TerrainSpec) -> Quat {
+  match obstacle.shape {
+    ObstacleShape::DiamondPrism => Quat::from_rotation_y(std::f32::consts::FRAC_PI_4),
+    _ => Quat::IDENTITY,
+  }
+}
+
+const fn roadblock(
+  center_x: f32,
+  center_z: f32,
+  size_x: f32,
+  size_z: f32,
+  shape: ObstacleShape,
+) -> TerrainSpec {
   TerrainSpec {
-    center,
-    size,
+    center: Vec3::new(center_x, OBSTACLE_HEIGHT * 0.5, center_z),
+    size: Vec3::new(size_x, OBSTACLE_HEIGHT, size_z),
     shape,
   }
 }
 
 const CROSSROADS_OBSTACLES: [TerrainSpec; 4] = [
-  roadblock(
-    Vec2::new(-255.0, -170.0),
-    Vec2::new(150.0, 70.0),
-    ObstacleShape::Rectangle,
-  ),
-  roadblock(
-    Vec2::new(240.0, 160.0),
-    Vec2::new(120.0, 120.0),
-    ObstacleShape::Ellipse,
-  ),
-  roadblock(
-    Vec2::new(-90.0, 115.0),
-    Vec2::new(130.0, 90.0),
-    ObstacleShape::Diamond,
-  ),
-  roadblock(
-    Vec2::new(150.0, -95.0),
-    Vec2::new(110.0, 120.0),
-    ObstacleShape::Cross,
-  ),
+  roadblock(-255.0, -170.0, 150.0, 70.0, ObstacleShape::Cuboid),
+  roadblock(240.0, 160.0, 120.0, 120.0, ObstacleShape::Cylinder),
+  roadblock(-90.0, 115.0, 130.0, 90.0, ObstacleShape::DiamondPrism),
+  roadblock(150.0, -95.0, 110.0, 120.0, ObstacleShape::Cross),
 ];
 
 const CROSSROADS_MONSTERS: [MonsterSpawn; 4] = [
   MonsterSpawn {
-    position: Vec2::new(-320.0, 190.0),
+    position: Vec3::new(-320.0, crate::game::MONSTER_CENTER_Y, 190.0),
     red: 9,
     blue: 56,
     speed: 92.0,
   },
   MonsterSpawn {
-    position: Vec2::new(320.0, 190.0),
+    position: Vec3::new(320.0, crate::game::MONSTER_CENTER_Y, 190.0),
     red: 10,
     blue: 56,
     speed: 102.0,
   },
   MonsterSpawn {
-    position: Vec2::new(-300.0, -190.0),
+    position: Vec3::new(-300.0, crate::game::MONSTER_CENTER_Y, -190.0),
     red: 11,
     blue: 56,
     speed: 112.0,
   },
   MonsterSpawn {
-    position: Vec2::new(310.0, -170.0),
+    position: Vec3::new(310.0, crate::game::MONSTER_CENTER_Y, -170.0),
     red: 12,
     blue: 56,
     speed: 122.0,
@@ -412,11 +528,12 @@ mod tests {
     let map = LevelMap::default();
     let obs = map.obstacles[0];
     let terrain = TerrainMap::for_level(&map);
-    let start = clamp_to_playable_area(Vec2::new(
+    let start = clamp_to_playable_area(Vec3::new(
       obs.center.x - obs.size.x * 0.5 - ACTOR_RADIUS - 2.0,
       obs.center.y,
+      obs.center.z,
     ));
-    let movement = Vec2::new(obs.size.x, 0.0);
+    let movement = Vec3::new(obs.size.x, 0.0, 0.0);
 
     assert_eq!(terrain.try_move(start, movement), start);
   }
@@ -426,8 +543,16 @@ mod tests {
     let map = LevelMap::default();
     let obs = map.obstacles[0];
     let terrain = TerrainMap::for_level(&map);
-    let start = clamp_to_playable_area(Vec2::new(obs.center.x - obs.size.x, obs.center.y));
-    let goal = clamp_to_playable_area(Vec2::new(obs.center.x + obs.size.x, obs.center.y));
+    let start = clamp_to_playable_area(Vec3::new(
+      obs.center.x - obs.size.x,
+      obs.center.y,
+      obs.center.z,
+    ));
+    let goal = clamp_to_playable_area(Vec3::new(
+      obs.center.x + obs.size.x,
+      obs.center.y,
+      obs.center.z,
+    ));
 
     assert!(!terrain.segment_is_walkable(start, goal));
 

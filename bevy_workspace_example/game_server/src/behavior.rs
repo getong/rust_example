@@ -38,13 +38,13 @@ pub(crate) fn move_chasing_monsters(
       continue;
     };
 
-    let to_target = target_position - monster_position.0;
+    let to_target = horizontal_delta(monster_position.0, target_position);
     if to_target.length() <= MONSTER_ATTACK_RANGE {
       continue;
     }
 
     let waypoint = terrain_map.next_waypoint(monster_position.0, target_position);
-    let to_waypoint = waypoint - monster_position.0;
+    let to_waypoint = horizontal_delta(monster_position.0, waypoint);
     if to_waypoint.length() <= 1.0 {
       continue;
     }
@@ -120,29 +120,38 @@ fn monster_should_chase(
       (player.is_some() && vitals.blue > 0).then_some(position.0)
     })
     .min_by(|left, right| {
-      monster_position
-        .0
-        .distance_squared(*left)
-        .total_cmp(&monster_position.0.distance_squared(*right))
+      horizontal_distance_squared(monster_position.0, *left)
+        .total_cmp(&horizontal_distance_squared(monster_position.0, *right))
     })
   else {
     return false;
   };
 
-  monster_position.0.distance(target_position) > MONSTER_ATTACK_RANGE
+  horizontal_distance(monster_position.0, target_position) > MONSTER_ATTACK_RANGE
     || !terrain_map.segment_is_walkable(monster_position.0, target_position)
 }
 
 fn nearest_alive_player(
-  monster_position: Vec2,
+  monster_position: Vec3,
   players: &Query<(&ArenaPosition, &Vitals), With<Player>>,
-) -> Option<Vec2> {
+) -> Option<Vec3> {
   players
     .iter()
     .filter_map(|(position, vitals)| (vitals.blue > 0).then_some(position.0))
     .min_by(|left, right| {
-      monster_position
-        .distance_squared(*left)
-        .total_cmp(&monster_position.distance_squared(*right))
+      horizontal_distance_squared(monster_position, *left)
+        .total_cmp(&horizontal_distance_squared(monster_position, *right))
     })
+}
+
+fn horizontal_delta(from: Vec3, to: Vec3) -> Vec3 {
+  Vec3::new(to.x - from.x, 0.0, to.z - from.z)
+}
+
+fn horizontal_distance(from: Vec3, to: Vec3) -> f32 {
+  horizontal_delta(from, to).length()
+}
+
+fn horizontal_distance_squared(from: Vec3, to: Vec3) -> f32 {
+  horizontal_delta(from, to).length_squared()
 }

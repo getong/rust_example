@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 agones.workspace = true
 anyhow.workspace = true
+avian3d.workspace = true
 bevior_tree.workspace = true
 bevy = { workspace = true, features = ["bevy_log", "std"] }
 bevy_ecs.workspace = true

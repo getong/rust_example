@@ -31,6 +31,8 @@ pub struct PlayerInput {
     pub x: f32,
     #[prost(float, tag = "3")]
     pub y: f32,
+    #[prost(float, tag = "4")]
+    pub z: f32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Ping {
@@ -84,9 +86,11 @@ pub struct ActorState {
     pub x: f32,
     #[prost(float, tag = "4")]
     pub y: f32,
-    #[prost(int32, tag = "5")]
-    pub red: i32,
+    #[prost(float, tag = "5")]
+    pub z: f32,
     #[prost(int32, tag = "6")]
+    pub red: i32,
+    #[prost(int32, tag = "7")]
     pub blue: i32,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
@@ -108,7 +112,7 @@ pub struct MapState {
     #[prost(float, tag = "2")]
     pub half_width: f32,
     #[prost(float, tag = "3")]
-    pub half_height: f32,
+    pub half_depth: f32,
     #[prost(message, repeated, tag = "4")]
     pub obstacles: ::prost::alloc::vec::Vec<ObstacleState>,
 }
@@ -119,10 +123,14 @@ pub struct ObstacleState {
     #[prost(float, tag = "2")]
     pub y: f32,
     #[prost(float, tag = "3")]
-    pub width: f32,
+    pub z: f32,
     #[prost(float, tag = "4")]
+    pub width: f32,
+    #[prost(float, tag = "5")]
     pub height: f32,
-    #[prost(enumeration = "ObstacleShape", tag = "5")]
+    #[prost(float, tag = "6")]
+    pub depth: f32,
+    #[prost(enumeration = "ObstacleShape", tag = "7")]
     pub shape: i32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -157,9 +165,9 @@ impl ActorKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ObstacleShape {
-    Rectangle = 0,
-    Diamond = 1,
-    Ellipse = 2,
+    Cuboid = 0,
+    DiamondPrism = 1,
+    Cylinder = 2,
     Cross = 3,
 }
 impl ObstacleShape {
@@ -169,18 +177,18 @@ impl ObstacleShape {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::Rectangle => "OBSTACLE_SHAPE_RECTANGLE",
-            Self::Diamond => "OBSTACLE_SHAPE_DIAMOND",
-            Self::Ellipse => "OBSTACLE_SHAPE_ELLIPSE",
+            Self::Cuboid => "OBSTACLE_SHAPE_CUBOID",
+            Self::DiamondPrism => "OBSTACLE_SHAPE_DIAMOND_PRISM",
+            Self::Cylinder => "OBSTACLE_SHAPE_CYLINDER",
             Self::Cross => "OBSTACLE_SHAPE_CROSS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "OBSTACLE_SHAPE_RECTANGLE" => Some(Self::Rectangle),
-            "OBSTACLE_SHAPE_DIAMOND" => Some(Self::Diamond),
-            "OBSTACLE_SHAPE_ELLIPSE" => Some(Self::Ellipse),
+            "OBSTACLE_SHAPE_CUBOID" => Some(Self::Cuboid),
+            "OBSTACLE_SHAPE_DIAMOND_PRISM" => Some(Self::DiamondPrism),
+            "OBSTACLE_SHAPE_CYLINDER" => Some(Self::Cylinder),
             "OBSTACLE_SHAPE_CROSS" => Some(Self::Cross),
             _ => None,
         }
