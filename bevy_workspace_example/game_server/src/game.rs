@@ -30,10 +30,6 @@ impl Default for NextActorId {
 }
 
 impl NextActorId {
-  pub(crate) fn new(first_id: u64) -> Self {
-    Self(first_id.max(1))
-  }
-
   pub(crate) fn next(&mut self) -> ActorId {
     let id = self.0;
     self.0 += 1;

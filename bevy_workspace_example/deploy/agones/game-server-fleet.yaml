@@ -42,8 +42,6 @@ spec:
               env:
                 - name: GAME_SERVER_BIND
                   value: "0.0.0.0:6000"
-                - name: GAME_SERVER_SHARDS
-                  value: "4"
                 - name: AGONES_ENABLED
                   value: "true"
                 - name: AGONES_READY_ON_START

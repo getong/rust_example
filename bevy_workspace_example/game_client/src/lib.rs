@@ -1,5 +1,6 @@
 mod net;
 pub mod protocol;
+mod replication;
 
 use std::{
   collections::{HashMap, HashSet},
@@ -159,6 +160,7 @@ pub fn run() {
       tick_duration: Duration::from_secs_f64(INPUT_SEND_SECONDS as f64),
     })
     .add_plugins(protocol::GameProtocolPlugin)
+    .add_plugins(replication::GameReplicationPlugin)
     .init_resource::<ClientWorld>()
     .init_resource::<InputSendClock>()
     .add_systems(Startup, (setup_scene, net::start_network_client))

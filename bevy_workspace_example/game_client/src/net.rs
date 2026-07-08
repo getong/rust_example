@@ -6,7 +6,7 @@ use std::{
 use bevy::prelude::*;
 use lightyear::prelude::{
   Authentication, Client, Connected, Disconnected, LocalAddr, MessageReceiver, MessageSender,
-  UdpIo,
+  ReplicationReceiver, UdpIo,
   client::{Connect, NetcodeClient, NetcodeConfig},
 };
 use tokio::sync::mpsc;
@@ -67,7 +67,12 @@ pub(crate) fn start_network_client(mut commands: Commands, mut world: ResMut<Cli
   };
   let local_addr = local_client_addr(server_addr);
   let entity = commands
-    .spawn((UdpIo::default(), LocalAddr(local_addr), netcode_client))
+    .spawn((
+      UdpIo::default(),
+      LocalAddr(local_addr),
+      ReplicationReceiver,
+      netcode_client,
+    ))
     .id();
   commands.trigger(Connect { entity });
 }

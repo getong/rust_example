@@ -8,11 +8,12 @@ agones.workspace = true
 anyhow.workspace = true
 avian3d.workspace = true
 bevior_tree.workspace = true
-bevy = { workspace = true, features = ["bevy_log", "std"] }
+bevy = { workspace = true, features = ["bevy_log", "bevy_state", "std"] }
 bevy_animation_graph = { workspace = true, optional = true }
 bevy_ecs.workspace = true
 bevy_hanabi = { workspace = true, optional = true }
-lightyear = { workspace = true, features = ["std", "server", "udp", "netcode"] }
+bevy_replicon.workspace = true
+lightyear = { workspace = true, features = ["std", "client", "server", "udp", "netcode", "replication"] }
 prost.workspace = true
 serde.workspace = true
 tokio.workspace = true

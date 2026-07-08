@@ -9,9 +9,10 @@ avian3d.workspace = true
 bevy = { workspace = true, features = ["3d", "ui"] }
 bevy_animation_graph.workspace = true
 bevy_hanabi.workspace = true
+bevy_replicon.workspace = true
 prost.workspace = true
 tokio.workspace = true
-lightyear = { workspace = true, features = ["std", "client", "udp", "netcode"] }
+lightyear = { workspace = true, features = ["std", "client", "udp", "netcode", "replication"] }
 serde.workspace = true
 
 [build-dependencies]
