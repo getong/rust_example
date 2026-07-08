@@ -11,7 +11,7 @@ Agones 的 `172.21.x.x:<port>` 是 Docker/kind 内网地址，macOS 本机客户
 再运行客户端：
 
 ```bash
-GAME_SERVER_ADDR=127.0.0.1:30600 cargo run -p game_client
+GAME_SERVER_ADDR=127.0.0.1:30600 cargo run -p game_client --bin game_client
 ```
 
 也可以用封装脚本：
