@@ -2,6 +2,7 @@ mod agones;
 mod behavior;
 mod game;
 mod net;
+mod player_registry;
 pub mod protocol;
 mod replication;
 mod terrain;

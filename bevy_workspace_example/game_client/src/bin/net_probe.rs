@@ -8,10 +8,12 @@ use bevy::{
   app::{AppExit, ScheduleRunnerPlugin},
   ecs::message::MessageWriter,
   prelude::*,
+  state::app::StatesPlugin,
 };
 use game_client::protocol::{
   DEFAULT_SERVER_ADDR, GameProtocolPlugin, NETCODE_PRIVATE_KEY, NETCODE_PROTOCOL_ID,
 };
+use game_shared::replication::GameReplicationPlugin;
 use lightyear::prelude::{
   Authentication, Client, Connected, Disconnected, LocalAddr, UdpIo,
   client::{ClientPlugins, Connect, NetcodeClient, NetcodeConfig},
@@ -40,10 +42,12 @@ fn main() {
 
   App::new()
     .add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_millis(16))))
+    .add_plugins(StatesPlugin)
     .add_plugins(ClientPlugins {
       tick_duration: Duration::from_secs_f64(1.0 / 30.0),
     })
     .add_plugins(GameProtocolPlugin)
+    .add_plugins(GameReplicationPlugin)
     .insert_resource(ProbeState {
       server_addr,
       timeout: Timer::from_seconds(timeout_seconds, TimerMode::Once),

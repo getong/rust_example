@@ -18,11 +18,13 @@ use lightyear::prelude::{
 };
 
 use crate::{
+  agones::AgonesGameServerInfo,
   behavior, game,
   game::{
     ActorId, ActorPresentation, ActorType, ArenaPosition, NextActorId, PlayerInputState,
     ServerTick, SnapshotClock, Vitals, actor_state, spawn_player,
   },
+  player_registry::{self, PlayerServerRegistry},
   protocol::{
     ClientEnvelope, ClientPacket, GameChannel, GameProtocolPlugin, NETCODE_PRIVATE_KEY,
     NETCODE_PROTOCOL_ID, ServerEnvelope, ServerPacket, Welcome, WorldSnapshot, client_envelope,
@@ -78,6 +80,7 @@ pub(crate) fn run_server(bind_addr: &str) -> Result<()> {
       tick_duration: Duration::from_secs_f64(SERVER_TICK_SECONDS),
     })
     .add_plugins(crate::agones::AgonesPlugin)
+    .add_plugins(player_registry::PlayerServerRegistryPlugin)
     .add_plugins(GameProtocolPlugin)
     .add_plugins(replication::GameReplicationPlugin)
     .insert_resource(Gravity::ZERO)
@@ -189,6 +192,9 @@ fn drain_client_messages(
   mut commands: Commands,
   mut clients: ResMut<ServerClients>,
   mut actor_ids: ResMut<NextActorId>,
+  config: Res<ServerConfig>,
+  agones_info: Res<AgonesGameServerInfo>,
+  player_registry: Res<PlayerServerRegistry>,
   level_map: Res<LevelMap>,
   tick: Res<ServerTick>,
   mut client_query: Query<
@@ -228,6 +234,9 @@ fn drain_client_messages(
           &level_map,
           &mut player_inputs,
           &mut senders,
+          config.bind_addr,
+          &agones_info,
+          &player_registry,
           tick.0,
           client_id,
           entity,
@@ -243,6 +252,7 @@ fn disconnect_client(
   trigger: On<Add, Disconnected>,
   mut commands: Commands,
   mut clients: ResMut<ServerClients>,
+  player_registry: Res<PlayerServerRegistry>,
   client_query: Query<&RemoteId, With<ClientOf>>,
 ) {
   let Ok(remote_id) = client_query.get(trigger.entity) else {
@@ -252,6 +262,7 @@ fn disconnect_client(
     return;
   };
   println!("client {client_id} disconnected");
+  player_registry.remove(client_id);
   if let Some(client) = clients.clients.remove(&client_id)
     && let Some(player) = client.player
   {
@@ -305,6 +316,9 @@ fn handle_client_message(
   level_map: &LevelMap,
   player_inputs: &mut Query<&mut PlayerInputState>,
   senders: &mut Query<&mut MessageSender<ServerPacket>, With<ClientOf>>,
+  bind_addr: SocketAddr,
+  agones_info: &AgonesGameServerInfo,
+  player_registry: &PlayerServerRegistry,
   tick: u64,
   client_id: u64,
   client_entity: Entity,
@@ -312,6 +326,7 @@ fn handle_client_message(
 ) {
   match message.payload {
     Some(client_envelope::Payload::Hello(hello)) => {
+      let room = hello.room.trim().to_string();
       let connected_players = clients
         .clients
         .values()
@@ -344,6 +359,14 @@ fn handle_client_message(
         };
         send_to_client(senders, client_entity, client_id, welcome);
       }
+
+      let record = player_registry::player_server_record(
+        client_id,
+        Some(room.as_str()),
+        agones_info,
+        bind_addr,
+      );
+      player_registry.upsert(record);
     }
     Some(client_envelope::Payload::Input(input)) => {
       let player = clients

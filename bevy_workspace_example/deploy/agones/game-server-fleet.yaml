@@ -37,11 +37,17 @@ spec:
         spec:
           containers:
             - name: game-server
-              image: game-server:dev-20260708140521
+              image: game-server:dev-20260708163923
               imagePullPolicy: IfNotPresent
               env:
                 - name: GAME_SERVER_BIND
                   value: "0.0.0.0:6000"
+                - name: PLAYER_SERVER_REDIS_URL
+                  value: "redis://player-server-redis.default.svc.cluster.local:6379/"
+                - name: PLAYER_SERVER_REDIS_KEY_PREFIX
+                  value: "player"
+                - name: PLAYER_SERVER_REDIS_TTL_SECONDS
+                  value: "21600"
                 - name: AGONES_ENABLED
                   value: "true"
                 - name: AGONES_READY_ON_START

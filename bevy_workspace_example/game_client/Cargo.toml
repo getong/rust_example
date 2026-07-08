@@ -10,10 +10,7 @@ bevy = { workspace = true, features = ["3d", "ui"] }
 bevy_animation_graph.workspace = true
 bevy_hanabi.workspace = true
 bevy_replicon.workspace = true
-prost.workspace = true
+game_shared = { path = "../game_shared" }
 tokio.workspace = true
 lightyear = { workspace = true, features = ["std", "client", "udp", "netcode", "replication"] }
 serde.workspace = true
-
-[build-dependencies]
-prost-build.workspace = true

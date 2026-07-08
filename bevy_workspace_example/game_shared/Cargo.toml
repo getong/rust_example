@@ -1,0 +1,14 @@
+[package]
+name = "game_shared"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+bevy = { workspace = true }
+lightyear = { workspace = true, features = ["std", "client", "server", "replication"] }
+prost.workspace = true
+serde.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true

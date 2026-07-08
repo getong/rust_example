@@ -13,14 +13,24 @@ impl Plugin for AgonesPlugin {
   fn build(&self, app: &mut App) {
     app
       .init_resource::<AgonesBridge>()
+      .init_resource::<AgonesGameServerInfo>()
       .add_systems(Startup, start_agones_bridge)
-      .add_systems(Update, notify_agones_ready);
+      .add_systems(Update, (drain_agones_updates, notify_agones_ready).chain());
   }
+}
+
+#[derive(Resource, Clone, Debug, Default)]
+pub(crate) struct AgonesGameServerInfo {
+  pub(crate) name: Option<String>,
+  pub(crate) namespace: Option<String>,
+  pub(crate) address: Option<String>,
+  pub(crate) port: Option<u16>,
 }
 
 #[derive(Resource)]
 struct AgonesBridge {
   sender: Option<mpsc::UnboundedSender<AgonesCommand>>,
+  updates: Option<mpsc::UnboundedReceiver<AgonesGameServerInfo>>,
   ready_on_start: bool,
   ready_sent: bool,
 }
@@ -29,6 +39,7 @@ impl Default for AgonesBridge {
   fn default() -> Self {
     Self {
       sender: None,
+      updates: None,
       ready_on_start: true,
       ready_sent: false,
     }
@@ -75,7 +86,22 @@ impl AgonesSettings {
 fn start_agones_bridge(mut bridge: ResMut<AgonesBridge>) {
   let settings = AgonesSettings::from_env();
   bridge.ready_on_start = settings.ready_on_start;
-  bridge.sender = spawn_agones_manager(settings);
+  let (sender, updates) = spawn_agones_manager(settings);
+  bridge.sender = sender;
+  bridge.updates = updates;
+}
+
+fn drain_agones_updates(
+  mut bridge: ResMut<AgonesBridge>,
+  mut game_server_info: ResMut<AgonesGameServerInfo>,
+) {
+  let Some(updates) = bridge.updates.as_mut() else {
+    return;
+  };
+
+  while let Ok(update) = updates.try_recv() {
+    *game_server_info = update;
+  }
 }
 
 fn notify_agones_ready(
@@ -100,10 +126,15 @@ fn notify_agones_ready(
   }
 }
 
-fn spawn_agones_manager(settings: AgonesSettings) -> Option<mpsc::UnboundedSender<AgonesCommand>> {
+fn spawn_agones_manager(
+  settings: AgonesSettings,
+) -> (
+  Option<mpsc::UnboundedSender<AgonesCommand>>,
+  Option<mpsc::UnboundedReceiver<AgonesGameServerInfo>>,
+) {
   if !settings.enabled {
     println!("game_server agones integration disabled");
-    return None;
+    return (None, None);
   }
 
   println!(
@@ -112,6 +143,7 @@ fn spawn_agones_manager(settings: AgonesSettings) -> Option<mpsc::UnboundedSende
   );
 
   let (sender, receiver) = mpsc::unbounded_channel();
+  let (updates_sender, updates_receiver) = mpsc::unbounded_channel();
 
   match thread::Builder::new()
     .name("agones-sdk".to_string())
@@ -128,12 +160,12 @@ fn spawn_agones_manager(settings: AgonesSettings) -> Option<mpsc::UnboundedSende
         }
       };
 
-      runtime.block_on(run_agones_manager(settings, receiver));
+      runtime.block_on(run_agones_manager(settings, receiver, updates_sender));
     }) {
-    Ok(_thread) => Some(sender),
+    Ok(_thread) => (Some(sender), Some(updates_receiver)),
     Err(err) => {
       eprintln!("game_server agones thread start error: {err}");
-      None
+      (None, None)
     }
   }
 }
@@ -141,6 +173,7 @@ fn spawn_agones_manager(settings: AgonesSettings) -> Option<mpsc::UnboundedSende
 async fn run_agones_manager(
   settings: AgonesSettings,
   mut receiver: mpsc::UnboundedReceiver<AgonesCommand>,
+  updates: mpsc::UnboundedSender<AgonesGameServerInfo>,
 ) {
   println!("game_server agones sdk connecting");
   let mut sdk = match ::agones::Sdk::new_with_host(None, None, Some(settings.keep_alive)).await {
@@ -153,8 +186,12 @@ async fn run_agones_manager(
   println!("game_server agones sdk connected");
 
   spawn_health_task(&sdk, settings.health_interval);
+  match sdk.get_gameserver().await {
+    Ok(game_server) => publish_gameserver_update(&updates, &game_server),
+    Err(err) => eprintln!("game_server agones get gameserver error: {err}"),
+  }
   if settings.watch_gameserver {
-    spawn_gameserver_watch(sdk.clone());
+    spawn_gameserver_watch(sdk.clone(), updates.clone());
   }
   apply_metadata(&mut sdk, &settings).await;
 
@@ -180,7 +217,10 @@ fn spawn_health_task(sdk: &::agones::Sdk, health_interval: Duration) {
   });
 }
 
-fn spawn_gameserver_watch(mut sdk: ::agones::Sdk) {
+fn spawn_gameserver_watch(
+  mut sdk: ::agones::Sdk,
+  updates: mpsc::UnboundedSender<AgonesGameServerInfo>,
+) {
   tokio::task::spawn(async move {
     println!("game_server agones gameserver watch starting");
     let mut stream = match sdk.watch_gameserver().await {
@@ -194,6 +234,7 @@ fn spawn_gameserver_watch(mut sdk: ::agones::Sdk) {
     loop {
       match stream.message().await {
         Ok(Some(game_server)) => {
+          publish_gameserver_update(&updates, &game_server);
           let name = game_server
             .object_meta
             .as_ref()
@@ -217,6 +258,58 @@ fn spawn_gameserver_watch(mut sdk: ::agones::Sdk) {
       }
     }
   });
+}
+
+fn publish_gameserver_update(
+  updates: &mpsc::UnboundedSender<AgonesGameServerInfo>,
+  game_server: &::agones::GameServer,
+) {
+  let _ = updates.send(gameserver_info(game_server));
+}
+
+fn gameserver_info(game_server: &::agones::GameServer) -> AgonesGameServerInfo {
+  let (name, namespace) = game_server
+    .object_meta
+    .as_ref()
+    .map(|metadata| {
+      (
+        Some(metadata.name.clone()),
+        Some(metadata.namespace.clone()),
+      )
+    })
+    .unwrap_or_default();
+  let (address, port) = game_server
+    .status
+    .as_ref()
+    .map(|status| {
+      (
+        non_empty(status.address.as_str()).or_else(|| {
+          status
+            .addresses
+            .iter()
+            .find_map(|address| non_empty(address.address.as_str()))
+        }),
+        status
+          .ports
+          .iter()
+          .find(|port| port.name == "game")
+          .or_else(|| status.ports.first())
+          .and_then(|port| u16::try_from(port.port).ok()),
+      )
+    })
+    .unwrap_or_default();
+
+  AgonesGameServerInfo {
+    name,
+    namespace,
+    address,
+    port,
+  }
+}
+
+fn non_empty(value: &str) -> Option<String> {
+  let value = value.trim();
+  (!value.is_empty()).then(|| value.to_string())
 }
 
 async fn apply_metadata(sdk: &mut ::agones::Sdk, settings: &AgonesSettings) {

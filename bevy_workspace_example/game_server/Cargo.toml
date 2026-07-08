@@ -13,14 +13,13 @@ bevy_animation_graph = { workspace = true, optional = true }
 bevy_ecs.workspace = true
 bevy_hanabi = { workspace = true, optional = true }
 bevy_replicon.workspace = true
+game_shared = { path = "../game_shared" }
 lightyear = { workspace = true, features = ["std", "client", "server", "udp", "netcode", "replication"] }
-prost.workspace = true
+redis.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 
 [features]
 default = []
 visual-effects = ["dep:bevy_animation_graph", "dep:bevy_hanabi"]
-
-[build-dependencies]
-prost-build.workspace = true

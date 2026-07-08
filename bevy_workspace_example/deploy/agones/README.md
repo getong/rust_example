@@ -32,10 +32,11 @@ Use a fixed image tag when needed:
 GAME_SERVER_IMAGE=game-server:dev-manual ./scripts/build-game-server-image.sh
 ```
 
-Deploy the Fleet and local NodePort Service:
+Deploy Redis, the Fleet and local NodePort Service:
 
 ```bash
 ./scripts/deploy-game-server-agones.sh
+kubectl get deploy/player-server-redis svc/player-server-redis
 kubectl get fleet,gameserver,pods
 kubectl get svc/bevy-game-server-local endpoints/bevy-game-server-local
 ```
@@ -88,6 +89,19 @@ START_GAME_UDP_PROXY=true
 RUN_GAME_CLIENT=false
 GAME_CLIENT_PROBE=true
 GAME_SERVER_ADDR=127.0.0.1:30600
+PLAYER_SERVER_REDIS_URL=redis://player-server-redis.default.svc.cluster.local:6379/
+PLAYER_SERVER_REDIS_KEY_PREFIX=player
+PLAYER_SERVER_REDIS_TTL_SECONDS=21600
+```
+
+## Player Server Registry
+
+`game_server` writes `player_<client_id>_server` records to Redis after the client sends `Hello`, and deletes the key when that client disconnects. The value is JSON containing the Agones GameServer name, namespace, IP, port, room and update time.
+
+Query a mapping from inside the cluster:
+
+```bash
+kubectl run redis-cli --rm -it --image=redis:7.4-alpine --restart=Never -- redis-cli -h player-server-redis GET player_<client_id>_server
 ```
 
 ## Cleanup
