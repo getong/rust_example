@@ -7,7 +7,10 @@ use std::{
 };
 
 use avian3d::prelude::{Collider, Gravity, LinearVelocity, PhysicsPlugins, Position, RigidBody};
-use bevy::{camera::ScalingMode, prelude::*, window::PresentMode};
+use bevy::{
+  camera::ScalingMode, prelude::*, window::PresentMode, world_serialization::WorldInstanceReady,
+};
+use bevy_hanabi::prelude::*;
 
 use crate::{
   net::NetworkClient,
@@ -25,6 +28,13 @@ const WALL_HEIGHT: f32 = 48.0;
 const PLAYER_SIZE: Vec3 = Vec3::new(28.0, 36.0, 28.0);
 const MONSTER_SIZE: Vec3 = Vec3::new(24.0, 32.0, 24.0);
 const INPUT_SEND_SECONDS: f32 = 1.0 / 30.0;
+const FOX_GLTF_PATH: &str = "models/Fox.glb";
+const CAMERA_VIEW_WIDTH: f32 = 1080.0;
+const CAMERA_VIEW_HEIGHT: f32 = 820.0;
+const CAMERA_FAR: f32 = 3000.0;
+const PLAYER_MODEL_SCALE: f32 = 0.32;
+const MONSTER_MODEL_SCALE: f32 = 0.28;
+const ANIMATION_BLEND_MS: u64 = 160;
 
 #[derive(Resource, Debug)]
 pub(crate) struct ClientWorld {
@@ -65,9 +75,62 @@ struct SceneAssets {
   cylinder_mesh: Handle<Mesh>,
 }
 
+#[derive(Resource, Clone)]
+struct SkeletalAnimationAssets {
+  graph: Handle<AnimationGraph>,
+  survey: AnimationNodeIndex,
+  walk: AnimationNodeIndex,
+  run: AnimationNodeIndex,
+}
+
+#[derive(Resource, Clone)]
+struct VfxAssets {
+  player_aura: Handle<EffectAsset>,
+  monster_aura: Handle<EffectAsset>,
+  burst: Handle<EffectAsset>,
+}
+
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct RemoteActor {
   id: u64,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+struct ActorVisualState {
+  last_position: Vec3,
+  yaw: f32,
+  last_vfx_pulse: u64,
+}
+
+impl ActorVisualState {
+  fn new(actor: &ActorState) -> Self {
+    Self {
+      last_position: actor_ground_position(actor),
+      yaw: 0.0,
+      last_vfx_pulse: actor.vfx_pulse,
+    }
+  }
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+struct ActorAnimationBinding {
+  actor_id: u64,
+  initial_clip: ActorAnimationClip,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+struct ActorAnimationPlayer {
+  actor_id: u64,
+}
+
+#[derive(Component, Debug)]
+struct TimedEffect(Timer);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActorAnimationClip {
+  Survey,
+  Walk,
+  Run,
 }
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -90,6 +153,7 @@ pub fn run() {
       ..default()
     }))
     .add_plugins(PhysicsPlugins::default())
+    .add_plugins(HanabiPlugin)
     .insert_resource(Gravity::ZERO)
     .add_plugins(lightyear::prelude::client::ClientPlugins {
       tick_duration: Duration::from_secs_f64(INPUT_SEND_SECONDS as f64),
@@ -105,6 +169,8 @@ pub fn run() {
         send_player_input.after(net::drain_network_events),
         sync_obstacle_meshes.after(net::drain_network_events),
         sync_actor_meshes.after(net::drain_network_events),
+        sync_actor_animations.after(sync_actor_meshes),
+        cleanup_timed_effects,
         update_status_text.after(net::drain_network_events),
       ),
     )
@@ -113,19 +179,25 @@ pub fn run() {
 
 fn setup_scene(
   mut commands: Commands,
+  asset_server: Res<AssetServer>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
+  mut animation_graphs: ResMut<Assets<AnimationGraph>>,
+  mut effects: ResMut<Assets<EffectAsset>>,
 ) {
   let cube_mesh = meshes.add(Cuboid::default());
   let cylinder_mesh = meshes.add(Cylinder::new(1.0, 1.0));
+  let animation_assets = create_skeletal_animation_assets(&asset_server, &mut animation_graphs);
+  let vfx_assets = create_vfx_assets(&mut effects);
 
   commands.spawn((
     Camera3d::default(),
     Projection::from(OrthographicProjection {
       scaling_mode: ScalingMode::Fixed {
-        width: 960.0,
-        height: 720.0,
+        width: CAMERA_VIEW_WIDTH,
+        height: CAMERA_VIEW_HEIGHT,
       },
+      far: CAMERA_FAR,
       ..OrthographicProjection::default_3d()
     }),
     Transform::from_xyz(0.0, 560.0, 520.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -150,6 +222,8 @@ fn setup_scene(
     cube_mesh,
     cylinder_mesh,
   });
+  commands.insert_resource(animation_assets);
+  commands.insert_resource(vfx_assets);
 
   commands.spawn((
     Text::new("connecting..."),
@@ -167,6 +241,114 @@ fn setup_scene(
     },
     StatusText,
   ));
+}
+
+fn create_skeletal_animation_assets(
+  asset_server: &AssetServer,
+  animation_graphs: &mut Assets<AnimationGraph>,
+) -> SkeletalAnimationAssets {
+  let (graph, nodes) = AnimationGraph::from_clips([
+    asset_server.load(GltfAssetLabel::Animation(0).from_asset(FOX_GLTF_PATH)),
+    asset_server.load(GltfAssetLabel::Animation(1).from_asset(FOX_GLTF_PATH)),
+    asset_server.load(GltfAssetLabel::Animation(2).from_asset(FOX_GLTF_PATH)),
+  ]);
+
+  SkeletalAnimationAssets {
+    graph: animation_graphs.add(graph),
+    survey: nodes[0],
+    walk: nodes[1],
+    run: nodes[2],
+  }
+}
+
+fn create_vfx_assets(effects: &mut Assets<EffectAsset>) -> VfxAssets {
+  VfxAssets {
+    player_aura: effects.add(create_actor_aura_effect(Vec4::new(0.2, 2.8, 5.0, 1.0))),
+    monster_aura: effects.add(create_actor_aura_effect(Vec4::new(5.0, 0.6, 0.25, 1.0))),
+    burst: effects.add(create_actor_burst_effect()),
+  }
+}
+
+fn create_actor_aura_effect(color: Vec4) -> EffectAsset {
+  let writer = ExprWriter::new();
+
+  let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+  let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(0.85).expr());
+  let init_position = SetPositionSphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    radius: writer.lit(12.0).expr(),
+    dimension: ShapeDimension::Surface,
+  };
+  let init_velocity = SetVelocitySphereModifier {
+    center: writer.lit(Vec3::Y * 2.0).expr(),
+    speed: writer.lit(4.0).expr(),
+  };
+  let update_accel = AccelModifier::new(writer.lit(Vec3::Y * 1.2).expr());
+
+  let mut color_gradient = bevy_hanabi::Gradient::new();
+  color_gradient.add_key(0.0, color);
+  color_gradient.add_key(0.65, color * Vec4::new(0.55, 0.55, 0.55, 0.6));
+  color_gradient.add_key(1.0, Vec4::ZERO);
+
+  let mut size_gradient = bevy_hanabi::Gradient::new();
+  size_gradient.add_key(0.0, Vec3::splat(2.5));
+  size_gradient.add_key(0.7, Vec3::splat(5.5));
+  size_gradient.add_key(1.0, Vec3::splat(0.1));
+
+  EffectAsset::new(2048, SpawnerSettings::rate(90.0.into()), writer.finish())
+    .with_name("actor_aura")
+    .init(init_position)
+    .init(init_velocity)
+    .init(init_age)
+    .init(init_lifetime)
+    .update(update_accel)
+    .render(ColorOverLifetimeModifier::new(color_gradient))
+    .render(SizeOverLifetimeModifier {
+      gradient: size_gradient,
+      screen_space_size: false,
+    })
+}
+
+fn create_actor_burst_effect() -> EffectAsset {
+  let writer = ExprWriter::new();
+
+  let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+  let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(0.55).expr());
+  let init_position = SetPositionSphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    radius: writer.lit(6.0).expr(),
+    dimension: ShapeDimension::Volume,
+  };
+  let init_velocity = SetVelocitySphereModifier {
+    center: writer.lit(Vec3::ZERO).expr(),
+    speed: writer.lit(55.0).expr(),
+  };
+  let update_drag = LinearDragModifier::new(writer.lit(4.5).expr());
+  let update_accel = AccelModifier::new(writer.lit(Vec3::Y * -3.0).expr());
+
+  let mut color_gradient = bevy_hanabi::Gradient::new();
+  color_gradient.add_key(0.0, Vec4::new(5.0, 4.0, 1.2, 1.0));
+  color_gradient.add_key(0.45, Vec4::new(2.5, 0.7, 0.3, 0.7));
+  color_gradient.add_key(1.0, Vec4::ZERO);
+
+  let mut size_gradient = bevy_hanabi::Gradient::new();
+  size_gradient.add_key(0.0, Vec3::splat(8.0));
+  size_gradient.add_key(0.45, Vec3::splat(3.5));
+  size_gradient.add_key(1.0, Vec3::splat(0.0));
+
+  EffectAsset::new(512, SpawnerSettings::once(96.0.into()), writer.finish())
+    .with_name("actor_burst")
+    .init(init_position)
+    .init(init_velocity)
+    .init(init_age)
+    .init(init_lifetime)
+    .update(update_drag)
+    .update(update_accel)
+    .render(ColorOverLifetimeModifier::new(color_gradient))
+    .render(SizeOverLifetimeModifier {
+      gradient: size_gradient,
+      screen_space_size: false,
+    })
 }
 
 fn spawn_static_scene(
@@ -345,20 +527,20 @@ fn sync_obstacle_meshes(
 fn sync_actor_meshes(
   mut commands: Commands,
   world: Res<ClientWorld>,
-  scene_assets: Res<SceneAssets>,
+  asset_server: Res<AssetServer>,
+  vfx_assets: Res<VfxAssets>,
   mut actors: Query<(
     Entity,
     &RemoteActor,
     &mut Transform,
-    &MeshMaterial3d<StandardMaterial>,
     Option<&mut Position>,
+    &mut ActorVisualState,
   )>,
-  mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
   let snapshot_ids: HashSet<u64> = world.actors.keys().copied().collect();
   let mut rendered_ids = HashSet::new();
 
-  for (entity, remote_actor, mut transform, material, physics_position) in &mut actors {
+  for (entity, remote_actor, mut transform, physics_position, mut visual_state) in &mut actors {
     let Some(actor) = world.actors.get(&remote_actor.id) else {
       commands.entity(entity).despawn();
       continue;
@@ -367,11 +549,11 @@ fn sync_actor_meshes(
     rendered_ids.insert(remote_actor.id);
     apply_actor_visual(
       actor,
-      world.local_actor_id,
       &mut transform,
-      material,
       physics_position,
-      &mut materials,
+      &mut visual_state,
+      &mut commands,
+      &vfx_assets,
     );
   }
 
@@ -380,21 +562,7 @@ fn sync_actor_meshes(
       continue;
     }
 
-    commands.spawn((
-      Mesh3d(scene_assets.cube_mesh.clone()),
-      MeshMaterial3d(materials.add(StandardMaterial {
-        base_color: actor_color(actor, world.local_actor_id),
-        perceptual_roughness: 0.72,
-        ..default()
-      })),
-      actor_transform(actor),
-      Position::new(actor_position(actor)),
-      RigidBody::Kinematic,
-      Collider::cuboid(1.0, 1.0, 1.0),
-      LinearVelocity::ZERO,
-      RemoteActor { id: actor.id },
-      Name::new("Remote Actor"),
-    ));
+    spawn_animated_actor(&mut commands, &asset_server, &vfx_assets, actor);
   }
 }
 
@@ -437,20 +605,177 @@ fn input_direction(keyboard: &ButtonInput<KeyCode>) -> Vec3 {
   direction.normalize_or_zero()
 }
 
+fn spawn_animated_actor(
+  commands: &mut Commands,
+  asset_server: &AssetServer,
+  vfx_assets: &VfxAssets,
+  actor: &ActorState,
+) {
+  let actor_kind = actor_kind(actor);
+  commands
+    .spawn((
+      actor_transform(actor, 0.0),
+      Position::new(actor_position(actor)),
+      RigidBody::Kinematic,
+      Collider::cuboid(
+        actor_size(actor).x,
+        actor_size(actor).y,
+        actor_size(actor).z,
+      ),
+      LinearVelocity::ZERO,
+      RemoteActor { id: actor.id },
+      ActorVisualState::new(actor),
+      Visibility::default(),
+      Name::new("Animated Remote Actor"),
+    ))
+    .with_children(|parent| {
+      parent
+        .spawn((
+          WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(FOX_GLTF_PATH))),
+          actor_model_transform(actor),
+          ActorAnimationBinding {
+            actor_id: actor.id,
+            initial_clip: desired_animation_clip(actor),
+          },
+          Name::new("Actor Skeleton"),
+        ))
+        .observe(configure_actor_animation_when_ready);
+
+      parent.spawn((
+        ParticleEffect::new(actor_aura_effect(vfx_assets, actor_kind)),
+        Transform::from_translation(Vec3::Y * actor_size(actor).y * 0.5),
+        Name::new("Actor Aura"),
+      ));
+    });
+
+  spawn_actor_burst(commands, vfx_assets, actor_effect_position(actor));
+}
+
+fn configure_actor_animation_when_ready(
+  scene_ready: On<WorldInstanceReady>,
+  mut commands: Commands,
+  animation_assets: Res<SkeletalAnimationAssets>,
+  children: Query<&Children>,
+  bindings: Query<&ActorAnimationBinding>,
+  mut players: Query<&mut AnimationPlayer>,
+) {
+  let Ok(binding) = bindings.get(scene_ready.entity) else {
+    return;
+  };
+
+  for child in children.iter_descendants(scene_ready.entity) {
+    let Ok(mut player) = players.get_mut(child) else {
+      continue;
+    };
+
+    let mut transitions = AnimationTransitions::new();
+    transitions
+      .play(
+        &mut player,
+        animation_node(&animation_assets, binding.initial_clip),
+        Duration::ZERO,
+      )
+      .repeat();
+
+    commands
+      .entity(child)
+      .insert(AnimationGraphHandle(animation_assets.graph.clone()))
+      .insert(transitions)
+      .insert(ActorAnimationPlayer {
+        actor_id: binding.actor_id,
+      });
+  }
+}
+
+fn sync_actor_animations(
+  world: Res<ClientWorld>,
+  animation_assets: Res<SkeletalAnimationAssets>,
+  mut players: Query<(
+    &ActorAnimationPlayer,
+    &mut AnimationPlayer,
+    &mut AnimationTransitions,
+  )>,
+) {
+  for (binding, mut player, mut transitions) in &mut players {
+    let Some(actor) = world.actors.get(&binding.actor_id) else {
+      continue;
+    };
+
+    let desired_clip = desired_animation_clip(actor);
+    let desired_node = animation_node(&animation_assets, desired_clip);
+    let current_node = player
+      .playing_animations()
+      .next()
+      .map(|(node_index, _)| *node_index);
+
+    if current_node != Some(desired_node) {
+      transitions
+        .play(
+          &mut player,
+          desired_node,
+          Duration::from_millis(ANIMATION_BLEND_MS),
+        )
+        .repeat();
+    }
+
+    if let Some(active_animation) = player.animation_mut(desired_node) {
+      active_animation.set_speed(animation_speed(actor, desired_clip));
+    }
+  }
+}
+
+fn actor_aura_effect(vfx_assets: &VfxAssets, actor_kind: ActorKind) -> Handle<EffectAsset> {
+  match actor_kind {
+    ActorKind::Player => vfx_assets.player_aura.clone(),
+    ActorKind::Monster | ActorKind::Unknown => vfx_assets.monster_aura.clone(),
+  }
+}
+
+fn spawn_actor_burst(commands: &mut Commands, vfx_assets: &VfxAssets, position: Vec3) {
+  commands.spawn((
+    ParticleEffect::new(vfx_assets.burst.clone()),
+    Transform::from_translation(position),
+    TimedEffect(Timer::from_seconds(1.2, TimerMode::Once)),
+    Name::new("Actor Burst VFX"),
+  ));
+}
+
+fn cleanup_timed_effects(
+  mut commands: Commands,
+  time: Res<Time>,
+  mut effects: Query<(Entity, &mut TimedEffect)>,
+) {
+  for (entity, mut effect) in &mut effects {
+    effect.0.tick(time.delta());
+    if effect.0.just_finished() {
+      commands.entity(entity).despawn();
+    }
+  }
+}
+
 fn apply_actor_visual(
   actor: &ActorState,
-  local_actor_id: Option<u64>,
   transform: &mut Transform,
-  material: &MeshMaterial3d<StandardMaterial>,
   physics_position: Option<Mut<Position>>,
-  materials: &mut Assets<StandardMaterial>,
+  visual_state: &mut ActorVisualState,
+  commands: &mut Commands,
+  vfx_assets: &VfxAssets,
 ) {
-  *transform = actor_transform(actor);
+  let position = actor_ground_position(actor);
+  let movement = position - visual_state.last_position;
+  if movement.xz().length_squared() > 1.0 {
+    visual_state.yaw = movement.x.atan2(movement.z);
+  }
+  visual_state.last_position = position;
+
+  *transform = actor_transform(actor, visual_state.yaw);
   if let Some(mut physics_position) = physics_position {
     physics_position.0 = actor_position(actor);
   }
-  if let Some(mut material) = materials.get_mut(&material.0) {
-    material.base_color = actor_color(actor, local_actor_id);
+
+  if actor.vfx_pulse != visual_state.last_vfx_pulse {
+    visual_state.last_vfx_pulse = actor.vfx_pulse;
+    spawn_actor_burst(commands, vfx_assets, actor_effect_position(actor));
   }
 }
 
@@ -462,25 +787,28 @@ fn actor_position(actor: &ActorState) -> Vec3 {
   Vec3::new(actor.x, actor.y, actor.z)
 }
 
-fn actor_transform(actor: &ActorState) -> Transform {
-  Transform::from_translation(actor_position(actor)).with_scale(actor_size(actor))
+fn actor_ground_position(actor: &ActorState) -> Vec3 {
+  Vec3::new(actor.x, 0.0, actor.z)
 }
 
-fn actor_color(actor: &ActorState, local_actor_id: Option<u64>) -> Color {
-  if Some(actor.id) == local_actor_id {
-    return Color::srgb(0.20, 0.70, 1.00);
-  }
+fn actor_effect_position(actor: &ActorState) -> Vec3 {
+  Vec3::new(actor.x, actor_size(actor).y * 0.5, actor.z)
+}
 
+fn actor_transform(actor: &ActorState, yaw: f32) -> Transform {
+  Transform::from_translation(actor_ground_position(actor))
+    .with_rotation(Quat::from_rotation_y(yaw))
+}
+
+fn actor_model_transform(actor: &ActorState) -> Transform {
+  Transform::from_scale(Vec3::splat(actor_model_scale(actor)))
+}
+
+fn actor_model_scale(actor: &ActorState) -> f32 {
   match actor_kind(actor) {
-    ActorKind::Player => Color::srgb(0.28, 0.86, 0.42),
-    ActorKind::Monster => {
-      if actor.blue <= 0 {
-        Color::srgb(0.28, 0.28, 0.30)
-      } else {
-        Color::srgb(0.90, 0.26, 0.22)
-      }
-    }
-    ActorKind::Unknown => Color::srgb(0.75, 0.75, 0.75),
+    ActorKind::Player => PLAYER_MODEL_SCALE,
+    ActorKind::Monster => MONSTER_MODEL_SCALE,
+    ActorKind::Unknown => PLAYER_MODEL_SCALE * 0.75,
   }
 }
 
@@ -489,6 +817,35 @@ fn actor_size(actor: &ActorState) -> Vec3 {
     ActorKind::Player => PLAYER_SIZE,
     ActorKind::Monster => MONSTER_SIZE,
     ActorKind::Unknown => Vec3::splat(18.0),
+  }
+}
+
+fn desired_animation_clip(actor: &ActorState) -> ActorAnimationClip {
+  if actor.blue <= 0 || actor.motion_speed <= 5.0 {
+    ActorAnimationClip::Survey
+  } else if actor.motion_speed >= 160.0 {
+    ActorAnimationClip::Run
+  } else {
+    ActorAnimationClip::Walk
+  }
+}
+
+fn animation_node(
+  animation_assets: &SkeletalAnimationAssets,
+  clip: ActorAnimationClip,
+) -> AnimationNodeIndex {
+  match clip {
+    ActorAnimationClip::Survey => animation_assets.survey,
+    ActorAnimationClip::Walk => animation_assets.walk,
+    ActorAnimationClip::Run => animation_assets.run,
+  }
+}
+
+fn animation_speed(actor: &ActorState, clip: ActorAnimationClip) -> f32 {
+  match clip {
+    ActorAnimationClip::Survey => 1.0,
+    ActorAnimationClip::Walk => (actor.motion_speed / 90.0).clamp(0.6, 1.4),
+    ActorAnimationClip::Run => (actor.motion_speed / 180.0).clamp(0.85, 2.2),
   }
 }
 

@@ -18,6 +18,7 @@ pub(crate) const MONSTER_ATTACK_RANGE: f32 = 44.0;
 const SNAPSHOT_SECONDS: f32 = 0.1;
 const COMBAT_TICK_SECONDS: f32 = 0.35;
 const MONSTER_DAMAGE: i32 = 8;
+const ANIMATION_STRIDE_LENGTH: f32 = 80.0;
 
 #[derive(Resource, Debug)]
 pub(crate) struct NextActorId(u64);
@@ -72,6 +73,26 @@ pub(crate) struct ActorType(pub(crate) ActorKind);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ArenaPosition(pub(crate) Vec3);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PreviousArenaPosition(pub(crate) Vec3);
+
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ActorPresentation {
+  pub(crate) animation_phase: f32,
+  pub(crate) motion_speed: f32,
+  pub(crate) vfx_pulse: u64,
+}
+
+impl ActorPresentation {
+  fn spawned() -> Self {
+    Self {
+      animation_phase: 0.0,
+      motion_speed: 0.0,
+      vfx_pulse: 1,
+    }
+  }
+}
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Vitals {
@@ -137,6 +158,8 @@ pub(crate) fn spawn_player(
       actor_id,
       ActorType(ActorKind::Player),
       ArenaPosition(position),
+      PreviousArenaPosition(position),
+      ActorPresentation::spawned(),
       Transform::from_translation(position),
       Position::new(position),
       RigidBody::Kinematic,
@@ -168,6 +191,24 @@ pub(crate) fn apply_player_movement(
   }
 }
 
+pub(crate) fn update_actor_presentation(
+  time: Res<Time>,
+  mut actors: Query<(
+    &ArenaPosition,
+    &mut PreviousArenaPosition,
+    &mut ActorPresentation,
+  )>,
+) {
+  let delta_secs = time.delta_secs().max(f32::EPSILON);
+  for (position, mut previous_position, mut presentation) in &mut actors {
+    let distance = horizontal_distance(previous_position.0, position.0);
+    presentation.motion_speed = distance / delta_secs;
+    presentation.animation_phase =
+      (presentation.animation_phase + distance / ANIMATION_STRIDE_LENGTH).fract();
+    previous_position.0 = position.0;
+  }
+}
+
 pub(crate) fn sync_actor_transforms(
   mut actors: Query<(&ArenaPosition, &mut Transform, Option<&mut Position>)>,
 ) {
@@ -184,14 +225,17 @@ pub(crate) fn resolve_combat(
   terrain_map: Res<TerrainMap>,
   mut combat_clock: ResMut<CombatClock>,
   monsters: Query<(&ArenaPosition, &Vitals), With<Monster>>,
-  mut players: Query<(&ArenaPosition, &mut Vitals), (With<Player>, Without<Monster>)>,
+  mut players: Query<
+    (&ArenaPosition, &mut Vitals, &mut ActorPresentation),
+    (With<Player>, Without<Monster>),
+  >,
 ) {
   combat_clock.0.tick(time.delta());
   if !combat_clock.0.just_finished() {
     return;
   }
 
-  for (player_position, mut player_vitals) in &mut players {
+  for (player_position, mut player_vitals, mut presentation) in &mut players {
     if player_vitals.blue <= 0 {
       continue;
     }
@@ -206,7 +250,11 @@ pub(crate) fn resolve_combat(
       .count() as i32;
 
     if attackers > 0 {
+      let previous_blue = player_vitals.blue;
       player_vitals.blue = (player_vitals.blue - attackers * MONSTER_DAMAGE).max(0);
+      if player_vitals.blue < previous_blue {
+        presentation.vfx_pulse = presentation.vfx_pulse.saturating_add(1);
+      }
     }
   }
 }
@@ -216,6 +264,7 @@ pub(crate) fn actor_state(
   actor_type: ActorType,
   position: ArenaPosition,
   vitals: Vitals,
+  presentation: ActorPresentation,
 ) -> ActorState {
   ActorState {
     id: actor_id.0,
@@ -225,6 +274,9 @@ pub(crate) fn actor_state(
     z: position.0.z,
     red: vitals.red,
     blue: vitals.blue,
+    animation_phase: presentation.animation_phase,
+    motion_speed: presentation.motion_speed,
+    vfx_pulse: presentation.vfx_pulse,
   }
 }
 
@@ -241,6 +293,8 @@ fn spawn_monster(
     actor_id,
     ActorType(ActorKind::Monster),
     ArenaPosition(position),
+    PreviousArenaPosition(position),
+    ActorPresentation::spawned(),
     Transform::from_translation(position),
     Position::new(position),
     RigidBody::Kinematic,

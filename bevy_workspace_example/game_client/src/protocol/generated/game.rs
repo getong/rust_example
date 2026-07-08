@@ -92,6 +92,12 @@ pub struct ActorState {
     pub red: i32,
     #[prost(int32, tag = "7")]
     pub blue: i32,
+    #[prost(float, tag = "8")]
+    pub animation_phase: f32,
+    #[prost(float, tag = "9")]
+    pub motion_speed: f32,
+    #[prost(uint64, tag = "10")]
+    pub vfx_pulse: u64,
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Pong {

@@ -9,11 +9,17 @@ anyhow.workspace = true
 avian3d.workspace = true
 bevior_tree.workspace = true
 bevy = { workspace = true, features = ["bevy_log", "std"] }
+bevy_animation_graph = { workspace = true, optional = true }
 bevy_ecs.workspace = true
+bevy_hanabi = { workspace = true, optional = true }
 lightyear = { workspace = true, features = ["std", "server", "udp", "netcode"] }
 prost.workspace = true
 serde.workspace = true
 tokio.workspace = true
+
+[features]
+default = []
+visual-effects = ["dep:bevy_animation_graph", "dep:bevy_hanabi"]
 
 [build-dependencies]
 prost-build.workspace = true

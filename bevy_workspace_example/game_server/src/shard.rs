@@ -10,8 +10,8 @@ use tokio::sync::mpsc;
 use crate::{
   behavior,
   game::{
-    self, ActorId, ActorType, ArenaPosition, NextActorId, PlayerInputState, ServerTick,
-    SnapshotClock, Vitals, actor_state, spawn_player,
+    self, ActorId, ActorPresentation, ActorType, ArenaPosition, NextActorId, PlayerInputState,
+    ServerTick, SnapshotClock, Vitals, actor_state, spawn_player,
   },
   protocol::{
     ClientEnvelope, ServerEnvelope, Welcome, WorldSnapshot, client_envelope, server_envelope,
@@ -115,7 +115,8 @@ fn run_shard_app(
         game::apply_player_movement.before(BehaviorTreeSystemSet::Update),
         behavior::move_chasing_monsters.after(BehaviorTreeSystemSet::Update),
         game::sync_actor_transforms.after(behavior::move_chasing_monsters),
-        game::resolve_combat.after(game::sync_actor_transforms),
+        game::update_actor_presentation.after(game::sync_actor_transforms),
+        game::resolve_combat.after(game::update_actor_presentation),
         broadcast_shard_snapshots.after(game::resolve_combat),
       ),
     )
@@ -185,7 +186,13 @@ fn broadcast_shard_snapshots(
   level_map: Res<LevelMap>,
   gateway: Res<GatewaySender>,
   clients: Res<ShardClients>,
-  actors: Query<(&ActorId, &ActorType, &ArenaPosition, &Vitals)>,
+  actors: Query<(
+    &ActorId,
+    &ActorType,
+    &ArenaPosition,
+    &Vitals,
+    &ActorPresentation,
+  )>,
 ) {
   clock.0.tick(time.delta());
   if !clock.0.just_finished() {
@@ -196,7 +203,9 @@ fn broadcast_shard_snapshots(
     tick: tick.0,
     actors: actors
       .iter()
-      .map(|(id, kind, position, vitals)| actor_state(*id, *kind, *position, *vitals))
+      .map(|(id, kind, position, vitals, presentation)| {
+        actor_state(*id, *kind, *position, *vitals, *presentation)
+      })
       .collect(),
     map: Some(map_state(&level_map)),
   };

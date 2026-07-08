@@ -55,6 +55,9 @@ message ActorState {
   float z = 5;
   int32 red = 6;
   int32 blue = 7;
+  float animation_phase = 8;
+  float motion_speed = 9;
+  uint64 vfx_pulse = 10;
 }
 
 message Pong {
