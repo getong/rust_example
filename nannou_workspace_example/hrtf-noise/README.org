@@ -1,0 +1,3 @@
+* hrtf-noise
+
+copy assets directory from https://github.com/nannou-org/nannou/tree/master/examples/assets/hrir
