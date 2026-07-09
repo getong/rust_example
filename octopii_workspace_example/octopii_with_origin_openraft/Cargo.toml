@@ -8,8 +8,8 @@ bincode = "=1"
 bytes = "1.10"
 futures = "0.3"
 octopii = { git = "https://github.com/octopii-rs/octopii", rev = "b54c112d7db7ed1195dd4f600b4b786df85c8e7e" }
-openraft = { version = "=0.10.0-alpha.27", default-features = false, features = ["serde", "tokio-rt", "type-alias"] }
-openraft-multi = "=0.10.0-alpha.27"
+openraft = { version = "=0.10.0-alpha.28", default-features = false, features = ["serde", "tokio-rt", "type-alias"] }
+openraft-multi = "=0.10.0-alpha.28"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.52.3", features = ["full"] }
