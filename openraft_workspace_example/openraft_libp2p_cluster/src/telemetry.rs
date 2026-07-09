@@ -19,7 +19,11 @@ pub fn init_tracing(tokio_console: bool) {
       .with_filter(env_filter());
 
     tracing_subscriber::registry()
-      .with(console_subscriber::spawn())
+      .with(
+        console_subscriber::ConsoleLayer::builder()
+          .with_default_env()
+          .spawn(),
+      )
       .with(fmt_layer)
       .init();
 

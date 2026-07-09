@@ -51,6 +51,11 @@ REDIS_URL="${REDIS_URL:-redis://127.0.0.1:${REDIS_PORT}/}"
 DISABLE_SQLITE_CACHE="${DISABLE_SQLITE_CACHE:-0}"
 AUTO_START_REDIS="${AUTO_START_REDIS:-auto}"
 MAX_CONTROL_NODES="${MAX_CONTROL_NODES:-5}"
+NODE1_TOKIO_CONSOLE_BIND="${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
+NODE2_TOKIO_CONSOLE_BIND="${NODE2_TOKIO_CONSOLE_BIND:-127.0.0.1:6670}"
+NODE3_TOKIO_CONSOLE_BIND="${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
+NODE4_TOKIO_CONSOLE_BIND="${NODE4_TOKIO_CONSOLE_BIND:-127.0.0.1:6672}"
+NODE5_TOKIO_CONSOLE_BIND="${NODE5_TOKIO_CONSOLE_BIND:-127.0.0.1:6673}"
 REDIS_DIR="${REDIS_DIR:-$DB_ROOT/redis}"
 REDIS_LOG="${REDIS_LOG:-$DB_ROOT/logs/redis.log}"
 REDIS_SERVER_BIN="${REDIS_SERVER_BIN:-}"
@@ -108,6 +113,44 @@ append_unique() {
 		printf '%s' "$list,$value"
 	fi
 }
+
+console_bind_port() {
+	local bind="$1"
+	if [[ "$bind" =~ :([0-9]+)$ ]]; then
+		printf '%s' "${BASH_REMATCH[1]}"
+	else
+		printf '%s' "$bind"
+	fi
+}
+
+ensure_unique_tokio_console_binds() {
+	local labels=(node1 node2 node3 node4 node5)
+	local binds=(
+		"$NODE1_TOKIO_CONSOLE_BIND"
+		"$NODE2_TOKIO_CONSOLE_BIND"
+		"$NODE3_TOKIO_CONSOLE_BIND"
+		"$NODE4_TOKIO_CONSOLE_BIND"
+		"$NODE5_TOKIO_CONSOLE_BIND"
+	)
+	local seen_ports=()
+	local i
+	local j
+	local port
+
+	for i in "${!binds[@]}"; do
+		port="$(console_bind_port "${binds[$i]}")"
+		for j in "${!seen_ports[@]}"; do
+			if [[ "$port" == "${seen_ports[$j]}" ]]; then
+				echo "Error: ${labels[$j]} and ${labels[$i]} use the same tokio-console port ($port)." >&2
+				echo "Hint: set NODE$((i + 1))_TOKIO_CONSOLE_BIND to a different HOST:PORT." >&2
+				exit 1
+			fi
+		done
+		seen_ports+=("$port")
+	done
+}
+
+ensure_unique_tokio_console_binds
 
 detect_primary_ip() {
 	if command -v ipconfig >/dev/null 2>&1; then
@@ -423,13 +466,16 @@ start_node() {
 	local name="$1"
 	local script="$2"
 	local log="$3"
+	local console_var="$4"
+	local console_bind="${!console_var}"
 
-	"$script" &
+	env "$console_var=$console_bind" TOKIO_CONSOLE_BIND="$console_bind" "$script" &
 	local pid=$!
 	NODE_PIDS+=("$pid")
 	NODE_NAMES+=("$name")
 	NODE_LOGS+=("$log")
 	echo "$name process pid: $pid"
+	echo "$name tokio-console: $console_bind"
 }
 
 trap 'cleanup 130' INT
@@ -450,17 +496,17 @@ export SKIP_BUILD=1
 echo "Starting 5 nodes (Ctrl-C to stop)..."
 echo "Max control nodes: $MAX_CONTROL_NODES"
 echo "Tokio console:"
-echo "  node1: ${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
-echo "  node2: ${NODE2_TOKIO_CONSOLE_BIND:-127.0.0.1:6670}"
-echo "  node3: ${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
-echo "  node4: ${NODE4_TOKIO_CONSOLE_BIND:-127.0.0.1:6672}"
-echo "  node5: ${NODE5_TOKIO_CONSOLE_BIND:-127.0.0.1:6673}"
+echo "  node1: $NODE1_TOKIO_CONSOLE_BIND"
+echo "  node2: $NODE2_TOKIO_CONSOLE_BIND"
+echo "  node3: $NODE3_TOKIO_CONSOLE_BIND"
+echo "  node4: $NODE4_TOKIO_CONSOLE_BIND"
+echo "  node5: $NODE5_TOKIO_CONSOLE_BIND"
 echo "Connect with:"
-echo "  tokio-console http://${NODE1_TOKIO_CONSOLE_BIND:-127.0.0.1:6669}"
-echo "  tokio-console http://${NODE2_TOKIO_CONSOLE_BIND:-127.0.0.1:6670}"
-echo "  tokio-console http://${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
-echo "  tokio-console http://${NODE4_TOKIO_CONSOLE_BIND:-127.0.0.1:6672}"
-echo "  tokio-console http://${NODE5_TOKIO_CONSOLE_BIND:-127.0.0.1:6673}"
+echo "  tokio-console http://$NODE1_TOKIO_CONSOLE_BIND"
+echo "  tokio-console http://$NODE2_TOKIO_CONSOLE_BIND"
+echo "  tokio-console http://$NODE3_TOKIO_CONSOLE_BIND"
+echo "  tokio-console http://$NODE4_TOKIO_CONSOLE_BIND"
+echo "  tokio-console http://$NODE5_TOKIO_CONSOLE_BIND"
 echo "Cluster graph:"
 echo "  http://${NODE1_HTTP:-127.0.0.1:3001}/graph"
 echo "  http://${NODE2_HTTP:-127.0.0.1:3002}/graph"
@@ -472,26 +518,26 @@ echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
 echo "  DB_ROOT=$DB_ROOT ./join-4workers.sh"
 
-start_node node1 "$ROOT_DIR/run-node1.sh" "$DB_ROOT/logs/node1.log"
+start_node node1 "$ROOT_DIR/run-node1.sh" "$DB_ROOT/logs/node1.log" NODE1_TOKIO_CONSOLE_BIND
 
 # Give node1 a moment to start listening.
 sleep 1
 
-start_node node2 "$ROOT_DIR/run-node2.sh" "$DB_ROOT/logs/node2.log"
+start_node node2 "$ROOT_DIR/run-node2.sh" "$DB_ROOT/logs/node2.log" NODE2_TOKIO_CONSOLE_BIND
 
 # Give node2 a moment to start listening.
 sleep 1
 
-start_node node3 "$ROOT_DIR/run-node3.sh" "$DB_ROOT/logs/node3.log"
+start_node node3 "$ROOT_DIR/run-node3.sh" "$DB_ROOT/logs/node3.log" NODE3_TOKIO_CONSOLE_BIND
 
 # Give node3 a moment to start listening.
 sleep 1
 
-start_node node4 "$ROOT_DIR/run-node4.sh" "$DB_ROOT/logs/node4.log"
+start_node node4 "$ROOT_DIR/run-node4.sh" "$DB_ROOT/logs/node4.log" NODE4_TOKIO_CONSOLE_BIND
 
 # Give node4 a moment to start listening.
 sleep 1
 
-start_node node5 "$ROOT_DIR/run-node5.sh" "$DB_ROOT/logs/node5.log"
+start_node node5 "$ROOT_DIR/run-node5.sh" "$DB_ROOT/logs/node5.log" NODE5_TOKIO_CONSOLE_BIND
 
 wait_for_nodes

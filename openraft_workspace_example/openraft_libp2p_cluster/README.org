@@ -10,7 +10,7 @@ Five-node local runs use the legacy =./run-3nodes.sh= launcher and enable
 to avoid conflicts:
 
 #+begin_src shell
-./run-3nodes.sh
+./run-5nodes.sh
 
 tokio-console http://127.0.0.1:6669 # node1
 tokio-console http://127.0.0.1:6670 # node2
@@ -111,7 +111,7 @@ task state is acknowledged back through the Raft-backed KV protocol.
 Start the five-node control plane:
 
 #+begin_src shell
-./run-3nodes.sh
+./run-5nodes.sh
 #+end_src
 
 Start one or more external workers after copying the printed =DB_ROOT=:
