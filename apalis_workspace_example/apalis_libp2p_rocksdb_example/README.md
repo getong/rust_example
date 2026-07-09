@@ -3,7 +3,7 @@
 This is a small distributed task scheduling demo.
 
 - `libp2p request-response` sends tasks from a scheduler node to worker nodes.
-- `apalis` runs received tasks through a local worker backend.
+- `apalis` runs received tasks through a RocksDB-backed worker backend.
 - `RocksDB` stores task state in column families, following the same style as the referenced `raft_kv_rocksdb` example.
 
 ## Architecture
@@ -17,9 +17,10 @@ scheduler
 worker
   registers with scheduler
   receives run requests over libp2p
-  pushes WorkerJob into a local Apalis backend
-  stores Received/Running/Completed in ./data/worker
-  returns TaskResponse to scheduler
+  stores Received tasks in ./data/worker
+  lets the Apalis RocksDB backend claim Received tasks as Running
+  stores Completed/Failed results in ./data/worker
+  returns TaskResponse to scheduler from the stored terminal record
 ```
 
 The RocksDB schema uses two column families:
@@ -50,7 +51,7 @@ cargo run -- worker \
   --scheduler '<scheduler-peer-id>@/ip4/127.0.0.1/tcp/7000'
 ```
 
-The scheduler queues tasks until a worker connects, then dispatches queued tasks round-robin across connected workers.
+The scheduler queues tasks until a worker connects, then dispatches queued tasks round-robin across connected workers. Each worker persists inbound tasks before Apalis consumes them, so worker-side inspection shows the queue state as `received`, `running`, or `completed`.
 
 ## Add Tasks
 
@@ -112,7 +113,7 @@ cargo run -- list-running --db ./data/scheduler
 cargo run -- list-running --db ./data/worker
 ```
 
-`list-running` is intentionally narrow: scheduler records are active while `Assigned`; worker records are active while `Running`. This demo task sleeps for only about 750 ms, so `list-running` often returns `[]` after the task has already completed. Use `list --status completed` or plain `list` to see completed history.
+`list-running` reports active records. Scheduler records are active while `Assigned`; worker records are active while `Received` or `Running`. This demo task sleeps for only about 750 ms, so `list-running` often returns `[]` after the task has already completed. Use `list --status completed` or plain `list` to see completed history.
 
 `show`, `list`, and `list-running` open RocksDB in read-only mode, so they can inspect a database while the scheduler or worker process is still running.
 
@@ -154,6 +155,6 @@ cargo run -- list-running --db ./data/worker
 
 ## Notes
 
-This demo models at-least-once delivery. Failed outbound requests are queued again, and task IDs are stable so a production version can add idempotency checks before execution.
+This demo models at-least-once delivery. Failed outbound requests are queued again, and task IDs are stable so a production version can add idempotency checks before execution. The RocksDB backend claims worker tasks by moving them from `Received` to `Running` before yielding them to Apalis.
 
 On macOS, `rocksdb` may need `libclang` during the native build. This repo includes `.cargo/config.toml` pointing at the Command Line Tools `libclang.dylib`; adjust `LIBCLANG_PATH` there if your Xcode/LLVM installation is elsewhere.

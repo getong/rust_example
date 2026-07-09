@@ -1,14 +1,10 @@
 use std::{
   fmt,
-  sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-  },
+  sync::atomic::{AtomicU64, Ordering},
 };
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, oneshot};
 
 static GENERATED_TASK_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -153,26 +149,5 @@ impl TaskRecord {
       output: None,
       updated_at: Utc::now().timestamp_millis(),
     }
-  }
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkerJob {
-  pub task: DistributedTask,
-  pub reply: SharedReply,
-}
-
-#[derive(Debug, Clone)]
-pub struct SharedReply(Arc<Mutex<Option<oneshot::Sender<TaskResponse>>>>);
-
-impl SharedReply {
-  #[must_use]
-  pub fn new(sender: oneshot::Sender<TaskResponse>) -> Self {
-    Self(Arc::new(Mutex::new(Some(sender))))
-  }
-
-  pub async fn send(&self, response: TaskResponse) -> bool {
-    let sender = self.0.lock().await.take();
-    sender.is_some_and(|sender| sender.send(response).is_ok())
   }
 }

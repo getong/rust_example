@@ -1,6 +1,6 @@
-mod local_backend;
 mod model;
 mod network;
+mod rocksdb_backend;
 mod store;
 mod worker;
 
@@ -129,15 +129,9 @@ async fn run_scheduler(
   interval: Duration,
 ) -> Result<()> {
   let store = TaskStore::open(&db_path)?;
-  let node = spawn_network(
-    NetworkRole::Scheduler,
-    listen,
-    Vec::new(),
-    store.clone(),
-    None,
-  )
-  .await
-  .context("starting scheduler network")?;
+  let node = spawn_network(NetworkRole::Scheduler, listen, Vec::new(), store.clone())
+    .await
+    .context("starting scheduler network")?;
 
   info!(peer_id = %node.peer_id, "scheduler started");
   info!("start a worker with --scheduler <peer_id>@<listen-address> from the log above");
@@ -188,18 +182,12 @@ async fn run_worker(
   scheduler: PeerAddress,
 ) -> Result<()> {
   let store = TaskStore::open(&db_path)?;
-  let worker_tx = worker::spawn_worker(name.clone(), store.clone())
+  worker::spawn_worker(name.clone(), store.clone())
     .await
     .context("starting apalis worker")?;
-  let node = spawn_network(
-    NetworkRole::Worker,
-    listen,
-    vec![scheduler],
-    store,
-    Some(worker_tx),
-  )
-  .await
-  .context("starting worker network")?;
+  let node = spawn_network(NetworkRole::Worker, listen, vec![scheduler], store)
+    .await
+    .context("starting worker network")?;
 
   info!(peer_id = %node.peer_id, %name, "worker started");
   tokio::signal::ctrl_c()

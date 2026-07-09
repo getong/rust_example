@@ -86,7 +86,12 @@ impl TaskStore {
   }
 
   pub fn list_active(&self) -> Result<Vec<TaskRecord>> {
-    self.list_where(|record| matches!(record.status, TaskStatus::Assigned | TaskStatus::Running))
+    self.list_where(|record| {
+      matches!(
+        record.status,
+        TaskStatus::Assigned | TaskStatus::Received | TaskStatus::Running
+      )
+    })
   }
 
   pub fn list_all(&self) -> Result<Vec<TaskRecord>> {
@@ -125,6 +130,35 @@ impl TaskStore {
       .put_cf(self.meta_cf()?, key.as_bytes(), value)
       .context("writing node event")?;
     Ok(())
+  }
+
+  pub fn claim_next_received(&self, node: &str) -> Result<Option<DistributedTask>> {
+    let mut read_opts = ReadOptions::default();
+    read_opts.set_total_order_seek(true);
+    let iter = self
+      .db
+      .iterator_cf_opt(self.tasks_cf()?, read_opts, IteratorMode::Start);
+
+    for item in iter {
+      let (_, value) = item.context("reading task iterator item")?;
+      let mut record: TaskRecord =
+        serde_json::from_slice(&value).context("deserializing task record from iterator")?;
+
+      if record.status != TaskStatus::Received {
+        continue;
+      }
+
+      record.status = TaskStatus::Running;
+      record.node = Some(node.to_owned());
+      record.output = Some("running in apalis".to_string());
+      record.updated_at = Utc::now().timestamp_millis();
+
+      let task = record.task.clone();
+      self.put_record(&record)?;
+      return Ok(Some(task));
+    }
+
+    Ok(None)
   }
 
   fn put_record(&self, record: &TaskRecord) -> Result<()> {

@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-  model::{DistributedTask, SharedReply, TaskRequest, TaskResponse, WorkerJob},
+  model::{DistributedTask, TaskRecord, TaskRequest, TaskResponse, TaskStatus},
   store::TaskStore,
 };
 
@@ -45,7 +45,6 @@ pub async fn spawn_network(
   listen: Multiaddr,
   bootnodes: Vec<PeerAddress>,
   store: TaskStore,
-  worker_tx: Option<mpsc::Sender<WorkerJob>>,
 ) -> Result<NetworkNode> {
   let mut swarm = build_swarm()?;
   let peer_id = *swarm.local_peer_id();
@@ -64,7 +63,6 @@ pub async fn spawn_network(
     swarm,
     command_rx,
     store,
-    worker_tx,
     workers: Vec::new(),
     next_worker: 0,
     pending: HashMap::new(),
@@ -166,7 +164,6 @@ struct NetworkRunner {
   swarm: Swarm<TaskBehaviour>,
   command_rx: mpsc::Receiver<NetworkCommand>,
   store: TaskStore,
-  worker_tx: Option<mpsc::Sender<WorkerJob>>,
   workers: Vec<PeerId>,
   next_worker: usize,
   pending: HashMap<request_response::OutboundRequestId, DistributedTask>,
@@ -423,34 +420,18 @@ impl NetworkRunner {
       return Ok(());
     }
 
-    let Some(worker_tx) = &self.worker_tx else {
-      let response = TaskResponse::rejected(
-        task.id,
-        "this node is not running a worker".to_string(),
-        self.swarm.local_peer_id().to_string(),
-      );
-      let _ = self
-        .swarm
-        .behaviour_mut()
-        .request_response
-        .send_response(channel, response);
-      return Ok(());
-    };
-
     info!(task_id = %task.id, %peer, "received task");
-    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    if worker_tx
-      .send(WorkerJob {
-        task: task.clone(),
-        reply: SharedReply::new(reply_tx),
-      })
-      .await
-      .is_err()
-    {
+    let local_peer_id = self.swarm.local_peer_id().to_string();
+    if let Err(err) = self.store.put_status(
+      &task,
+      TaskStatus::Received,
+      Some(local_peer_id.clone()),
+      Some(format!("received from {peer}")),
+    ) {
       let response = TaskResponse::rejected(
         task.id,
-        "worker queue closed".to_string(),
-        self.swarm.local_peer_id().to_string(),
+        format!("failed to persist worker task: {err}"),
+        local_peer_id,
       );
       let _ = self
         .swarm
@@ -460,14 +441,8 @@ impl NetworkRunner {
       return Ok(());
     }
 
-    let response = match reply_rx.await {
-      Ok(response) => response,
-      Err(_) => TaskResponse::rejected(
-        task.id,
-        "worker dropped task response".to_string(),
-        self.swarm.local_peer_id().to_string(),
-      ),
-    };
+    let response =
+      wait_for_task_result(self.store.clone(), task.id.clone(), local_peer_id.clone()).await;
 
     if self
       .swarm
@@ -528,6 +503,59 @@ impl NetworkRunner {
         output = %response.output,
         "task finished"
     );
+  }
+}
+
+async fn wait_for_task_result(
+  store: TaskStore,
+  task_id: String,
+  fallback_worker: String,
+) -> TaskResponse {
+  let result = tokio::time::timeout(
+    Duration::from_secs(55),
+    wait_for_terminal_record(store, task_id.clone()),
+  )
+  .await;
+
+  match result {
+    Ok(Ok(record)) => response_from_record(record, fallback_worker),
+    Ok(Err(err)) => TaskResponse::rejected(
+      task_id,
+      format!("failed to read worker result: {err}"),
+      fallback_worker,
+    ),
+    Err(_) => TaskResponse::rejected(
+      task_id,
+      "timed out waiting for apalis result".to_string(),
+      fallback_worker,
+    ),
+  }
+}
+
+async fn wait_for_terminal_record(store: TaskStore, task_id: String) -> Result<TaskRecord> {
+  loop {
+    if let Some(record) = store.get(&task_id)? {
+      if matches!(record.status, TaskStatus::Completed | TaskStatus::Failed) {
+        return Ok(record);
+      }
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+  }
+}
+
+fn response_from_record(record: TaskRecord, fallback_worker: String) -> TaskResponse {
+  let output = record.output.unwrap_or_default();
+  let worker = record.node.unwrap_or(fallback_worker);
+
+  match record.status {
+    TaskStatus::Completed => TaskResponse::accepted(record.task.id, output, worker),
+    TaskStatus::Failed => TaskResponse::rejected(record.task.id, output, worker),
+    _ => TaskResponse::rejected(
+      record.task.id,
+      "task did not reach a terminal state".to_string(),
+      worker,
+    ),
   }
 }
 
