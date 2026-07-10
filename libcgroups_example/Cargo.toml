@@ -1,0 +1,9 @@
+[package]
+name = "libcgroups_example"
+version = "0.1.0"
+edition = "2024"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libcgroups = "0.6.0"
+nix = { version = "0.29.0", features = ["process"] }
+oci-spec = { version = "0.9.0", features = ["runtime"] }
