@@ -8,6 +8,7 @@ mod linux {
   use std::{
     env,
     error::Error,
+    io::ErrorKind,
     path::{Path, PathBuf},
     process::{Child, Command},
     thread,
@@ -15,7 +16,7 @@ mod linux {
   };
 
   use libcgroups::common::{
-    CgroupConfig, CgroupManager, ControllerOpt, create_cgroup_manager_with_root,
+    CgroupConfig, CgroupManager, ControllerOpt, WrappedIoError, create_cgroup_manager_with_root,
     get_cgroup_setup_with_root,
   };
   use nix::unistd::Pid;
@@ -46,7 +47,13 @@ mod linux {
 
     match command.as_deref() {
       None | Some("inspect") => print_inspect_hint(),
-      Some("demo") => run_demo(&root)?,
+      Some("demo") => match run_demo(&root) {
+        Ok(()) => {}
+        Err(error) if has_cgroup_io_error_kind(error.as_ref(), ErrorKind::PermissionDenied) => {
+          print_permission_hint(&root, error.as_ref());
+        }
+        Err(error) => return Err(error),
+      },
       Some(other) => {
         return Err(
           format!("未知命令 {other:?}；用法：cargo run -- [inspect | demo [CGROUP_ROOT]]").into(),
@@ -70,6 +77,31 @@ mod linux {
       "当前是只读的 inspect 模式，没有创建或修改 cgroup。\n要运行资源限制演示，请执行：cargo run \
        -- demo\n该操作需要 Linux cgroup 的写权限（通常是 root 或已委派的 cgroup 子树）。"
     );
+  }
+
+  fn print_permission_hint(root: &Path, error: &(dyn Error + 'static)) {
+    println!(
+      "\n演示未完成：当前进程没有权限修改 {}。\nlibcgroups 返回：{error}\n当前仍可使用只读的 \
+       inspect 模式。若要实际创建 cgroup，请使用 root 运行已编译的程序，或把已委派且可写的 cgroup \
+       子树作为 CGROUP_ROOT 传入。",
+      root.display(),
+    );
+  }
+
+  fn has_cgroup_io_error_kind(mut error: &(dyn Error + 'static), kind: ErrorKind) -> bool {
+    loop {
+      if error
+        .downcast_ref::<WrappedIoError>()
+        .is_some_and(|error| error.inner().kind() == kind)
+      {
+        return true;
+      }
+
+      match error.source() {
+        Some(source) => error = source,
+        None => return false,
+      }
+    }
   }
 
   fn run_demo(root: &Path) -> Result<()> {
@@ -155,6 +187,37 @@ mod linux {
     );
 
     Ok(())
+  }
+
+  #[cfg(test)]
+  mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_permission_denied_in_wrapped_io_error() {
+      let error = WrappedIoError::Open {
+        err: std::io::Error::from(ErrorKind::PermissionDenied),
+        path: PathBuf::from("/sys/fs/cgroup/cgroup.subtree_control"),
+      };
+
+      assert!(has_cgroup_io_error_kind(
+        &error,
+        ErrorKind::PermissionDenied
+      ));
+    }
+
+    #[test]
+    fn does_not_treat_other_io_errors_as_permission_denied() {
+      let error = WrappedIoError::Open {
+        err: std::io::Error::from(ErrorKind::NotFound),
+        path: PathBuf::from("/missing/cgroup.subtree_control"),
+      };
+
+      assert!(!has_cgroup_io_error_kind(
+        &error,
+        ErrorKind::PermissionDenied
+      ));
+    }
   }
 }
 
