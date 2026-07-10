@@ -5,12 +5,12 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8"
-dioxus = { version = "0.7.3", features = ["ssr"] }
-dioxus-ssr = "0.7.3"
-http = "1.4.0"
-tokio = { version = "1.50", features = ["full"] }
-tower-http = { version = "0.6.8", features = ["fs"] }
-web-sys = { version = "0.3.91", features = [
+dioxus = { version = "0.7.9", features = ["ssr"] }
+dioxus-ssr = "0.7.9"
+http = "1.4.2"
+tokio = { version = "1.52", features = ["full"] }
+tower-http = { version = "0.7.0", features = ["fs"] }
+web-sys = { version = "0.3.103", features = [
   "Document",
   "console",
   "HtmlDocument",

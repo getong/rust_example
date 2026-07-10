@@ -5,13 +5,13 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.7.3", features = ["router", "fullstack"] }
-dioxus-ssr = "0.7.3"
+dioxus = { version = "0.7.9", features = ["router", "fullstack"] }
+dioxus-ssr = "0.7.9"
 tokio = { version = "1", features = ["full"], optional = true }
-web-sys = { version = "0.3.91", features = ["console"], optional = true }
+web-sys = { version = "0.3.103", features = ["console"], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-dioxus-desktop = "0.7.3"
+dioxus-desktop = "0.7.9"
 
 [features]
 default = ["web"]
