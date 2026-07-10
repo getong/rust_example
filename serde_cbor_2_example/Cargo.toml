@@ -1,0 +1,9 @@
+[package]
+name = "serde_cbor_2_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_cbor_2 = "0.13.0"
+tempfile = "3.27.0"
