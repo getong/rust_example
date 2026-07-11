@@ -7,7 +7,10 @@ use crate::{
   NodeId,
   network::{
     dispatcher::SwarmRequestDispatcher,
-    rpc::{JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    rpc::{
+      AddLearnerRequest, AddLearnerRpcResponse, JoinClusterRequest, JoinClusterResponse, RaftRpcOp,
+      RaftRpcRequest, RaftRpcResponse,
+    },
   },
   openraft_group,
   proto::raft_kv::{
@@ -308,6 +311,10 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
       let res = handle_join_cluster(raft, req).await;
       RaftRpcResponse::JoinCluster(res)
     }
+    RaftRpcOp::AddLearner(req) => {
+      let res = handle_add_learner(raft, req).await;
+      RaftRpcResponse::AddLearner(res)
+    }
     RaftRpcOp::FullSnapshot { vote, meta, data } => {
       let snapshot = Snapshot {
         meta,
@@ -323,6 +330,50 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
 
       RaftRpcResponse::FullSnapshot(res)
     }
+  }
+}
+
+async fn handle_add_learner(raft: Raft, req: AddLearnerRequest) -> AddLearnerRpcResponse {
+  let (is_leader, leader_id, leader_addr) = {
+    let metrics_rx = raft.metrics();
+    let metrics = metrics_rx.borrow_watched();
+    let leader_addr = metrics.current_leader.as_ref().and_then(|leader_id| {
+      metrics
+        .membership_config
+        .membership()
+        .get_node(leader_id)
+        .map(|node| node.addr.clone())
+    });
+    (
+      metrics.state.is_leader(),
+      metrics.current_leader.clone(),
+      leader_addr,
+    )
+  };
+
+  if !is_leader {
+    return AddLearnerRpcResponse {
+      ok: false,
+      leader_id,
+      leader_addr,
+      error: Some("add_learner must be submitted to the leader node".to_string()),
+    };
+  }
+
+  let node = BasicNode { addr: req.addr };
+  match raft.add_learner(req.node_id.clone(), node, false).await {
+    Ok(_) => AddLearnerRpcResponse {
+      ok: true,
+      leader_id,
+      leader_addr,
+      error: None,
+    },
+    Err(err) => AddLearnerRpcResponse {
+      ok: false,
+      leader_id,
+      leader_addr,
+      error: Some(format!("add_learner failed: {err:?}")),
+    },
   }
 }
 

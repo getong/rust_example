@@ -22,6 +22,7 @@ pub enum RaftRpcOp {
   ClientWrite(RocksRequest),
   GetMetrics,
   JoinCluster(JoinClusterRequest),
+  AddLearner(AddLearnerRequest),
   FullSnapshot {
     vote: Vote,
     meta: SnapshotMeta,
@@ -36,8 +37,26 @@ pub enum RaftRpcResponse {
   ClientWrite(Result<ClientWriteResponse, RaftError<ClientWriteError>>),
   GetMetrics(RaftMetrics),
   JoinCluster(JoinClusterResponse),
+  AddLearner(AddLearnerRpcResponse),
   FullSnapshot(Result<SnapshotResponse, RaftError>),
   Error(String),
+}
+
+/// Add `node_id` as a learner (non-voter) to one raft group. Unlike
+/// [`JoinClusterRequest`] it never promotes the node to voter, so it is not
+/// subject to the `max_voters` cap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddLearnerRequest {
+  pub node_id: NodeId,
+  pub addr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddLearnerRpcResponse {
+  pub ok: bool,
+  pub leader_id: Option<NodeId>,
+  pub leader_addr: Option<String>,
+  pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

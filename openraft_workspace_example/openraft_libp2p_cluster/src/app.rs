@@ -879,7 +879,7 @@ async fn run_control_promotion_watcher(
         return Ok(PromotionWatchResult::Shutdown);
       }
       _ = tick.tick() => {
-        if remote_openraft_membership_contains_self(
+        if remote_openraft_voters_contain_self(
           &runtime.opt.id,
           &runtime.group_ids,
           &runtime.libp2p.network,
@@ -888,7 +888,7 @@ async fn run_control_promotion_watcher(
         {
           tracing::info!(
             node_id = %runtime.opt.id,
-            "local node is now in OpenRaft membership; promoting worker to control"
+            "local node is now a voter in every OpenRaft group; promoting worker to control"
           );
           return Ok(PromotionWatchResult::Promote);
         }
@@ -933,10 +933,9 @@ enum JoinClusterOutcome {
   Full,
 }
 
-struct JoinClusterAttempt {
-  outcome: JoinClusterOutcome,
-  leader_hint: Option<(NodeId, String)>,
-}
+/// Cap on per-group leader redirects while joining, so two groups whose
+/// leaders keep moving cannot bounce the join loop forever.
+const CONTROL_JOIN_MAX_LEADER_REDIRECTS: usize = 3;
 
 async fn try_join_control_cluster(
   runtime: &ControlRuntime,
@@ -964,46 +963,44 @@ async fn try_join_control_cluster(
 
     let membership = metrics.membership_config.membership();
     if membership.get_node(&runtime.opt.id).is_some() {
-      return Some(JoinClusterOutcome::AlreadyMember);
-    }
-
-    let voter_count = membership.voter_ids().count();
-    if voter_count >= runtime.opt.max_control_nodes {
+      // Being in the first group is not enough: joins run group by group, so
+      // an interrupted attempt can leave this node in only a prefix of the
+      // groups. Only report AlreadyMember when every group contains us;
+      // otherwise fall through and finish joining the remaining groups.
+      if remote_openraft_voters_contain_self(
+        &runtime.opt.id,
+        &runtime.group_ids,
+        &runtime.libp2p.network,
+      )
+      .await
+      {
+        return Some(JoinClusterOutcome::AlreadyMember);
+      }
       tracing::info!(
-        voters = voter_count,
-        max_voters = runtime.opt.max_control_nodes,
-        "openraft control membership is full; staying worker"
+        node_id = %runtime.opt.id,
+        "node is in a subset of raft groups; resuming control join for the remaining groups"
       );
-      return Some(JoinClusterOutcome::Full);
+    } else {
+      let voter_count = membership.voter_ids().count();
+      if voter_count >= runtime.opt.max_control_nodes {
+        tracing::info!(
+          voters = voter_count,
+          max_voters = runtime.opt.max_control_nodes,
+          "openraft control membership is full; staying worker"
+        );
+        return Some(JoinClusterOutcome::Full);
+      }
     }
 
-    let mut target_node = match metrics.current_leader.as_ref() {
+    let target_node = match metrics.current_leader.as_ref() {
       Some(leader_id) if leader_id != &runtime.opt.id => leader_id.clone(),
       _ => bootstrap_node.clone(),
     };
 
-    loop {
-      match request_join_all_groups(runtime, target_node.clone(), advertise_addr).await {
-        Ok(JoinClusterAttempt {
-          outcome,
-          leader_hint: None,
-        }) => return Some(outcome),
-        Ok(JoinClusterAttempt {
-          leader_hint: Some((leader_id, leader_addr)),
-          ..
-        }) if leader_id != runtime.opt.id && leader_id != target_node => {
-          let _ = runtime
-            .libp2p
-            .network
-            .register_node(leader_id.clone(), &leader_addr)
-            .await;
-          target_node = leader_id;
-        }
-        Ok(JoinClusterAttempt { outcome, .. }) => return Some(outcome),
-        Err(err) => {
-          tracing::debug!(error = ?err, "control join request failed");
-          break;
-        }
+    match request_join_all_groups(runtime, target_node, advertise_addr).await {
+      Ok(outcome) => return Some(outcome),
+      Err(err) => {
+        tracing::debug!(error = ?err, "control join request failed");
       }
     }
   }
@@ -1015,60 +1012,76 @@ async fn request_join_all_groups(
   runtime: &ControlRuntime,
   target_node: NodeId,
   advertise_addr: &str,
-) -> anyhow::Result<JoinClusterAttempt> {
+) -> anyhow::Result<JoinClusterOutcome> {
   let mut joined_any = false;
 
+  // Each raft group elects its own leader, so a single node rarely leads all
+  // groups at once. Follow leader hints per group instead of restarting the
+  // whole join with a new global target (which ping-pongs forever when two
+  // groups have different leaders).
   for group_id in &runtime.group_ids {
-    let response =
-      request_join_control_group(runtime, target_node.clone(), group_id, advertise_addr).await?;
-    if let Some(leader_id) = response.leader_id.clone()
-      && leader_id != target_node
-      && let Some(leader_addr) = response.leader_addr.clone()
-    {
-      return Ok(JoinClusterAttempt {
-        outcome: JoinClusterOutcome::AlreadyMember,
-        leader_hint: Some((leader_id, leader_addr)),
-      });
-    }
+    let mut group_target = target_node.clone();
+    let mut redirects = 0;
 
-    if response.already_member {
-      continue;
-    }
+    loop {
+      let response =
+        request_join_control_group(runtime, group_target.clone(), group_id, advertise_addr).await?;
 
-    if response.joined {
-      joined_any = true;
-      continue;
-    }
+      if response.already_member {
+        break;
+      }
 
-    if response.voter_count >= response.max_voters {
-      tracing::info!(
-        group = group_id,
-        voters = response.voter_count,
-        max_voters = response.max_voters,
-        error = ?response.error,
-        "openraft control membership is full; staying worker"
-      );
-      return Ok(JoinClusterAttempt {
-        outcome: JoinClusterOutcome::Full,
-        leader_hint: None,
-      });
-    }
+      if response.joined {
+        joined_any = true;
+        break;
+      }
 
-    return Err(anyhow!(
-      "join group {group_id} failed: {}",
-      response
-        .error
-        .unwrap_or_else(|| "unknown error".to_string())
-    ));
+      if let Some(leader_id) = response.leader_id.clone()
+        && leader_id != group_target
+        && leader_id != runtime.opt.id
+        && redirects < CONTROL_JOIN_MAX_LEADER_REDIRECTS
+      {
+        if let Some(leader_addr) = response.leader_addr.as_deref() {
+          let _ = runtime
+            .libp2p
+            .network
+            .register_node(leader_id.clone(), leader_addr)
+            .await;
+        }
+        tracing::debug!(
+          group = group_id,
+          leader = %leader_id,
+          "redirecting control join to group leader"
+        );
+        group_target = leader_id;
+        redirects += 1;
+        continue;
+      }
+
+      if response.voter_count >= response.max_voters {
+        tracing::info!(
+          group = group_id,
+          voters = response.voter_count,
+          max_voters = response.max_voters,
+          error = ?response.error,
+          "openraft control membership is full; staying worker"
+        );
+        return Ok(JoinClusterOutcome::Full);
+      }
+
+      return Err(anyhow!(
+        "join group {group_id} failed: {}",
+        response
+          .error
+          .unwrap_or_else(|| "unknown error".to_string())
+      ));
+    }
   }
 
-  Ok(JoinClusterAttempt {
-    outcome: if joined_any {
-      JoinClusterOutcome::Joined
-    } else {
-      JoinClusterOutcome::AlreadyMember
-    },
-    leader_hint: None,
+  Ok(if joined_any {
+    JoinClusterOutcome::Joined
+  } else {
+    JoinClusterOutcome::AlreadyMember
   })
 }
 
@@ -1264,7 +1277,10 @@ fn known_control_nodes(members: &BTreeMap<NodeId, BasicNode>, self_id: &NodeId) 
     .collect::<Vec<_>>()
 }
 
-fn local_openraft_membership_contains_self(
+/// True when this node is a VOTER of every raft group's persisted membership.
+/// Learners are in `membership.nodes()` too, so a plain `get_node` check would
+/// wrongly treat a learner as a control member.
+fn local_openraft_voters_contain_self(
   db_dir: &Path,
   self_id: &NodeId,
   group_ids: &[GroupId],
@@ -1277,7 +1293,7 @@ fn local_openraft_membership_contains_self(
     let Some(membership) = store::read_persisted_membership_for_group(db_dir, group_id)? else {
       return Ok(false);
     };
-    if membership.membership().get_node(self_id).is_none() {
+    if !membership.membership().voter_ids().any(|id| &id == self_id) {
       return Ok(false);
     }
   }
@@ -1294,7 +1310,7 @@ fn decide_startup_mode(
     return Ok(StartupMode::Control);
   }
 
-  if local_openraft_membership_contains_self(&opt.db, &opt.id, group_ids)? {
+  if local_openraft_voters_contain_self(&opt.db, &opt.id, group_ids)? {
     return Ok(StartupMode::Control);
   }
 
@@ -1303,7 +1319,14 @@ fn decide_startup_mode(
   })
 }
 
-async fn remote_openraft_membership_contains_self(
+/// True when this node is a VOTER of every raft group's remote membership.
+///
+/// This must NOT use `get_node`: learners are listed in `membership.nodes()`
+/// as well, and the join flow (`add_learner` first, `change_membership`
+/// later) would otherwise let the promotion watcher fire while the voter
+/// promotion of later groups is still pending — aborting the join and
+/// leaving the node as a learner in those groups forever.
+async fn remote_openraft_voters_contain_self(
   self_id: &NodeId,
   group_ids: &[GroupId],
   network: &Libp2pNetworkFactory,
@@ -1316,11 +1339,11 @@ async fn remote_openraft_membership_contains_self(
     let Some(metrics) = fetch_remote_group_metrics(group_id, self_id, network).await else {
       return false;
     };
-    if metrics
+    if !metrics
       .membership_config
       .membership()
-      .get_node(self_id)
-      .is_none()
+      .voter_ids()
+      .any(|id| &id == self_id)
     {
       return false;
     }

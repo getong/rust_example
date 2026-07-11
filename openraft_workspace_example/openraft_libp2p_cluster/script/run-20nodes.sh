@@ -2,12 +2,13 @@
 # Launch a 20-node local cluster:
 #   - node1 bootstraps OpenRaft; nodes 2..5 join as control voters
 #     (MAX_CONTROL_NODES=5 guarantees exactly 5 voters).
-#   - nodes 6..20 start as libp2p workers in RANDOM order and are then
-#     registered as OpenRaft learners (promote=false) through the leader's
-#     HTTP API, also in random order.
+#   - nodes 6..20 start as libp2p workers in RANDOM order; LEARNER_NODES of
+#     them (randomly chosen, default 5) are then registered as OpenRaft
+#     learners (promote=false) through the control HTTP API.
 #
-# Tunables (env): TOTAL_NODES, CONTROL_NODES, DB_ROOT, REDIS_URL,
-#   DISABLE_SQLITE_CACHE, P2P_PORT_BASE, HTTP_PORT_BASE, CONSOLE_PORT_BASE.
+# Tunables (env): TOTAL_NODES, CONTROL_NODES, LEARNER_NODES, DB_ROOT,
+#   REDIS_URL, DISABLE_SQLITE_CACHE, P2P_PORT_BASE, HTTP_PORT_BASE,
+#   CONSOLE_PORT_BASE, KILL_STALE.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -51,6 +52,14 @@ if ((CONTROL_NODES < 1 || CONTROL_NODES > TOTAL_NODES)); then
 	echo "Error: CONTROL_NODES must be within 1..TOTAL_NODES (got $CONTROL_NODES/$TOTAL_NODES)." >&2
 	exit 1
 fi
+WORKER_NODES=$((TOTAL_NODES - CONTROL_NODES))
+LEARNER_NODES="${LEARNER_NODES:-5}"
+if ((LEARNER_NODES > WORKER_NODES)); then
+	echo "Warning: LEARNER_NODES=$LEARNER_NODES exceeds worker count $WORKER_NODES; clamping." >&2
+	LEARNER_NODES="$WORKER_NODES"
+fi
+# All raft groups served by every node; used to verify per-group membership.
+GROUP_IDS="${GROUP_IDS:-users orders products apalis}"
 
 DB_BASE="${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}"
 DB_ROOT="${DB_ROOT:-$DB_BASE/$(date +%Y%m%d-%H%M%S)}"
@@ -183,27 +192,116 @@ wait_for_tcp_port() {
 	done
 }
 
+# Only LISTEN sockets count as "in use"; half-closed leftovers from a
+# previous run (CLOSE_WAIT/FIN_WAIT) would otherwise cause false positives.
 port_in_use() {
 	local port="$1"
 	if command -v lsof >/dev/null 2>&1; then
-		lsof -ti "tcp:${port}" >/dev/null 2>&1
+		lsof -nP -ti "tcp:${port}" -sTCP:LISTEN >/dev/null 2>&1
 	else
 		return 1
 	fi
 }
 
-ensure_ports_free() {
+# Print "pid command" pairs for processes listening on the port.
+port_listeners() {
+	local port="$1"
+	command -v lsof >/dev/null 2>&1 || return 0
+	lsof -nP -i "tcp:${port}" -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $2, $1}' | sort -u
+}
+
+collect_busy_ports() {
+	BUSY_PORTS=()
 	local i
 	local port
 	for ((i = 1; i <= TOTAL_NODES; i++)); do
 		for port in $((P2P_PORT_BASE + i)) $((HTTP_PORT_BASE + i)) $((CONSOLE_PORT_BASE + i)); do
 			if port_in_use "$port"; then
-				echo "Error: port $port is already in use (node$i)." >&2
-				echo "Hint: stop previous runs, or adjust P2P_PORT_BASE/HTTP_PORT_BASE/CONSOLE_PORT_BASE." >&2
-				exit 1
+				BUSY_PORTS+=("$port")
 			fi
 		done
 	done
+}
+
+# Terminate stale openraft_libp2p_cluster listeners on the given ports.
+# Anything else listening there is somebody else's process; never touch it.
+# Graceful node shutdown (4 raft groups + rocksdb sync + swarm) can take a
+# while, so wait on process EXIT (not just port release) and escalate to
+# SIGKILL after KILL_STALE_WAIT_SECS.
+kill_stale_listeners() {
+	local wait_secs="${KILL_STALE_WAIT_SECS:-20}"
+	local port
+	local pid
+	local cmd
+	local stale_pids=()
+
+	for port in "$@"; do
+		while read -r pid cmd; do
+			[[ -z "$pid" ]] && continue
+			case "$cmd" in
+			openraft*)
+				if [[ " ${stale_pids[*]-} " != *" $pid "* ]]; then
+					echo "KILL_STALE=1: stopping stale cluster process $cmd (pid=$pid)"
+					kill -TERM "$pid" 2>/dev/null || true
+					stale_pids+=("$pid")
+				fi
+				;;
+			*)
+				echo "Refusing to kill non-cluster process $cmd (pid=$pid) on port $port." >&2
+				;;
+			esac
+		done < <(port_listeners "$port")
+	done
+
+	((${#stale_pids[@]} == 0)) && return 0
+
+	local deadline=$((SECONDS + wait_secs))
+	local alive
+	while ((SECONDS < deadline)); do
+		alive=0
+		for pid in "${stale_pids[@]}"; do
+			if kill -0 "$pid" 2>/dev/null; then
+				alive=1
+				break
+			fi
+		done
+		((alive == 0)) && return 0
+		sleep 0.3
+	done
+
+	for pid in "${stale_pids[@]}"; do
+		if kill -0 "$pid" 2>/dev/null; then
+			echo "KILL_STALE=1: force killing stale cluster process pid=$pid (still alive after ${wait_secs}s)"
+			kill -KILL "$pid" 2>/dev/null || true
+		fi
+	done
+	# Give the kernel a moment to release the sockets before re-checking.
+	sleep 1
+}
+
+ensure_ports_free() {
+	collect_busy_ports
+	((${#BUSY_PORTS[@]} == 0)) && return 0
+
+	if [[ "${KILL_STALE:-0}" == "1" ]]; then
+		kill_stale_listeners "${BUSY_PORTS[@]}"
+		collect_busy_ports
+		((${#BUSY_PORTS[@]} == 0)) && return 0
+	fi
+
+	echo "Error: the following ports are already in use: ${BUSY_PORTS[*]}" >&2
+	local port
+	local pid
+	local cmd
+	for port in "${BUSY_PORTS[@]}"; do
+		while read -r pid cmd; do
+			[[ -n "$pid" ]] && echo "  port $port <- pid=$pid cmd=$cmd" >&2
+		done < <(port_listeners "$port")
+	done
+	echo "Hint: KILL_STALE=1 $0 stops stale openraft_libp2p_cluster listeners automatically;" >&2
+	echo "      other processes must be stopped manually, or adjust" >&2
+	echo "      P2P_PORT_BASE/HTTP_PORT_BASE/CONSOLE_PORT_BASE to avoid them." >&2
+	exit 1
 }
 
 start_demo_redis() {
@@ -262,8 +360,8 @@ cleanup() {
 	fi
 	SHUTTING_DOWN=1
 
-	echo "Stopping $TOTAL_NODES nodes gracefully..."
 	if ((${#NODE_PIDS[@]} > 0)); then
+		echo "Stopping ${#NODE_PIDS[@]} node process(es) gracefully..."
 		kill -TERM "${NODE_PIDS[@]}" 2>/dev/null || true
 		local i
 		local pid
@@ -360,31 +458,43 @@ wait_for_http() {
 
 openraft_voter_count() {
 	local index="$1"
+	local group="$2"
 	local body
-	body="$(curl -fsS "http://$(node_http "$index")/openraft/nodes" 2>/dev/null)" || return 1
+	body="$(curl -fsS "http://$(node_http "$index")/openraft/nodes?group_id=${group}" 2>/dev/null)" || return 1
 	printf '%s' "$body" | grep -o '"voters":[0-9]*' | head -1 | cut -d: -f2
 }
 
 openraft_learner_count() {
 	local index="$1"
+	local group="$2"
 	local body
-	body="$(curl -fsS "http://$(node_http "$index")/openraft/nodes" 2>/dev/null)" || return 1
+	body="$(curl -fsS "http://$(node_http "$index")/openraft/nodes?group_id=${group}" 2>/dev/null)" || return 1
 	printf '%s' "$body" | grep -o '"learners":[0-9]*' | head -1 | cut -d: -f2
 }
 
+# Wait until EVERY raft group reports the expected voter count; each group
+# elects independently, so checking a single group can hide partial joins.
 wait_for_voters() {
 	local expected="$1"
 	local timeout="$2"
 	local start=$SECONDS
+	local group
 	local voters
+	local pending
 	while true; do
-		voters="$(openraft_voter_count 1 || true)"
-		if [[ -n "$voters" ]] && ((voters >= expected)); then
-			echo "OpenRaft control membership has $voters voters."
+		pending=""
+		for group in $GROUP_IDS; do
+			voters="$(openraft_voter_count 1 "$group" || true)"
+			if [[ -z "$voters" ]] || ((voters < expected)); then
+				pending="$pending $group=${voters:-?}"
+			fi
+		done
+		if [[ -z "$pending" ]]; then
+			echo "All raft groups have $expected control voters."
 			return 0
 		fi
 		if ((SECONDS - start >= timeout)); then
-			echo "Error: expected $expected control voters within ${timeout}s (got ${voters:-unknown})." >&2
+			echo "Error: expected $expected control voters in every group within ${timeout}s (pending:$pending)." >&2
 			return 1
 		fi
 		sleep 1
@@ -473,7 +583,7 @@ BOOTSTRAP_KV="${NODE_PEER_IDS[1]}=$(node_advertise_addr 1)"
 
 echo "Workspace:  $WS_DIR"
 echo "export DB_ROOT=$DB_ROOT"
-echo "Total nodes: $TOTAL_NODES (control: $CONTROL_NODES, learner workers: $((TOTAL_NODES - CONTROL_NODES)))"
+echo "Total nodes: $TOTAL_NODES (control: $CONTROL_NODES, workers: $WORKER_NODES, learners among workers: $LEARNER_NODES)"
 echo "Bootstrap:   $BOOTSTRAP_KV"
 echo
 
@@ -487,7 +597,7 @@ for ((i = 2; i <= CONTROL_NODES; i++)); do
 	sleep 1
 done
 
-echo "Waiting for $CONTROL_NODES OpenRaft control voters..."
+echo "Waiting for $CONTROL_NODES OpenRaft control voters in every raft group..."
 wait_for_voters "$CONTROL_NODES" "$CONTROL_UP_TIMEOUT_SECS"
 
 # Start the remaining nodes as workers in random order.
@@ -497,17 +607,19 @@ for ((i = CONTROL_NODES + 1; i <= TOTAL_NODES; i++)); do
 done
 shuffle_array
 
-echo "Starting $((TOTAL_NODES - CONTROL_NODES)) worker nodes in random order: ${SHUFFLED[*]}"
+echo "Starting $WORKER_NODES worker nodes in random order: ${SHUFFLED[*]}"
 for i in "${SHUFFLED[@]}"; do
 	start_node "$i" worker
 	random_sleep
 done
 
-echo "Registering worker nodes as OpenRaft learners (random order)..."
+# Pick LEARNER_NODES workers at random and register them as learners.
 shuffle_array
-echo "Learner registration order: ${SHUFFLED[*]}"
+LEARNER_PICKS=("${SHUFFLED[@]:0:$LEARNER_NODES}")
+
+echo "Registering $LEARNER_NODES randomly picked workers as OpenRaft learners: ${LEARNER_PICKS[*]}"
 LEARNER_FAILURES=0
-for i in "${SHUFFLED[@]}"; do
+for i in "${LEARNER_PICKS[@]}"; do
 	wait_for_http "$i" "$CONTROL_UP_TIMEOUT_SECS" || {
 		LEARNER_FAILURES=$((LEARNER_FAILURES + 1))
 		continue
@@ -516,10 +628,13 @@ for i in "${SHUFFLED[@]}"; do
 	random_sleep
 done
 
-voters="$(openraft_voter_count 1 || echo '?')"
-learners="$(openraft_learner_count 1 || echo '?')"
 echo
-echo "Cluster is up: voters=$voters learners=$learners (expected: $CONTROL_NODES/$((TOTAL_NODES - CONTROL_NODES)))"
+echo "Cluster is up. Per-group membership (expected voters=$CONTROL_NODES learners=$LEARNER_NODES):"
+for group in $GROUP_IDS; do
+	voters="$(openraft_voter_count 1 "$group" || echo '?')"
+	learners="$(openraft_learner_count 1 "$group" || echo '?')"
+	echo "  group=$group voters=$voters learners=$learners"
+done
 if ((LEARNER_FAILURES > 0)); then
 	echo "Warning: $LEARNER_FAILURES worker(s) failed learner registration; check logs in $LOG_DIR" >&2
 fi

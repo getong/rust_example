@@ -286,7 +286,7 @@ echo "Node3 addr:    $ADDR3"
 port_in_use() {
 	local port="$1"
 	if command -v lsof >/dev/null 2>&1; then
-		lsof -ti "tcp:${port}" >/dev/null 2>&1
+		lsof -nP -ti "tcp:${port}" -sTCP:LISTEN >/dev/null 2>&1
 	else
 		return 1
 	fi

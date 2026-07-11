@@ -32,7 +32,7 @@ use crate::{
   graphviz::{ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg},
   network::{
     openraft_dispatcher::process_kv_request,
-    rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    rpc::{AddLearnerRequest, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{GOSSIP_TOPIC, KvClient},
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -1045,6 +1045,7 @@ async fn add_openraft_member(
         &target_addr,
         req.promote,
         catch_up_timeout,
+        &state.network,
       )
       .await,
     );
@@ -1096,6 +1097,7 @@ async fn add_openraft_member_to_group(
   target_addr: &str,
   promote: bool,
   catch_up_timeout: Duration,
+  network: &Libp2pNetworkFactory,
 ) -> AddOpenRaftMemberGroupResponse {
   let Some(group) = openraft_group(group_id) else {
     return AddOpenRaftMemberGroupResponse {
@@ -1115,6 +1117,25 @@ async fn add_openraft_member_to_group(
   let before_voters = membership.voter_ids().collect::<BTreeSet<_>>();
 
   if !metrics.state.is_leader() {
+    // Each raft group elects its own leader, so no single node is guaranteed
+    // to lead every group. For learner-only additions, forward the request to
+    // this group's leader instead of rejecting it.
+    if !promote && let Some(leader_id) = metrics.current_leader.clone() {
+      let leader_addr = membership
+        .get_node(&leader_id)
+        .map(|node| node.addr.clone());
+      return forward_add_learner_to_leader(
+        group_id,
+        target_node_id,
+        target_addr,
+        leader_id,
+        leader_addr,
+        &before_voters,
+        network,
+      )
+      .await;
+    }
+
     return AddOpenRaftMemberGroupResponse {
       group_id: group_id.to_string(),
       ok: false,
@@ -1248,6 +1269,78 @@ async fn add_openraft_member_to_group(
       promoted: false,
       error: Some(format!("change_membership failed: {err:?}")),
     },
+  }
+}
+
+/// Forward a learner-only membership addition to the given group leader over
+/// libp2p. Used when the HTTP request landed on a node that is not the leader
+/// of this particular raft group.
+async fn forward_add_learner_to_leader(
+  group_id: &str,
+  target_node_id: &NodeId,
+  target_addr: &str,
+  leader_id: NodeId,
+  leader_addr: Option<String>,
+  before_voters: &BTreeSet<NodeId>,
+  network: &Libp2pNetworkFactory,
+) -> AddOpenRaftMemberGroupResponse {
+  if let Some(addr) = leader_addr.as_ref() {
+    let _ = network.register_node(leader_id.clone(), addr).await;
+  }
+
+  let response = network
+    .request(
+      leader_id.clone(),
+      RaftRpcRequest {
+        group_id: group_id.to_string(),
+        op: RaftRpcOp::AddLearner(AddLearnerRequest {
+          node_id: target_node_id.clone(),
+          addr: target_addr.to_string(),
+        }),
+      },
+    )
+    .await;
+
+  let (ok, learner_added, error) = match response {
+    Ok(RaftRpcResponse::AddLearner(resp)) if resp.ok => (true, true, None),
+    Ok(RaftRpcResponse::AddLearner(resp)) => (
+      false,
+      false,
+      Some(
+        resp
+          .error
+          .unwrap_or_else(|| "add_learner forwarding rejected".to_string()),
+      ),
+    ),
+    Ok(RaftRpcResponse::Error(message)) => (
+      false,
+      false,
+      Some(format!("forward add_learner to leader failed: {message}")),
+    ),
+    Ok(other) => (
+      false,
+      false,
+      Some(format!(
+        "unexpected add_learner forwarding response: {other:?}"
+      )),
+    ),
+    Err(err) => (
+      false,
+      false,
+      Some(format!("forward add_learner to leader failed: {err}")),
+    ),
+  };
+
+  let voters: Vec<NodeId> = before_voters.iter().cloned().collect();
+  AddOpenRaftMemberGroupResponse {
+    group_id: group_id.to_string(),
+    ok,
+    before_voters: voters.clone(),
+    after_voters: voters,
+    leader_id: Some(leader_id),
+    learner_added,
+    promoted: false,
+    error,
   }
 }
 
