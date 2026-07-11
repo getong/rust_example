@@ -19,7 +19,7 @@ use libp2p::{
   request_response::{self, ProtocolSupport},
   tcp, tls, websocket, yamux,
 };
-use openraft::BasicNode;
+use openraft::{BasicNode, async_runtime::WatchReceiver};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -71,6 +71,10 @@ const DEFAULT_MAX_CONTROL_NODES: usize = 3;
 /// this wait the check always sees zero connected peers and silently skips,
 /// missing the case where the node was evicted while it was offline.
 const STARTUP_PEER_CONNECT_WAIT: Duration = Duration::from_secs(8);
+/// Poll cadence of the post-startup openraft verification task.
+const STARTUP_VERIFY_POLL_INTERVAL: Duration = Duration::from_secs(3);
+/// How often the verification task warns while a group still has no leader.
+const STARTUP_NO_LEADER_WARN_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -1553,11 +1557,15 @@ async fn cleanup_removed_local_groups(
       continue;
     }
 
-    let Some(remote_metrics) = fetch_remote_group_metrics(group_id, self_id, network).await else {
+    // Only an authoritative view (one that reports an elected leader) may
+    // drive the destructive wipe. After a full-cluster restart, early-started
+    // learners serve stale leaderless views that must not be trusted here.
+    let Some(remote_metrics) = fetch_authoritative_group_metrics(group_id, self_id, network).await
+    else {
       tracing::debug!(
         group = group_id,
         node_id = %self_id,
-        "skip local data cleanup because no remote openraft metrics are available"
+        "skip local data cleanup because no authoritative (leader-bearing) remote openraft metrics are available"
       );
       continue;
     };
@@ -1593,6 +1601,29 @@ async fn fetch_remote_group_metrics(
   self_id: &NodeId,
   network: &Libp2pNetworkFactory,
 ) -> Option<crate::typ::RaftMetrics> {
+  fetch_group_metrics_inner(group_id, self_id, network, false).await
+}
+
+/// Like [`fetch_remote_group_metrics`], but only accepts metrics served by a
+/// node that is CURRENTLY the group leader (`state.is_leader()`), which is a
+/// live runtime property. `current_leader` alone is not good enough: after a
+/// restart openraft restores it from the persisted vote, so an early-started
+/// learner can report the pre-restart leader even though no live leader
+/// exists yet. Such stale views must not drive destructive decisions.
+async fn fetch_authoritative_group_metrics(
+  group_id: &str,
+  self_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+) -> Option<crate::typ::RaftMetrics> {
+  fetch_group_metrics_inner(group_id, self_id, network, true).await
+}
+
+async fn fetch_group_metrics_inner(
+  group_id: &str,
+  self_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+  require_leader: bool,
+) -> Option<crate::typ::RaftMetrics> {
   for (node_id, _peer, _addr) in network.known_nodes().await {
     if &node_id == self_id {
       continue;
@@ -1608,7 +1639,17 @@ async fn fetch_remote_group_metrics(
       )
       .await
     {
-      Ok(RaftRpcResponse::GetMetrics(metrics)) => return Some(metrics),
+      Ok(RaftRpcResponse::GetMetrics(metrics)) => {
+        if require_leader && !metrics.state.is_leader() {
+          tracing::debug!(
+            group = group_id,
+            node_id = %node_id,
+            "skipping remote openraft metrics view: responder is not the live leader"
+          );
+          continue;
+        }
+        return Some(metrics);
+      }
       Ok(RaftRpcResponse::Error(message)) => {
         tracing::debug!(
           group = group_id,
@@ -1637,6 +1678,110 @@ async fn fetch_remote_group_metrics(
   }
 
   None
+}
+
+/// Post-startup verification of the openraft groups. Runs until every group
+/// reports an elected leader (then exits), logging progress so an
+/// out-of-order full-cluster restart (learners up before the voters) is
+/// visible instead of silently hanging. For nodes that booted in control
+/// mode it also detects the "evicted while offline" case via an
+/// authoritative remote view and shuts the node down so the next start can
+/// wipe the stale data and re-join as a learner.
+async fn run_openraft_startup_verifier(
+  self_id: NodeId,
+  group_ids: Vec<GroupId>,
+  network: Libp2pNetworkFactory,
+  boot_as_control: bool,
+  shutdown_tx: crate::signal::ShutdownTx,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let started = tokio::time::Instant::now();
+  let mut pending = group_ids;
+  let mut last_warn = tokio::time::Instant::now();
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tokio::time::sleep(STARTUP_VERIFY_POLL_INTERVAL) => {}
+    }
+
+    let mut still_pending = Vec::new();
+    for group_id in pending {
+      let Some(group) = openraft_group(&group_id) else {
+        still_pending.push(group_id);
+        continue;
+      };
+
+      // Local leadership is live engine state, so it is trustworthy.
+      // `current_leader` is NOT: openraft restores it from the persisted
+      // vote, so after a restart it can name a leader that is still down.
+      let local_is_leader = {
+        let metrics_rx = group.raft.metrics();
+        metrics_rx.borrow_watched().state.is_leader()
+      };
+      if local_is_leader {
+        tracing::info!(
+          group = %group_id,
+          elapsed = ?started.elapsed(),
+          "openraft group startup verified: this node is the live leader"
+        );
+        continue;
+      }
+
+      // Otherwise require a LIVE leader elsewhere: a remote node whose
+      // metrics claim current leadership.
+      if let Some(leader_metrics) =
+        fetch_authoritative_group_metrics(&group_id, &self_id, &network).await
+      {
+        let membership = leader_metrics.membership_config.membership();
+        let in_membership = membership.get_node(&self_id).is_some();
+
+        // A control node that was evicted while offline can never rejoin
+        // its stale config; restart cleanly so the next boot wipes the
+        // stale data and re-joins as a learner.
+        if boot_as_control && membership.nodes().next().is_some() && !in_membership {
+          tracing::error!(
+            group = %group_id,
+            node_id = %self_id,
+            "this control node was removed from the openraft membership while offline; \
+             shutting down so the next start wipes the stale data and re-joins as a learner"
+          );
+          let _ = shutdown_tx.send(());
+          return;
+        }
+
+        tracing::info!(
+          group = %group_id,
+          leader = %leader_metrics.id,
+          in_membership,
+          elapsed = ?started.elapsed(),
+          "openraft group startup verified: live leader confirmed"
+        );
+        continue;
+      }
+
+      still_pending.push(group_id);
+    }
+
+    pending = still_pending;
+    if pending.is_empty() {
+      tracing::info!(
+        elapsed = ?started.elapsed(),
+        "openraft startup verification completed: all groups have a leader"
+      );
+      return;
+    }
+
+    if last_warn.elapsed() >= STARTUP_NO_LEADER_WARN_INTERVAL {
+      last_warn = tokio::time::Instant::now();
+      tracing::warn!(
+        pending_groups = ?pending,
+        elapsed = ?started.elapsed(),
+        "openraft groups still have no leader; if this node started before the control voters, \
+         the groups will recover automatically once a quorum of voters is online"
+      );
+    }
+  }
 }
 
 async fn maybe_bootstrap(
@@ -1972,6 +2117,17 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .map_err(|_| anyhow!("global openraft groups already initialized"))?;
   maybe_initialize_bootstrap_openraft(opt.id.clone(), advertise_addr.clone(), bootstrap_self)
     .await?;
+
+  // Verify that every openraft group actually becomes operational after this
+  // (possibly out-of-order) startup, and self-correct evicted control nodes.
+  tokio::spawn(run_openraft_startup_verifier(
+    opt.id.clone(),
+    group_ids.clone(),
+    libp2p.network.clone(),
+    matches!(startup_mode, StartupMode::Control),
+    signal_shutdown.shutdown_tx(),
+    signal_shutdown.shutdown_rx(),
+  ));
 
   let runtime = ControlRuntime {
     opt,
