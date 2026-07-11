@@ -11,6 +11,7 @@ pub mod constants;
 pub mod graphviz;
 pub mod http;
 pub mod leader_controller;
+pub mod membership_guard;
 pub mod network;
 pub mod proto;
 pub mod rocksstore_crud;

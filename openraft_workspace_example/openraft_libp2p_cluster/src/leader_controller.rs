@@ -6,6 +6,8 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::{
   GroupHandleMap, GroupId, Raft, apalis_raft, groups,
+  membership_guard::{self, MembershipGuardConfig},
+  network::transport::Libp2pNetworkFactory,
   signal::{self, ShutdownRx, ShutdownTx},
   typ::RaftMetrics,
 };
@@ -13,12 +15,17 @@ use crate::{
 #[derive(Clone)]
 enum LeaderWork {
   ApalisEmail(apalis_raft::RaftApalisStorage<apalis_raft::Email>),
+  MembershipGuard {
+    network: Libp2pNetworkFactory,
+    config: MembershipGuardConfig,
+  },
 }
 
 impl LeaderWork {
   fn name(&self) -> &'static str {
     match self {
       Self::ApalisEmail(_) => "apalis-email-scheduler",
+      Self::MembershipGuard { .. } => "membership-guard",
     }
   }
 }
@@ -31,7 +38,7 @@ struct RunningLeaderWork {
 }
 
 impl RunningLeaderWork {
-  fn start(group_id: GroupId, work: LeaderWork, interval: Duration) -> Self {
+  fn start(group_id: GroupId, raft: Raft, work: LeaderWork, interval: Duration) -> Self {
     let name = work.name();
     let (stop_tx, stop_rx) = signal::channel();
     let task_group_id = group_id.clone();
@@ -39,6 +46,10 @@ impl RunningLeaderWork {
       match work {
         LeaderWork::ApalisEmail(storage) => {
           run_apalis_email_scheduler(task_group_id, storage, interval, stop_rx).await
+        }
+        LeaderWork::MembershipGuard { network, config } => {
+          membership_guard::run_membership_guard(task_group_id, raft, network, config, stop_rx)
+            .await
         }
       }
     });
@@ -67,6 +78,8 @@ impl RunningLeaderWork {
 pub async fn run_leader_controller(
   groups: GroupHandleMap,
   apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+  network: Libp2pNetworkFactory,
+  membership_guard_config: Option<MembershipGuardConfig>,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
@@ -78,11 +91,16 @@ pub async fn run_leader_controller(
 
   let mut group_tasks = JoinSet::new();
   for (group_id, group) in groups {
-    let work = leader_work_for_group(&group_id, &apalis_storage);
+    let works = leader_works_for_group(
+      &group_id,
+      &apalis_storage,
+      &network,
+      membership_guard_config.as_ref(),
+    );
     group_tasks.spawn(run_group_leader_controller(
       group_id,
       group.raft,
-      work,
+      works,
       tick_interval,
       shutdown_rx.clone(),
     ));
@@ -137,32 +155,44 @@ pub async fn run_leader_controller(
   }
 }
 
-fn leader_work_for_group(
+fn leader_works_for_group(
   group_id: &str,
   apalis_storage: &apalis_raft::RaftApalisStorage<apalis_raft::Email>,
-) -> Option<LeaderWork> {
-  if group_id == groups::APALIS {
-    return Some(LeaderWork::ApalisEmail(apalis_storage.clone()));
+  network: &Libp2pNetworkFactory,
+  membership_guard_config: Option<&MembershipGuardConfig>,
+) -> Vec<LeaderWork> {
+  let mut works = Vec::new();
+
+  if let Some(config) = membership_guard_config {
+    works.push(LeaderWork::MembershipGuard {
+      network: network.clone(),
+      config: config.clone(),
+    });
   }
 
-  None
+  if group_id == groups::APALIS {
+    works.push(LeaderWork::ApalisEmail(apalis_storage.clone()));
+  }
+
+  works
 }
 
 async fn run_group_leader_controller(
   group_id: GroupId,
   raft: Raft,
-  work: Option<LeaderWork>,
+  works: Vec<LeaderWork>,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
   let mut metrics_rx = raft.metrics();
-  let mut running = None;
+  let mut running: Vec<RunningLeaderWork> = Vec::new();
 
   let metrics = metrics_rx.borrow_watched().clone();
   apply_group_role(
     &group_id,
+    &raft,
     &metrics,
-    work.as_ref(),
+    &works,
     &mut running,
     tick_interval,
   )
@@ -171,17 +201,17 @@ async fn run_group_leader_controller(
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
-        stop_running_work(running).await?;
+        stop_running_works(running).await?;
         return Ok(());
       }
       changed = metrics_rx.changed() => {
         if changed.is_err() {
-          stop_running_work(running).await?;
+          stop_running_works(running).await?;
           return Err(anyhow!("openraft metrics stream closed for group={group_id}"));
         }
 
         let metrics = metrics_rx.borrow_watched().clone();
-        apply_group_role(&group_id, &metrics, work.as_ref(), &mut running, tick_interval).await?;
+        apply_group_role(&group_id, &raft, &metrics, &works, &mut running, tick_interval).await?;
       }
     }
   }
@@ -189,52 +219,60 @@ async fn run_group_leader_controller(
 
 async fn apply_group_role(
   group_id: &str,
+  raft: &Raft,
   metrics: &RaftMetrics,
-  work: Option<&LeaderWork>,
-  running: &mut Option<RunningLeaderWork>,
+  works: &[LeaderWork],
+  running: &mut Vec<RunningLeaderWork>,
   tick_interval: Duration,
 ) -> anyhow::Result<()> {
   if metrics.state.is_leader() {
-    if running.is_none()
-      && let Some(work) = work.cloned()
-    {
-      let work_name = work.name();
-      tracing::info!(
-        group = %group_id,
-        node_id = %metrics.id,
-        term = metrics.current_term,
-        work = work_name,
-        "starting leader work"
-      );
-      *running = Some(RunningLeaderWork::start(
-        group_id.to_string(),
-        work,
-        tick_interval,
-      ));
+    if running.is_empty() {
+      for work in works {
+        tracing::info!(
+          group = %group_id,
+          node_id = %metrics.id,
+          term = metrics.current_term,
+          work = work.name(),
+          "starting leader work"
+        );
+        running.push(RunningLeaderWork::start(
+          group_id.to_string(),
+          raft.clone(),
+          work.clone(),
+          tick_interval,
+        ));
+      }
     }
     return Ok(());
   }
 
-  if let Some(running_work) = running.take() {
+  if !running.is_empty() {
     tracing::info!(
       group = %group_id,
       node_id = %metrics.id,
       term = metrics.current_term,
       state = ?metrics.state,
-      work = running_work.name,
       "stopping leader work after role change"
     );
-    running_work.stop().await?;
+    stop_running_works(std::mem::take(running)).await?;
   }
 
   Ok(())
 }
 
-async fn stop_running_work(running: Option<RunningLeaderWork>) -> anyhow::Result<()> {
-  if let Some(running_work) = running {
-    running_work.stop().await?;
+async fn stop_running_works(running: Vec<RunningLeaderWork>) -> anyhow::Result<()> {
+  let mut errors = Vec::new();
+  for running_work in running {
+    if let Err(err) = running_work.stop().await {
+      errors.push(err);
+    }
   }
-  Ok(())
+
+  match errors.len() {
+    0 => Ok(()),
+    1 => Err(errors.remove(0)),
+    _ => Err(anyhow!("stopping leader works failed: {errors:?}")),
+  }
 }
 
 async fn run_apalis_email_scheduler(

@@ -29,12 +29,16 @@ use crate::{
     SERVICE_SQLITE_CACHE_FLUSHER,
   },
   groups, http, leader_controller,
+  membership_guard::MembershipGuardConfig,
   network::{
     openraft_dispatcher::OpenRaftDispatcher,
     openraft_sync::OPENRAFT_SYNC_TOPIC,
     proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
     raft_bridge::P2PNetworkFactoryWrapper,
-    rpc::{JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
+    rpc::{
+      AddLearnerRequest, JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest,
+      RaftRpcResponse,
+    },
     swarm::{
       Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, OPENRAFT_CLUSTER_PROVIDER_KEY,
       SqliteSyncClient, run_swarm, set_libp2p_swarm,
@@ -52,6 +56,8 @@ use crate::{
 
 const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS: u64 = 1;
+const MEMBERSHIP_GUARD_TICK_SECS: u64 = 5;
+const EVICTED_LEARNER_REGISTER_RETRY_SECS: u64 = 10;
 const APALIS_WORKER_RESTART_DELAY_SECS: u64 = 2;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
@@ -239,6 +245,16 @@ pub struct Opt {
   /// Close an idle libp2p connection only after this many seconds.
   #[arg(long, default_value_t = 30)]
   pub swarm_idle_connection_timeout_secs: u64,
+
+  /// Automatically replace voters that stay unreachable with learners and
+  /// backfill the learner pool from spare workers (runs on each group leader).
+  #[arg(long, default_value_t = true, action = ArgAction::Set)]
+  pub auto_heal_membership: bool,
+
+  /// Seconds a voter must stay unreachable before the membership guard
+  /// replaces it with a learner.
+  #[arg(long, default_value_t = 300)]
+  pub voter_replace_timeout_secs: u64,
 
   #[command(flatten)]
   pub websocket: WebsocketOpt,
@@ -754,6 +770,8 @@ fn spawn_openraft_leader_controller(
   shutdown: &mut crate::signal::ShutdownHandler,
   groups: GroupHandleMap,
   apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+  network: Libp2pNetworkFactory,
+  membership_guard_config: Option<MembershipGuardConfig>,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_OPENRAFT_LEADER_WORKER);
   let shutdown_rx = shutdown.shutdown_rx();
@@ -761,6 +779,8 @@ fn spawn_openraft_leader_controller(
     let res = leader_controller::run_leader_controller(
       groups,
       apalis_storage,
+      network,
+      membership_guard_config,
       Duration::from_secs(OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS),
       shutdown_rx,
     )
@@ -813,10 +833,19 @@ async fn run_control_services(
   let mut shutdown = linked_shutdown(shutdown_rx_for_ordering.clone());
   let _http_handle = spawn_http(&mut shutdown, http_addr, http_state);
   let _apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
+  let membership_guard_config = runtime
+    .opt
+    .auto_heal_membership
+    .then(|| MembershipGuardConfig {
+      voter_replace_timeout: Duration::from_secs(runtime.opt.voter_replace_timeout_secs),
+      tick_interval: Duration::from_secs(MEMBERSHIP_GUARD_TICK_SECS),
+    });
   let _leader_controller_handle = spawn_openraft_leader_controller(
     &mut shutdown,
     leader_controller_groups,
     leader_worker_storage,
+    runtime.libp2p.network.clone(),
+    membership_guard_config,
   );
 
   let _sqlite_flusher_handle = sqlite_cache.map(|_| {
@@ -1121,10 +1150,13 @@ async fn run_worker_services_until_promotion(
   known_control_nodes: Vec<NodeId>,
   bootstrap_nodes: Vec<NodeId>,
   advertise_addr: String,
+  evicted_from_cluster: bool,
   shutdown_rx: crate::signal::ShutdownRx,
 ) -> anyhow::Result<ControlJoinWatchResult> {
   let mut worker_shutdown = linked_shutdown(shutdown_rx.clone());
   let worker_shutdown_tx = worker_shutdown.shutdown_tx();
+  let control_nodes_for_learner = known_control_nodes.clone();
+  let advertise_addr_for_learner = advertise_addr.clone();
 
   let apalis_storage =
     build_worker_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p, known_control_nodes);
@@ -1181,6 +1213,16 @@ async fn run_worker_services_until_promotion(
         }
         ControlJoinWatchResult::Full => {
           tracing::info!("automatic control join stopped; node remains a worker");
+          // An evicted control node whose data was wiped re-joins the
+          // cluster as a learner once the voter seats are taken.
+          if evicted_from_cluster {
+            tokio::spawn(run_evicted_learner_registration(
+              runtime.clone(),
+              control_nodes_for_learner,
+              advertise_addr_for_learner,
+              shutdown_rx.clone(),
+            ));
+          }
           match promotion_handle.await.map_err(|err| anyhow!("promotion watcher task failed: {err}"))?? {
             PromotionWatchResult::Promote => {
               let _ = worker_shutdown_tx.send(());
@@ -1218,6 +1260,124 @@ async fn run_worker_services_until_promotion(
       Ok(ControlJoinWatchResult::Shutdown)
     }
   }
+}
+
+/// Keep trying to register this (previously evicted) node as an OpenRaft
+/// learner in every group until it succeeds or shutdown is requested.
+async fn run_evicted_learner_registration(
+  runtime: ControlRuntime,
+  control_nodes: Vec<NodeId>,
+  advertise_addr: String,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let mut tick = tokio::time::interval(Duration::from_secs(EVICTED_LEARNER_REGISTER_RETRY_SECS));
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tick.tick() => {
+        match register_self_as_learner(&runtime, &control_nodes, &advertise_addr).await {
+          Ok(()) => {
+            tracing::info!(
+              node_id = %runtime.opt.id,
+              "evicted node re-registered as openraft learner in all groups"
+            );
+            return;
+          }
+          Err(err) => {
+            tracing::debug!(
+              node_id = %runtime.opt.id,
+              error = ?err,
+              "evicted learner registration attempt failed; retrying"
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+async fn register_self_as_learner(
+  runtime: &ControlRuntime,
+  control_nodes: &[NodeId],
+  advertise_addr: &str,
+) -> anyhow::Result<()> {
+  for group_id in &runtime.group_ids {
+    register_self_as_group_learner(runtime, control_nodes, group_id, advertise_addr).await?;
+  }
+  Ok(())
+}
+
+async fn register_self_as_group_learner(
+  runtime: &ControlRuntime,
+  control_nodes: &[NodeId],
+  group_id: &str,
+  advertise_addr: &str,
+) -> anyhow::Result<()> {
+  let mut last_error: Option<String> = None;
+
+  for base_target in control_nodes {
+    if base_target == &runtime.opt.id {
+      continue;
+    }
+    let mut target = base_target.clone();
+
+    for _redirect in 0 ..= CONTROL_JOIN_MAX_LEADER_REDIRECTS {
+      let response = runtime
+        .libp2p
+        .network
+        .request(
+          target.clone(),
+          RaftRpcRequest {
+            group_id: group_id.to_string(),
+            op: RaftRpcOp::AddLearner(AddLearnerRequest {
+              node_id: runtime.opt.id.clone(),
+              addr: advertise_addr.to_string(),
+            }),
+          },
+        )
+        .await;
+
+      match response {
+        Ok(RaftRpcResponse::AddLearner(resp)) if resp.ok => return Ok(()),
+        Ok(RaftRpcResponse::AddLearner(resp)) => {
+          if let Some(leader_id) = resp.leader_id
+            && leader_id != target
+            && leader_id != runtime.opt.id
+          {
+            if let Some(leader_addr) = resp.leader_addr.as_deref() {
+              let _ = runtime
+                .libp2p
+                .network
+                .register_node(leader_id.clone(), leader_addr)
+                .await;
+            }
+            target = leader_id;
+            continue;
+          }
+          last_error = resp.error;
+          break;
+        }
+        Ok(RaftRpcResponse::Error(message)) => {
+          last_error = Some(message);
+          break;
+        }
+        Ok(other) => {
+          last_error = Some(format!("unexpected add_learner response: {other:?}"));
+          break;
+        }
+        Err(err) => {
+          last_error = Some(format!("{err}"));
+          break;
+        }
+      }
+    }
+  }
+
+  Err(anyhow!(
+    "register as learner for group {group_id} failed: {}",
+    last_error.unwrap_or_else(|| "no reachable control node".to_string())
+  ))
 }
 
 fn spawn_sqlite_cache_flusher(
@@ -1373,12 +1533,16 @@ async fn wait_for_any_peer_connected(network: &Libp2pNetworkFactory, timeout: Du
   }
 }
 
+/// Wipe local group data for groups where this node was removed from the
+/// remote membership while offline. Returns `true` when any group data was
+/// wiped, i.e. this node was evicted from the control membership.
 async fn cleanup_removed_local_groups(
   db_dir: &Path,
   self_id: &NodeId,
   group_ids: &[GroupId],
   network: &Libp2pNetworkFactory,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
+  let mut wiped_any = false;
   for group_id in group_ids {
     let Some(local_membership) = store::read_persisted_membership_for_group(db_dir, group_id)?
     else {
@@ -1418,9 +1582,10 @@ async fn cleanup_removed_local_groups(
       "local openraft data belongs to a node removed from remote membership; cleaning group data before startup"
     );
     store::remove_group_store(db_dir, group_id)?;
+    wiped_any = true;
   }
 
-  Ok(())
+  Ok(wiped_any)
 }
 
 async fn fetch_remote_group_metrics(
@@ -1788,8 +1953,10 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     }
   }
 
+  let mut evicted_from_cluster = false;
   if !bootstrap_self {
-    cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
+    evicted_from_cluster =
+      cleanup_removed_local_groups(&opt.db, &opt.id, &group_ids, &libp2p.network).await?;
   }
   let startup_mode = decide_startup_mode(&opt, &members, &configured_bootstrap_nodes, &group_ids)?;
 
@@ -1842,6 +2009,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
         all_control_nodes,
         bootstrap_nodes,
         advertise_addr,
+        evicted_from_cluster,
         shutdown_rx_for_ordering.clone(),
       )
       .await

@@ -430,6 +430,14 @@ start_node() {
 		cmd+=(--disable-sqlite-cache)
 	fi
 
+	# Optional membership self-healing knobs (defaults live in the binary).
+	if [[ -n "${VOTER_REPLACE_TIMEOUT_SECS:-}" ]]; then
+		cmd+=(--voter-replace-timeout-secs "$VOTER_REPLACE_TIMEOUT_SECS")
+	fi
+	if [[ -n "${AUTO_HEAL_MEMBERSHIP:-}" ]]; then
+		cmd+=(--auto-heal-membership "$AUTO_HEAL_MEMBERSHIP")
+	fi
+
 	RUST_LOG="${RUST_LOG:-info}" \
 		LIBP2P_SELF_NAME="$name" \
 		TOKIO_CONSOLE_BIND="$console" \
