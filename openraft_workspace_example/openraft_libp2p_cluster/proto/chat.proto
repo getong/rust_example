@@ -12,3 +12,12 @@ message TaskAssignedMessage {
   string task_id = 1;
   string worker_id = 2;
 }
+
+// Periodic self-announcement published on its own gossipsub topic so every
+// node can (re)register the sender in its known-nodes address book, e.g.
+// after the sender crashed, was pruned, and restarted.
+message NodeAnnouncement {
+  string node_id = 1;
+  string addr = 2;
+  int64 ts_unix_ms = 3;
+}

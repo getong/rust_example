@@ -114,6 +114,37 @@ Start the five-node control plane:
 ./script/run-5nodes.sh
 #+end_src
 
+Or start a 20-node cluster (5 control voters + 5 learners + 10 workers):
+
+#+begin_src shell
+./script/run-20nodes.sh
+
+# tunables
+TOTAL_NODES=20 CONTROL_NODES=5 LEARNER_NODES=5 ./script/run-20nodes.sh
+KILL_STALE=1 ./script/run-20nodes.sh            # auto-clean stale node processes
+VOTER_REPLACE_TIMEOUT_SECS=60 ./script/run-20nodes.sh
+#+end_src
+
+Crash-test a running 20-node cluster and bring the nodes back:
+
+#+begin_src shell
+# SIGKILL specific nodes (or `random <N>` for a random pick)
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/crash-nodes.sh 2 7
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/crash-nodes.sh random 3
+
+# graceful stop instead: sends Ctrl-C (SIGINT) and waits for the node to leave
+# kademlia, stop the libp2p swarm, and shut down its openraft groups cleanly
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/crash-nodes.sh graceful 2 7
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/crash-nodes.sh graceful random 3
+
+# restart everything recorded in $DB_ROOT/crashed-nodes.txt (or pass indices)
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/restart-nodes.sh
+#+end_src
+
+A crashed voter restarted within =--voter-replace-timeout-secs= (default 300s)
+keeps its voter seat; past the timeout the membership guard replaces it with a
+learner and the returning node wipes its stale data and re-joins as a learner.
+
 Start one or more external workers after copying the printed =DB_ROOT=:
 
 #+begin_src shell

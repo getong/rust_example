@@ -1,5 +1,5 @@
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, HashMap, HashSet},
   env,
   net::SocketAddr,
   path::{Path, PathBuf},
@@ -40,8 +40,8 @@ use crate::{
       RaftRpcResponse,
     },
     swarm::{
-      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, OPENRAFT_CLUSTER_PROVIDER_KEY,
-      SqliteSyncClient, run_swarm, set_libp2p_swarm,
+      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, NODE_ANNOUNCE_TOPIC,
+      OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, run_swarm, set_libp2p_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -75,6 +75,11 @@ const STARTUP_PEER_CONNECT_WAIT: Duration = Duration::from_secs(8);
 const STARTUP_VERIFY_POLL_INTERVAL: Duration = Duration::from_secs(3);
 /// How often the verification task warns while a group still has no leader.
 const STARTUP_NO_LEADER_WARN_INTERVAL: Duration = Duration::from_secs(15);
+/// Poll cadence of the known-nodes address book pruner.
+const KNOWN_NODE_PRUNE_POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// How often each node announces itself on gossipsub so peers can (re)build
+/// their known-nodes address book after prunes/restarts.
+const NODE_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(20);
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -255,8 +260,9 @@ pub struct Opt {
   #[arg(long, default_value_t = true, action = ArgAction::Set)]
   pub auto_heal_membership: bool,
 
-  /// Seconds a voter must stay unreachable before the membership guard
-  /// replaces it with a learner.
+  /// Seconds a member must stay unreachable before the membership guard acts
+  /// on it: a dead voter is replaced with a learner, a dead learner is
+  /// removed from the membership; both are backfilled from spare workers.
   #[arg(long, default_value_t = 300)]
   pub voter_replace_timeout_secs: u64,
 
@@ -588,6 +594,7 @@ fn build_swarm(
     .build();
 
   let gossip_topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
+  let announce_topic = gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC);
   let sync_topic = gossipsub::IdentTopic::new(OPENRAFT_SYNC_TOPIC);
   let sync_topic_hash = sync_topic.hash();
   swarm
@@ -604,6 +611,11 @@ fn build_swarm(
     .gossipsub
     .subscribe(&gossip_topic)
     .context("gossipsub subscribe")?;
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&announce_topic)
+    .context("node announce gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
   Ok(swarm)
@@ -1784,6 +1796,119 @@ async fn run_openraft_startup_verifier(
   }
 }
 
+/// Periodically announce this node's identity and advertise address on the
+/// dedicated gossipsub topic. Peers use these announcements to (re)register
+/// the node in their known-nodes address book — the reliable counterpart to
+/// the pruner: a pruned node that comes back is re-listed within one
+/// announce interval instead of waiting for a slow mdns re-discovery cycle.
+async fn run_node_announcer(
+  self_id: NodeId,
+  advertise_addr: String,
+  kv_client: KvClient,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  use prost::Message as _;
+
+  let mut tick = tokio::time::interval(NODE_ANNOUNCE_INTERVAL);
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tick.tick() => {}
+    }
+
+    let announcement = crate::proto::raft_kv::NodeAnnouncement {
+      node_id: self_id.to_string(),
+      addr: advertise_addr.clone(),
+      ts_unix_ms: std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default(),
+    };
+    kv_client
+      .publish_gossipsub(NODE_ANNOUNCE_TOPIC, announcement.encode_to_vec())
+      .await;
+  }
+}
+
+/// Prune nodes that stay disconnected past `prune_timeout` from the libp2p
+/// known-nodes address book, so crashed non-member workers do not linger in
+/// `/cluster` forever. Raft group members are exempt: their lifecycle belongs
+/// to the membership guard, and only after the guard has removed them from
+/// every group does the pruner start counting for them.
+async fn run_known_nodes_pruner(
+  self_id: NodeId,
+  network: Libp2pNetworkFactory,
+  prune_timeout: Duration,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let mut down_since: HashMap<NodeId, tokio::time::Instant> = HashMap::new();
+  let mut tick = tokio::time::interval(KNOWN_NODE_PRUNE_POLL_INTERVAL);
+  tick.tick().await;
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tick.tick() => {}
+    }
+
+    let now = tokio::time::Instant::now();
+    let mut present: HashSet<NodeId> = HashSet::new();
+
+    for (node_id, peer_id, _addr) in network.known_nodes().await {
+      if node_id == self_id {
+        continue;
+      }
+      present.insert(node_id.clone());
+
+      if network.is_peer_connected(&peer_id).await {
+        down_since.remove(&node_id);
+        continue;
+      }
+
+      // Members (voters/learners) are handled by the membership guard.
+      if is_openraft_member_of_any_group(&node_id) {
+        down_since.remove(&node_id);
+        continue;
+      }
+
+      let since = *down_since.entry(node_id.clone()).or_insert(now);
+      let downtime = now.duration_since(since);
+      if downtime >= prune_timeout {
+        if network.remove_known_node(&node_id).await {
+          tracing::warn!(
+            node_id = %node_id,
+            downtime = ?downtime,
+            "pruned dead libp2p node from the known-nodes address book"
+          );
+        }
+        down_since.remove(&node_id);
+      }
+    }
+
+    down_since.retain(|id, _| present.contains(id));
+  }
+}
+
+fn is_openraft_member_of_any_group(node_id: &NodeId) -> bool {
+  let Some(groups) = openraft_groups() else {
+    return false;
+  };
+  for group in groups.values() {
+    let metrics_rx = group.raft.metrics();
+    let is_member = metrics_rx
+      .borrow_watched()
+      .membership_config
+      .membership()
+      .get_node(node_id)
+      .is_some();
+    if is_member {
+      return true;
+    }
+  }
+  false
+}
+
 async fn maybe_bootstrap(
   client: &Libp2pClient,
   bootstrap_nodes: &[(NodeId, String)],
@@ -2126,6 +2251,24 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     libp2p.network.clone(),
     matches!(startup_mode, StartupMode::Control),
     signal_shutdown.shutdown_tx(),
+    signal_shutdown.shutdown_rx(),
+  ));
+
+  // Prune long-dead non-member nodes from the libp2p address book.
+  if opt.auto_heal_membership {
+    tokio::spawn(run_known_nodes_pruner(
+      opt.id.clone(),
+      libp2p.network.clone(),
+      Duration::from_secs(opt.voter_replace_timeout_secs),
+      signal_shutdown.shutdown_rx(),
+    ));
+  }
+
+  // Announce this node so peers can (re)register it after prunes/restarts.
+  tokio::spawn(run_node_announcer(
+    opt.id.clone(),
+    advertise_addr.clone(),
+    libp2p.kv_client.clone(),
     signal_shutdown.shutdown_rx(),
   ));
 

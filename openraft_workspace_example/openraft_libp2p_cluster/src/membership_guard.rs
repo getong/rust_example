@@ -1,8 +1,10 @@
-//! Self-healing membership: each raft group's leader watches its voters and,
-//! when one stays unreachable past a timeout, replaces it with a connected
-//! learner (one `change_membership` removes the dead voter and promotes the
-//! learner together, keeping the quorum math sound) and then backfills the
-//! learner pool from a spare connected worker.
+//! Self-healing membership: each raft group's leader watches every member
+//! (voters AND learners). When a member stays unreachable past a timeout:
+//!   - a dead voter is replaced by a connected learner (one `change_membership` removes the dead
+//!     voter and promotes the learner together, keeping the quorum math sound);
+//!   - a dead learner is removed from the membership;
+//! and in both cases the learner pool is backfilled from a spare connected
+//! worker.
 
 use std::{
   collections::{BTreeSet, HashMap},
@@ -11,7 +13,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use openraft::{BasicNode, async_runtime::WatchReceiver};
+use openraft::{BasicNode, ChangeMembers, async_runtime::WatchReceiver};
 use tokio::time::Instant;
 
 use crate::{
@@ -20,7 +22,8 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct MembershipGuardConfig {
-  /// How long a voter must stay unreachable before it is replaced.
+  /// How long a member (voter or learner) must stay unreachable before it is
+  /// replaced (voter) or removed (learner).
   pub voter_replace_timeout: Duration,
   /// How often the guard inspects the membership.
   pub tick_interval: Duration,
@@ -73,64 +76,98 @@ async fn guard_tick(
   let member_ids: BTreeSet<NodeId> = membership.nodes().map(|(id, _)| id.clone()).collect();
   let self_id = metrics.id.clone();
 
-  // Track for how long each voter has been unreachable. Reconnection resets
-  // the clock, so transient drops within the timeout are ignored.
+  // Track for how long each member (voter or learner) has been unreachable.
+  // Reconnection resets the clock, so transient drops within the timeout are
+  // ignored.
   let now = Instant::now();
-  for voter in &voters {
-    if voter == &self_id {
+  for member in &member_ids {
+    if member == &self_id {
       continue;
     }
-    if node_connected(network, voter).await {
-      down_since.remove(voter);
+    if node_connected(network, member).await {
+      down_since.remove(member);
     } else {
-      down_since.entry(voter.clone()).or_insert(now);
+      down_since.entry(member.clone()).or_insert(now);
     }
   }
-  down_since.retain(|id, _| voters.contains(id) && id != &self_id);
+  down_since.retain(|id, _| member_ids.contains(id) && id != &self_id);
 
-  // Replace at most ONE voter per tick; pick the longest-down one.
+  // Act on at most ONE member per tick; pick the longest-down one.
   let expired = down_since
     .iter()
     .map(|(id, since)| (id.clone(), now.duration_since(*since)))
     .filter(|(_, downtime)| *downtime >= config.voter_replace_timeout)
     .max_by_key(|(_, downtime)| *downtime);
 
-  let Some((dead_voter, downtime)) = expired else {
+  let Some((dead_member, downtime)) = expired else {
     return Ok(());
   };
 
-  let Some(promoted) = pick_connected_learner(&learners, network).await else {
+  if voters.contains(&dead_member) {
+    // Dead voter: replace it with a connected learner in one membership
+    // change so the quorum math stays sound.
+    let Some(promoted) = pick_connected_learner(&learners, network).await else {
+      tracing::warn!(
+        group = %group_id,
+        dead_voter = %dead_member,
+        downtime = ?downtime,
+        "voter is down past the replace timeout but no connected learner is available to promote"
+      );
+      return Ok(());
+    };
+
+    let mut new_voters = voters.clone();
+    new_voters.remove(&dead_member);
+    new_voters.insert(promoted.clone());
+
     tracing::warn!(
       group = %group_id,
-      dead_voter = %dead_voter,
+      dead_voter = %dead_member,
       downtime = ?downtime,
-      "voter is down past the replace timeout but no connected learner is available to promote"
+      promoted_learner = %promoted,
+      "replacing crashed voter with a learner"
     );
-    return Ok(());
-  };
 
-  let mut new_voters = voters.clone();
-  new_voters.remove(&dead_voter);
-  new_voters.insert(promoted.clone());
+    // retain=false removes the dead voter from the membership entirely, so a
+    // returning node sees itself evicted and re-joins as a learner.
+    raft
+      .change_membership(new_voters, false)
+      .await
+      .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
+  } else {
+    // Dead learner: drop it from the membership so it no longer shows up as
+    // a member; a returning node re-registers itself as a learner.
+    tracing::warn!(
+      group = %group_id,
+      dead_learner = %dead_member,
+      downtime = ?downtime,
+      "removing crashed learner from the membership"
+    );
 
-  tracing::warn!(
-    group = %group_id,
-    dead_voter = %dead_voter,
-    downtime = ?downtime,
-    promoted_learner = %promoted,
-    "replacing crashed voter with a learner"
-  );
+    raft
+      .change_membership(
+        ChangeMembers::RemoveNodes(BTreeSet::from([dead_member.clone()])),
+        false,
+      )
+      .await
+      .map_err(|err| anyhow!("remove learner failed: {err:?}"))?;
+  }
+  down_since.remove(&dead_member);
 
-  // retain=false removes the dead voter from the membership entirely, so a
-  // returning node sees itself evicted and re-joins as a learner.
-  raft
-    .change_membership(new_voters, false)
-    .await
-    .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
-  down_since.remove(&dead_voter);
+  backfill_learner(group_id, raft, network, &member_ids, &dead_member).await;
 
-  // Backfill the learner pool from a spare connected worker, if any.
-  match pick_spare_worker(network, &member_ids, &dead_voter).await {
+  Ok(())
+}
+
+/// Backfill the learner pool from a spare connected worker, if any.
+async fn backfill_learner(
+  group_id: &str,
+  raft: &Raft,
+  network: &Libp2pNetworkFactory,
+  member_ids: &BTreeSet<NodeId>,
+  dead_member: &NodeId,
+) {
+  match pick_spare_worker(network, member_ids, dead_member).await {
     Some((node_id, addr)) => {
       match raft
         .add_learner(node_id.clone(), BasicNode { addr: addr.clone() }, false)
@@ -155,8 +192,6 @@ async fn guard_tick(
       "no spare connected worker available to backfill the learner pool"
     ),
   }
-
-  Ok(())
 }
 
 async fn node_connected(network: &Libp2pNetworkFactory, node_id: &NodeId) -> bool {

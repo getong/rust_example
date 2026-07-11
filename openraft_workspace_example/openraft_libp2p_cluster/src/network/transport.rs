@@ -252,6 +252,13 @@ impl Libp2pNetworkFactory {
       .collect()
   }
 
+  /// Drop a node from the known-nodes address book. Used to prune nodes that
+  /// stayed disconnected past the healing timeout; a returning node is
+  /// re-registered through mdns discovery or its bootstrap dial.
+  pub async fn remove_known_node(&self, node_id: &NodeId) -> bool {
+    self.node_peers.write().await.remove(node_id).is_some()
+  }
+
   pub async fn set_peer_connected(&self, peer: PeerId) {
     if peer == self.local_peer_id {
       return;

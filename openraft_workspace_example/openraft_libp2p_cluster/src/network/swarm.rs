@@ -32,13 +32,15 @@ use crate::{
     transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{
-    ChatMessage, ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_response::Op as KvResponseOp,
+    ChatMessage, ErrorResponse, NodeAnnouncement, RaftKvRequest, RaftKvResponse,
+    raft_kv_response::Op as KvResponseOp,
   },
   signal::ShutdownRx,
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
 };
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
+pub const NODE_ANNOUNCE_TOPIC: &str = "openraft/node-announce/1";
 pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
@@ -939,7 +941,7 @@ async fn handle_swarm_event(
       handle_mdns_event(swarm, network, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-      handle_gossipsub_event(swarm, openraft_sync, event).await;
+      handle_gossipsub_event(swarm, network, openraft_sync, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
       handle_ping_event(event);
@@ -1174,8 +1176,42 @@ async fn handle_mdns_event(
   }
 }
 
+fn node_announce_topic_hash() -> gossipsub::TopicHash {
+  gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC).hash()
+}
+
+/// Handle a node self-announcement: (re)register the sender in the local
+/// known-nodes address book. This is what brings a node back into
+/// `known_nodes` after it crashed, was pruned, and restarted — mdns
+/// re-discovery alone can lag by minutes.
+async fn handle_node_announcement(network: &Libp2pNetworkFactory, data: &[u8]) {
+  let announcement = match NodeAnnouncement::decode(data) {
+    Ok(announcement) => announcement,
+    Err(err) => {
+      tracing::debug!(error = %err, "invalid node announcement message");
+      return;
+    }
+  };
+
+  if let Err(err) = network
+    .register_node(
+      crate::NodeId::new(&announcement.node_id),
+      &announcement.addr,
+    )
+    .await
+  {
+    tracing::debug!(
+      node_id = %announcement.node_id,
+      addr = %announcement.addr,
+      error = ?err,
+      "failed to register announced node"
+    );
+  }
+}
+
 async fn handle_gossipsub_event(
   swarm: &SharedSwarm,
+  network: &Libp2pNetworkFactory,
   openraft_sync: &mut OpenRaftSyncState,
   event: gossipsub::Event,
 ) {
@@ -1184,27 +1220,34 @@ async fn handle_gossipsub_event(
       propagation_source,
       message_id,
       message,
-    } => match ChatMessage::decode(message.data.as_slice()) {
-      Ok(chat) => {
-        tracing::info!(
-          peer = %propagation_source,
-          message_id = %message_id,
-          from = %chat.from,
-          text = %chat.text,
-          ts = chat.ts_unix_ms,
-          "chat message"
-        );
+    } => {
+      if message.topic == node_announce_topic_hash() {
+        handle_node_announcement(network, message.data.as_slice()).await;
+        return;
       }
-      Err(err) => {
-        tracing::info!(
-          peer = %propagation_source,
-          message_id = %message_id,
-          len = message.data.len(),
-          error = %err,
-          "gossipsub message (decode failed)"
-        );
+
+      match ChatMessage::decode(message.data.as_slice()) {
+        Ok(chat) => {
+          tracing::info!(
+            peer = %propagation_source,
+            message_id = %message_id,
+            from = %chat.from,
+            text = %chat.text,
+            ts = chat.ts_unix_ms,
+            "chat message"
+          );
+        }
+        Err(err) => {
+          tracing::info!(
+            peer = %propagation_source,
+            message_id = %message_id,
+            len = message.data.len(),
+            error = %err,
+            "gossipsub message (decode failed)"
+          );
+        }
       }
-    },
+    }
     gossipsub::Event::Partial {
       topic_hash,
       peer_id,

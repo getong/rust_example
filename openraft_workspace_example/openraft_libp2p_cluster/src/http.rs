@@ -201,6 +201,10 @@ struct KnownNodeResponse {
   node_id: NodeId,
   peer_id: String,
   addr: String,
+  /// Whether a libp2p connection to this node is currently established.
+  /// Crashed nodes stay in the known-node address book (so they can be
+  /// re-dialed when they come back) but show up as `connected: false`.
+  connected: bool,
 }
 
 #[derive(Serialize)]
@@ -1535,17 +1539,16 @@ async fn cluster_info(
   State(state): State<Arc<AppState>>,
   Query(query): Query<ClusterQuery>,
 ) -> Json<ClusterInfoResponse> {
-  let mut nodes: Vec<KnownNodeResponse> = state
-    .network
-    .known_nodes()
-    .await
-    .into_iter()
-    .map(|(node_id, peer_id, addr)| KnownNodeResponse {
+  let mut nodes: Vec<KnownNodeResponse> = Vec::new();
+  for (node_id, peer_id, addr) in state.network.known_nodes().await {
+    let connected = state.network.is_peer_connected(&peer_id).await;
+    nodes.push(KnownNodeResponse {
       node_id,
       peer_id: peer_id.to_string(),
       addr: addr.to_string(),
-    })
-    .collect();
+      connected,
+    });
+  }
 
   nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 

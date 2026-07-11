@@ -60,6 +60,9 @@ if ((LEARNER_NODES > WORKER_NODES)); then
 fi
 # All raft groups served by every node; used to verify per-group membership.
 GROUP_IDS="${GROUP_IDS:-users orders products apalis}"
+# Demo default: act on dead members / prune dead workers after 60s (the
+# binary's own default is a conservative 300s).
+VOTER_REPLACE_TIMEOUT_SECS="${VOTER_REPLACE_TIMEOUT_SECS:-60}"
 
 DB_BASE="${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}"
 DB_ROOT="${DB_ROOT:-$DB_BASE/$(date +%Y%m%d-%H%M%S)}"
@@ -592,6 +595,7 @@ BOOTSTRAP_KV="${NODE_PEER_IDS[1]}=$(node_advertise_addr 1)"
 echo "Workspace:  $WS_DIR"
 echo "export DB_ROOT=$DB_ROOT"
 echo "Total nodes: $TOTAL_NODES (control: $CONTROL_NODES, workers: $WORKER_NODES, learners among workers: $LEARNER_NODES)"
+echo "Self-healing: dead members replaced/removed and dead workers pruned after ${VOTER_REPLACE_TIMEOUT_SECS}s"
 echo "Bootstrap:   $BOOTSTRAP_KV"
 echo
 
