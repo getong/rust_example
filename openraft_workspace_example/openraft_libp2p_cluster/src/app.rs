@@ -23,10 +23,10 @@ use openraft::{BasicNode, async_runtime::WatchReceiver};
 use tokio::sync::mpsc;
 
 use crate::{
-  GroupHandle, GroupHandleMap, GroupId, NodeId, apalis_raft,
+  GroupHandle, GroupHandleMap, GroupId, NodeId,
   constants::{
-    SERVICE_APALIS_WORKER, SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT_LEADER_WORKER,
-    SERVICE_SQLITE_CACHE_FLUSHER,
+    SERVICE_HTTP, SERVICE_LIBP2P_SWARM, SERVICE_OPENRAFT_LEADER_WORKER,
+    SERVICE_SQLITE_CACHE_FLUSHER, SERVICE_TASK_WORKER,
   },
   groups, http, leader_controller,
   membership_guard::MembershipGuardConfig,
@@ -41,7 +41,7 @@ use crate::{
     },
     swarm::{
       Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, NODE_ANNOUNCE_TOPIC,
-      OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, run_swarm, set_libp2p_swarm,
+      OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, TaskRpcClient, run_swarm, set_libp2p_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -51,6 +51,10 @@ use crate::{
   sqlite_cache::{self, SqliteCache},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
   store,
+  tasks::{
+    self,
+    rpc::{ControlNodes, TaskRpcRequestMessage, TaskRpcResponseMessage},
+  },
   typ::Raft,
 };
 
@@ -58,7 +62,6 @@ const ENV_SELF_NAME: &str = "LIBP2P_SELF_NAME";
 const OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS: u64 = 1;
 const MEMBERSHIP_GUARD_TICK_SECS: u64 = 5;
 const EVICTED_LEARNER_REGISTER_RETRY_SECS: u64 = 10;
-const APALIS_WORKER_RESTART_DELAY_SECS: u64 = 2;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
 const CONTROL_JOIN_POLL_INTERVAL_SECS: u64 = 2;
@@ -447,10 +450,12 @@ fn build_libp2p_handles(
   let client = Libp2pClient::new(cmd_tx.clone(), timeout);
   let kv_client = KvClient::new(cmd_tx.clone(), timeout);
   let sqlite_sync_client = SqliteSyncClient::new(cmd_tx.clone(), timeout);
+  let task_rpc_client = TaskRpcClient::new(cmd_tx.clone(), timeout);
   let network = Libp2pNetworkFactory::new(
     client.clone(),
     kv_client.clone(),
     sqlite_sync_client.clone(),
+    task_rpc_client,
     local_peer_id,
   );
   (
@@ -585,6 +590,14 @@ fn build_swarm(
             StreamProtocol::new(crate::network::swarm::SQLITE_SYNC_RPC_PROTOCOL),
             ProtocolSupport::Full,
           )],
+          cfg.clone(),
+        ),
+        task_rpc: request_response::Behaviour::with_codec(
+          SerdeCodec::<TaskRpcRequestMessage, TaskRpcResponseMessage>::default(),
+          [(
+            StreamProtocol::new(crate::network::swarm::TASK_RPC_PROTOCOL),
+            ProtocolSupport::Full,
+          )],
           cfg,
         ),
         gossipsub,
@@ -601,6 +614,7 @@ fn build_swarm(
 
   let gossip_topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
   let announce_topic = gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC);
+  let task_assign_topic = gossipsub::IdentTopic::new(tasks::scheduler::TASK_ASSIGN_TOPIC);
   let sync_topic = gossipsub::IdentTopic::new(OPENRAFT_SYNC_TOPIC);
   let sync_topic_hash = sync_topic.hash();
   swarm
@@ -622,6 +636,11 @@ fn build_swarm(
     .gossipsub
     .subscribe(&announce_topic)
     .context("node announce gossipsub subscribe")?;
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&task_assign_topic)
+    .context("task assign gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
   Ok(swarm)
@@ -655,7 +674,7 @@ fn build_http_state(
   identity: &NodeIdentity,
   libp2p: &Libp2pHandles,
   sqlite_cache: Option<SqliteCache>,
-  apalis_email: Option<apalis_raft::RaftApalisStorage<apalis_raft::Email>>,
+  task_frontend: http::TaskFrontend,
 ) -> http::AppState {
   let default_group = default_openraft_group_id();
 
@@ -669,38 +688,9 @@ fn build_http_state(
     kv_client: libp2p.kv_client.clone(),
     libp2p_client: libp2p.client.clone(),
     default_group,
-    apalis_email,
+    task_frontend,
     sqlite_cache,
   }
-}
-
-fn build_apalis_email_storage(
-  node_id: NodeId,
-  libp2p: &Libp2pHandles,
-) -> anyhow::Result<apalis_raft::RaftApalisStorage<apalis_raft::Email>> {
-  let group =
-    openraft_group(groups::APALIS).ok_or_else(|| anyhow!("apalis raft group is not configured"))?;
-  Ok(apalis_raft::build_email_storage(
-    node_id,
-    groups::APALIS,
-    group,
-    libp2p.kv_client.clone(),
-    libp2p.network.clone(),
-  ))
-}
-
-fn build_worker_apalis_email_storage(
-  node_id: NodeId,
-  libp2p: &Libp2pHandles,
-  control_nodes: Vec<NodeId>,
-) -> apalis_raft::RaftApalisStorage<apalis_raft::Email> {
-  apalis_raft::build_worker_email_storage(
-    node_id,
-    groups::APALIS,
-    libp2p.network.clone(),
-    control_nodes,
-    libp2p.kv_client.clone(),
-  )
 }
 
 fn spawn_http(
@@ -716,85 +706,34 @@ fn spawn_http(
   })
 }
 
-fn spawn_apalis_worker(
+fn spawn_task_worker(
   shutdown: &mut crate::signal::ShutdownHandler,
+  node_id: NodeId,
   worker_name: String,
-  storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
+  network: Libp2pNetworkFactory,
+  control_nodes: Vec<NodeId>,
 ) -> tokio::task::JoinHandle<()> {
-  let apalis_done = shutdown.push(SERVICE_APALIS_WORKER);
-  let apalis_shutdown = shutdown.shutdown_rx();
+  let done = shutdown.push(SERVICE_TASK_WORKER);
+  let worker_shutdown = shutdown.shutdown_rx();
   tokio::spawn(async move {
-    let res = apalis_raft::run_email_worker(worker_name, storage, apalis_shutdown).await;
-    let _ = apalis_done.send(res);
+    let res = tasks::worker::run_task_worker(
+      node_id,
+      worker_name,
+      groups::APALIS.to_string(),
+      network,
+      control_nodes,
+      worker_shutdown,
+    )
+    .await;
+    let _ = done.send(res);
   })
-}
-
-fn spawn_resilient_apalis_worker(
-  shutdown: &mut crate::signal::ShutdownHandler,
-  worker_name: String,
-  storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
-) -> tokio::task::JoinHandle<()> {
-  let apalis_done = shutdown.push(SERVICE_APALIS_WORKER);
-  let apalis_shutdown = shutdown.shutdown_rx();
-  tokio::spawn(async move {
-    run_resilient_apalis_worker(worker_name, storage, apalis_shutdown).await;
-    let _ = apalis_done.send(Ok(()));
-  })
-}
-
-async fn run_resilient_apalis_worker(
-  worker_name: String,
-  storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
-  mut shutdown_rx: crate::signal::ShutdownRx,
-) {
-  let restart_delay = Duration::from_secs(APALIS_WORKER_RESTART_DELAY_SECS);
-
-  loop {
-    let worker_shutdown_rx = shutdown_rx.clone();
-    let mut handle = tokio::spawn(apalis_raft::run_email_worker(
-      worker_name.clone(),
-      storage.clone(),
-      worker_shutdown_rx,
-    ));
-
-    tokio::select! {
-      _ = shutdown_rx.changed() => {
-        let _ = handle.await;
-        break;
-      }
-      result = &mut handle => {
-        match result {
-          Ok(Ok(())) => break,
-          Ok(Err(err)) => {
-            tracing::warn!(
-              worker_name = %worker_name,
-              error = ?err,
-              "apalis worker stopped; restarting so libp2p worker stays online"
-            );
-          }
-          Err(err) => {
-            tracing::warn!(
-              worker_name = %worker_name,
-              error = ?err,
-              "apalis worker task failed; restarting so libp2p worker stays online"
-            );
-          }
-        }
-      }
-    }
-
-    tokio::select! {
-      _ = shutdown_rx.changed() => break,
-      _ = tokio::time::sleep(restart_delay) => {}
-    }
-  }
 }
 
 fn spawn_openraft_leader_controller(
   shutdown: &mut crate::signal::ShutdownHandler,
   groups: GroupHandleMap,
-  apalis_storage: apalis_raft::RaftApalisStorage<apalis_raft::Email>,
   network: Libp2pNetworkFactory,
+  kv_client: KvClient,
   membership_guard_config: Option<MembershipGuardConfig>,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_OPENRAFT_LEADER_WORKER);
@@ -802,8 +741,8 @@ fn spawn_openraft_leader_controller(
   tokio::spawn(async move {
     let res = leader_controller::run_leader_controller(
       groups,
-      apalis_storage,
       network,
+      kv_client,
       membership_guard_config,
       Duration::from_secs(OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS),
       shutdown_rx,
@@ -840,8 +779,6 @@ async fn run_control_services(
   }
   let sqlite_flush_group_id = default_openraft_group_id();
 
-  let apalis_storage = build_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p)?;
-  let leader_worker_storage = apalis_storage.clone();
   let leader_controller_groups = openraft_groups()
     .cloned()
     .ok_or_else(|| anyhow!("openraft groups are not initialized"))?;
@@ -850,13 +787,11 @@ async fn run_control_services(
     &runtime.identity,
     &runtime.libp2p,
     sqlite_cache.clone(),
-    Some(apalis_storage.clone()),
+    http::TaskFrontend::Control,
   );
-  let apalis_worker_name = format!("raft-scheduler-{}", runtime.opt.id);
 
   let mut shutdown = linked_shutdown(shutdown_rx_for_ordering.clone());
   let _http_handle = spawn_http(&mut shutdown, http_addr, http_state);
-  let _apalis_handle = spawn_apalis_worker(&mut shutdown, apalis_worker_name, apalis_storage);
   let membership_guard_config = runtime
     .opt
     .auto_heal_membership
@@ -867,8 +802,8 @@ async fn run_control_services(
   let _leader_controller_handle = spawn_openraft_leader_controller(
     &mut shutdown,
     leader_controller_groups,
-    leader_worker_storage,
     runtime.libp2p.network.clone(),
+    runtime.libp2p.kv_client.clone(),
     membership_guard_config,
   );
 
@@ -1182,19 +1117,27 @@ async fn run_worker_services_until_promotion(
   let control_nodes_for_learner = known_control_nodes.clone();
   let advertise_addr_for_learner = advertise_addr.clone();
 
-  let apalis_storage =
-    build_worker_apalis_email_storage(runtime.opt.id.clone(), &runtime.libp2p, known_control_nodes);
+  let shared_control_nodes = Arc::new(tokio::sync::Mutex::new(ControlNodes::new(
+    known_control_nodes.clone(),
+  )));
   let http_state = build_http_state(
     &runtime.opt,
     &runtime.identity,
     &runtime.libp2p,
     None,
-    Some(apalis_storage.clone()),
+    http::TaskFrontend::Worker {
+      control_nodes: shared_control_nodes,
+    },
   );
-  let apalis_worker_name = format!("libp2p-email-worker-{}", runtime.opt.id);
+  let worker_name = format!("libp2p-task-worker-{}", runtime.opt.id);
   let _http_handle = spawn_http(&mut worker_shutdown, http_addr, http_state);
-  let _apalis_handle =
-    spawn_resilient_apalis_worker(&mut worker_shutdown, apalis_worker_name, apalis_storage);
+  let _task_worker_handle = spawn_task_worker(
+    &mut worker_shutdown,
+    runtime.opt.id.clone(),
+    worker_name,
+    runtime.libp2p.network.clone(),
+    known_control_nodes,
+  );
 
   let mut worker_done_handle =
     tokio::spawn(async move { worker_shutdown.await_any_then_shutdown().await });

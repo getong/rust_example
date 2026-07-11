@@ -37,6 +37,7 @@ use crate::{
   },
   signal::ShutdownRx,
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
 };
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
@@ -45,6 +46,7 @@ pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
 pub const RAFT_RPC_PROTOCOL: &str = "/openraft/raft/1";
 pub const KV_RPC_PROTOCOL: &str = "/openraft/kv/1";
 pub const SQLITE_SYNC_RPC_PROTOCOL: &str = "/openraft/sqlite-sync/1";
+pub const TASK_RPC_PROTOCOL: &str = "/openraft/task/1";
 pub const KAD_PROTOCOL: &str = "/openraft/kad/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
@@ -86,6 +88,8 @@ pub struct Behaviour {
   pub sqlite_sync_rpc: request_response::Behaviour<
     SerdeCodec<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>,
   >,
+  pub task_rpc:
+    request_response::Behaviour<SerdeCodec<TaskRpcRequestMessage, TaskRpcResponseMessage>>,
   pub gossipsub: gossipsub::Behaviour,
   pub ping: ping::Behaviour,
   pub mdns: mdns::tokio::Behaviour,
@@ -97,6 +101,7 @@ pub enum BehaviourEvent {
   Raft(request_response::Event<RaftRpcRequest, RaftRpcResponse>),
   Kv(request_response::Event<RaftKvRequest, RaftKvResponse>),
   SqliteSync(request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>),
+  TaskRpc(request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>),
   Gossipsub(gossipsub::Event),
   Ping(ping::Event),
   Mdns(mdns::Event),
@@ -122,6 +127,14 @@ impl From<request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResp
     value: request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>,
   ) -> Self {
     Self::SqliteSync(value)
+  }
+}
+
+impl From<request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>>
+  for BehaviourEvent
+{
+  fn from(value: request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>) -> Self {
+    Self::TaskRpc(value)
   }
 }
 
@@ -214,6 +227,15 @@ pub enum Command {
   SqliteSyncRespond {
     channel: ResponseChannel<SqliteSyncRpcResponseMessage>,
     resp: SqliteSyncRpcResponseMessage,
+  },
+  TaskRpcRequest {
+    peer: PeerId,
+    req: TaskRpcRequestMessage,
+    resp: oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
+  },
+  TaskRpcRespond {
+    channel: ResponseChannel<TaskRpcResponseMessage>,
+    resp: TaskRpcResponseMessage,
   },
 }
 
@@ -589,6 +611,82 @@ impl SqliteSyncClient {
   }
 }
 
+/// Client handle for the tarpc-based task RPC protocol (`/openraft/task/1`).
+#[derive(Clone)]
+pub struct TaskRpcClient {
+  tx: mpsc::Sender<Command>,
+  timeout: Duration,
+}
+
+impl TaskRpcClient {
+  pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
+    Self { tx, timeout }
+  }
+
+  pub async fn connect(&self, peer: PeerId, addr: Multiaddr) -> Result<(), Unreachable> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::EnsureConnection {
+        peer,
+        addr,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
+      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
+
+    resp.map_err(|e| Unreachable::new(&e))
+  }
+
+  pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::EnsureConnectionAny {
+        peer,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
+      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
+
+    resp.map_err(|e| Unreachable::new(&e))
+  }
+
+  pub async fn request(
+    &self,
+    peer: PeerId,
+    req: TaskRpcRequestMessage,
+  ) -> Result<TaskRpcResponseMessage, Unreachable> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::TaskRpcRequest {
+        peer,
+        req,
+        resp: resp_tx,
+      })
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+    let resp = tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
+      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
+
+    resp.map_err(|e| Unreachable::new(&e))
+  }
+}
+
 pub async fn run_swarm(
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
@@ -610,6 +708,10 @@ pub async fn run_swarm(
   let mut pending_sqlite_sync: HashMap<
     OutboundRequestId,
     oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
+  > = HashMap::new();
+  let mut pending_task_rpc: HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
   > = HashMap::new();
   let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
     HashMap::new();
@@ -639,6 +741,7 @@ pub async fn run_swarm(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_sqlite_sync,
+          &mut pending_task_rpc,
           &mut pending_connect,
           &mut pending_start_providing,
           &mut pending_get_providers,
@@ -669,6 +772,7 @@ pub async fn run_swarm(
             &mut pending_raft,
             &mut pending_kv,
             &mut pending_sqlite_sync,
+            &mut pending_task_rpc,
             &mut pending_connect,
             &mut pending_start_providing,
             &mut pending_get_providers,
@@ -688,6 +792,7 @@ pub async fn run_swarm(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_sqlite_sync,
+          &mut pending_task_rpc,
           &mut pending_connect,
           &mut dial_backoff_until,
           &mut pending_start_providing,
@@ -702,6 +807,7 @@ pub async fn run_swarm(
             &mut pending_raft,
             &mut pending_kv,
             &mut pending_sqlite_sync,
+            &mut pending_task_rpc,
             &mut pending_connect,
             &mut pending_start_providing,
             &mut pending_get_providers,
@@ -718,6 +824,7 @@ pub async fn run_swarm(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_sqlite_sync,
+          &mut pending_task_rpc,
           &mut pending_connect,
           &mut openraft_sync,
           &mut connected_peers,
@@ -860,6 +967,10 @@ fn handle_command(
     OutboundRequestId,
     oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
   >,
+  pending_task_rpc: &mut HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
+  >,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
@@ -958,6 +1069,13 @@ fn handle_command(
         .sqlite_sync_rpc
         .send_response(channel, resp);
     }
+    Command::TaskRpcRequest { peer, req, resp } => {
+      let id = swarm.behaviour_mut().task_rpc.send_request(&peer, req);
+      pending_task_rpc.insert(id, resp);
+    }
+    Command::TaskRpcRespond { channel, resp } => {
+      let _ = swarm.behaviour_mut().task_rpc.send_response(channel, resp);
+    }
   }
 }
 
@@ -1018,6 +1136,10 @@ async fn handle_swarm_event(
     OutboundRequestId,
     oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
   >,
+  pending_task_rpc: &mut HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
+  >,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   openraft_sync: &mut OpenRaftSyncState,
   connected_peers: &mut HashSet<PeerId>,
@@ -1036,6 +1158,9 @@ async fn handle_swarm_event(
     }
     SwarmEvent::Behaviour(BehaviourEvent::SqliteSync(event)) => {
       handle_sqlite_sync_event(dispatcher.clone(), cmd_tx, pending_sqlite_sync, event);
+    }
+    SwarmEvent::Behaviour(BehaviourEvent::TaskRpc(event)) => {
+      handle_task_rpc_event(dispatcher.clone(), cmd_tx, pending_task_rpc, event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
       handle_mdns_event(swarm, network, event).await;
@@ -1224,6 +1349,48 @@ fn handle_sqlite_sync_event(
   }
 }
 
+fn handle_task_rpc_event(
+  dispatcher: Arc<dyn SwarmRequestDispatcher>,
+  cmd_tx: &mpsc::Sender<Command>,
+  pending_task_rpc: &mut HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
+  >,
+  event: request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>,
+) {
+  match event {
+    request_response::Event::Message { message, .. } => match message {
+      request_response::Message::Request {
+        request, channel, ..
+      } => {
+        let dispatcher = dispatcher.clone();
+        let tx = cmd_tx.clone();
+        tokio::spawn(async move {
+          let resp = dispatcher.handle_task_rpc(request).await;
+          let _ = tx.send(Command::TaskRpcRespond { channel, resp }).await;
+        });
+      }
+      request_response::Message::Response {
+        request_id,
+        response,
+      } => {
+        if let Some(tx) = pending_task_rpc.remove(&request_id) {
+          let _ = tx.send(Ok(response));
+        }
+      }
+    },
+    request_response::Event::OutboundFailure {
+      request_id, error, ..
+    } => {
+      if let Some(tx) = pending_task_rpc.remove(&request_id) {
+        let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
+      }
+    }
+    request_response::Event::InboundFailure { .. } => {}
+    request_response::Event::ResponseSent { .. } => {}
+  }
+}
+
 async fn handle_mdns_event(
   swarm: &SharedSwarm,
   network: &Libp2pNetworkFactory,
@@ -1280,6 +1447,10 @@ fn node_announce_topic_hash() -> gossipsub::TopicHash {
   gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC).hash()
 }
 
+fn task_assign_topic_hash() -> gossipsub::TopicHash {
+  gossipsub::IdentTopic::new(crate::tasks::scheduler::TASK_ASSIGN_TOPIC).hash()
+}
+
 /// Handle a node self-announcement: (re)register the sender in the local
 /// known-nodes address book. This is what brings a node back into
 /// `known_nodes` after it crashed, was pruned, and restarted — mdns
@@ -1323,6 +1494,21 @@ async fn handle_gossipsub_event(
     } => {
       if message.topic == node_announce_topic_hash() {
         handle_node_announcement(network, message.data.as_slice()).await;
+        return;
+      }
+
+      if message.topic == task_assign_topic_hash() {
+        match crate::proto::raft_kv::TaskAssignedMessage::decode(message.data.as_slice()) {
+          Ok(assigned) => {
+            tracing::debug!(
+              task_id = %assigned.task_id,
+              worker_id = %assigned.worker_id,
+              "task assignment gossip received"
+            );
+            crate::tasks::worker::notify_assignment(&assigned.worker_id);
+          }
+          Err(err) => tracing::debug!(error = %err, "invalid task assignment message"),
+        }
         return;
       }
 
@@ -1610,6 +1796,10 @@ pub async fn run_swarm_client_with_shutdown(
     OutboundRequestId,
     oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
   > = HashMap::new();
+  let mut pending_task_rpc: HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
+  > = HashMap::new();
   let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
     HashMap::new();
   let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
@@ -1631,6 +1821,7 @@ pub async fn run_swarm_client_with_shutdown(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_sqlite_sync,
+          &mut pending_task_rpc,
           &mut pending_connect,
           &mut pending_start_providing,
           &mut pending_get_providers,
@@ -1649,6 +1840,7 @@ pub async fn run_swarm_client_with_shutdown(
             &mut pending_raft,
             &mut pending_kv,
             &mut pending_sqlite_sync,
+            &mut pending_task_rpc,
             &mut pending_connect,
             &mut pending_start_providing,
             &mut pending_get_providers,
@@ -1662,6 +1854,7 @@ pub async fn run_swarm_client_with_shutdown(
           &mut pending_raft,
           &mut pending_kv,
           &mut pending_sqlite_sync,
+          &mut pending_task_rpc,
           &mut pending_connect,
           &mut dial_backoff_until,
           &mut pending_start_providing,
@@ -1676,6 +1869,7 @@ pub async fn run_swarm_client_with_shutdown(
             &mut pending_raft,
             &mut pending_kv,
             &mut pending_sqlite_sync,
+            &mut pending_task_rpc,
             &mut pending_connect,
             &mut pending_start_providing,
             &mut pending_get_providers,
@@ -1980,6 +2174,10 @@ fn fail_pending_swarm_requests(
     OutboundRequestId,
     oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
   >,
+  pending_task_rpc: &mut HashMap<
+    OutboundRequestId,
+    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
+  >,
   pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
   pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
@@ -1988,6 +2186,7 @@ fn fail_pending_swarm_requests(
   fail_pending_map(pending_raft, reason);
   fail_pending_map(pending_kv, reason);
   fail_pending_map(pending_sqlite_sync, reason);
+  fail_pending_map(pending_task_rpc, reason);
   fail_pending_map(pending_start_providing, reason);
   fail_pending_connect(pending_connect, reason);
   fail_pending_get_providers(pending_get_providers, reason);

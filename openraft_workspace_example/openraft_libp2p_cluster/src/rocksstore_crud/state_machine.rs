@@ -1,7 +1,7 @@
 //! RocksDB-backed state machine implementation.
 
 use std::{
-  collections::BTreeMap,
+  collections::{BTreeMap, HashMap},
   fmt::Debug,
   fs,
   fs::File,
@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use super::TypeConfig;
-use crate::types_kv;
+use crate::{tasks, types_kv};
 
 const SM_META_CF: &str = "sm_meta";
 const SM_DATA_CF: &str = "sm_data";
@@ -585,6 +585,11 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       .cf_handle(SM_META_CF)
       .ok_or_else(|| io::Error::other(format!("column family `{SM_META_CF}` not found")))?;
     let mut batch = rocksdb::WriteBatch::default();
+    // Reads issued while applying task commands must observe writes from
+    // earlier entries in this SAME batch: replicas chunk the entry stream
+    // differently, so relying on the flushed DB alone would make replicas
+    // diverge. The overlay holds this batch's pending writes.
+    let mut overlay: HashMap<String, Option<String>> = HashMap::new();
 
     while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
@@ -603,13 +608,46 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
             } else {
               types_kv::Response::none()
             };
+            overlay.insert(key.clone(), Some(value.clone()));
             data_changes.push(DataChange::Set { key, value });
             response
           }
           types_kv::Request::Delete { key } => {
             batch.delete_cf(cf_data, key.as_bytes());
+            overlay.insert(key.clone(), None);
             data_changes.push(DataChange::Delete { key });
             types_kv::Response::none()
+          }
+          task_cmd => {
+            let mut read = |key: &str| -> Result<Option<String>, String> {
+              if let Some(pending) = overlay.get(key) {
+                return Ok(pending.clone());
+              }
+              db.get_cf(cf_data, key.as_bytes())
+                .map_err(|err| err.to_string())?
+                .map(|bytes| String::from_utf8(bytes).map_err(|err| err.to_string()))
+                .transpose()
+            };
+            let (mutations, response) =
+              tasks::apply_task_command(&mut read, task_cmd).map_err(io::Error::other)?;
+            for mutation in mutations {
+              match mutation.value {
+                Some(value) => {
+                  batch.put_cf(cf_data, mutation.key.as_bytes(), value.as_bytes());
+                  overlay.insert(mutation.key.clone(), Some(value.clone()));
+                  data_changes.push(DataChange::Set {
+                    key: mutation.key,
+                    value,
+                  });
+                }
+                None => {
+                  batch.delete_cf(cf_data, mutation.key.as_bytes());
+                  overlay.insert(mutation.key.clone(), None);
+                  data_changes.push(DataChange::Delete { key: mutation.key });
+                }
+              }
+            }
+            response
           }
         },
         EntryPayload::Membership(ref mem) => {

@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 
 use once_cell::sync::OnceCell;
 
-pub mod apalis_raft;
 pub mod app;
 pub mod constants;
 pub mod graphviz;
@@ -19,6 +18,7 @@ pub mod signal;
 pub mod sqlite_cache;
 pub mod sqlite_sync_rpc;
 pub mod store;
+pub mod tasks;
 pub mod telemetry;
 pub mod typ;
 pub mod types_kv;

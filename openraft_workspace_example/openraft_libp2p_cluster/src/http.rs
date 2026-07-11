@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::Context;
-use apalis::prelude::TaskSink;
 use axum::{
   Router,
   body::to_bytes,
@@ -28,8 +27,8 @@ use serde::{
 
 use crate::{
   GroupId, NodeId,
-  apalis_raft::{Email, RaftApalisStorage, TaskRecordView, WorkerRecord},
   graphviz::{ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg},
+  groups,
   network::{
     openraft_dispatcher::process_kv_request,
     rpc::{AddLearnerRequest, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
@@ -49,6 +48,12 @@ use crate::{
   signal::ShutdownRx,
   sqlite_cache::{CachedValue, SqliteCache, pending_key, record_pending_key},
   store::ensure_linearizable_read,
+  tasks::{
+    TaskOpResult, TaskRecord, WorkerLeaseRecord,
+    rpc::{ControlNodes, TaskRpc, TaskRpcRequest, TaskRpcResponse, TaskRpcService},
+    worker::{Email, call_read, submit_command},
+  },
+  types_kv::Request as StateCommand,
 };
 
 const HTTP_JSON_BODY_LIMIT: usize = 1024 * 1024;
@@ -137,8 +142,19 @@ pub struct AppState {
   pub kv_client: KvClient,
   pub libp2p_client: Libp2pClient,
   pub default_group: GroupId,
-  pub apalis_email: Option<RaftApalisStorage<Email>>,
+  pub task_frontend: TaskFrontend,
   pub sqlite_cache: Option<SqliteCache>,
+}
+
+/// How this node reaches the replicated task queue.
+#[derive(Clone)]
+pub enum TaskFrontend {
+  /// Control node: submit directly through the local raft handle.
+  Control,
+  /// Worker node: go through the tarpc TaskRpc protocol to control nodes.
+  Worker {
+    control_nodes: Arc<tokio::sync::Mutex<ControlNodes>>,
+  },
 }
 
 pub async fn serve(
@@ -453,14 +469,14 @@ struct EmailResponse {
 #[derive(Serialize)]
 struct ApalisTasksResponse {
   ok: bool,
-  tasks: Vec<TaskRecordView>,
+  tasks: Vec<TaskRecord>,
   error: Option<String>,
 }
 
 #[derive(Serialize)]
 struct ApalisWorkersResponse {
   ok: bool,
-  workers: Vec<WorkerRecord>,
+  workers: Vec<WorkerLeaseRecord>,
   error: Option<String>,
 }
 
@@ -1051,7 +1067,7 @@ async fn libp2p_info(State(state): State<Arc<AppState>>) -> Json<Libp2pInfoRespo
         protocol: KV_RPC_PROTOCOL,
         support: "Full",
         codec: "protobuf (ProstCodec)",
-        used_for: "KV get/set/update/delete/list-prefix and apalis task claiming",
+        used_for: "KV get/set/update/delete/list-prefix",
       },
       RequestResponseProtocolInfo {
         name: "sqlite_sync_rpc",
@@ -1871,20 +1887,81 @@ async fn fetch_leader_metrics_value(
   sonic_rs::to_value(&leader_metrics).ok()
 }
 
+fn unix_now_secs() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_secs()
+}
+
+/// Submit a task state-machine command via the node's task frontend:
+/// control nodes write through their local raft handle (following a leader
+/// hint over the network when needed), workers go through the tarpc TaskRpc.
+async fn submit_task_state_command(
+  state: &AppState,
+  cmd: StateCommand,
+) -> anyhow::Result<TaskOpResult> {
+  let group_id = groups::APALIS.to_string();
+  match &state.task_frontend {
+    TaskFrontend::Control => {
+      let reply = TaskRpcService
+        .submit(tarpc::context::current(), group_id.clone(), cmd.clone())
+        .await;
+      if reply.ok {
+        let value = reply
+          .value
+          .ok_or_else(|| anyhow::anyhow!("task command accepted but returned no result"))?;
+        return sonic_rs::from_str(&value)
+          .map_err(|err| anyhow::anyhow!("decode task op result: {err}"));
+      }
+      // Not the leader for this group: follow the hint over the network.
+      if let Some(leader_id) = reply.leader_id.as_deref() {
+        let leader = NodeId::new(leader_id);
+        if let Some(addr) = reply.leader_addr.as_deref() {
+          let _ = state.network.register_node(leader.clone(), addr).await;
+        }
+        let control_nodes = tokio::sync::Mutex::new(ControlNodes::new(vec![leader]));
+        return submit_command(&state.network, &control_nodes, &group_id, cmd).await;
+      }
+      Err(anyhow::anyhow!(
+        "task command failed: {}",
+        reply.error.unwrap_or_default()
+      ))
+    }
+    TaskFrontend::Worker { control_nodes } => {
+      submit_command(&state.network, control_nodes, &group_id, cmd).await
+    }
+  }
+}
+
 async fn push_email(
   State(state): State<Arc<AppState>>,
   Json(req): Json<EmailRequest>,
 ) -> Json<EmailResponse> {
-  let Some(mut storage) = state.apalis_email.clone() else {
-    return Json(EmailResponse {
-      ok: false,
-      error: Some("apalis storage is not available on this node".to_string()),
-    });
+  let payload = match sonic_rs::to_string(&Email { to: req.to }) {
+    Ok(payload) => payload,
+    Err(err) => {
+      return Json(EmailResponse {
+        ok: false,
+        error: Some(format!("encode email payload: {err}")),
+      });
+    }
   };
-  match storage.push(Email { to: req.to }).await {
-    Ok(()) => Json(EmailResponse {
+  let cmd = StateCommand::TaskEnqueue {
+    id: uuid::Uuid::now_v7().to_string(),
+    payload,
+    run_at: unix_now_secs(),
+    idem_key: None,
+  };
+
+  match submit_task_state_command(&state, cmd).await {
+    Ok(result) if result.ok => Json(EmailResponse {
       ok: true,
       error: None,
+    }),
+    Ok(result) => Json(EmailResponse {
+      ok: false,
+      error: result.reason,
     }),
     Err(err) => Json(EmailResponse {
       ok: false,
@@ -1894,49 +1971,87 @@ async fn push_email(
 }
 
 async fn list_apalis_tasks(State(state): State<Arc<AppState>>) -> Json<ApalisTasksResponse> {
-  let Some(storage) = state.apalis_email.clone() else {
-    return Json(ApalisTasksResponse {
-      ok: false,
-      tasks: Vec::new(),
-      error: Some("apalis storage is not available on this node".to_string()),
-    });
+  let group_id = groups::APALIS.to_string();
+  let reply = match &state.task_frontend {
+    TaskFrontend::Control => {
+      TaskRpcService
+        .list_tasks(tarpc::context::current(), group_id)
+        .await
+    }
+    TaskFrontend::Worker { control_nodes } => {
+      match call_read(&state.network, control_nodes, || {
+        TaskRpcRequest::ListTasks {
+          group_id: group_id.clone(),
+        }
+      })
+      .await
+      {
+        Ok(TaskRpcResponse::ListTasks(reply)) => reply,
+        Ok(other) => {
+          return Json(ApalisTasksResponse {
+            ok: false,
+            tasks: Vec::new(),
+            error: Some(format!("unexpected task rpc response: {other:?}")),
+          });
+        }
+        Err(err) => {
+          return Json(ApalisTasksResponse {
+            ok: false,
+            tasks: Vec::new(),
+            error: Some(err.to_string()),
+          });
+        }
+      }
+    }
   };
 
-  match storage.list_tasks().await {
-    Ok(tasks) => Json(ApalisTasksResponse {
-      ok: true,
-      tasks,
-      error: None,
-    }),
-    Err(err) => Json(ApalisTasksResponse {
-      ok: false,
-      tasks: Vec::new(),
-      error: Some(err.to_string()),
-    }),
-  }
+  Json(ApalisTasksResponse {
+    ok: reply.ok,
+    tasks: reply.tasks,
+    error: reply.error,
+  })
 }
 
 async fn list_apalis_workers(State(state): State<Arc<AppState>>) -> Json<ApalisWorkersResponse> {
-  let Some(storage) = state.apalis_email.clone() else {
-    return Json(ApalisWorkersResponse {
-      ok: false,
-      workers: Vec::new(),
-      error: Some("apalis storage is not available on this node".to_string()),
-    });
+  let group_id = groups::APALIS.to_string();
+  let reply = match &state.task_frontend {
+    TaskFrontend::Control => {
+      TaskRpcService
+        .list_workers(tarpc::context::current(), group_id)
+        .await
+    }
+    TaskFrontend::Worker { control_nodes } => {
+      match call_read(&state.network, control_nodes, || {
+        TaskRpcRequest::ListWorkers {
+          group_id: group_id.clone(),
+        }
+      })
+      .await
+      {
+        Ok(TaskRpcResponse::ListWorkers(reply)) => reply,
+        Ok(other) => {
+          return Json(ApalisWorkersResponse {
+            ok: false,
+            workers: Vec::new(),
+            error: Some(format!("unexpected task rpc response: {other:?}")),
+          });
+        }
+        Err(err) => {
+          return Json(ApalisWorkersResponse {
+            ok: false,
+            workers: Vec::new(),
+            error: Some(err.to_string()),
+          });
+        }
+      }
+    }
   };
 
-  match storage.list_workers().await {
-    Ok(workers) => Json(ApalisWorkersResponse {
-      ok: true,
-      workers,
-      error: None,
-    }),
-    Err(err) => Json(ApalisWorkersResponse {
-      ok: false,
-      workers: Vec::new(),
-      error: Some(err.to_string()),
-    }),
-  }
+  Json(ApalisWorkersResponse {
+    ok: reply.ok,
+    workers: reply.workers,
+    error: reply.error,
+  })
 }
 
 async fn set_value(

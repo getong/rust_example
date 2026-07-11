@@ -1,4 +1,4 @@
-pub const SERVICE_APALIS_WORKER: &str = "service:apalis-worker";
+pub const SERVICE_TASK_WORKER: &str = "service:task-worker";
 pub const SERVICE_LIBP2P_SWARM: &str = "service:libp2p-swarm";
 pub const SERVICE_HTTP: &str = "service:http";
 pub const SERVICE_OPENRAFT_LEADER_WORKER: &str = "service:openraft-leader-worker";

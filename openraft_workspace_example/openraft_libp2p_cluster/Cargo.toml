@@ -17,8 +17,6 @@ path = "src/bin/status.rs"
 
 [dependencies]
 anyhow = "1.0.103"
-apalis = { version = "1.0.0-rc.9", features = ["retry"] }
-apalis-core = "1.0.0-rc.9"
 async-trait = "0.1.89"
 axum = { version = "0.8.9", default-features = false, features = [
   "http1",

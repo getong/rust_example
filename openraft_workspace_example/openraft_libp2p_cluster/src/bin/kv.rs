@@ -25,6 +25,7 @@ use openraft_libp2p_cluster::{
   },
   signal,
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
   telemetry,
 };
 use tokio::sync::mpsc;
@@ -140,6 +141,14 @@ async fn main() -> anyhow::Result<()> {
             StreamProtocol::new("/openraft/sqlite-sync/1"),
             ProtocolSupport::Full,
           )],
+          cfg.clone(),
+        ),
+        task_rpc: request_response::Behaviour::with_codec(
+          SerdeCodec::<TaskRpcRequestMessage, TaskRpcResponseMessage>::default(),
+          [(
+            StreamProtocol::new("/openraft/task/1"),
+            ProtocolSupport::Full,
+          )],
           cfg,
         ),
         gossipsub,
@@ -207,12 +216,6 @@ async fn main() -> anyhow::Result<()> {
       for entry in resp.entries {
         println!("{}={}", entry.key, entry.value);
       }
-    }
-    Some(KvResponseOp::ClaimApalisTask(resp)) => {
-      println!(
-        "claim task: found={}, key={}, value={}",
-        resp.found, resp.key, resp.value
-      );
     }
     Some(KvResponseOp::Error(resp)) => {
       println!("error: {}", resp.message);

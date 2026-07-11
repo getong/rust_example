@@ -4,6 +4,7 @@ use crate::{
   network::rpc::{RaftRpcRequest, RaftRpcResponse},
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
 };
 
 #[async_trait]
@@ -16,4 +17,6 @@ pub trait SwarmRequestDispatcher: Send + Sync + 'static {
     &self,
     request: SqliteSyncRpcRequestMessage,
   ) -> SqliteSyncRpcResponseMessage;
+
+  async fn handle_task_rpc(&self, request: TaskRpcRequestMessage) -> TaskRpcResponseMessage;
 }

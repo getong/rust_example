@@ -14,10 +14,11 @@ use crate::{
   network::{
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork},
     rpc::{RaftRpcRequest, RaftRpcResponse},
-    swarm::{KvClient, Libp2pClient, NetErr, SqliteSyncClient},
+    swarm::{KvClient, Libp2pClient, NetErr, SqliteSyncClient, TaskRpcClient},
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
 };
 
 #[derive(Clone)]
@@ -25,6 +26,7 @@ pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
   kv_client: KvClient,
   sqlite_sync_client: SqliteSyncClient,
+  task_rpc_client: TaskRpcClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
   connected_peers: Arc<tokio::sync::RwLock<HashSet<PeerId>>>,
   group_id: Option<GroupId>,
@@ -36,12 +38,14 @@ impl Libp2pNetworkFactory {
     client: Libp2pClient,
     kv_client: KvClient,
     sqlite_sync_client: SqliteSyncClient,
+    task_rpc_client: TaskRpcClient,
     local_peer_id: PeerId,
   ) -> Self {
     Self {
       client,
       kv_client,
       sqlite_sync_client,
+      task_rpc_client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       connected_peers: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
       group_id: None,
@@ -54,6 +58,7 @@ impl Libp2pNetworkFactory {
       client: self.client.clone(),
       kv_client: self.kv_client.clone(),
       sqlite_sync_client: self.sqlite_sync_client.clone(),
+      task_rpc_client: self.task_rpc_client.clone(),
       node_peers: self.node_peers.clone(),
       connected_peers: self.connected_peers.clone(),
       group_id: Some(group_id),
@@ -347,6 +352,33 @@ impl Libp2pNetworkFactory {
     self.sqlite_sync_client.request(peer, req).await
   }
 
+  pub async fn request_task_rpc(
+    &self,
+    node_id: NodeId,
+    req: TaskRpcRequestMessage,
+  ) -> Result<TaskRpcResponseMessage, Unreachable> {
+    let (peer, addr) = self.peer_addr_for(&node_id).await?;
+    if peer == self.local_peer_id {
+      return Err(Unreachable::new(&NetErr(format!(
+        "self dial blocked: node_id={node_id}, peer={peer}"
+      ))));
+    }
+    if let Err(err) = self.task_rpc_client.connect(peer, addr.clone()).await {
+      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
+        return Err(err);
+      }
+      tracing::warn!(
+        node_id = %node_id,
+        peer = %peer,
+        addr = %addr,
+        error = %err,
+        "connect with configured address failed, trying any known address for task rpc"
+      );
+      self.task_rpc_client.connect_any(peer).await?;
+    }
+    self.task_rpc_client.request(peer, req).await
+  }
+
   pub async fn request_kv(
     &self,
     node_id: NodeId,
@@ -534,8 +566,15 @@ mod tests {
     let (tx, _rx) = mpsc::channel(4);
     let client = Libp2pClient::new(tx.clone(), Duration::from_secs(1));
     let kv_client = KvClient::new(tx.clone(), Duration::from_secs(1));
-    let sqlite_sync_client = SqliteSyncClient::new(tx, Duration::from_secs(1));
-    Libp2pNetworkFactory::new(client, kv_client, sqlite_sync_client, local_peer)
+    let sqlite_sync_client = SqliteSyncClient::new(tx.clone(), Duration::from_secs(1));
+    let task_rpc_client = TaskRpcClient::new(tx, Duration::from_secs(1));
+    Libp2pNetworkFactory::new(
+      client,
+      kv_client,
+      sqlite_sync_client,
+      task_rpc_client,
+      local_peer,
+    )
   }
 
   #[tokio::test]

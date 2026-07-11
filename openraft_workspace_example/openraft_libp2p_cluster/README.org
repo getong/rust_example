@@ -96,7 +96,7 @@ curl -X POST http://127.0.0.1:3001/openraft/membership/remove \
   -d '{"group_id":"users","node_id":"<node-id-to-remove>"}'
 #+end_src
 
-** apalis
+** tasks (raft-native queue)
 
 Nodes start as libp2p workers by default. The node whose =--id= matches the
 configured =--bootstrap-node= id creates the initial OpenRaft cluster. Other
@@ -107,12 +107,20 @@ launcher sets ~MAX_CONTROL_NODES=5~ and passes =--max-control-nodes 5=. Nodes
 accepted into OpenRaft membership promote to control nodes, and later nodes stay
 as workers.
 
-Tasks are stored in the =apalis= raft group under
-=apalis:apalis:task:<task-id>=. Worker lease records are stored under
-=apalis:apalis:worker:<node-id>=. The Raft leader schedules queued tasks to
-active worker leases, writes the assigned worker and lease epoch through
-OpenRaft, and the target worker executes the task locally with apalis. Final
-task state is acknowledged back through the Raft-backed KV protocol.
+Tasks are DOMAIN COMMANDS in the =apalis= raft group's log (octopii-style):
+=TaskEnqueue= / =TaskAssign= / =TaskClaim= / =TaskDone= / =TaskFail= /
+=TaskRequeue= / =WorkerLease= are applied atomically by the state machine,
+which maintains the task record (=task:rec:<id>=), the queued/assigned
+secondary indexes (=task:idx:queued:<run_at>:<id>=,
+=task:idx:assigned:<node>:<id>=), the idempotency table and worker leases
+(=task:worker:<node>=) in one RocksDB write batch. Execution NEVER happens in
+=apply()=: the leader's scheduler assigns due tasks to leased workers (and
+publishes a gossip wake-up), the worker claims atomically via a =TaskClaim=
+command, runs the side effect locally exactly once, and acks with
+=TaskDone=/=TaskFail= (failed tasks re-queue with exponential backoff, up to
+3 attempts). Workers and worker-mode HTTP frontends reach the control plane
+through a tarpc =TaskRpc= service carried over the libp2p request-response
+protocol =/openraft/task/1=.
 
 Start the five-node control plane:
 

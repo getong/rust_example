@@ -22,6 +22,7 @@ use openraft_libp2p_cluster::{
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   signal,
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
   telemetry,
 };
 use tokio::sync::mpsc;
@@ -127,6 +128,14 @@ async fn main() -> anyhow::Result<()> {
           SerdeCodec::<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>::default(),
           [(
             StreamProtocol::new("/openraft/sqlite-sync/1"),
+            ProtocolSupport::Full,
+          )],
+          cfg.clone(),
+        ),
+        task_rpc: request_response::Behaviour::with_codec(
+          SerdeCodec::<TaskRpcRequestMessage, TaskRpcResponseMessage>::default(),
+          [(
+            StreamProtocol::new("/openraft/task/1"),
             ProtocolSupport::Full,
           )],
           cfg,

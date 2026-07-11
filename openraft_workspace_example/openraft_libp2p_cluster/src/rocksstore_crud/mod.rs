@@ -112,15 +112,6 @@ pub struct RocksResponse {
   pub value: Option<String>,
 }
 
-impl From<types_kv::Request> for RocksRequest {
-  fn from(request: types_kv::Request) -> Self {
-    match request {
-      types_kv::Request::Set { key, value } => RocksRequest::Set { key, value },
-      types_kv::Request::Delete { key } => RocksRequest::Delete { key },
-    }
-  }
-}
-
 impl From<types_kv::Response> for RocksResponse {
   fn from(response: types_kv::Response) -> Self {
     RocksResponse {
