@@ -175,7 +175,7 @@ fn leader_works_for_group(
     });
   }
 
-  if group_id == groups::APALIS {
+  if group_id == groups::TASKS {
     works.push(LeaderWork::TaskScheduler {
       network: network.clone(),
       kv_client: kv_client.clone(),

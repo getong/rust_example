@@ -31,6 +31,9 @@ use crate::{
 };
 
 const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
+/// Hard cap on a single task execution; a hung handler counts as a failure
+/// and goes through the normal retry/backoff path.
+const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_LEASE_TTL_SECS: u64 = 30;
 const WORKER_POLL_FALLBACK: Duration = Duration::from_secs(5);
 const RETRY_BACKOFF_BASE_SECS: u64 = 5;
@@ -60,8 +63,30 @@ pub struct Email {
 async fn execute_task(record: &TaskRecord) -> Result<(), String> {
   let email: Email =
     sonic_rs::from_str(&record.payload).map_err(|err| format!("decode email payload: {err}"))?;
+
+  // Testable failure semantics for drills: recipients starting with "fail"
+  // simulate a handler error (exercises retry/backoff and permanent failure),
+  // "slow" simulates a hang (exercises the execution timeout).
+  if email.to.starts_with("fail") {
+    return Err(format!("simulated failure sending to {}", email.to));
+  }
+  if email.to.starts_with("slow") {
+    tokio::time::sleep(TASK_EXECUTION_TIMEOUT + Duration::from_secs(15)).await;
+  }
+
   tracing::info!(task_id = %record.id, to = %email.to, "sending email");
   Ok(())
+}
+
+/// Execute with the hard timeout applied.
+async fn execute_task_with_timeout(record: &TaskRecord) -> Result<(), String> {
+  match tokio::time::timeout(TASK_EXECUTION_TIMEOUT, execute_task(record)).await {
+    Ok(result) => result,
+    Err(_) => Err(format!(
+      "task execution timed out after {}s",
+      TASK_EXECUTION_TIMEOUT.as_secs()
+    )),
+  }
 }
 
 /// Submit a task state-machine command to the control plane, following
@@ -279,6 +304,7 @@ async fn claim_and_execute(
       id: task_id.to_string(),
       node_id: node_id.to_string(),
       lease_epoch,
+      now: current_unix_secs(),
     },
   )
   .await?;
@@ -294,8 +320,9 @@ async fn claim_and_execute(
     .record
     .ok_or_else(|| anyhow!("claim succeeded but returned no record"))?;
 
-  // Execute the side effect LOCALLY — never inside the state machine.
-  let outcome = execute_task(&record).await;
+  // Execute the side effect LOCALLY — never inside the state machine —
+  // bounded by the execution timeout.
+  let outcome = execute_task_with_timeout(&record).await;
 
   let ack = match outcome {
     Ok(()) => StateCommand::TaskDone {

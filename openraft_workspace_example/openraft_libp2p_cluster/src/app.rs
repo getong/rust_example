@@ -719,7 +719,7 @@ fn spawn_task_worker(
     let res = tasks::worker::run_task_worker(
       node_id,
       worker_name,
-      groups::APALIS.to_string(),
+      groups::TASKS.to_string(),
       network,
       control_nodes,
       worker_shutdown,

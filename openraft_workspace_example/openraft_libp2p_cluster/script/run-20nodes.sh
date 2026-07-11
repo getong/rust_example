@@ -59,7 +59,7 @@ if ((LEARNER_NODES > WORKER_NODES)); then
 	LEARNER_NODES="$WORKER_NODES"
 fi
 # All raft groups served by every node; used to verify per-group membership.
-GROUP_IDS="${GROUP_IDS:-users orders products apalis}"
+GROUP_IDS="${GROUP_IDS:-users orders products tasks}"
 # Demo default: act on dead members / prune dead workers after 60s (the
 # binary's own default is a conservative 300s).
 VOTER_REPLACE_TIMEOUT_SECS="${VOTER_REPLACE_TIMEOUT_SECS:-60}"

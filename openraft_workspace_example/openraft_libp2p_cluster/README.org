@@ -2,7 +2,7 @@
 
 ** usage
 
-Raft groups: `users`, `orders`, `products`. Default group is `users`.
+Raft groups: `users`, `orders`, `products`, `tasks`. Default group is `users`.
 Use `group_id` in HTTP bodies, `--group` in CLI tools, or `?group=` on `/cluster`.
 
 Five-node local runs use the legacy =./script/run-5nodes.sh= launcher and enable
@@ -52,11 +52,11 @@ curl "http://127.0.0.1:3001/cluster?group=orders"
 
 # list OpenRaft members for a group
 curl http://127.0.0.1:3001/openraft/nodes
-curl "http://127.0.0.1:3001/openraft/nodes?group=apalis"
+curl "http://127.0.0.1:3001/openraft/nodes?group=tasks"
 
 # list libp2p known peers and their OpenRaft role, when any
 curl http://127.0.0.1:3001/libp2p/nodes
-curl "http://127.0.0.1:3001/libp2p/nodes?group=apalis"
+curl "http://127.0.0.1:3001/libp2p/nodes?group=tasks"
 
 # full libp2p stack info: identity/ports, live listeners and connections,
 # request-response protocols (raft/kv/sqlite-sync), kademlia mode
@@ -75,14 +75,18 @@ curl -X POST http://127.0.0.1:3001/sync/snapshot \
   -H 'content-type: application/json' \
   -d '{"group_id":"users"}'
 
-# enqueue an apalis email task backed by the apalis raft control plane
-curl -X POST http://127.0.0.1:3001/apalis/email \
+# enqueue an email task backed by the raft-native queue
+curl -X POST http://127.0.0.1:3001/tasks/email \
   -H 'content-type: application/json' \
   -d '{"to":"test@example.com"}'
 
 # list registered external workers and task state
-curl http://127.0.0.1:3001/apalis/workers
-curl http://127.0.0.1:3001/apalis/tasks
+curl http://127.0.0.1:3001/tasks/workers
+curl http://127.0.0.1:3001/tasks
+
+# queue health metrics: status counts, retries, oldest due-task age,
+# worker liveness
+curl http://127.0.0.1:3001/tasks/metrics
 
 # safely remove an OpenRaft control node before shutting that node down
 # send this to the current leader's HTTP port; omit group_id to remove from all groups
@@ -107,7 +111,7 @@ launcher sets ~MAX_CONTROL_NODES=5~ and passes =--max-control-nodes 5=. Nodes
 accepted into OpenRaft membership promote to control nodes, and later nodes stay
 as workers.
 
-Tasks are DOMAIN COMMANDS in the =apalis= raft group's log (octopii-style):
+Tasks are DOMAIN COMMANDS in the =tasks= raft group's log (octopii-style):
 =TaskEnqueue= / =TaskAssign= / =TaskClaim= / =TaskDone= / =TaskFail= /
 =TaskRequeue= / =WorkerLease= are applied atomically by the state machine,
 which maintains the task record (=task:rec:<id>=), the queued/assigned
@@ -121,6 +125,13 @@ command, runs the side effect locally exactly once, and acks with
 3 attempts). Workers and worker-mode HTTP frontends reach the control plane
 through a tarpc =TaskRpc= service carried over the libp2p request-response
 protocol =/openraft/task/1=.
+
+Reliability knobs: each execution is bounded by a 30s timeout (a hung handler
+counts as a failure and retries with backoff); the scheduler requeues tasks
+stuck in Assigned/Running for over 60s on a live worker, and immediately when
+the worker's lease dies; =/tasks/metrics= exposes status counts, retry totals
+and worker liveness. For drills, recipients starting with =fail= simulate a
+handler error and =slow= simulates a hang.
 
 Start the five-node control plane:
 
@@ -185,7 +196,7 @@ Workers can also accept task submissions on their own HTTP ports; they forward
 the writes to the control plane:
 
 #+begin_src shell
-curl -X POST http://127.0.0.1:3101/apalis/email \
+curl -X POST http://127.0.0.1:3101/tasks/email \
   -H 'content-type: application/json' \
   -d '{"to":"worker-submit@example.com"}'
 #+end_src

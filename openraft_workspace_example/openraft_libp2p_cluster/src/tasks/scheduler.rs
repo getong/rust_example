@@ -22,14 +22,19 @@ use crate::{
   openraft_group,
   signal::ShutdownRx,
   tasks::{
-    TASK_ASSIGNED_IDX_PREFIX, TASK_QUEUED_IDX_PREFIX, TASK_WORKER_PREFIX, TaskOpResult,
-    WorkerLeaseRecord, parse_assigned_idx_key, parse_queued_idx_key,
+    TASK_ASSIGNED_IDX_PREFIX, TASK_QUEUED_IDX_PREFIX, TASK_WORKER_PREFIX, TaskOpResult, TaskRecord,
+    TaskStatus, WorkerLeaseRecord, parse_assigned_idx_key, parse_queued_idx_key, rec_key,
   },
   types_kv::Request as StateCommand,
 };
 
 /// Gossip topic used to wake a worker immediately after an assignment.
 pub const TASK_ASSIGN_TOPIC: &str = "openraft/task-assign/1";
+
+/// A task stuck in Assigned/Running on a LIVE worker for longer than this is
+/// returned to the queue (crash-free hangs: worker bug, lost wake, endless
+/// execution). Dead workers are handled separately via lease liveness.
+pub const TASK_STUCK_REQUEUE_SECS: u64 = 60;
 
 pub async fn run_task_scheduler(
   group_id: GroupId,
@@ -69,7 +74,10 @@ async fn scheduler_tick(
   let workers = active_workers(group_id, network, now).await?;
   let active_ids: BTreeSet<&str> = workers.iter().map(|w| w.node_id.as_str()).collect();
 
-  // 1) Requeue tasks assigned to inactive workers (narrow index scan).
+  // 1) Requeue in-flight tasks that are unrecoverable on their worker:
+  //    - the worker's lease is gone / it is disconnected, or
+  //    - the worker is alive but the task has been stuck in Assigned/Running past
+  //      TASK_STUCK_REQUEUE_SECS (execution hang, lost wake-up, worker bug).
   let assigned = group
     .kv_data
     .entries_with_prefix(TASK_ASSIGNED_IDX_PREFIX.to_string())
@@ -79,9 +87,27 @@ async fn scheduler_tick(
       tracing::warn!(%key, "skipping malformed assigned index key");
       continue;
     };
-    if active_ids.contains(node_id) {
-      continue;
-    }
+
+    let reason = if !active_ids.contains(node_id) {
+      "inactive worker"
+    } else {
+      match group.kv_data.get(&rec_key(task_id)).await? {
+        Some(raw) => match sonic_rs::from_str::<TaskRecord>(&raw) {
+          Ok(record)
+            if matches!(record.status, TaskStatus::Assigned | TaskStatus::Running)
+              && now.saturating_sub(record.updated_at) > TASK_STUCK_REQUEUE_SECS =>
+          {
+            "stuck past timeout on live worker"
+          }
+          Ok(_) => continue,
+          Err(err) => {
+            tracing::warn!(task_id = %task_id, error = ?err, "corrupt task record; skipping");
+            continue;
+          }
+        },
+        None => continue,
+      }
+    };
 
     let requeue = StateCommand::TaskRequeue {
       id: task_id.to_string(),
@@ -92,8 +118,9 @@ async fn scheduler_tick(
           group = %group_id,
           task_id = %task_id,
           worker_node_id = %node_id,
+          reason,
           result = ?resp.data.value,
-          "requeued task assigned to inactive worker"
+          "requeued in-flight task"
         );
       }
       Err(err) => return Err(anyhow!("requeue {task_id} failed: {err}")),
@@ -125,6 +152,7 @@ async fn scheduler_tick(
       id: task_id.to_string(),
       node_id: worker.node_id.clone(),
       lease_epoch: worker.lease_epoch,
+      now,
     };
     match group.raft.client_write(assign).await {
       Ok(resp) => {

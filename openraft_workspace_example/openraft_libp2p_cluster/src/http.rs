@@ -49,7 +49,7 @@ use crate::{
   sqlite_cache::{CachedValue, SqliteCache, pending_key, record_pending_key},
   store::ensure_linearizable_read,
   tasks::{
-    TaskOpResult, TaskRecord, WorkerLeaseRecord,
+    TaskOpResult, TaskQueueMetrics, TaskRecord, WorkerLeaseRecord,
     rpc::{ControlNodes, TaskRpc, TaskRpcRequest, TaskRpcResponse, TaskRpcService},
     worker::{Email, call_read, submit_command},
   },
@@ -176,9 +176,10 @@ pub async fn serve(
     .route("/graph.svg", get(cluster_graph_svg_response))
     .route("/chat", post(send_chat))
     .route("/sync/snapshot", post(sync_snapshot))
-    .route("/apalis/email", post(push_email))
-    .route("/apalis/tasks", get(list_apalis_tasks))
-    .route("/apalis/workers", get(list_apalis_workers))
+    .route("/tasks/email", post(push_email))
+    .route("/tasks", get(list_tasks))
+    .route("/tasks/workers", get(list_task_workers))
+    .route("/tasks/metrics", get(task_metrics))
     .route("/write", post(set_value))
     .route("/update", post(update_value))
     .route("/delete", post(delete_value))
@@ -467,16 +468,23 @@ struct EmailResponse {
 }
 
 #[derive(Serialize)]
-struct ApalisTasksResponse {
+struct TasksResponse {
   ok: bool,
   tasks: Vec<TaskRecord>,
   error: Option<String>,
 }
 
 #[derive(Serialize)]
-struct ApalisWorkersResponse {
+struct TaskWorkersResponse {
   ok: bool,
   workers: Vec<WorkerLeaseRecord>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TaskMetricsResponse {
+  ok: bool,
+  metrics: Option<TaskQueueMetrics>,
   error: Option<String>,
 }
 
@@ -1901,7 +1909,7 @@ async fn submit_task_state_command(
   state: &AppState,
   cmd: StateCommand,
 ) -> anyhow::Result<TaskOpResult> {
-  let group_id = groups::APALIS.to_string();
+  let group_id = groups::TASKS.to_string();
   match &state.task_frontend {
     TaskFrontend::Control => {
       let reply = TaskRpcService
@@ -1970,8 +1978,8 @@ async fn push_email(
   }
 }
 
-async fn list_apalis_tasks(State(state): State<Arc<AppState>>) -> Json<ApalisTasksResponse> {
-  let group_id = groups::APALIS.to_string();
+async fn list_tasks(State(state): State<Arc<AppState>>) -> Json<TasksResponse> {
+  let group_id = groups::TASKS.to_string();
   let reply = match &state.task_frontend {
     TaskFrontend::Control => {
       TaskRpcService
@@ -1988,14 +1996,14 @@ async fn list_apalis_tasks(State(state): State<Arc<AppState>>) -> Json<ApalisTas
       {
         Ok(TaskRpcResponse::ListTasks(reply)) => reply,
         Ok(other) => {
-          return Json(ApalisTasksResponse {
+          return Json(TasksResponse {
             ok: false,
             tasks: Vec::new(),
             error: Some(format!("unexpected task rpc response: {other:?}")),
           });
         }
         Err(err) => {
-          return Json(ApalisTasksResponse {
+          return Json(TasksResponse {
             ok: false,
             tasks: Vec::new(),
             error: Some(err.to_string()),
@@ -2005,15 +2013,15 @@ async fn list_apalis_tasks(State(state): State<Arc<AppState>>) -> Json<ApalisTas
     }
   };
 
-  Json(ApalisTasksResponse {
+  Json(TasksResponse {
     ok: reply.ok,
     tasks: reply.tasks,
     error: reply.error,
   })
 }
 
-async fn list_apalis_workers(State(state): State<Arc<AppState>>) -> Json<ApalisWorkersResponse> {
-  let group_id = groups::APALIS.to_string();
+async fn list_task_workers(State(state): State<Arc<AppState>>) -> Json<TaskWorkersResponse> {
+  let group_id = groups::TASKS.to_string();
   let reply = match &state.task_frontend {
     TaskFrontend::Control => {
       TaskRpcService
@@ -2030,14 +2038,14 @@ async fn list_apalis_workers(State(state): State<Arc<AppState>>) -> Json<ApalisW
       {
         Ok(TaskRpcResponse::ListWorkers(reply)) => reply,
         Ok(other) => {
-          return Json(ApalisWorkersResponse {
+          return Json(TaskWorkersResponse {
             ok: false,
             workers: Vec::new(),
             error: Some(format!("unexpected task rpc response: {other:?}")),
           });
         }
         Err(err) => {
-          return Json(ApalisWorkersResponse {
+          return Json(TaskWorkersResponse {
             ok: false,
             workers: Vec::new(),
             error: Some(err.to_string()),
@@ -2047,9 +2055,49 @@ async fn list_apalis_workers(State(state): State<Arc<AppState>>) -> Json<ApalisW
     }
   };
 
-  Json(ApalisWorkersResponse {
+  Json(TaskWorkersResponse {
     ok: reply.ok,
     workers: reply.workers,
+    error: reply.error,
+  })
+}
+
+async fn task_metrics(State(state): State<Arc<AppState>>) -> Json<TaskMetricsResponse> {
+  let group_id = groups::TASKS.to_string();
+  let reply = match &state.task_frontend {
+    TaskFrontend::Control => {
+      TaskRpcService
+        .metrics(tarpc::context::current(), group_id)
+        .await
+    }
+    TaskFrontend::Worker { control_nodes } => {
+      match call_read(&state.network, control_nodes, || TaskRpcRequest::Metrics {
+        group_id: group_id.clone(),
+      })
+      .await
+      {
+        Ok(TaskRpcResponse::Metrics(reply)) => reply,
+        Ok(other) => {
+          return Json(TaskMetricsResponse {
+            ok: false,
+            metrics: None,
+            error: Some(format!("unexpected task rpc response: {other:?}")),
+          });
+        }
+        Err(err) => {
+          return Json(TaskMetricsResponse {
+            ok: false,
+            metrics: None,
+            error: Some(err.to_string()),
+          });
+        }
+      }
+    }
+  };
+
+  Json(TaskMetricsResponse {
+    ok: reply.ok,
+    metrics: reply.metrics,
     error: reply.error,
   })
 }

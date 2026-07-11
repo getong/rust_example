@@ -55,7 +55,7 @@ pub fn openraft_group(group_id: &str) -> Option<GroupHandle> {
 }
 
 pub mod groups {
-  pub const APALIS: &str = "apalis";
+  pub const TASKS: &str = "tasks";
   pub const USERS: &str = "users";
   pub const ORDERS: &str = "orders";
   pub const PRODUCTS: &str = "products";
@@ -65,7 +65,7 @@ pub mod groups {
       USERS.to_string(),
       ORDERS.to_string(),
       PRODUCTS.to_string(),
-      APALIS.to_string(),
+      TASKS.to_string(),
     ]
   }
 }

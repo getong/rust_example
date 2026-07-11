@@ -101,6 +101,10 @@ pub struct TaskRecord {
   pub assigned_node_id: Option<String>,
   pub lease_epoch: Option<u64>,
   pub error: Option<String>,
+  /// Unix seconds of the last assign/claim transition; the scheduler uses
+  /// it to requeue tasks stuck in Assigned/Running on a live worker.
+  #[serde(default)]
+  pub updated_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +182,67 @@ impl TaskOpResult {
   }
 }
 
+/// Point-in-time queue health snapshot served by `/tasks/metrics` and the
+/// TaskRpc `metrics` method.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskQueueMetrics {
+  pub total: usize,
+  pub queued: usize,
+  pub assigned: usize,
+  pub running: usize,
+  pub done: usize,
+  pub failed: usize,
+  /// Total execution attempts across all tasks.
+  pub total_attempts: u64,
+  /// Tasks that needed more than one attempt.
+  pub retried_tasks: usize,
+  /// Age in seconds of the oldest DUE queued task (0 when the queue is
+  /// drained or nothing is due yet).
+  pub oldest_due_queued_age_secs: u64,
+  /// Worker leases valid at `computed_at`.
+  pub active_workers: usize,
+  pub total_worker_leases: usize,
+  /// Unix seconds when this snapshot was computed.
+  pub computed_at: u64,
+}
+
+/// Pure aggregation over the current records; `now` supplied by the caller.
+pub fn compute_metrics(
+  records: &[TaskRecord],
+  leases: &[WorkerLeaseRecord],
+  now: u64,
+) -> TaskQueueMetrics {
+  let mut metrics = TaskQueueMetrics {
+    total: records.len(),
+    total_worker_leases: leases.len(),
+    active_workers: leases.iter().filter(|l| l.expires_at >= now).count(),
+    computed_at: now,
+    ..TaskQueueMetrics::default()
+  };
+
+  for record in records {
+    match record.status {
+      TaskStatus::Queued => {
+        metrics.queued += 1;
+        if record.run_at <= now {
+          let age = now.saturating_sub(record.run_at);
+          metrics.oldest_due_queued_age_secs = metrics.oldest_due_queued_age_secs.max(age);
+        }
+      }
+      TaskStatus::Assigned => metrics.assigned += 1,
+      TaskStatus::Running => metrics.running += 1,
+      TaskStatus::Done => metrics.done += 1,
+      TaskStatus::Failed => metrics.failed += 1,
+    }
+    metrics.total_attempts += u64::from(record.attempts);
+    if record.attempts > 1 {
+      metrics.retried_tasks += 1;
+    }
+  }
+
+  metrics
+}
+
 /// A read of the CURRENT state-machine value for a key. Injected so the
 /// logic stays storage-agnostic (RocksDB in production, a map in tests).
 pub type StateRead<'a> = dyn FnMut(&str) -> Result<Option<String>, String> + 'a;
@@ -205,12 +270,14 @@ pub fn apply_task_command(
       id,
       node_id,
       lease_epoch,
-    } => apply_assign(read, id, node_id, lease_epoch),
+      now,
+    } => apply_assign(read, id, node_id, lease_epoch, now),
     Request::TaskClaim {
       id,
       node_id,
       lease_epoch,
-    } => apply_claim(read, id, node_id, lease_epoch),
+      now,
+    } => apply_claim(read, id, node_id, lease_epoch, now),
     Request::TaskDone {
       id,
       node_id,
@@ -292,6 +359,7 @@ fn apply_enqueue(
     assigned_node_id: None,
     lease_epoch: None,
     error: None,
+    updated_at: run_at,
   };
 
   let mut mutations = vec![
@@ -317,6 +385,7 @@ fn apply_assign(
   id: String,
   node_id: String,
   lease_epoch: u64,
+  now: u64,
 ) -> Result<(Vec<KvMutation>, Response), String> {
   let Some(mut record) = read_record(read, &id)? else {
     return Ok((
@@ -336,6 +405,7 @@ fn apply_assign(
   record.status = TaskStatus::Assigned;
   record.assigned_node_id = Some(node_id.clone());
   record.lease_epoch = Some(lease_epoch);
+  record.updated_at = now;
 
   let mutations = vec![
     KvMutation::put(rec_key(&id), encode_record(&record)?),
@@ -350,6 +420,7 @@ fn apply_claim(
   id: String,
   node_id: String,
   lease_epoch: u64,
+  now: u64,
 ) -> Result<(Vec<KvMutation>, Response), String> {
   let Some(mut record) = read_record(read, &id)? else {
     return Ok((
@@ -376,6 +447,7 @@ fn apply_claim(
 
   record.status = TaskStatus::Running;
   record.attempts = record.attempts.saturating_add(1);
+  record.updated_at = now;
   let mutations = vec![KvMutation::put(rec_key(&id), encode_record(&record)?)];
   let result = TaskOpResult {
     ok: true,
@@ -597,6 +669,7 @@ mod tests {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 7,
+      now: 1000,
     });
     assert!(result.ok);
     assert!(!state.has_key(&queued_idx_key(100, "t1")));
@@ -608,6 +681,7 @@ mod tests {
       id: "t1".into(),
       node_id: "nodeB".into(),
       lease_epoch: 7,
+      now: 1001,
     });
     assert!(!bad.ok);
 
@@ -615,6 +689,7 @@ mod tests {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 7,
+      now: 1001,
     });
     assert!(claim.ok);
     let claimed = claim.record.expect("claimed record");
@@ -640,11 +715,13 @@ mod tests {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
+      now: 1000,
     });
     state.apply(Request::TaskClaim {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
+      now: 1001,
     });
 
     let failed = state.apply(Request::TaskFail {
@@ -667,11 +744,13 @@ mod tests {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 2,
+      now: 1000,
     });
     state.apply(Request::TaskClaim {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 2,
+      now: 1001,
     });
     let dead = state.apply(Request::TaskFail {
       id: "t1".into(),
@@ -693,6 +772,7 @@ mod tests {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
+      now: 1000,
     });
 
     let requeued = state.apply(Request::TaskRequeue { id: "t1".into() });
@@ -711,6 +791,71 @@ mod tests {
       attempts: 1,
     });
     assert!(!stale.ok);
+  }
+
+  #[test]
+  fn compute_metrics_aggregates_statuses_and_workers() {
+    let mut state = MapState::new();
+    state.apply(enqueue("t1", None)); // stays queued (run_at=100)
+    state.apply(enqueue("t2", None));
+    state.apply(Request::TaskAssign {
+      id: "t2".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1000,
+    });
+    state.apply(Request::TaskClaim {
+      id: "t2".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1001,
+    });
+
+    let records: Vec<TaskRecord> = vec![state.record("t1"), state.record("t2")];
+    let leases = vec![
+      WorkerLeaseRecord {
+        node_id: "nodeA".into(),
+        worker_name: "a".into(),
+        lease_epoch: 1,
+        expires_at: 2000, // active at now=1500
+      },
+      WorkerLeaseRecord {
+        node_id: "nodeB".into(),
+        worker_name: "b".into(),
+        lease_epoch: 1,
+        expires_at: 100, // expired
+      },
+    ];
+
+    let metrics = compute_metrics(&records, &leases, 1500);
+    assert_eq!(metrics.total, 2);
+    assert_eq!(metrics.queued, 1);
+    assert_eq!(metrics.running, 1);
+    assert_eq!(metrics.total_attempts, 1);
+    assert_eq!(metrics.retried_tasks, 0);
+    assert_eq!(metrics.oldest_due_queued_age_secs, 1400); // 1500 - run_at(100)
+    assert_eq!(metrics.active_workers, 1);
+    assert_eq!(metrics.total_worker_leases, 2);
+  }
+
+  #[test]
+  fn assign_and_claim_stamp_updated_at() {
+    let mut state = MapState::new();
+    state.apply(enqueue("t1", None));
+    state.apply(Request::TaskAssign {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 5000,
+    });
+    assert_eq!(state.record("t1").updated_at, 5000);
+    state.apply(Request::TaskClaim {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 5010,
+    });
+    assert_eq!(state.record("t1").updated_at, 5010);
   }
 
   #[test]

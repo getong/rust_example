@@ -34,10 +34,13 @@ pub enum Request {
     idem_key: Option<String>,
   },
   /// Leader schedules a queued task to a worker (moves queued → assigned).
+  /// `now` (proposer-supplied) stamps the record's `updated_at` for
+  /// stuck-task detection.
   TaskAssign {
     id: String,
     node_id: String,
     lease_epoch: u64,
+    now: u64,
   },
   /// Worker atomically claims its assigned task (assigned → running).
   /// Succeeds only when (node_id, lease_epoch) match the record.
@@ -45,6 +48,7 @@ pub enum Request {
     id: String,
     node_id: String,
     lease_epoch: u64,
+    now: u64,
   },
   /// Worker reports success (running → done). Stale acks are rejected.
   TaskDone {

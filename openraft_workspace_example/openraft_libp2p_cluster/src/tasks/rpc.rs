@@ -14,7 +14,8 @@ use crate::{
   GroupId, NodeId, openraft_group,
   store::ensure_linearizable_read,
   tasks::{
-    TASK_REC_PREFIX, TASK_WORKER_PREFIX, TaskRecord, WorkerLeaseRecord, assigned_idx_node_prefix,
+    TASK_REC_PREFIX, TASK_WORKER_PREFIX, TaskQueueMetrics, TaskRecord, WorkerLeaseRecord,
+    assigned_idx_node_prefix, compute_metrics, scheduler::current_unix_secs,
   },
   typ::ClientWriteError,
   types_kv::Request as StateCommand,
@@ -61,6 +62,13 @@ pub struct WorkerLeasesReply {
   pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TaskMetricsReply {
+  pub ok: bool,
+  pub metrics: Option<TaskQueueMetrics>,
+  pub error: Option<String>,
+}
+
 #[tarpc::service]
 pub trait TaskRpc {
   /// Submit a task state-machine command through raft.
@@ -71,6 +79,8 @@ pub trait TaskRpc {
   async fn list_tasks(group_id: GroupId) -> TaskRecordsReply;
   /// All worker lease records.
   async fn list_workers(group_id: GroupId) -> WorkerLeasesReply;
+  /// Queue health snapshot (status counts, retries, worker liveness).
+  async fn metrics(group_id: GroupId) -> TaskMetricsReply;
 }
 
 pub type TaskRpcRequestMessage = tarpc::ClientMessage<TaskRpcRequest>;
@@ -226,6 +236,61 @@ impl TaskRpc for TaskRpcService {
         error: Some(err),
       },
     }
+  }
+
+  async fn metrics(self, _: context::Context, group_id: GroupId) -> TaskMetricsReply {
+    let records = match Self::read_records(&group_id).await {
+      Ok(records) => records,
+      Err(err) => {
+        return TaskMetricsReply {
+          ok: false,
+          metrics: None,
+          error: Some(err),
+        };
+      }
+    };
+    let leases = match Self::read_leases(&group_id).await {
+      Ok(leases) => leases,
+      Err(err) => {
+        return TaskMetricsReply {
+          ok: false,
+          metrics: None,
+          error: Some(err),
+        };
+      }
+    };
+
+    TaskMetricsReply {
+      ok: true,
+      metrics: Some(compute_metrics(&records, &leases, current_unix_secs())),
+      error: None,
+    }
+  }
+}
+
+impl TaskRpcService {
+  async fn read_records(group_id: &str) -> Result<Vec<TaskRecord>, String> {
+    let entries = read_entries(group_id, TASK_REC_PREFIX.to_string()).await?;
+    let mut records = Vec::with_capacity(entries.len());
+    for (key, value) in entries {
+      match sonic_rs::from_str::<TaskRecord>(&value) {
+        Ok(record) => records.push(record),
+        Err(err) => tracing::warn!(%key, error = ?err, "skipping corrupt task record"),
+      }
+    }
+    Ok(records)
+  }
+
+  async fn read_leases(group_id: &str) -> Result<Vec<WorkerLeaseRecord>, String> {
+    let entries = read_entries(group_id, TASK_WORKER_PREFIX.to_string()).await?;
+    let mut leases = Vec::with_capacity(entries.len());
+    for (key, value) in entries {
+      match sonic_rs::from_str::<WorkerLeaseRecord>(&value) {
+        Ok(lease) => leases.push(lease),
+        Err(err) => tracing::warn!(%key, error = ?err, "skipping corrupt worker lease"),
+      }
+    }
+    Ok(leases)
   }
 }
 
