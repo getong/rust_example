@@ -27,8 +27,9 @@ openraft::declare_raft_types!(
         D = kv::Request,
         R = kv::Response,
         NodeId = NodeId,
-        SnapshotData = Cursor<Vec<u8>>,
 );
+
+pub type SnapshotData = Cursor<Vec<u8>>;
 
 pub type LogStore = log_store::LogStore<TypeConfig>;
 pub type StateMachineStore = state_machine::StateMachineStore<TypeConfig>;

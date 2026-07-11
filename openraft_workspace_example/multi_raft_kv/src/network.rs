@@ -15,6 +15,8 @@ use openraft_multi::{GroupNetworkAdapter, GroupNetworkFactory, GroupRouter};
 use crate::{GroupId, NodeId, TypeConfig, router::Router, typ};
 
 impl GroupRouter<TypeConfig, GroupId> for Router {
+  type SnapshotData = typ::SnapshotData;
+
   async fn append_entries(
     &self,
     target: NodeId,
@@ -46,7 +48,7 @@ impl GroupRouter<TypeConfig, GroupId> for Router {
     target: NodeId,
     group_id: GroupId,
     vote: typ::Vote,
-    snapshot: SnapshotOf<TypeConfig>,
+    snapshot: SnapshotOf<TypeConfig, Self::SnapshotData>,
     _cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<SnapshotResponse<TypeConfig>, StreamingError<TypeConfig>> {

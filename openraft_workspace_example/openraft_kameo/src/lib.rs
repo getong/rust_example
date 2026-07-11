@@ -134,8 +134,9 @@ openraft::declare_raft_types!(
         D = SetCommand,
         R = Option<String>,
         Node = NodeInfo,
-        SnapshotData = Cursor<Vec<u8>>,
 );
+
+pub type SnapshotData = Cursor<Vec<u8>>;
 
 pub type KameoRaft<SM = RaftStateMachineStore> = openraft::Raft<TypeConfig, SM>;
 
@@ -224,7 +225,11 @@ impl RaftStateMachineStore {
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for RaftStateMachineStore {
-  async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
+  type SnapshotData = SnapshotData;
+
+  async fn build_snapshot(
+    &mut self,
+  ) -> Result<SnapshotOf<TypeConfig, Self::SnapshotData>, io::Error> {
     let _operation_guard = self.operation_lock.lock().await;
     let state = self.dump_state().await?;
     let data =
@@ -253,7 +258,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RaftStateMachineStore {
       data: data.clone(),
     });
 
-    Ok(SnapshotOf::<TypeConfig> {
+    Ok(SnapshotOf::<TypeConfig, Self::SnapshotData> {
       meta,
       snapshot: Cursor::new(data),
     })
@@ -261,6 +266,8 @@ impl RaftSnapshotBuilder<TypeConfig> for RaftStateMachineStore {
 }
 
 impl RaftStateMachine<TypeConfig> for RaftStateMachineStore {
+  type SnapshotData = SnapshotData;
+
   type SnapshotBuilder = Self;
 
   async fn applied_state(
@@ -339,16 +346,20 @@ impl RaftStateMachine<TypeConfig> for RaftStateMachineStore {
     Ok(())
   }
 
-  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
+  async fn get_current_snapshot(
+    &mut self,
+  ) -> Result<Option<SnapshotOf<TypeConfig, Self::SnapshotData>>, io::Error> {
     let inner = self.inner.lock().await;
     Ok(
       inner
         .current_snapshot
         .as_ref()
-        .map(|stored_snapshot| SnapshotOf::<TypeConfig> {
-          meta: stored_snapshot.meta.clone(),
-          snapshot: Cursor::new(stored_snapshot.data.clone()),
-        }),
+        .map(
+          |stored_snapshot| SnapshotOf::<TypeConfig, Self::SnapshotData> {
+            meta: stored_snapshot.meta.clone(),
+            snapshot: Cursor::new(stored_snapshot.data.clone()),
+          },
+        ),
     )
   }
 

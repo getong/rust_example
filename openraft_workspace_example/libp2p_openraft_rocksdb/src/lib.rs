@@ -13,4 +13,6 @@ pub mod typ;
 
 pub type TypeConfig = openraft_rocksstore_crud::TypeConfig;
 pub type NodeId = openraft_rocksstore_crud::RocksNodeId;
+pub type SnapshotData = std::io::Cursor<Vec<u8>>;
+pub type Raft = openraft::Raft<TypeConfig, store::StateMachineStore>;
 pub type Unreachable = openraft::error::Unreachable<TypeConfig>;

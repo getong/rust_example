@@ -33,7 +33,7 @@ impl NetworkFactory {
 
 impl<C> RaftNetworkFactory<C> for NetworkFactory
 where
-  C: RaftTypeConfig<Node = NodeInfo, SnapshotData = Cursor<Vec<u8>>>,
+  C: RaftTypeConfig<Node = NodeInfo>,
 {
   type Network = Client;
 
@@ -93,8 +93,10 @@ impl Client {
 
 impl<C> RaftNetworkV2<C> for Client
 where
-  C: RaftTypeConfig<Node = NodeInfo, SnapshotData = Cursor<Vec<u8>>>,
+  C: RaftTypeConfig<Node = NodeInfo>,
 {
+  type SnapshotData = Cursor<Vec<u8>>;
+
   async fn append_entries(
     &mut self,
     req: AppendEntriesRequest<C>,
@@ -106,7 +108,7 @@ where
   async fn full_snapshot(
     &mut self,
     vote: VoteOf<C>,
-    snapshot: SnapshotOf<C>,
+    snapshot: SnapshotOf<C, Self::SnapshotData>,
     cancel: impl Future<Output = ReplicationClosed> + OptionalSend + 'static,
     option: RPCOption,
   ) -> Result<SnapshotResponse<C>, StreamingError<C>> {

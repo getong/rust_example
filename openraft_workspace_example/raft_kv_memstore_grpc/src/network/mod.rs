@@ -159,6 +159,8 @@ impl NetVote<TypeConfig> for NetworkConnection {
 }
 
 impl NetSnapshot<TypeConfig> for NetworkConnection {
+  type SnapshotData = crate::SnapshotData;
+
   async fn full_snapshot(
     &mut self,
     vote: Vote,

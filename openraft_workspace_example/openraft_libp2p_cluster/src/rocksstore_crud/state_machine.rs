@@ -14,7 +14,7 @@ use std::{
 use futures::{Stream, TryStreamExt};
 use openraft::{
   EntryPayload, OptionalSend, RaftSnapshotBuilder, StorageError,
-  alias::{LogIdOf, SnapshotDataOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf},
+  alias::{LogIdOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf},
   entry::RaftEntry,
   storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
@@ -493,8 +493,12 @@ async fn recover_from_latest_snapshot_if_newer(
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
+  type SnapshotData = Cursor<Vec<u8>>;
+
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
+  async fn build_snapshot(
+    &mut self,
+  ) -> Result<SnapshotOf<TypeConfig, Self::SnapshotData>, io::Error> {
     let (last_applied_log, last_membership) = self.get_meta()?;
 
     // Generate a random snapshot index.
@@ -559,7 +563,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       )
     })?;
 
-    Ok(SnapshotOf::<TypeConfig> {
+    Ok(SnapshotOf::<TypeConfig, Self::SnapshotData> {
       meta,
       snapshot: Cursor::new(data_bytes),
     })
@@ -567,6 +571,8 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
 }
 
 impl RaftStateMachine<TypeConfig> for RocksStateMachine {
+  type SnapshotData = Cursor<Vec<u8>>;
+
   type SnapshotBuilder = Self;
 
   async fn applied_state(
@@ -653,14 +659,14 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     self.clone()
   }
 
-  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotDataOf<TypeConfig>, io::Error> {
+  async fn begin_receiving_snapshot(&mut self) -> Result<Self::SnapshotData, io::Error> {
     Ok(Cursor::new(Vec::new()))
   }
 
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMetaOf<TypeConfig>,
-    snapshot: SnapshotDataOf<TypeConfig>,
+    snapshot: Self::SnapshotData,
   ) -> Result<(), io::Error> {
     tracing::info!(
       { snapshot_size = snapshot.get_ref().len() },
@@ -693,7 +699,9 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     Ok(())
   }
 
-  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
+  async fn get_current_snapshot(
+    &mut self,
+  ) -> Result<Option<SnapshotOf<TypeConfig, Self::SnapshotData>>, io::Error> {
     let Some(snapshot_file) = read_latest_snapshot_file(&self.snapshot_dir)? else {
       return Ok(None);
     };
@@ -702,7 +710,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let data_bytes = serialize(&snapshot_file.data)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    Ok(Some(SnapshotOf::<TypeConfig> {
+    Ok(Some(SnapshotOf::<TypeConfig, Self::SnapshotData> {
       meta: snapshot_file.meta,
       snapshot: Cursor::new(data_bytes),
     }))

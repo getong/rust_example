@@ -11,6 +11,7 @@ pub mod types_kv;
 
 pub type TypeConfig = rocksstore_crud::TypeConfig;
 pub type NodeId = u64;
+pub type SnapshotData = std::io::Cursor<Vec<u8>>;
 pub type Raft = openraft::Raft<TypeConfig, rocksstore_crud::RocksStateMachine>;
 
 pub use apalis_raft::DemoTask;

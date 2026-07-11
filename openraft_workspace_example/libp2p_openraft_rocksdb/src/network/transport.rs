@@ -130,6 +130,8 @@ impl RaftNetworkFactory<openraft_rocksstore_crud::TypeConfig> for Libp2pNetworkF
 }
 
 impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
+  type SnapshotData = crate::typ::SnapshotData;
+
   async fn append_entries(
     &mut self,
     req: AppendEntriesRequest,

@@ -97,15 +97,12 @@ impl<C: RaftTypeConfig> StateMachineStore<C> {
 
 impl<C> RaftSnapshotBuilder<C> for StateMachineStore<C>
 where
-  C: RaftTypeConfig<
-      D = Request,
-      R = Response,
-      SnapshotData = Cursor<Vec<u8>>,
-      Entry = DefaultEntryOf<C>,
-    >,
+  C: RaftTypeConfig<D = Request, R = Response, Entry = DefaultEntryOf<C>>,
 {
+  type SnapshotData = Cursor<Vec<u8>>;
+
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<SnapshotOf<C>, io::Error> {
+  async fn build_snapshot(&mut self) -> Result<SnapshotOf<C, Self::SnapshotData>, io::Error> {
     let mut inner = self.0.lock().await;
 
     let data = serde_json::to_vec(&inner.state_machine.data)
@@ -136,7 +133,7 @@ where
 
     inner.current_snapshot = Some(snapshot);
 
-    Ok(SnapshotOf::<C> {
+    Ok(SnapshotOf::<C, Self::SnapshotData> {
       meta,
       snapshot: Cursor::new(data),
     })
@@ -145,13 +142,10 @@ where
 
 impl<C> RaftStateMachine<C> for StateMachineStore<C>
 where
-  C: RaftTypeConfig<
-      D = Request,
-      R = Response,
-      SnapshotData = Cursor<Vec<u8>>,
-      Entry = DefaultEntryOf<C>,
-    >,
+  C: RaftTypeConfig<D = Request, R = Response, Entry = DefaultEntryOf<C>>,
 {
+  type SnapshotData = Cursor<Vec<u8>>;
+
   type SnapshotBuilder = Self;
 
   async fn applied_state(
@@ -199,7 +193,7 @@ where
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn begin_receiving_snapshot(&mut self) -> Result<C::SnapshotData, io::Error> {
+  async fn begin_receiving_snapshot(&mut self) -> Result<Self::SnapshotData, io::Error> {
     Ok(Cursor::new(Vec::new()))
   }
 
@@ -207,7 +201,7 @@ where
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMetaOf<C>,
-    snapshot: C::SnapshotData,
+    snapshot: Self::SnapshotData,
   ) -> Result<(), io::Error> {
     tracing::info!(
       { snapshot_size = snapshot.get_ref().len() },
@@ -235,12 +229,14 @@ where
   }
 
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<C>>, io::Error> {
+  async fn get_current_snapshot(
+    &mut self,
+  ) -> Result<Option<SnapshotOf<C, Self::SnapshotData>>, io::Error> {
     let inner = self.0.lock().await;
     match &inner.current_snapshot {
       Some(snapshot) => {
         let data = snapshot.data.clone();
-        Ok(Some(SnapshotOf::<C> {
+        Ok(Some(SnapshotOf::<C, Self::SnapshotData> {
           meta: snapshot.meta.clone(),
           snapshot: Cursor::new(data),
         }))

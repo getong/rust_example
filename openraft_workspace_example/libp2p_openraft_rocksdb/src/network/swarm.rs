@@ -404,7 +404,8 @@ async fn handle_raft_event(
           let raft = raft.clone();
           let tx = cmd_tx.clone();
           tokio::spawn(async move {
-            let resp = RaftRpcResponse::ClientWrite(raft.client_write(types_kv::Request::from(req)).await);
+            let resp =
+              RaftRpcResponse::ClientWrite(raft.client_write(types_kv::Request::from(req)).await);
             let _ = tx.send(Command::RaftRespond { channel, resp }).await;
           });
         }
@@ -1005,7 +1006,10 @@ async fn handle_inbound_kv(
         }
       } else {
         match raft
-          .client_write(types_kv::Request::Set { key: req.key, value: String::new() })
+          .client_write(types_kv::Request::Set {
+            key: req.key,
+            value: String::new(),
+          })
           .await
         {
           Ok(_) => RaftKvResponse {

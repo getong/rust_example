@@ -26,7 +26,10 @@ impl RaftEntry for pb::Entry {
   type NodeId = u64;
   type Node = pb::Node;
 
-  fn new(log_id: LogIdOf<TypeConfig>, payload: EntryPayload<pb::SetRequest, u64, pb::Node>) -> Self {
+  fn new(
+    log_id: LogIdOf<TypeConfig>,
+    payload: EntryPayload<pb::SetRequest, u64, pb::Node>,
+  ) -> Self {
     let mut app_data = None;
     let mut membership = None;
     match payload {

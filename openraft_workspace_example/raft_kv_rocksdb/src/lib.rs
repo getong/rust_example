@@ -27,8 +27,9 @@ openraft::declare_raft_types!(
         D = types_kv::Request,
         R = types_kv::Response,
         Node = openraft::NodeInfo,
-        SnapshotData = std::io::Cursor<Vec<u8>>,
 );
+
+pub type SnapshotData = std::io::Cursor<Vec<u8>>;
 
 pub type LogStore = openraft_rocksstore::log_store::RocksLogStore<TypeConfig>;
 pub type StateMachineStore = store::StateMachineStore;

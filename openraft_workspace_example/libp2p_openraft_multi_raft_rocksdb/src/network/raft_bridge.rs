@@ -86,6 +86,8 @@ impl P2PRaftNetwork for P2PRaftNetworkWrapper {
 }
 
 impl RaftNetworkV2<TypeConfig> for P2PRaftNetworkWrapper {
+  type SnapshotData = crate::typ::SnapshotData;
+
   async fn append_entries(
     &mut self,
     req: AppendEntriesRequest,
