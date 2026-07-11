@@ -33,7 +33,11 @@ use crate::{
   network::{
     openraft_dispatcher::process_kv_request,
     rpc::{AddLearnerRequest, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
-    swarm::{GOSSIP_TOPIC, KvClient},
+    swarm::{
+      GOSSIP_TOPIC, KAD_PROTOCOL, KV_RPC_PROTOCOL, KvClient, Libp2pClient, Libp2pSwarmReport,
+      NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, RAFT_RPC_PROTOCOL,
+      SQLITE_SYNC_RPC_PROTOCOL,
+    },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   openraft_group, openraft_groups,
@@ -128,8 +132,10 @@ pub struct AppState {
   pub node_name: String,
   pub peer_id: String,
   pub listen: String,
+  pub http_addr: String,
   pub network: Libp2pNetworkFactory,
   pub kv_client: KvClient,
+  pub libp2p_client: Libp2pClient,
   pub default_group: GroupId,
   pub apalis_email: Option<RaftApalisStorage<Email>>,
   pub sqlite_cache: Option<SqliteCache>,
@@ -144,6 +150,7 @@ pub async fn serve(
     .route("/cluster", get(cluster_info))
     .route("/openraft/nodes", get(openraft_nodes))
     .route("/libp2p/nodes", get(libp2p_nodes))
+    .route("/libp2p/info", get(libp2p_info))
     .route("/cluster/openraft", get(openraft_nodes))
     .route("/cluster/libp2p", get(libp2p_nodes))
     .route("/openraft/membership/add", post(add_openraft_member))
@@ -908,6 +915,184 @@ async fn openraft_nodes(
     learners: learners.len(),
     nodes,
     error: None,
+  })
+}
+
+#[derive(Serialize)]
+struct Libp2pInfoResponse {
+  ok: bool,
+  /// Local node identity.
+  node: Libp2pNodeIdentity,
+  /// Ports derived from the configured addresses.
+  ports: Libp2pPorts,
+  /// Live swarm state (listeners, connections, kad mode, gossip meshes).
+  swarm: Option<Libp2pSwarmReport>,
+  /// The request-response RPC protocols this node speaks.
+  request_response: Vec<RequestResponseProtocolInfo>,
+  kad: KadInfo,
+  gossipsub: GossipsubInfo,
+  ping: PingInfo,
+  mdns: MdnsInfo,
+  /// The libp2p address book with liveness flags.
+  known_nodes: Vec<KnownNodeResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Libp2pNodeIdentity {
+  node_id: NodeId,
+  node_name: String,
+  peer_id: String,
+  listen: String,
+  http: String,
+}
+
+#[derive(Serialize)]
+struct Libp2pPorts {
+  p2p: Option<u16>,
+  http: Option<u16>,
+}
+
+#[derive(Serialize)]
+struct RequestResponseProtocolInfo {
+  name: &'static str,
+  protocol: &'static str,
+  support: &'static str,
+  codec: &'static str,
+  used_for: &'static str,
+}
+
+#[derive(Serialize)]
+struct KadInfo {
+  protocol: &'static str,
+  /// "Server" on control nodes (they advertise the cluster provider key),
+  /// "Client" on workers/learners.
+  mode: Option<String>,
+  routing_table_peers: Option<usize>,
+  provider_key: &'static str,
+  provider_record_ttl_secs: u64,
+  provider_publication_interval_secs: u64,
+}
+
+#[derive(Serialize)]
+struct GossipsubInfo {
+  topics: Vec<&'static str>,
+  chat_topic: &'static str,
+  node_announce_topic: &'static str,
+  node_announce_interval_secs: u64,
+  snapshot_sync_topic: &'static str,
+  snapshot_sync_partial_messages: bool,
+}
+
+#[derive(Serialize)]
+struct PingInfo {
+  interval_secs: u64,
+  timeout_secs: u64,
+}
+
+#[derive(Serialize)]
+struct MdnsInfo {
+  enabled: bool,
+  used_for: &'static str,
+}
+
+fn multiaddr_port(addr: &str) -> Option<u16> {
+  let addr: Multiaddr = addr.parse().ok()?;
+  addr.iter().find_map(|proto| match proto {
+    libp2p::multiaddr::Protocol::Tcp(port) | libp2p::multiaddr::Protocol::Udp(port) => Some(port),
+    _ => None,
+  })
+}
+
+async fn libp2p_info(State(state): State<Arc<AppState>>) -> Json<Libp2pInfoResponse> {
+  let (swarm, error) = match state.libp2p_client.libp2p_info().await {
+    Ok(report) => (Some(report), None),
+    Err(err) => (None, Some(format!("swarm info unavailable: {err}"))),
+  };
+
+  let mut known_nodes: Vec<KnownNodeResponse> = Vec::new();
+  for (node_id, peer_id, addr) in state.network.known_nodes().await {
+    let connected = state.network.is_peer_connected(&peer_id).await;
+    known_nodes.push(KnownNodeResponse {
+      node_id,
+      peer_id: peer_id.to_string(),
+      addr: addr.to_string(),
+      connected,
+    });
+  }
+  known_nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+
+  Json(Libp2pInfoResponse {
+    ok: error.is_none(),
+    node: Libp2pNodeIdentity {
+      node_id: state.node_id.clone(),
+      node_name: state.node_name.clone(),
+      peer_id: state.peer_id.clone(),
+      listen: state.listen.clone(),
+      http: state.http_addr.clone(),
+    },
+    ports: Libp2pPorts {
+      p2p: multiaddr_port(&state.listen),
+      http: state
+        .http_addr
+        .rsplit_once(':')
+        .and_then(|(_, port)| port.parse().ok()),
+    },
+    request_response: vec![
+      RequestResponseProtocolInfo {
+        name: "raft_rpc",
+        protocol: RAFT_RPC_PROTOCOL,
+        support: "Full",
+        codec: "serde-json (ProtoCodec)",
+        used_for: "openraft AppendEntries/Vote/snapshot, JoinCluster, AddLearner, GetMetrics",
+      },
+      RequestResponseProtocolInfo {
+        name: "kv_rpc",
+        protocol: KV_RPC_PROTOCOL,
+        support: "Full",
+        codec: "protobuf (ProstCodec)",
+        used_for: "KV get/set/update/delete/list-prefix and apalis task claiming",
+      },
+      RequestResponseProtocolInfo {
+        name: "sqlite_sync_rpc",
+        protocol: SQLITE_SYNC_RPC_PROTOCOL,
+        support: "Full",
+        codec: "serde-json (SerdeCodec, tarpc envelope)",
+        used_for: "sqlite cache flush synchronization between control nodes",
+      },
+    ],
+    kad: KadInfo {
+      protocol: KAD_PROTOCOL,
+      mode: swarm.as_ref().map(|report| report.kad_mode.clone()),
+      routing_table_peers: swarm.as_ref().map(|report| report.kad_routing_table_peers),
+      provider_key: OPENRAFT_CLUSTER_PROVIDER_KEY,
+      provider_record_ttl_secs: crate::app::OPENRAFT_KAD_PROVIDER_RECORD_TTL.as_secs(),
+      provider_publication_interval_secs: crate::app::OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL
+        .as_secs(),
+    },
+    gossipsub: GossipsubInfo {
+      topics: vec![
+        GOSSIP_TOPIC,
+        NODE_ANNOUNCE_TOPIC,
+        crate::network::openraft_sync::OPENRAFT_SYNC_TOPIC,
+      ],
+      chat_topic: GOSSIP_TOPIC,
+      node_announce_topic: NODE_ANNOUNCE_TOPIC,
+      node_announce_interval_secs: crate::app::NODE_ANNOUNCE_INTERVAL.as_secs(),
+      snapshot_sync_topic: crate::network::openraft_sync::OPENRAFT_SYNC_TOPIC,
+      snapshot_sync_partial_messages: true,
+    },
+    ping: PingInfo {
+      interval_secs: crate::app::PING_INTERVAL.as_secs(),
+      timeout_secs: crate::app::PING_TIMEOUT.as_secs(),
+    },
+    mdns: MdnsInfo {
+      enabled: true,
+      used_for: "LAN peer discovery feeding the known-nodes address book",
+    },
+    swarm,
+    known_nodes,
+    error,
   })
 }
 

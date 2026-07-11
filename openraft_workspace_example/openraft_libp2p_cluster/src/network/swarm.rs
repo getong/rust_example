@@ -42,6 +42,10 @@ use crate::{
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 pub const NODE_ANNOUNCE_TOPIC: &str = "openraft/node-announce/1";
 pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
+pub const RAFT_RPC_PROTOCOL: &str = "/openraft/raft/1";
+pub const KV_RPC_PROTOCOL: &str = "/openraft/kv/1";
+pub const SQLITE_SYNC_RPC_PROTOCOL: &str = "/openraft/sqlite-sync/1";
+pub const KAD_PROTOCOL: &str = "/openraft/kad/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
@@ -177,6 +181,9 @@ pub enum Command {
     topic: String,
     data: Vec<u8>,
   },
+  GetLibp2pInfo {
+    resp: oneshot::Sender<Libp2pSwarmReport>,
+  },
   PublishOpenRaftSnapshot {
     group_id: String,
     resp: oneshot::Sender<Result<String, NetErr>>,
@@ -210,6 +217,33 @@ pub enum Command {
   },
 }
 
+/// Live gossipsub state for one subscribed topic.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GossipTopicReport {
+  pub topic: String,
+  /// Peers in this node's gossipsub mesh for the topic.
+  pub mesh_peers: usize,
+  /// Known peers subscribed to the topic (mesh + fanout candidates).
+  pub subscribed_peers: usize,
+}
+
+/// Snapshot of the live libp2p swarm state, collected inside the swarm loop.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Libp2pSwarmReport {
+  pub local_peer_id: String,
+  /// Actual listening multiaddrs (after port/interface resolution).
+  pub listeners: Vec<String>,
+  pub connected_peers: usize,
+  pub established_connections: u32,
+  /// Kademlia mode: "Server" (control nodes advertise) or "Client" (workers).
+  pub kad_mode: String,
+  /// Peers currently in the kademlia routing table.
+  pub kad_routing_table_peers: usize,
+  pub gossipsub_topics: Vec<GossipTopicReport>,
+  /// All peers the gossipsub behaviour knows about.
+  pub gossipsub_known_peers: usize,
+}
+
 #[derive(Clone)]
 pub struct Libp2pClient {
   tx: mpsc::Sender<Command>,
@@ -223,6 +257,22 @@ impl Libp2pClient {
 
   pub async fn set_kad_mode(&self, mode: kad::Mode) {
     let _ = self.tx.send(Command::SetKadMode { mode }).await;
+  }
+
+  /// Fetch a snapshot of the live swarm state (listeners, kad mode,
+  /// gossipsub topics, connection counts).
+  pub async fn libp2p_info(&self) -> Result<Libp2pSwarmReport, NetErr> {
+    let (resp_tx, resp_rx) = oneshot::channel();
+    self
+      .tx
+      .send(Command::GetLibp2pInfo { resp: resp_tx })
+      .await
+      .map_err(|e| NetErr(format!("command channel closed: {e}")))?;
+
+    tokio::time::timeout(self.timeout, resp_rx)
+      .await
+      .map_err(|e| NetErr(format!("timeout: {e}")))
+      .and_then(|r| r.map_err(|e| NetErr(format!("libp2p info dropped: {e}"))))
   }
 
   pub async fn start_providing(&self, key: String) -> Result<(), NetErr> {
@@ -754,6 +804,53 @@ struct GetProvidersState {
   resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
 }
 
+fn collect_swarm_report(swarm: &mut Swarm<Behaviour>) -> Libp2pSwarmReport {
+  let local_peer_id = swarm.local_peer_id().to_string();
+  let listeners: Vec<String> = swarm.listeners().map(|addr| addr.to_string()).collect();
+  let network_info = swarm.network_info();
+  let connected_peers = network_info.num_peers();
+  let established_connections = network_info.connection_counters().num_established();
+
+  let behaviour = swarm.behaviour_mut();
+  let kad_mode = format!("{:?}", behaviour.kad.mode());
+  let kad_routing_table_peers: usize = behaviour
+    .kad
+    .kbuckets()
+    .map(|bucket| bucket.num_entries())
+    .sum();
+
+  // Per-topic mesh and subscription counts.
+  let topics: Vec<gossipsub::TopicHash> = behaviour.gossipsub.topics().cloned().collect();
+  let peer_topics: Vec<Vec<gossipsub::TopicHash>> = behaviour
+    .gossipsub
+    .all_peers()
+    .map(|(_, topics)| topics.into_iter().cloned().collect())
+    .collect();
+  let gossipsub_known_peers = peer_topics.len();
+  let gossipsub_topics = topics
+    .iter()
+    .map(|hash| GossipTopicReport {
+      topic: hash.to_string(),
+      mesh_peers: behaviour.gossipsub.mesh_peers(hash).count(),
+      subscribed_peers: peer_topics
+        .iter()
+        .filter(|topics| topics.contains(hash))
+        .count(),
+    })
+    .collect();
+
+  Libp2pSwarmReport {
+    local_peer_id,
+    listeners,
+    connected_peers,
+    established_connections,
+    kad_mode,
+    kad_routing_table_peers,
+    gossipsub_topics,
+    gossipsub_known_peers,
+  }
+}
+
 fn handle_command(
   swarm: &mut Swarm<Behaviour>,
   cmd: Command,
@@ -825,6 +922,9 @@ fn handle_command(
       if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic, data) {
         tracing::warn!("gossipsub publish failed: {err}");
       }
+    }
+    Command::GetLibp2pInfo { resp } => {
+      let _ = resp.send(collect_swarm_report(swarm));
     }
     Command::PublishOpenRaftSnapshot { resp, .. } => {
       let _ = resp.send(Err(NetErr(

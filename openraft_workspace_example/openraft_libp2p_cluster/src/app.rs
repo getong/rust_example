@@ -63,8 +63,10 @@ const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
 const CONTROL_JOIN_POLL_INTERVAL_SECS: u64 = 2;
 const CONTROL_JOIN_CATCH_UP_TIMEOUT_SECS: u64 = 30;
-const OPENRAFT_KAD_PROVIDER_RECORD_TTL: Duration = Duration::from_secs(180);
-const OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_secs(60);
+pub const OPENRAFT_KAD_PROVIDER_RECORD_TTL: Duration = Duration::from_secs(180);
+pub const OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_secs(60);
+pub const PING_INTERVAL: Duration = Duration::from_secs(3);
+pub const PING_TIMEOUT: Duration = Duration::from_secs(6);
 const DEFAULT_MAX_CONTROL_NODES: usize = 3;
 /// How long to wait for at least one remote peer to become connected before
 /// running the startup "was this node removed?" membership check. Without
@@ -79,7 +81,7 @@ const STARTUP_NO_LEADER_WARN_INTERVAL: Duration = Duration::from_secs(15);
 const KNOWN_NODE_PRUNE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// How often each node announces itself on gossipsub so peers can (re)build
 /// their known-nodes address book after prunes/restarts.
-const NODE_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(20);
+pub const NODE_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(20);
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -171,8 +173,8 @@ pub fn uses_wss(addr: &Multiaddr) -> bool {
 
 pub fn build_ping_behaviour() -> ping::Behaviour {
   let config = ping::Config::new()
-    .with_interval(Duration::from_secs(3))
-    .with_timeout(Duration::from_secs(6));
+    .with_interval(PING_INTERVAL)
+    .with_timeout(PING_TIMEOUT);
   ping::Behaviour::new(config)
 }
 
@@ -544,7 +546,8 @@ fn build_swarm(
       let cfg = request_response::Config::default();
       let peer_id = PeerId::from(key.public());
       let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
-      let mut kad_config = kad::Config::new(StreamProtocol::new("/openraft/kad/1"));
+      let mut kad_config =
+        kad::Config::new(StreamProtocol::new(crate::network::swarm::KAD_PROTOCOL));
       kad_config
         .set_provider_record_ttl(Some(OPENRAFT_KAD_PROVIDER_RECORD_TTL))
         .set_provider_publication_interval(Some(OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL));
@@ -563,20 +566,23 @@ fn build_swarm(
         raft_rpc: request_response::Behaviour::with_codec(
           ProtoCodec::default(),
           [(
-            StreamProtocol::new("/openraft/raft/1"),
+            StreamProtocol::new(crate::network::swarm::RAFT_RPC_PROTOCOL),
             ProtocolSupport::Full,
           )],
           cfg.clone(),
         ),
         kv_rpc: request_response::Behaviour::with_codec(
           ProstCodec::<RaftKvRequest, RaftKvResponse>::default(),
-          [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
+          [(
+            StreamProtocol::new(crate::network::swarm::KV_RPC_PROTOCOL),
+            ProtocolSupport::Full,
+          )],
           cfg.clone(),
         ),
         sqlite_sync_rpc: request_response::Behaviour::with_codec(
           SerdeCodec::<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>::default(),
           [(
-            StreamProtocol::new("/openraft/sqlite-sync/1"),
+            StreamProtocol::new(crate::network::swarm::SQLITE_SYNC_RPC_PROTOCOL),
             ProtocolSupport::Full,
           )],
           cfg,
@@ -658,8 +664,10 @@ fn build_http_state(
     node_name: identity.node_name.clone(),
     peer_id: identity.local_peer_id.to_string(),
     listen: opt.listen.clone(),
+    http_addr: opt.http.clone(),
     network: libp2p.network.clone(),
     kv_client: libp2p.kv_client.clone(),
+    libp2p_client: libp2p.client.clone(),
     default_group,
     apalis_email,
     sqlite_cache,

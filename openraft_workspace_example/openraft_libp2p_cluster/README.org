@@ -58,6 +58,12 @@ curl "http://127.0.0.1:3001/openraft/nodes?group=apalis"
 curl http://127.0.0.1:3001/libp2p/nodes
 curl "http://127.0.0.1:3001/libp2p/nodes?group=apalis"
 
+# full libp2p stack info: identity/ports, live listeners and connections,
+# request-response protocols (raft/kv/sqlite-sync), kademlia mode
+# (Server on control, Client on workers) and routing table size, gossipsub
+# topics with mesh/subscriber counts, ping/mdns config, address book
+curl http://127.0.0.1:3001/libp2p/info
+
 # chat
 curl -X POST http://127.0.0.1:3001/chat \
   -H 'content-type: application/json' \

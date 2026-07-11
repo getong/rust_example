@@ -626,19 +626,23 @@ for i in "${SHUFFLED[@]}"; do
 done
 
 # Pick LEARNER_NODES workers at random and register them as learners.
-shuffle_array
-LEARNER_PICKS=("${SHUFFLED[@]:0:$LEARNER_NODES}")
-
-echo "Registering $LEARNER_NODES randomly picked workers as OpenRaft learners: ${LEARNER_PICKS[*]}"
 LEARNER_FAILURES=0
-for i in "${LEARNER_PICKS[@]}"; do
-	wait_for_http "$i" "$CONTROL_UP_TIMEOUT_SECS" || {
-		LEARNER_FAILURES=$((LEARNER_FAILURES + 1))
-		continue
-	}
-	add_learner "$i" "$LEARNER_ADD_TIMEOUT_SECS" || LEARNER_FAILURES=$((LEARNER_FAILURES + 1))
-	random_sleep
-done
+if ((LEARNER_NODES > 0)); then
+	shuffle_array
+	LEARNER_PICKS=("${SHUFFLED[@]:0:$LEARNER_NODES}")
+
+	echo "Registering $LEARNER_NODES randomly picked workers as OpenRaft learners: ${LEARNER_PICKS[*]}"
+	for i in "${LEARNER_PICKS[@]}"; do
+		wait_for_http "$i" "$CONTROL_UP_TIMEOUT_SECS" || {
+			LEARNER_FAILURES=$((LEARNER_FAILURES + 1))
+			continue
+		}
+		add_learner "$i" "$LEARNER_ADD_TIMEOUT_SECS" || LEARNER_FAILURES=$((LEARNER_FAILURES + 1))
+		random_sleep
+	done
+else
+	echo "No learner registration requested (LEARNER_NODES=0)."
+fi
 
 echo
 echo "Cluster is up. Per-group membership (expected voters=$CONTROL_NODES learners=$LEARNER_NODES):"
@@ -652,6 +656,7 @@ if ((LEARNER_FAILURES > 0)); then
 fi
 echo "Cluster graph: http://$(node_http 1)/graph"
 echo "Node status:   http://$(node_http 1)/openraft/nodes"
+echo "Libp2p info:   http://$(node_http 1)/libp2p/info"
 echo "Logs:          $LOG_DIR"
 echo "Press Ctrl-C to stop all nodes."
 
