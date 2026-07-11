@@ -1,8 +1,6 @@
 use std::{
   collections::{HashMap, HashSet},
-  hash::{DefaultHasher, Hash, Hasher},
   io::Read,
-  sync::atomic::{AtomicU64, Ordering},
   time::Duration,
 };
 
@@ -27,13 +25,12 @@ pub const OPENRAFT_SYNC_TOPIC: &str = "openraft/snapshot-sync/1";
 
 const PART_SIZE: usize = 8 * 1024;
 const MAX_PARTS_PER_MESSAGE: usize = 4;
-const GROUP_ID_LEN: usize = 8;
+/// Partial group ids are UUID v7 values (16 bytes).
+const GROUP_ID_LEN: usize = 16;
 const MAX_PARTS: usize = u16::MAX as usize;
 const METADATA_MAGIC: &[u8; 4] = b"ORS1";
 const SNAPSHOT_BUILD_TIMEOUT: Duration = Duration::from_secs(20);
 const SNAPSHOT_POLL_INTERVAL: Duration = Duration::from_millis(50);
-
-static NEXT_PARTIAL_GROUP: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
 pub struct OpenRaftSnapshotMetadata {
@@ -62,10 +59,7 @@ pub struct OpenRaftSnapshotPartial {
 }
 
 impl OpenRaftSnapshotPartial {
-  pub async fn from_raft_group(
-    group_id: &str,
-    local_peer_id: PeerId,
-  ) -> anyhow::Result<Option<Self>> {
+  pub async fn from_raft_group(group_id: &str) -> anyhow::Result<Option<Self>> {
     let Some(group) = openraft_group(group_id) else {
       anyhow::bail!("unknown group_id={group_id}");
     };
@@ -107,26 +101,15 @@ impl OpenRaftSnapshotPartial {
       meta: snapshot.meta,
       data,
     };
-    Self::from_payload(payload, local_peer_id)
+    Self::from_payload(payload)
   }
 
-  fn from_payload(
-    payload: OpenRaftSnapshotPayload,
-    local_peer_id: PeerId,
-  ) -> anyhow::Result<Option<Self>> {
+  fn from_payload(payload: OpenRaftSnapshotPayload) -> anyhow::Result<Option<Self>> {
     let bytes = sonic_rs::to_vec(&payload)?;
     let total_parts = bytes.len().div_ceil(PART_SIZE).max(1);
     if total_parts > MAX_PARTS {
       anyhow::bail!("snapshot needs {total_parts} parts; max supported is {MAX_PARTS}");
     }
-
-    let sequence = NEXT_PARTIAL_GROUP.fetch_add(1, Ordering::Relaxed);
-    let mut hasher = DefaultHasher::new();
-    local_peer_id.hash(&mut hasher);
-    payload.group_id.hash(&mut hasher);
-    payload.meta.snapshot_id.hash(&mut hasher);
-    bytes.hash(&mut hasher);
-    sequence.hash(&mut hasher);
 
     let parts = if bytes.is_empty() {
       vec![Some(Vec::new())]
@@ -138,7 +121,8 @@ impl OpenRaftSnapshotPartial {
     };
 
     Ok(Some(Self {
-      group_id: hasher.finish().to_be_bytes().to_vec(),
+      // Time-ordered unique id per published snapshot partial.
+      group_id: uuid::Uuid::now_v7().as_bytes().to_vec(),
       raft_group_id: payload.group_id,
       snapshot_id: payload.meta.snapshot_id,
       snapshot_size: bytes.len() as u64,
@@ -600,8 +584,20 @@ fn snapshot_covers_target(meta: &SnapshotMeta, target: Option<&LogId>) -> bool {
   }
 }
 
-pub fn hex_id(bytes: &[u8]) -> String {
-  bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+/// Render a partial group id (UUID v7 bytes) as a hyphenated UUID string.
+/// Falls back to plain hex for ids that are not 16 bytes long.
+pub fn group_id_string(bytes: &[u8]) -> String {
+  match uuid::Uuid::from_slice(bytes) {
+    Ok(uuid) => uuid.to_string(),
+    Err(_) => {
+      use std::fmt::Write as _;
+      let mut out = String::with_capacity(bytes.len() * 2);
+      for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+      }
+      out
+    }
+  }
 }
 
 pub fn sync_topic_hash() -> TopicHash {

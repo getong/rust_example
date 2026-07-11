@@ -26,7 +26,7 @@ use crate::{
   Unreachable,
   network::{
     dispatcher::SwarmRequestDispatcher,
-    openraft_sync::{OpenRaftSnapshotPartial, OpenRaftSyncState, hex_id, sync_topic_hash},
+    openraft_sync::{OpenRaftSnapshotPartial, OpenRaftSyncState, group_id_string, sync_topic_hash},
     proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
     rpc::{RaftRpcRequest, RaftRpcResponse},
     transport::Libp2pNetworkFactory,
@@ -865,12 +865,7 @@ async fn handle_publish_openraft_snapshot(
   resp: oneshot::Sender<Result<String, NetErr>>,
   openraft_sync: &mut OpenRaftSyncState,
 ) {
-  let local_peer_id = {
-    let swarm = lock_swarm(swarm).await;
-    *swarm.local_peer_id()
-  };
-
-  let partial = match OpenRaftSnapshotPartial::from_raft_group(&group_id, local_peer_id).await {
+  let partial = match OpenRaftSnapshotPartial::from_raft_group(&group_id).await {
     Ok(Some(partial)) => partial,
     Ok(None) => {
       let _ = resp.send(Err(NetErr(format!(
@@ -886,7 +881,7 @@ async fn handle_publish_openraft_snapshot(
     }
   };
 
-  let sync_group = hex_id(&partial.group_id);
+  let sync_group = group_id_string(&partial.group_id);
   let topic = sync_topic_hash();
   let publish_result = {
     let mut swarm = lock_swarm(swarm).await;
@@ -1134,7 +1129,10 @@ async fn handle_mdns_event(
 ) {
   match event {
     mdns::Event::Discovered(list) => {
-      let mut saw_peer = false;
+      // Register the peers first (async network calls), then apply all swarm
+      // mutations under a single lock instead of re-locking per peer.
+      let mut gossip_peers = Vec::new();
+      let mut kad_addrs = Vec::new();
       for (peer, addr) in list {
         if crate::network::transport::is_undialable_discovered_addr(&addr) {
           continue;
@@ -1144,15 +1142,24 @@ async fn handle_mdns_event(
           use_discovered_addr = true;
         }
         if use_discovered_addr {
-          saw_peer = true;
-          let mut swarm = lock_swarm(swarm).await;
-          add_kad_peer_address(&mut swarm, peer, addr);
+          kad_addrs.push((peer, addr));
         }
-        let mut swarm = lock_swarm(swarm).await;
+        gossip_peers.push(peer);
+      }
+
+      if gossip_peers.is_empty() {
+        return;
+      }
+
+      let saw_peer = !kad_addrs.is_empty();
+      let mut swarm = lock_swarm(swarm).await;
+      for (peer, addr) in kad_addrs {
+        add_kad_peer_address(&mut swarm, peer, addr);
+      }
+      for peer in gossip_peers {
         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
       }
       if saw_peer {
-        let mut swarm = lock_swarm(swarm).await;
         kick_kad_queries(&mut swarm);
       }
     }
@@ -1211,7 +1218,7 @@ async fn handle_gossipsub_event(
       }
 
       let Some(metadata) = metadata else {
-        tracing::warn!(peer = %peer_id, group = %hex_id(&group_id), "openraft snapshot partial missing metadata");
+        tracing::warn!(peer = %peer_id, group = %group_id_string(&group_id), "openraft snapshot partial missing metadata");
         let mut swarm = lock_swarm(swarm).await;
         swarm
           .behaviour_mut()
@@ -1226,7 +1233,7 @@ async fn handle_gossipsub_event(
           Err(err) => {
             tracing::warn!(
               peer = %peer_id,
-              group = %hex_id(&group_id),
+              group = %group_id_string(&group_id),
               error = ?err,
               "invalid openraft snapshot partial"
             );
@@ -1278,7 +1285,7 @@ async fn handle_gossipsub_event(
           peer = %peer_id,
           group = %update.partial.raft_group_id,
           snapshot_id = %update.partial.snapshot_id,
-          partial_group = %hex_id(&update.partial.group_id),
+          partial_group = %group_id_string(&update.partial.group_id),
           parts = update.partial.present_parts(),
           total_parts = update.partial.total_parts(),
           "received openraft snapshot partial"

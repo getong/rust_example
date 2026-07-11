@@ -5,12 +5,12 @@
 Raft groups: `users`, `orders`, `products`. Default group is `users`.
 Use `group_id` in HTTP bodies, `--group` in CLI tools, or `?group=` on `/cluster`.
 
-Five-node local runs use the legacy =./run-3nodes.sh= launcher and enable
+Five-node local runs use the legacy =./script/run-5nodes.sh= launcher and enable
 =console-subscriber= for tokio-console. Each node binds a different console port
 to avoid conflicts:
 
 #+begin_src shell
-./run-5nodes.sh
+./script/run-5nodes.sh
 
 tokio-console http://127.0.0.1:6669 # node1
 tokio-console http://127.0.0.1:6670 # node2
@@ -111,25 +111,25 @@ task state is acknowledged back through the Raft-backed KV protocol.
 Start the five-node control plane:
 
 #+begin_src shell
-./run-5nodes.sh
+./script/run-5nodes.sh
 #+end_src
 
 Start one or more external workers after copying the printed =DB_ROOT=:
 
 #+begin_src shell
-DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=1 ./run-worker.sh
-DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=2 ./run-worker.sh
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=1 ./script/run-worker.sh
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> WORKER_INDEX=2 ./script/run-worker.sh
 #+end_src
 
 Or fetch the current control-plane information from =/cluster= and start four
 workers at once:
 
 #+begin_src shell
-DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./join-4workers.sh
+DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/join-4workers.sh
 
 # optional overrides
 CLUSTER_HTTP=http://127.0.0.1:3002/cluster WORKER_COUNT=4 \
-  DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./join-4workers.sh
+  DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/join-4workers.sh
 #+end_src
 
 Worker libp2p listeners bind to =/ip4/0.0.0.0/tcp/<port>/wss= by default so
@@ -221,7 +221,7 @@ Secure websocket (wss):
 
 #+begin_src shell
 # generate a local self-signed cert (DER)
-./generate_wss_certs.sh ./certs localhost 127.0.0.1
+./script/generate_wss_certs.sh ./certs localhost 127.0.0.1
 
 # listen with wss using the generated cert
 cargo run -p openraft_libp2p_cluster --bin openraft_libp2p_cluster -- \
@@ -245,7 +245,7 @@ Notes:
   is not configured by default.
 - You can keep using /tcp and /udp/quic-v1; websocket is an additional transport.
 
-- 用 ./run-3nodes.sh 启动五节点后验证：
+- 用 ./script/run-5nodes.sh 启动五节点后验证：
 - http://127.0.0.1:3001/graph
 - http://127.0.0.1:3001/graph.svg
 - http://127.0.0.1:3001/graph.dot

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
@@ -37,7 +38,7 @@ fi
 DB_ROOT="${DB_ROOT:-}"
 if [[ -z "$DB_ROOT" ]]; then
 	echo "Error: DB_ROOT is not set."
-	echo "Hint: start the control plane with run-3nodes.sh first, then export the printed DB_ROOT."
+	echo "Hint: start the control plane with script/run-5nodes.sh first, then export the printed DB_ROOT."
 	exit 1
 fi
 
@@ -77,8 +78,8 @@ WSS_IP_ADDRS="${WSS_IP_ADDRS:-$WSS_IP_ADDR}"
 
 mkdir -p "$WORKER_DB" "$LOG_DIR" "$WSS_CERT_DIR"
 
-GEN_SCRIPT="$ROOT_DIR/generate_libp2p_id.sh"
-WSS_SCRIPT="$ROOT_DIR/generate_wss_certs.sh"
+GEN_SCRIPT="$SCRIPT_DIR/generate_libp2p_id.sh"
+WSS_SCRIPT="$SCRIPT_DIR/generate_wss_certs.sh"
 if [[ ! -x "$GEN_SCRIPT" ]]; then
 	echo "Error: missing executable $GEN_SCRIPT"
 	exit 1

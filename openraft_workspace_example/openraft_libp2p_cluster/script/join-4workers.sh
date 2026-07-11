@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
@@ -36,8 +37,8 @@ fi
 DB_ROOT="${DB_ROOT:-}"
 if [[ -z "$DB_ROOT" ]]; then
 	echo "Error: DB_ROOT is not set." >&2
-	echo "Hint: use the DB_ROOT printed by ./run-3nodes.sh, for example:" >&2
-	echo "  DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./join-4workers.sh" >&2
+	echo "Hint: use the DB_ROOT printed by ./script/run-5nodes.sh, for example:" >&2
+	echo "  DB_ROOT=/tmp/openraft_libp2p_cluster_demo/<run-id> ./script/join-4workers.sh" >&2
 	exit 1
 fi
 
@@ -164,10 +165,10 @@ for ((offset = 0; offset < WORKER_COUNT; offset++)); do
 		export SKIP_BUILD
 		if [[ "$DRY_RUN" == "1" ]]; then
 			printf 'DRY_RUN worker %s: WORKER_LISTEN=%s WORKER_HTTP=%s BOOTSTRAP_NODE=%q %s\n' \
-				"$index" "$WORKER_LISTEN" "$WORKER_HTTP" "$BOOTSTRAP_NODE" "$ROOT_DIR/run-worker.sh"
+				"$index" "$WORKER_LISTEN" "$WORKER_HTTP" "$BOOTSTRAP_NODE" "$SCRIPT_DIR/run-worker.sh"
 			exit 0
 		fi
-		"$ROOT_DIR/run-worker.sh"
+		"$SCRIPT_DIR/run-worker.sh"
 	) &
 	sleep 0.5
 done

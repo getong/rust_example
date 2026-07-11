@@ -32,7 +32,7 @@ use crate::{
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
   proto::raft_kv::{
-    ErrorResponse, ListPrefixRequest, RaftKvRequest, SetValueRequest,
+    ErrorResponse, GetValueRequest, ListPrefixRequest, RaftKvRequest, SetValueRequest,
     raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
   },
   store::{KvData, ensure_linearizable_read},
@@ -316,6 +316,21 @@ impl RaftApalisBackend {
     }
   }
 
+  async fn read_value(&self, group_id: &str, key: &str) -> Result<Option<String>, RaftApalisError> {
+    match self {
+      Self::Control { raft, kv_data, .. } => {
+        ensure_linearizable_read(raft)
+          .await
+          .map_err(|err| RaftApalisError::new(format!("{err:?}")))?;
+        kv_data.get(key).await.map_err(Into::into)
+      }
+      Self::Worker {
+        network,
+        control_nodes,
+      } => get_value_from_control_nodes(network, control_nodes, group_id, key).await,
+    }
+  }
+
   fn role_name(&self) -> &'static str {
     match self {
       Self::Control { .. } => "control",
@@ -529,9 +544,9 @@ impl<Args, C> RaftApalisStorage<Args, C> {
   pub async fn run_leader_operations(&self) -> Result<(), RaftApalisError> {
     match &self.backend {
       RaftApalisBackend::Control { raft, .. } => {
-        let metrics = raft.metrics().borrow_watched().clone();
-        if metrics.state.is_leader() {
-          self.schedule_next_to_worker().await?;
+        let is_leader = raft.metrics().borrow_watched().state.is_leader();
+        if is_leader {
+          self.schedule_ready_tasks().await?;
         }
         Ok(())
       }
@@ -539,16 +554,19 @@ impl<Args, C> RaftApalisStorage<Args, C> {
     }
   }
 
-  async fn schedule_next_to_worker(&self) -> Result<(), RaftApalisError> {
-    self.requeue_expired_assignments().await?;
+  /// Single pass over the task records that both requeues tasks assigned to
+  /// inactive workers and schedules every ready task to an active worker.
+  async fn schedule_ready_tasks(&self) -> Result<(), RaftApalisError> {
     let workers = self.active_workers().await?;
-    if workers.is_empty() {
-      return Ok(());
-    }
+    let active_worker_ids = workers
+      .iter()
+      .map(|worker| worker.node_id.as_str())
+      .collect::<BTreeSet<_>>();
 
     let prefix = task_key_prefix(self.queue.as_ref());
     let entries = self.entries_with_prefix(&prefix).await?;
     let now = current_unix_secs();
+
     for (key, value) in entries {
       let mut record = match StoredTask::decode(&value) {
         Ok(record) => record,
@@ -558,39 +576,73 @@ impl<Args, C> RaftApalisStorage<Args, C> {
         }
       };
 
-      if record.status != StoredStatus::Queued || record.run_at > now {
+      let mut requeued_from: Option<String> = None;
+      if record.status == StoredStatus::Running {
+        let Some(assigned_node_id) = record.assigned_node_id.as_deref() else {
+          continue;
+        };
+        if active_worker_ids.contains(assigned_node_id) {
+          continue;
+        }
+        requeued_from = Some(assigned_node_id.to_string());
+        record.status = StoredStatus::Queued;
+        record.lock_by = None;
+        record.assigned_node_id = None;
+        record.lease_epoch = None;
+      }
+
+      if record.status != StoredStatus::Queued {
         continue;
       }
 
-      let Some(target_worker) = select_worker_for_task(&workers, &record.task_id) else {
-        return Ok(());
-      };
-      let target_worker_id = target_worker.node_id.clone();
-      record.status = StoredStatus::Running;
-      record.lock_by = None;
-      record.assigned_node_id = Some(target_worker_id.clone());
-      record.lease_epoch = Some(target_worker.lease_epoch);
-      let task_id = record.task_id.clone();
-      self.write_record(key, record).await?;
-      tracing::debug!(
-        task_id = %task_id,
-        worker_node_id = %target_worker_id,
-        lease_epoch = target_worker.lease_epoch,
-        "scheduled apalis task to libp2p worker"
-      );
-      // notify worker using gossipsub
-      let msg = crate::proto::raft_kv::TaskAssignedMessage {
-        task_id: task_id.clone(),
-        worker_id: target_worker_id.clone(),
-      };
-      use prost::Message;
-      let data = msg.encode_to_vec();
-      self
-        .kv_client
-        .publish_gossipsub(crate::network::swarm::GOSSIP_TOPIC, data)
-        .await;
+      if record.run_at <= now {
+        if let Some(target_worker) = select_worker_for_task(&workers, &record.task_id) {
+          let target_worker_id = target_worker.node_id.clone();
+          record.status = StoredStatus::Running;
+          record.lock_by = None;
+          record.assigned_node_id = Some(target_worker_id.clone());
+          record.lease_epoch = Some(target_worker.lease_epoch);
+          let task_id = record.task_id.clone();
+          self.write_record(key, record).await?;
+          if let Some(previous_worker) = requeued_from {
+            tracing::warn!(
+              task_id = %task_id,
+              worker_node_id = %previous_worker,
+              "requeued apalis task assigned to inactive libp2p worker"
+            );
+          }
+          tracing::debug!(
+            task_id = %task_id,
+            worker_node_id = %target_worker_id,
+            lease_epoch = target_worker.lease_epoch,
+            "scheduled apalis task to libp2p worker"
+          );
+          // notify worker using gossipsub
+          let msg = crate::proto::raft_kv::TaskAssignedMessage {
+            task_id: task_id.clone(),
+            worker_id: target_worker_id.clone(),
+          };
+          use prost::Message;
+          let data = msg.encode_to_vec();
+          self
+            .kv_client
+            .publish_gossipsub(crate::network::swarm::GOSSIP_TOPIC, data)
+            .await;
+          continue;
+        }
+      }
 
-      return Ok(());
+      // The task could not be scheduled right now; still persist the requeue
+      // so it is no longer assigned to an inactive worker.
+      if let Some(previous_worker) = requeued_from {
+        let task_id = record.task_id.clone();
+        self.write_record(key, record).await?;
+        tracing::warn!(
+          task_id = %task_id,
+          worker_node_id = %previous_worker,
+          "requeued apalis task assigned to inactive libp2p worker"
+        );
+      }
     }
 
     Ok(())
@@ -687,51 +739,6 @@ impl<Args, C> RaftApalisStorage<Args, C> {
     workers.sort_by(|a, b| a.node_id.cmp(&b.node_id));
     workers.dedup_by(|a, b| a.node_id == b.node_id);
     Ok(workers)
-  }
-
-  async fn requeue_expired_assignments(&self) -> Result<(), RaftApalisError> {
-    let active_workers = self.active_workers().await?;
-    let active_worker_ids = active_workers
-      .into_iter()
-      .map(|worker| worker.node_id)
-      .collect::<BTreeSet<_>>();
-    let prefix = task_key_prefix(self.queue.as_ref());
-    let entries = self.entries_with_prefix(&prefix).await?;
-    for (key, value) in entries {
-      let mut record = match StoredTask::decode(&value) {
-        Ok(record) => record,
-        Err(err) => {
-          tracing::warn!(%key, error = ?err, "skipping invalid apalis task record");
-          continue;
-        }
-      };
-
-      if record.status != StoredStatus::Running {
-        continue;
-      }
-
-      let Some(assigned_node_id) = record.assigned_node_id.as_deref() else {
-        continue;
-      };
-      if active_worker_ids.contains(assigned_node_id) {
-        continue;
-      }
-
-      let task_id = record.task_id.clone();
-      let expired_worker = assigned_node_id.to_string();
-      record.status = StoredStatus::Queued;
-      record.lock_by = None;
-      record.assigned_node_id = None;
-      record.lease_epoch = None;
-      self.write_record(key, record).await?;
-      tracing::warn!(
-        task_id = %task_id,
-        worker_node_id = %expired_worker,
-        "requeued apalis task assigned to inactive libp2p worker"
-      );
-    }
-
-    Ok(())
   }
 
   async fn insert_local_claim(&self, task_id: &str) -> bool {
@@ -840,9 +847,7 @@ where
 
     async move {
       let result = result?;
-      let mut entries = backend.entries_with_prefix(&group_id, &key).await?;
-      let Some((_, current_value)) = entries.drain(..).find(|(entry_key, _)| entry_key == &key)
-      else {
+      let Some(current_value) = backend.read_value(&group_id, &key).await? else {
         claimed.lock().await.remove(&task_id);
         return Err(RaftApalisError::new(format!(
           "task record disappeared before ack: {task_id}"
@@ -886,8 +891,26 @@ async fn raft_set(
   key: String,
   value: String,
 ) -> Result<(), RaftApalisError> {
-  let metrics = raft.metrics().borrow_watched().clone();
-  if metrics.state.is_leader() {
+  // Extract just what is needed instead of cloning the full metrics
+  // (membership config, replication state, ...) on every write.
+  let (is_leader, current_leader, leader_addr) = {
+    let metrics_rx = raft.metrics();
+    let metrics = metrics_rx.borrow_watched();
+    let leader_addr = metrics.current_leader.as_ref().and_then(|leader_id| {
+      metrics
+        .membership_config
+        .membership()
+        .get_node(leader_id)
+        .map(|node| node.addr.clone())
+    });
+    (
+      metrics.state.is_leader(),
+      metrics.current_leader.clone(),
+      leader_addr,
+    )
+  };
+
+  if is_leader {
     raft
       .client_write(KvWriteRequest::Set { key, value })
       .await
@@ -895,14 +918,14 @@ async fn raft_set(
     return Ok(());
   }
 
-  let Some(leader_id) = metrics.current_leader else {
+  if current_leader.is_none() {
     return Err(RaftApalisError::new("no leader available"));
-  };
-  let Some(node) = metrics.membership_config.membership().get_node(&leader_id) else {
+  }
+  let Some(leader_addr) = leader_addr else {
     return Err(RaftApalisError::new("leader node not found in membership"));
   };
   let (peer, addr) =
-    parse_p2p_addr(&node.addr).map_err(|err| RaftApalisError::new(err.to_string()))?;
+    parse_p2p_addr(&leader_addr).map_err(|err| RaftApalisError::new(err.to_string()))?;
   kv_client
     .connect(peer, addr)
     .await
@@ -934,8 +957,12 @@ async fn write_raw_to_control_nodes(
   key: String,
   value: String,
 ) -> Result<(), RaftApalisError> {
+  // Snapshot the target list up front: holding the lock in the `for` loop head
+  // would keep the guard alive across the network awaits and deadlock on the
+  // `report_leader` re-lock below.
+  let targets = control_nodes.lock().await.get_target_nodes();
   let mut last_error = None;
-  for node_id in control_nodes.lock().await.get_target_nodes() {
+  for node_id in targets {
     let response = network
       .request_kv(
         node_id.clone(),
@@ -977,6 +1004,57 @@ async fn write_raw_to_control_nodes(
   )))
 }
 
+async fn get_value_from_control_nodes(
+  network: &Libp2pNetworkFactory,
+  control_nodes: &Mutex<ControlNodesState>,
+  group_id: &str,
+  key: &str,
+) -> Result<Option<String>, RaftApalisError> {
+  let targets = control_nodes.lock().await.get_target_nodes();
+  let mut last_error = None;
+  for node_id in targets {
+    let response = network
+      .request_kv(
+        node_id.clone(),
+        RaftKvRequest {
+          group_id: group_id.to_string(),
+          op: Some(KvRequestOp::Get(GetValueRequest {
+            key: key.to_string(),
+          })),
+        },
+      )
+      .await;
+
+    match response {
+      Ok(response) => match response.op {
+        Some(KvResponseOp::Get(resp)) => {
+          return Ok(resp.found.then_some(resp.value));
+        }
+        Some(KvResponseOp::Error(ErrorResponse { message, leader_id })) => {
+          if !leader_id.is_empty() {
+            control_nodes
+              .lock()
+              .await
+              .report_leader(NodeId::new(&leader_id));
+          }
+          last_error = Some(message);
+        }
+        other => {
+          last_error = Some(format!("unexpected raft kv response: {other:?}"));
+        }
+      },
+      Err(err) => {
+        last_error = Some(format!("{err}"));
+      }
+    }
+  }
+
+  Err(RaftApalisError::new(format!(
+    "read from control plane failed: {}",
+    last_error.unwrap_or_else(|| "no control nodes configured".to_string())
+  )))
+}
+
 async fn claim_apalis_task_from_control_nodes(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodesState>,
@@ -985,8 +1063,9 @@ async fn claim_apalis_task_from_control_nodes(
   local_node_id: &str,
   worker_id: &str,
 ) -> Result<Option<(String, String)>, RaftApalisError> {
+  let targets = control_nodes.lock().await.get_target_nodes();
   let mut last_error = None;
-  for node_id in control_nodes.lock().await.get_target_nodes() {
+  for node_id in targets {
     let response = network
       .request_kv(
         node_id.clone(),
@@ -1043,8 +1122,9 @@ async fn list_prefix_from_control_nodes(
   group_id: &str,
   prefix: &str,
 ) -> Result<Vec<(String, String)>, RaftApalisError> {
+  let targets = control_nodes.lock().await.get_target_nodes();
   let mut last_error = None;
-  for node_id in control_nodes.lock().await.get_target_nodes() {
+  for node_id in targets {
     let response = network
       .request_kv(
         node_id.clone(),
@@ -1443,11 +1523,7 @@ fn current_unix_secs() -> u64 {
 }
 
 fn unique_task_id() -> String {
-  let nanos = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_nanos();
-  format!("{nanos:x}")
+  uuid::Uuid::now_v7().to_string()
 }
 
 fn select_worker_for_task(workers: &[WorkerRecord], task_id: &str) -> Option<WorkerRecord> {

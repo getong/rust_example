@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
@@ -153,8 +154,8 @@ echo "Node4 name: $NODE4_NAME"
 echo "Node5 name: $NODE5_NAME"
 
 PEER_ID_WAIT_SECS="${PEER_ID_WAIT_SECS:-120}"
-GEN_SCRIPT="$ROOT_DIR/generate_libp2p_id.sh"
-WSS_SCRIPT="$ROOT_DIR/generate_wss_certs.sh"
+GEN_SCRIPT="$SCRIPT_DIR/generate_libp2p_id.sh"
+WSS_SCRIPT="$SCRIPT_DIR/generate_wss_certs.sh"
 
 if [[ ! -x "$GEN_SCRIPT" ]]; then
 	echo "Error: missing executable $GEN_SCRIPT"

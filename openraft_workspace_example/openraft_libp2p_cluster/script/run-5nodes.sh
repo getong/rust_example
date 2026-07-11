@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
@@ -171,7 +172,7 @@ fi
 CERT_META="$WSS_CERT_DIR/params.txt"
 CERT_PROFILE="wss-v2"
 CERT_PARAMS="profile=$CERT_PROFILE;dns=$WSS_DNS_NAMES;ips=$WSS_IP_ADDRS"
-GEN_WSS_SCRIPT="$ROOT_DIR/generate_wss_certs.sh"
+GEN_WSS_SCRIPT="$SCRIPT_DIR/generate_wss_certs.sh"
 
 # Serialize cert generation so parallel node startups do not mismatch key/cert.
 acquire_cert_lock() {
@@ -514,30 +515,30 @@ echo "  http://${NODE3_HTTP:-127.0.0.1:3003}/graph"
 echo "  http://${NODE4_HTTP:-127.0.0.1:3004}/graph"
 echo "  http://${NODE5_HTTP:-127.0.0.1:3005}/graph"
 echo "External workers:"
-echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./run-worker.sh"
-echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./run-worker.sh"
-echo "  DB_ROOT=$DB_ROOT ./join-4workers.sh"
+echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=1 ./script/run-worker.sh"
+echo "  DB_ROOT=$DB_ROOT WORKER_INDEX=2 ./script/run-worker.sh"
+echo "  DB_ROOT=$DB_ROOT ./script/join-4workers.sh"
 
-start_node node1 "$ROOT_DIR/run-node1.sh" "$DB_ROOT/logs/node1.log" NODE1_TOKIO_CONSOLE_BIND
+start_node node1 "$SCRIPT_DIR/run-node1.sh" "$DB_ROOT/logs/node1.log" NODE1_TOKIO_CONSOLE_BIND
 
 # Give node1 a moment to start listening.
 sleep 1
 
-start_node node2 "$ROOT_DIR/run-node2.sh" "$DB_ROOT/logs/node2.log" NODE2_TOKIO_CONSOLE_BIND
+start_node node2 "$SCRIPT_DIR/run-node2.sh" "$DB_ROOT/logs/node2.log" NODE2_TOKIO_CONSOLE_BIND
 
 # Give node2 a moment to start listening.
 sleep 1
 
-start_node node3 "$ROOT_DIR/run-node3.sh" "$DB_ROOT/logs/node3.log" NODE3_TOKIO_CONSOLE_BIND
+start_node node3 "$SCRIPT_DIR/run-node3.sh" "$DB_ROOT/logs/node3.log" NODE3_TOKIO_CONSOLE_BIND
 
 # Give node3 a moment to start listening.
 sleep 1
 
-start_node node4 "$ROOT_DIR/run-node4.sh" "$DB_ROOT/logs/node4.log" NODE4_TOKIO_CONSOLE_BIND
+start_node node4 "$SCRIPT_DIR/run-node4.sh" "$DB_ROOT/logs/node4.log" NODE4_TOKIO_CONSOLE_BIND
 
 # Give node4 a moment to start listening.
 sleep 1
 
-start_node node5 "$ROOT_DIR/run-node5.sh" "$DB_ROOT/logs/node5.log" NODE5_TOKIO_CONSOLE_BIND
+start_node node5 "$SCRIPT_DIR/run-node5.sh" "$DB_ROOT/logs/node5.log" NODE5_TOKIO_CONSOLE_BIND
 
 wait_for_nodes

@@ -5,7 +5,8 @@ usage() {
 	echo "Usage: $0 --key <path> [--out <path>]" >&2
 }
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 KEY_PATH=""

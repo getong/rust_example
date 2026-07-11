@@ -104,11 +104,10 @@ pub async fn process_kv_request(
       }
     }
     KvRequestOp::Set(req) => {
-      let key = req.key;
       let value = req.value;
       match raft
         .client_write(KvWriteRequest::Set {
-          key: key.clone(),
+          key: req.key,
           value: value.clone(),
         })
         .await
@@ -147,7 +146,7 @@ pub async fn process_kv_request(
       } else {
         match raft
           .client_write(KvWriteRequest::Set {
-            key: key.clone(),
+            key,
             value: value.clone(),
           })
           .await

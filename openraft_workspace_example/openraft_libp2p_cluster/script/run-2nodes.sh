@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
@@ -118,7 +119,7 @@ fi
 CERT_META="$WSS_CERT_DIR/params.txt"
 CERT_PROFILE="wss-v2"
 CERT_PARAMS="profile=$CERT_PROFILE;dns=$WSS_DNS_NAMES;ips=$WSS_IP_ADDRS"
-GEN_WSS_SCRIPT="$ROOT_DIR/generate_wss_certs.sh"
+GEN_WSS_SCRIPT="$SCRIPT_DIR/generate_wss_certs.sh"
 
 # Serialize cert generation so parallel node startups do not mismatch key/cert.
 acquire_cert_lock() {
@@ -285,11 +286,11 @@ export SKIP_BUILD=1
 
 echo "Starting 2 nodes (Ctrl-C to stop)..."
 
-"$ROOT_DIR/run-node1.sh" &
+"$SCRIPT_DIR/run-node1.sh" &
 
 # Give node1 a moment to start listening.
 sleep 1
 
-"$ROOT_DIR/run-node2.sh" &
+"$SCRIPT_DIR/run-node2.sh" &
 
 wait

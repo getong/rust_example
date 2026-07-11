@@ -186,6 +186,12 @@ struct ClusterInfoResponse {
   groups: Vec<String>,
   known_nodes: Vec<KnownNodeResponse>,
   raft_metrics: sonic_rs::Value,
+  /// Full metrics fetched from the current leader when this node is not the
+  /// leader of the queried group. OpenRaft only populates `heartbeat`,
+  /// `replication`, and `last_quorum_acked` on the leader, so the local
+  /// `raft_metrics` of a follower always reports them as null.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  leader_raft_metrics: Option<sonic_rs::Value>,
   kv_data: Vec<KvPairResponse>,
   error: Option<String>,
 }
@@ -573,6 +579,16 @@ async fn remote_server_state(
   node_id: &NodeId,
   network: &Libp2pNetworkFactory,
 ) -> Option<ServerState> {
+  fetch_remote_metrics(group_id, node_id, network)
+    .await
+    .map(|metrics| metrics.state)
+}
+
+async fn fetch_remote_metrics(
+  group_id: &str,
+  node_id: &NodeId,
+  network: &Libp2pNetworkFactory,
+) -> Option<crate::typ::RaftMetrics> {
   match network
     .request(
       node_id.clone(),
@@ -583,13 +599,13 @@ async fn remote_server_state(
     )
     .await
   {
-    Ok(RaftRpcResponse::GetMetrics(metrics)) => Some(metrics.state),
+    Ok(RaftRpcResponse::GetMetrics(metrics)) => Some(metrics),
     Ok(RaftRpcResponse::Error(message)) => {
       tracing::debug!(
         group = group_id,
         node_id = %node_id,
         error = %message,
-        "remote openraft metrics request returned error while rendering graph"
+        "remote openraft metrics request returned error"
       );
       None
     }
@@ -598,7 +614,7 @@ async fn remote_server_state(
         group = group_id,
         node_id = %node_id,
         response = ?other,
-        "unexpected remote openraft metrics response while rendering graph"
+        "unexpected remote openraft metrics response"
       );
       None
     }
@@ -607,7 +623,7 @@ async fn remote_server_state(
         group = group_id,
         node_id = %node_id,
         error = ?err,
-        "remote openraft metrics request failed while rendering graph"
+        "remote openraft metrics request failed"
       );
       None
     }
@@ -1454,6 +1470,7 @@ async fn cluster_info(
       groups: Vec::new(),
       known_nodes: nodes,
       raft_metrics: sonic_rs::Value::from_static_str("openraft groups are not initialized"),
+      leader_raft_metrics: None,
       kv_data: Vec::new(),
       error: Some("openraft groups are not initialized".to_string()),
     });
@@ -1471,6 +1488,7 @@ async fn cluster_info(
       groups,
       known_nodes: nodes,
       raft_metrics: sonic_rs::Value::from_static_str("unknown group"),
+      leader_raft_metrics: None,
       kv_data: Vec::new(),
       error: Some("unknown group_id".to_string()),
     });
@@ -1479,6 +1497,11 @@ async fn cluster_info(
   let metrics = group.raft.metrics().borrow_watched().clone();
   let raft_metrics = sonic_rs::to_value(&metrics)
     .unwrap_or_else(|err| sonic_rs::Value::copy_str(&format!("metrics serialize error: {err}")));
+
+  // `heartbeat`, `replication`, and `last_quorum_acked` are leader-only
+  // metrics in OpenRaft; on a follower they are always null. Fetch the
+  // leader's metrics so any node can serve the full picture.
+  let leader_raft_metrics = fetch_leader_metrics_value(&group_id, &metrics, &state.network).await;
 
   let mut kv_data = Vec::new();
   let allow_local_read = match tokio::time::timeout(
@@ -1527,9 +1550,44 @@ async fn cluster_info(
     groups,
     known_nodes: nodes,
     raft_metrics,
+    leader_raft_metrics,
     kv_data,
     error: None,
   })
+}
+
+/// When the local node is not the leader of `group_id`, fetch the current
+/// leader's full metrics over libp2p so that leader-only fields are visible.
+/// Returns `None` when the local node is the leader (local metrics already
+/// carry the leader-only fields), the leader is unknown, or the fetch fails.
+async fn fetch_leader_metrics_value(
+  group_id: &str,
+  metrics: &crate::typ::RaftMetrics,
+  network: &Libp2pNetworkFactory,
+) -> Option<sonic_rs::Value> {
+  if metrics.state.is_leader() {
+    return None;
+  }
+  let leader_id = metrics.current_leader.clone()?;
+
+  let leader_metrics = match tokio::time::timeout(
+    Duration::from_secs(2),
+    fetch_remote_metrics(group_id, &leader_id, network),
+  )
+  .await
+  {
+    Ok(leader_metrics) => leader_metrics?,
+    Err(_) => {
+      tracing::debug!(
+        group = group_id,
+        leader = %leader_id,
+        "timed out fetching leader metrics for cluster info"
+      );
+      return None;
+    }
+  };
+
+  sonic_rs::to_value(&leader_metrics).ok()
 }
 
 async fn push_email(

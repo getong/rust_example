@@ -19,7 +19,6 @@ use openraft::{
   storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
-use rand::RngExt;
 use rocksdb::{DB, WriteOptions};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -247,10 +246,6 @@ mod tests {
       );
     }
   }
-}
-
-fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError<TypeConfig>> {
-  sonic_rs::to_vec(value).map_err(|e| StorageError::write(TypeConfig::err_from_error(&e)))
 }
 
 fn deserialize<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, StorageError<TypeConfig>> {
@@ -501,18 +496,19 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
   ) -> Result<SnapshotOf<TypeConfig, Self::SnapshotData>, io::Error> {
     let (last_applied_log, last_membership) = self.get_meta()?;
 
-    // Generate a random snapshot index.
-    let snapshot_idx: u64 = rand::rng().random_range(0 .. 1000);
+    // UUID v7 is time-ordered, so the lexicographic snapshot_id tiebreaker in
+    // `snapshot_is_newer` follows creation order.
+    let snapshot_uuid = uuid::Uuid::now_v7();
 
     let snapshot_id = if let Some(ref last) = last_applied_log {
       format!(
         "{}-{}-{}",
         last.committed_leader_id(),
         last.index(),
-        snapshot_idx
+        snapshot_uuid
       )
     } else {
-      format!("--{}", snapshot_idx)
+      format!("--{}", snapshot_uuid)
     };
 
     let meta = SnapshotMetaOf::<TypeConfig> {
@@ -521,11 +517,15 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       snapshot_id: snapshot_id.clone(),
     };
 
-    // Use RocksDB snapshot for consistent point-in-time view
+    // Use RocksDB snapshot for consistent point-in-time view. Collecting,
+    // serializing, and persisting the snapshot are all CPU/IO heavy, so run
+    // the whole pipeline off the async runtime.
     let db = self.db.clone();
+    let snapshot_dir = self.snapshot_dir.clone();
+    let meta_for_file = meta.clone();
+    let snapshot_id_for_file = snapshot_id;
 
-    #[allow(clippy::type_complexity)]
-    let data = TypeConfig::spawn_blocking(move || -> Result<Vec<(Vec<u8>, Vec<u8>)>, io::Error> {
+    let data_bytes = TypeConfig::spawn_blocking(move || -> Result<Vec<u8>, io::Error> {
       let snapshot = db.snapshot();
       let cf_data = db
         .cf_handle(SM_DATA_CF)
@@ -539,29 +539,17 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
         snapshot_data.push((key.to_vec(), value.to_vec()));
       }
 
-      Ok(snapshot_data)
+      // Serialize both metadata and data together
+      let snapshot_file = SnapshotFile {
+        meta: meta_for_file,
+        data: snapshot_data,
+      };
+      write_snapshot_file(&snapshot_dir, &snapshot_id_for_file, &snapshot_file)?;
+
+      // Return snapshot with data-only for backward compatibility with the data field
+      serialize_io(&snapshot_file.data)
     })
     .await??;
-
-    // Serialize both metadata and data together
-    let snapshot_file = SnapshotFile {
-      meta: meta.clone(),
-      data,
-    };
-    write_snapshot_file(&self.snapshot_dir, &snapshot_id, &snapshot_file).map_err(|e| {
-      StorageError::<TypeConfig>::write_snapshot(
-        Some(meta.signature()),
-        TypeConfig::err_from_error(&e),
-      )
-    })?;
-
-    // Return snapshot with data-only for backward compatibility with the data field
-    let data_bytes = serialize(&snapshot_file.data).map_err(|e| {
-      StorageError::<TypeConfig>::write_snapshot(
-        Some(meta.signature()),
-        TypeConfig::err_from_error(&e),
-      )
-    })?;
 
     Ok(SnapshotOf::<TypeConfig, Self::SnapshotData> {
       meta,
@@ -608,7 +596,13 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
         EntryPayload::Normal(req) => match req {
           types_kv::Request::Set { key, value } => {
             batch.put_cf(cf_data, key.as_bytes(), value.as_bytes());
-            let response = types_kv::Response::new(value.clone());
+            // Only clone the value when someone is waiting for the response;
+            // followers apply entries without responders.
+            let response = if responder.is_some() {
+              types_kv::Response::new(value.clone())
+            } else {
+              types_kv::Response::none()
+            };
             data_changes.push(DataChange::Set { key, value });
             response
           }
@@ -673,23 +667,31 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
       "decoding snapshot for installation"
     );
 
-    // Deserialize snapshot data
-    let snapshot_data: Vec<(Vec<u8>, Vec<u8>)> = deserialize(snapshot.get_ref())
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-
-    let data_map = snapshot_data_to_map(&snapshot_data)?;
-    let snapshot_file = SnapshotFile {
-      meta: meta.clone(),
-      data: snapshot_data,
-    };
-    let snapshot_file = Arc::new(snapshot_file);
-    let snapshot_file_for_db = snapshot_file.clone();
+    // Deserializing, rebuilding the in-memory map, restoring RocksDB, and
+    // persisting the snapshot file are all CPU/IO heavy for large snapshots,
+    // so run the whole pipeline off the async runtime.
     let db = self.db.clone();
+    let snapshot_dir = self.snapshot_dir.clone();
+    let meta_for_file = meta.clone();
 
-    TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, &snapshot_file_for_db))
+    let data_map =
+      TypeConfig::spawn_blocking(move || -> Result<BTreeMap<String, String>, io::Error> {
+        let snapshot_data: Vec<(Vec<u8>, Vec<u8>)> = deserialize_io(snapshot.get_ref())?;
+        let data_map = snapshot_data_to_map(&snapshot_data)?;
+        let snapshot_file = SnapshotFile {
+          meta: meta_for_file,
+          data: snapshot_data,
+        };
+
+        restore_snapshot_to_db(&db, &snapshot_file)?;
+        write_snapshot_file(
+          &snapshot_dir,
+          &snapshot_file.meta.snapshot_id,
+          &snapshot_file,
+        )?;
+        Ok(data_map)
+      })
       .await??;
-
-    write_snapshot_file(&self.snapshot_dir, &meta.snapshot_id, &snapshot_file)?;
 
     {
       let mut data = self.data.write().await;
@@ -702,17 +704,27 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
   async fn get_current_snapshot(
     &mut self,
   ) -> Result<Option<SnapshotOf<TypeConfig, Self::SnapshotData>>, io::Error> {
-    let Some(snapshot_file) = read_latest_snapshot_file(&self.snapshot_dir)? else {
-      return Ok(None);
-    };
+    // Reading and re-serializing persisted snapshots is blocking file IO plus
+    // CPU-heavy JSON work; keep it off the async runtime.
+    let snapshot_dir = self.snapshot_dir.clone();
+    let snapshot = TypeConfig::spawn_blocking(
+      move || -> Result<Option<(SnapshotMetaOf<TypeConfig>, Vec<u8>)>, io::Error> {
+        let Some(snapshot_file) = read_latest_snapshot_file(&snapshot_dir)? else {
+          return Ok(None);
+        };
 
-    // Serialize data for snapshot field
-    let data_bytes = serialize(&snapshot_file.data)
-      .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        // Serialize data for snapshot field
+        let data_bytes = serialize_io(&snapshot_file.data)?;
+        Ok(Some((snapshot_file.meta, data_bytes)))
+      },
+    )
+    .await??;
 
-    Ok(Some(SnapshotOf::<TypeConfig, Self::SnapshotData> {
-      meta: snapshot_file.meta,
-      snapshot: Cursor::new(data_bytes),
-    }))
+    Ok(snapshot.map(
+      |(meta, data_bytes)| SnapshotOf::<TypeConfig, Self::SnapshotData> {
+        meta,
+        snapshot: Cursor::new(data_bytes),
+      },
+    ))
   }
 }

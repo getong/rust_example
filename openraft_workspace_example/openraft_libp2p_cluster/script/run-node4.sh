@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
@@ -38,7 +39,7 @@ DB_BASE="${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}"
 DB_ROOT="${DB_ROOT:-}"
 if [[ -z "$DB_ROOT" ]]; then
 	echo "Error: DB_ROOT is not set."
-	echo "Hint: use run-2nodes.sh/run-3nodes.sh, export DB_ROOT, or set USE_ENV_DB_ROOT=1."
+	echo "Hint: use script/run-2nodes.sh or script/run-5nodes.sh, export DB_ROOT, or set USE_ENV_DB_ROOT=1."
 	exit 1
 fi
 NODE1_NAME="${NODE1_NAME:-node1}"
@@ -70,10 +71,10 @@ NODE4_HTTP="${NODE4_HTTP:-127.0.0.1:3004}"
 NODE5_HTTP="${NODE5_HTTP:-127.0.0.1:3005}"
 
 MAX_CONTROL_NODES="${MAX_CONTROL_NODES:-5}"
-NODE3_TOKIO_CONSOLE_BIND="${NODE3_TOKIO_CONSOLE_BIND:-127.0.0.1:6671}"
+NODE4_TOKIO_CONSOLE_BIND="${NODE4_TOKIO_CONSOLE_BIND:-127.0.0.1:6672}"
 
 LOG_DIR="$DB_ROOT/logs"
-NODE3_LOG="$LOG_DIR/node3.log"
+NODE4_LOG="$LOG_DIR/node4.log"
 NODE1_PEER_ID_FILE="$NODE1_DB/peer.id"
 NODE2_PEER_ID_FILE="$NODE2_DB/peer.id"
 NODE3_PEER_ID_FILE="$NODE3_DB/peer.id"
@@ -158,8 +159,8 @@ echo "Node4 name: $NODE4_NAME"
 echo "Node5 name: $NODE5_NAME"
 
 PEER_ID_WAIT_SECS="${PEER_ID_WAIT_SECS:-120}"
-GEN_SCRIPT="$ROOT_DIR/generate_libp2p_id.sh"
-WSS_SCRIPT="$ROOT_DIR/generate_wss_certs.sh"
+GEN_SCRIPT="$SCRIPT_DIR/generate_libp2p_id.sh"
+WSS_SCRIPT="$SCRIPT_DIR/generate_wss_certs.sh"
 
 if [[ ! -x "$GEN_SCRIPT" ]]; then
 	echo "Error: missing executable $GEN_SCRIPT"
@@ -269,18 +270,18 @@ wait_for_peer_id() {
 	cat "$path"
 }
 
-P3="$(generate_peer_id "$NODE3_DB/node.key" "$NODE3_PEER_ID_FILE")"
+P4="$(generate_peer_id "$NODE4_DB/node.key" "$NODE4_PEER_ID_FILE")"
 P1="$(wait_for_peer_id "node1" "$NODE1_PEER_ID_FILE")"
 
 ensure_wss_certs
 
 ADDR1="$NODE1_ADVERTISE_LISTEN/p2p/$P1"
-ADDR3="$NODE3_ADVERTISE_LISTEN/p2p/$P3"
+ADDR4="$NODE4_ADVERTISE_LISTEN/p2p/$P4"
 
 echo "Node1 peer id: $P1"
-echo "Node3 peer id: $P3"
+echo "Node4 peer id: $P4"
 echo "Node1 addr:    $ADDR1"
-echo "Node3 addr:    $ADDR3"
+echo "Node4 addr:    $ADDR4"
 
 port_in_use() {
 	local port="$1"
@@ -291,34 +292,34 @@ port_in_use() {
 	fi
 }
 
-if [[ "$NODE3_LISTEN" =~ /tcp/([0-9]+) ]]; then
+if [[ "$NODE4_LISTEN" =~ /tcp/([0-9]+) ]]; then
 	if port_in_use "${BASH_REMATCH[1]}"; then
-		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE3_LISTEN=$NODE3_LISTEN)."
+		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE4_LISTEN=$NODE4_LISTEN)."
 		echo "Hint: stop the previous nodes, or set NODE*_LISTEN to other ports."
 		exit 1
 	fi
 fi
 
-if [[ "$NODE3_TOKIO_CONSOLE_BIND" =~ :([0-9]+)$ ]]; then
+if [[ "$NODE4_TOKIO_CONSOLE_BIND" =~ :([0-9]+)$ ]]; then
 	if port_in_use "${BASH_REMATCH[1]}"; then
-		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE3_TOKIO_CONSOLE_BIND=$NODE3_TOKIO_CONSOLE_BIND)."
-		echo "Hint: stop the previous nodes, or set NODE3_TOKIO_CONSOLE_BIND to another port."
+		echo "Error: port ${BASH_REMATCH[1]} is already in use (NODE4_TOKIO_CONSOLE_BIND=$NODE4_TOKIO_CONSOLE_BIND)."
+		echo "Hint: stop the previous nodes, or set NODE4_TOKIO_CONSOLE_BIND to another port."
 		exit 1
 	fi
 fi
 
 export RUST_LOG="${RUST_LOG:-info}"
-export LIBP2P_SELF_NAME="$NODE3_NAME"
-export TOKIO_CONSOLE_BIND="$NODE3_TOKIO_CONSOLE_BIND"
+export LIBP2P_SELF_NAME="$NODE4_NAME"
+export TOKIO_CONSOLE_BIND="$NODE4_TOKIO_CONSOLE_BIND"
 
 echo "Logs:"
-echo "  $NODE3_LOG"
+echo "  $NODE4_LOG"
 echo "Tokio console:"
 echo "  tokio-console http://$TOKIO_CONSOLE_BIND"
 
-echo "Starting node3 (Ctrl-C to stop)..."
+echo "Starting node4 (Ctrl-C to stop)..."
 
-# Node3 just joins the network (it will be contacted by the leader during replication).
+# Node4 just joins the network (it will be contacted by the leader during replication).
 node_bin="${CARGO_TARGET_DIR:-$WS_DIR/target}/debug/openraft_libp2p_cluster"
 if [[ "${SKIP_BUILD:-0}" == "1" && -x "$node_bin" ]]; then
 	cmd=("$node_bin")
@@ -327,10 +328,10 @@ else
 fi
 
 cmd+=(
-	--id "$P3"
-	--listen "$NODE3_LISTEN"
-	--http "$NODE3_HTTP"
-	--db "$NODE3_DB"
+	--id "$P4"
+	--listen "$NODE4_LISTEN"
+	--http "$NODE4_HTTP"
+	--db "$NODE4_DB"
 	--max-control-nodes "$MAX_CONTROL_NODES"
 	--ws-tls-key "$WS_TLS_KEY"
 	--ws-tls-cert "$WS_TLS_CERT"
@@ -344,12 +345,12 @@ fi
 
 cmd+=(
 	--bootstrap-node "$P1=$ADDR1"
-	--advertise "$ADDR3"
+	--advertise "$ADDR4"
 )
 
 if [[ "${SKIP_BUILD:-0}" == "1" ]]; then
-	exec >>"$NODE3_LOG" 2>&1
+	exec >>"$NODE4_LOG" 2>&1
 	exec "${cmd[@]}"
 fi
 
-"${cmd[@]}" 2>&1 | tee "$NODE3_LOG"
+"${cmd[@]}" 2>&1 | tee "$NODE4_LOG"
