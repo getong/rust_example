@@ -41,6 +41,23 @@ enum Cmd {
     #[arg(long)]
     idem: Option<String>,
   },
+  /// Enqueue task(s) of any kind from a raw kind-tagged JSON payload, e.g.
+  /// '{"kind":"digest","data":"abc","iterations":10000}'. Builtin kinds:
+  /// email, webhook, digest, kv_set, sleep.
+  PushTask {
+    /// Kind-tagged JSON payload handed to the worker handler registry.
+    #[arg(long)]
+    payload: String,
+    /// Number of copies to push.
+    #[arg(long, default_value_t = 1)]
+    count: u32,
+    /// Idempotency key; a repeated push with the same key is deduplicated.
+    #[arg(long)]
+    idem: Option<String>,
+    /// Schedule the task this many seconds into the future.
+    #[arg(long, default_value_t = 0)]
+    delay_secs: u64,
+  },
   /// List task records.
   List {
     /// Filter by status: queued|assigned|running|done|failed.
@@ -143,6 +160,38 @@ impl Client {
     Ok(response)
   }
 
+  /// Generic multi-kind submission via /tasks/push.
+  async fn push_task(
+    &self,
+    payload: &sonic_rs::Value,
+    idem: Option<&str>,
+    delay_secs: u64,
+  ) -> anyhow::Result<EmailResponse> {
+    let body = sonic_rs::json!({
+      "payload": payload,
+      "idem_key": idem,
+      "delay_secs": delay_secs,
+    });
+    let response: EmailResponse = self
+      .http
+      .post(format!("{}/tasks/push", self.base))
+      .header("content-type", "application/json")
+      .body(sonic_rs::to_string(&body).context("encode push-task body")?)
+      .send()
+      .await
+      .context("push-task request failed")?
+      .json()
+      .await
+      .context("decode push-task response")?;
+    if !response.ok {
+      return Err(anyhow!(
+        "push-task rejected: {}",
+        response.error.clone().unwrap_or_default()
+      ));
+    }
+    Ok(response)
+  }
+
   async fn tasks(&self) -> anyhow::Result<Vec<TaskRecord>> {
     let response: TasksResponse = self
       .http
@@ -201,20 +250,39 @@ impl Client {
   }
 }
 
-fn recipient(record: &TaskRecord) -> String {
-  #[derive(Deserialize)]
-  struct EmailPayload {
-    to: String,
+/// Compact `kind:detail` label for a task payload. Untagged payloads are the
+/// legacy email shape.
+fn task_label(record: &TaskRecord) -> String {
+  #[derive(Deserialize, Default)]
+  #[serde(default)]
+  struct PayloadPreview {
+    kind: Option<String>,
+    to: Option<String>,
+    url: Option<String>,
+    key: Option<String>,
+    data: Option<String>,
+    secs: Option<u64>,
   }
-  sonic_rs::from_str::<EmailPayload>(&record.payload)
-    .map(|payload| payload.to)
-    .unwrap_or_else(|_| "<unknown>".to_string())
+  let Ok(preview) = sonic_rs::from_str::<PayloadPreview>(&record.payload) else {
+    return "<unknown>".to_string();
+  };
+  let kind = preview.kind.unwrap_or_else(|| "email".to_string());
+  let detail = preview
+    .to
+    .or(preview.url)
+    .or(preview.key)
+    .or(preview.data)
+    .or(preview.secs.map(|secs| format!("{secs}s")));
+  match detail {
+    Some(detail) => format!("{kind}:{detail}"),
+    None => kind,
+  }
 }
 
 fn print_tasks(tasks: &[TaskRecord]) {
   println!(
-    "{:<15} {:<9} {:<8} {:<10} {:<40} {}",
-    "TO", "STATUS", "ATTEMPTS", "WORKER", "RESULT", "ERROR"
+    "{:<24} {:<9} {:<8} {:<10} {:<40} {}",
+    "TASK", "STATUS", "ATTEMPTS", "WORKER", "RESULT", "ERROR"
   );
   for task in tasks {
     let mut result = task.result.clone().unwrap_or_else(|| "-".to_string());
@@ -223,8 +291,8 @@ fn print_tasks(tasks: &[TaskRecord]) {
       result.push_str("...");
     }
     println!(
-      "{:<15} {:<9} {:<8} {:<10} {:<40} {}",
-      recipient(task),
+      "{:<24} {:<9} {:<8} {:<10} {:<40} {}",
+      task_label(task),
       task.status.as_str(),
       task.attempts,
       task
@@ -355,6 +423,26 @@ async fn main() -> anyhow::Result<()> {
         println!(
           "pushed to={} task_id={} deduplicated={}",
           recipient,
+          response.task_id.as_deref().unwrap_or("-"),
+          response.deduplicated.unwrap_or(false)
+        );
+      }
+    }
+    Cmd::PushTask {
+      payload,
+      count,
+      idem,
+      delay_secs,
+    } => {
+      let payload: sonic_rs::Value =
+        sonic_rs::from_str(&payload).context("--payload must be valid JSON")?;
+      for _ in 1 ..= count {
+        let response = client
+          .push_task(&payload, idem.as_deref(), delay_secs)
+          .await?;
+        println!(
+          "pushed payload={} task_id={} deduplicated={}",
+          sonic_rs::to_string(&payload)?,
           response.task_id.as_deref().unwrap_or("-"),
           response.deduplicated.unwrap_or(false)
         );

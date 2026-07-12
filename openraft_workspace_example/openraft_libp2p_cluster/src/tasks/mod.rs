@@ -12,6 +12,7 @@
 //!     claim/lease protocol (see [`crate::tasks::worker`]).
 
 pub mod events;
+pub mod handlers;
 pub mod rpc;
 pub mod scheduler;
 pub mod worker;

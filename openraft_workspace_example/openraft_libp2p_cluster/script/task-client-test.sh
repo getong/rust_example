@@ -11,7 +11,10 @@
 #   3. idempotency   same idem key pushed twice → single task, dedup reply
 #   4. failure       fail* task → Failed after exactly MAX attempts (3)
 #   5. metrics       /tasks/metrics agrees with the task list
-#   6. crash drill   (WITH_CRASH=1) kill a worker mid-burst → still all Done,
+#   6. multi-kind    digest / sleep / kv_set / webhook (task-chaining) pushed
+#                    together → all Done; kinds run side by side, not
+#                    mutually exclusive
+#   7. crash drill   (WITH_CRASH=1) kill a worker mid-burst → still all Done,
 #                    then restart it
 #
 # Usage:
@@ -135,17 +138,46 @@ assert metrics["queued"] + metrics["assigned"] + metrics["running"] \
   + metrics["done"] + metrics["failed"] == metrics["total"]
 EOF
 
+echo
+echo "== phase 6: multi-kind tasks (generic handler registry; kinds are not mutually exclusive) =="
+# Four kinds pushed back to back so they overlap on the workers: CPU-bound
+# digest, timed sleep, a raft KV write-back, and a webhook that POSTs to the
+# control node's own /tasks/email — chaining one extra email task (+5 total).
+check "push digest task" task push-task \
+	--payload '{"kind":"digest","data":"octopii","iterations":100000}'
+check "push sleep task (via worker endpoint)" task_via_worker push-task \
+	--payload '{"kind":"sleep","secs":2}'
+check "push kv_set task" task push-task \
+	--payload '{"kind":"kv_set","key":"task:multi-kind","value":"written-by-task"}'
+check "push webhook task (chains an email task)" task push-task \
+	--payload '{"kind":"webhook","url":"http://'"$CONTROL_HTTP"'/tasks/email","body":{"to":"chained@example.com"}}'
+total_after_p6=$((total_after_p4 + 5))
+check "all kinds settle Done side by side" \
+	task watch --timeout-secs "$SETTLE_TIMEOUT" \
+	--expect-total "$total_after_p6" \
+	--expect-failed "$((existing_failed + 1))"
+done_has() {
+	# done_has <label-pattern> [<content-pattern>]: the Done list has a row
+	# matching both patterns.
+	local rows
+	rows="$(task list --status done | grep -- "$1")" || return 1
+	grep -q -- "${2:-}" <<<"$rows"
+}
+check "digest task recorded a sha256 result" done_has 'digest:octopii' 'sha256'
+check "kv_set task acked the raft write" done_has 'kv_set:task:multi-kind' 'written'
+check "webhook chained email completed" done_has 'email:chained@example.com'
+
 if [[ "$WITH_CRASH" == "1" ]]; then
 	echo
-	echo "== phase 6: crash drill (kill worker node${CRASH_NODE} mid-burst) =="
+	echo "== phase 7: crash drill (kill worker node${CRASH_NODE} mid-burst) =="
 	task push --to crash-burst@example.com --count "$BATCH" >/dev/null &
 	push_pid=$!
 	"$SCRIPT_DIR/crash-nodes.sh" "$CRASH_NODE" >/dev/null 2>&1
 	wait "$push_pid"
-	total_after_p6=$((total_after_p4 + BATCH))
+	total_after_p7=$((total_after_p6 + BATCH))
 	check "burst completes despite worker crash" \
 		task watch --timeout-secs "$SETTLE_TIMEOUT" \
-		--expect-total "$total_after_p6" \
+		--expect-total "$total_after_p7" \
 		--expect-failed "$((existing_failed + 1))"
 	"$SCRIPT_DIR/restart-nodes.sh" "$CRASH_NODE" >/dev/null 2>&1
 	check "crashed worker restarted" curl -fsS -m 10 "http://127.0.0.1:$((3000 + CRASH_NODE))/cluster" -o /dev/null

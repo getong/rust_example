@@ -50,8 +50,9 @@ use crate::{
   store::ensure_linearizable_read,
   tasks::{
     TaskOpResult, TaskQueueMetrics, TaskRecord, WorkerLeaseRecord,
+    handlers::payload_kind,
     rpc::{ControlNodes, TaskRpc, TaskRpcRequest, TaskRpcResponse, TaskRpcService},
-    worker::{Email, call_read, submit_command},
+    worker::{call_read, submit_command},
   },
   types_kv::Request as StateCommand,
 };
@@ -177,6 +178,7 @@ pub async fn serve(
     .route("/chat", post(send_chat))
     .route("/sync/snapshot", post(sync_snapshot))
     .route("/tasks/email", post(push_email))
+    .route("/tasks/push", post(push_task))
     .route("/tasks", get(list_tasks))
     .route("/tasks/workers", get(list_task_workers))
     .route("/tasks/metrics", get(task_metrics))
@@ -462,6 +464,17 @@ struct EmailRequest {
   /// Optional idempotency key: repeated pushes with the same key return the
   /// original task id with `deduplicated: true`.
   idem_key: Option<String>,
+}
+
+/// Generic task submission: `payload` is the kind-tagged JSON handed to the
+/// worker-side handler registry (e.g. `{"kind":"digest","data":"x"}`).
+#[derive(Deserialize)]
+struct PushTaskRequest {
+  payload: sonic_rs::Value,
+  idem_key: Option<String>,
+  /// Schedule the task `delay_secs` into the future (run_at = now + delay).
+  #[serde(default)]
+  delay_secs: u64,
 }
 
 #[derive(Serialize)]
@@ -1947,50 +1960,88 @@ async fn submit_task_state_command(
   }
 }
 
-async fn push_email(
-  State(state): State<Arc<AppState>>,
-  Json(req): Json<EmailRequest>,
-) -> Json<EmailResponse> {
-  let payload = match sonic_rs::to_string(&Email { to: req.to }) {
-    Ok(payload) => payload,
-    Err(err) => {
-      return Json(EmailResponse {
-        ok: false,
-        task_id: None,
-        deduplicated: None,
-        error: Some(format!("encode email payload: {err}")),
-      });
-    }
-  };
+/// Enqueue one task with an already-encoded (kind-tagged) payload.
+async fn enqueue_task(
+  state: &AppState,
+  payload: String,
+  idem_key: Option<String>,
+  delay_secs: u64,
+) -> EmailResponse {
   let now = unix_now_secs();
   let cmd = StateCommand::TaskEnqueue {
     id: uuid::Uuid::now_v7().to_string(),
     payload,
-    run_at: now,
-    idem_key: req.idem_key,
+    run_at: now + delay_secs,
+    idem_key,
     created_at: now,
   };
 
-  match submit_task_state_command(&state, cmd).await {
-    Ok(result) if result.ok => Json(EmailResponse {
+  match submit_task_state_command(state, cmd).await {
+    Ok(result) if result.ok => EmailResponse {
       ok: true,
       task_id: result.id,
       deduplicated: result.deduplicated,
       error: None,
-    }),
-    Ok(result) => Json(EmailResponse {
+    },
+    Ok(result) => EmailResponse {
       ok: false,
       task_id: result.id,
       deduplicated: result.deduplicated,
       error: result.reason,
-    }),
-    Err(err) => Json(EmailResponse {
+    },
+    Err(err) => EmailResponse {
       ok: false,
       task_id: None,
       deduplicated: None,
       error: Some(err.to_string()),
-    }),
+    },
   }
+}
+
+fn push_error(message: String) -> EmailResponse {
+  EmailResponse {
+    ok: false,
+    task_id: None,
+    deduplicated: None,
+    error: Some(message),
+  }
+}
+
+async fn push_email(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<EmailRequest>,
+) -> Json<EmailResponse> {
+  let payload = match sonic_rs::to_string(&sonic_rs::json!({
+    "kind": "email",
+    "to": req.to,
+  })) {
+    Ok(payload) => payload,
+    Err(err) => return Json(push_error(format!("encode email payload: {err}"))),
+  };
+  Json(enqueue_task(&state, payload, req.idem_key, 0).await)
+}
+
+/// Generic multi-kind submission. The payload must carry a `kind` tag; it is
+/// stored opaquely and dispatched by the worker-side handler registry, so an
+/// unknown kind is only rejected at execution time.
+async fn push_task(
+  State(state): State<Arc<AppState>>,
+  Json(req): Json<PushTaskRequest>,
+) -> Json<EmailResponse> {
+  let payload = match sonic_rs::to_string(&req.payload) {
+    Ok(payload) => payload,
+    Err(err) => return Json(push_error(format!("encode task payload: {err}"))),
+  };
+  match payload_kind(&payload) {
+    Ok(Some(kind)) if !kind.is_empty() => {}
+    Ok(_) => {
+      return Json(push_error(
+        "task payload must be a JSON object with a non-empty \"kind\" field".to_string(),
+      ));
+    }
+    Err(err) => return Json(push_error(err)),
+  }
+  Json(enqueue_task(&state, payload, req.idem_key, req.delay_secs).await)
 }
 
 async fn list_tasks(State(state): State<Arc<AppState>>) -> Json<TasksResponse> {

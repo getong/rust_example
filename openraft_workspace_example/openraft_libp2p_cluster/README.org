@@ -80,6 +80,21 @@ curl -X POST http://127.0.0.1:3001/tasks/email \
   -H 'content-type: application/json' \
   -d '{"to":"test@example.com"}'
 
+# generic multi-kind submission: the payload is kind-tagged JSON dispatched
+# by the worker-side handler registry (octopii-style plug-in trait; add a
+# kind by implementing tasks::handlers::TypedTaskHandler + one register()).
+# Builtin kinds: email, webhook, digest, kv_set, sleep — they run side by
+# side on a worker, never mutually exclusive.
+curl -X POST http://127.0.0.1:3001/tasks/push \
+  -H 'content-type: application/json' \
+  -d '{"payload":{"kind":"digest","data":"octopii","iterations":100000}}'
+curl -X POST http://127.0.0.1:3001/tasks/push \
+  -H 'content-type: application/json' \
+  -d '{"payload":{"kind":"kv_set","key":"greeting","value":"hi","group_id":"users"}}'
+curl -X POST http://127.0.0.1:3001/tasks/push \
+  -H 'content-type: application/json' \
+  -d '{"payload":{"kind":"webhook","url":"http://127.0.0.1:3001/tasks/email","body":{"to":"chained@example.com"}},"delay_secs":5}'
+
 # list registered external workers and task state
 curl http://127.0.0.1:3001/tasks/workers
 curl http://127.0.0.1:3001/tasks
@@ -91,6 +106,7 @@ curl http://127.0.0.1:3001/tasks/metrics
 # or use the task client binary (push/list/workers/metrics/watch)
 cargo build -p openraft_libp2p_cluster --bin olpc-task
 ./target/debug/olpc-task push --to hello@example.com --count 5
+./target/debug/olpc-task push-task --payload '{"kind":"sleep","secs":3}' --count 2
 ./target/debug/olpc-task --http 127.0.0.1:3006 push --to via-worker@example.com
 ./target/debug/olpc-task watch --timeout-secs 60 --expect-failed 0
 ./target/debug/olpc-task metrics

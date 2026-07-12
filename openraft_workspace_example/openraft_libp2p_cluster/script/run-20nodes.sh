@@ -658,6 +658,36 @@ echo "Cluster graph: http://$(node_http 1)/graph"
 echo "Node status:   http://$(node_http 1)/openraft/nodes"
 echo "Libp2p info:   http://$(node_http 1)/libp2p/info"
 echo "Logs:          $LOG_DIR"
-echo "Press Ctrl-C to stop all nodes."
+echo "Press Ctrl-C to stop all nodes; individual node exits (crash drills) are tolerated."
 
-wait
+# Alive means present in the process table and not a zombie: dead children
+# stay as zombies until reaped, and kill -0 would still succeed on them.
+node_alive() {
+	local stat
+	stat="$(ps -p "$1" -o stat= 2>/dev/null || true)"
+	[[ -n "$stat" && "$stat" != Z* ]]
+}
+
+# Supervise instead of a bare `wait`: crash drills (crash-nodes.sh) kill
+# individual nodes, and restart-nodes.sh revives them outside this script,
+# so launcher-owned children dying must NOT end the launcher (the EXIT trap
+# would tear down the remaining nodes and the demo Redis). Reap each dead
+# child and keep running; only Ctrl-C/SIGTERM stops the whole cluster.
+ALL_DEAD_REPORTED=0
+while true; do
+	for i in "${!NODE_PIDS[@]}"; do
+		pid="${NODE_PIDS[$i]}"
+		if ! node_alive "$pid"; then
+			wait "$pid" 2>/dev/null || true # reap the zombie
+			echo "${NODE_NAMES[$i]} (pid=$pid) exited; cluster keeps running (log: ${NODE_LOGS[$i]})."
+			echo "  Restart it with: DB_ROOT=$DB_ROOT ./script/restart-nodes.sh"
+			unset 'NODE_PIDS[i]' 'NODE_NAMES[i]' 'NODE_LOGS[i]'
+		fi
+	done
+	if ((${#NODE_PIDS[@]} == 0 && ALL_DEAD_REPORTED == 0)); then
+		ALL_DEAD_REPORTED=1
+		echo "All launcher-owned node processes have exited (nodes revived by restart-nodes.sh run detached)."
+		echo "Press Ctrl-C to stop the demo Redis and exit."
+	fi
+	sleep 2
+done

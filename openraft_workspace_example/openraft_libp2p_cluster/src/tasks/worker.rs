@@ -8,6 +8,10 @@
 //! with zero read RPCs. A slow reconciliation poll remains as fallback for
 //! missed gossip. Executions run concurrently up to
 //! [`WORKER_MAX_CONCURRENT_TASKS`], so one slow task never blocks the rest.
+//!
+//! Execution itself is generic: the loop only decodes the payload's `kind`
+//! tag and dispatches through a [`TaskHandlerRegistry`] (octopii-style
+//! plug-in trait), so task types plug in without touching this pipeline.
 
 use std::{
   collections::HashSet,
@@ -16,7 +20,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Semaphore, broadcast};
 
 use crate::{
@@ -25,6 +28,7 @@ use crate::{
   signal::ShutdownRx,
   tasks::{
     MAX_TASK_ATTEMPTS, TaskOpResult, TaskRecord,
+    handlers::{TaskCtx, TaskHandlerRegistry},
     rpc::{
       ControlNodes, TaskRpcRequest, TaskRpcResponse, TaskWriteReply, task_rpc_request,
       task_rpc_response,
@@ -34,10 +38,14 @@ use crate::{
   types_kv::Request as StateCommand,
 };
 
+/// Kept as a re-export so existing callers (HTTP frontend) keep compiling;
+/// the type now lives with its handler.
+pub use crate::tasks::handlers::Email;
+
 const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
 /// Hard cap on a single task execution; a hung handler counts as a failure
 /// and goes through the normal retry/backoff path.
-const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_LEASE_TTL_SECS: u64 = 30;
 /// Reconciliation poll for missed gossip only; assignments normally arrive
 /// through the wake channel with everything needed to claim.
@@ -75,40 +83,15 @@ pub fn notify_assignment(worker_node_id: &str, task_id: &str, lease_epoch: u64) 
   }
 }
 
-/// The demo task type executed by workers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Email {
-  pub to: String,
-}
-
-/// Executes the task and returns the handler result (opaque JSON) that is
-/// stored on the record via `TaskDone`.
-async fn execute_task(record: &TaskRecord) -> Result<Option<String>, String> {
-  let email: Email =
-    sonic_rs::from_str(&record.payload).map_err(|err| format!("decode email payload: {err}"))?;
-
-  // Testable failure semantics for drills: recipients starting with "fail"
-  // simulate a handler error (exercises retry/backoff and permanent failure),
-  // "slow" simulates a hang (exercises the execution timeout).
-  if email.to.starts_with("fail") {
-    return Err(format!("simulated failure sending to {}", email.to));
-  }
-  if email.to.starts_with("slow") {
-    tokio::time::sleep(TASK_EXECUTION_TIMEOUT + Duration::from_secs(15)).await;
-  }
-
-  tracing::info!(task_id = %record.id, to = %email.to, "sending email");
-  let result = sonic_rs::to_string(&sonic_rs::json!({
-    "delivered_to": email.to,
-    "attempt": record.attempts,
-  }))
-  .map_err(|err| format!("encode task result: {err}"))?;
-  Ok(Some(result))
-}
-
-/// Execute with the hard timeout applied.
-async fn execute_task_with_timeout(record: &TaskRecord) -> Result<Option<String>, String> {
-  match tokio::time::timeout(TASK_EXECUTION_TIMEOUT, execute_task(record)).await {
+/// Execute one claimed task through the handler registry, bounded by the
+/// hard timeout.
+async fn execute_task_with_timeout(
+  ctx: &WorkerCtx,
+  record: &TaskRecord,
+) -> Result<Option<String>, String> {
+  let task_ctx = TaskCtx::with_cluster(&ctx.network, &ctx.control_nodes);
+  match tokio::time::timeout(TASK_EXECUTION_TIMEOUT, ctx.handlers.execute(&task_ctx, record)).await
+  {
     Ok(result) => result,
     Err(_) => Err(format!(
       "task execution timed out after {}s",
@@ -117,14 +100,16 @@ async fn execute_task_with_timeout(record: &TaskRecord) -> Result<Option<String>
   }
 }
 
-/// Submit a task state-machine command to the control plane, following
-/// leader hints (tarpc TaskRpc over libp2p).
-pub async fn submit_command(
+/// Submit a state-machine command to the control plane, following leader
+/// hints (tarpc TaskRpc over libp2p), and return the raw write reply of the
+/// node that accepted it. Works for any [`StateCommand`], not just task
+/// commands — handlers use this for e.g. KV writes.
+pub async fn submit_reply(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodes>,
   group_id: &str,
   cmd: StateCommand,
-) -> anyhow::Result<TaskOpResult> {
+) -> anyhow::Result<TaskWriteReply> {
   let targets = control_nodes.lock().await.targets();
   let mut last_error: Option<String> = None;
 
@@ -154,12 +139,7 @@ pub async fn submit_command(
       };
 
       if reply.ok {
-        let value = reply
-          .value
-          .ok_or_else(|| anyhow!("task command accepted but returned no result"))?;
-        let result: TaskOpResult =
-          sonic_rs::from_str(&value).map_err(|err| anyhow!("decode task op result: {err}"))?;
-        return Ok(result);
+        return Ok(reply);
       }
 
       if let Some(next) = follow_leader_hint(network, control_nodes, &target, &reply).await {
@@ -176,6 +156,20 @@ pub async fn submit_command(
     "task command failed on all control nodes: {}",
     last_error.unwrap_or_else(|| "no reachable control node".to_string())
   ))
+}
+
+/// Submit a TASK command and decode the state machine's `TaskOpResult`.
+pub async fn submit_command(
+  network: &Libp2pNetworkFactory,
+  control_nodes: &Mutex<ControlNodes>,
+  group_id: &str,
+  cmd: StateCommand,
+) -> anyhow::Result<TaskOpResult> {
+  let reply = submit_reply(network, control_nodes, group_id, cmd).await?;
+  let value = reply
+    .value
+    .ok_or_else(|| anyhow!("task command accepted but returned no result"))?;
+  sonic_rs::from_str(&value).map_err(|err| anyhow!("decode task op result: {err}"))
 }
 
 async fn follow_leader_hint(
@@ -230,6 +224,8 @@ struct WorkerCtx {
   group_id: GroupId,
   network: Libp2pNetworkFactory,
   control_nodes: Arc<Mutex<ControlNodes>>,
+  /// `kind` → handler routing; the pipeline itself is task-agnostic.
+  handlers: Arc<TaskHandlerRegistry>,
   /// Bounds concurrent executions.
   permits: Arc<Semaphore>,
   /// Task ids currently claimed-or-waiting on this node; dedupes the wake
@@ -237,15 +233,44 @@ struct WorkerCtx {
   in_flight: Arc<Mutex<HashSet<String>>>,
 }
 
-/// Run the task worker: lease renewal + concurrent claim/execute/ack.
+/// Run the task worker with the builtin handler set.
 pub async fn run_task_worker(
   node_id: NodeId,
   worker_name: String,
   group_id: GroupId,
   network: Libp2pNetworkFactory,
   control_nodes: Vec<NodeId>,
+  shutdown_rx: ShutdownRx,
+) -> anyhow::Result<()> {
+  run_task_worker_with_handlers(
+    node_id,
+    worker_name,
+    group_id,
+    network,
+    control_nodes,
+    TaskHandlerRegistry::builtin(),
+    shutdown_rx,
+  )
+  .await
+}
+
+/// Run the task worker: lease renewal + concurrent claim/execute/ack.
+/// Embedders can pass a registry extended (or overridden) with their own
+/// [`crate::tasks::handlers::TaskHandler`] implementations.
+pub async fn run_task_worker_with_handlers(
+  node_id: NodeId,
+  worker_name: String,
+  group_id: GroupId,
+  network: Libp2pNetworkFactory,
+  control_nodes: Vec<NodeId>,
+  handlers: TaskHandlerRegistry,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
+  tracing::info!(
+    node_id = %node_id,
+    kinds = ?handlers.kinds(),
+    "task worker handler registry"
+  );
   let control_nodes = Arc::new(Mutex::new(ControlNodes::new(control_nodes)));
   let mut wake_rx = wake_channel().subscribe();
 
@@ -264,6 +289,7 @@ pub async fn run_task_worker(
     group_id,
     network,
     control_nodes,
+    handlers: Arc::new(handlers),
     permits: Arc::new(Semaphore::new(WORKER_MAX_CONCURRENT_TASKS)),
     in_flight: Arc::new(Mutex::new(HashSet::new())),
   });
@@ -392,8 +418,8 @@ async fn claim_and_execute(ctx: &WorkerCtx, task_id: &str, lease_epoch: u64) -> 
     .ok_or_else(|| anyhow!("claim succeeded but returned no record"))?;
 
   // Execute the side effect LOCALLY — never inside the state machine —
-  // bounded by the execution timeout.
-  let outcome = execute_task_with_timeout(&record).await;
+  // dispatched by payload kind, bounded by the execution timeout.
+  let outcome = execute_task_with_timeout(ctx, &record).await;
 
   let ack = match outcome {
     Ok(result) => StateCommand::TaskDone {
