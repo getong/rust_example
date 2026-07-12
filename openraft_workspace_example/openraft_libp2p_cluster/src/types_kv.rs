@@ -32,6 +32,10 @@ pub enum Request {
     /// Unix seconds after which the task may be scheduled.
     run_at: u64,
     idem_key: Option<String>,
+    /// Submission time (proposer-supplied), stamped as `created_at`.
+    /// `serde(default)` keeps older log entries decodable.
+    #[serde(default)]
+    created_at: u64,
   },
   /// Leader schedules a queued task to a worker (moves queued → assigned).
   /// `now` (proposer-supplied) stamps the record's `updated_at` for
@@ -56,6 +60,13 @@ pub enum Request {
     node_id: String,
     lease_epoch: u64,
     attempts: u32,
+    /// Completion time (proposer-supplied), stamped as `completed_at`.
+    #[serde(default)]
+    now: u64,
+    /// Execution result produced by the handler (opaque JSON), stored on
+    /// the record until vacuumed.
+    #[serde(default)]
+    result: Option<String>,
   },
   /// Worker reports failure. `retry_at > 0` re-queues with that run_at
   /// (running → queued); `retry_at == 0` marks the task failed permanently.
@@ -66,11 +77,23 @@ pub enum Request {
     attempts: u32,
     error: String,
     retry_at: u64,
+    /// Failure time (proposer-supplied); stamps `completed_at` on
+    /// permanent failure and `updated_at` on retry.
+    #[serde(default)]
+    now: u64,
   },
   /// Leader returns an assigned/running task of an inactive worker to the
   /// queue.
   TaskRequeue {
     id: String,
+  },
+  /// Leader-driven retention cleanup: delete the listed TERMINAL
+  /// (done/failed) task records, their terminal-index entries, and their
+  /// idempotency keys. The leader picks the ids OUTSIDE apply (scan of the
+  /// terminal index against the retention cutoff); apply only re-validates
+  /// per id, keeping the command deterministic on every replica.
+  TaskVacuum {
+    ids: Vec<String>,
   },
   /// Worker lease heartbeat record.
   WorkerLease {
@@ -109,6 +132,7 @@ impl fmt::Display for Request {
       Request::TaskDone { id, .. } => write!(f, "TaskDone {{ id: {id} }}"),
       Request::TaskFail { id, .. } => write!(f, "TaskFail {{ id: {id} }}"),
       Request::TaskRequeue { id } => write!(f, "TaskRequeue {{ id: {id} }}"),
+      Request::TaskVacuum { ids } => write!(f, "TaskVacuum {{ ids: {} }}", ids.len()),
       Request::WorkerLease { node_id, .. } => write!(f, "WorkerLease {{ node: {node_id} }}"),
     }
   }

@@ -3,17 +3,21 @@
 //! exactly one node → ack, plus worker lease renewal.
 //!
 //! Wake-up is event driven: the scheduler publishes a `TaskAssignedMessage`
-//! on the task-assign gossip topic and the swarm forwards it into the wake
-//! channel below; a slow poll remains as fallback.
+//! (task id + lease epoch) on the task-assign gossip topic and the swarm
+//! forwards it into the wake channel below, so the worker claims directly
+//! with zero read RPCs. A slow reconciliation poll remains as fallback for
+//! missed gossip. Executions run concurrently up to
+//! [`WORKER_MAX_CONCURRENT_TASKS`], so one slow task never blocks the rest.
 
 use std::{
+  collections::HashSet,
   sync::{Arc, OnceLock},
   time::Duration,
 };
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, Semaphore, broadcast};
 
 use crate::{
   GroupId, NodeId,
@@ -35,22 +39,39 @@ const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
 /// and goes through the normal retry/backoff path.
 const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_LEASE_TTL_SECS: u64 = 30;
-const WORKER_POLL_FALLBACK: Duration = Duration::from_secs(5);
+/// Reconciliation poll for missed gossip only; assignments normally arrive
+/// through the wake channel with everything needed to claim.
+const WORKER_POLL_FALLBACK: Duration = Duration::from_secs(30);
 const RETRY_BACKOFF_BASE_SECS: u64 = 5;
 const MAX_LEADER_REDIRECTS: usize = 3;
+/// Per-node cap on concurrently executing tasks.
+const WORKER_MAX_CONCURRENT_TASKS: usize = 4;
+
+/// A concrete assignment forwarded from the scheduler's gossip message:
+/// carries everything needed to claim, so no read RPC is required.
+#[derive(Debug, Clone)]
+pub struct TaskAssignment {
+  pub worker_node_id: String,
+  pub task_id: String,
+  pub lease_epoch: u64,
+}
 
 /// Wake channel fed by the swarm's gossip handler when the scheduler
 /// announces an assignment for this node.
-static TASK_WAKE_TX: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+static TASK_WAKE_TX: OnceLock<broadcast::Sender<TaskAssignment>> = OnceLock::new();
 
-fn wake_channel() -> &'static broadcast::Sender<String> {
+fn wake_channel() -> &'static broadcast::Sender<TaskAssignment> {
   TASK_WAKE_TX.get_or_init(|| broadcast::channel(64).0)
 }
 
 /// Called from the swarm gossip handler on the task-assign topic.
-pub fn notify_assignment(worker_node_id: &str) {
+pub fn notify_assignment(worker_node_id: &str, task_id: &str, lease_epoch: u64) {
   if let Some(tx) = TASK_WAKE_TX.get() {
-    let _ = tx.send(worker_node_id.to_string());
+    let _ = tx.send(TaskAssignment {
+      worker_node_id: worker_node_id.to_string(),
+      task_id: task_id.to_string(),
+      lease_epoch,
+    });
   }
 }
 
@@ -60,7 +81,9 @@ pub struct Email {
   pub to: String,
 }
 
-async fn execute_task(record: &TaskRecord) -> Result<(), String> {
+/// Executes the task and returns the handler result (opaque JSON) that is
+/// stored on the record via `TaskDone`.
+async fn execute_task(record: &TaskRecord) -> Result<Option<String>, String> {
   let email: Email =
     sonic_rs::from_str(&record.payload).map_err(|err| format!("decode email payload: {err}"))?;
 
@@ -75,11 +98,16 @@ async fn execute_task(record: &TaskRecord) -> Result<(), String> {
   }
 
   tracing::info!(task_id = %record.id, to = %email.to, "sending email");
-  Ok(())
+  let result = sonic_rs::to_string(&sonic_rs::json!({
+    "delivered_to": email.to,
+    "attempt": record.attempts,
+  }))
+  .map_err(|err| format!("encode task result: {err}"))?;
+  Ok(Some(result))
 }
 
 /// Execute with the hard timeout applied.
-async fn execute_task_with_timeout(record: &TaskRecord) -> Result<(), String> {
+async fn execute_task_with_timeout(record: &TaskRecord) -> Result<Option<String>, String> {
   match tokio::time::timeout(TASK_EXECUTION_TIMEOUT, execute_task(record)).await {
     Ok(result) => result,
     Err(_) => Err(format!(
@@ -196,7 +224,20 @@ pub async fn call_read(
   ))
 }
 
-/// Run the task worker: lease renewal + claim/execute/ack loop.
+/// Shared context for a running worker; cloned into each spawned execution.
+struct WorkerCtx {
+  node_id: NodeId,
+  group_id: GroupId,
+  network: Libp2pNetworkFactory,
+  control_nodes: Arc<Mutex<ControlNodes>>,
+  /// Bounds concurrent executions.
+  permits: Arc<Semaphore>,
+  /// Task ids currently claimed-or-waiting on this node; dedupes the wake
+  /// path against the fallback reconciliation poll.
+  in_flight: Arc<Mutex<HashSet<String>>>,
+}
+
+/// Run the task worker: lease renewal + concurrent claim/execute/ack.
 pub async fn run_task_worker(
   node_id: NodeId,
   worker_name: String,
@@ -218,27 +259,45 @@ pub async fn run_task_worker(
     shutdown_rx.clone(),
   ));
 
+  let ctx = Arc::new(WorkerCtx {
+    node_id: node_id.clone(),
+    group_id,
+    network,
+    control_nodes,
+    permits: Arc::new(Semaphore::new(WORKER_MAX_CONCURRENT_TASKS)),
+    in_flight: Arc::new(Mutex::new(HashSet::new())),
+  });
+
   let mut fallback = tokio::time::interval(WORKER_POLL_FALLBACK);
   fallback.tick().await;
 
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
+        // In-flight executions are abandoned; unacked tasks come back via
+        // the scheduler's stuck/lease requeue path.
         tracing::info!(node_id = %node_id, "stopping task worker");
         break;
       }
       wake = wake_rx.recv() => {
         match wake {
-          Ok(target) if target == node_id.to_string() => {}
+          Ok(assignment) if assignment.worker_node_id == node_id.to_string() => {
+            // The wake carries the full assignment: claim directly,
+            // no list/read round-trip.
+            spawn_execution(&ctx, assignment.task_id, assignment.lease_epoch).await;
+            continue;
+          }
           Ok(_) => continue,           // assignment for another worker
-          Err(broadcast::error::RecvError::Lagged(_)) => {}
+          Err(broadcast::error::RecvError::Lagged(_)) => {
+            // Missed wakes: reconcile below via list_assigned.
+          }
           Err(broadcast::error::RecvError::Closed) => continue,
         }
       }
       _ = fallback.tick() => {}
     }
 
-    if let Err(err) = drain_assigned_tasks(&node_id, &group_id, &network, &control_nodes).await {
+    if let Err(err) = drain_assigned_tasks(&ctx).await {
       tracing::debug!(node_id = %node_id, error = ?err, "task worker drain failed; retrying");
     }
   }
@@ -247,15 +306,41 @@ pub async fn run_task_worker(
   Ok(())
 }
 
-async fn drain_assigned_tasks(
-  node_id: &NodeId,
-  group_id: &str,
-  network: &Libp2pNetworkFactory,
-  control_nodes: &Mutex<ControlNodes>,
-) -> anyhow::Result<()> {
-  let response = call_read(network, control_nodes, || TaskRpcRequest::ListAssigned {
-    group_id: group_id.to_string(),
-    node_id: node_id.to_string(),
+/// Spawn one bounded, deduplicated execution. Returns immediately; the
+/// spawned future waits for a concurrency permit, claims, executes, acks.
+async fn spawn_execution(ctx: &Arc<WorkerCtx>, task_id: String, lease_epoch: u64) {
+  if !ctx.in_flight.lock().await.insert(task_id.clone()) {
+    return; // already claimed-or-waiting on this node
+  }
+  let ctx = ctx.clone();
+  tokio::spawn(async move {
+    let _permit = match ctx.permits.clone().acquire_owned().await {
+      Ok(permit) => permit,
+      Err(_) => {
+        ctx.in_flight.lock().await.remove(&task_id);
+        return;
+      }
+    };
+    if let Err(err) = claim_and_execute(&ctx, &task_id, lease_epoch).await {
+      tracing::warn!(
+        node_id = %ctx.node_id,
+        task_id = %task_id,
+        error = ?err,
+        "task execution round failed"
+      );
+    }
+    ctx.in_flight.lock().await.remove(&task_id);
+  });
+}
+
+/// Fallback reconciliation: list this node's assigned index (ids + lease
+/// epochs) and spawn anything not already in flight.
+async fn drain_assigned_tasks(ctx: &Arc<WorkerCtx>) -> anyhow::Result<()> {
+  let response = call_read(&ctx.network, &ctx.control_nodes, || {
+    TaskRpcRequest::ListAssigned {
+      group_id: ctx.group_id.to_string(),
+      node_id: ctx.node_id.to_string(),
+    }
   })
   .await?;
   let TaskRpcResponse::ListAssigned(reply) = response else {
@@ -268,34 +353,20 @@ async fn drain_assigned_tasks(
     ));
   }
 
-  for task_id in reply.ids {
-    if let Err(err) = claim_and_execute(node_id, group_id, network, control_nodes, &task_id).await {
-      tracing::warn!(
-        node_id = %node_id,
-        task_id = %task_id,
-        error = ?err,
-        "task execution round failed"
-      );
-    }
+  for task in reply.assigned {
+    spawn_execution(ctx, task.id, task.lease_epoch).await;
   }
   Ok(())
 }
 
-async fn claim_and_execute(
-  node_id: &NodeId,
-  group_id: &str,
-  network: &Libp2pNetworkFactory,
-  control_nodes: &Mutex<ControlNodes>,
-  task_id: &str,
-) -> anyhow::Result<()> {
-  // Read our current assignment lease epoch from the record via claim: the
-  // claim command itself validates (node, lease) atomically in apply(), so a
-  // stale assignment simply yields ok=false.
-  let assigned = fetch_record(network, control_nodes, group_id, task_id).await?;
-  let Some(lease_epoch) = assigned.lease_epoch else {
-    return Ok(());
-  };
+async fn claim_and_execute(ctx: &WorkerCtx, task_id: &str, lease_epoch: u64) -> anyhow::Result<()> {
+  let node_id = &ctx.node_id;
+  let group_id = ctx.group_id.as_str();
+  let network = &ctx.network;
+  let control_nodes = ctx.control_nodes.as_ref();
 
+  // The claim command validates (node, lease_epoch) atomically in apply();
+  // a stale assignment simply yields ok=false.
   let claim = submit_command(
     network,
     control_nodes,
@@ -325,17 +396,20 @@ async fn claim_and_execute(
   let outcome = execute_task_with_timeout(&record).await;
 
   let ack = match outcome {
-    Ok(()) => StateCommand::TaskDone {
+    Ok(result) => StateCommand::TaskDone {
       id: record.id.clone(),
       node_id: node_id.to_string(),
       lease_epoch,
       attempts: record.attempts,
+      now: current_unix_secs(),
+      result,
     },
     Err(error) => {
+      let now = current_unix_secs();
       let retry_at = if record.attempts >= MAX_TASK_ATTEMPTS {
         0 // permanent failure
       } else {
-        current_unix_secs() + RETRY_BACKOFF_BASE_SECS * (1 << record.attempts.min(6)) as u64
+        now + RETRY_BACKOFF_BASE_SECS * (1 << record.attempts.min(6)) as u64
       };
       tracing::warn!(
         task_id = %record.id,
@@ -351,6 +425,7 @@ async fn claim_and_execute(
         attempts: record.attempts,
         error,
         retry_at,
+        now,
       }
     }
   };
@@ -360,26 +435,6 @@ async fn claim_and_execute(
     tracing::warn!(task_id = %record.id, reason = ?acked.reason, "task ack rejected as stale");
   }
   Ok(())
-}
-
-async fn fetch_record(
-  network: &Libp2pNetworkFactory,
-  control_nodes: &Mutex<ControlNodes>,
-  group_id: &str,
-  task_id: &str,
-) -> anyhow::Result<TaskRecord> {
-  let response = call_read(network, control_nodes, || TaskRpcRequest::ListTasks {
-    group_id: group_id.to_string(),
-  })
-  .await?;
-  let TaskRpcResponse::ListTasks(reply) = response else {
-    return Err(anyhow!("unexpected list_tasks response"));
-  };
-  reply
-    .tasks
-    .into_iter()
-    .find(|task| task.id == task_id)
-    .ok_or_else(|| anyhow!("task {task_id} not found"))
 }
 
 async fn run_lease_renewal(

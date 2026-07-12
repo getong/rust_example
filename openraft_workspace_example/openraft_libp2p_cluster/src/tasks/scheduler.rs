@@ -1,7 +1,14 @@
 //! Leader-side task scheduler for the task group.
 //!
 //! Runs only on the group's current raft leader (managed by the leader
-//! controller). Each tick does two narrow index scans:
+//! controller). Scheduling is event driven: the state machine bumps
+//! [`crate::tasks::events`] after applying schedule-relevant commands, so a
+//! pass runs immediately after an enqueue/requeue/retry instead of waiting
+//! for a poll. A slow fallback timer (and a precise sleep until the next
+//! future `run_at`) covers time-based work: due delayed tasks, dead-worker
+//! requeue, and stuck-task detection.
+//!
+//! Each pass does two narrow index scans:
 //!   - `task:idx:assigned:` → requeue tasks whose worker lease is gone;
 //!   - `task:idx:queued:`   → assign due tasks to active workers.
 //! Every transition is a replicated `TaskAssign`/`TaskRequeue` command; this
@@ -22,8 +29,9 @@ use crate::{
   openraft_group,
   signal::ShutdownRx,
   tasks::{
-    TASK_ASSIGNED_IDX_PREFIX, TASK_QUEUED_IDX_PREFIX, TASK_WORKER_PREFIX, TaskOpResult, TaskRecord,
-    TaskStatus, WorkerLeaseRecord, parse_assigned_idx_key, parse_queued_idx_key, rec_key,
+    TASK_ASSIGNED_IDX_PREFIX, TASK_QUEUED_IDX_PREFIX, TASK_TERMINAL_IDX_PREFIX, TASK_WORKER_PREFIX,
+    TaskOpResult, TaskRecord, TaskStatus, WorkerLeaseRecord, parse_assigned_idx_key,
+    parse_queued_idx_key, parse_terminal_idx_key, rec_key,
   },
   types_kv::Request as StateCommand,
 };
@@ -36,6 +44,29 @@ pub const TASK_ASSIGN_TOPIC: &str = "openraft/task-assign/1";
 /// execution). Dead workers are handled separately via lease liveness.
 pub const TASK_STUCK_REQUEUE_SECS: u64 = 60;
 
+/// Slow fallback between passes when no apply event arrives. Time-based work
+/// (lease expiry, stuck detection) tolerates this latency; new work is
+/// event-driven and does not wait for it.
+pub const SCHEDULER_FALLBACK_SECS: u64 = 5;
+
+/// How often the leader looks for expired terminal records to vacuum.
+const VACUUM_INTERVAL_SECS: u64 = 60;
+/// Terminal (done/failed) records older than this are deleted, together
+/// with their idempotency keys. Overridable via env `TASK_RETENTION_SECS`.
+const DEFAULT_TASK_RETENTION_SECS: u64 = 3600;
+/// Ids per TaskVacuum command; bounds raft entry size.
+const VACUUM_BATCH_LIMIT: usize = 256;
+
+fn task_retention_secs() -> u64 {
+  static RETENTION: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+  *RETENTION.get_or_init(|| {
+    std::env::var("TASK_RETENTION_SECS")
+      .ok()
+      .and_then(|raw| raw.parse().ok())
+      .unwrap_or(DEFAULT_TASK_RETENTION_SECS)
+  })
+}
+
 pub async fn run_task_scheduler(
   group_id: GroupId,
   network: Libp2pNetworkFactory,
@@ -43,29 +74,61 @@ pub async fn run_task_scheduler(
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
-  let mut tick = tokio::time::interval(tick_interval);
-  tick.tick().await;
+  // The controller's interval is treated as a lower bound; the scheduler
+  // paces itself off apply events + run_at deadlines, not a tight poll.
+  let fallback = tick_interval.max(Duration::from_secs(SCHEDULER_FALLBACK_SECS));
+  let mut events = crate::tasks::events::subscribe();
+  // Mark the current version as seen; anything applied after this point
+  // (including during a pass) makes the next `changed()` fire immediately.
+  events.mark_unchanged();
+
+  let mut next_vacuum_at = 0u64;
 
   loop {
+    let next_due = match scheduler_tick(&group_id, &network, &kv_client).await {
+      Ok(next_due) => next_due,
+      Err(err) => {
+        tracing::warn!(group = %group_id, error = ?err, "task scheduler pass failed");
+        None
+      }
+    };
+
+    // Retention cleanup on its own slow cadence, independent of how often
+    // apply events wake the loop.
+    let now = current_unix_secs();
+    if now >= next_vacuum_at {
+      next_vacuum_at = now + VACUUM_INTERVAL_SECS;
+      if let Err(err) = vacuum_expired_tasks(&group_id, now).await {
+        tracing::warn!(group = %group_id, error = ?err, "task vacuum pass failed");
+      }
+    }
+
+    // Sleep until the earliest future run_at if it lands before the
+    // fallback; otherwise use the fallback cadence.
+    let sleep_for = next_due
+      .map(|due| Duration::from_secs(due.saturating_sub(current_unix_secs())))
+      .map_or(fallback, |until_due| until_due.min(fallback));
+
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!(group = %group_id, "stopping task scheduler");
         return Ok(());
       }
-      _ = tick.tick() => {
-        if let Err(err) = scheduler_tick(&group_id, &network, &kv_client).await {
-          tracing::warn!(group = %group_id, error = ?err, "task scheduler tick failed");
-        }
+      _ = events.changed() => {
+        tracing::debug!(group = %group_id, "scheduler woken by apply event");
       }
+      _ = tokio::time::sleep(sleep_for) => {}
     }
   }
 }
 
+/// One scheduling pass. Returns the earliest future `run_at` seen in the
+/// queued index (if any) so the caller can sleep precisely until it is due.
 async fn scheduler_tick(
   group_id: &str,
   network: &Libp2pNetworkFactory,
   kv_client: &KvClient,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<u64>> {
   let Some(group) = openraft_group(group_id) else {
     return Err(anyhow!("unknown group_id={group_id}"));
   };
@@ -128,25 +191,27 @@ async fn scheduler_tick(
   }
 
   // 2) Assign due queued tasks (the index is sorted by run_at).
-  if workers.is_empty() {
-    return Ok(());
-  }
   let queued = group
     .kv_data
     .entries_with_prefix(TASK_QUEUED_IDX_PREFIX.to_string())
     .await?;
+  if workers.is_empty() {
+    // Nothing to assign to; retry on the fallback cadence.
+    return Ok(None);
+  }
   for (key, _) in queued {
     let Some((run_at, task_id)) = parse_queued_idx_key(&key) else {
       tracing::warn!(%key, "skipping malformed queued index key");
       continue;
     };
     if run_at > now {
-      // Sorted index: everything after this is due later.
-      break;
+      // Sorted index: everything after this is due later; report the
+      // earliest so the caller sleeps exactly until it comes due.
+      return Ok(Some(run_at));
     }
 
     let Some(worker) = select_worker(&workers, task_id) else {
-      return Ok(());
+      return Ok(None);
     };
     let assign = StateCommand::TaskAssign {
       id: task_id.to_string(),
@@ -174,13 +239,64 @@ async fn scheduler_tick(
           lease_epoch = worker.lease_epoch,
           "assigned task to worker"
         );
-        notify_worker(kv_client, task_id, &worker.node_id).await;
+        notify_worker(kv_client, task_id, &worker.node_id, worker.lease_epoch).await;
       }
       Err(err) => return Err(anyhow!("assign {task_id} failed: {err}")),
     }
   }
 
-  Ok(())
+  Ok(None)
+}
+
+/// Scan the terminal index for records past retention and propose one
+/// bounded `TaskVacuum`. The scan runs OUTSIDE apply; apply re-validates
+/// each id, so a stale scan can never delete live tasks.
+async fn vacuum_expired_tasks(group_id: &str, now: u64) -> anyhow::Result<()> {
+  let Some(group) = openraft_group(group_id) else {
+    return Err(anyhow!("unknown group_id={group_id}"));
+  };
+  let cutoff = now.saturating_sub(task_retention_secs());
+
+  let terminal = group
+    .kv_data
+    .entries_with_prefix(TASK_TERMINAL_IDX_PREFIX.to_string())
+    .await?;
+  let mut ids = Vec::new();
+  for (key, _) in terminal {
+    let Some((completed_at, task_id)) = parse_terminal_idx_key(&key) else {
+      tracing::warn!(%key, "skipping malformed terminal index key");
+      continue;
+    };
+    if completed_at > cutoff {
+      // Sorted by completion time: the rest is still within retention.
+      break;
+    }
+    ids.push(task_id.to_string());
+    if ids.len() >= VACUUM_BATCH_LIMIT {
+      break;
+    }
+  }
+  if ids.is_empty() {
+    return Ok(());
+  }
+
+  let count = ids.len();
+  match group
+    .raft
+    .client_write(StateCommand::TaskVacuum { ids })
+    .await
+  {
+    Ok(resp) => {
+      tracing::info!(
+        group = %group_id,
+        candidates = count,
+        result = ?resp.data.value,
+        "vacuumed expired terminal tasks"
+      );
+      Ok(())
+    }
+    Err(err) => Err(anyhow!("vacuum failed: {err}")),
+  }
 }
 
 async fn active_workers(
@@ -231,11 +347,17 @@ fn select_worker<'a>(
   workers.get((hasher.finish() as usize) % workers.len())
 }
 
-async fn notify_worker(kv_client: &KvClient, task_id: &str, worker_node_id: &str) {
+async fn notify_worker(
+  kv_client: &KvClient,
+  task_id: &str,
+  worker_node_id: &str,
+  lease_epoch: u64,
+) {
   use prost::Message as _;
   let msg = crate::proto::raft_kv::TaskAssignedMessage {
     task_id: task_id.to_string(),
     worker_id: worker_node_id.to_string(),
+    lease_epoch,
   };
   kv_client
     .publish_gossipsub(TASK_ASSIGN_TOPIC, msg.encode_to_vec())

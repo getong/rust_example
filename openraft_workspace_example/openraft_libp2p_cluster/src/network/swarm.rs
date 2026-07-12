@@ -1505,7 +1505,11 @@ async fn handle_gossipsub_event(
               worker_id = %assigned.worker_id,
               "task assignment gossip received"
             );
-            crate::tasks::worker::notify_assignment(&assigned.worker_id);
+            crate::tasks::worker::notify_assignment(
+              &assigned.worker_id,
+              &assigned.task_id,
+              assigned.lease_epoch,
+            );
           }
           Err(err) => tracing::debug!(error = %err, "invalid task assignment message"),
         }

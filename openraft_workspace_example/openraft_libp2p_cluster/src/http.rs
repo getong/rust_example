@@ -1962,11 +1962,13 @@ async fn push_email(
       });
     }
   };
+  let now = unix_now_secs();
   let cmd = StateCommand::TaskEnqueue {
     id: uuid::Uuid::now_v7().to_string(),
     payload,
-    run_at: unix_now_secs(),
+    run_at: now,
     idem_key: req.idem_key,
+    created_at: now,
   };
 
   match submit_task_state_command(&state, cmd).await {

@@ -590,6 +590,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     // differently, so relying on the flushed DB alone would make replicas
     // diverge. The overlay holds this batch's pending writes.
     let mut overlay: HashMap<String, Option<String>> = HashMap::new();
+    let mut schedule_event = false;
 
     while let Some((entry, responder)) = entries.try_next().await? {
       tracing::debug!(%entry.log_id, "replicate to sm");
@@ -619,6 +620,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
             types_kv::Response::none()
           }
           task_cmd => {
+            schedule_event |= tasks::is_schedule_event(&task_cmd);
             let mut read = |key: &str| -> Result<Option<String>, String> {
               if let Some(pending) = overlay.get(key) {
                 return Ok(pending.clone());
@@ -682,6 +684,13 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     // Only send responses after successful write
     for (responder, response) in responses {
       responder.send(response);
+    }
+
+    // The apply feed is the authoritative change stream for schedulable
+    // work: wake the local scheduler after the batch is durable. On
+    // followers (no scheduler subscribed) this is a no-op.
+    if schedule_event {
+      tasks::events::notify_schedule();
     }
 
     Ok(())

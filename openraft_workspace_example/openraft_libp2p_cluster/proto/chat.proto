@@ -11,6 +11,9 @@ message ChatMessage {
 message TaskAssignedMessage {
   string task_id = 1;
   string worker_id = 2;
+  // Lease epoch captured at assignment; lets the worker claim directly
+  // from the wake-up without re-reading the record.
+  uint64 lease_epoch = 3;
 }
 
 // Periodic self-announcement published on its own gossipsub topic so every

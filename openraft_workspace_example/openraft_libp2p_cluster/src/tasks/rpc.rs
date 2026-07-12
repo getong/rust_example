@@ -41,10 +41,18 @@ impl TaskWriteReply {
   }
 }
 
+/// One entry of the per-worker assigned index: enough for the worker to
+/// claim directly (the claim command re-validates node+epoch in apply).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AssignedTask {
+  pub id: String,
+  pub lease_epoch: u64,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TaskIdsReply {
   pub ok: bool,
-  pub ids: Vec<String>,
+  pub assigned: Vec<AssignedTask>,
   pub error: Option<String>,
 }
 
@@ -73,7 +81,8 @@ pub struct TaskMetricsReply {
 pub trait TaskRpc {
   /// Submit a task state-machine command through raft.
   async fn submit(group_id: GroupId, cmd: StateCommand) -> TaskWriteReply;
-  /// Task ids currently assigned to `node_id` (narrow index scan).
+  /// Tasks currently assigned to `node_id` with their lease epochs
+  /// (narrow index scan; no record reads).
   async fn list_assigned(group_id: GroupId, node_id: String) -> TaskIdsReply;
   /// All task records (admin/HTTP view).
   async fn list_tasks(group_id: GroupId) -> TaskRecordsReply;
@@ -175,14 +184,32 @@ impl TaskRpc for TaskRpcService {
     node_id: String,
   ) -> TaskIdsReply {
     match read_entries(&group_id, assigned_idx_node_prefix(&node_id)).await {
-      Ok(entries) => TaskIdsReply {
-        ok: true,
-        ids: entries.into_iter().map(|(_, id)| id).collect(),
-        error: None,
-      },
+      Ok(entries) => {
+        let mut assigned = Vec::with_capacity(entries.len());
+        for (key, value) in entries {
+          // Index value = lease epoch at assignment time.
+          let Some((_, task_id)) = crate::tasks::parse_assigned_idx_key(&key) else {
+            tracing::warn!(%key, "skipping malformed assigned index key");
+            continue;
+          };
+          let Ok(lease_epoch) = value.parse::<u64>() else {
+            tracing::warn!(%key, %value, "skipping assigned index entry with non-numeric epoch");
+            continue;
+          };
+          assigned.push(AssignedTask {
+            id: task_id.to_string(),
+            lease_epoch,
+          });
+        }
+        TaskIdsReply {
+          ok: true,
+          assigned,
+          error: None,
+        }
+      }
       Err(err) => TaskIdsReply {
         ok: false,
-        ids: Vec::new(),
+        assigned: Vec::new(),
         error: Some(err),
       },
     }

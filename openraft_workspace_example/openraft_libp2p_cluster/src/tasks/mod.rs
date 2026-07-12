@@ -11,6 +11,7 @@
 //!   - No execution in apply(): tasks are DATA here. Side effects run on exactly one worker via the
 //!     claim/lease protocol (see [`crate::tasks::worker`]).
 
+pub mod events;
 pub mod rpc;
 pub mod scheduler;
 pub mod worker;
@@ -25,6 +26,9 @@ pub const MAX_TASK_ATTEMPTS: u32 = 3;
 pub const TASK_REC_PREFIX: &str = "task:rec:";
 pub const TASK_QUEUED_IDX_PREFIX: &str = "task:idx:queued:";
 pub const TASK_ASSIGNED_IDX_PREFIX: &str = "task:idx:assigned:";
+/// Terminal (done/failed) tasks sorted by completion time; the leader's
+/// vacuum pass scans this instead of the full record space.
+pub const TASK_TERMINAL_IDX_PREFIX: &str = "task:idx:terminal:";
 pub const TASK_IDEM_PREFIX: &str = "task:idem:";
 pub const TASK_WORKER_PREFIX: &str = "task:worker:";
 
@@ -44,6 +48,19 @@ pub fn assigned_idx_key(node_id: &str, id: &str) -> String {
 
 pub fn assigned_idx_node_prefix(node_id: &str) -> String {
   format!("{TASK_ASSIGNED_IDX_PREFIX}{node_id}:")
+}
+
+/// Zero-padded completion time keeps the terminal index sorted, so the
+/// vacuum scan stops at the retention cutoff.
+pub fn terminal_idx_key(completed_at: u64, id: &str) -> String {
+  format!("{TASK_TERMINAL_IDX_PREFIX}{completed_at:020}:{id}")
+}
+
+/// Parse `task:idx:terminal:{completed_at:020}:{id}` → (completed_at, id).
+pub fn parse_terminal_idx_key(key: &str) -> Option<(u64, &str)> {
+  let rest = key.strip_prefix(TASK_TERMINAL_IDX_PREFIX)?;
+  let (completed_at, id) = rest.split_once(':')?;
+  Some((completed_at.parse().ok()?, id))
 }
 
 pub fn idem_record_key(idem_key: &str) -> String {
@@ -105,6 +122,16 @@ pub struct TaskRecord {
   /// it to requeue tasks stuck in Assigned/Running on a live worker.
   #[serde(default)]
   pub updated_at: u64,
+  /// Submission time (0 for records written before this field existed).
+  #[serde(default)]
+  pub created_at: u64,
+  /// Time the task reached a terminal state (done / permanently failed);
+  /// 0 while non-terminal.
+  #[serde(default)]
+  pub completed_at: u64,
+  /// Handler-produced execution result (opaque JSON), set on success.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub result: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +212,7 @@ impl TaskOpResult {
 /// Point-in-time queue health snapshot served by `/tasks/metrics` and the
 /// TaskRpc `metrics` method.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TaskQueueMetrics {
   pub total: usize,
   pub queued: usize,
@@ -202,6 +230,11 @@ pub struct TaskQueueMetrics {
   /// Worker leases valid at `computed_at`.
   pub active_workers: usize,
   pub total_worker_leases: usize,
+  /// Average enqueue→terminal latency in seconds over completed tasks that
+  /// carry both timestamps (0 when none do).
+  pub avg_completion_latency_secs: u64,
+  /// Maximum enqueue→terminal latency in seconds over the same set.
+  pub max_completion_latency_secs: u64,
   /// Unix seconds when this snapshot was computed.
   pub computed_at: u64,
 }
@@ -240,6 +273,25 @@ pub fn compute_metrics(
     }
   }
 
+  // Completion latency over terminal records with both timestamps (records
+  // written before the timestamp fields existed report 0 and are skipped).
+  let mut latency_sum = 0u64;
+  let mut latency_count = 0u64;
+  for record in records {
+    if matches!(record.status, TaskStatus::Done | TaskStatus::Failed)
+      && record.created_at > 0
+      && record.completed_at >= record.created_at
+    {
+      let latency = record.completed_at - record.created_at;
+      latency_sum += latency;
+      latency_count += 1;
+      metrics.max_completion_latency_secs = metrics.max_completion_latency_secs.max(latency);
+    }
+  }
+  if latency_count > 0 {
+    metrics.avg_completion_latency_secs = latency_sum / latency_count;
+  }
+
   metrics
 }
 
@@ -250,6 +302,19 @@ pub type StateRead<'a> = dyn FnMut(&str) -> Result<Option<String>, String> + 'a;
 /// Returns `Some` when `cmd` is a task command this module owns.
 pub fn is_task_command(cmd: &Request) -> bool {
   !matches!(cmd, Request::Set { .. } | Request::Delete { .. })
+}
+
+/// Commands whose apply may make a task schedulable; the state machine
+/// notifies the local scheduler event channel after applying one of these,
+/// so an idle leader reacts immediately instead of waiting for a tick.
+pub fn is_schedule_event(cmd: &Request) -> bool {
+  matches!(
+    cmd,
+    Request::TaskEnqueue { .. }
+      | Request::TaskRequeue { .. }
+      | Request::TaskFail { .. }
+      | Request::WorkerLease { .. }
+  )
 }
 
 /// Deterministically apply one task command against the current state.
@@ -265,7 +330,8 @@ pub fn apply_task_command(
       payload,
       run_at,
       idem_key,
-    } => apply_enqueue(read, id, payload, run_at, idem_key),
+      created_at,
+    } => apply_enqueue(read, id, payload, run_at, idem_key, created_at),
     Request::TaskAssign {
       id,
       node_id,
@@ -283,7 +349,9 @@ pub fn apply_task_command(
       node_id,
       lease_epoch,
       attempts,
-    } => apply_done(read, id, node_id, lease_epoch, attempts),
+      now,
+      result,
+    } => apply_done(read, id, node_id, lease_epoch, attempts, now, result),
     Request::TaskFail {
       id,
       node_id,
@@ -291,8 +359,19 @@ pub fn apply_task_command(
       attempts,
       error,
       retry_at,
-    } => apply_fail(read, id, node_id, lease_epoch, attempts, error, retry_at),
+      now,
+    } => apply_fail(
+      read,
+      id,
+      node_id,
+      lease_epoch,
+      attempts,
+      error,
+      retry_at,
+      now,
+    ),
     Request::TaskRequeue { id } => apply_requeue(read, id),
+    Request::TaskVacuum { ids } => apply_vacuum(read, ids),
     Request::WorkerLease {
       node_id,
       worker_name,
@@ -322,6 +401,7 @@ fn apply_enqueue(
   payload: String,
   run_at: u64,
   idem_key: Option<String>,
+  created_at: u64,
 ) -> Result<(Vec<KvMutation>, Response), String> {
   // Idempotency: an existing key wins; return the original id, write nothing.
   if let Some(idem) = idem_key.as_deref()
@@ -360,6 +440,9 @@ fn apply_enqueue(
     lease_epoch: None,
     error: None,
     updated_at: run_at,
+    created_at,
+    completed_at: 0,
+    result: None,
   };
 
   let mut mutations = vec![
@@ -410,7 +493,9 @@ fn apply_assign(
   let mutations = vec![
     KvMutation::put(rec_key(&id), encode_record(&record)?),
     KvMutation::del(queued_key),
-    KvMutation::put(assigned_idx_key(&node_id, &id), id.clone()),
+    // Index value carries the lease epoch so list_assigned can hand the
+    // worker everything it needs to claim without touching the record.
+    KvMutation::put(assigned_idx_key(&node_id, &id), lease_epoch.to_string()),
   ];
   Ok((mutations, TaskOpResult::ok().into_response()))
 }
@@ -471,6 +556,8 @@ fn apply_done(
   node_id: String,
   lease_epoch: u64,
   attempts: u32,
+  now: u64,
+  result: Option<String>,
 ) -> Result<(Vec<KvMutation>, Response), String> {
   let Some(mut record) = read_record(read, &id)? else {
     return Ok((
@@ -489,14 +576,19 @@ fn apply_done(
   record.status = TaskStatus::Done;
   record.attempts = attempts;
   record.error = None;
+  record.result = result;
+  record.updated_at = now;
+  record.completed_at = now;
 
   let mutations = vec![
     KvMutation::put(rec_key(&id), encode_record(&record)?),
     KvMutation::del(assigned_key),
+    KvMutation::put(terminal_idx_key(now, &id), id.clone()),
   ];
   Ok((mutations, TaskOpResult::ok().into_response()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_fail(
   read: &mut StateRead<'_>,
   id: String,
@@ -505,6 +597,7 @@ fn apply_fail(
   attempts: u32,
   error: String,
   retry_at: u64,
+  now: u64,
 ) -> Result<(Vec<KvMutation>, Response), String> {
   let Some(mut record) = read_record(read, &id)? else {
     return Ok((
@@ -524,6 +617,7 @@ fn apply_fail(
   record.error = Some(error);
   record.assigned_node_id = None;
   record.lease_epoch = None;
+  record.updated_at = now;
 
   let mut mutations = vec![KvMutation::del(assigned_key)];
   if retry_at > 0 {
@@ -533,6 +627,8 @@ fn apply_fail(
     mutations.push(KvMutation::put(queued_idx_key(retry_at, &id), id.clone()));
   } else {
     record.status = TaskStatus::Failed;
+    record.completed_at = now;
+    mutations.push(KvMutation::put(terminal_idx_key(now, &id), id.clone()));
   }
   mutations.insert(0, KvMutation::put(rec_key(&id), encode_record(&record)?));
   Ok((mutations, TaskOpResult::ok().into_response()))
@@ -571,6 +667,41 @@ fn apply_requeue(
   ));
   mutations.insert(0, KvMutation::put(rec_key(&id), encode_record(&record)?));
   Ok((mutations, TaskOpResult::ok().into_response()))
+}
+
+/// Delete terminal (done/failed) records plus their terminal-index entries
+/// and idempotency keys. Non-terminal or missing ids are skipped, so a
+/// vacuum proposed from a slightly stale scan stays safe and deterministic.
+fn apply_vacuum(
+  read: &mut StateRead<'_>,
+  ids: Vec<String>,
+) -> Result<(Vec<KvMutation>, Response), String> {
+  let mut mutations = Vec::new();
+  let mut removed = 0usize;
+
+  for id in ids {
+    let Some(record) = read_record(read, &id)? else {
+      continue;
+    };
+    if !matches!(record.status, TaskStatus::Done | TaskStatus::Failed) {
+      continue;
+    }
+    mutations.push(KvMutation::del(rec_key(&id)));
+    mutations.push(KvMutation::del(terminal_idx_key(record.completed_at, &id)));
+    if let Some(idem) = record.idem_key.as_deref() {
+      mutations.push(KvMutation::del(idem_record_key(idem)));
+    }
+    removed += 1;
+  }
+
+  let result = TaskOpResult {
+    ok: true,
+    id: None,
+    deduplicated: None,
+    record: None,
+    reason: Some(format!("vacuumed {removed}")),
+  };
+  Ok((mutations, result.into_response()))
 }
 
 fn apply_worker_lease(
@@ -635,6 +766,7 @@ mod tests {
       payload: "{\"to\":\"a@b\"}".to_string(),
       run_at: 100,
       idem_key: idem.map(str::to_string),
+      created_at: 100,
     }
   }
 
@@ -673,7 +805,14 @@ mod tests {
     });
     assert!(result.ok);
     assert!(!state.has_key(&queued_idx_key(100, "t1")));
-    assert!(state.has_key(&assigned_idx_key("nodeA", "t1")));
+    // Index value must carry the lease epoch (list_assigned relies on it).
+    assert_eq!(
+      state
+        .0
+        .get(&assigned_idx_key("nodeA", "t1"))
+        .map(String::as_str),
+      Some("7")
+    );
     assert_eq!(state.record("t1").status, TaskStatus::Assigned);
 
     // Claim by the wrong node is rejected atomically.
@@ -701,10 +840,17 @@ mod tests {
       node_id: "nodeA".into(),
       lease_epoch: 7,
       attempts: 1,
+      now: 1002,
+      result: Some("{\"delivered\":true}".to_string()),
     });
     assert!(done.ok);
-    assert_eq!(state.record("t1").status, TaskStatus::Done);
+    let record = state.record("t1");
+    assert_eq!(record.status, TaskStatus::Done);
+    assert_eq!(record.result.as_deref(), Some("{\"delivered\":true}"));
+    assert_eq!(record.created_at, 100);
+    assert_eq!(record.completed_at, 1002);
     assert!(!state.has_key(&assigned_idx_key("nodeA", "t1")));
+    assert!(state.has_key(&terminal_idx_key(1002, "t1")));
   }
 
   #[test]
@@ -731,6 +877,7 @@ mod tests {
       attempts: 1,
       error: "boom".into(),
       retry_at: 200,
+      now: 1002,
     });
     assert!(failed.ok);
     let record = state.record("t1");
@@ -759,9 +906,13 @@ mod tests {
       attempts: 2,
       error: "boom".into(),
       retry_at: 0,
+      now: 1003,
     });
     assert!(dead.ok);
-    assert_eq!(state.record("t1").status, TaskStatus::Failed);
+    let record = state.record("t1");
+    assert_eq!(record.status, TaskStatus::Failed);
+    assert_eq!(record.completed_at, 1003);
+    assert!(state.has_key(&terminal_idx_key(1003, "t1")));
   }
 
   #[test]
@@ -789,8 +940,101 @@ mod tests {
       node_id: "nodeA".into(),
       lease_epoch: 1,
       attempts: 1,
+      now: 1002,
+      result: None,
     });
     assert!(!stale.ok);
+  }
+
+  #[test]
+  fn vacuum_deletes_only_terminal_records_and_idem_keys() {
+    let mut state = MapState::new();
+    // t1: done (with idem key). t2: still queued. t3: permanently failed.
+    state.apply(enqueue("t1", Some("k1")));
+    state.apply(enqueue("t2", None));
+    state.apply(enqueue("t3", None));
+    for (id, epoch) in [("t1", 1u64), ("t3", 2u64)] {
+      state.apply(Request::TaskAssign {
+        id: id.into(),
+        node_id: "nodeA".into(),
+        lease_epoch: epoch,
+        now: 1000,
+      });
+      state.apply(Request::TaskClaim {
+        id: id.into(),
+        node_id: "nodeA".into(),
+        lease_epoch: epoch,
+        now: 1001,
+      });
+    }
+    state.apply(Request::TaskDone {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      attempts: 1,
+      now: 1002,
+      result: None,
+    });
+    state.apply(Request::TaskFail {
+      id: "t3".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 2,
+      attempts: 3,
+      error: "boom".into(),
+      retry_at: 0,
+      now: 1003,
+    });
+
+    // Queued t2 is skipped even though it was (incorrectly) listed.
+    let result = state.apply(Request::TaskVacuum {
+      ids: vec!["t1".into(), "t2".into(), "t3".into(), "missing".into()],
+    });
+    assert!(result.ok);
+    assert_eq!(result.reason.as_deref(), Some("vacuumed 2"));
+
+    assert!(!state.has_key(&rec_key("t1")));
+    assert!(!state.has_key(&terminal_idx_key(1002, "t1")));
+    assert!(!state.has_key(&idem_record_key("k1")));
+    assert!(!state.has_key(&rec_key("t3")));
+    assert!(!state.has_key(&terminal_idx_key(1003, "t3")));
+    // Live task untouched.
+    assert!(state.has_key(&rec_key("t2")));
+    assert!(state.has_key(&queued_idx_key(100, "t2")));
+  }
+
+  #[test]
+  fn compute_metrics_reports_completion_latency() {
+    let done = TaskRecord {
+      id: "t1".into(),
+      payload: String::new(),
+      status: TaskStatus::Done,
+      attempts: 1,
+      run_at: 100,
+      idem_key: None,
+      assigned_node_id: None,
+      lease_epoch: None,
+      error: None,
+      updated_at: 130,
+      created_at: 100,
+      completed_at: 130,
+      result: None,
+    };
+    let failed = TaskRecord {
+      id: "t2".into(),
+      status: TaskStatus::Failed,
+      completed_at: 110,
+      ..done.clone()
+    };
+    // Pre-timestamp record: excluded from latency aggregation.
+    let legacy = TaskRecord {
+      id: "t3".into(),
+      created_at: 0,
+      completed_at: 0,
+      ..done.clone()
+    };
+    let metrics = compute_metrics(&[done, failed, legacy], &[], 200);
+    assert_eq!(metrics.max_completion_latency_secs, 30);
+    assert_eq!(metrics.avg_completion_latency_secs, 20); // (30 + 10) / 2
   }
 
   #[test]

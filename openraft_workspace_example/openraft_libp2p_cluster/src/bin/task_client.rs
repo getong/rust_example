@@ -213,12 +213,17 @@ fn recipient(record: &TaskRecord) -> String {
 
 fn print_tasks(tasks: &[TaskRecord]) {
   println!(
-    "{:<15} {:<9} {:<8} {:<10} {}",
-    "TO", "STATUS", "ATTEMPTS", "WORKER", "ERROR"
+    "{:<15} {:<9} {:<8} {:<10} {:<40} {}",
+    "TO", "STATUS", "ATTEMPTS", "WORKER", "RESULT", "ERROR"
   );
   for task in tasks {
+    let mut result = task.result.clone().unwrap_or_else(|| "-".to_string());
+    if result.len() > 40 {
+      result.truncate(37);
+      result.push_str("...");
+    }
     println!(
-      "{:<15} {:<9} {:<8} {:<10} {}",
+      "{:<15} {:<9} {:<8} {:<10} {:<40} {}",
       recipient(task),
       task.status.as_str(),
       task.attempts,
@@ -227,6 +232,7 @@ fn print_tasks(tasks: &[TaskRecord]) {
         .as_deref()
         .map(|node| &node[node.len().saturating_sub(8) ..])
         .unwrap_or("-"),
+      result,
       task.error.as_deref().unwrap_or("-")
     );
   }
