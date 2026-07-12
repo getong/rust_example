@@ -459,11 +459,16 @@ struct SyncSnapshotResponse {
 #[derive(Deserialize)]
 struct EmailRequest {
   to: String,
+  /// Optional idempotency key: repeated pushes with the same key return the
+  /// original task id with `deduplicated: true`.
+  idem_key: Option<String>,
 }
 
 #[derive(Serialize)]
 struct EmailResponse {
   ok: bool,
+  task_id: Option<String>,
+  deduplicated: Option<bool>,
   error: Option<String>,
 }
 
@@ -1951,6 +1956,8 @@ async fn push_email(
     Err(err) => {
       return Json(EmailResponse {
         ok: false,
+        task_id: None,
+        deduplicated: None,
         error: Some(format!("encode email payload: {err}")),
       });
     }
@@ -1959,20 +1966,26 @@ async fn push_email(
     id: uuid::Uuid::now_v7().to_string(),
     payload,
     run_at: unix_now_secs(),
-    idem_key: None,
+    idem_key: req.idem_key,
   };
 
   match submit_task_state_command(&state, cmd).await {
     Ok(result) if result.ok => Json(EmailResponse {
       ok: true,
+      task_id: result.id,
+      deduplicated: result.deduplicated,
       error: None,
     }),
     Ok(result) => Json(EmailResponse {
       ok: false,
+      task_id: result.id,
+      deduplicated: result.deduplicated,
       error: result.reason,
     }),
     Err(err) => Json(EmailResponse {
       ok: false,
+      task_id: None,
+      deduplicated: None,
       error: Some(err.to_string()),
     }),
   }

@@ -88,6 +88,19 @@ curl http://127.0.0.1:3001/tasks
 # worker liveness
 curl http://127.0.0.1:3001/tasks/metrics
 
+# or use the task client binary (push/list/workers/metrics/watch)
+cargo build -p openraft_libp2p_cluster --bin olpc-task
+./target/debug/olpc-task push --to hello@example.com --count 5
+./target/debug/olpc-task --http 127.0.0.1:3006 push --to via-worker@example.com
+./target/debug/olpc-task watch --timeout-secs 60 --expect-failed 0
+./target/debug/olpc-task metrics
+
+# end-to-end accuracy test of the control+worker task architecture
+# (push via both paths, exactly-once, idempotency, retry/backoff,
+#  metrics consistency; WITH_CRASH=1 adds a worker-crash drill)
+CONTROL_HTTP=127.0.0.1:3001 WORKER_HTTP=127.0.0.1:3006 \
+  WITH_CRASH=1 ./script/task-client-test.sh
+
 # safely remove an OpenRaft control node before shutting that node down
 # send this to the current leader's HTTP port; omit group_id to remove from all groups
 curl -X POST http://127.0.0.1:3001/openraft/membership/remove \
