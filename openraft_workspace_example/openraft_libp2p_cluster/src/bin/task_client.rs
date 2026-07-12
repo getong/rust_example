@@ -45,7 +45,8 @@ enum Cmd {
   },
   /// Enqueue task(s) of any kind from a raw kind-tagged JSON payload, e.g.
   /// '{"kind":"digest","data":"abc","iterations":10000}'. Kinds are the
-  /// TaskPayload enum variants: email, webhook, digest, kv_set, sleep.
+  /// TaskPayload enum variants: email, webhook, digest, kv_set, sleep, wasm
+  /// (wasm carries the handler itself: module_wat or module_b64 + args/env).
   PushTask {
     /// Kind-tagged JSON payload (a TaskPayload variant).
     #[arg(long)]

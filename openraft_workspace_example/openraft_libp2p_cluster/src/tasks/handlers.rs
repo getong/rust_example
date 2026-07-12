@@ -51,6 +51,9 @@ pub enum TaskPayload {
   KvSet(KvSet),
   /// Timed no-op; drill knob for long-running work.
   Sleep(Sleep),
+  /// The handler itself stored as data: a WebAssembly module carried in the
+  /// payload (and thus in the raft log), executed under wasmtime + WASI.
+  Wasm(WasmExec),
 }
 
 impl TaskPayload {
@@ -62,6 +65,7 @@ impl TaskPayload {
       TaskPayload::Digest(_) => "digest",
       TaskPayload::KvSet(_) => "kv_set",
       TaskPayload::Sleep(_) => "sleep",
+      TaskPayload::Wasm(_) => "wasm",
     }
   }
 
@@ -87,8 +91,9 @@ impl TaskPayload {
       Some("digest") => variant("digest", payload, TaskPayload::Digest),
       Some("kv_set") => variant("kv_set", payload, TaskPayload::KvSet),
       Some("sleep") => variant("sleep", payload, TaskPayload::Sleep),
+      Some("wasm") => variant("wasm", payload, TaskPayload::Wasm),
       Some(other) => Err(format!(
-        "unknown task kind {other:?} (known: email, webhook, digest, kv_set, sleep)"
+        "unknown task kind {other:?} (known: email, webhook, digest, kv_set, sleep, wasm)"
       )),
     }
   }
@@ -106,6 +111,7 @@ impl TaskPayload {
       TaskPayload::Digest(spec) => format!("digest:{}", spec.data),
       TaskPayload::KvSet(kv) => format!("kv_set:{}", kv.key),
       TaskPayload::Sleep(sleep) => format!("sleep:{}s", sleep.secs),
+      TaskPayload::Wasm(wasm) => format!("wasm:{}", wasm.display_name()),
     }
   }
 
@@ -124,6 +130,7 @@ impl TaskPayload {
       TaskPayload::Digest(spec) => DigestHandler.run(ctx, record, spec).await,
       TaskPayload::KvSet(kv) => KvSetHandler.run(ctx, record, kv).await,
       TaskPayload::Sleep(sleep) => SleepHandler.run(ctx, record, sleep).await,
+      TaskPayload::Wasm(wasm) => WasmExecHandler.run(ctx, record, wasm).await,
     }
   }
 }
@@ -447,6 +454,195 @@ impl TaskHandler for SleepHandler {
   }
 }
 
+/// The handler function stored as data (the "handler as data" design from
+/// `docs/handler-as-data-research.md`): the task carries a WebAssembly
+/// module — WAT text or a base64 wasm binary — so the PROCESSING LOGIC
+/// itself is replicated through the raft log alongside the arguments.
+///
+/// Execution follows youki's wasmtime workload-executor pattern (module +
+/// args/env in, WASI stdio out) hardened with the fuel budget from
+/// `wasmtime_workspace_example/wasmtime_sandbox_limits`: the guest gets
+/// argv/env, its stdout is captured (bounded) as the task result, and a
+/// fuel limit terminates runaway modules deterministically — execution
+/// stays on the worker, never inside `apply()`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WasmExec {
+  /// Human-readable WAT text. Exactly one of `module_wat` / `module_b64`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module_wat: Option<String>,
+  /// Base64-encoded wasm binary (for modules compiled from Rust/C/Go...).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module_b64: Option<String>,
+  /// argv[1..] for the guest (argv[0] is always "task.wasm").
+  #[serde(default)]
+  pub args: Vec<String>,
+  /// Environment variables for the guest.
+  #[serde(default)]
+  pub env: std::collections::BTreeMap<String, String>,
+  /// Display name for lists/logs (defaults to the module's content hash).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub name: Option<String>,
+}
+
+impl WasmExec {
+  fn display_name(&self) -> String {
+    if let Some(name) = &self.name {
+      return name.clone();
+    }
+    match self.module_source() {
+      Ok(bytes) => format!("sha256:{}", &to_hex(&Sha256::digest(&bytes))[.. 12]),
+      Err(_) => "<invalid module>".to_string(),
+    }
+  }
+
+  /// Raw module bytes: WAT text as-is (wasmtime's `Module::new` accepts
+  /// both text and binary), or the decoded base64 binary.
+  fn module_source(&self) -> Result<Vec<u8>, String> {
+    match (&self.module_wat, &self.module_b64) {
+      (Some(wat), None) => Ok(wat.clone().into_bytes()),
+      (None, Some(b64)) => {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD
+          .decode(b64)
+          .map_err(|err| format!("decode module_b64: {err}"))
+      }
+      (Some(_), Some(_)) => Err("set exactly one of module_wat / module_b64, not both".to_string()),
+      (None, None) => Err("wasm task needs module_wat or module_b64".to_string()),
+    }
+  }
+}
+
+/// Fuel budget per execution. Bounds runaway guests deterministically
+/// (an infinite loop traps instead of eating the 30s execution timeout);
+/// generous enough for demo workloads (~hundreds of millions of ops).
+pub const WASM_FUEL_LIMIT: u64 = 500_000_000;
+/// Captured-stdout cap; a guest writing past it traps (bounded results).
+const WASM_STDOUT_CAPACITY: usize = 64 * 1024;
+
+/// One shared engine (fuel metering on); modules are compiled once per
+/// content hash and cached, so repeated tasks reuse the compilation.
+fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
+  static ENGINE: std::sync::OnceLock<Result<wasmtime::Engine, String>> = std::sync::OnceLock::new();
+  ENGINE
+    .get_or_init(|| {
+      let mut config = wasmtime::Config::new();
+      config.consume_fuel(true);
+      wasmtime::Engine::new(&config).map_err(|err| format!("create wasm engine: {err}"))
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
+fn wasm_module_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, wasmtime::Module>>
+{
+  static CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, wasmtime::Module>>,
+  > = std::sync::OnceLock::new();
+  CACHE.get_or_init(Default::default)
+}
+
+pub struct WasmExecHandler;
+
+#[async_trait::async_trait]
+impl TaskHandler for WasmExecHandler {
+  type Payload = WasmExec;
+
+  async fn run(
+    &self,
+    _ctx: &TaskCtx<'_>,
+    record: &TaskRecord,
+    wasm: &WasmExec,
+  ) -> Result<Option<String>, String> {
+    let source = wasm.module_source()?;
+    let module_hash = to_hex(&Sha256::digest(&source));
+    let args = wasm.args.clone();
+    let env: Vec<(String, String)> = wasm.env.clone().into_iter().collect();
+    tracing::info!(
+      task_id = %record.id,
+      module_hash = %module_hash[.. 12],
+      module_bytes = source.len(),
+      "executing wasm task"
+    );
+
+    // Wasm execution is CPU-bound and the WASI p1 host calls are sync:
+    // run on the blocking pool; the fuel budget bounds the runtime.
+    let outcome = tokio::task::spawn_blocking(move || -> Result<(String, u64), String> {
+      let engine = wasm_engine()?;
+
+      let module = {
+        let mut cache = wasm_module_cache()
+          .lock()
+          .map_err(|_| "wasm module cache poisoned".to_string())?;
+        match cache.get(&module_hash) {
+          Some(module) => module.clone(),
+          None => {
+            let module = wasmtime::Module::new(engine, &source)
+              .map_err(|err| format!("compile wasm module: {err}"))?;
+            cache.insert(module_hash.clone(), module.clone());
+            module
+          }
+        }
+      };
+
+      let mut linker: wasmtime::Linker<wasmtime_wasi::p1::WasiP1Ctx> =
+        wasmtime::Linker::new(engine);
+      wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |cx| cx)
+        .map_err(|err| format!("link wasi: {err}"))?;
+
+      let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
+      let mut argv = vec!["task.wasm".to_string()];
+      argv.extend(args);
+      let wasi = wasmtime_wasi::WasiCtx::builder()
+        .stdout(stdout.clone())
+        .args(&argv)
+        .envs(&env)
+        .build_p1();
+
+      let mut store = wasmtime::Store::new(engine, wasi);
+      store
+        .set_fuel(WASM_FUEL_LIMIT)
+        .map_err(|err| format!("set wasm fuel: {err}"))?;
+
+      let instance = linker
+        .instantiate(&mut store, &module)
+        .map_err(|err| format!("instantiate wasm module: {err}"))?;
+      let start = instance
+        .get_typed_func::<(), ()>(&mut store, "_start")
+        .map_err(|err| format!("wasm module has no _start: {err}"))?;
+
+      // `proc_exit(n)` surfaces as an I32Exit somewhere in the error chain
+      // (wasmtime wraps it in a trap); 0 is success, non-zero is a failure.
+      if let Err(err) = start.call(&mut store, ()) {
+        let exit = err
+          .chain()
+          .find_map(|cause| cause.downcast_ref::<wasmtime_wasi::I32Exit>());
+        match exit {
+          Some(wasmtime_wasi::I32Exit(0)) => {}
+          Some(wasmtime_wasi::I32Exit(code)) => {
+            return Err(format!("wasm module exited with code {code}"));
+          }
+          None => return Err(format!("wasm execution trapped: {err}")),
+        }
+      }
+
+      let fuel_used = WASM_FUEL_LIMIT.saturating_sub(store.get_fuel().unwrap_or(0));
+      let output = String::from_utf8_lossy(&stdout.contents()).into_owned();
+      Ok((output, fuel_used))
+    })
+    .await
+    .map_err(|err| format!("wasm worker panicked: {err}"))?;
+
+    let (output, fuel_used) = outcome?;
+    let result = sonic_rs::to_string(&sonic_rs::json!({
+      "stdout": output,
+      "fuel_used": fuel_used,
+      "module": wasm.display_name(),
+    }))
+    .map_err(|err| format!("encode task result: {err}"))?;
+    Ok(Some(result))
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use std::time::{Duration, Instant};
@@ -503,6 +699,13 @@ mod tests {
         group_id: "users".to_string(),
       }),
       TaskPayload::Sleep(Sleep { secs: 1 }),
+      TaskPayload::Wasm(WasmExec {
+        module_wat: Some("(module)".to_string()),
+        module_b64: None,
+        args: vec!["x".to_string()],
+        env: Default::default(),
+        name: Some("noop".to_string()),
+      }),
     ];
     for payload in variants {
       let encoded = payload.encode().unwrap();
@@ -557,6 +760,105 @@ mod tests {
     .unwrap();
     // sha256("abc")
     assert!(result.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
+  }
+
+  /// A hand-written WASI module: the handler function stored as data.
+  /// Writes "hello from wasm task\n" (21 bytes) to fd 1 via fd_write.
+  const HELLO_WAT: &str = r#"
+    (module
+      (import "wasi_snapshot_preview1" "fd_write"
+        (func $fd_write (param i32 i32 i32 i32) (result i32)))
+      (memory 1)
+      (export "memory" (memory 0))
+      (data (i32.const 8) "hello from wasm task\n")
+      (func (export "_start")
+        (i32.store (i32.const 0) (i32.const 8))   ;; iov.base
+        (i32.store (i32.const 4) (i32.const 21))  ;; iov.len
+        (drop (call $fd_write
+          (i32.const 1)   ;; fd = stdout
+          (i32.const 0)   ;; iovs ptr
+          (i32.const 1)   ;; iovs len
+          (i32.const 32)  ;; nwritten out-ptr
+        ))))
+  "#;
+
+  #[tokio::test]
+  async fn wasm_module_runs_and_captures_stdout() {
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: Some(HELLO_WAT.to_string()),
+      module_b64: None,
+      args: Vec::new(),
+      env: Default::default(),
+      name: Some("hello".to_string()),
+    })
+    .encode()
+    .unwrap();
+    let result = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap()
+      .unwrap();
+    assert!(
+      result.contains("hello from wasm task"),
+      "stdout missing from result: {result}"
+    );
+    assert!(result.contains("fuel_used"), "no fuel report: {result}");
+  }
+
+  #[tokio::test]
+  async fn wasm_infinite_loop_is_stopped_by_fuel() {
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: Some("(module (func (export \"_start\") (loop br 0)))".to_string()),
+      module_b64: None,
+      args: Vec::new(),
+      env: Default::default(),
+      name: Some("spin".to_string()),
+    })
+    .encode()
+    .unwrap();
+    let err = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap_err();
+    assert!(
+      err.contains("fuel") || err.contains("trap"),
+      "expected fuel trap, got: {err}"
+    );
+  }
+
+  #[tokio::test]
+  async fn wasm_nonzero_exit_is_a_failure() {
+    // WASI p1 host functions require the guest to export a `memory`, even
+    // for proc_exit, so declare one.
+    let wat = r#"
+      (module
+        (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+        (memory 1)
+        (export "memory" (memory 0))
+        (func (export "_start") (call $exit (i32.const 7))))
+    "#;
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: Some(wat.to_string()),
+      module_b64: None,
+      args: Vec::new(),
+      env: Default::default(),
+      name: None,
+    })
+    .encode()
+    .unwrap();
+    let err = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap_err();
+    assert!(err.contains("code 7"), "unexpected error: {err}");
+  }
+
+  #[tokio::test]
+  async fn wasm_without_module_fails_at_decode_time() {
+    let err = execute_payload(&TaskCtx::detached(), &record(r#"{"kind":"wasm"}"#))
+      .await
+      .unwrap_err();
+    assert!(
+      err.contains("module_wat or module_b64"),
+      "unexpected error: {err}"
+    );
   }
 
   #[tokio::test]
