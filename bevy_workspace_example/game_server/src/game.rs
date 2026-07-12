@@ -3,6 +3,7 @@ use bevior_tree::prelude::{BehaviorTree, BehaviorTreeRoot};
 use bevy::prelude::*;
 
 use crate::{
+  actor::bridge::{ActorBridge, BridgeOut},
   behavior::monster_behavior_tree,
   protocol::{ActorKind, ActorState},
   terrain::{LevelMap, TerrainMap, clamp_to_playable_area},
@@ -15,6 +16,8 @@ pub(crate) const PLAYER_CENTER_Y: f32 = PLAYER_SIZE.y * 0.5;
 pub(crate) const MONSTER_CENTER_Y: f32 = MONSTER_SIZE.y * 0.5;
 pub(crate) const PLAYER_SPEED: f32 = 260.0;
 pub(crate) const MONSTER_ATTACK_RANGE: f32 = 44.0;
+pub(crate) const PLAYER_START_RED: i32 = 18;
+pub(crate) const PLAYER_START_BLUE: i32 = 140;
 const SNAPSHOT_SECONDS: f32 = 0.1;
 const COMBAT_TICK_SECONDS: f32 = 0.35;
 const MONSTER_DAMAGE: i32 = 8;
@@ -114,6 +117,24 @@ pub(crate) struct Player {
   pub(crate) client_id: u64,
 }
 
+/// Derived cache of the map-actor-owned combat buffs. Written only by the
+/// actor bridge (`drain_world_commands`); the settlement systems below just
+/// read it. The buff instances and the stacking formula live in the map actor.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CombatModifiers {
+  pub(crate) damage_taken_mult: f32,
+  pub(crate) move_speed_mult: f32,
+}
+
+impl Default for CombatModifiers {
+  fn default() -> Self {
+    Self {
+      damage_taken_mult: 1.0,
+      move_speed_mult: 1.0,
+    }
+  }
+}
+
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Monster {
   pub(crate) speed: f32,
@@ -161,8 +182,12 @@ pub(crate) fn spawn_player(
       RigidBody::Kinematic,
       Collider::cuboid(PLAYER_SIZE.x, PLAYER_SIZE.y, PLAYER_SIZE.z),
       LinearVelocity::ZERO,
-      Vitals { red: 18, blue: 140 },
+      Vitals {
+        red: PLAYER_START_RED,
+        blue: PLAYER_START_BLUE,
+      },
       PlayerInputState::default(),
+      CombatModifiers::default(),
       Player { client_id },
     ))
     .id()
@@ -172,17 +197,26 @@ pub(crate) fn apply_player_movement(
   time: Res<Time>,
   terrain_map: Res<TerrainMap>,
   mut server_tick: ResMut<ServerTick>,
-  mut players: Query<(&mut ArenaPosition, &PlayerInputState, &Vitals), With<Player>>,
+  mut players: Query<
+    (
+      &mut ArenaPosition,
+      &PlayerInputState,
+      &Vitals,
+      Option<&CombatModifiers>,
+    ),
+    With<Player>,
+  >,
 ) {
   server_tick.0 += 1;
 
-  for (mut position, input, vitals) in &mut players {
+  for (mut position, input, vitals, modifiers) in &mut players {
     if vitals.blue <= 0 {
       continue;
     }
 
+    let speed = PLAYER_SPEED * modifiers.map_or(1.0, |m| m.move_speed_mult);
     let direction = Vec3::new(input.direction.x, 0.0, input.direction.z).normalize_or_zero();
-    let movement = direction * PLAYER_SPEED * time.delta_secs();
+    let movement = direction * speed * time.delta_secs();
     position.0 = terrain_map.try_move(position.0, movement);
   }
 }
@@ -220,9 +254,16 @@ pub(crate) fn resolve_combat(
   time: Res<Time>,
   terrain_map: Res<TerrainMap>,
   mut combat_clock: ResMut<CombatClock>,
+  bridge: Option<Res<ActorBridge>>,
   monsters: Query<(&ArenaPosition, &Vitals), With<Monster>>,
   mut players: Query<
-    (&ArenaPosition, &mut Vitals, &mut ActorPresentation),
+    (
+      &Player,
+      &ArenaPosition,
+      &mut Vitals,
+      &mut ActorPresentation,
+      Option<&CombatModifiers>,
+    ),
     (With<Player>, Without<Monster>),
   >,
 ) {
@@ -231,7 +272,7 @@ pub(crate) fn resolve_combat(
     return;
   }
 
-  for (player_position, mut player_vitals, mut presentation) in &mut players {
+  for (player, player_position, mut player_vitals, mut presentation, modifiers) in &mut players {
     if player_vitals.blue <= 0 {
       continue;
     }
@@ -246,10 +287,19 @@ pub(crate) fn resolve_combat(
       .count() as i32;
 
     if attackers > 0 {
+      let raw_damage = (attackers * MONSTER_DAMAGE) as f32;
+      let damage = (raw_damage * modifiers.map_or(1.0, |m| m.damage_taken_mult)).round() as i32;
       let previous_blue = player_vitals.blue;
-      player_vitals.blue = (player_vitals.blue - attackers * MONSTER_DAMAGE).max(0);
+      player_vitals.blue = (player_vitals.blue - damage).max(0);
       if player_vitals.blue < previous_blue {
         presentation.vfx_pulse = presentation.vfx_pulse.saturating_add(1);
+        if let Some(bridge) = bridge.as_deref() {
+          bridge.send(BridgeOut::VitalsChanged {
+            client_id: player.client_id,
+            red: player_vitals.red,
+            blue: player_vitals.blue,
+          });
+        }
       }
     }
   }

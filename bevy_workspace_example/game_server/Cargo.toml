@@ -14,6 +14,7 @@ bevy_ecs.workspace = true
 bevy_hanabi = { workspace = true, optional = true }
 bevy_replicon.workspace = true
 game_shared = { path = "../game_shared" }
+kameo.workspace = true
 lightyear = { workspace = true, features = ["std", "client", "server", "udp", "netcode", "replication"] }
 redis.workspace = true
 serde.workspace = true

@@ -1,3 +1,4 @@
+mod actor;
 mod agones;
 mod behavior;
 mod game;

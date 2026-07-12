@@ -28,6 +28,7 @@ bevy_animation_graph = {  git = "https://github.com/getong/bevy_animation_graph"
 bevy_ecs = "0.19.0"
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 bevy_replicon = { version = "0.41.1", default-features = false }
+kameo = { version = "0.22.1", features = ["remote"] }
 lightyear = { version = "0.28.0", default-features = false }
 prost = "0.14.4"
 prost-build = "0.14.4"

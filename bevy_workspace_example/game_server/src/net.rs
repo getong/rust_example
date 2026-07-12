@@ -18,6 +18,7 @@ use lightyear::prelude::{
 };
 
 use crate::{
+  actor::bridge::{ActorBridge, ActorBridgePlugin, BridgeOut},
   agones::AgonesGameServerInfo,
   behavior, game,
   game::{
@@ -80,6 +81,7 @@ pub(crate) fn run_server(bind_addr: &str) -> Result<()> {
       tick_duration: Duration::from_secs_f64(SERVER_TICK_SECONDS),
     })
     .add_plugins(crate::agones::AgonesPlugin)
+    .add_plugins(ActorBridgePlugin)
     .add_plugins(player_registry::PlayerServerRegistryPlugin)
     .add_plugins(GameProtocolPlugin)
     .add_plugins(replication::GameReplicationPlugin)
@@ -195,6 +197,7 @@ fn drain_client_messages(
   config: Res<ServerConfig>,
   agones_info: Res<AgonesGameServerInfo>,
   player_registry: Res<PlayerServerRegistry>,
+  bridge: Option<Res<ActorBridge>>,
   level_map: Res<LevelMap>,
   tick: Res<ServerTick>,
   mut client_query: Query<
@@ -237,6 +240,7 @@ fn drain_client_messages(
           config.bind_addr,
           &agones_info,
           &player_registry,
+          bridge.as_deref(),
           tick.0,
           client_id,
           entity,
@@ -253,6 +257,7 @@ fn disconnect_client(
   mut commands: Commands,
   mut clients: ResMut<ServerClients>,
   player_registry: Res<PlayerServerRegistry>,
+  bridge: Option<Res<ActorBridge>>,
   client_query: Query<&RemoteId, With<ClientOf>>,
 ) {
   let Ok(remote_id) = client_query.get(trigger.entity) else {
@@ -263,6 +268,9 @@ fn disconnect_client(
   };
   println!("client {client_id} disconnected");
   player_registry.remove(client_id);
+  if let Some(bridge) = bridge.as_deref() {
+    bridge.send(BridgeOut::PlayerDisconnected { client_id });
+  }
   if let Some(client) = clients.clients.remove(&client_id)
     && let Some(player) = client.player
   {
@@ -276,6 +284,7 @@ fn broadcast_snapshots(
   mut clock: ResMut<SnapshotClock>,
   level_map: Res<LevelMap>,
   clients: Res<ServerClients>,
+  bridge: Option<Res<ActorBridge>>,
   actors: Query<(
     &ActorId,
     &ActorType,
@@ -288,6 +297,12 @@ fn broadcast_snapshots(
   clock.0.tick(time.delta());
   if !clock.0.just_finished() {
     return;
+  }
+
+  // Combat buff durations are measured in server ticks; forward the clock to
+  // the map actor at snapshot cadence for expiry bookkeeping.
+  if let Some(bridge) = bridge.as_deref() {
+    bridge.send(BridgeOut::Tick { tick: tick.0 });
   }
 
   let snapshot = WorldSnapshot {
@@ -319,6 +334,7 @@ fn handle_client_message(
   bind_addr: SocketAddr,
   agones_info: &AgonesGameServerInfo,
   player_registry: &PlayerServerRegistry,
+  bridge: Option<&ActorBridge>,
   tick: u64,
   client_id: u64,
   client_entity: Entity,
@@ -367,6 +383,20 @@ fn handle_client_message(
         bind_addr,
       );
       player_registry.upsert(record);
+
+      // Spawn/reuse the per-player kameo process and let it enter the map
+      // process; the map replies by pushing CombatModifiers into the ECS.
+      if let Some(bridge) = bridge {
+        bridge.send(BridgeOut::PlayerHello {
+          client_id,
+          name: clients
+            .clients
+            .get(&client_id)
+            .map(|client| client.name.clone())
+            .unwrap_or_else(|| format!("Player {client_id}")),
+          room: (!room.is_empty()).then(|| room.clone()),
+        });
+      }
     }
     Some(client_envelope::Payload::Input(input)) => {
       let player = clients
