@@ -80,11 +80,13 @@ curl -X POST http://127.0.0.1:3001/tasks/email \
   -H 'content-type: application/json' \
   -d '{"to":"test@example.com"}'
 
-# generic multi-kind submission: the payload is kind-tagged JSON dispatched
-# by the worker-side handler registry (octopii-style plug-in trait; add a
-# kind by implementing tasks::handlers::TypedTaskHandler + one register()).
-# Builtin kinds: email, webhook, digest, kv_set, sleep — they run side by
-# side on a worker, never mutually exclusive.
+# generic multi-kind submission: the payload is kind-tagged JSON matching a
+# tasks::handlers::TaskPayload enum variant (octopii-style: the worker
+# pipeline is task-agnostic; add a kind by appending an enum variant + its
+# TaskHandler impl + one match arm — exhaustiveness is compiler-checked).
+# Unknown kinds are rejected at submit time. Builtin kinds: email, webhook,
+# digest, kv_set, sleep — they run side by side on a worker, never mutually
+# exclusive.
 curl -X POST http://127.0.0.1:3001/tasks/push \
   -H 'content-type: application/json' \
   -d '{"payload":{"kind":"digest","data":"octopii","iterations":100000}}'

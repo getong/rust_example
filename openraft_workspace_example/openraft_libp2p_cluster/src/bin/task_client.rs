@@ -8,7 +8,9 @@ use std::{collections::BTreeMap, time::Duration};
 
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
-use openraft_libp2p_cluster::tasks::{TaskQueueMetrics, TaskRecord, WorkerLeaseRecord};
+use openraft_libp2p_cluster::tasks::{
+  TaskQueueMetrics, TaskRecord, WorkerLeaseRecord, handlers::TaskPayload,
+};
 use serde::Deserialize;
 
 #[derive(Parser)]
@@ -42,10 +44,10 @@ enum Cmd {
     idem: Option<String>,
   },
   /// Enqueue task(s) of any kind from a raw kind-tagged JSON payload, e.g.
-  /// '{"kind":"digest","data":"abc","iterations":10000}'. Builtin kinds:
-  /// email, webhook, digest, kv_set, sleep.
+  /// '{"kind":"digest","data":"abc","iterations":10000}'. Kinds are the
+  /// TaskPayload enum variants: email, webhook, digest, kv_set, sleep.
   PushTask {
-    /// Kind-tagged JSON payload handed to the worker handler registry.
+    /// Kind-tagged JSON payload (a TaskPayload variant).
     #[arg(long)]
     payload: String,
     /// Number of copies to push.
@@ -250,33 +252,12 @@ impl Client {
   }
 }
 
-/// Compact `kind:detail` label for a task payload. Untagged payloads are the
-/// legacy email shape.
+/// Compact `kind:detail` label for a task payload, straight from the
+/// [`TaskPayload`] enum (untagged payloads are the legacy email shape).
 fn task_label(record: &TaskRecord) -> String {
-  #[derive(Deserialize, Default)]
-  #[serde(default)]
-  struct PayloadPreview {
-    kind: Option<String>,
-    to: Option<String>,
-    url: Option<String>,
-    key: Option<String>,
-    data: Option<String>,
-    secs: Option<u64>,
-  }
-  let Ok(preview) = sonic_rs::from_str::<PayloadPreview>(&record.payload) else {
-    return "<unknown>".to_string();
-  };
-  let kind = preview.kind.unwrap_or_else(|| "email".to_string());
-  let detail = preview
-    .to
-    .or(preview.url)
-    .or(preview.key)
-    .or(preview.data)
-    .or(preview.secs.map(|secs| format!("{secs}s")));
-  match detail {
-    Some(detail) => format!("{kind}:{detail}"),
-    None => kind,
-  }
+  TaskPayload::decode(&record.payload)
+    .map(|payload| payload.label())
+    .unwrap_or_else(|_| "<unknown>".to_string())
 }
 
 fn print_tasks(tasks: &[TaskRecord]) {

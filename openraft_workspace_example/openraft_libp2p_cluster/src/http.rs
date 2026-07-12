@@ -50,7 +50,7 @@ use crate::{
   store::ensure_linearizable_read,
   tasks::{
     TaskOpResult, TaskQueueMetrics, TaskRecord, WorkerLeaseRecord,
-    handlers::payload_kind,
+    handlers::{Email, TaskPayload},
     rpc::{ControlNodes, TaskRpc, TaskRpcRequest, TaskRpcResponse, TaskRpcService},
     worker::{call_read, submit_command},
   },
@@ -2011,19 +2011,16 @@ async fn push_email(
   State(state): State<Arc<AppState>>,
   Json(req): Json<EmailRequest>,
 ) -> Json<EmailResponse> {
-  let payload = match sonic_rs::to_string(&sonic_rs::json!({
-    "kind": "email",
-    "to": req.to,
-  })) {
+  let payload = match TaskPayload::Email(Email { to: req.to }).encode() {
     Ok(payload) => payload,
-    Err(err) => return Json(push_error(format!("encode email payload: {err}"))),
+    Err(err) => return Json(push_error(err)),
   };
   Json(enqueue_task(&state, payload, req.idem_key, 0).await)
 }
 
-/// Generic multi-kind submission. The payload must carry a `kind` tag; it is
-/// stored opaquely and dispatched by the worker-side handler registry, so an
-/// unknown kind is only rejected at execution time.
+/// Generic multi-kind submission. The payload must decode into a
+/// [`TaskPayload`] variant, so an unknown or malformed kind is rejected here
+/// at submit time (not at execution).
 async fn push_task(
   State(state): State<Arc<AppState>>,
   Json(req): Json<PushTaskRequest>,
@@ -2032,14 +2029,8 @@ async fn push_task(
     Ok(payload) => payload,
     Err(err) => return Json(push_error(format!("encode task payload: {err}"))),
   };
-  match payload_kind(&payload) {
-    Ok(Some(kind)) if !kind.is_empty() => {}
-    Ok(_) => {
-      return Json(push_error(
-        "task payload must be a JSON object with a non-empty \"kind\" field".to_string(),
-      ));
-    }
-    Err(err) => return Json(push_error(err)),
+  if let Err(err) = TaskPayload::decode(&payload) {
+    return Json(push_error(err));
   }
   Json(enqueue_task(&state, payload, req.idem_key, req.delay_secs).await)
 }

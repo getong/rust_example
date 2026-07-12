@@ -9,9 +9,9 @@
 //! missed gossip. Executions run concurrently up to
 //! [`WORKER_MAX_CONCURRENT_TASKS`], so one slow task never blocks the rest.
 //!
-//! Execution itself is generic: the loop only decodes the payload's `kind`
-//! tag and dispatches through a [`TaskHandlerRegistry`] (octopii-style
-//! plug-in trait), so task types plug in without touching this pipeline.
+//! Execution itself is task-agnostic: the loop decodes the payload into the
+//! [`crate::tasks::handlers::TaskPayload`] enum and calls its `execute` dispatch, so adding a task
+//! type never touches this pipeline (append an enum variant instead).
 
 use std::{
   collections::HashSet,
@@ -22,13 +22,16 @@ use std::{
 use anyhow::anyhow;
 use tokio::sync::{Mutex, Semaphore, broadcast};
 
+/// Kept as a re-export so existing callers (HTTP frontend) keep compiling;
+/// the type now lives with its handler.
+pub use crate::tasks::handlers::Email;
 use crate::{
   GroupId, NodeId,
   network::transport::Libp2pNetworkFactory,
   signal::ShutdownRx,
   tasks::{
     MAX_TASK_ATTEMPTS, TaskOpResult, TaskRecord,
-    handlers::{TaskCtx, TaskHandlerRegistry},
+    handlers::{TaskCtx, execute_payload},
     rpc::{
       ControlNodes, TaskRpcRequest, TaskRpcResponse, TaskWriteReply, task_rpc_request,
       task_rpc_response,
@@ -37,10 +40,6 @@ use crate::{
   },
   types_kv::Request as StateCommand,
 };
-
-/// Kept as a re-export so existing callers (HTTP frontend) keep compiling;
-/// the type now lives with its handler.
-pub use crate::tasks::handlers::Email;
 
 const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
 /// Hard cap on a single task execution; a hung handler counts as a failure
@@ -83,15 +82,14 @@ pub fn notify_assignment(worker_node_id: &str, task_id: &str, lease_epoch: u64) 
   }
 }
 
-/// Execute one claimed task through the handler registry, bounded by the
-/// hard timeout.
+/// Execute one claimed task through the [`crate::tasks::handlers::TaskPayload`] enum dispatch,
+/// bounded by the hard timeout.
 async fn execute_task_with_timeout(
   ctx: &WorkerCtx,
   record: &TaskRecord,
 ) -> Result<Option<String>, String> {
   let task_ctx = TaskCtx::with_cluster(&ctx.network, &ctx.control_nodes);
-  match tokio::time::timeout(TASK_EXECUTION_TIMEOUT, ctx.handlers.execute(&task_ctx, record)).await
-  {
+  match tokio::time::timeout(TASK_EXECUTION_TIMEOUT, execute_payload(&task_ctx, record)).await {
     Ok(result) => result,
     Err(_) => Err(format!(
       "task execution timed out after {}s",
@@ -224,8 +222,6 @@ struct WorkerCtx {
   group_id: GroupId,
   network: Libp2pNetworkFactory,
   control_nodes: Arc<Mutex<ControlNodes>>,
-  /// `kind` → handler routing; the pipeline itself is task-agnostic.
-  handlers: Arc<TaskHandlerRegistry>,
   /// Bounds concurrent executions.
   permits: Arc<Semaphore>,
   /// Task ids currently claimed-or-waiting on this node; dedupes the wake
@@ -233,44 +229,16 @@ struct WorkerCtx {
   in_flight: Arc<Mutex<HashSet<String>>>,
 }
 
-/// Run the task worker with the builtin handler set.
+/// Run the task worker: lease renewal + concurrent claim/execute/ack.
+/// Executes every [`crate::tasks::handlers::TaskPayload`] kind.
 pub async fn run_task_worker(
   node_id: NodeId,
   worker_name: String,
   group_id: GroupId,
   network: Libp2pNetworkFactory,
   control_nodes: Vec<NodeId>,
-  shutdown_rx: ShutdownRx,
-) -> anyhow::Result<()> {
-  run_task_worker_with_handlers(
-    node_id,
-    worker_name,
-    group_id,
-    network,
-    control_nodes,
-    TaskHandlerRegistry::builtin(),
-    shutdown_rx,
-  )
-  .await
-}
-
-/// Run the task worker: lease renewal + concurrent claim/execute/ack.
-/// Embedders can pass a registry extended (or overridden) with their own
-/// [`crate::tasks::handlers::TaskHandler`] implementations.
-pub async fn run_task_worker_with_handlers(
-  node_id: NodeId,
-  worker_name: String,
-  group_id: GroupId,
-  network: Libp2pNetworkFactory,
-  control_nodes: Vec<NodeId>,
-  handlers: TaskHandlerRegistry,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
-  tracing::info!(
-    node_id = %node_id,
-    kinds = ?handlers.kinds(),
-    "task worker handler registry"
-  );
   let control_nodes = Arc::new(Mutex::new(ControlNodes::new(control_nodes)));
   let mut wake_rx = wake_channel().subscribe();
 
@@ -289,7 +257,6 @@ pub async fn run_task_worker_with_handlers(
     group_id,
     network,
     control_nodes,
-    handlers: Arc::new(handlers),
     permits: Arc::new(Semaphore::new(WORKER_MAX_CONCURRENT_TASKS)),
     in_flight: Arc::new(Mutex::new(HashSet::new())),
   });

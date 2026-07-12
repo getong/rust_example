@@ -1,20 +1,23 @@
-//! Generic multi-kind task execution, octopii-style: like octopii's
-//! `StateMachineTrait` + `Arc<dyn ...>` plug-in, the worker pipeline knows
-//! nothing about concrete tasks. A payload is self-describing JSON tagged
-//! with `kind` (`{"kind":"email","to":"a@b"}`); the [`TaskHandlerRegistry`]
-//! routes it to the [`TaskHandler`] registered for that kind. Payloads
-//! written before the tag existed (bare `{"to":..}`) still run as
-//! [`LEGACY_KIND`].
+//! Multi-kind task execution unified around one enum, octopii-style: like
+//! octopii's `StateMachineTrait`, the worker pipeline knows nothing about
+//! concrete tasks — it decodes a [`TaskPayload`] and calls
+//! [`TaskPayload::execute`].
 //!
-//! Adding a task type = implement [`TypedTaskHandler`] (payload decoding for
-//! free) or the object-safe [`TaskHandler`], then one `register()` call —
-//! claim/execute/ack, retry/backoff, timeouts and concurrency are shared.
-//! Kinds are NOT mutually exclusive: dispatch is per task, so one worker
-//! interleaves any mix of kinds up to its execution-permit cap.
+//! A payload is self-describing JSON tagged with `kind`
+//! (`{"kind":"email","to":"a@b"}`); payloads written before the tag existed
+//! (bare `{"to":..}`) still decode as [`TaskPayload::Email`].
+//!
+//! Adding a task type = append a variant to [`TaskPayload`], implement a
+//! [`TaskHandler`] for its payload struct, and add the one `match` arm in
+//! [`TaskPayload::execute`] — the compiler's exhaustiveness check makes a
+//! forgotten arm a build error. Claim/execute/ack, retry/backoff, timeouts
+//! and concurrency are shared. Kinds are NOT mutually exclusive: dispatch is
+//! per task, so one worker interleaves any mix of kinds up to its
+//! execution-permit cap.
 
-use std::{collections::HashMap, fmt::Write as _, sync::Arc, time::Duration};
+use std::{fmt::Write as _, time::Duration};
 
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::Mutex;
 
@@ -29,9 +32,125 @@ use crate::{
   types_kv::Request as StateCommand,
 };
 
-/// Kind assumed for payloads without a `kind` tag (records enqueued before
-/// multi-kind tasks existed).
-pub const LEGACY_KIND: &str = "email";
+/// Every task kind understood by workers, unified in one tagged enum. The
+/// serde tag is the payload's `kind` field, so the JSON wire format is
+/// `{"kind":"digest","data":"..."}`. Decoding is hand-rolled in
+/// [`TaskPayload::decode`] (kind tag first, then the variant struct) because
+/// sonic_rs cannot drive serde's internally-tagged-enum buffering through a
+/// nested [`sonic_rs::Value`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskPayload {
+  /// The original demo task: pretend-send an email.
+  Email(Email),
+  /// POST a JSON body to a URL (task chaining when pointed at the cluster).
+  Webhook(Webhook),
+  /// CPU-bound iterated SHA-256 (octopii-style durability verification).
+  Digest(DigestSpec),
+  /// Raft KV write-back into a replicated group (octopii's `propose`).
+  KvSet(KvSet),
+  /// Timed no-op; drill knob for long-running work.
+  Sleep(Sleep),
+}
+
+impl TaskPayload {
+  /// The `kind` tag of this payload (matches the serde tag).
+  pub fn kind(&self) -> &'static str {
+    match self {
+      TaskPayload::Email(_) => "email",
+      TaskPayload::Webhook(_) => "webhook",
+      TaskPayload::Digest(_) => "digest",
+      TaskPayload::KvSet(_) => "kv_set",
+      TaskPayload::Sleep(_) => "sleep",
+    }
+  }
+
+  /// Decode a stored payload: read the `kind` tag, then decode the matching
+  /// variant struct (the extra `kind` field is ignored by serde). A JSON
+  /// object without a tag is the legacy email shape; an unknown kind fails
+  /// here listing the known ones. New variants MUST add their arm — like
+  /// `execute`, the match is exhaustive over the kinds.
+  pub fn decode(payload: &str) -> Result<Self, String> {
+    fn variant<T: serde::de::DeserializeOwned>(
+      kind: &str,
+      payload: &str,
+      wrap: fn(T) -> TaskPayload,
+    ) -> Result<TaskPayload, String> {
+      sonic_rs::from_str::<T>(payload)
+        .map(wrap)
+        .map_err(|err| format!("decode {kind} payload: {err}"))
+    }
+
+    match payload_kind(payload)?.as_deref() {
+      None | Some("email") => variant("email", payload, TaskPayload::Email),
+      Some("webhook") => variant("webhook", payload, TaskPayload::Webhook),
+      Some("digest") => variant("digest", payload, TaskPayload::Digest),
+      Some("kv_set") => variant("kv_set", payload, TaskPayload::KvSet),
+      Some("sleep") => variant("sleep", payload, TaskPayload::Sleep),
+      Some(other) => Err(format!(
+        "unknown task kind {other:?} (known: email, webhook, digest, kv_set, sleep)"
+      )),
+    }
+  }
+
+  /// Encode as kind-tagged JSON (the storage/wire format).
+  pub fn encode(&self) -> Result<String, String> {
+    sonic_rs::to_string(self).map_err(|err| format!("encode task payload: {err}"))
+  }
+
+  /// Compact `kind:detail` label for lists and logs.
+  pub fn label(&self) -> String {
+    match self {
+      TaskPayload::Email(email) => format!("email:{}", email.to),
+      TaskPayload::Webhook(webhook) => format!("webhook:{}", webhook.url),
+      TaskPayload::Digest(spec) => format!("digest:{}", spec.data),
+      TaskPayload::KvSet(kv) => format!("kv_set:{}", kv.key),
+      TaskPayload::Sleep(sleep) => format!("sleep:{}s", sleep.secs),
+    }
+  }
+
+  /// Dispatch to the kind's handler. `Ok(result)` is stored on the record
+  /// as opaque JSON via `TaskDone`; `Err` goes through the shared
+  /// retry/backoff path. New variants MUST add their arm here — the match
+  /// is deliberately exhaustive (no `_`).
+  pub async fn execute(
+    &self,
+    ctx: &TaskCtx<'_>,
+    record: &TaskRecord,
+  ) -> Result<Option<String>, String> {
+    match self {
+      TaskPayload::Email(email) => EmailHandler.run(ctx, record, email).await,
+      TaskPayload::Webhook(webhook) => WebhookHandler.run(ctx, record, webhook).await,
+      TaskPayload::Digest(spec) => DigestHandler.run(ctx, record, spec).await,
+      TaskPayload::KvSet(kv) => KvSetHandler.run(ctx, record, kv).await,
+      TaskPayload::Sleep(sleep) => SleepHandler.run(ctx, record, sleep).await,
+    }
+  }
+}
+
+/// Decode and execute a raw stored payload in one step (the worker's entry
+/// point).
+pub async fn execute_payload(
+  ctx: &TaskCtx<'_>,
+  record: &TaskRecord,
+) -> Result<Option<String>, String> {
+  TaskPayload::decode(&record.payload)?
+    .execute(ctx, record)
+    .await
+}
+
+/// Extract the `kind` tag from a payload. `Ok(None)` means the payload is a
+/// JSON object without a tag (legacy email).
+pub fn payload_kind(payload: &str) -> Result<Option<String>, String> {
+  #[derive(Deserialize)]
+  struct Tag {
+    #[serde(default)]
+    kind: Option<String>,
+  }
+  let tag: Tag = sonic_rs::from_str(payload)
+    .map_err(|err| format!("task payload is not a JSON object: {err}"))?;
+  Ok(tag.kind)
+}
 
 /// Cluster plumbing available to handlers that talk back to the control
 /// plane (raft writes / read RPCs).
@@ -72,136 +191,25 @@ impl<'a> TaskCtx<'a> {
   }
 }
 
-/// Object-safe task handler (the octopii `StateMachineTrait` analogue).
-/// `Ok(result)` is stored on the record as opaque JSON via `TaskDone`;
-/// `Err` goes through the shared retry/backoff path.
+/// Uniform signature for one kind's execution logic. Purely an organization
+/// aid: dispatch is the exhaustive `match` in [`TaskPayload::execute`], so
+/// implementing this trait alone does nothing until the variant + arm exist.
 #[async_trait::async_trait]
 pub trait TaskHandler: Send + Sync {
-  /// The payload `kind` tag this handler owns.
-  fn kind(&self) -> &'static str;
-
-  async fn execute(
-    &self,
-    ctx: &TaskCtx<'_>,
-    record: &TaskRecord,
-    raw_payload: &str,
-  ) -> Result<Option<String>, String>;
-}
-
-/// Typed sugar over [`TaskHandler`]: declare the payload type and get JSON
-/// decoding (with a uniform error message) for free.
-#[async_trait::async_trait]
-pub trait TypedTaskHandler: Send + Sync {
-  const KIND: &'static str;
-  type Payload: DeserializeOwned + Send;
+  type Payload: Send + Sync;
 
   async fn run(
     &self,
     ctx: &TaskCtx<'_>,
     record: &TaskRecord,
-    payload: Self::Payload,
+    payload: &Self::Payload,
   ) -> Result<Option<String>, String>;
 }
 
-#[async_trait::async_trait]
-impl<H: TypedTaskHandler> TaskHandler for H {
-  fn kind(&self) -> &'static str {
-    Self::KIND
-  }
-
-  async fn execute(
-    &self,
-    ctx: &TaskCtx<'_>,
-    record: &TaskRecord,
-    raw_payload: &str,
-  ) -> Result<Option<String>, String> {
-    let payload: H::Payload = sonic_rs::from_str(raw_payload)
-      .map_err(|err| format!("decode {} payload: {err}", Self::KIND))?;
-    self.run(ctx, record, payload).await
-  }
-}
-
-/// Extract the `kind` tag from a payload. `Ok(None)` means the payload is a
-/// JSON object without a tag (legacy).
-pub fn payload_kind(payload: &str) -> Result<Option<String>, String> {
-  #[derive(Deserialize)]
-  struct Tag {
-    #[serde(default)]
-    kind: Option<String>,
-  }
-  let tag: Tag = sonic_rs::from_str(payload)
-    .map_err(|err| format!("task payload is not a JSON object: {err}"))?;
-  Ok(tag.kind)
-}
-
-/// `kind` → handler routing table. Workers start from [`builtin()`];
-/// embedders can register additional handlers before starting the worker.
-///
-/// [`builtin()`]: TaskHandlerRegistry::builtin
-#[derive(Default)]
-pub struct TaskHandlerRegistry {
-  handlers: HashMap<&'static str, Arc<dyn TaskHandler>>,
-}
-
-impl TaskHandlerRegistry {
-  pub fn new() -> Self {
-    Self::default()
-  }
-
-  /// Every handler shipped with this crate.
-  pub fn builtin() -> Self {
-    let mut registry = Self::new();
-    registry
-      .register(Arc::new(EmailHandler))
-      .register(Arc::new(WebhookHandler))
-      .register(Arc::new(DigestHandler))
-      .register(Arc::new(KvSetHandler))
-      .register(Arc::new(SleepHandler));
-    registry
-  }
-
-  /// Register a handler under its `kind()`. Last registration wins, so an
-  /// embedder can override a builtin.
-  pub fn register(&mut self, handler: Arc<dyn TaskHandler>) -> &mut Self {
-    let kind = handler.kind();
-    if self.handlers.insert(kind, handler).is_some() {
-      tracing::warn!(kind, "task handler kind re-registered; overriding");
-    }
-    self
-  }
-
-  pub fn kinds(&self) -> Vec<&'static str> {
-    let mut kinds: Vec<&'static str> = self.handlers.keys().copied().collect();
-    kinds.sort_unstable();
-    kinds
-  }
-
-  pub fn get(&self, kind: &str) -> Option<&Arc<dyn TaskHandler>> {
-    self.handlers.get(kind)
-  }
-
-  /// Decode the payload's kind tag and dispatch to its handler.
-  pub async fn execute(
-    &self,
-    ctx: &TaskCtx<'_>,
-    record: &TaskRecord,
-  ) -> Result<Option<String>, String> {
-    let kind = payload_kind(&record.payload)?.unwrap_or_else(|| LEGACY_KIND.to_string());
-    let handler = self.get(&kind).ok_or_else(|| {
-      format!(
-        "no handler registered for task kind {kind:?} (registered: {:?})",
-        self.kinds()
-      )
-    })?;
-    handler.execute(ctx, record, &record.payload).await
-  }
-}
-
 // ---------------------------------------------------------------------------
-// Builtin handlers
+// Per-kind payload structs + handlers
 // ---------------------------------------------------------------------------
 
-/// The original demo task: pretend-send an email.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Email {
   pub to: String,
@@ -210,15 +218,14 @@ pub struct Email {
 pub struct EmailHandler;
 
 #[async_trait::async_trait]
-impl TypedTaskHandler for EmailHandler {
-  const KIND: &'static str = "email";
+impl TaskHandler for EmailHandler {
   type Payload = Email;
 
   async fn run(
     &self,
     _ctx: &TaskCtx<'_>,
     record: &TaskRecord,
-    email: Email,
+    email: &Email,
   ) -> Result<Option<String>, String> {
     // Testable failure semantics for drills: recipients starting with "fail"
     // simulate a handler error (exercises retry/backoff and permanent
@@ -264,18 +271,18 @@ fn webhook_client() -> &'static reqwest::Client {
 }
 
 #[async_trait::async_trait]
-impl TypedTaskHandler for WebhookHandler {
-  const KIND: &'static str = "webhook";
+impl TaskHandler for WebhookHandler {
   type Payload = Webhook;
 
   async fn run(
     &self,
     _ctx: &TaskCtx<'_>,
     record: &TaskRecord,
-    webhook: Webhook,
+    webhook: &Webhook,
   ) -> Result<Option<String>, String> {
     let body = webhook
       .body
+      .clone()
       .unwrap_or_else(|| sonic_rs::json!({ "task_id": record.id }));
     tracing::info!(task_id = %record.id, url = %webhook.url, "delivering webhook");
     let response = webhook_client()
@@ -322,33 +329,32 @@ pub const MAX_DIGEST_ITERATIONS: u32 = 10_000_000;
 pub struct DigestHandler;
 
 fn to_hex(bytes: &[u8]) -> String {
-  bytes.iter().fold(
-    String::with_capacity(bytes.len() * 2),
-    |mut hex, byte| {
+  bytes
+    .iter()
+    .fold(String::with_capacity(bytes.len() * 2), |mut hex, byte| {
       let _ = write!(hex, "{byte:02x}");
       hex
-    },
-  )
+    })
 }
 
 #[async_trait::async_trait]
-impl TypedTaskHandler for DigestHandler {
-  const KIND: &'static str = "digest";
+impl TaskHandler for DigestHandler {
   type Payload = DigestSpec;
 
   async fn run(
     &self,
     _ctx: &TaskCtx<'_>,
     record: &TaskRecord,
-    spec: DigestSpec,
+    spec: &DigestSpec,
   ) -> Result<Option<String>, String> {
     if spec.iterations == 0 {
       return Err("digest iterations must be >= 1".to_string());
     }
     let iterations = spec.iterations.min(MAX_DIGEST_ITERATIONS);
+    let data = spec.data.clone();
     tracing::info!(task_id = %record.id, iterations, "computing digest");
     let digest = tokio::task::spawn_blocking(move || {
-      let mut acc: Vec<u8> = spec.data.into_bytes();
+      let mut acc: Vec<u8> = data.into_bytes();
       for _ in 0 .. iterations {
         acc = Sha256::digest(&acc).to_vec();
       }
@@ -384,15 +390,14 @@ fn default_kv_group() -> String {
 pub struct KvSetHandler;
 
 #[async_trait::async_trait]
-impl TypedTaskHandler for KvSetHandler {
-  const KIND: &'static str = "kv_set";
+impl TaskHandler for KvSetHandler {
   type Payload = KvSet;
 
   async fn run(
     &self,
     ctx: &TaskCtx<'_>,
     record: &TaskRecord,
-    kv: KvSet,
+    kv: &KvSet,
   ) -> Result<Option<String>, String> {
     let cluster = ctx.cluster()?;
     tracing::info!(task_id = %record.id, group = %kv.group_id, key = %kv.key, "kv_set via raft");
@@ -400,7 +405,7 @@ impl TypedTaskHandler for KvSetHandler {
       cluster.network,
       cluster.control_nodes,
       &kv.group_id,
-      StateCommand::set(kv.key.clone(), kv.value),
+      StateCommand::set(kv.key.clone(), kv.value.clone()),
     )
     .await
     .map_err(|err| format!("kv_set raft write failed: {err}"))?;
@@ -425,15 +430,14 @@ pub struct Sleep {
 pub struct SleepHandler;
 
 #[async_trait::async_trait]
-impl TypedTaskHandler for SleepHandler {
-  const KIND: &'static str = "sleep";
+impl TaskHandler for SleepHandler {
   type Payload = Sleep;
 
   async fn run(
     &self,
     _ctx: &TaskCtx<'_>,
     record: &TaskRecord,
-    sleep: Sleep,
+    sleep: &Sleep,
   ) -> Result<Option<String>, String> {
     tracing::info!(task_id = %record.id, secs = sleep.secs, "sleep task");
     tokio::time::sleep(Duration::from_secs(sleep.secs)).await;
@@ -445,7 +449,7 @@ impl TypedTaskHandler for SleepHandler {
 
 #[cfg(test)]
 mod tests {
-  use std::time::Instant;
+  use std::time::{Duration, Instant};
 
   use super::*;
 
@@ -477,120 +481,109 @@ mod tests {
     assert!(payload_kind("not json").is_err());
   }
 
+  /// Every variant encodes to kind-tagged JSON and decodes back — the
+  /// checklist to extend when appending a new kind to the enum.
+  #[test]
+  fn all_variants_roundtrip_with_kind_tag() {
+    let variants = vec![
+      TaskPayload::Email(Email {
+        to: "a@b".to_string(),
+      }),
+      TaskPayload::Webhook(Webhook {
+        url: "http://127.0.0.1:1/x".to_string(),
+        body: Some(sonic_rs::json!({"k":"v"})),
+      }),
+      TaskPayload::Digest(DigestSpec {
+        data: "abc".to_string(),
+        iterations: 3,
+      }),
+      TaskPayload::KvSet(KvSet {
+        key: "k".to_string(),
+        value: "v".to_string(),
+        group_id: "users".to_string(),
+      }),
+      TaskPayload::Sleep(Sleep { secs: 1 }),
+    ];
+    for payload in variants {
+      let encoded = payload.encode().unwrap();
+      assert!(
+        encoded.contains(&format!(r#""kind":"{}""#, payload.kind())),
+        "tag missing in {encoded}"
+      );
+      let decoded = TaskPayload::decode(&encoded).unwrap();
+      assert_eq!(decoded.kind(), payload.kind());
+      assert_eq!(decoded.label(), payload.label());
+    }
+  }
+
+  #[test]
+  fn unknown_kind_fails_at_decode_listing_variants() {
+    let err = TaskPayload::decode(r#"{"kind":"nope"}"#).unwrap_err();
+    assert!(err.contains("nope"), "unexpected error: {err}");
+    assert!(err.contains("email"), "should list known kinds: {err}");
+  }
+
   #[tokio::test]
   async fn legacy_untagged_payload_runs_email_handler() {
-    let registry = TaskHandlerRegistry::builtin();
-    let result = registry
-      .execute(&TaskCtx::detached(), &record(r#"{"to":"legacy@example.com"}"#))
-      .await
-      .unwrap()
-      .unwrap();
+    let result = execute_payload(
+      &TaskCtx::detached(),
+      &record(r#"{"to":"legacy@example.com"}"#),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(result.contains("legacy@example.com"));
   }
 
   #[tokio::test]
   async fn tagged_email_payload_keeps_drill_semantics() {
-    let registry = TaskHandlerRegistry::builtin();
-    let err = registry
-      .execute(
-        &TaskCtx::detached(),
-        &record(r#"{"kind":"email","to":"fail@example.com"}"#),
-      )
-      .await
-      .unwrap_err();
+    let err = execute_payload(
+      &TaskCtx::detached(),
+      &record(r#"{"kind":"email","to":"fail@example.com"}"#),
+    )
+    .await
+    .unwrap_err();
     assert!(err.contains("simulated failure"));
   }
 
   #[tokio::test]
   async fn digest_matches_known_sha256() {
-    let registry = TaskHandlerRegistry::builtin();
-    let result = registry
-      .execute(
-        &TaskCtx::detached(),
-        &record(r#"{"kind":"digest","data":"abc","iterations":1}"#),
-      )
-      .await
-      .unwrap()
-      .unwrap();
+    let result = execute_payload(
+      &TaskCtx::detached(),
+      &record(r#"{"kind":"digest","data":"abc","iterations":1}"#),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     // sha256("abc")
     assert!(result.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"));
   }
 
   #[tokio::test]
-  async fn unknown_kind_reports_registered_kinds() {
-    let registry = TaskHandlerRegistry::builtin();
-    let err = registry
-      .execute(&TaskCtx::detached(), &record(r#"{"kind":"nope"}"#))
-      .await
-      .unwrap_err();
-    assert!(err.contains("no handler registered"));
-    assert!(err.contains("digest"));
-  }
-
-  #[tokio::test]
   async fn kv_set_without_cluster_access_fails_cleanly() {
-    let registry = TaskHandlerRegistry::builtin();
-    let err = registry
-      .execute(
-        &TaskCtx::detached(),
-        &record(r#"{"kind":"kv_set","key":"k","value":"v"}"#),
-      )
-      .await
-      .unwrap_err();
+    let err = execute_payload(
+      &TaskCtx::detached(),
+      &record(r#"{"kind":"kv_set","key":"k","value":"v"}"#),
+    )
+    .await
+    .unwrap_err();
     assert!(err.contains("cluster access"));
   }
 
-  /// A custom kind plugs in through the typed trait alone — the octopii-style
-  /// extension point.
-  #[tokio::test]
-  async fn custom_handler_registers_and_dispatches() {
-    #[derive(Deserialize)]
-    struct Reverse {
-      text: String,
-    }
-    struct ReverseHandler;
-
-    #[async_trait::async_trait]
-    impl TypedTaskHandler for ReverseHandler {
-      const KIND: &'static str = "reverse";
-      type Payload = Reverse;
-
-      async fn run(
-        &self,
-        _ctx: &TaskCtx<'_>,
-        _record: &TaskRecord,
-        payload: Reverse,
-      ) -> Result<Option<String>, String> {
-        Ok(Some(payload.text.chars().rev().collect()))
-      }
-    }
-
-    let mut registry = TaskHandlerRegistry::builtin();
-    registry.register(Arc::new(ReverseHandler));
-    let result = registry
-      .execute(
-        &TaskCtx::detached(),
-        &record(r#"{"kind":"reverse","text":"abc"}"#),
-      )
-      .await
-      .unwrap();
-    assert_eq!(result.as_deref(), Some("cba"));
-  }
-
-  /// Kinds are not mutually exclusive: two different kinds run concurrently
-  /// on one registry (well under the sum of their sequential durations).
+  /// Kinds are not mutually exclusive: different kinds run concurrently
+  /// (well under the sum of their sequential durations).
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn different_kinds_run_concurrently() {
-    let registry = Arc::new(TaskHandlerRegistry::builtin());
     let ctx = TaskCtx::detached();
     let rec_a = record(r#"{"kind":"sleep","secs":1}"#);
     let rec_b = record(r#"{"kind":"sleep","secs":1}"#);
     let rec_d = record(r#"{"kind":"digest","data":"overlap","iterations":1000}"#);
     let start = Instant::now();
-    let sleep_a = registry.execute(&ctx, &rec_a);
-    let sleep_b = registry.execute(&ctx, &rec_b);
-    let digest = registry.execute(&ctx, &rec_d);
-    let (a, b, d) = tokio::join!(sleep_a, sleep_b, digest);
+    let (a, b, d) = tokio::join!(
+      execute_payload(&ctx, &rec_a),
+      execute_payload(&ctx, &rec_b),
+      execute_payload(&ctx, &rec_d),
+    );
     a.unwrap();
     b.unwrap();
     d.unwrap();
