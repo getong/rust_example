@@ -164,7 +164,17 @@ done_has() {
 	grep -q -- "${2:-}" <<<"$rows"
 }
 check "digest task recorded a sha256 result" done_has 'digest:octopii' 'sha256'
-check "kv_set task acked the raft write" done_has 'kv_set:task:multi-kind' 'written'
+# The list output truncates the RESULT column, so do not grep the ack string
+# there; verify the write end to end instead by reading the key back from
+# the users raft group's state machine.
+check "kv_set task settled Done" done_has 'kv_set:task:multi-kind'
+kv_value="$(curl -fsS -m 5 "http://$CONTROL_HTTP/cluster?group_id=users" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+pairs = data.get("kv_data") or []
+print(next((p["value"] for p in pairs if p["key"] == "task:multi-kind"), ""))
+')"
+check "kv_set write landed in the users raft group" test "$kv_value" = "written-by-task"
 check "webhook chained email completed" done_has 'email:chained@example.com'
 
 if [[ "$WITH_CRASH" == "1" ]]; then
