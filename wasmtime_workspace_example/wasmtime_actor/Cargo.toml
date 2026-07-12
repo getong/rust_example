@@ -19,18 +19,18 @@ path = "src/main.rs"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1.23.2", features = ["v7"] }
-wasmtime = { version = "45.0.0", features = ["component-model"] }
-wasmtime-wasi = "45.0.0"
+uuid = { version = "1.23.4", features = ["v7"] }
+wasmtime = { version = "46.0.1", features = ["component-model"] }
+wasmtime-wasi = "46.0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-wit-bindgen = { version = "0.57.1", default-features = false, features = ["macros"] }
+wit-bindgen = { version = "0.59.0", default-features = false, features = ["macros"] }
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
-mockall = "0.14.0"
+mockall = "0.15.0"
 proptest = "1.11.0"
 tokio = { version = "1.52.3", features = ["io-util", "time"] }
 turmoil = "0.7.2"

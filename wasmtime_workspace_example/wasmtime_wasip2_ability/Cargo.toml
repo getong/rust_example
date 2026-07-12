@@ -8,11 +8,11 @@ default = ["lsp"]
 lsp = []
 
 [dependencies]
-anyhow = "1.0.102"
-wstd = { version = "0.6.6", default-features = false }
+anyhow = "1.0.103"
+wstd = { version = "0.6.7", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
-wasmtime = { version = "45.0.1", features = ["component-model", "async"] }
-wasmtime-wasi = "45.0.1"
-wasmtime-wasi-http = "45.0.1"
+wasmtime = { version = "46.0.1", features = ["component-model", "async"] }
+wasmtime-wasi = "46.0.1"
+wasmtime-wasi-http = "46.0.1"
