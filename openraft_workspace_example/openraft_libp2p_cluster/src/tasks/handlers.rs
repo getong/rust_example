@@ -533,10 +533,39 @@ fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
     .map_err(Clone::clone)
 }
 
-fn wasm_module_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, wasmtime::Module>>
+/// The handler function stored as data in wasmtime (following the pattern
+/// from `wasmtime_workspace_example/hot_upgrade/src/wasm_rule.rs`).
+///
+/// Stores the compiled [`wasmtime::Module`] — the expensive part — so
+/// repeated tasks with the same module bytes skip compilation. The WASI
+/// [`wasmtime::Linker`] is lightweight and `!Clone`, so it is rebuilt per
+/// execution; what matters is that the Module (cranelift codegen result)
+/// is reused.
+///
+/// WASI `_start` modules are one-shot (the Store is consumed after one
+/// call), so Store/Instance/TypedFunc are created per execution — but
+/// the compilation cost is paid once per unique module.
+pub struct WasmHandler {
+  module: wasmtime::Module,
+}
+
+impl WasmHandler {
+  /// Load a WASM source (WAT text or raw bytes) and compile it into a
+  /// [`wasmtime::Module`]. The module is NOT instantiated here — that
+  /// happens per-execution because WASI `_start` modules are one-shot.
+  fn load(engine: &wasmtime::Engine, source: &[u8]) -> Result<Self, String> {
+    let module =
+      wasmtime::Module::new(engine, source).map_err(|err| format!("compile wasm module: {err}"))?;
+    Ok(Self { module })
+  }
+}
+
+/// Global cache of loaded WASM handlers, keyed by module content hash.
+/// Same module bytes → same hash → reuse compiled Module.
+fn wasm_handler_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, WasmHandler>>
 {
   static CACHE: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, wasmtime::Module>>,
+    std::sync::Mutex<std::collections::HashMap<String, WasmHandler>>,
   > = std::sync::OnceLock::new();
   CACHE.get_or_init(Default::default)
 }
@@ -569,21 +598,37 @@ impl TaskHandler for WasmExecHandler {
     let outcome = tokio::task::spawn_blocking(move || -> Result<(String, u64), String> {
       let engine = wasm_engine()?;
 
+      // Get or create the WasmHandler: the first task with a given module
+      // compiles it (cranelift codegen — the expensive part); subsequent
+      // tasks with the same module bytes reuse the compiled Module.
+      // Module is Arc-backed so clone is cheap.
       let module = {
-        let mut cache = wasm_module_cache()
+        let mut cache = wasm_handler_cache()
           .lock()
-          .map_err(|_| "wasm module cache poisoned".to_string())?;
+          .map_err(|_| "wasm handler cache poisoned".to_string())?;
         match cache.get(&module_hash) {
-          Some(module) => module.clone(),
+          Some(h) => {
+            tracing::debug!(
+              module_hash = %module_hash[.. 12],
+              "reusing cached wasm handler (compiled module)"
+            );
+            h.module.clone()
+          }
           None => {
-            let module = wasmtime::Module::new(engine, &source)
-              .map_err(|err| format!("compile wasm module: {err}"))?;
-            cache.insert(module_hash.clone(), module.clone());
+            tracing::debug!(
+              module_hash = %module_hash[.. 12],
+              "compiling and caching new wasm handler"
+            );
+            let handler = WasmHandler::load(engine, &source)
+              .map_err(|err| format!("load wasm handler: {err}"))?;
+            let module = handler.module.clone();
+            cache.insert(module_hash.clone(), handler);
             module
           }
         }
       };
 
+      // Build WASI linker, Store, and execute — the Module is already compiled.
       let mut linker: wasmtime::Linker<wasmtime_wasi::p1::WasiP1Ctx> =
         wasmtime::Linker::new(engine);
       wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |cx| cx)
@@ -610,8 +655,6 @@ impl TaskHandler for WasmExecHandler {
         .get_typed_func::<(), ()>(&mut store, "_start")
         .map_err(|err| format!("wasm module has no _start: {err}"))?;
 
-      // `proc_exit(n)` surfaces as an I32Exit somewhere in the error chain
-      // (wasmtime wraps it in a trap); 0 is success, non-zero is a failure.
       if let Err(err) = start.call(&mut store, ()) {
         let exit = err
           .chain()
