@@ -14,7 +14,7 @@ use libp2p::{
   mdns, ping,
   request_response::{self, OutboundRequestId, ResponseChannel},
   swarm::{
-    NetworkBehaviour, SwarmEvent,
+    ConnectionId, NetworkBehaviour, SwarmEvent,
     dial_opts::{DialOpts, PeerCondition},
   },
 };
@@ -49,6 +49,12 @@ pub const SQLITE_SYNC_RPC_PROTOCOL: &str = "/openraft/sqlite-sync/1";
 pub const TASK_RPC_PROTOCOL: &str = "/openraft/task/1";
 pub const KAD_PROTOCOL: &str = "/openraft/kad/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+/// Consecutive ping failures on one connection before it is force-closed.
+/// A hung peer (SIGSTOP, long GC pause) keeps its TCP connection alive at
+/// the kernel level, so peers still see it as "connected" even though it
+/// answers nothing. The membership guard keys voter liveness off libp2p
+/// connectedness — without this cutoff a hung voter is never replaced.
+const PING_FAILURE_DISCONNECT_THRESHOLD: u32 = 3;
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
 const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
@@ -724,10 +730,9 @@ pub async fn run_swarm(
   let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
     HashMap::new();
   let mut pending_get_providers: HashMap<kad::QueryId, GetProvidersState> = HashMap::new();
+  let mut ping_failures: HashMap<ConnectionId, u32> = HashMap::new();
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
-  let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
   reconnect_tick.tick().await;
-  kad_discovery_tick.tick().await;
 
   loop {
     tokio::select! {
@@ -756,10 +761,6 @@ pub async fn run_swarm(
           &connected_peers,
           &mut reconnect_backoff_until,
         ).await;
-      }
-      _ = kad_discovery_tick.tick() => {
-        let mut swarm = lock_swarm(&swarm).await;
-        kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else {
@@ -833,6 +834,7 @@ pub async fn run_swarm(
           &mut outgoing_failure_log_backoff_until,
           &mut pending_start_providing,
           &mut pending_get_providers,
+          &mut ping_failures,
         )
         .await;
       }
@@ -1012,8 +1014,9 @@ fn handle_command(
     }
     Command::Dial { addr } => {
       dial_peer_addr(swarm, addr.clone());
+      // Inserting the address triggers kad's automatic (throttled)
+      // bootstrap; no manual query kick is needed.
       add_kad_address_from_p2p(swarm, &addr);
-      kick_kad_queries(swarm);
     }
     Command::EnsureConnection { peer, addr, resp } => {
       ensure_peer_connection(
@@ -1148,6 +1151,7 @@ async fn handle_swarm_event(
   outgoing_failure_log_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
   pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
+  ping_failures: &mut HashMap<ConnectionId, u32>,
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
@@ -1169,7 +1173,8 @@ async fn handle_swarm_event(
       handle_gossipsub_event(swarm, network, openraft_sync, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-      handle_ping_event(event);
+      let mut swarm = lock_swarm(swarm).await;
+      handle_ping_event(&mut swarm, ping_failures, event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
       let mut swarm = lock_swarm(swarm).await;
@@ -1199,10 +1204,12 @@ async fn handle_swarm_event(
     }
     SwarmEvent::ConnectionClosed {
       peer_id,
+      connection_id,
       num_established,
       cause,
       ..
     } => {
+      ping_failures.remove(&connection_id);
       {
         let mut swarm = lock_swarm(swarm).await;
         handle_connection_closed(&mut swarm, connected_peers, peer_id, num_established, cause);
@@ -1420,16 +1427,13 @@ async fn handle_mdns_event(
         return;
       }
 
-      let saw_peer = !kad_addrs.is_empty();
       let mut swarm = lock_swarm(swarm).await;
+      // New routing-table entries trigger kad's automatic bootstrap.
       for (peer, addr) in kad_addrs {
         add_kad_peer_address(&mut swarm, peer, addr);
       }
       for peer in gossip_peers {
         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
-      }
-      if saw_peer {
-        kick_kad_queries(&mut swarm);
       }
     }
     mdns::Event::Expired(list) => {
@@ -1658,21 +1662,34 @@ async fn handle_gossipsub_event(
   }
 }
 
-fn handle_ping_event(event: ping::Event) {
-  match event {
-    ping::Event {
-      peer,
-      result: Ok(rtt),
-      ..
-    } => {
+fn handle_ping_event(
+  swarm: &mut Swarm<Behaviour>,
+  ping_failures: &mut HashMap<ConnectionId, u32>,
+  event: ping::Event,
+) {
+  let ping::Event {
+    peer,
+    connection,
+    result,
+  } = event;
+  match result {
+    Ok(rtt) => {
+      ping_failures.remove(&connection);
       tracing::debug!(peer = %peer, rtt = ?rtt, "ping ok");
     }
-    ping::Event {
-      peer,
-      result: Err(err),
-      ..
-    } => {
-      tracing::warn!(peer = %peer, error = ?err, "ping failed");
+    Err(err) => {
+      let failures = ping_failures.entry(connection).or_insert(0);
+      *failures += 1;
+      tracing::warn!(peer = %peer, error = ?err, failures = *failures, "ping failed");
+      if *failures >= PING_FAILURE_DISCONNECT_THRESHOLD {
+        ping_failures.remove(&connection);
+        tracing::warn!(
+          peer = %peer,
+          ?connection,
+          "closing unresponsive connection after repeated ping failures"
+        );
+        swarm.close_connection(connection);
+      }
     }
   }
 }
@@ -1688,7 +1705,6 @@ fn handle_connection_established(
   dial_backoff_until.remove(&peer_id);
   finish_pending_connect(pending_connect, peer_id, Ok(()));
   swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-  kick_kad_queries(swarm);
 }
 
 fn handle_connection_closed<E: fmt::Display>(
@@ -1813,8 +1829,7 @@ pub async fn run_swarm_client_with_shutdown(
   let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
     HashMap::new();
   let mut pending_get_providers: HashMap<kad::QueryId, GetProvidersState> = HashMap::new();
-  let mut kad_discovery_tick = tokio::time::interval(Duration::from_secs(30));
-  kad_discovery_tick.tick().await;
+  let mut ping_failures: HashMap<ConnectionId, u32> = HashMap::new();
 
   loop {
     tokio::select! {
@@ -1832,9 +1847,6 @@ pub async fn run_swarm_client_with_shutdown(
           "swarm client shutting down",
         );
         break;
-      }
-      _ = kad_discovery_tick.tick() => {
-        kick_kad_queries(&mut swarm);
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else {
@@ -1962,14 +1974,10 @@ pub async fn run_swarm_client_with_shutdown(
 
           SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
             mdns::Event::Discovered(list) => {
-              let mut saw_peer = false;
+              // New routing-table entries trigger kad's automatic bootstrap.
               for (peer, addr) in list {
-                saw_peer = true;
                 add_kad_peer_address(&mut swarm, peer, addr);
                 swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
-              }
-              if saw_peer {
-                kick_kad_queries(&mut swarm);
               }
             }
             mdns::Event::Expired(list) => {
@@ -1986,7 +1994,7 @@ pub async fn run_swarm_client_with_shutdown(
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-            handle_ping_event(event);
+            handle_ping_event(&mut swarm, &mut ping_failures, event);
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
@@ -1999,10 +2007,10 @@ pub async fn run_swarm_client_with_shutdown(
             outgoing_failure_log_backoff_until.remove(&peer_id);
             finish_pending_connect(&mut pending_connect, peer_id, Ok(()));
             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-            kick_kad_queries(&mut swarm);
           }
 
-          SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
+          SwarmEvent::ConnectionClosed { peer_id, connection_id, num_established, .. } => {
+            ping_failures.remove(&connection_id);
             if num_established == 0 {
               connected_peers.remove(&peer_id);
               swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
@@ -2081,7 +2089,6 @@ fn ensure_peer_connection(
     } else {
       dial_known_peer_any_addr(swarm, peer);
     }
-    kick_kad_queries(swarm);
   }
 }
 
@@ -2150,12 +2157,6 @@ fn strip_p2p(mut addr: Multiaddr) -> Multiaddr {
     let _ = addr.pop();
   }
   addr
-}
-
-fn kick_kad_queries(swarm: &mut Swarm<Behaviour>) {
-  let local_peer_id = swarm.local_peer_id().to_owned();
-  let _ = swarm.behaviour_mut().kad.bootstrap();
-  swarm.behaviour_mut().kad.get_closest_peers(local_peer_id);
 }
 
 fn leave_openraft_kad(swarm: &mut Swarm<Behaviour>) {

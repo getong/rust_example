@@ -64,10 +64,21 @@ const MEMBERSHIP_GUARD_TICK_SECS: u64 = 5;
 const EVICTED_LEARNER_REGISTER_RETRY_SECS: u64 = 10;
 const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
+/// Poll cadence of the control demotion watcher (kad Server → Client when
+/// this node is evicted from the voter set while still running).
+const CONTROL_DEMOTION_POLL_INTERVAL_SECS: u64 = 30;
+/// Consecutive confirmed "not a voter anywhere" rounds required before the
+/// node demotes its kademlia role. Guards against transient membership
+/// views during joint-consensus changes.
+const CONTROL_DEMOTION_CONFIRMATIONS: u32 = 3;
 const CONTROL_JOIN_POLL_INTERVAL_SECS: u64 = 2;
 const CONTROL_JOIN_CATCH_UP_TIMEOUT_SECS: u64 = 30;
 pub const OPENRAFT_KAD_PROVIDER_RECORD_TTL: Duration = Duration::from_secs(180);
 pub const OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_secs(60);
+/// Kademlia's built-in periodic bootstrap cadence. Bootstraps also trigger
+/// automatically (throttled) whenever a new peer enters the routing table,
+/// so no manual bootstrap calls are needed anywhere.
+pub const OPENRAFT_KAD_PERIODIC_BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(60);
 pub const PING_INTERVAL: Duration = Duration::from_secs(3);
 pub const PING_TIMEOUT: Duration = Duration::from_secs(6);
 const DEFAULT_MAX_CONTROL_NODES: usize = 3;
@@ -555,7 +566,8 @@ fn build_swarm(
         kad::Config::new(StreamProtocol::new(crate::network::swarm::KAD_PROTOCOL));
       kad_config
         .set_provider_record_ttl(Some(OPENRAFT_KAD_PROVIDER_RECORD_TTL))
-        .set_provider_publication_interval(Some(OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL));
+        .set_provider_publication_interval(Some(OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL))
+        .set_periodic_bootstrap_interval(Some(OPENRAFT_KAD_PERIODIC_BOOTSTRAP_INTERVAL));
       let kad = kad::Behaviour::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
       let gossipsub_config = gossipsub::ConfigBuilder::default()
         .build()
@@ -817,6 +829,15 @@ async fn run_control_services(
     )
   });
 
+  // Counterpart of the worker-side promotion watcher: demote the kademlia
+  // role if this node gets evicted from the voter set while running.
+  if runtime.opt.auto_heal_membership {
+    tokio::spawn(run_control_demotion_watcher(
+      runtime.clone(),
+      shutdown_rx_for_ordering.clone(),
+    ));
+  }
+
   let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
 
   let mut errors = Vec::new();
@@ -840,6 +861,100 @@ async fn run_control_services(
       Err(anyhow!(msg))
     }
   }
+}
+
+/// Watch for this node being evicted from the voter set WHILE the process
+/// keeps running (e.g. it was partitioned past the voter-replace timeout and
+/// the membership guard replaced it, then connectivity came back).
+///
+/// Why this matters for kad: the control role advertises kademlia Server
+/// mode plus the `openraft_cluster` provider record, and the provider record
+/// is re-published every [`OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL`] —
+/// so without this watcher an evicted-but-alive node keeps advertising
+/// itself as a control node FOREVER and workers keep discovering it as a
+/// task-RPC target. Raft itself is not affected by the kad mode (mode
+/// changes never close connections; raft RPC uses the address book, not
+/// kad lookups), which is exactly why nothing else notices the stale role.
+///
+/// Demotion is only performed on strong evidence: the LIVE leader of every
+/// group (`state.is_leader()`, not the possibly-stale persisted
+/// `current_leader`) must report that this node is not a voter, for
+/// [`CONTROL_DEMOTION_CONFIRMATIONS`] consecutive rounds. On demotion the
+/// node stops providing and drops to kad Client; a restart then completes
+/// the self-heal (startup wipes the removed groups and rejoins as learner).
+async fn run_control_demotion_watcher(
+  runtime: ControlRuntime,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  let mut tick = tokio::time::interval(Duration::from_secs(CONTROL_DEMOTION_POLL_INTERVAL_SECS));
+  // If this very process was suspended (the main scenario that leads to
+  // eviction), the default Burst behavior would fire all missed ticks
+  // back-to-back on resume and collapse the confirmation rounds into one
+  // instant. Delay keeps confirmations a full interval apart.
+  tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+  tick.tick().await;
+  let mut confirmations = 0u32;
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tick.tick() => {}
+    }
+
+    if !confirmed_evicted_from_all_groups(&runtime).await {
+      confirmations = 0;
+      continue;
+    }
+
+    confirmations += 1;
+    tracing::warn!(
+      node_id = %runtime.opt.id,
+      confirmations,
+      required = CONTROL_DEMOTION_CONFIRMATIONS,
+      "live leaders report this control node is no longer a voter"
+    );
+    if confirmations < CONTROL_DEMOTION_CONFIRMATIONS {
+      continue;
+    }
+
+    match runtime.libp2p.client.leave_openraft_kad().await {
+      Ok(()) => tracing::warn!(
+        node_id = %runtime.opt.id,
+        "node was evicted from the control membership while running; \
+         dropped kademlia to Client mode and stopped providing the \
+         control-node key. Restart this node to wipe stale group data \
+         and rejoin as a learner."
+      ),
+      Err(err) => tracing::warn!(
+        node_id = %runtime.opt.id,
+        error = ?err,
+        "failed to demote kademlia role after eviction"
+      ),
+    }
+    return;
+  }
+}
+
+/// True only when EVERY group has a live leader whose membership excludes
+/// this node from the voter set. Unreachable groups or groups without a
+/// live leader yield false — never demote on missing evidence.
+async fn confirmed_evicted_from_all_groups(runtime: &ControlRuntime) -> bool {
+  for group_id in &runtime.group_ids {
+    let Some(metrics) =
+      fetch_authoritative_group_metrics(group_id, &runtime.opt.id, &runtime.libp2p.network).await
+    else {
+      return false;
+    };
+    if metrics
+      .membership_config
+      .membership()
+      .voter_ids()
+      .any(|id| id == runtime.opt.id)
+    {
+      return false;
+    }
+  }
+  true
 }
 
 enum PromotionWatchResult {
