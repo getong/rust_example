@@ -24,6 +24,13 @@ use crate::types_kv::{Request, Response};
 /// Maximum executions per task before it is marked failed permanently.
 pub const MAX_TASK_ATTEMPTS: u32 = 3;
 
+/// Hard cap on one stored task payload, enforced at every enqueue door
+/// (HTTP and task RPC). Wasm tasks carry the handler MODULE inside the
+/// payload, and every payload byte is replicated through the raft log and
+/// into snapshots on all nodes — oversized modules must be rejected up
+/// front rather than degrade the whole log.
+pub const MAX_TASK_PAYLOAD_BYTES: usize = 256 * 1024;
+
 pub const TASK_REC_PREFIX: &str = "task:rec:";
 pub const TASK_QUEUED_IDX_PREFIX: &str = "task:idx:queued:";
 pub const TASK_ASSIGNED_IDX_PREFIX: &str = "task:idx:assigned:";

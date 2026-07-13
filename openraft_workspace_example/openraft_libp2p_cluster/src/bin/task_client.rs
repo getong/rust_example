@@ -4,12 +4,13 @@
 //! local raft handle; worker nodes forward over the tarpc TaskRpc). Used by
 //! `script/task-client-test.sh` to verify the architecture end to end.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use openraft_libp2p_cluster::tasks::{
-  TaskQueueMetrics, TaskRecord, WorkerLeaseRecord, handlers::TaskPayload,
+  TaskQueueMetrics, TaskRecord, WorkerLeaseRecord,
+  handlers::{TaskPayload, WasmExec},
 };
 use serde::Deserialize;
 
@@ -54,6 +55,40 @@ enum Cmd {
     /// Number of copies to push.
     #[arg(long, default_value_t = 1)]
     count: u32,
+    /// Idempotency key; a repeated push with the same key is deduplicated.
+    #[arg(long)]
+    idem: Option<String>,
+    /// Schedule the task this many seconds into the future.
+    #[arg(long, default_value_t = 0)]
+    delay_secs: u64,
+  },
+  /// Enqueue a wasm task whose HANDLER travels inside the payload
+  /// (code-as-data): the module file — WAT text or a compiled wasm
+  /// binary — is read here and stored with the task in the raft log; a
+  /// worker executes it on the WASI p2 component runtime (wasmtime) and
+  /// stores its stdout as the task result.
+  PushWasm {
+    /// Human-readable WAT text module file.
+    #[arg(
+      long,
+      conflicts_with = "wasm_file",
+      required_unless_present = "wasm_file"
+    )]
+    wat_file: Option<PathBuf>,
+    /// Compiled wasm binary module file (base64-encoded into the
+    /// payload): a p2 component (wasm32-wasip2) or a p1 core module
+    /// (wasm32-wasip1) — p1 modules are auto-adapted server-side.
+    #[arg(long)]
+    wasm_file: Option<PathBuf>,
+    /// Display name for lists (defaults to the module file stem).
+    #[arg(long)]
+    name: Option<String>,
+    /// argv[1..] for the guest (repeatable).
+    #[arg(long = "arg")]
+    args: Vec<String>,
+    /// KEY=VALUE guest environment variable (repeatable).
+    #[arg(long = "env")]
+    env: Vec<String>,
     /// Idempotency key; a repeated push with the same key is deduplicated.
     #[arg(long)]
     idem: Option<String>,
@@ -429,6 +464,66 @@ async fn main() -> anyhow::Result<()> {
           response.deduplicated.unwrap_or(false)
         );
       }
+    }
+    Cmd::PushWasm {
+      wat_file,
+      wasm_file,
+      name,
+      args,
+      env,
+      idem,
+      delay_secs,
+    } => {
+      let (module_wat, module_b64, module_path) = match (&wat_file, &wasm_file) {
+        (Some(path), None) => {
+          let wat = std::fs::read_to_string(path)
+            .with_context(|| format!("read wat module {}", path.display()))?;
+          (Some(wat), None, path.clone())
+        }
+        (None, Some(path)) => {
+          use base64::Engine as _;
+          let bytes =
+            std::fs::read(path).with_context(|| format!("read wasm module {}", path.display()))?;
+          let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+          (None, Some(b64), path.clone())
+        }
+        _ => return Err(anyhow!("pass exactly one of --wat-file / --wasm-file")),
+      };
+      let name = name.or_else(|| {
+        module_path
+          .file_stem()
+          .map(|stem| stem.to_string_lossy().into_owned())
+      });
+      let mut env_pairs = BTreeMap::new();
+      for pair in env {
+        let (key, value) = pair
+          .split_once('=')
+          .ok_or_else(|| anyhow!("--env expects KEY=VALUE, got {pair:?}"))?;
+        env_pairs.insert(key.to_string(), value.to_string());
+      }
+
+      let payload = TaskPayload::Wasm(WasmExec {
+        module_wat,
+        module_b64,
+        args,
+        env: env_pairs,
+        name,
+      })
+      .encode()
+      .map_err(|err| anyhow!("encode wasm payload: {err}"))?;
+      let payload: sonic_rs::Value = sonic_rs::from_str(&payload)?;
+      let response = client
+        .push_task(&payload, idem.as_deref(), delay_secs)
+        .await?;
+      println!(
+        "pushed wasm module={} bytes={} task_id={} deduplicated={}",
+        module_path.display(),
+        std::fs::metadata(&module_path)
+          .map(|m| m.len())
+          .unwrap_or(0),
+        response.task_id.as_deref().unwrap_or("-"),
+        response.deduplicated.unwrap_or(false)
+      );
     }
     Cmd::List { status } => {
       let mut tasks = client.tasks().await?;

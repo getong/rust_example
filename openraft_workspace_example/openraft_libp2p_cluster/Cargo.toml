@@ -22,12 +22,12 @@ path = "src/bin/task_client.rs"
 [dependencies]
 anyhow = "1.0.103"
 async-trait = "0.1.89"
-base64 = "0.22"
 axum = { version = "0.8.9", default-features = false, features = [
   "http1",
   "query",
   "tokio",
 ] }
+base64 = "0.22"
 clap = { version = "4.6.1", features = ["derive"] }
 console-subscriber = "0.5.0"
 futures = "0.3.32"
@@ -89,11 +89,14 @@ tokio = { version = "1.52", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.23.5", features = ["v7"] }
+wasi-preview1-component-adapter-provider = "46.0.1"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
 # wasmtime_workspace_example).
 wasmtime = "46.0.1"
 wasmtime-wasi = "46.0.1"
+wat = "1.253.0"
+wit-component = "0.253"
 
 [build-dependencies]
 prost-build = "0.14.4"

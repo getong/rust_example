@@ -158,6 +158,19 @@ impl TaskRpc for TaskRpcService {
       return TaskWriteReply::error(format!("unknown group_id={group_id}"));
     };
 
+    // Same door check as the HTTP frontend: enqueues arriving over the
+    // task RPC (worker-mode frontends, external clients) must also respect
+    // the payload cap before the command reaches the raft log.
+    if let StateCommand::TaskEnqueue { payload, .. } = &cmd
+      && payload.len() > crate::tasks::MAX_TASK_PAYLOAD_BYTES
+    {
+      return TaskWriteReply::error(format!(
+        "task payload is {} bytes, over the {} byte limit",
+        payload.len(),
+        crate::tasks::MAX_TASK_PAYLOAD_BYTES
+      ));
+    }
+
     match group.raft.client_write(cmd).await {
       Ok(resp) => TaskWriteReply {
         ok: true,

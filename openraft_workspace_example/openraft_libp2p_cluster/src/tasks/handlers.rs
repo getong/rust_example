@@ -459,18 +459,24 @@ impl TaskHandler for SleepHandler {
 /// module — WAT text or a base64 wasm binary — so the PROCESSING LOGIC
 /// itself is replicated through the raft log alongside the arguments.
 ///
-/// Execution follows youki's wasmtime workload-executor pattern (module +
-/// args/env in, WASI stdio out) hardened with the fuel budget from
+/// Execution runs on the WASI 0.2 (preview 2) COMPONENT runtime
+/// (`wasmtime_wasi::p2`, `wasi:cli/run` command world). Native p2
+/// components run directly; classic p1 core modules (including hand-written
+/// WAT importing `wasi_snapshot_preview1`) are wrapped with wasmtime's
+/// official preview1 command adapter at load time, so every guest flows
+/// through the single p2 path. Hardened with the fuel budget from
 /// `wasmtime_workspace_example/wasmtime_sandbox_limits`: the guest gets
 /// argv/env, its stdout is captured (bounded) as the task result, and a
 /// fuel limit terminates runaway modules deterministically — execution
 /// stays on the worker, never inside `apply()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmExec {
-  /// Human-readable WAT text. Exactly one of `module_wat` / `module_b64`.
+  /// Human-readable WAT text (core module or component syntax).
+  /// Exactly one of `module_wat` / `module_b64`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module_wat: Option<String>,
-  /// Base64-encoded wasm binary (for modules compiled from Rust/C/Go...).
+  /// Base64-encoded wasm binary: a p2 component (wasm32-wasip2 output) or
+  /// a p1 core module (wasm32-wasip1) — both are accepted.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module_b64: Option<String>,
   /// argv[1..] for the guest (argv[0] is always "task.wasm").
@@ -519,7 +525,7 @@ pub const WASM_FUEL_LIMIT: u64 = 500_000_000;
 /// Captured-stdout cap; a guest writing past it traps (bounded results).
 const WASM_STDOUT_CAPACITY: usize = 64 * 1024;
 
-/// One shared engine (fuel metering on); modules are compiled once per
+/// One shared engine (fuel metering on); components are compiled once per
 /// content hash and cached, so repeated tasks reuse the compilation.
 fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
   static ENGINE: std::sync::OnceLock<Result<wasmtime::Engine, String>> = std::sync::OnceLock::new();
@@ -533,40 +539,129 @@ fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
     .map_err(Clone::clone)
 }
 
-/// The handler function stored as data in wasmtime (following the pattern
-/// from `wasmtime_workspace_example/hot_upgrade/src/wasm_rule.rs`).
-///
-/// Stores the compiled [`wasmtime::Module`] — the expensive part — so
-/// repeated tasks with the same module bytes skip compilation. The WASI
-/// [`wasmtime::Linker`] is lightweight and `!Clone`, so it is rebuilt per
-/// execution; what matters is that the Module (cranelift codegen result)
-/// is reused.
-///
-/// WASI `_start` modules are one-shot (the Store is consumed after one
-/// call), so Store/Instance/TypedFunc are created per execution — but
-/// the compilation cost is paid once per unique module.
-pub struct WasmHandler {
-  module: wasmtime::Module,
+/// Per-execution store state for the p2 WASI host (the `WasiView` pattern
+/// from `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade`).
+struct WasmHostState {
+  wasi: wasmtime_wasi::WasiCtx,
+  table: wasmtime_wasi::ResourceTable,
 }
 
-impl WasmHandler {
-  /// Load a WASM source (WAT text or raw bytes) and compile it into a
-  /// [`wasmtime::Module`]. The module is NOT instantiated here — that
-  /// happens per-execution because WASI `_start` modules are one-shot.
-  fn load(engine: &wasmtime::Engine, source: &[u8]) -> Result<Self, String> {
-    let module =
-      wasmtime::Module::new(engine, source).map_err(|err| format!("compile wasm module: {err}"))?;
-    Ok(Self { module })
+impl wasmtime_wasi::WasiView for WasmHostState {
+  fn ctx(&mut self) -> wasmtime_wasi::WasiCtxView<'_> {
+    wasmtime_wasi::WasiCtxView {
+      ctx: &mut self.wasi,
+      table: &mut self.table,
+    }
   }
 }
 
-/// Global cache of loaded WASM handlers, keyed by module content hash.
-/// Same module bytes → same hash → reuse compiled Module.
-fn wasm_handler_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, WasmHandler>>
-{
-  static CACHE: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, WasmHandler>>,
-  > = std::sync::OnceLock::new();
+/// One shared component linker with the full p2 WASI host wired in; shared
+/// across executions (each execution gets its own Store).
+fn wasm_linker() -> Result<&'static wasmtime::component::Linker<WasmHostState>, String> {
+  static LINKER: std::sync::OnceLock<Result<wasmtime::component::Linker<WasmHostState>, String>> =
+    std::sync::OnceLock::new();
+  LINKER
+    .get_or_init(|| {
+      let engine = wasm_engine()?;
+      let mut linker = wasmtime::component::Linker::new(engine);
+      wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
+        .map_err(|err| format!("link p2 wasi: {err}"))?;
+      Ok(linker)
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
+/// True when the binary is a component (layer field 1) rather than a core
+/// module (layer 0). Header: `\0asm` + version u16 + layer u16.
+fn is_component_binary(bytes: &[u8]) -> bool {
+  bytes.len() >= 8 && bytes[0 .. 4] == *b"\0asm" && bytes[6 .. 8] == [0x01, 0x00]
+}
+
+/// The handler function stored as data in wasmtime (p2 component pattern
+/// from `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade/src/wasm_rule.rs`).
+///
+/// Stores the compiled [`wasmtime::component::Component`] — the expensive
+/// part — so repeated tasks with the same module bytes skip compilation.
+/// Command components are one-shot (the Store is consumed after one `run`),
+/// so Store/instance are created per execution.
+pub struct WasmHandler {
+  component: wasmtime::component::Component,
+}
+
+impl WasmHandler {
+  /// Normalize a WASM source (WAT text, core-module binary, or component
+  /// binary) into p2 component bytes: components pass through; p1 core
+  /// modules are wrapped with wasmtime's official preview1 command adapter
+  /// so they run on the same p2 runtime.
+  pub fn componentize(source: &[u8]) -> Result<Vec<u8>, String> {
+    // `wat::parse_bytes` is a no-op for binaries and assembles WAT text
+    // (both `(module ...)` and `(component ...)` syntax).
+    let binary = wat::parse_bytes(source)
+      .map_err(|err| format!("parse wasm source: {err}"))?
+      .into_owned();
+    if is_component_binary(&binary) {
+      return Ok(binary);
+    }
+    wit_component::ComponentEncoder::default()
+      .module(&binary)
+      .map_err(|err| format!("read core wasm module: {err}"))?
+      .adapter(
+        "wasi_snapshot_preview1",
+        wasi_preview1_component_adapter_provider::WASI_SNAPSHOT_PREVIEW1_COMMAND_ADAPTER,
+      )
+      .map_err(|err| format!("attach preview1 adapter: {err}"))?
+      .validate(true)
+      .encode()
+      .map_err(|err| format!("componentize p1 module: {err}"))
+  }
+
+  /// Load a WASM source and compile it into a runnable command component.
+  /// It is NOT instantiated here — that happens per-execution.
+  fn load(engine: &wasmtime::Engine, source: &[u8]) -> Result<Self, String> {
+    let component_bytes = Self::componentize(source)?;
+    let component = wasmtime::component::Component::new(engine, &component_bytes)
+      .map_err(|err| format!("compile wasm component: {err}"))?;
+    Ok(Self { component })
+  }
+}
+
+/// Cache capacity: compiled modules are a few hundred KB each; a stream of
+/// distinct modules must not grow worker memory without bound.
+const WASM_HANDLER_CACHE_CAP: usize = 64;
+
+/// Bounded FIFO cache of loaded WASM handlers, keyed by module content
+/// hash. Same module bytes → same hash → reuse compiled Module; when full,
+/// the oldest entry is evicted.
+#[derive(Default)]
+struct WasmHandlerCache {
+  handlers: std::collections::HashMap<String, WasmHandler>,
+  order: std::collections::VecDeque<String>,
+}
+
+impl WasmHandlerCache {
+  fn get(&self, hash: &str) -> Option<wasmtime::component::Component> {
+    self.handlers.get(hash).map(|h| h.component.clone())
+  }
+
+  fn insert(&mut self, hash: String, handler: WasmHandler) {
+    if self.handlers.contains_key(&hash) {
+      return; // lost a compile race; keep the existing entry
+    }
+    while self.handlers.len() >= WASM_HANDLER_CACHE_CAP {
+      let Some(evicted) = self.order.pop_front() else {
+        break;
+      };
+      self.handlers.remove(&evicted);
+    }
+    self.order.push_back(hash.clone());
+    self.handlers.insert(hash, handler);
+  }
+}
+
+fn wasm_handler_cache() -> &'static std::sync::Mutex<WasmHandlerCache> {
+  static CACHE: std::sync::OnceLock<std::sync::Mutex<WasmHandlerCache>> =
+    std::sync::OnceLock::new();
   CACHE.get_or_init(Default::default)
 }
 
@@ -599,41 +694,42 @@ impl TaskHandler for WasmExecHandler {
       let engine = wasm_engine()?;
 
       // Get or create the WasmHandler: the first task with a given module
-      // compiles it (cranelift codegen — the expensive part); subsequent
-      // tasks with the same module bytes reuse the compiled Module.
-      // Module is Arc-backed so clone is cheap.
-      let module = {
-        let mut cache = wasm_handler_cache()
-          .lock()
-          .map_err(|_| "wasm handler cache poisoned".to_string())?;
-        match cache.get(&module_hash) {
-          Some(h) => {
-            tracing::debug!(
-              module_hash = %module_hash[.. 12],
-              "reusing cached wasm handler (compiled module)"
-            );
-            h.module.clone()
-          }
-          None => {
-            tracing::debug!(
-              module_hash = %module_hash[.. 12],
-              "compiling and caching new wasm handler"
-            );
-            let handler = WasmHandler::load(engine, &source)
-              .map_err(|err| format!("load wasm handler: {err}"))?;
-            let module = handler.module.clone();
-            cache.insert(module_hash.clone(), handler);
-            module
-          }
+      // compiles it (componentize + cranelift codegen — the expensive
+      // part); subsequent tasks with the same module bytes reuse the
+      // compiled Component. Component is Arc-backed so clone is cheap.
+      // Compilation happens OUTSIDE the cache lock so a slow compile
+      // never serializes other wasm executions; a concurrent duplicate
+      // compile just loses the insert race.
+      let cached = wasm_handler_cache()
+        .lock()
+        .map_err(|_| "wasm handler cache poisoned".to_string())?
+        .get(&module_hash);
+      let component = match cached {
+        Some(component) => {
+          tracing::debug!(
+            module_hash = %module_hash[.. 12],
+            "reusing cached wasm handler (compiled component)"
+          );
+          component
+        }
+        None => {
+          tracing::debug!(
+            module_hash = %module_hash[.. 12],
+            "compiling and caching new wasm handler"
+          );
+          let handler = WasmHandler::load(engine, &source)
+            .map_err(|err| format!("load wasm handler: {err}"))?;
+          let component = handler.component.clone();
+          wasm_handler_cache()
+            .lock()
+            .map_err(|_| "wasm handler cache poisoned".to_string())?
+            .insert(module_hash.clone(), handler);
+          component
         }
       };
 
-      // Build WASI linker, Store, and execute — the Module is already compiled.
-      let mut linker: wasmtime::Linker<wasmtime_wasi::p1::WasiP1Ctx> =
-        wasmtime::Linker::new(engine);
-      wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |cx| cx)
-        .map_err(|err| format!("link wasi: {err}"))?;
-
+      // Fresh p2 WASI context + Store per execution; the linker (with the
+      // full WASI host) and the compiled component are shared.
       let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
       let mut argv = vec!["task.wasm".to_string()];
       argv.extend(args);
@@ -641,30 +737,42 @@ impl TaskHandler for WasmExecHandler {
         .stdout(stdout.clone())
         .args(&argv)
         .envs(&env)
-        .build_p1();
+        .build();
 
-      let mut store = wasmtime::Store::new(engine, wasi);
+      let mut store = wasmtime::Store::new(
+        engine,
+        WasmHostState {
+          wasi,
+          table: wasmtime_wasi::ResourceTable::new(),
+        },
+      );
       store
         .set_fuel(WASM_FUEL_LIMIT)
         .map_err(|err| format!("set wasm fuel: {err}"))?;
 
-      let instance = linker
-        .instantiate(&mut store, &module)
-        .map_err(|err| format!("instantiate wasm module: {err}"))?;
-      let start = instance
-        .get_typed_func::<(), ()>(&mut store, "_start")
-        .map_err(|err| format!("wasm module has no _start: {err}"))?;
+      let command = wasmtime_wasi::p2::bindings::sync::Command::instantiate(
+        &mut store,
+        &component,
+        wasm_linker()?,
+      )
+      .map_err(|err| format!("instantiate wasm component: {err}"))?;
 
-      if let Err(err) = start.call(&mut store, ()) {
-        let exit = err
-          .chain()
-          .find_map(|cause| cause.downcast_ref::<wasmtime_wasi::I32Exit>());
-        match exit {
-          Some(wasmtime_wasi::I32Exit(0)) => {}
-          Some(wasmtime_wasi::I32Exit(code)) => {
-            return Err(format!("wasm module exited with code {code}"));
+      match command.wasi_cli_run().call_run(&mut store) {
+        Ok(Ok(())) => {}
+        Ok(Err(())) => return Err("wasm command run returned failure".to_string()),
+        Err(err) => {
+          // `exit(n)` surfaces as an I32Exit in the error chain; 0 is
+          // success, anything else is a failure.
+          let exit = err
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<wasmtime_wasi::I32Exit>());
+          match exit {
+            Some(wasmtime_wasi::I32Exit(0)) => {}
+            Some(wasmtime_wasi::I32Exit(code)) => {
+              return Err(format!("wasm module exited with code {code}"));
+            }
+            None => return Err(format!("wasm execution trapped: {err}")),
           }
-          None => return Err(format!("wasm execution trapped: {err}")),
         }
       }
 
@@ -847,10 +955,117 @@ mod tests {
     assert!(result.contains("fuel_used"), "no fuel report: {result}");
   }
 
+  /// The direct p2 path: a real component binary (here produced by the
+  /// same adapter used at load time) submitted via `module_b64` runs
+  /// without re-adaptation.
+  #[tokio::test]
+  async fn wasm_component_binary_runs_directly() {
+    use base64::Engine as _;
+    let component = WasmHandler::componentize(HELLO_WAT.as_bytes()).expect("componentize");
+    assert!(
+      is_component_binary(&component),
+      "componentize must produce a component binary"
+    );
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: None,
+      module_b64: Some(base64::engine::general_purpose::STANDARD.encode(component)),
+      args: Vec::new(),
+      env: Default::default(),
+      name: Some("hello-component".to_string()),
+    })
+    .encode()
+    .unwrap();
+    let result = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap()
+      .unwrap();
+    assert!(
+      result.contains("hello from wasm task"),
+      "stdout missing from result: {result}"
+    );
+  }
+
+  /// The richer end-to-end example shared with the test script: a stored
+  /// handler that PARSES argv, COMPUTES (trial-division prime counting)
+  /// and FORMATS its own output. π(1000) = 168.
+  #[tokio::test]
+  async fn wasm_prime_count_computes_from_argv() {
+    let wat = std::fs::read_to_string(concat!(
+      env!("CARGO_MANIFEST_DIR"),
+      "/script/wat/prime_count.wat"
+    ))
+    .expect("read prime_count.wat");
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: Some(wat),
+      module_b64: None,
+      args: vec!["1000".to_string()],
+      env: Default::default(),
+      name: Some("prime-count".to_string()),
+    })
+    .encode()
+    .unwrap();
+    let result = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap()
+      .unwrap();
+    let parsed: sonic_rs::Value = sonic_rs::from_str(&result).unwrap();
+    use sonic_rs::JsonValueTrait as _;
+    assert_eq!(
+      parsed.get("stdout").as_str(),
+      Some("168\n"),
+      "unexpected result: {result}"
+    );
+  }
+
+  /// The richest shared example: stats.wat folds argv numbers into
+  /// count/sum/min/max/avg, reads a LABEL env var, and assembles a JSON
+  /// report INSIDE the guest — the task result's stdout is itself JSON.
+  #[tokio::test]
+  async fn wasm_stats_builds_json_report_from_argv_and_env() {
+    let wat = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/script/wat/stats.wat"))
+      .expect("read stats.wat");
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: Some(wat),
+      module_b64: None,
+      args: vec!["12", "7", "42", "19"]
+        .into_iter()
+        .map(String::from)
+        .collect(),
+      env: [("LABEL".to_string(), "unit-test".to_string())].into(),
+      name: Some("stats".to_string()),
+    })
+    .encode()
+    .unwrap();
+    let result = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap()
+      .unwrap();
+
+    use sonic_rs::{JsonValueTrait as _, Value};
+    let outer: Value = sonic_rs::from_str(&result).unwrap();
+    let stdout_value = outer.get("stdout");
+    let stdout = stdout_value.as_str().expect("stdout in result");
+    let report: Value = sonic_rs::from_str(stdout.trim()).expect("guest stdout is JSON");
+    assert_eq!(report.get("label").as_str(), Some("unit-test"));
+    assert_eq!(report.get("count").as_i64(), Some(4));
+    assert_eq!(report.get("sum").as_i64(), Some(80));
+    assert_eq!(report.get("min").as_i64(), Some(7));
+    assert_eq!(report.get("max").as_i64(), Some(42));
+    assert_eq!(report.get("avg").as_i64(), Some(20));
+  }
+
   #[tokio::test]
   async fn wasm_infinite_loop_is_stopped_by_fuel() {
+    // The preview1 command adapter requires the core module to export its
+    // memory, even for a pure spin loop.
+    let spin_wat = r#"
+      (module
+        (memory 1)
+        (export "memory" (memory 0))
+        (func (export "_start") (loop br 0)))
+    "#;
     let payload = TaskPayload::Wasm(WasmExec {
-      module_wat: Some("(module (func (export \"_start\") (loop br 0)))".to_string()),
+      module_wat: Some(spin_wat.to_string()),
       module_b64: None,
       args: Vec::new(),
       env: Default::default(),
@@ -890,7 +1105,10 @@ mod tests {
     let err = execute_payload(&TaskCtx::detached(), &record(&payload))
       .await
       .unwrap_err();
-    assert!(err.contains("code 7"), "unexpected error: {err}");
+    // WASI 0.2's `exit` only carries success/failure, so the preview1
+    // adapter collapses proc_exit(7) to a generic non-zero exit — what
+    // matters is that it fails and reports an exit, not the exact code.
+    assert!(err.contains("exited with code"), "unexpected error: {err}");
   }
 
   #[tokio::test]

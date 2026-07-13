@@ -1967,6 +1967,13 @@ async fn enqueue_task(
   idem_key: Option<String>,
   delay_secs: u64,
 ) -> EmailResponse {
+  if payload.len() > crate::tasks::MAX_TASK_PAYLOAD_BYTES {
+    return push_error(format!(
+      "task payload is {} bytes, over the {} byte limit (wasm modules must fit the raft log)",
+      payload.len(),
+      crate::tasks::MAX_TASK_PAYLOAD_BYTES
+    ));
+  }
   let now = unix_now_secs();
   let cmd = StateCommand::TaskEnqueue {
     id: uuid::Uuid::now_v7().to_string(),
