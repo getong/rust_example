@@ -620,7 +620,9 @@ fn build_swarm(
     })
     .context("build behaviour")?
     .with_swarm_config(|cfg| {
-      cfg.with_idle_connection_timeout(Duration::from_secs(opt.swarm_idle_connection_timeout_secs))
+      cfg
+        .with_idle_connection_timeout(Duration::from_secs(opt.swarm_idle_connection_timeout_secs))
+        .with_smart_dial()
     })
     .build();
 
