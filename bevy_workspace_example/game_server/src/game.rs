@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use avian3d::prelude::{Collider, LinearVelocity, Position, RigidBody};
 use bevior_tree::prelude::{BehaviorTree, BehaviorTreeRoot};
 use bevy::prelude::*;
@@ -37,6 +39,34 @@ impl NextActorId {
     let id = self.0;
     self.0 += 1;
     ActorId(id)
+  }
+}
+
+/// Bidirectional index between kameo client_id and Bevy Entity.
+///
+/// Eliminates the O(n) linear scan in `drain_world_commands` — lookups are
+/// O(1).  The mapping is maintained by `spawn_player` (insert) and
+/// `disconnect_client` (remove).
+#[derive(Resource, Debug, Default)]
+pub(crate) struct ActorMapping {
+  client_to_entity: HashMap<u64, Entity>,
+  entity_to_client: HashMap<Entity, u64>,
+}
+
+impl ActorMapping {
+  pub(crate) fn register(&mut self, client_id: u64, entity: Entity) {
+    self.client_to_entity.insert(client_id, entity);
+    self.entity_to_client.insert(entity, client_id);
+  }
+
+  pub(crate) fn remove_by_entity(&mut self, entity: Entity) -> Option<u64> {
+    let client_id = self.entity_to_client.remove(&entity)?;
+    self.client_to_entity.remove(&client_id);
+    Some(client_id)
+  }
+
+  pub(crate) fn lookup(&self, client_id: u64) -> Option<Entity> {
+    self.client_to_entity.get(&client_id).copied()
   }
 }
 
@@ -167,10 +197,11 @@ pub(crate) fn spawn_player(
   client_id: u64,
   connected_players: usize,
   level_map: &LevelMap,
+  actor_mapping: &mut ActorMapping,
 ) -> Entity {
   let offset = connected_players as f32 * 56.0;
   let position = clamp_to_playable_area(level_map.player_spawn + Vec3::new(offset, 0.0, 0.0));
-  commands
+  let entity = commands
     .spawn((
       actor_id,
       ActorType(ActorKind::Player),
@@ -190,7 +221,9 @@ pub(crate) fn spawn_player(
       CombatModifiers::default(),
       Player { client_id },
     ))
-    .id()
+    .id();
+  actor_mapping.register(client_id, entity);
+  entity
 }
 
 pub(crate) fn apply_player_movement(

@@ -22,8 +22,8 @@ use crate::{
   agones::AgonesGameServerInfo,
   behavior, game,
   game::{
-    ActorId, ActorPresentation, ActorType, ArenaPosition, NextActorId, PlayerInputState,
-    ServerTick, SnapshotClock, Vitals, actor_state, spawn_player,
+    ActorId, ActorMapping, ActorPresentation, ActorType, ArenaPosition, NextActorId,
+    PlayerInputState, ServerTick, SnapshotClock, Vitals, actor_state, spawn_player,
   },
   player_registry::{self, PlayerServerRegistry},
   protocol::{
@@ -91,6 +91,7 @@ pub(crate) fn run_server(bind_addr: &str) -> Result<()> {
     )))
     .insert_resource(ServerConfig { bind_addr })
     .init_resource::<NextActorId>()
+    .init_resource::<ActorMapping>()
     .init_resource::<ServerTick>()
     .init_resource::<SnapshotClock>()
     .init_resource::<game::CombatClock>()
@@ -193,6 +194,7 @@ fn connect_client(trigger: On<Add, Connected>, clients: Query<&RemoteId, With<Cl
 fn drain_client_messages(
   mut commands: Commands,
   mut clients: ResMut<ServerClients>,
+  mut actor_mapping: ResMut<ActorMapping>,
   mut actor_ids: ResMut<NextActorId>,
   config: Res<ServerConfig>,
   agones_info: Res<AgonesGameServerInfo>,
@@ -234,6 +236,7 @@ fn drain_client_messages(
           &mut commands,
           &mut clients,
           &mut actor_ids,
+          &mut actor_mapping,
           &level_map,
           &mut player_inputs,
           &mut senders,
@@ -256,6 +259,7 @@ fn disconnect_client(
   trigger: On<Add, Disconnected>,
   mut commands: Commands,
   mut clients: ResMut<ServerClients>,
+  mut actor_mapping: ResMut<ActorMapping>,
   player_registry: Res<PlayerServerRegistry>,
   bridge: Option<Res<ActorBridge>>,
   client_query: Query<&RemoteId, With<ClientOf>>,
@@ -274,6 +278,7 @@ fn disconnect_client(
   if let Some(client) = clients.clients.remove(&client_id)
     && let Some(player) = client.player
   {
+    actor_mapping.remove_by_entity(player);
     commands.entity(player).despawn();
   }
 }
@@ -328,6 +333,7 @@ fn handle_client_message(
   commands: &mut Commands,
   clients: &mut ServerClients,
   actor_ids: &mut NextActorId,
+  actor_mapping: &mut ActorMapping,
   level_map: &LevelMap,
   player_inputs: &mut Query<&mut PlayerInputState>,
   senders: &mut Query<&mut MessageSender<ServerPacket>, With<ClientOf>>,
@@ -362,7 +368,7 @@ fn handle_client_message(
 
       if client.player.is_none() {
         let actor_id = actor_ids.next();
-        let player = spawn_player(commands, actor_id, client_id, connected_players, level_map);
+        let player = spawn_player(commands, actor_id, client_id, connected_players, level_map, actor_mapping);
         client.player = Some(player);
         client.actor_id = Some(actor_id);
 

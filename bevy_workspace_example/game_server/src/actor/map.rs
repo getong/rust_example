@@ -90,18 +90,17 @@ impl MapActor {
     });
   }
 
-  fn broadcast(&self, event: MapEvent) {
+  async fn broadcast(&self, event: MapEvent) {
     for player in self.players.values() {
-      let event = event.clone();
-      if let Some(link) = player.link.clone() {
-        tokio::spawn(async move {
-          let _ = link.tell(ApplyMapEvent { event }).await;
-        });
+      if let Some(link) = &player.link {
+        // Local player: direct .tell() — avoids tokio::spawn overhead.
+        let _ = link.tell(ApplyMapEvent { event: event.clone() }).await;
         continue;
       }
 
-      // No local link: the player process lives on another node, reach it via
-      // the kameo remote registry.
+      // Remote player: spawn to do registry lookup + send without blocking
+      // the broadcast loop.
+      let event = event.clone();
       let registry_name = player.registry_name.clone();
       let map_id = self.map_id.clone();
       tokio::spawn(async move {
@@ -184,7 +183,8 @@ impl Message<EnterPlayer> for MapActor {
       map_id: self.map_id.clone(),
       tick: self.server_tick,
       player: own.clone(),
-    });
+    })
+    .await;
 
     MapJoinInfo {
       map_id: self.map_id.clone(),
@@ -246,7 +246,8 @@ impl Message<ApplyCombatBuff> for MapActor {
       map_id: self.map_id.clone(),
       tick: self.server_tick,
       player: view.clone(),
-    });
+    })
+    .await;
     Some(view)
   }
 }
@@ -274,7 +275,8 @@ impl Message<LeavePlayer> for MapActor {
       map_id: self.map_id.clone(),
       tick: self.server_tick,
       player_id,
-    });
+    })
+    .await;
     Some(
       player
         .buffs
@@ -314,7 +316,8 @@ impl Message<UpdateVitals> for MapActor {
       map_id: self.map_id.clone(),
       tick: self.server_tick,
       player: view,
-    });
+    })
+    .await;
   }
 }
 
@@ -361,7 +364,8 @@ impl Message<AdvanceTick> for MapActor {
           map_id: self.map_id.clone(),
           tick: self.server_tick,
           player: player.view(),
-        });
+        })
+        .await;
       }
     }
   }

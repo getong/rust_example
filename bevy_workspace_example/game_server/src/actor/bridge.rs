@@ -19,7 +19,7 @@ use crate::{
     player::{EnterMap, LeaveMap, MapLink, PlayerActor},
     types::{CombatBuff, MapVitals, PlayerProfile, WorldCommand},
   },
-  game::{self, CombatModifiers, Player},
+  game::{self, ActorMapping, CombatModifiers},
 };
 
 const DEFAULT_MAP_ID: &str = "arena";
@@ -104,7 +104,7 @@ fn drain_world_commands(
   bridge: Res<ActorBridge>,
   mut pending: Local<Vec<(WorldCommand, u8)>>,
   mut commands: Commands,
-  players: Query<(Entity, &Player)>,
+  actor_mapping: Res<ActorMapping>,
 ) {
   let mut queue: Vec<(WorldCommand, u8)> = pending.drain(..).collect();
   if let Ok(mut world_rx) = bridge.world_rx.lock() {
@@ -119,10 +119,7 @@ fn drain_world_commands(
         player_id,
         effective,
       } => {
-        let entity = players
-          .iter()
-          .find(|(_, player)| player.client_id == player_id)
-          .map(|(entity, _)| entity);
+        let entity = actor_mapping.lookup(player_id);
         match entity {
           Some(entity) => {
             commands.entity(entity).insert(CombatModifiers {
