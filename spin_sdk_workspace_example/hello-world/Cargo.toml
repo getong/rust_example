@@ -1,0 +1,13 @@
+[package]
+name = "hello-world"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.103"
+http = "1.4.2"
+serde = { version = "1.0.228", features = ["derive"] }
+spin-sdk = "6.0.0"
