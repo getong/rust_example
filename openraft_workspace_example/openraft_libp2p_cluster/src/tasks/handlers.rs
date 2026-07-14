@@ -27,7 +27,8 @@ use crate::{
   tasks::{
     TaskRecord,
     rpc::ControlNodes,
-    worker::{TASK_EXECUTION_TIMEOUT, submit_reply},
+    scheduler::current_unix_secs,
+    worker::{TASK_EXECUTION_TIMEOUT, submit_command, submit_reply},
   },
   types_kv::Request as StateCommand,
 };
@@ -196,6 +197,54 @@ impl<'a> TaskCtx<'a> {
       .as_ref()
       .ok_or_else(|| "handler requires cluster access, but this context has none".to_string())
   }
+
+  /// Declare `record` past its point of no return via a replicated
+  /// `TaskMarkCommitted` write (renegade's `Running.committed` pattern).
+  ///
+  /// MUST be called — and must return Ok — immediately BEFORE an
+  /// irreversible side effect. An Err means the write was rejected: the task
+  /// was requeued or reassigned in the meantime, and the handler must abort
+  /// (return the Err) instead of executing the side effect — winning this
+  /// raft write is what resolves the race. After a successful mark, the
+  /// state machine will never re-queue the task (a requeue proposal fails it
+  /// terminally for reconciliation) and a generic failure/timeout suppresses
+  /// the retry, so a duplicate side effect cannot be scheduled.
+  ///
+  /// Detached contexts (unit tests, standalone tools) skip the mark.
+  pub async fn mark_committed(&self, record: &TaskRecord) -> Result<(), String> {
+    let Some(cluster) = self.cluster.as_ref() else {
+      return Ok(());
+    };
+    let node_id = record
+      .assigned_node_id
+      .clone()
+      .ok_or_else(|| "commit-mark: record has no assigned node".to_string())?;
+    let lease_epoch = record
+      .lease_epoch
+      .ok_or_else(|| "commit-mark: record has no lease epoch".to_string())?;
+
+    let result = submit_command(
+      cluster.network,
+      cluster.control_nodes,
+      groups::TASKS,
+      StateCommand::TaskMarkCommitted {
+        id: record.id.clone(),
+        node_id,
+        lease_epoch,
+        now: current_unix_secs(),
+      },
+    )
+    .await
+    .map_err(|err| format!("commit-mark raft write failed: {err}"))?;
+
+    if !result.ok {
+      return Err(format!(
+        "commit-mark rejected (task requeued/reassigned?), aborting side effect: {:?}",
+        result.reason
+      ));
+    }
+    Ok(())
+  }
 }
 
 /// Uniform signature for one kind's execution logic. Purely an organization
@@ -230,19 +279,24 @@ impl TaskHandler for EmailHandler {
 
   async fn run(
     &self,
-    _ctx: &TaskCtx<'_>,
+    ctx: &TaskCtx<'_>,
     record: &TaskRecord,
     email: &Email,
   ) -> Result<Option<String>, String> {
     // Testable failure semantics for drills: recipients starting with "fail"
     // simulate a handler error (exercises retry/backoff and permanent
     // failure), "slow" simulates a hang (exercises the execution timeout).
+    // Both fire BEFORE the commit mark so the drills keep exercising the
+    // plain retry path.
     if email.to.starts_with("fail") {
       return Err(format!("simulated failure sending to {}", email.to));
     }
     if email.to.starts_with("slow") {
       tokio::time::sleep(TASK_EXECUTION_TIMEOUT + Duration::from_secs(15)).await;
     }
+
+    // Sending is irreversible: declare the commit point first, abort on loss.
+    ctx.mark_committed(record).await?;
 
     tracing::info!(task_id = %record.id, to = %email.to, "sending email");
     let result = sonic_rs::to_string(&sonic_rs::json!({
@@ -283,7 +337,7 @@ impl TaskHandler for WebhookHandler {
 
   async fn run(
     &self,
-    _ctx: &TaskCtx<'_>,
+    ctx: &TaskCtx<'_>,
     record: &TaskRecord,
     webhook: &Webhook,
   ) -> Result<Option<String>, String> {
@@ -291,6 +345,11 @@ impl TaskHandler for WebhookHandler {
       .body
       .clone()
       .unwrap_or_else(|| sonic_rs::json!({ "task_id": record.id }));
+
+    // The POST is an irreversible external side effect: declare the commit
+    // point first, abort on loss.
+    ctx.mark_committed(record).await?;
+
     tracing::info!(task_id = %record.id, url = %webhook.url, "delivering webhook");
     let response = webhook_client()
       .post(&webhook.url)
@@ -810,6 +869,7 @@ mod tests {
       idem_key: None,
       assigned_node_id: None,
       lease_epoch: None,
+      committed: false,
       error: None,
       updated_at: 0,
       created_at: 0,

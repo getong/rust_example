@@ -125,6 +125,13 @@ pub struct TaskRecord {
   pub idem_key: Option<String>,
   pub assigned_node_id: Option<String>,
   pub lease_epoch: Option<u64>,
+  /// True once the executing worker declared the task past its point of no
+  /// return (irreversible side effect about to run / in flight). A committed
+  /// task is never re-queued: `TaskRequeue` fails it terminally instead,
+  /// because a re-run could duplicate the side effect. Set by
+  /// `TaskMarkCommitted` under the same (node, lease_epoch) fencing as acks.
+  #[serde(default)]
+  pub committed: bool,
   pub error: Option<String>,
   /// Unix seconds of the last assign/claim transition; the scheduler uses
   /// it to requeue tasks stuck in Assigned/Running on a live worker.
@@ -352,6 +359,12 @@ pub fn apply_task_command(
       lease_epoch,
       now,
     } => apply_claim(read, id, node_id, lease_epoch, now),
+    Request::TaskMarkCommitted {
+      id,
+      node_id,
+      lease_epoch,
+      now,
+    } => apply_mark_committed(read, id, node_id, lease_epoch, now),
     Request::TaskDone {
       id,
       node_id,
@@ -446,6 +459,7 @@ fn apply_enqueue(
     idem_key: idem_key.clone(),
     assigned_node_id: None,
     lease_epoch: None,
+    committed: false,
     error: None,
     updated_at: run_at,
     created_at,
@@ -552,6 +566,49 @@ fn apply_claim(
   Ok((mutations, result.into_response()))
 }
 
+/// Mark a running task as past its point of no return (renegade's
+/// `Running.committed` pattern). Fenced exactly like an ack: (node,
+/// lease_epoch) must match the record, so a worker whose task was already
+/// requeued/reassigned gets a reject and MUST abort the side effect —
+/// winning this replicated write is what resolves the race against a
+/// concurrent requeue. Idempotent for the fenced owner.
+fn apply_mark_committed(
+  read: &mut StateRead<'_>,
+  id: String,
+  node_id: String,
+  lease_epoch: u64,
+  now: u64,
+) -> Result<(Vec<KvMutation>, Response), String> {
+  let Some(mut record) = read_record(read, &id)? else {
+    return Ok((
+      Vec::new(),
+      TaskOpResult::rejected("task not found").into_response(),
+    ));
+  };
+  if !ack_matches(&record, &node_id, lease_epoch) {
+    return Ok((
+      Vec::new(),
+      TaskOpResult::rejected(format!(
+        "commit-mark mismatch: status={}, assigned={:?}, lease={:?}",
+        record.status.as_str(),
+        record.assigned_node_id,
+        record.lease_epoch
+      ))
+      .into_response(),
+    ));
+  }
+
+  if record.committed {
+    // Idempotent re-mark by the same fenced owner.
+    return Ok((Vec::new(), TaskOpResult::ok().into_response()));
+  }
+
+  record.committed = true;
+  record.updated_at = now;
+  let mutations = vec![KvMutation::put(rec_key(&id), encode_record(&record)?)];
+  Ok((mutations, TaskOpResult::ok().into_response()))
+}
+
 fn ack_matches(record: &TaskRecord, node_id: &str, lease_epoch: u64) -> bool {
   record.status == TaskStatus::Running
     && record.assigned_node_id.as_deref() == Some(node_id)
@@ -620,6 +677,22 @@ fn apply_fail(
     ));
   }
 
+  // A committed task is never blindly retried: a generic Err — notably the
+  // execution timeout — does not prove the side effect did NOT run (it may
+  // still be in flight). Force the terminal branch; the appended note makes
+  // the suppression visible for reconciliation. Drills and clean pre-commit
+  // failures are unaffected: handlers mark the commit point only right
+  // before the side effect, so an Err raised earlier retries as always.
+  let mut error = error;
+  let mut retry_at = retry_at;
+  if record.committed && retry_at > 0 {
+    error.push_str(
+      " (retry suppressed: task passed its commit point; side effect may have executed — needs \
+       reconciliation)",
+    );
+    retry_at = 0;
+  }
+
   let assigned_key = assigned_idx_key(&node_id, &id);
   record.attempts = attempts;
   record.error = Some(error);
@@ -667,8 +740,37 @@ fn apply_requeue(
   if let Some(node) = record.assigned_node_id.take() {
     mutations.push(KvMutation::del(assigned_idx_key(&node, &id)));
   }
-  record.status = TaskStatus::Queued;
   record.lease_epoch = None;
+
+  if record.committed {
+    // The task declared its point of no return: the side effect may already
+    // have executed, so a re-run could duplicate it (renegade's rule for
+    // orphaned committed settles: never re-run, surface for reconciliation).
+    // Fail it terminally instead of re-queueing. Deciding this here, in
+    // apply, keeps the policy deterministic on every replica no matter which
+    // scheduler path (dead worker / stuck / disconnect grace) proposed the
+    // requeue.
+    let now = record.updated_at.max(record.created_at);
+    record.status = TaskStatus::Failed;
+    record.completed_at = now;
+    record.error = Some(
+      "requeue refused: task passed its commit point on a lost worker; side effect may have \
+       executed — needs reconciliation"
+        .to_string(),
+    );
+    mutations.push(KvMutation::put(terminal_idx_key(now, &id), id.clone()));
+    mutations.insert(0, KvMutation::put(rec_key(&id), encode_record(&record)?));
+    let result = TaskOpResult {
+      ok: true,
+      id: Some(id),
+      deduplicated: None,
+      record: None,
+      reason: Some("committed task failed terminally instead of requeued".to_string()),
+    };
+    return Ok((mutations, result.into_response()));
+  }
+
+  record.status = TaskStatus::Queued;
   mutations.push(KvMutation::put(
     queued_idx_key(record.run_at, &id),
     id.clone(),
@@ -954,6 +1056,116 @@ mod tests {
     assert!(!stale.ok);
   }
 
+  /// Helper: enqueue → assign → claim, leaving `id` Running on (nodeA, 1).
+  fn running_task(state: &mut MapState, id: &str) {
+    state.apply(enqueue(id, None));
+    state.apply(Request::TaskAssign {
+      id: id.into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1000,
+    });
+    state.apply(Request::TaskClaim {
+      id: id.into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1001,
+    });
+  }
+
+  #[test]
+  fn mark_committed_is_fenced_and_idempotent() {
+    let mut state = MapState::new();
+    running_task(&mut state, "t1");
+
+    // A stale (node, epoch) pair cannot mark the commit point.
+    let stale = state.apply(Request::TaskMarkCommitted {
+      id: "t1".into(),
+      node_id: "nodeB".into(),
+      lease_epoch: 9,
+      now: 1002,
+    });
+    assert!(!stale.ok);
+    assert!(!state.record("t1").committed);
+
+    // The fenced owner can; a re-mark is an idempotent ok.
+    for _ in 0 .. 2 {
+      let marked = state.apply(Request::TaskMarkCommitted {
+        id: "t1".into(),
+        node_id: "nodeA".into(),
+        lease_epoch: 1,
+        now: 1002,
+      });
+      assert!(marked.ok);
+      assert!(state.record("t1").committed);
+    }
+  }
+
+  #[test]
+  fn requeue_of_committed_task_fails_terminally() {
+    let mut state = MapState::new();
+    running_task(&mut state, "t1");
+    state.apply(Request::TaskMarkCommitted {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1002,
+    });
+
+    // A scheduler requeue (dead/stuck worker) must NOT re-run the task.
+    let requeued = state.apply(Request::TaskRequeue { id: "t1".into() });
+    assert!(requeued.ok);
+    let record = state.record("t1");
+    assert_eq!(record.status, TaskStatus::Failed);
+    assert!(record.completed_at > 0);
+    assert!(
+      record
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("commit point")
+    );
+    assert!(!state.has_key(&queued_idx_key(100, "t1")));
+    assert!(!state.has_key(&assigned_idx_key("nodeA", "t1")));
+    assert!(state.has_key(&terminal_idx_key(record.completed_at, "t1")));
+  }
+
+  #[test]
+  fn fail_of_committed_task_suppresses_retry() {
+    let mut state = MapState::new();
+    running_task(&mut state, "t1");
+    state.apply(Request::TaskMarkCommitted {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1002,
+    });
+
+    // A generic failure with a retry slot (e.g. execution timeout) lands
+    // terminal instead of re-queueing: the side effect may have executed.
+    let failed = state.apply(Request::TaskFail {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      attempts: 1,
+      error: "execution timed out".into(),
+      retry_at: 2000,
+      now: 1030,
+    });
+    assert!(failed.ok);
+    let record = state.record("t1");
+    assert_eq!(record.status, TaskStatus::Failed);
+    assert!(
+      record
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("retry suppressed")
+    );
+    assert!(!state.has_key(&queued_idx_key(2000, "t1")));
+    assert!(state.has_key(&terminal_idx_key(1030, "t1")));
+  }
+
   #[test]
   fn vacuum_deletes_only_terminal_records_and_idem_keys() {
     let mut state = MapState::new();
@@ -1021,6 +1233,7 @@ mod tests {
       idem_key: None,
       assigned_node_id: None,
       lease_epoch: None,
+      committed: false,
       error: None,
       updated_at: 130,
       created_at: 100,

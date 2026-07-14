@@ -54,6 +54,22 @@ pub enum Request {
     lease_epoch: u64,
     now: u64,
   },
+  /// Worker marks its running task as past the point of no return, BEFORE
+  /// performing an irreversible side effect (renegade's `Running.committed`
+  /// pattern). Fenced like an ack: succeeds only when (node_id, lease_epoch)
+  /// match the record. Once committed, `TaskRequeue` refuses to re-queue the
+  /// task and fails it terminally instead — a re-run could duplicate the
+  /// side effect. The worker must abort the side effect if this command is
+  /// rejected: winning this raft write is what resolves the race against a
+  /// concurrent requeue.
+  TaskMarkCommitted {
+    id: String,
+    node_id: String,
+    lease_epoch: u64,
+    /// Commit time (proposer-supplied), stamped as `updated_at`.
+    #[serde(default)]
+    now: u64,
+  },
   /// Worker reports success (running → done). Stale acks are rejected.
   TaskDone {
     id: String,
@@ -128,6 +144,9 @@ impl fmt::Display for Request {
       }
       Request::TaskClaim { id, node_id, .. } => {
         write!(f, "TaskClaim {{ id: {id}, node: {node_id} }}")
+      }
+      Request::TaskMarkCommitted { id, node_id, .. } => {
+        write!(f, "TaskMarkCommitted {{ id: {id}, node: {node_id} }}")
       }
       Request::TaskDone { id, .. } => write!(f, "TaskDone {{ id: {id} }}"),
       Request::TaskFail { id, .. } => write!(f, "TaskFail {{ id: {id} }}"),
