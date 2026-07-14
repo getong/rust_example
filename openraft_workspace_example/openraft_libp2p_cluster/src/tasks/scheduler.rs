@@ -9,19 +9,21 @@
 //! requeue, and stuck-task detection.
 //!
 //! Each pass does two narrow index scans:
-//!   - `task:idx:assigned:` → requeue tasks whose worker lease is gone;
+//!   - `task:idx:assigned:` → requeue tasks whose worker lease expired, or whose worker stayed
+//!     disconnected past the suspect grace window ([`WORKER_DISCONNECT_GRACE_SECS`]);
 //!   - `task:idx:queued:`   → assign due tasks to active workers.
 //! Every transition is a replicated `TaskAssign`/`TaskRequeue` command; this
 //! module never mutates task state directly.
 
 use std::{
-  collections::{BTreeSet, hash_map::DefaultHasher},
+  collections::{BTreeSet, HashMap, hash_map::DefaultHasher},
   hash::{Hash, Hasher},
   str::FromStr,
   time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
+use tokio::time::Instant;
 
 use crate::{
   GroupId,
@@ -48,6 +50,18 @@ pub const TASK_STUCK_REQUEUE_SECS: u64 = 60;
 /// (lease expiry, stuck detection) tolerates this latency; new work is
 /// event-driven and does not wait for it.
 pub const SCHEDULER_FALLBACK_SECS: u64 = 5;
+
+/// How long a worker with a FRESH lease may stay disconnected (from this
+/// leader's libp2p view) before its in-flight tasks are requeued.
+///
+/// Lease renewal is a raft write that any control node forwards to the
+/// leader, so a fresh lease proves cluster-level liveness; the leader's
+/// direct connection view is a single-observer signal that can go dark on an
+/// asymmetric partition while the worker keeps executing. During the grace
+/// window such a worker is a "suspect": it keeps its in-flight tasks but
+/// receives no new assignments. Lease expiry remains the authoritative
+/// kill signal and is never delayed by this grace.
+pub const WORKER_DISCONNECT_GRACE_SECS: u64 = 15;
 
 /// How often the leader looks for expired terminal records to vacuum.
 const VACUUM_INTERVAL_SECS: u64 = 60;
@@ -83,9 +97,13 @@ pub async fn run_task_scheduler(
   events.mark_unchanged();
 
   let mut next_vacuum_at = 0u64;
+  // Per-worker "disconnected since" tracking for the suspect grace window;
+  // scoped to this leadership term (a new leader starts with a clean map,
+  // so a suspect gets a full grace window under the new observer).
+  let mut down_since: HashMap<String, Instant> = HashMap::new();
 
   loop {
-    let next_due = match scheduler_tick(&group_id, &network, &kv_client).await {
+    let next_due = match scheduler_tick(&group_id, &network, &kv_client, &mut down_since).await {
       Ok(next_due) => next_due,
       Err(err) => {
         tracing::warn!(group = %group_id, error = ?err, "task scheduler pass failed");
@@ -128,17 +146,19 @@ async fn scheduler_tick(
   group_id: &str,
   network: &Libp2pNetworkFactory,
   kv_client: &KvClient,
+  down_since: &mut HashMap<String, Instant>,
 ) -> anyhow::Result<Option<u64>> {
   let Some(group) = openraft_group(group_id) else {
     return Err(anyhow!("unknown group_id={group_id}"));
   };
   let now = current_unix_secs();
 
-  let workers = active_workers(group_id, network, now).await?;
-  let active_ids: BTreeSet<&str> = workers.iter().map(|w| w.node_id.as_str()).collect();
+  let view = worker_view(group_id, network, now, down_since).await?;
+  let workers = view.assignable;
 
   // 1) Requeue in-flight tasks that are unrecoverable on their worker:
-  //    - the worker's lease is gone / it is disconnected, or
+  //    - the worker's lease expired, or it stayed disconnected past the suspect grace window (see
+  //      WORKER_DISCONNECT_GRACE_SECS), or
   //    - the worker is alive but the task has been stuck in Assigned/Running past
   //      TASK_STUCK_REQUEUE_SECS (execution hang, lost wake-up, worker bug).
   let assigned = group
@@ -151,7 +171,7 @@ async fn scheduler_tick(
       continue;
     };
 
-    let reason = if !active_ids.contains(node_id) {
+    let reason = if !view.retained.contains(node_id) {
       "inactive worker"
     } else {
       match group.kv_data.get(&rec_key(task_id)).await? {
@@ -299,11 +319,23 @@ async fn vacuum_expired_tasks(group_id: &str, now: u64) -> anyhow::Result<()> {
   }
 }
 
-async fn active_workers(
+/// The scheduler's view of the worker pool for one pass.
+struct WorkerView {
+  /// Lease-fresh AND connected workers: valid targets for new assignments.
+  assignable: Vec<WorkerLeaseRecord>,
+  /// Workers whose in-flight tasks must NOT be requeued: everything in
+  /// `assignable` plus suspects (lease fresh but disconnected for less than
+  /// the grace window). Two-phase failover: suspects keep their work but
+  /// receive nothing new until they either reconnect or expire.
+  retained: BTreeSet<String>,
+}
+
+async fn worker_view(
   group_id: &str,
   network: &Libp2pNetworkFactory,
   now: u64,
-) -> anyhow::Result<Vec<WorkerLeaseRecord>> {
+  down_since: &mut HashMap<String, Instant>,
+) -> anyhow::Result<WorkerView> {
   let Some(group) = openraft_group(group_id) else {
     return Err(anyhow!("unknown group_id={group_id}"));
   };
@@ -312,7 +344,12 @@ async fn active_workers(
     .entries_with_prefix(TASK_WORKER_PREFIX.to_string())
     .await?;
 
-  let mut workers = Vec::new();
+  let grace = Duration::from_secs(WORKER_DISCONNECT_GRACE_SECS);
+  let tick_now = Instant::now();
+  let mut assignable = Vec::new();
+  let mut retained = BTreeSet::new();
+  let mut leased_ids: BTreeSet<String> = BTreeSet::new();
+
   for (key, value) in entries {
     let lease: WorkerLeaseRecord = match sonic_rs::from_str(&value) {
       Ok(lease) => lease,
@@ -321,18 +358,53 @@ async fn active_workers(
         continue;
       }
     };
+    leased_ids.insert(lease.node_id.clone());
+
+    // Lease expiry is the authoritative failure signal: renewal is a raft
+    // write, so a worker that cannot reach ANY control node loses its lease
+    // after the TTL no matter what this leader's connection view says.
     if lease.expires_at < now {
+      down_since.remove(&lease.node_id);
       continue;
     }
-    if let Ok(peer) = libp2p::PeerId::from_str(&lease.node_id)
-      && !network.is_peer_connected(&peer).await
-    {
+
+    let connected = match libp2p::PeerId::from_str(&lease.node_id) {
+      Ok(peer) => network.is_peer_connected(&peer).await,
+      Err(_) => false,
+    };
+    if connected {
+      down_since.remove(&lease.node_id);
+      retained.insert(lease.node_id.clone());
+      assignable.push(lease);
       continue;
     }
-    workers.push(lease);
+
+    // Fresh lease but this leader cannot see a direct connection: a
+    // single-observer signal (asymmetric partition, transient drop). Keep
+    // the worker's in-flight tasks for the grace window instead of
+    // requeueing on the first blip.
+    let since = *down_since.entry(lease.node_id.clone()).or_insert(tick_now);
+    if tick_now.duration_since(since) < grace {
+      retained.insert(lease.node_id.clone());
+    } else {
+      tracing::warn!(
+        group = %group_id,
+        worker_node_id = %lease.node_id,
+        downtime = ?tick_now.duration_since(since),
+        "worker lease is fresh but the worker stayed disconnected past the grace window; \
+         releasing its in-flight tasks"
+      );
+    }
   }
-  workers.sort_by(|a, b| a.node_id.cmp(&b.node_id));
-  Ok(workers)
+
+  // Drop tracking for workers that no longer hold a lease at all.
+  down_since.retain(|id, _| leased_ids.contains(id));
+
+  assignable.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+  Ok(WorkerView {
+    assignable,
+    retained,
+  })
 }
 
 fn select_worker<'a>(

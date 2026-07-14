@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::anyhow;
 use openraft::{BasicNode, ChangeMembers, async_runtime::WatchReceiver};
-use tokio::time::Instant;
+use tokio::time::{Instant, timeout};
 
 use crate::{
   GroupId, NodeId, network::transport::Libp2pNetworkFactory, signal::ShutdownRx, typ::Raft,
@@ -28,6 +28,14 @@ pub struct MembershipGuardConfig {
   /// How often the guard inspects the membership.
   pub tick_interval: Duration,
 }
+
+/// Upper bound on a single membership change (`change_membership` /
+/// `add_learner`). Around a marginal quorum these calls can block until the
+/// change commits — potentially forever — which would wedge the guard loop
+/// on the exact ticks where it is needed most. On timeout the tick fails and
+/// the next tick re-evaluates from fresh metrics; openraft resolves a
+/// re-proposed identical change idempotently.
+const MEMBERSHIP_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub async fn run_membership_guard(
   group_id: GroupId,
@@ -130,10 +138,13 @@ async fn guard_tick(
 
     // retain=false removes the dead voter from the membership entirely, so a
     // returning node sees itself evicted and re-joins as a learner.
-    raft
-      .change_membership(new_voters, false)
-      .await
-      .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
+    timeout(
+      MEMBERSHIP_CHANGE_TIMEOUT,
+      raft.change_membership(new_voters, false),
+    )
+    .await
+    .map_err(|_| anyhow!("change_membership timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
+    .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
   } else {
     // Dead learner: drop it from the membership so it no longer shows up as
     // a member; a returning node re-registers itself as a learner.
@@ -144,13 +155,16 @@ async fn guard_tick(
       "removing crashed learner from the membership"
     );
 
-    raft
-      .change_membership(
+    timeout(
+      MEMBERSHIP_CHANGE_TIMEOUT,
+      raft.change_membership(
         ChangeMembers::RemoveNodes(BTreeSet::from([dead_member.clone()])),
         false,
-      )
-      .await
-      .map_err(|err| anyhow!("remove learner failed: {err:?}"))?;
+      ),
+    )
+    .await
+    .map_err(|_| anyhow!("remove learner timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
+    .map_err(|err| anyhow!("remove learner failed: {err:?}"))?;
   }
   down_since.remove(&dead_member);
 
@@ -169,9 +183,13 @@ async fn backfill_learner(
 ) {
   match pick_spare_worker(network, member_ids, dead_member).await {
     Some((node_id, addr)) => {
-      match raft
-        .add_learner(node_id.clone(), BasicNode { addr: addr.clone() }, false)
-        .await
+      match timeout(
+        MEMBERSHIP_CHANGE_TIMEOUT,
+        raft.add_learner(node_id.clone(), BasicNode { addr: addr.clone() }, false),
+      )
+      .await
+      .map_err(|_| anyhow!("add_learner timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))
+      .and_then(|result| result.map_err(|err| anyhow!("{err:?}")))
       {
         Ok(_) => tracing::info!(
           group = %group_id,
