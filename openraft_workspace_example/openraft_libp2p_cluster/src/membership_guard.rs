@@ -5,6 +5,18 @@
 //!   - a dead learner is removed from the membership;
 //! and in both cases the learner pool is backfilled from a spare connected
 //! worker.
+//!
+//! "Unreachable" is judged from TWO observers, and a member is treated as
+//! alive if EITHER says so:
+//!   - the libp2p connection view (`network.is_peer_connected`), and
+//!   - openraft's own heartbeat acknowledgements (`RaftMetrics::heartbeat`, the leader-local
+//!     last-ack time per member — a member that recently acked AppendEntries is alive at the raft
+//!     layer no matter what the transport view says).
+//! Only a member both observers consider dead starts the down clock. This
+//! halves the false-replacement surface: a transport blip with healthy raft
+//! replication, or a connection that libp2p reports while the raft runtime
+//! is wedged, no longer triggers (or respectively no longer masks) a
+//! replacement on its own.
 
 use std::{
   collections::{BTreeSet, HashMap},
@@ -13,11 +25,14 @@ use std::{
 };
 
 use anyhow::anyhow;
-use openraft::{BasicNode, ChangeMembers, async_runtime::WatchReceiver};
+use openraft::{BasicNode, ChangeMembers, Instant as _, async_runtime::WatchReceiver};
 use tokio::time::{Instant, timeout};
 
 use crate::{
-  GroupId, NodeId, network::transport::Libp2pNetworkFactory, signal::ShutdownRx, typ::Raft,
+  GroupId, NodeId,
+  network::transport::Libp2pNetworkFactory,
+  signal::ShutdownRx,
+  typ::{Raft, RaftMetrics},
 };
 
 #[derive(Clone, Debug)]
@@ -36,6 +51,14 @@ pub struct MembershipGuardConfig {
 /// the next tick re-evaluates from fresh metrics; openraft resolves a
 /// re-proposed identical change idempotently.
 const MEMBERSHIP_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A member whose last raft heartbeat/replication ack is younger than this
+/// counts as alive regardless of the libp2p connection view. Openraft sends
+/// heartbeats every `Config::heartbeat_interval` (sub-second), so several
+/// missed intervals fit comfortably inside this window; it is deliberately
+/// far below any sane `voter_replace_timeout`, so raft-ack freshness delays
+/// no replacement — it only vetoes false ones.
+const RAFT_ACK_FRESH_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run_membership_guard(
   group_id: GroupId,
@@ -84,15 +107,21 @@ async fn guard_tick(
   let member_ids: BTreeSet<NodeId> = membership.nodes().map(|(id, _)| id.clone()).collect();
   let self_id = metrics.id.clone();
 
+  // Second observer: members whose last raft heartbeat/replication ack is
+  // fresh (leader-local view from openraft itself). Absent map (not leader /
+  // no data yet) degrades to the libp2p-only view.
+  let raft_ack_fresh = fresh_raft_acks(&metrics);
+
   // Track for how long each member (voter or learner) has been unreachable.
-  // Reconnection resets the clock, so transient drops within the timeout are
-  // ignored.
+  // A member is alive if EITHER observer says so: a libp2p connection is
+  // visible, or it acked raft traffic recently. Recovery on either signal
+  // resets the clock, so transient drops within the timeout are ignored.
   let now = Instant::now();
   for member in &member_ids {
     if member == &self_id {
       continue;
     }
-    if node_connected(network, member).await {
+    if node_connected(network, member).await || raft_ack_fresh.contains(member) {
       down_since.remove(member);
     } else {
       down_since.entry(member.clone()).or_insert(now);
@@ -114,7 +143,7 @@ async fn guard_tick(
   if voters.contains(&dead_member) {
     // Dead voter: replace it with a connected learner in one membership
     // change so the quorum math stays sound.
-    let Some(promoted) = pick_connected_learner(&learners, network).await else {
+    let Some(promoted) = pick_promotable_learner(&learners, network, &raft_ack_fresh).await else {
       tracing::warn!(
         group = %group_id,
         dead_voter = %dead_member,
@@ -219,16 +248,50 @@ async fn node_connected(network: &Libp2pNetworkFactory, node_id: &NodeId) -> boo
   }
 }
 
-async fn pick_connected_learner(
+/// Members whose last raft heartbeat/replication ack — openraft's own
+/// leader-local per-member observation (`RaftMetrics::heartbeat`) — is
+/// younger than [`RAFT_ACK_FRESH_TIMEOUT`]. Empty when the map is absent
+/// (metrics not yet populated), which degrades detection to the libp2p-only
+/// view rather than blocking it.
+fn fresh_raft_acks(metrics: &RaftMetrics) -> BTreeSet<NodeId> {
+  let Some(heartbeat) = metrics.heartbeat.as_ref() else {
+    return BTreeSet::new();
+  };
+  heartbeat
+    .iter()
+    .filter(|(_, last_ack)| {
+      last_ack
+        .as_ref()
+        .map(|t| t.elapsed() < RAFT_ACK_FRESH_TIMEOUT)
+        .unwrap_or(false)
+    })
+    .map(|(id, _)| id.clone())
+    .collect()
+}
+
+/// Pick a learner to promote in place of a dead voter. Prefer one that is
+/// both connected AND acking raft traffic — it is about to receive a vote,
+/// and a learner whose transport looks up but whose raft runtime is silent
+/// would weaken the new quorum. Fall back to a merely connected learner so
+/// promotion is never blocked on metrics availability.
+async fn pick_promotable_learner(
   learners: &[NodeId],
   network: &Libp2pNetworkFactory,
+  raft_ack_fresh: &BTreeSet<NodeId>,
 ) -> Option<NodeId> {
+  let mut connected_only = None;
   for learner in learners {
-    if node_connected(network, learner).await {
+    if !node_connected(network, learner).await {
+      continue;
+    }
+    if raft_ack_fresh.contains(learner) {
       return Some(learner.clone());
     }
+    if connected_only.is_none() {
+      connected_only = Some(learner.clone());
+    }
   }
-  None
+  connected_only
 }
 
 /// A spare worker is a known, connected libp2p peer that is not part of the
