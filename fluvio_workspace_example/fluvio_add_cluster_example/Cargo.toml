@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 fluvio = "0.50.1"
-futures = "0.3.31"
-tokio = { version = "1.49.0", features = ["full"] }
+futures = "0.3.32"
+tokio = { version = "1.52.3", features = ["full"] }
