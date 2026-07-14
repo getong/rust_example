@@ -6,8 +6,8 @@ edition = "2024"
 [dependencies]
 async-trait = "0.1.89"
 clap = { version = "4", features = ["derive"] }
-env_logger = "0.11.10"
-log = "0.4.29"
-pingora-core = "0.8.0"
-pingora-load-balancing = "0.8.0"
-pingora-proxy = "0.8.0"
+env_logger = "0.11.11"
+log = "0.4.33"
+pingora-core = "0.8.1"
+pingora-load-balancing = "0.8.1"
+pingora-proxy = "0.8.1"

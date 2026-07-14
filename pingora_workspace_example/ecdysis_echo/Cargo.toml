@@ -10,9 +10,9 @@ systemd_sockets = ["ecdysis/systemd_sockets"]
 
 [dependencies]
 ecdysis = "1.1.1"
-env_logger = "0.11.10"
+env_logger = "0.11.11"
 futures = "0.3.32"
-log = "0.4.29"
-nix = { version = "0.31.2", features = ["process"] }
-tokio = { version = "1.52.2", features = ["full"] }
+log = "0.4.33"
+nix = { version = "0.31.3", features = ["process"] }
+tokio = { version = "1.52.3", features = ["full"] }
 waitgroup = "0.1.2"
