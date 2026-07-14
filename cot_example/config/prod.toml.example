@@ -1,0 +1,24 @@
+secret_key = ""  # Set this to a random hex string in production
+
+[database]
+url = "sqlite://db.sqlite3?mode=rwc"
+# Or:
+# url = "postgres://user:password@localhost:5432/database"
+# url = "mysql://user:password@localhost:3306/database"
+
+[auth_backend]
+type = "database"
+
+[static_files]
+rewrite = "query_param"
+cache_timeout = "1year"
+
+[middlewares.session.store]
+type = "database"
+
+[email.transport]
+type = "console"
+# Or:
+# type = "smtp"
+# url = "smtps://user:password@smtp.gmail.com"
+# mechanism = "plain"
