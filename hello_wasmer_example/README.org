@@ -2,11 +2,55 @@
 :PROPERTIES:
 :CUSTOM_ID: hello-wasmer-example
 :END:
+
+Compile Rust rule crates (=risk_rule_v1=, =risk_rule_v2=) to
+=wasm32-unknown-unknown=, then load and call them from a Rust host using the
+embedded [[https://wasmer.io][Wasmer]] runtime. Modeled after the =hot_upgrade=
+wasmtime example: the host starts with the v1 rule, then hot-swaps to v2 while
+migrating in-memory state to the new schema.
+
+** layout
+:PROPERTIES:
+:CUSTOM_ID: layout
+:END:
+- =src/main.rs= – demo: auto-builds the guest wasm, loads v1, upgrades to v2
+- =src/wasm_rule.rs= – =WasmHandler=: loads a =.wasm= file with wasmer and
+  calls its exported =required_schema()= / =decide(user_id, amount)= functions
+- =src/types.rs= – =Request= / =Decision= / =Response= / =State=
+- =risk_rule_v1=, =risk_rule_v2= – guest crates (=crate-type = ["cdylib"]=)
+  compiled to wasm
+
 ** run command
 :PROPERTIES:
 :CUSTOM_ID: run-command
 :END:
 #+begin_src shell
-cargo build --target wasm32-wasi
-wasmer run target/wasm32-wasi/debug/hello_wasmer_example.wasm
+rustup target add wasm32-unknown-unknown
+cargo run
 #+end_src
+
+The guest modules are rebuilt automatically on each run. To build them
+manually:
+
+#+begin_src shell
+cargo build --package risk_rule_v1 --release --target wasm32-unknown-unknown
+cargo build --package risk_rule_v2 --release --target wasm32-unknown-unknown
+#+end_src
+
+** expected output
+:PROPERTIES:
+:CUSTOM_ID: expected-output
+:END:
+#+begin_example
+--- risk_rule_v1 rule active (wasmer) ---
+user_id=1 amount=6000 -> risk_rule_v1:allow
+user_id=9 amount=12000 -> risk_rule_v1:review
+
+upgraded to rule risk_rule_v2
+
+--- risk_rule_v2 rule active (wasmer) ---
+user_id=2 amount=3000 -> risk_rule_v2:allow-fast-lane
+user_id=3 amount=6000 -> risk_rule_v2:review
+
+processed=4, schema=2, fast_lane_hits=1, current_rule=risk_rule_v2, upgrades=1
+#+end_example

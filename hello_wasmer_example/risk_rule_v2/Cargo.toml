@@ -1,0 +1,11 @@
+[package]
+name = "risk_rule_v2"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+# Build with:
+#   cargo build --package risk_rule_v2 --release --target wasm32-unknown-unknown
+# (the host binary also builds this automatically on `cargo run`)
