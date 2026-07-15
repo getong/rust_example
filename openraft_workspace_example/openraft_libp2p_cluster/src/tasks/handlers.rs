@@ -30,7 +30,7 @@ use crate::{
     scheduler::current_unix_secs,
     worker::{TASK_EXECUTION_TIMEOUT, submit_command, submit_reply},
   },
-  types_kv::Request as StateCommand,
+  types_kv::TaskRequest as StateCommand,
 };
 
 /// Every task kind understood by workers, unified in one tagged enum. The
@@ -471,7 +471,7 @@ impl TaskHandler for KvSetHandler {
       cluster.network,
       cluster.control_nodes,
       &kv.group_id,
-      StateCommand::set(kv.key.clone(), kv.value.clone()),
+      crate::types_kv::Request::set(kv.key.clone(), kv.value.clone()),
     )
     .await
     .map_err(|err| format!("kv_set raft write failed: {err}"))?;

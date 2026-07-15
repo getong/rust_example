@@ -167,7 +167,7 @@ impl TaskRpc for TaskRpcService {
     // Same door check as the HTTP frontend: enqueues arriving over the
     // task RPC (worker-mode frontends, external clients) must also respect
     // the payload cap before the command reaches the raft log.
-    if let StateCommand::TaskEnqueue { payload, .. } = &cmd
+    if let StateCommand::Task(crate::types_kv::TaskRequest::TaskEnqueue { payload, .. }) = &cmd
       && payload.len() > crate::tasks::MAX_TASK_PAYLOAD_BYTES
     {
       return TaskWriteReply::error(format!(

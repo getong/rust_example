@@ -13,7 +13,6 @@ use crate::{
   http, leader_controller,
   membership_guard::MembershipGuardConfig,
   network::{swarm::KvClient, transport::Libp2pNetworkFactory},
-  openraft_groups,
   sqlite_cache::{self, SqliteCache},
 };
 
@@ -52,9 +51,11 @@ pub(crate) async fn run_control_services(
     sqlite_cache::set_sqlite_cache(cache)
       .map_err(|_| anyhow!("global sqlite cache already initialized"))?;
   }
-  let sqlite_flush_group_id = default_openraft_group_id();
+  let sqlite_flush_group_id = default_openraft_group_id(&runtime.registry);
 
-  let leader_controller_groups = openraft_groups()
+  let leader_controller_groups = runtime
+    .registry
+    .all()
     .map(|groups| groups.as_ref().clone())
     .ok_or_else(|| anyhow!("openraft groups are not initialized"))?;
   let http_state = build_http_state(

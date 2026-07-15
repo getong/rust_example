@@ -625,7 +625,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
             data_changes.push(DataChange::Delete { key });
             types_kv::Response::none()
           }
-          task_cmd => {
+          types_kv::Request::Task(task_cmd) => {
             schedule_event |= tasks::is_schedule_event(&task_cmd);
             let mut read = |key: &str| -> Result<Option<String>, String> {
               if let Some(pending) = overlay.get(key) {

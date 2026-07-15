@@ -19,7 +19,7 @@ pub mod worker;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types_kv::{Request, Response};
+use crate::types_kv::{Response, TaskRequest};
 
 /// Maximum executions per task before it is marked failed permanently.
 pub const MAX_TASK_ATTEMPTS: u32 = 3;
@@ -314,21 +314,21 @@ pub fn compute_metrics(
 /// logic stays storage-agnostic (RocksDB in production, a map in tests).
 pub type StateRead<'a> = dyn FnMut(&str) -> Result<Option<String>, String> + 'a;
 
-/// Returns `Some` when `cmd` is a task command this module owns.
-pub fn is_task_command(cmd: &Request) -> bool {
-  !matches!(cmd, Request::Set { .. } | Request::Delete { .. })
+/// Returns `true` when `cmd` is a task command this module owns.
+pub fn is_task_command(cmd: &crate::types_kv::Request) -> bool {
+  matches!(cmd, crate::types_kv::Request::Task(_))
 }
 
 /// Commands whose apply may make a task schedulable; the state machine
 /// notifies the local scheduler event channel after applying one of these,
 /// so an idle leader reacts immediately instead of waiting for a tick.
-pub fn is_schedule_event(cmd: &Request) -> bool {
+pub fn is_schedule_event(cmd: &TaskRequest) -> bool {
   matches!(
     cmd,
-    Request::TaskEnqueue { .. }
-      | Request::TaskRequeue { .. }
-      | Request::TaskFail { .. }
-      | Request::WorkerLease { .. }
+    TaskRequest::TaskEnqueue { .. }
+      | TaskRequest::TaskRequeue { .. }
+      | TaskRequest::TaskFail { .. }
+      | TaskRequest::WorkerLease { .. }
   )
 }
 
@@ -337,35 +337,35 @@ pub fn is_schedule_event(cmd: &Request) -> bool {
 /// write batch) and the proposer-visible response.
 pub fn apply_task_command(
   read: &mut StateRead<'_>,
-  cmd: Request,
+  cmd: TaskRequest,
 ) -> Result<(Vec<KvMutation>, Response), String> {
   match cmd {
-    Request::TaskEnqueue {
+    TaskRequest::TaskEnqueue {
       id,
       payload,
       run_at,
       idem_key,
       created_at,
     } => apply_enqueue(read, id, payload, run_at, idem_key, created_at),
-    Request::TaskAssign {
+    TaskRequest::TaskAssign {
       id,
       node_id,
       lease_epoch,
       now,
     } => apply_assign(read, id, node_id, lease_epoch, now),
-    Request::TaskClaim {
+    TaskRequest::TaskClaim {
       id,
       node_id,
       lease_epoch,
       now,
     } => apply_claim(read, id, node_id, lease_epoch, now),
-    Request::TaskMarkCommitted {
+    TaskRequest::TaskMarkCommitted {
       id,
       node_id,
       lease_epoch,
       now,
     } => apply_mark_committed(read, id, node_id, lease_epoch, now),
-    Request::TaskDone {
+    TaskRequest::TaskDone {
       id,
       node_id,
       lease_epoch,
@@ -373,7 +373,7 @@ pub fn apply_task_command(
       now,
       result,
     } => apply_done(read, id, node_id, lease_epoch, attempts, now, result),
-    Request::TaskFail {
+    TaskRequest::TaskFail {
       id,
       node_id,
       lease_epoch,
@@ -391,17 +391,14 @@ pub fn apply_task_command(
       retry_at,
       now,
     ),
-    Request::TaskRequeue { id } => apply_requeue(read, id),
-    Request::TaskVacuum { ids } => apply_vacuum(read, ids),
-    Request::WorkerLease {
+    TaskRequest::TaskRequeue { id } => apply_requeue(read, id),
+    TaskRequest::TaskVacuum { ids } => apply_vacuum(read, ids),
+    TaskRequest::WorkerLease {
       node_id,
       worker_name,
       lease_epoch,
       expires_at,
     } => apply_worker_lease(node_id, worker_name, lease_epoch, expires_at),
-    Request::Set { .. } | Request::Delete { .. } => {
-      Err("generic KV commands are not task commands".to_string())
-    }
   }
 }
 
@@ -844,7 +841,7 @@ mod tests {
       Self(BTreeMap::new())
     }
 
-    fn apply(&mut self, cmd: Request) -> TaskOpResult {
+    fn apply(&mut self, cmd: TaskRequest) -> TaskOpResult {
       let map = self.0.clone();
       let mut read = move |key: &str| Ok(map.get(key).cloned());
       let (mutations, response) = apply_task_command(&mut read, cmd).expect("apply");
@@ -870,8 +867,8 @@ mod tests {
     }
   }
 
-  fn enqueue(id: &str, idem: Option<&str>) -> Request {
-    Request::TaskEnqueue {
+  fn enqueue(id: &str, idem: Option<&str>) -> TaskRequest {
+    TaskRequest::TaskEnqueue {
       id: id.to_string(),
       payload: "{\"to\":\"a@b\"}".to_string(),
       run_at: 100,
@@ -907,7 +904,7 @@ mod tests {
     let mut state = MapState::new();
     state.apply(enqueue("t1", None));
 
-    let result = state.apply(Request::TaskAssign {
+    let result = state.apply(TaskRequest::TaskAssign {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 7,
@@ -926,7 +923,7 @@ mod tests {
     assert_eq!(state.record("t1").status, TaskStatus::Assigned);
 
     // Claim by the wrong node is rejected atomically.
-    let bad = state.apply(Request::TaskClaim {
+    let bad = state.apply(TaskRequest::TaskClaim {
       id: "t1".into(),
       node_id: "nodeB".into(),
       lease_epoch: 7,
@@ -934,7 +931,7 @@ mod tests {
     });
     assert!(!bad.ok);
 
-    let claim = state.apply(Request::TaskClaim {
+    let claim = state.apply(TaskRequest::TaskClaim {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 7,
@@ -945,7 +942,7 @@ mod tests {
     assert_eq!(claimed.attempts, 1);
     assert_eq!(state.record("t1").status, TaskStatus::Running);
 
-    let done = state.apply(Request::TaskDone {
+    let done = state.apply(TaskRequest::TaskDone {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 7,
@@ -967,20 +964,20 @@ mod tests {
   fn fail_with_retry_requeues_with_new_run_at() {
     let mut state = MapState::new();
     state.apply(enqueue("t1", None));
-    state.apply(Request::TaskAssign {
+    state.apply(TaskRequest::TaskAssign {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
       now: 1000,
     });
-    state.apply(Request::TaskClaim {
+    state.apply(TaskRequest::TaskClaim {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
       now: 1001,
     });
 
-    let failed = state.apply(Request::TaskFail {
+    let failed = state.apply(TaskRequest::TaskFail {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -997,19 +994,19 @@ mod tests {
     assert!(!state.has_key(&assigned_idx_key("nodeA", "t1")));
 
     // Permanent failure path.
-    state.apply(Request::TaskAssign {
+    state.apply(TaskRequest::TaskAssign {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 2,
       now: 1000,
     });
-    state.apply(Request::TaskClaim {
+    state.apply(TaskRequest::TaskClaim {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 2,
       now: 1001,
     });
-    let dead = state.apply(Request::TaskFail {
+    let dead = state.apply(TaskRequest::TaskFail {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 2,
@@ -1029,14 +1026,14 @@ mod tests {
   fn requeue_returns_assigned_task_to_queue() {
     let mut state = MapState::new();
     state.apply(enqueue("t1", None));
-    state.apply(Request::TaskAssign {
+    state.apply(TaskRequest::TaskAssign {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
       now: 1000,
     });
 
-    let requeued = state.apply(Request::TaskRequeue { id: "t1".into() });
+    let requeued = state.apply(TaskRequest::TaskRequeue { id: "t1".into() });
     assert!(requeued.ok);
     let record = state.record("t1");
     assert_eq!(record.status, TaskStatus::Queued);
@@ -1045,7 +1042,7 @@ mod tests {
     assert!(!state.has_key(&assigned_idx_key("nodeA", "t1")));
 
     // Stale ack from the pre-requeue assignment is rejected.
-    let stale = state.apply(Request::TaskDone {
+    let stale = state.apply(TaskRequest::TaskDone {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1059,13 +1056,13 @@ mod tests {
   /// Helper: enqueue → assign → claim, leaving `id` Running on (nodeA, 1).
   fn running_task(state: &mut MapState, id: &str) {
     state.apply(enqueue(id, None));
-    state.apply(Request::TaskAssign {
+    state.apply(TaskRequest::TaskAssign {
       id: id.into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
       now: 1000,
     });
-    state.apply(Request::TaskClaim {
+    state.apply(TaskRequest::TaskClaim {
       id: id.into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1079,7 +1076,7 @@ mod tests {
     running_task(&mut state, "t1");
 
     // A stale (node, epoch) pair cannot mark the commit point.
-    let stale = state.apply(Request::TaskMarkCommitted {
+    let stale = state.apply(TaskRequest::TaskMarkCommitted {
       id: "t1".into(),
       node_id: "nodeB".into(),
       lease_epoch: 9,
@@ -1090,7 +1087,7 @@ mod tests {
 
     // The fenced owner can; a re-mark is an idempotent ok.
     for _ in 0 .. 2 {
-      let marked = state.apply(Request::TaskMarkCommitted {
+      let marked = state.apply(TaskRequest::TaskMarkCommitted {
         id: "t1".into(),
         node_id: "nodeA".into(),
         lease_epoch: 1,
@@ -1105,7 +1102,7 @@ mod tests {
   fn requeue_of_committed_task_fails_terminally() {
     let mut state = MapState::new();
     running_task(&mut state, "t1");
-    state.apply(Request::TaskMarkCommitted {
+    state.apply(TaskRequest::TaskMarkCommitted {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1113,7 +1110,7 @@ mod tests {
     });
 
     // A scheduler requeue (dead/stuck worker) must NOT re-run the task.
-    let requeued = state.apply(Request::TaskRequeue { id: "t1".into() });
+    let requeued = state.apply(TaskRequest::TaskRequeue { id: "t1".into() });
     assert!(requeued.ok);
     let record = state.record("t1");
     assert_eq!(record.status, TaskStatus::Failed);
@@ -1134,7 +1131,7 @@ mod tests {
   fn fail_of_committed_task_suppresses_retry() {
     let mut state = MapState::new();
     running_task(&mut state, "t1");
-    state.apply(Request::TaskMarkCommitted {
+    state.apply(TaskRequest::TaskMarkCommitted {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1143,7 +1140,7 @@ mod tests {
 
     // A generic failure with a retry slot (e.g. execution timeout) lands
     // terminal instead of re-queueing: the side effect may have executed.
-    let failed = state.apply(Request::TaskFail {
+    let failed = state.apply(TaskRequest::TaskFail {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1174,20 +1171,20 @@ mod tests {
     state.apply(enqueue("t2", None));
     state.apply(enqueue("t3", None));
     for (id, epoch) in [("t1", 1u64), ("t3", 2u64)] {
-      state.apply(Request::TaskAssign {
+      state.apply(TaskRequest::TaskAssign {
         id: id.into(),
         node_id: "nodeA".into(),
         lease_epoch: epoch,
         now: 1000,
       });
-      state.apply(Request::TaskClaim {
+      state.apply(TaskRequest::TaskClaim {
         id: id.into(),
         node_id: "nodeA".into(),
         lease_epoch: epoch,
         now: 1001,
       });
     }
-    state.apply(Request::TaskDone {
+    state.apply(TaskRequest::TaskDone {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1195,7 +1192,7 @@ mod tests {
       now: 1002,
       result: None,
     });
-    state.apply(Request::TaskFail {
+    state.apply(TaskRequest::TaskFail {
       id: "t3".into(),
       node_id: "nodeA".into(),
       lease_epoch: 2,
@@ -1206,7 +1203,7 @@ mod tests {
     });
 
     // Queued t2 is skipped even though it was (incorrectly) listed.
-    let result = state.apply(Request::TaskVacuum {
+    let result = state.apply(TaskRequest::TaskVacuum {
       ids: vec!["t1".into(), "t2".into(), "t3".into(), "missing".into()],
     });
     assert!(result.ok);
@@ -1263,13 +1260,13 @@ mod tests {
     let mut state = MapState::new();
     state.apply(enqueue("t1", None)); // stays queued (run_at=100)
     state.apply(enqueue("t2", None));
-    state.apply(Request::TaskAssign {
+    state.apply(TaskRequest::TaskAssign {
       id: "t2".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
       now: 1000,
     });
-    state.apply(Request::TaskClaim {
+    state.apply(TaskRequest::TaskClaim {
       id: "t2".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
@@ -1307,14 +1304,14 @@ mod tests {
   fn assign_and_claim_stamp_updated_at() {
     let mut state = MapState::new();
     state.apply(enqueue("t1", None));
-    state.apply(Request::TaskAssign {
+    state.apply(TaskRequest::TaskAssign {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,
       now: 5000,
     });
     assert_eq!(state.record("t1").updated_at, 5000);
-    state.apply(Request::TaskClaim {
+    state.apply(TaskRequest::TaskClaim {
       id: "t1".into(),
       node_id: "nodeA".into(),
       lease_epoch: 1,

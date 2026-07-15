@@ -19,17 +19,15 @@ use libp2p::{
   kad::{self},
   ping, websocket,
 };
-use tokio::sync::mpsc;
 
 use crate::{
   GroupId, NodeId,
   constants::SERVICE_HTTP,
   groups, http,
   network::{
-    swarm::{Command, KvClient, Libp2pClient, OPENRAFT_CLUSTER_PROVIDER_KEY},
+    swarm::{CommandSenders, KvClient, Libp2pClient, OPENRAFT_CLUSTER_PROVIDER_KEY},
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
-  openraft_groups, set_openraft_groups,
   sqlite_cache::SqliteCache,
 };
 
@@ -364,7 +362,7 @@ pub(crate) struct NodeIdentity {
 
 #[derive(Clone)]
 pub(crate) struct Libp2pHandles {
-  pub(crate) cmd_tx: mpsc::Sender<Command>,
+  pub(crate) cmd_tx: CommandSenders,
   pub(crate) client: Libp2pClient,
   pub(crate) kv_client: KvClient,
   pub(crate) network: Libp2pNetworkFactory,
@@ -376,6 +374,9 @@ pub(crate) struct ControlRuntime {
   pub(crate) identity: NodeIdentity,
   pub(crate) libp2p: Libp2pHandles,
   pub(crate) group_ids: Vec<GroupId>,
+  /// Raft group registry, resolved once at the composition root (`run()`)
+  /// and injected everywhere below instead of reaching for the global.
+  pub(crate) registry: crate::GroupRegistry,
 }
 
 pub(crate) enum StartupMode {
@@ -390,9 +391,11 @@ pub(crate) fn build_http_state(
   sqlite_cache: Option<SqliteCache>,
   task_frontend: http::TaskFrontend,
 ) -> http::AppState {
-  let default_group = default_openraft_group_id();
+  let registry = crate::global_group_registry().clone();
+  let default_group = default_openraft_group_id(&registry);
 
   http::AppState {
+    registry,
     node_id: opt.id.clone(),
     node_name: identity.node_name.clone(),
     peer_id: identity.local_peer_id.to_string(),
@@ -433,12 +436,16 @@ pub(crate) fn linked_shutdown(
   crate::signal::ShutdownHandler::new(tx, rx)
 }
 
-pub(crate) fn default_openraft_group_id() -> GroupId {
-  if openraft_groups().is_some_and(|raft_groups| raft_groups.contains_key(groups::USERS)) {
+pub(crate) fn default_openraft_group_id(registry: &crate::GroupRegistry) -> GroupId {
+  if registry
+    .all()
+    .is_some_and(|raft_groups| raft_groups.contains_key(groups::USERS))
+  {
     return groups::USERS.to_string();
   }
 
-  openraft_groups()
+  registry
+    .all()
     .and_then(|raft_groups| raft_groups.keys().next().cloned())
     .unwrap_or_else(|| groups::USERS.to_string())
 }
@@ -473,8 +480,10 @@ pub(crate) fn collect_shutdown_errors(
   Err(anyhow!(msg))
 }
 
-pub(crate) async fn shutdown_openraft_groups() -> anyhow::Result<()> {
-  let Some(rafts) = openraft_groups().map(|groups| {
+pub(crate) async fn shutdown_openraft_groups(
+  registry: &crate::GroupRegistry,
+) -> anyhow::Result<()> {
+  let Some(rafts) = registry.all().map(|groups| {
     groups
       .iter()
       .map(|(group_id, group)| (group_id.clone(), group.raft.clone()))
@@ -528,6 +537,7 @@ pub(crate) async fn shutdown_openraft_groups() -> anyhow::Result<()> {
 }
 
 pub(crate) async fn run_graceful_shutdown(
+  registry: &crate::GroupRegistry,
   libp2p_client: &Libp2pClient,
   libp2p_shutdown: crate::signal::ShutdownHandler,
   swarm_handle: tokio::task::JoinHandle<()>,
@@ -558,7 +568,7 @@ pub(crate) async fn run_graceful_shutdown(
     }
   }
 
-  if let Err(err) = shutdown_openraft_groups().await {
+  if let Err(err) = shutdown_openraft_groups(registry).await {
     tracing::error!(error = ?err, "shutdown phase failed: openraft");
     errors.push(err);
   }
@@ -608,7 +618,8 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let listen_addr = parse_listen_addr(&opt)?;
 
   let timeout = Duration::from_secs(5);
-  let (libp2p, cmd_rx) = build_libp2p_handles(timeout, identity.local_peer_id.clone());
+  let (libp2p, cmd_rx_high, cmd_rx_low) =
+    build_libp2p_handles(timeout, identity.local_peer_id.clone());
 
   let group_ids = groups::all();
   let advertise_addr = local_advertise_addr(&opt)?;
@@ -637,7 +648,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let mut libp2p_shutdown =
     crate::signal::ShutdownHandler::new(libp2p_shutdown_tx, libp2p_shutdown_rx);
 
-  let swarm_handle = spawn_libp2p_swarm(swarm, &mut libp2p_shutdown, cmd_rx, &libp2p);
+  let swarm_handle = spawn_libp2p_swarm(
+    swarm,
+    &mut libp2p_shutdown,
+    cmd_rx_high,
+    cmd_rx_low,
+    &libp2p,
+  );
 
   let members = register_members(&libp2p.network, &configured_nodes).await?;
   maybe_bootstrap(&libp2p.client, &configured_bootstrap_nodes, &opt.id).await;
@@ -671,13 +688,22 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     &group_ids,
   )
   .await?;
-  set_openraft_groups(group_handles);
-  maybe_initialize_bootstrap_openraft(opt.id.clone(), advertise_addr.clone(), bootstrap_self)
-    .await?;
+  // Composition root: resolve the process-wide registry once; everything
+  // below receives it as a parameter.
+  let registry = crate::global_group_registry().clone();
+  registry.set(group_handles);
+  maybe_initialize_bootstrap_openraft(
+    &registry,
+    opt.id.clone(),
+    advertise_addr.clone(),
+    bootstrap_self,
+  )
+  .await?;
 
   // Verify that every openraft group actually becomes operational after this
   // (possibly out-of-order) startup, and self-correct evicted control nodes.
   tokio::spawn(run_openraft_startup_verifier(
+    registry.clone(),
     opt.id.clone(),
     group_ids.clone(),
     libp2p.network.clone(),
@@ -689,6 +715,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   // Prune long-dead non-member nodes from the libp2p address book.
   if opt.auto_heal_membership {
     tokio::spawn(run_known_nodes_pruner(
+      registry.clone(),
       opt.id.clone(),
       libp2p.network.clone(),
       signal_shutdown.shutdown_rx(),
@@ -709,6 +736,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     identity,
     libp2p,
     group_ids,
+    registry: registry.clone(),
   };
   let libp2p_client_for_shutdown = runtime.libp2p.client.clone();
 
@@ -764,8 +792,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     tracing::info!("service loop exited; starting graceful shutdown");
   }
 
-  let graceful_shutdown_result =
-    run_graceful_shutdown(&libp2p_client_for_shutdown, libp2p_shutdown, swarm_handle).await;
+  let graceful_shutdown_result = run_graceful_shutdown(
+    &registry,
+    &libp2p_client_for_shutdown,
+    libp2p_shutdown,
+    swarm_handle,
+  )
+  .await;
 
   let mut final_errors = Vec::new();
   if let Err(err) = service_result {

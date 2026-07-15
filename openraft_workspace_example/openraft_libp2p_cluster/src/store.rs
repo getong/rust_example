@@ -38,6 +38,11 @@ pub struct KvData {
   /// Same-process primary the secondary reader mirrors. Sequence numbers
   /// from it decide whether a catch-up sync is needed at all.
   primary: Arc<DB>,
+  /// Single-flight guard for catch-up: under a concurrent read burst only
+  /// one reader performs the manifest sync; the rest wait on the lock and
+  /// then see the fresh sequence number, amortizing one catch-up across the
+  /// whole batch instead of syncing once per reader.
+  catch_up_lock: Arc<std::sync::Mutex<()>>,
 }
 
 impl KvData {
@@ -66,6 +71,7 @@ impl KvData {
     let kv_data = Self {
       db: Arc::new(db),
       primary,
+      catch_up_lock: Arc::new(std::sync::Mutex::new(())),
     };
     kv_data.catch_up()?;
     Ok(kv_data)
@@ -75,9 +81,10 @@ impl KvData {
     let db = self.db.clone();
     let key = key.to_string();
     let primary = self.primary.clone();
+    let catch_up_lock = self.catch_up_lock.clone();
     let started = Instant::now();
     let result = TypeConfig::spawn_blocking(move || {
-      maybe_catch_up(&db, &primary)?;
+      maybe_catch_up(&db, &primary, &catch_up_lock)?;
       let cf = sm_data_cf(&db)?;
       db.get_cf(&cf, key.as_bytes())
         .context("read rocksdb kv value")?
@@ -97,9 +104,10 @@ impl KvData {
   pub async fn entries(&self) -> anyhow::Result<Vec<(String, String)>> {
     let db = self.db.clone();
     let primary = self.primary.clone();
+    let catch_up_lock = self.catch_up_lock.clone();
     let started = Instant::now();
     let result = TypeConfig::spawn_blocking(move || {
-      maybe_catch_up(&db, &primary)?;
+      maybe_catch_up(&db, &primary, &catch_up_lock)?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
       let mut entries = Vec::new();
@@ -121,9 +129,10 @@ impl KvData {
   pub async fn entries_with_prefix(&self, prefix: String) -> anyhow::Result<Vec<(String, String)>> {
     let db = self.db.clone();
     let primary = self.primary.clone();
+    let catch_up_lock = self.catch_up_lock.clone();
     let started = Instant::now();
     let result = TypeConfig::spawn_blocking(move || {
-      maybe_catch_up(&db, &primary)?;
+      maybe_catch_up(&db, &primary, &catch_up_lock)?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(
         &cf,
@@ -177,7 +186,16 @@ fn catch_up(db: &DB) -> anyhow::Result<()> {
 /// catches up first, preserving read-your-writes (which a time-based
 /// throttle would break: a linearizable read within the throttle window
 /// would serve a pre-write snapshot).
-fn maybe_catch_up(secondary: &DB, primary: &DB) -> anyhow::Result<()> {
+///
+/// Single-flight: concurrent lagging readers serialize on `lock` and
+/// re-check the sequence numbers after acquiring it, so a burst of N reads
+/// behind one write performs ONE catch-up, not N.
+fn maybe_catch_up(secondary: &DB, primary: &DB, lock: &std::sync::Mutex<()>) -> anyhow::Result<()> {
+  if secondary.latest_sequence_number() >= primary.latest_sequence_number() {
+    return Ok(());
+  }
+  let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  // Double-checked: whoever held the lock first has already caught up.
   if secondary.latest_sequence_number() >= primary.latest_sequence_number() {
     return Ok(());
   }

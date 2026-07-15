@@ -36,7 +36,7 @@ use crate::{
     parse_queued_idx_key, parse_terminal_idx_key, rec_key,
     rpc::{TaskRpcRequest, task_rpc_request},
   },
-  types_kv::Request as StateCommand,
+  types_kv::TaskRequest as StateCommand,
 };
 
 /// A task stuck in Assigned/Running on a LIVE worker for longer than this is
@@ -194,7 +194,7 @@ async fn scheduler_tick(
     let requeue = StateCommand::TaskRequeue {
       id: task_id.to_string(),
     };
-    match group.raft.client_write(requeue).await {
+    match group.raft.client_write(requeue.into()).await {
       Ok(resp) => {
         tracing::warn!(
           group = %group_id,
@@ -238,7 +238,7 @@ async fn scheduler_tick(
       lease_epoch: worker.lease_epoch,
       now,
     };
-    match group.raft.client_write(assign).await {
+    match group.raft.client_write(assign.into()).await {
       Ok(resp) => {
         let ok = resp
           .data
@@ -302,7 +302,7 @@ async fn vacuum_expired_tasks(group_id: &str, now: u64) -> anyhow::Result<()> {
   let count = ids.len();
   match group
     .raft
-    .client_write(StateCommand::TaskVacuum { ids })
+    .client_write(StateCommand::TaskVacuum { ids }.into())
     .await
   {
     Ok(resp) => {

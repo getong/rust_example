@@ -21,6 +21,10 @@
 
 use std::{
   collections::{BTreeSet, HashMap},
+  sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+  },
   time::Duration,
 };
 
@@ -107,6 +111,11 @@ pub async fn run_membership_guard(
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
   let mut down_since: HashMap<NodeId, Instant> = HashMap::new();
+  // At most one membership change committing at a time. The change itself
+  // runs on a background task (it can block up to MEMBERSHIP_CHANGE_TIMEOUT
+  // around a marginal quorum), so ticks keep observing liveness meanwhile
+  // instead of going blind for the duration.
+  let change_in_flight = Arc::new(AtomicBool::new(false));
   let mut tick = tokio::time::interval(config.tick_interval);
   tick.tick().await;
 
@@ -117,7 +126,9 @@ pub async fn run_membership_guard(
         return Ok(());
       }
       _ = tick.tick() => {
-        if let Err(err) = guard_tick(&group_id, &raft, &network, &mut down_since).await {
+        if let Err(err) =
+          guard_tick(&group_id, &raft, &network, &mut down_since, &change_in_flight).await
+        {
           tracing::warn!(group = %group_id, error = ?err, "membership guard tick failed; retrying next tick");
         }
       }
@@ -130,6 +141,7 @@ async fn guard_tick(
   raft: &Raft,
   network: &Libp2pNetworkFactory,
   down_since: &mut HashMap<NodeId, Instant>,
+  change_in_flight: &Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
   let metrics = raft.metrics().borrow_watched().clone();
   if !metrics.state.is_leader() {
@@ -183,9 +195,22 @@ async fn guard_tick(
     return Ok(());
   };
 
-  if voters.contains(&dead_member) {
-    // Dead voter: replace it with a connected learner in one membership
-    // change so the quorum math stays sound.
+  // One membership change at a time. While a previous change is still
+  // committing on its background task, the tick only keeps tracking
+  // liveness; the down clock is preserved, so a failed change is re-proposed
+  // immediately on a later tick instead of waiting a full timeout again.
+  if change_in_flight.load(Ordering::Acquire) {
+    tracing::debug!(
+      group = %group_id,
+      dead_member = %dead_member,
+      "membership change already in flight; deferring action to a later tick"
+    );
+    return Ok(());
+  }
+
+  // Pick the action while the tick-local observer data is at hand; the
+  // (potentially slow) raft write then runs off-tick.
+  let promoted = if voters.contains(&dead_member) {
     let Some(promoted) = pick_promotable_learner(&learners, network, &raft_ack_fresh).await else {
       tracing::warn!(
         group = %group_id,
@@ -195,65 +220,117 @@ async fn guard_tick(
       );
       return Ok(());
     };
-
-    let mut new_voters = voters.clone();
-    new_voters.remove(&dead_member);
-    new_voters.insert(promoted.clone());
-
-    tracing::warn!(
-      group = %group_id,
-      dead_voter = %dead_member,
-      downtime = ?downtime,
-      promoted_learner = %promoted,
-      "replacing crashed voter with a learner"
-    );
-
-    // retain=false removes the dead voter from the membership entirely, so a
-    // returning node sees itself evicted and re-joins as a learner.
-    timeout(
-      MEMBERSHIP_CHANGE_TIMEOUT,
-      raft.change_membership(new_voters, false),
-    )
-    .await
-    .map_err(|_| anyhow!("change_membership timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
-    .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
-    metrics::counter!(
-      "membership_guard_replacement_total",
-      "group" => group_id.to_string(),
-      "kind" => "replace_voter",
-    )
-    .increment(1);
+    Some(promoted)
   } else {
-    // Dead learner: drop it from the membership so it no longer shows up as
-    // a member; a returning node re-registers itself as a learner.
-    tracing::warn!(
-      group = %group_id,
-      dead_learner = %dead_member,
-      downtime = ?downtime,
-      "removing crashed learner from the membership"
-    );
+    None
+  };
 
-    timeout(
-      MEMBERSHIP_CHANGE_TIMEOUT,
-      raft.change_membership(
-        ChangeMembers::RemoveNodes(BTreeSet::from([dead_member.clone()])),
-        false,
-      ),
+  change_in_flight.store(true, Ordering::Release);
+  let in_flight = change_in_flight.clone();
+  let group_id = group_id.to_string();
+  let raft = raft.clone();
+  let network = network.clone();
+  tokio::spawn(async move {
+    let result = execute_membership_change(
+      &group_id,
+      &raft,
+      &network,
+      &voters,
+      &member_ids,
+      &dead_member,
+      downtime,
+      promoted,
     )
-    .await
-    .map_err(|_| anyhow!("remove learner timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
-    .map_err(|err| anyhow!("remove learner failed: {err:?}"))?;
-    metrics::counter!(
-      "membership_guard_replacement_total",
-      "group" => group_id.to_string(),
-      "kind" => "remove_learner",
-    )
-    .increment(1);
+    .await;
+    in_flight.store(false, Ordering::Release);
+    if let Err(err) = result {
+      tracing::warn!(
+        group = %group_id,
+        dead_member = %dead_member,
+        error = ?err,
+        "asynchronous membership change failed; the guard will re-propose on a later tick"
+      );
+    }
+  });
+
+  Ok(())
+}
+
+/// The actual membership write, run on a background task so the guard tick
+/// never blocks on `change_membership` (up to [`MEMBERSHIP_CHANGE_TIMEOUT`]).
+#[allow(clippy::too_many_arguments)]
+async fn execute_membership_change(
+  group_id: &str,
+  raft: &Raft,
+  network: &Libp2pNetworkFactory,
+  voters: &BTreeSet<NodeId>,
+  member_ids: &BTreeSet<NodeId>,
+  dead_member: &NodeId,
+  downtime: Duration,
+  promoted: Option<NodeId>,
+) -> anyhow::Result<()> {
+  match promoted {
+    Some(promoted) => {
+      // Dead voter: replace it with a connected learner in one membership
+      // change so the quorum math stays sound.
+      let mut new_voters = voters.clone();
+      new_voters.remove(dead_member);
+      new_voters.insert(promoted.clone());
+
+      tracing::warn!(
+        group = %group_id,
+        dead_voter = %dead_member,
+        downtime = ?downtime,
+        promoted_learner = %promoted,
+        "replacing crashed voter with a learner"
+      );
+
+      // retain=false removes the dead voter from the membership entirely, so
+      // a returning node sees itself evicted and re-joins as a learner.
+      timeout(
+        MEMBERSHIP_CHANGE_TIMEOUT,
+        raft.change_membership(new_voters, false),
+      )
+      .await
+      .map_err(|_| anyhow!("change_membership timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
+      .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
+      metrics::counter!(
+        "membership_guard_replacement_total",
+        "group" => group_id.to_string(),
+        "kind" => "replace_voter",
+      )
+      .increment(1);
+    }
+    None => {
+      // Dead learner: drop it from the membership so it no longer shows up
+      // as a member; a returning node re-registers itself as a learner.
+      tracing::warn!(
+        group = %group_id,
+        dead_learner = %dead_member,
+        downtime = ?downtime,
+        "removing crashed learner from the membership"
+      );
+
+      timeout(
+        MEMBERSHIP_CHANGE_TIMEOUT,
+        raft.change_membership(
+          ChangeMembers::RemoveNodes(BTreeSet::from([dead_member.clone()])),
+          false,
+        ),
+      )
+      .await
+      .map_err(|_| anyhow!("remove learner timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
+      .map_err(|err| anyhow!("remove learner failed: {err:?}"))?;
+      metrics::counter!(
+        "membership_guard_replacement_total",
+        "group" => group_id.to_string(),
+        "kind" => "remove_learner",
+      )
+      .increment(1);
+    }
   }
-  down_since.remove(&dead_member);
 
-  backfill_learner(group_id, raft, network, &member_ids, &dead_member).await;
-
+  backfill_learner(group_id, raft, network, member_ids, dead_member).await;
   Ok(())
 }
 

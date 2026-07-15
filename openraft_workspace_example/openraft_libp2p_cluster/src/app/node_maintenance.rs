@@ -16,7 +16,6 @@ use crate::{
     swarm::{KvClient, NODE_ANNOUNCE_TOPIC},
     transport::Libp2pNetworkFactory,
   },
-  openraft_group, openraft_groups,
 };
 
 /// Post-startup verification of the openraft groups. Runs until every group
@@ -27,6 +26,7 @@ use crate::{
 /// authoritative remote view and shuts the node down so the next start can
 /// wipe the stale data and re-join as a learner.
 pub(crate) async fn run_openraft_startup_verifier(
+  registry: crate::GroupRegistry,
   self_id: NodeId,
   group_ids: Vec<GroupId>,
   network: Libp2pNetworkFactory,
@@ -46,7 +46,7 @@ pub(crate) async fn run_openraft_startup_verifier(
 
     let mut still_pending = Vec::new();
     for group_id in pending {
-      let Some(group) = openraft_group(&group_id) else {
+      let Some(group) = registry.get(&group_id) else {
         still_pending.push(group_id);
         continue;
       };
@@ -191,6 +191,7 @@ pub(crate) async fn run_node_announcer(
 /// to the membership guard, and only after the guard has removed them from
 /// every group does the pruner start counting for them.
 pub(crate) async fn run_known_nodes_pruner(
+  registry: crate::GroupRegistry,
   self_id: NodeId,
   network: Libp2pNetworkFactory,
   mut shutdown_rx: crate::signal::ShutdownRx,
@@ -225,7 +226,7 @@ pub(crate) async fn run_known_nodes_pruner(
       }
 
       // Members (voters/learners) are handled by the membership guard.
-      if is_openraft_member_of_any_group(&node_id) {
+      if is_openraft_member_of_any_group(&registry, &node_id) {
         down_since.remove(&node_id);
         continue;
       }
@@ -248,8 +249,11 @@ pub(crate) async fn run_known_nodes_pruner(
   }
 }
 
-pub(crate) fn is_openraft_member_of_any_group(node_id: &NodeId) -> bool {
-  let Some(groups) = openraft_groups() else {
+pub(crate) fn is_openraft_member_of_any_group(
+  registry: &crate::GroupRegistry,
+  node_id: &NodeId,
+) -> bool {
+  let Some(groups) = registry.all() else {
     return false;
   };
   for group in groups.values() {

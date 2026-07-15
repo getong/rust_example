@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::Context;
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use openraft::BasicNode;
@@ -54,8 +55,13 @@ pub struct Libp2pNetworkFactory {
   kv_client: KvClient,
   sqlite_sync_client: SqliteSyncClient,
   task_rpc_client: TaskRpcClient,
-  node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
-  connected_peers: Arc<tokio::sync::RwLock<HashSet<PeerId>>>,
+  /// Snapshot-read address book: read on every RPC routing decision and
+  /// liveness check, mutated only on (rare) registrations. `ArcSwap` makes
+  /// the reads lock-free; writers copy-on-write via `rcu`.
+  node_peers: Arc<ArcSwap<HashMap<NodeId, (PeerId, Multiaddr)>>>,
+  /// Same trade-off: read per request / liveness probe, written only on
+  /// connection establish/close events.
+  connected_peers: Arc<ArcSwap<HashSet<PeerId>>>,
   /// Peers the reconnect loop must keep connected: configured members,
   /// bootstrap nodes, and recent raft RPC targets. Everything else connects
   /// on demand and is closed by the swarm idle-connection timeout, so the
@@ -83,8 +89,8 @@ impl Libp2pNetworkFactory {
       kv_client,
       sqlite_sync_client,
       task_rpc_client,
-      node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
-      connected_peers: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
+      node_peers: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+      connected_peers: Arc::new(ArcSwap::from_pointee(HashSet::new())),
       pinned_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       peer_last_announce: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       group_id: None,
@@ -137,36 +143,47 @@ impl Libp2pNetworkFactory {
     peer: PeerId,
     addr: Multiaddr,
   ) -> bool {
-    let mut map = self.node_peers.write().await;
-    let previous = map
-      .get(&node_id)
-      .map(|(stored_peer, stored_addr)| (*stored_peer, stored_addr.clone()));
+    // rcu may retry the closure under write contention, so all decisions are
+    // captured in cells and the side effects (logging) run once afterwards,
+    // based on the transition that actually got applied.
+    let previous = std::cell::RefCell::new(None::<(PeerId, Multiaddr)>);
+    let changed = std::cell::Cell::new(false);
+    self.node_peers.rcu(|map| {
+      let mut next = HashMap::clone(map);
+      match next.get(&node_id) {
+        Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == addr => {
+          previous.replace(None);
+          changed.set(false);
+        }
+        stored => {
+          previous.replace(stored.cloned());
+          next.insert(node_id.clone(), (peer, addr.clone()));
+          changed.set(true);
+        }
+      }
+      next
+    });
 
-    match previous {
-      Some((stored_peer, stored_addr)) if stored_peer == peer && stored_addr == addr => false,
-      Some((stored_peer, stored_addr)) => {
-        map.insert(node_id.clone(), (peer, addr.clone()));
-        tracing::info!(
-          node_id = %node_id,
-          peer = %peer,
-          addr = %addr,
-          stored_peer = %stored_peer,
-          stored_addr = %stored_addr,
-          "registered configured libp2p node address"
-        );
-        true
-      }
-      None => {
-        map.insert(node_id.clone(), (peer, addr.clone()));
-        tracing::info!(
-          node_id = %node_id,
-          peer = %peer,
-          addr = %addr,
-          "registered configured libp2p node"
-        );
-        true
-      }
+    if !changed.get() {
+      return false;
     }
+    match previous.into_inner() {
+      Some((stored_peer, stored_addr)) => tracing::info!(
+        node_id = %node_id,
+        peer = %peer,
+        addr = %addr,
+        stored_peer = %stored_peer,
+        stored_addr = %stored_addr,
+        "registered configured libp2p node address"
+      ),
+      None => tracing::info!(
+        node_id = %node_id,
+        peer = %peer,
+        addr = %addr,
+        "registered configured libp2p node"
+      ),
+    }
+    true
   }
 
   pub async fn register_discovered_peer(&self, peer: PeerId, addr: Multiaddr) -> bool {
@@ -186,63 +203,101 @@ impl Libp2pNetworkFactory {
       return false;
     }
 
-    {
-      let mut map = self.node_peers.write().await;
-      for (stored_node_id, (stored_peer, stored_addr)) in map.iter_mut() {
+    #[derive(Clone, Copy)]
+    enum ScanOutcome {
+      /// No entry for this peer; fall through to plain registration.
+      NotFound,
+      Keep,
+      Ignore,
+      Updated,
+    }
+    let outcome = std::cell::Cell::new(ScanOutcome::NotFound);
+    self.node_peers.rcu(|map| {
+      let mut next = HashMap::clone(map);
+      outcome.set(ScanOutcome::NotFound);
+      for (_, (stored_peer, stored_addr)) in next.iter_mut() {
         if *stored_peer != peer {
           continue;
         }
 
         if *stored_addr == addr {
-          return true;
+          outcome.set(ScanOutcome::Keep);
+        } else if !should_use_discovered_addr(stored_addr, &addr) {
+          outcome.set(ScanOutcome::Ignore);
+        } else if is_unspecified_addr(stored_addr) {
+          *stored_addr = addr.clone();
+          outcome.set(ScanOutcome::Updated);
+        } else {
+          outcome.set(ScanOutcome::Keep);
         }
-
-        if !should_use_discovered_addr(stored_addr, &addr) {
-          tracing::debug!(
-            node_id = %stored_node_id,
-            peer = %peer,
-            addr = %addr,
-            stored_addr = %stored_addr,
-            "ignoring discovered peer address"
-          );
-          return false;
-        }
-
-        if is_unspecified_addr(stored_addr) {
-          tracing::info!(
-            node_id = %stored_node_id,
-            peer = %peer,
-            addr = %addr,
-            "updating unspecified peer address from discovery"
-          );
-          *stored_addr = addr;
-        }
-        return true;
+        break;
       }
-    }
+      next
+    });
 
-    self.register_node_addr(node_id, peer, addr).await
-  }
-
-  async fn register_node_addr(&self, node_id: NodeId, peer: PeerId, addr: Multiaddr) -> bool {
-    let new_is_loopback = is_loopback_addr(&addr);
-    let mut map = self.node_peers.write().await;
-    match map.get(&node_id) {
-      Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == addr => false,
-      Some((stored_peer, stored_addr))
-        if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
-      {
+    match outcome.get() {
+      ScanOutcome::NotFound => self.register_node_addr(node_id, peer, addr).await,
+      ScanOutcome::Keep => true,
+      ScanOutcome::Ignore => {
         tracing::debug!(
           node_id = %node_id,
           peer = %peer,
           addr = %addr,
-          stored_addr = %stored_addr,
+          "ignoring discovered peer address"
+        );
+        false
+      }
+      ScanOutcome::Updated => {
+        tracing::info!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %addr,
+          "updating unspecified peer address from discovery"
+        );
+        true
+      }
+    }
+  }
+
+  async fn register_node_addr(&self, node_id: NodeId, peer: PeerId, addr: Multiaddr) -> bool {
+    #[derive(Clone, Copy)]
+    enum Outcome {
+      Unchanged,
+      IgnoredLoopback,
+      Registered,
+    }
+    let new_is_loopback = is_loopback_addr(&addr);
+    let outcome = std::cell::Cell::new(Outcome::Unchanged);
+    self.node_peers.rcu(|map| {
+      let mut next = HashMap::clone(map);
+      match next.get(&node_id) {
+        Some((stored_peer, stored_addr)) if *stored_peer == peer && *stored_addr == addr => {
+          outcome.set(Outcome::Unchanged);
+        }
+        Some((stored_peer, stored_addr))
+          if *stored_peer == peer && !is_loopback_addr(stored_addr) && new_is_loopback =>
+        {
+          outcome.set(Outcome::IgnoredLoopback);
+        }
+        _ => {
+          next.insert(node_id.clone(), (peer, addr.clone()));
+          outcome.set(Outcome::Registered);
+        }
+      }
+      next
+    });
+    match outcome.get() {
+      Outcome::Unchanged => false,
+      Outcome::IgnoredLoopback => {
+        tracing::debug!(
+          node_id = %node_id,
+          peer = %peer,
+          addr = %addr,
           "ignore loopback addr because a non-loopback addr is already known"
         );
         false
       }
-      _ => {
-        map.insert(node_id.clone(), (peer, addr.clone()));
+      Outcome::Registered => {
         tracing::info!(
           node_id = %node_id,
           peer = %peer,
@@ -255,43 +310,58 @@ impl Libp2pNetworkFactory {
   }
 
   pub async fn update_peer_addr_from_mdns(&self, peer: PeerId, addr: Multiaddr) -> bool {
-    let mut map = self.node_peers.write().await;
-    for (node_id, (stored_peer, stored_addr)) in map.iter_mut() {
-      if *stored_peer != peer {
-        continue;
-      }
+    #[derive(Clone, Copy)]
+    enum Outcome {
+      NotFound,
+      Keep,
+      Ignore,
+      Updated,
+    }
+    let candidate = ensure_p2p_addr(addr, peer);
+    let outcome = std::cell::Cell::new(Outcome::NotFound);
+    self.node_peers.rcu(|map| {
+      let mut next = HashMap::clone(map);
+      outcome.set(Outcome::NotFound);
+      for (_, (stored_peer, stored_addr)) in next.iter_mut() {
+        if *stored_peer != peer {
+          continue;
+        }
 
-      let candidate = ensure_p2p_addr(addr.clone(), peer);
-      if candidate == *stored_addr {
-        return true;
+        if candidate == *stored_addr {
+          outcome.set(Outcome::Keep);
+        } else if !should_use_discovered_addr(stored_addr, &candidate) {
+          outcome.set(Outcome::Ignore);
+        } else if is_unspecified_addr(stored_addr) {
+          *stored_addr = candidate.clone();
+          outcome.set(Outcome::Updated);
+        } else {
+          outcome.set(Outcome::Keep);
+        }
+        break;
       }
+      next
+    });
 
-      if !should_use_discovered_addr(stored_addr, &candidate) {
+    match outcome.get() {
+      Outcome::NotFound => !is_undialable_discovered_addr(&candidate),
+      Outcome::Keep => true,
+      Outcome::Ignore => {
         tracing::debug!(
-          node_id = %node_id,
           peer = %peer,
           addr = %candidate,
-          stored_addr = %stored_addr,
           "ignoring discovered peer address"
         );
-        return false;
+        false
       }
-
-      if !is_unspecified_addr(stored_addr) {
-        return true;
+      Outcome::Updated => {
+        tracing::info!(
+          peer = %peer,
+          addr = %candidate,
+          "updating unspecified peer address from mdns"
+        );
+        true
       }
-
-      tracing::info!(
-        node_id = %node_id,
-        peer = %peer,
-        addr = %candidate,
-        "updating unspecified peer address from mdns"
-      );
-      *stored_addr = candidate;
-      return true;
     }
-
-    !is_undialable_discovered_addr(&ensure_p2p_addr(addr, peer))
   }
 
   /// Register a peer address learned from a node-announce gossip message.
@@ -321,12 +391,11 @@ impl Libp2pNetworkFactory {
     self
       .mark_peer_announced(peer, peer_alive_ttl(announce_interval_ms))
       .await;
-    let unchanged = {
-      let map = self.node_peers.read().await;
-      map
-        .get(&node_id)
-        .is_some_and(|(stored_peer, stored_addr)| *stored_peer == peer && *stored_addr == maddr)
-    };
+    let unchanged = self
+      .node_peers
+      .load()
+      .get(&node_id)
+      .is_some_and(|(stored_peer, stored_addr)| *stored_peer == peer && *stored_addr == maddr);
     if !unchanged {
       self
         .register_configured_node_addr(node_id, peer, maddr)
@@ -412,8 +481,9 @@ impl Libp2pNetworkFactory {
   }
 
   pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
-    let map = self.node_peers.read().await;
-    map
+    self
+      .node_peers
+      .load()
       .iter()
       .map(|(id, (peer, addr))| (id.clone(), *peer, addr.clone()))
       .collect()
@@ -422,7 +492,7 @@ impl Libp2pNetworkFactory {
   /// Size of the known-nodes address book. Used by the announcer to scale
   /// its interval with cluster size without cloning the whole map.
   pub async fn known_nodes_count(&self) -> usize {
-    self.node_peers.read().await.len()
+    self.node_peers.load().len()
   }
 
   /// Known nodes the reconnect loop should proactively keep connected:
@@ -437,7 +507,7 @@ impl Libp2pNetworkFactory {
       });
     }
     let pins = self.pinned_peers.read().await;
-    let map = self.node_peers.read().await;
+    let map = self.node_peers.load();
     map
       .iter()
       .filter(|(_, (peer, _))| pins.contains_key(peer))
@@ -449,8 +519,13 @@ impl Libp2pNetworkFactory {
   /// stayed disconnected past the healing timeout; a returning node is
   /// re-registered through mdns discovery or its bootstrap dial.
   pub async fn remove_known_node(&self, node_id: &NodeId) -> bool {
-    let removed = self.node_peers.write().await.remove(node_id);
-    let Some((peer, _)) = removed else {
+    let removed = std::cell::RefCell::new(None);
+    self.node_peers.rcu(|map| {
+      let mut next = HashMap::clone(map);
+      removed.replace(next.remove(node_id));
+      next
+    });
+    let Some((peer, _)) = removed.into_inner() else {
       return false;
     };
     self.pinned_peers.write().await.remove(&peer);
@@ -462,18 +537,26 @@ impl Libp2pNetworkFactory {
     if peer == self.local_peer_id {
       return;
     }
-    self.connected_peers.write().await.insert(peer);
+    self.connected_peers.rcu(|set| {
+      let mut next = HashSet::clone(set);
+      next.insert(peer);
+      next
+    });
   }
 
   pub async fn set_peer_disconnected(&self, peer: PeerId) {
-    self.connected_peers.write().await.remove(&peer);
+    self.connected_peers.rcu(|set| {
+      let mut next = HashSet::clone(set);
+      next.remove(&peer);
+      next
+    });
   }
 
   pub async fn is_peer_connected(&self, peer: &PeerId) -> bool {
     if *peer == self.local_peer_id {
       return true;
     }
-    self.connected_peers.read().await.contains(peer)
+    self.connected_peers.load().contains(peer)
   }
 
   pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) -> Result<(), NetErr> {
@@ -605,8 +688,9 @@ impl Libp2pNetworkFactory {
   }
 
   async fn peer_addr_for(&self, node_id: &NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {
-    let map = self.node_peers.read().await;
-    map
+    self
+      .node_peers
+      .load()
       .get(node_id)
       .map(|(peer, addr)| (*peer, addr.clone()))
       .ok_or_else(|| Unreachable::new(&NetErr(format!("unknown target node_id={node_id}"))))

@@ -29,12 +29,13 @@ use crate::{
     raft_bridge::P2PNetworkFactoryWrapper,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
-      Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, NODE_ANNOUNCE_TOPIC,
-      OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, TaskRpcClient, run_swarm,
+      Behaviour, Command, CommandSenders, GOSSIP_TOPIC, KvClient, Libp2pClient,
+      NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, TaskRpcClient,
+      run_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
-  openraft_groups, store,
+  store,
   typ::Raft,
 };
 
@@ -102,12 +103,20 @@ pub(crate) fn local_advertise_addr(opt: &Opt) -> anyhow::Result<String> {
 pub(crate) fn build_libp2p_handles(
   timeout: Duration,
   local_peer_id: PeerId,
-) -> (Libp2pHandles, mpsc::Receiver<Command>) {
-  let (cmd_tx, cmd_rx) = mpsc::channel(256);
-  let client = Libp2pClient::new(cmd_tx.clone(), timeout);
-  let kv_client = KvClient::new(cmd_tx.clone(), timeout);
-  let sqlite_sync_client = SqliteSyncClient::new(cmd_tx.clone(), timeout);
-  let task_rpc_client = TaskRpcClient::new(cmd_tx.clone(), timeout);
+) -> (
+  Libp2pHandles,
+  mpsc::Receiver<Command>,
+  mpsc::Receiver<Command>,
+) {
+  // Two priority classes into the swarm loop: raft commands (Libp2pClient)
+  // ride the high channel, everything else (kv / sqlite-sync / task) rides
+  // low, so a KV burst cannot delay raft heartbeats or votes.
+  let (cmd_tx_high, cmd_rx_high) = mpsc::channel(256);
+  let (cmd_tx_low, cmd_rx_low) = mpsc::channel(256);
+  let client = Libp2pClient::new(cmd_tx_high.clone(), timeout);
+  let kv_client = KvClient::new(cmd_tx_low.clone(), timeout);
+  let sqlite_sync_client = SqliteSyncClient::new(cmd_tx_low.clone(), timeout);
+  let task_rpc_client = TaskRpcClient::new(cmd_tx_low.clone(), timeout);
   let network = Libp2pNetworkFactory::new(
     client.clone(),
     kv_client.clone(),
@@ -117,12 +126,16 @@ pub(crate) fn build_libp2p_handles(
   );
   (
     Libp2pHandles {
-      cmd_tx,
+      cmd_tx: CommandSenders {
+        high: cmd_tx_high,
+        low: cmd_tx_low,
+      },
       client,
       kv_client,
       network,
     },
-    cmd_rx,
+    cmd_rx_high,
+    cmd_rx_low,
   )
 }
 
@@ -302,7 +315,8 @@ pub(crate) fn build_swarm(
 pub(crate) fn spawn_libp2p_swarm(
   swarm: Swarm<Behaviour>,
   shutdown: &mut crate::signal::ShutdownHandler,
-  cmd_rx: mpsc::Receiver<Command>,
+  cmd_rx_high: mpsc::Receiver<Command>,
+  cmd_rx_low: mpsc::Receiver<Command>,
   libp2p: &Libp2pHandles,
 ) -> tokio::task::JoinHandle<()> {
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
@@ -313,7 +327,8 @@ pub(crate) fn spawn_libp2p_swarm(
   tokio::spawn(async move {
     run_swarm(
       swarm,
-      cmd_rx,
+      cmd_rx_high,
+      cmd_rx_low,
       cmd_tx_for_swarm,
       network_for_swarm,
       dispatcher_for_swarm,
@@ -641,6 +656,7 @@ pub(crate) async fn maybe_bootstrap(
 }
 
 pub(crate) async fn maybe_initialize_bootstrap_openraft(
+  registry: &crate::GroupRegistry,
   self_id: NodeId,
   self_addr: String,
   bootstrap_self: bool,
@@ -650,7 +666,8 @@ pub(crate) async fn maybe_initialize_bootstrap_openraft(
   }
 
   let members = BTreeMap::from([(self_id, BasicNode { addr: self_addr })]);
-  let groups = openraft_groups()
+  let groups = registry
+    .all()
     .map(|groups| {
       groups
         .iter()

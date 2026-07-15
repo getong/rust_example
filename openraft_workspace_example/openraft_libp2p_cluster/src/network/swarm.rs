@@ -562,17 +562,42 @@ impl KvClient {
   }
 }
 
+/// Priority-separated command senders into the swarm loop.
+///
+/// Raft traffic (vote, append-entries, snapshot install) rides the `high`
+/// channel; KV / sqlite-sync / task RPC and their connection management ride
+/// `low`. The loop drains `high` first (`tokio::select!` with `biased`), so
+/// a KV burst can no longer queue ahead of raft heartbeats on a shared
+/// channel and trigger spurious leader elections (head-of-line blocking).
+#[derive(Clone)]
+pub struct CommandSenders {
+  pub high: mpsc::Sender<Command>,
+  pub low: mpsc::Sender<Command>,
+}
+
+impl CommandSenders {
+  /// Route an inbound-dispatch response back to the loop with the same
+  /// priority its request class has.
+  fn for_response(&self, resp: &UnifiedRpcResponse) -> &mpsc::Sender<Command> {
+    match resp {
+      UnifiedRpcResponse::Raft(_) => &self.high,
+      _ => &self.low,
+    }
+  }
+}
+
 /// Full-node swarm loop.
 ///
 /// The loop owns the `Swarm` exclusively: every other component interacts
-/// with it through the `Command` mpsc channel, never through a shared lock.
+/// with it through the `Command` mpsc channels, never through a shared lock.
 /// Long-running work (request dispatch, snapshot building/installing) is
 /// spawned onto separate tasks so the loop stays a thin, non-blocking
 /// multiplexer over swarm events and commands.
 pub async fn run_swarm(
   mut swarm: Swarm<Behaviour>,
-  mut cmd_rx: mpsc::Receiver<Command>,
-  cmd_tx: mpsc::Sender<Command>,
+  mut cmd_rx_high: mpsc::Receiver<Command>,
+  mut cmd_rx_low: mpsc::Receiver<Command>,
+  cmd_tx: CommandSenders,
   network: Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   mut shutdown_rx: ShutdownRx,
@@ -587,45 +612,30 @@ pub async fn run_swarm(
   let (announce_tx, announce_rx) = mpsc::channel::<Vec<u8>>(NODE_ANNOUNCE_QUEUE);
   tokio::spawn(run_node_announce_processor(network.clone(), announce_rx));
 
-  let mut cmd_batch: Vec<Command> = Vec::with_capacity(SWARM_CMD_BATCH);
+  let mut cmd_batch_high: Vec<Command> = Vec::with_capacity(SWARM_CMD_BATCH);
+  let mut cmd_batch_low: Vec<Command> = Vec::with_capacity(SWARM_CMD_BATCH);
   let mut event_batch: Vec<SwarmEvent<BehaviourEvent>> = Vec::with_capacity(SWARM_EVENT_BATCH);
   loop {
     tokio::select! {
+      // Fixed polling order: shutdown, then raft commands, then swarm
+      // events, then low-priority commands. Raft commands are rate-bounded
+      // by raft itself (heartbeat cadence, one election at a time), so
+      // preferring them cannot starve the rest.
+      biased;
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm");
         leave_openraft_kad(&mut swarm);
         state.fail_all_pending("swarm shutting down");
         break;
       }
-      _ = reconnect_tick.tick() => {
-        record_swarm_gauges(&state);
-        handle_reconnect_tick(
-          &mut swarm,
-          &network,
-          &state.connected_peers,
-          &mut state.reconnect_backoff_until,
-        ).await;
-      }
-      n = cmd_rx.recv_many(&mut cmd_batch, SWARM_CMD_BATCH) => {
+      n = cmd_rx_high.recv_many(&mut cmd_batch_high, SWARM_CMD_BATCH) => {
         if n == 0 {
           tracing::warn!("swarm command channel closed; stopping swarm");
           leave_openraft_kad(&mut swarm);
           state.fail_all_pending("swarm command channel closed");
           return;
         }
-        for cmd in cmd_batch.drain(..) {
-          match cmd {
-            Command::PublishOpenRaftSnapshot { group_id, resp } => {
-              // Building the partial reads the raft snapshot and can take
-              // seconds; do it off-loop and publish via the follow-up command.
-              spawn_build_openraft_snapshot(cmd_tx.clone(), group_id, resp);
-            }
-            Command::PublishOpenRaftSnapshotBuilt { partial, resp } => {
-              publish_openraft_snapshot_partial(&mut swarm, partial, resp, &mut state.openraft_sync);
-            }
-            cmd => handle_command(&mut swarm, cmd, &mut state),
-          }
-        }
+        handle_command_batch(&mut swarm, &mut cmd_batch_high, &cmd_tx, &mut state);
       }
 
       ev = swarm.next() => {
@@ -658,6 +668,47 @@ pub async fn run_swarm(
           .await;
         }
       }
+
+      n = cmd_rx_low.recv_many(&mut cmd_batch_low, SWARM_CMD_BATCH) => {
+        if n == 0 {
+          tracing::warn!("swarm command channel closed; stopping swarm");
+          leave_openraft_kad(&mut swarm);
+          state.fail_all_pending("swarm command channel closed");
+          return;
+        }
+        handle_command_batch(&mut swarm, &mut cmd_batch_low, &cmd_tx, &mut state);
+      }
+
+      _ = reconnect_tick.tick() => {
+        record_swarm_gauges(&state);
+        handle_reconnect_tick(
+          &mut swarm,
+          &network,
+          &state.connected_peers,
+          &mut state.reconnect_backoff_until,
+        ).await;
+      }
+    }
+  }
+}
+
+fn handle_command_batch(
+  swarm: &mut Swarm<Behaviour>,
+  cmd_batch: &mut Vec<Command>,
+  cmd_tx: &CommandSenders,
+  state: &mut SwarmState,
+) {
+  for cmd in cmd_batch.drain(..) {
+    match cmd {
+      Command::PublishOpenRaftSnapshot { group_id, resp } => {
+        // Building the partial reads the raft snapshot and can take
+        // seconds; do it off-loop and publish via the follow-up command.
+        spawn_build_openraft_snapshot(cmd_tx.low.clone(), group_id, resp);
+      }
+      Command::PublishOpenRaftSnapshotBuilt { partial, resp } => {
+        publish_openraft_snapshot_partial(swarm, partial, resp, &mut state.openraft_sync);
+      }
+      cmd => handle_command(swarm, cmd, state),
     }
   }
 }
@@ -974,13 +1025,14 @@ async fn handle_swarm_event(
   event: SwarmEvent<BehaviourEvent>,
   network: &Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
-  cmd_tx: &mpsc::Sender<Command>,
+  cmd_tx: &CommandSenders,
   announce_tx: &mpsc::Sender<Vec<u8>>,
   state: &mut SwarmState,
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Rpc(event)) => {
       handle_rpc_event(
+        swarm,
         dispatcher.clone(),
         cmd_tx,
         state.inbound_dispatch_limit.clone(),
@@ -1056,8 +1108,9 @@ async fn handle_swarm_event(
 }
 
 fn handle_rpc_event(
+  swarm: &mut Swarm<Behaviour>,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
-  cmd_tx: &mpsc::Sender<Command>,
+  cmd_tx: &CommandSenders,
   dispatch_limit: Arc<Semaphore>,
   pending_rpc: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>>,
   event: request_response::Event<UnifiedRpcRequest, UnifiedRpcResponse>,
@@ -1067,16 +1120,53 @@ fn handle_rpc_event(
       request_response::Message::Request {
         request, channel, ..
       } => {
+        // Backpressure: when every dispatch permit is busy, non-raft
+        // callers get an immediate typed "busy" signal (or a fast failure)
+        // instead of queueing unboundedly in memory — they retry with
+        // their own backoff. Raft requests are exempt: they are
+        // rate-bounded by raft itself and rejecting a vote or heartbeat
+        // would destabilize the group, so they queue on the semaphore.
+        let permit = match dispatch_limit.clone().try_acquire_owned() {
+          Ok(permit) => Some(permit),
+          Err(_) => {
+            metrics::counter!("rpc_inbound_shed_total").increment(1);
+            match &request {
+              UnifiedRpcRequest::Raft(_) => None,
+              UnifiedRpcRequest::Kv(_) => {
+                let _ = swarm.behaviour_mut().rpc.send_response(
+                  channel,
+                  UnifiedRpcResponse::Kv(kv_error_response("server busy; retry with backoff")),
+                );
+                return;
+              }
+              // tarpc envelopes carry no cheap error constructor here;
+              // dropping the channel fails the request on the caller side
+              // immediately, and both protocols already retry.
+              UnifiedRpcRequest::SqliteSync(_) | UnifiedRpcRequest::Task(_) => return,
+            }
+          }
+        };
+
         let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
+        let dispatch_limit = dispatch_limit.clone();
         tokio::spawn(async move {
-          // Acquired inside the task: the swarm loop never blocks, but at
-          // most MAX_CONCURRENT_INBOUND_DISPATCHES dispatches execute at
-          // once. The semaphore is never closed, so acquire cannot fail.
-          let permit = dispatch_limit.acquire_owned().await;
+          // Raft fallback path: no permit was free, so wait for one inside
+          // the task — the swarm loop itself never blocks. The semaphore is
+          // never closed, so acquire cannot fail.
+          let permit = match permit {
+            Some(permit) => permit,
+            None => match dispatch_limit.acquire_owned().await {
+              Ok(permit) => permit,
+              Err(_) => return,
+            },
+          };
           let resp = dispatch_unified_request(dispatcher.as_ref(), request).await;
           drop(permit);
-          let _ = tx.send(Command::RpcRespond { channel, resp }).await;
+          let _ = tx
+            .for_response(&resp)
+            .send(Command::RpcRespond { channel, resp })
+            .await;
         });
       }
       request_response::Message::Response {

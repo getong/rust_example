@@ -13,7 +13,14 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// A request to the replicated state machine.
+/// A request to the replicated state machine: the generic KV commands plus
+/// the task domain, kept as a SEPARATE enum ([`TaskRequest`]) so only the
+/// task subsystem deals with task commands.
+///
+/// `#[serde(untagged)]` on the `Task` variant erases the wrapper on the
+/// wire: `Request::Task(TaskRequest::TaskEnqueue { .. })` still serializes
+/// as `{"TaskEnqueue":{..}}`, byte-identical to the historical flat enum,
+/// so raft log entries written before the split keep decoding.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
   Set {
@@ -23,7 +30,21 @@ pub enum Request {
   Delete {
     key: String,
   },
+  #[serde(untagged)]
+  Task(TaskRequest),
+}
 
+impl From<TaskRequest> for Request {
+  fn from(task: TaskRequest) -> Self {
+    Request::Task(task)
+  }
+}
+
+/// Task-domain commands of the replicated state machine (octopii-style: a
+/// task transition is just a replicated domain command). Only the "tasks"
+/// raft group ever carries these.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum TaskRequest {
   /// Enqueue a task. Deduplicates on `idem_key` inside apply().
   TaskEnqueue {
     id: String,
@@ -100,17 +121,13 @@ pub enum Request {
   },
   /// Leader returns an assigned/running task of an inactive worker to the
   /// queue.
-  TaskRequeue {
-    id: String,
-  },
+  TaskRequeue { id: String },
   /// Leader-driven retention cleanup: delete the listed TERMINAL
   /// (done/failed) task records, their terminal-index entries, and their
   /// idempotency keys. The leader picks the ids OUTSIDE apply (scan of the
   /// terminal index against the retention cutoff); apply only re-validates
   /// per id, keeping the command deterministic on every replica.
-  TaskVacuum {
-    ids: Vec<String>,
-  },
+  TaskVacuum { ids: Vec<String> },
   /// Worker lease heartbeat record.
   WorkerLease {
     node_id: String,
@@ -118,6 +135,28 @@ pub enum Request {
     lease_epoch: u64,
     expires_at: u64,
   },
+}
+
+impl fmt::Display for TaskRequest {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      TaskRequest::TaskEnqueue { id, .. } => write!(f, "TaskEnqueue {{ id: {id} }}"),
+      TaskRequest::TaskAssign { id, node_id, .. } => {
+        write!(f, "TaskAssign {{ id: {id}, node: {node_id} }}")
+      }
+      TaskRequest::TaskClaim { id, node_id, .. } => {
+        write!(f, "TaskClaim {{ id: {id}, node: {node_id} }}")
+      }
+      TaskRequest::TaskMarkCommitted { id, node_id, .. } => {
+        write!(f, "TaskMarkCommitted {{ id: {id}, node: {node_id} }}")
+      }
+      TaskRequest::TaskDone { id, .. } => write!(f, "TaskDone {{ id: {id} }}"),
+      TaskRequest::TaskFail { id, .. } => write!(f, "TaskFail {{ id: {id} }}"),
+      TaskRequest::TaskRequeue { id } => write!(f, "TaskRequeue {{ id: {id} }}"),
+      TaskRequest::TaskVacuum { ids } => write!(f, "TaskVacuum {{ ids: {} }}", ids.len()),
+      TaskRequest::WorkerLease { node_id, .. } => write!(f, "WorkerLease {{ node: {node_id} }}"),
+    }
+  }
 }
 
 impl Request {
@@ -138,21 +177,7 @@ impl fmt::Display for Request {
     match self {
       Request::Set { key, value } => write!(f, "Set {{ key: {}, value: {} }}", key, value),
       Request::Delete { key } => write!(f, "Delete {{ key: {} }}", key),
-      Request::TaskEnqueue { id, .. } => write!(f, "TaskEnqueue {{ id: {id} }}"),
-      Request::TaskAssign { id, node_id, .. } => {
-        write!(f, "TaskAssign {{ id: {id}, node: {node_id} }}")
-      }
-      Request::TaskClaim { id, node_id, .. } => {
-        write!(f, "TaskClaim {{ id: {id}, node: {node_id} }}")
-      }
-      Request::TaskMarkCommitted { id, node_id, .. } => {
-        write!(f, "TaskMarkCommitted {{ id: {id}, node: {node_id} }}")
-      }
-      Request::TaskDone { id, .. } => write!(f, "TaskDone {{ id: {id} }}"),
-      Request::TaskFail { id, .. } => write!(f, "TaskFail {{ id: {id} }}"),
-      Request::TaskRequeue { id } => write!(f, "TaskRequeue {{ id: {id} }}"),
-      Request::TaskVacuum { ids } => write!(f, "TaskVacuum {{ ids: {} }}", ids.len()),
-      Request::WorkerLease { node_id, .. } => write!(f, "WorkerLease {{ node: {node_id} }}"),
+      Request::Task(task) => fmt::Display::fmt(task, f),
     }
   }
 }
@@ -172,5 +197,55 @@ impl Response {
 
   pub fn none() -> Self {
     Response { value: None }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// The `Task` wrapper must be invisible on the wire: log entries written
+  /// before the enum split used the flat externally-tagged form, and the
+  /// nested enum must keep both encoding and decoding byte-identical.
+  #[test]
+  fn task_variant_serializes_flat() {
+    let request = Request::Task(TaskRequest::TaskRequeue {
+      id: "t1".to_string(),
+    });
+    let json = sonic_rs::to_string(&request).expect("encode");
+    assert_eq!(json, r#"{"TaskRequeue":{"id":"t1"}}"#);
+
+    let decoded: Request = sonic_rs::from_str(&json).expect("decode");
+    match decoded {
+      Request::Task(TaskRequest::TaskRequeue { id }) => assert_eq!(id, "t1"),
+      other => panic!("expected TaskRequeue, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn kv_variants_unchanged() {
+    let json = sonic_rs::to_string(&Request::set("k", "v")).expect("encode");
+    assert_eq!(json, r#"{"Set":{"key":"k","value":"v"}}"#);
+    let decoded: Request = sonic_rs::from_str(&json).expect("decode");
+    assert!(matches!(decoded, Request::Set { .. }));
+  }
+
+  /// A pre-split log entry (flat WorkerLease) decodes into the nested form.
+  #[test]
+  fn legacy_flat_task_entry_decodes() {
+    let legacy =
+      r#"{"WorkerLease":{"node_id":"n1","worker_name":"w","lease_epoch":3,"expires_at":99}}"#;
+    let decoded: Request = sonic_rs::from_str(legacy).expect("decode legacy");
+    match decoded {
+      Request::Task(TaskRequest::WorkerLease {
+        node_id,
+        lease_epoch,
+        ..
+      }) => {
+        assert_eq!(node_id, "n1");
+        assert_eq!(lease_epoch, 3);
+      }
+      other => panic!("expected WorkerLease, got {other:?}"),
+    }
   }
 }

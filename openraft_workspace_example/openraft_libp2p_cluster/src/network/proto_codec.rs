@@ -2,7 +2,7 @@
 //!
 //! Every RPC kind travels in one envelope tagged with a `kind` field:
 //!   - raft ops encode as sonic-rs JSON, with full-snapshot data carried out-of-band in the
-//!     envelope's lz4-compressed binary frame (so megabytes of snapshot bytes never pass through
+//!     envelope's zstd-compressed binary frame (so megabytes of snapshot bytes never pass through
 //!     the JSON encoder);
 //!   - kv ops keep their protobuf (prost) encoding;
 //!   - sqlite-sync and task ops (tarpc envelopes) encode as JSON.
@@ -21,6 +21,10 @@ use crate::network::rpc::{RaftRpcOp, RaftRpcRequest, UnifiedRpcRequest, UnifiedR
 /// request limit is far above a typical RPC.
 const REQUEST_MAX: u64 = 64 * 1024 * 1024;
 const RESPONSE_MAX: u64 = 10 * 1024 * 1024;
+
+/// zstd level for the snapshot frame: 3 is the ratio/speed sweet spot for
+/// bulk state-machine data.
+const SNAPSHOT_ZSTD_LEVEL: i32 = 3;
 
 /// `kind` tag values on the wire. 0 is reserved (absent field in old
 /// envelopes); never reuse a value for a different payload encoding.
@@ -63,7 +67,7 @@ struct ProtoEnvelope {
   /// Kind-specific encoding of the RPC value (JSON or protobuf).
   #[prost(bytes = "bytes", tag = "1")]
   payload: Bytes,
-  /// Out-of-band binary frame (lz4, size-prepended); raft full-snapshot data.
+  /// Out-of-band binary frame (zstd); raft full-snapshot data.
   #[prost(bytes = "bytes", tag = "2")]
   binary: Bytes,
   /// Which `UnifiedRpc*` variant the payload decodes into.
@@ -137,7 +141,7 @@ fn encode_unified_request(req: UnifiedRpcRequest) -> io::Result<Vec<u8>> {
   let envelope = match req {
     UnifiedRpcRequest::Raft(mut raft) => {
       // Full-snapshot data bypasses the JSON payload: pulled out of the op,
-      // lz4-compressed, and carried in the envelope's binary frame.
+      // zstd-compressed, and carried in the envelope's binary frame.
       let snapshot_data = match &mut raft.op {
         RaftRpcOp::FullSnapshot { data, .. } => std::mem::take(data),
         _ => Vec::new(),
@@ -145,7 +149,10 @@ fn encode_unified_request(req: UnifiedRpcRequest) -> io::Result<Vec<u8>> {
       let binary = if snapshot_data.is_empty() {
         Bytes::new()
       } else {
-        Bytes::from(lz4_flex::compress_prepend_size(&snapshot_data))
+        Bytes::from(
+          zstd::stream::encode_all(snapshot_data.as_slice(), SNAPSHOT_ZSTD_LEVEL)
+            .map_err(invalid_data)?,
+        )
       };
       ProtoEnvelope {
         payload: encode_json(&raft)?.into(),
@@ -238,7 +245,7 @@ fn attach_snapshot_binary(request: &mut RaftRpcRequest, binary: &[u8]) -> io::Re
   let RaftRpcOp::FullSnapshot { data, .. } = &mut request.op else {
     return Err(invalid_data("binary frame on a non-snapshot raft request"));
   };
-  *data = lz4_flex::decompress_size_prepended(binary).map_err(invalid_data)?;
+  *data = zstd::stream::decode_all(binary).map_err(invalid_data)?;
   Ok(())
 }
 

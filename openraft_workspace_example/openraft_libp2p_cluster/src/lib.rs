@@ -101,12 +101,29 @@ pub mod groups {
   pub const ORDERS: &str = "orders";
   pub const PRODUCTS: &str = "products";
 
+  /// Env var overriding the raft group layout: a comma-separated list of
+  /// group ids, e.g. `OPENRAFT_GROUP_IDS=users,inventory,tasks`.
+  pub const GROUP_IDS_ENV: &str = "OPENRAFT_GROUP_IDS";
+
+  /// Raft group ids served by this node. The four demo groups by default;
+  /// configurable at startup via [`GROUP_IDS_ENV`] (also loadable from
+  /// `.env`) instead of being hardcoded. The `tasks` group is always
+  /// included — the task subsystem (scheduler, workers, HTTP task API)
+  /// depends on it. Live groups are discoverable at runtime through
+  /// [`crate::GroupRegistry`] / `GET /groups`, not this static list.
   pub fn all() -> Vec<String> {
-    vec![
-      USERS.to_string(),
-      ORDERS.to_string(),
-      PRODUCTS.to_string(),
-      TASKS.to_string(),
-    ]
+    let mut ids: Vec<String> = match std::env::var(GROUP_IDS_ENV) {
+      Ok(raw) => raw
+        .split(',')
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect(),
+      Err(_) => vec![USERS.to_string(), ORDERS.to_string(), PRODUCTS.to_string()],
+    };
+    if !ids.iter().any(|id| id == TASKS) {
+      ids.push(TASKS.to_string());
+    }
+    ids.dedup();
+    ids
   }
 }

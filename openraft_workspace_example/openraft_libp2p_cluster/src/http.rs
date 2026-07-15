@@ -38,7 +38,6 @@ use crate::{
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
-  openraft_group, openraft_groups,
   proto::raft_kv::{
     ChatMessage, DeleteValueRequest, RaftKvRequest, RaftKvResponse, SetValueRequest,
     UpdateValueRequest as ProtoUpdateValueRequest, raft_kv_request::Op as KvRequestOp,
@@ -53,7 +52,7 @@ use crate::{
     rpc::{ControlNodes, TaskRpc, TaskRpcRequest, TaskRpcResponse, TaskRpcService},
     worker::{call_read, submit_command},
   },
-  types_kv::Request as StateCommand,
+  types_kv::TaskRequest as StateCommand,
 };
 
 const HTTP_JSON_BODY_LIMIT: usize = 1024 * 1024;
@@ -144,6 +143,10 @@ pub struct AppState {
   pub default_group: GroupId,
   pub task_frontend: TaskFrontend,
   pub sqlite_cache: Option<SqliteCache>,
+  /// Injected raft group registry: handlers resolve groups through this
+  /// instead of the process-wide global, so tests can serve an isolated set
+  /// of groups.
+  pub registry: crate::GroupRegistry,
 }
 
 /// How this node reaches the replicated task queue.
@@ -192,6 +195,7 @@ pub async fn serve(
       "/config",
       get(get_runtime_config).post(update_runtime_config),
     )
+    .route("/groups", get(list_groups))
     .with_state(Arc::new(state));
 
   let listener = tokio::net::TcpListener::bind(addr)
@@ -586,13 +590,15 @@ async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> Cluste
   let group_id = query
     .group_id
     .unwrap_or_else(|| state.default_group.clone());
-  let groups = openraft_groups()
+  let groups = state
+    .registry
+    .all()
     .map(|groups| groups.keys().cloned().collect())
     .unwrap_or_default();
 
-  let (metrics, error) = match openraft_group(&group_id) {
+  let (metrics, error) = match state.registry.get(&group_id) {
     Some(group) => (Some(group.raft.metrics().borrow_watched().clone()), None),
-    None if openraft_groups().is_none() => (
+    None if state.registry.all().is_none() => (
       None,
       Some("openraft groups are not initialized".to_string()),
     ),
@@ -874,9 +880,9 @@ async fn openraft_nodes(
   let group_id = query
     .group_id
     .unwrap_or_else(|| state.default_group.clone());
-  let groups = openraft_group_ids();
-  let Some(group) = openraft_group(&group_id) else {
-    let error = if openraft_groups().is_none() {
+  let groups = openraft_group_ids(&state.registry);
+  let Some(group) = state.registry.get(&group_id) else {
+    let error = if state.registry.all().is_none() {
       "openraft groups are not initialized".to_string()
     } else {
       format!("unknown group_id={group_id}")
@@ -1135,7 +1141,7 @@ async fn libp2p_nodes(
   let group_id = query
     .group_id
     .unwrap_or_else(|| state.default_group.clone());
-  let (roles, error) = match openraft_roles_by_node(&group_id) {
+  let (roles, error) = match openraft_roles_by_node(&state.registry, &group_id) {
     Ok(roles) => (roles, None),
     Err(error) => (BTreeMap::new(), Some(error)),
   };
@@ -1176,12 +1182,12 @@ async fn libp2p_nodes(
 }
 
 async fn remove_openraft_member(
-  State(_state): State<Arc<AppState>>,
+  State(state): State<Arc<AppState>>,
   Json(req): Json<RemoveOpenRaftMemberRequest>,
 ) -> Json<RemoveOpenRaftMemberResponse> {
   let group_ids = match req.group_id.clone() {
     Some(group_id) => vec![group_id],
-    None => openraft_group_ids(),
+    None => openraft_group_ids(&state.registry),
   };
 
   if group_ids.is_empty() {
@@ -1195,7 +1201,7 @@ async fn remove_openraft_member(
 
   let mut groups = Vec::with_capacity(group_ids.len());
   for group_id in group_ids {
-    groups.push(remove_openraft_member_from_group(&group_id, &req.node_id).await);
+    groups.push(remove_openraft_member_from_group(&state.registry, &group_id, &req.node_id).await);
   }
   let ok = groups.iter().all(|group| group.ok);
   let error = if ok {
@@ -1218,7 +1224,7 @@ async fn add_openraft_member(
 ) -> Json<AddOpenRaftMemberResponse> {
   let group_ids = match req.group_id.clone() {
     Some(group_id) => vec![group_id],
-    None => openraft_group_ids(),
+    None => openraft_group_ids(&state.registry),
   };
 
   if group_ids.is_empty() {
@@ -1261,6 +1267,7 @@ async fn add_openraft_member(
   for group_id in group_ids {
     groups.push(
       add_openraft_member_to_group(
+        &state.registry,
         &group_id,
         &req.node_id,
         &target_addr,
@@ -1313,6 +1320,7 @@ async fn resolve_openraft_member_addr(
 }
 
 async fn add_openraft_member_to_group(
+  registry: &crate::GroupRegistry,
   group_id: &str,
   target_node_id: &NodeId,
   target_addr: &str,
@@ -1320,7 +1328,7 @@ async fn add_openraft_member_to_group(
   catch_up_timeout: Duration,
   network: &Libp2pNetworkFactory,
 ) -> AddOpenRaftMemberGroupResponse {
-  let Some(group) = openraft_group(group_id) else {
+  let Some(group) = registry.get(group_id) else {
     return AddOpenRaftMemberGroupResponse {
       group_id: group_id.to_string(),
       ok: false,
@@ -1426,6 +1434,7 @@ async fn add_openraft_member_to_group(
   }
 
   if let Err(err) = wait_for_openraft_member_rpc(
+    registry,
     group_id,
     target_node_id,
     learner_log_index,
@@ -1566,6 +1575,7 @@ async fn forward_add_learner_to_leader(
 }
 
 async fn wait_for_openraft_member_rpc(
+  registry: &crate::GroupRegistry,
   group_id: &str,
   target_node_id: &NodeId,
   min_matched_index: u64,
@@ -1573,7 +1583,7 @@ async fn wait_for_openraft_member_rpc(
 ) -> Result<(), String> {
   let deadline = tokio::time::Instant::now() + timeout;
   loop {
-    let Some(group) = openraft_group(group_id) else {
+    let Some(group) = registry.get(group_id) else {
       return Err(format!("unknown group_id={group_id}"));
     };
 
@@ -1615,10 +1625,11 @@ async fn wait_for_openraft_member_rpc(
 }
 
 async fn remove_openraft_member_from_group(
+  registry: &crate::GroupRegistry,
   group_id: &str,
   target_node_id: &NodeId,
 ) -> RemoveOpenRaftMemberGroupResponse {
-  let Some(group) = openraft_group(group_id) else {
+  let Some(group) = registry.get(group_id) else {
     return RemoveOpenRaftMemberGroupResponse {
       group_id: group_id.to_string(),
       ok: false,
@@ -1703,8 +1714,9 @@ async fn remove_openraft_member_from_group(
   }
 }
 
-fn openraft_group_ids() -> Vec<String> {
-  openraft_groups()
+fn openraft_group_ids(registry: &crate::GroupRegistry) -> Vec<String> {
+  registry
+    .all()
     .map(|groups| groups.keys().cloned().collect())
     .unwrap_or_default()
 }
@@ -1720,9 +1732,12 @@ async fn known_nodes_by_id(
     .collect()
 }
 
-fn openraft_roles_by_node(group_id: &str) -> Result<BTreeMap<NodeId, String>, String> {
-  let Some(group) = openraft_group(group_id) else {
-    return if openraft_groups().is_none() {
+fn openraft_roles_by_node(
+  registry: &crate::GroupRegistry,
+  group_id: &str,
+) -> Result<BTreeMap<NodeId, String>, String> {
+  let Some(group) = registry.get(group_id) else {
+    return if registry.all().is_none() {
       Err("openraft groups are not initialized".to_string())
     } else {
       Err(format!("unknown group_id={group_id}"))
@@ -1773,7 +1788,7 @@ async fn cluster_info(
     .group_id
     .unwrap_or_else(|| state.default_group.clone());
 
-  let Some(global_groups) = openraft_groups() else {
+  let Some(global_groups) = state.registry.all() else {
     return Json(ClusterInfoResponse {
       node_id: state.node_id.clone(),
       node_name: state.node_name.clone(),
@@ -1791,7 +1806,7 @@ async fn cluster_info(
 
   let groups: Vec<String> = global_groups.keys().cloned().collect();
 
-  let Some(group) = openraft_group(&group_id) else {
+  let Some(group) = state.registry.get(&group_id) else {
     return Json(ClusterInfoResponse {
       node_id: state.node_id.clone(),
       node_name: state.node_name.clone(),
@@ -1921,7 +1936,11 @@ async fn submit_task_state_command(
   match &state.task_frontend {
     TaskFrontend::Control => {
       let reply = TaskRpcService
-        .submit(tarpc::context::current(), group_id.clone(), cmd.clone())
+        .submit(
+          tarpc::context::current(),
+          group_id.clone(),
+          cmd.clone().into(),
+        )
         .await;
       if reply.ok {
         let value = reply
@@ -2428,7 +2447,7 @@ async fn write_cached_value(
   }
 
   let openraft_key = pending_key(&req.key);
-  let group = match openraft_group(&group_id) {
+  let group = match state.registry.get(&group_id) {
     Some(group) => group,
     None => {
       return Json(CacheWriteResponse {
@@ -2563,6 +2582,31 @@ async fn prometheus_metrics() -> String {
 }
 
 #[derive(serde::Serialize)]
+struct GroupsResponse {
+  ok: bool,
+  /// Live raft groups served by this node (from the group registry, not the
+  /// static startup list).
+  groups: Vec<String>,
+  default_group: GroupId,
+  initialized: bool,
+}
+
+/// `GET /groups`: discover the raft groups this node actually serves.
+async fn list_groups(State(state): State<Arc<AppState>>) -> Json<GroupsResponse> {
+  let groups: Vec<String> = state
+    .registry
+    .all()
+    .map(|groups| groups.keys().cloned().collect())
+    .unwrap_or_default();
+  Json(GroupsResponse {
+    ok: true,
+    initialized: !groups.is_empty(),
+    default_group: state.default_group.clone(),
+    groups,
+  })
+}
+
+#[derive(serde::Serialize)]
 struct RuntimeConfigResponse {
   ok: bool,
   config: crate::runtime_config::RuntimeConfig,
@@ -2607,7 +2651,10 @@ async fn send_kv_request(
 ) -> Result<(NodeId, RaftKvResponse), String> {
   match resolve_kv_target(state, group_id, target_node_id).await? {
     KvTarget::Local { node_id } => {
-      let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
+      let group = state
+        .registry
+        .get(group_id)
+        .ok_or_else(|| format!("unknown group_id={group_id}"))?;
       let resp = process_kv_request(group.raft, group.kv_data, request).await;
       Ok((node_id, resp))
     }
@@ -2645,7 +2692,11 @@ enum KvTarget {
 fn resolve_group_id(state: &AppState, group_id: Option<String>) -> Result<GroupId, String> {
   match group_id {
     Some(group_id) => {
-      if openraft_groups().is_some_and(|groups| groups.contains_key(&group_id)) {
+      if state
+        .registry
+        .all()
+        .is_some_and(|groups| groups.contains_key(&group_id))
+      {
         Ok(group_id)
       } else {
         Err(format!("unknown group_id={group_id}"))
@@ -2660,7 +2711,10 @@ async fn resolve_kv_target(
   group_id: &str,
   target_node_id: Option<NodeId>,
 ) -> Result<KvTarget, String> {
-  let group = openraft_group(group_id).ok_or_else(|| format!("unknown group_id={group_id}"))?;
+  let group = state
+    .registry
+    .get(group_id)
+    .ok_or_else(|| format!("unknown group_id={group_id}"))?;
   let metrics = group.raft.metrics().borrow_watched().clone();
   let candidate = target_node_id.or_else(|| metrics.current_leader.clone());
 

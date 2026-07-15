@@ -38,7 +38,7 @@ use crate::{
     },
     scheduler::current_unix_secs,
   },
-  types_kv::Request as StateCommand,
+  types_kv::TaskRequest as StateCommand,
 };
 
 const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
@@ -107,8 +107,9 @@ pub async fn submit_reply(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodes>,
   group_id: &str,
-  cmd: StateCommand,
+  cmd: impl Into<crate::types_kv::Request>,
 ) -> anyhow::Result<TaskWriteReply> {
+  let cmd: crate::types_kv::Request = cmd.into();
   let targets = control_nodes.lock().await.targets();
   let mut last_error: Option<String> = None;
 
@@ -162,7 +163,7 @@ pub async fn submit_command(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodes>,
   group_id: &str,
-  cmd: StateCommand,
+  cmd: impl Into<crate::types_kv::Request>,
 ) -> anyhow::Result<TaskOpResult> {
   let reply = submit_reply(network, control_nodes, group_id, cmd).await?;
   let value = reply
