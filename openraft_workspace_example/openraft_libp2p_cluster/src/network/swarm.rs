@@ -58,6 +58,28 @@ const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
 const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
 
+/// Gossipsub configuration shared by the full node and the client binaries.
+///
+/// The knobs that matter at scale are set explicitly instead of relying on
+/// library defaults:
+///   - `flood_publish(false)`: publish into the mesh (bounded degree) instead
+///     of to every connected subscriber, so a node with many live connections
+///     (e.g. the raft leader) does not pay O(connections) per publish;
+///   - explicit mesh degree bounds keep the per-node gossip fan-out constant
+///     no matter how many peers are known;
+///   - `max_transmit_size` fits an openraft snapshot partial message
+///     (4 x 8 KiB parts + metadata/bitmap) with generous headroom.
+pub fn build_gossipsub_config() -> Result<gossipsub::Config, gossipsub::ConfigBuilderError> {
+  gossipsub::ConfigBuilder::default()
+    .heartbeat_interval(Duration::from_secs(1))
+    .mesh_n(6)
+    .mesh_n_low(4)
+    .mesh_n_high(12)
+    .flood_publish(false)
+    .max_transmit_size(128 * 1024)
+    .build()
+}
+
 #[derive(Debug, Clone)]
 pub struct NetErr(pub String);
 
@@ -1416,10 +1438,6 @@ fn node_announce_topic_hash() -> gossipsub::TopicHash {
   gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC).hash()
 }
 
-fn task_assign_topic_hash() -> gossipsub::TopicHash {
-  gossipsub::IdentTopic::new(crate::tasks::scheduler::TASK_ASSIGN_TOPIC).hash()
-}
-
 /// Handle a node self-announcement: (re)register the sender in the local
 /// known-nodes address book and refresh its liveness timestamp. This is what
 /// brings a node back into `known_nodes` after it crashed, was pruned, and
@@ -1466,26 +1484,14 @@ async fn handle_gossipsub_event(
       message,
     } => {
       if message.topic == node_announce_topic_hash() {
-        handle_node_announcement(network, message.data.as_slice()).await;
-        return;
-      }
-
-      if message.topic == task_assign_topic_hash() {
-        match crate::proto::raft_kv::TaskAssignedMessage::decode(message.data.as_slice()) {
-          Ok(assigned) => {
-            tracing::debug!(
-              task_id = %assigned.task_id,
-              worker_id = %assigned.worker_id,
-              "task assignment gossip received"
-            );
-            crate::tasks::worker::notify_assignment(
-              &assigned.worker_id,
-              &assigned.task_id,
-              assigned.lease_epoch,
-            );
-          }
-          Err(err) => tracing::debug!(error = %err, "invalid task assignment message"),
-        }
+        // Announce volume grows with cluster size (every node, every
+        // announce interval) and registration takes address-book locks, so
+        // run it off-loop: a burst of announcements must not delay raft RPC
+        // event handling.
+        let network = network.clone();
+        tokio::spawn(async move {
+          handle_node_announcement(&network, message.data.as_slice()).await;
+        });
         return;
       }
 

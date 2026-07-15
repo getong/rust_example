@@ -111,8 +111,7 @@ async fn main() -> anyhow::Result<()> {
       let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
       let mut kad = kad::Behaviour::new(peer_id, MemoryStore::new(peer_id));
       kad.set_mode(Some(kad::Mode::Client));
-      let gossipsub_config = gossipsub::ConfigBuilder::default()
-        .build()
+      let gossipsub_config = openraft_libp2p_cluster::network::swarm::build_gossipsub_config()
         .map_err(|e| anyhow::anyhow!("gossipsub config error: {e}"))?;
       let gossipsub = gossipsub::Behaviour::new(
         gossipsub::MessageAuthenticity::Signed(key.clone()),

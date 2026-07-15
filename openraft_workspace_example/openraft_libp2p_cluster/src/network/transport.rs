@@ -84,6 +84,10 @@ impl Libp2pNetworkFactory {
     }
   }
 
+  pub fn local_peer_id(&self) -> PeerId {
+    self.local_peer_id
+  }
+
   pub fn with_group(&self, group_id: GroupId) -> Self {
     Self {
       client: self.client.clone(),

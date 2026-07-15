@@ -26,20 +26,18 @@ use anyhow::anyhow;
 use tokio::time::Instant;
 
 use crate::{
-  GroupId,
-  network::{swarm::KvClient, transport::Libp2pNetworkFactory},
+  GroupId, NodeId,
+  network::transport::Libp2pNetworkFactory,
   openraft_group,
   signal::ShutdownRx,
   tasks::{
     TASK_ASSIGNED_IDX_PREFIX, TASK_QUEUED_IDX_PREFIX, TASK_TERMINAL_IDX_PREFIX, TASK_WORKER_PREFIX,
     TaskOpResult, TaskRecord, TaskStatus, WorkerLeaseRecord, parse_assigned_idx_key,
     parse_queued_idx_key, parse_terminal_idx_key, rec_key,
+    rpc::{TaskRpcRequest, task_rpc_request},
   },
   types_kv::Request as StateCommand,
 };
-
-/// Gossip topic used to wake a worker immediately after an assignment.
-pub const TASK_ASSIGN_TOPIC: &str = "openraft/task-assign/1";
 
 /// A task stuck in Assigned/Running on a LIVE worker for longer than this is
 /// returned to the queue (crash-free hangs: worker bug, lost wake, endless
@@ -84,7 +82,6 @@ fn task_retention_secs() -> u64 {
 pub async fn run_task_scheduler(
   group_id: GroupId,
   network: Libp2pNetworkFactory,
-  kv_client: KvClient,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
@@ -103,7 +100,7 @@ pub async fn run_task_scheduler(
   let mut down_since: HashMap<String, Instant> = HashMap::new();
 
   loop {
-    let next_due = match scheduler_tick(&group_id, &network, &kv_client, &mut down_since).await {
+    let next_due = match scheduler_tick(&group_id, &network, &mut down_since).await {
       Ok(next_due) => next_due,
       Err(err) => {
         tracing::warn!(group = %group_id, error = ?err, "task scheduler pass failed");
@@ -145,7 +142,6 @@ pub async fn run_task_scheduler(
 async fn scheduler_tick(
   group_id: &str,
   network: &Libp2pNetworkFactory,
-  kv_client: &KvClient,
   down_since: &mut HashMap<String, Instant>,
 ) -> anyhow::Result<Option<u64>> {
   let Some(group) = openraft_group(group_id) else {
@@ -259,7 +255,7 @@ async fn scheduler_tick(
           lease_epoch = worker.lease_epoch,
           "assigned task to worker"
         );
-        notify_worker(kv_client, task_id, &worker.node_id, worker.lease_epoch).await;
+        notify_worker(network, task_id, &worker.node_id, worker.lease_epoch).await;
       }
       Err(err) => return Err(anyhow!("assign {task_id} failed: {err}")),
     }
@@ -422,21 +418,40 @@ fn select_worker<'a>(
   workers.get((hasher.finish() as usize) % workers.len())
 }
 
+/// Directed assignment wake: tell exactly the assigned worker about its new
+/// task instead of gossiping the assignment to the whole cluster (the old
+/// broadcast made every node receive every assignment — O(N x task rate)
+/// gossip traffic). Best-effort: on failure the worker's reconciliation poll
+/// picks the assignment up within its fallback interval.
 async fn notify_worker(
-  kv_client: &KvClient,
+  network: &Libp2pNetworkFactory,
   task_id: &str,
   worker_node_id: &str,
   lease_epoch: u64,
 ) {
-  use prost::Message as _;
-  let msg = crate::proto::raft_kv::TaskAssignedMessage {
+  // The leader may assign to its own co-located worker; RPC to self is
+  // blocked at the transport, so wake the local channel directly.
+  if worker_node_id == network.local_peer_id().to_string() {
+    crate::tasks::worker::notify_assignment(worker_node_id, task_id, lease_epoch);
+    return;
+  }
+
+  let request = task_rpc_request(TaskRpcRequest::NotifyAssigned {
+    worker_node_id: worker_node_id.to_string(),
     task_id: task_id.to_string(),
-    worker_id: worker_node_id.to_string(),
     lease_epoch,
-  };
-  kv_client
-    .publish_gossipsub(TASK_ASSIGN_TOPIC, msg.encode_to_vec())
-    .await;
+  });
+  if let Err(err) = network
+    .request_task_rpc(NodeId::new(worker_node_id), request)
+    .await
+  {
+    tracing::debug!(
+      task_id = %task_id,
+      worker_node_id = %worker_node_id,
+      error = %err,
+      "directed assignment wake failed; worker will reconcile via its fallback poll"
+    );
+  }
 }
 
 pub fn current_unix_secs() -> u64 {

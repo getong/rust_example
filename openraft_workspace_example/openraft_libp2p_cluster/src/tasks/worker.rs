@@ -2,11 +2,11 @@
 //! and that must never move into `apply()`): claim → execute side effects on
 //! exactly one node → ack, plus worker lease renewal.
 //!
-//! Wake-up is event driven: the scheduler publishes a `TaskAssignedMessage`
-//! (task id + lease epoch) on the task-assign gossip topic and the swarm
-//! forwards it into the wake channel below, so the worker claims directly
-//! with zero read RPCs. A slow reconciliation poll remains as fallback for
-//! missed gossip. Executions run concurrently up to
+//! Wake-up is event driven: the scheduler sends a directed
+//! `TaskRpc::notify_assigned` RPC (task id + lease epoch) to exactly the
+//! assigned worker, which feeds the wake channel below, so the worker claims
+//! directly with zero read RPCs. A slow reconciliation poll remains as
+//! fallback for missed wakes. Executions run concurrently up to
 //! [`WORKER_MAX_CONCURRENT_TASKS`], so one slow task never blocks the rest.
 //!
 //! Execution itself is task-agnostic: the loop decodes the payload into the
@@ -46,7 +46,7 @@ const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
 /// and goes through the normal retry/backoff path.
 pub(crate) const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 const WORKER_LEASE_TTL_SECS: u64 = 30;
-/// Reconciliation poll for missed gossip only; assignments normally arrive
+/// Reconciliation poll for missed wakes only; assignments normally arrive
 /// through the wake channel with everything needed to claim.
 const WORKER_POLL_FALLBACK: Duration = Duration::from_secs(30);
 const RETRY_BACKOFF_BASE_SECS: u64 = 5;
@@ -54,7 +54,7 @@ const MAX_LEADER_REDIRECTS: usize = 3;
 /// Per-node cap on concurrently executing tasks.
 const WORKER_MAX_CONCURRENT_TASKS: usize = 4;
 
-/// A concrete assignment forwarded from the scheduler's gossip message:
+/// A concrete assignment forwarded from the scheduler's directed wake RPC:
 /// carries everything needed to claim, so no read RPC is required.
 #[derive(Debug, Clone)]
 pub struct TaskAssignment {
@@ -63,15 +63,16 @@ pub struct TaskAssignment {
   pub lease_epoch: u64,
 }
 
-/// Wake channel fed by the swarm's gossip handler when the scheduler
-/// announces an assignment for this node.
+/// Wake channel fed by the task RPC service when the scheduler sends a
+/// directed `notify_assigned` for this node.
 static TASK_WAKE_TX: OnceLock<broadcast::Sender<TaskAssignment>> = OnceLock::new();
 
 fn wake_channel() -> &'static broadcast::Sender<TaskAssignment> {
   TASK_WAKE_TX.get_or_init(|| broadcast::channel(64).0)
 }
 
-/// Called from the swarm gossip handler on the task-assign topic.
+/// Called from `TaskRpc::notify_assigned` (and directly by a leader waking
+/// its own co-located worker).
 pub fn notify_assignment(worker_node_id: &str, task_id: &str, lease_epoch: u64) {
   if let Some(tx) = TASK_WAKE_TX.get() {
     let _ = tx.send(TaskAssignment {

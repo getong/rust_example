@@ -601,8 +601,7 @@ fn build_swarm(
         .set_provider_publication_interval(Some(OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL))
         .set_periodic_bootstrap_interval(Some(OPENRAFT_KAD_PERIODIC_BOOTSTRAP_INTERVAL));
       let kad = kad::Behaviour::with_config(peer_id, MemoryStore::new(peer_id), kad_config);
-      let gossipsub_config = gossipsub::ConfigBuilder::default()
-        .build()
+      let gossipsub_config = crate::network::swarm::build_gossipsub_config()
         .map_err(|e| anyhow!("gossipsub config error: {e}"))?;
       let gossipsub = gossipsub::Behaviour::new(
         gossipsub::MessageAuthenticity::Signed(key.clone()),
@@ -660,7 +659,6 @@ fn build_swarm(
 
   let gossip_topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
   let announce_topic = gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC);
-  let task_assign_topic = gossipsub::IdentTopic::new(tasks::scheduler::TASK_ASSIGN_TOPIC);
   let sync_topic = gossipsub::IdentTopic::new(OPENRAFT_SYNC_TOPIC);
   let sync_topic_hash = sync_topic.hash();
   swarm
@@ -682,11 +680,6 @@ fn build_swarm(
     .gossipsub
     .subscribe(&announce_topic)
     .context("node announce gossipsub subscribe")?;
-  swarm
-    .behaviour_mut()
-    .gossipsub
-    .subscribe(&task_assign_topic)
-    .context("task assign gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
   Ok(swarm)
@@ -781,7 +774,6 @@ fn spawn_openraft_leader_controller(
   shutdown: &mut crate::signal::ShutdownHandler,
   groups: GroupHandleMap,
   network: Libp2pNetworkFactory,
-  kv_client: KvClient,
   membership_guard_config: Option<MembershipGuardConfig>,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_OPENRAFT_LEADER_WORKER);
@@ -790,7 +782,6 @@ fn spawn_openraft_leader_controller(
     let res = leader_controller::run_leader_controller(
       groups,
       network,
-      kv_client,
       membership_guard_config,
       Duration::from_secs(OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS),
       shutdown_rx,
@@ -851,7 +842,6 @@ async fn run_control_services(
     &mut shutdown,
     leader_controller_groups,
     runtime.libp2p.network.clone(),
-    runtime.libp2p.kv_client.clone(),
     membership_guard_config,
   );
 

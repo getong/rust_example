@@ -7,7 +7,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use crate::{
   GroupHandleMap, GroupId, Raft, groups,
   membership_guard::{self, MembershipGuardConfig},
-  network::{swarm::KvClient, transport::Libp2pNetworkFactory},
+  network::transport::Libp2pNetworkFactory,
   signal::{self, ShutdownRx, ShutdownTx},
   tasks::scheduler,
   typ::RaftMetrics,
@@ -17,7 +17,6 @@ use crate::{
 enum LeaderWork {
   TaskScheduler {
     network: Libp2pNetworkFactory,
-    kv_client: KvClient,
   },
   MembershipGuard {
     network: Libp2pNetworkFactory,
@@ -48,9 +47,9 @@ impl RunningLeaderWork {
     let task_group_id = group_id.clone();
     let handle = tokio::spawn(async move {
       match work {
-        LeaderWork::TaskScheduler { network, kv_client } => {
+        LeaderWork::TaskScheduler { network } => {
           let _ = raft;
-          scheduler::run_task_scheduler(task_group_id, network, kv_client, interval, stop_rx).await
+          scheduler::run_task_scheduler(task_group_id, network, interval, stop_rx).await
         }
         LeaderWork::MembershipGuard { network, config } => {
           membership_guard::run_membership_guard(task_group_id, raft, network, config, stop_rx)
@@ -83,7 +82,6 @@ impl RunningLeaderWork {
 pub async fn run_leader_controller(
   groups: GroupHandleMap,
   network: Libp2pNetworkFactory,
-  kv_client: KvClient,
   membership_guard_config: Option<MembershipGuardConfig>,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
@@ -96,12 +94,7 @@ pub async fn run_leader_controller(
 
   let mut group_tasks = JoinSet::new();
   for (group_id, group) in groups {
-    let works = leader_works_for_group(
-      &group_id,
-      &network,
-      &kv_client,
-      membership_guard_config.as_ref(),
-    );
+    let works = leader_works_for_group(&group_id, &network, membership_guard_config.as_ref());
     group_tasks.spawn(run_group_leader_controller(
       group_id,
       group.raft,
@@ -163,7 +156,6 @@ pub async fn run_leader_controller(
 fn leader_works_for_group(
   group_id: &str,
   network: &Libp2pNetworkFactory,
-  kv_client: &KvClient,
   membership_guard_config: Option<&MembershipGuardConfig>,
 ) -> Vec<LeaderWork> {
   let mut works = Vec::new();
@@ -178,7 +170,6 @@ fn leader_works_for_group(
   if group_id == groups::TASKS {
     works.push(LeaderWork::TaskScheduler {
       network: network.clone(),
-      kv_client: kv_client.clone(),
     });
   }
 

@@ -90,6 +90,12 @@ pub trait TaskRpc {
   async fn list_workers(group_id: GroupId) -> WorkerLeasesReply;
   /// Queue health snapshot (status counts, retries, worker liveness).
   async fn metrics(group_id: GroupId) -> TaskMetricsReply;
+  /// Directed assignment wake, sent by the scheduler to exactly the assigned
+  /// worker node (replaces the old task-assign gossip broadcast, which made
+  /// every node in the cluster receive every assignment). Delivery is
+  /// best-effort: a missed wake is covered by the worker's reconciliation
+  /// poll.
+  async fn notify_assigned(worker_node_id: String, task_id: String, lease_epoch: u64) -> bool;
 }
 
 pub type TaskRpcRequestMessage = tarpc::ClientMessage<TaskRpcRequest>;
@@ -276,6 +282,17 @@ impl TaskRpc for TaskRpcService {
         error: Some(err),
       },
     }
+  }
+
+  async fn notify_assigned(
+    self,
+    _: context::Context,
+    worker_node_id: String,
+    task_id: String,
+    lease_epoch: u64,
+  ) -> bool {
+    crate::tasks::worker::notify_assignment(&worker_node_id, &task_id, lease_epoch);
+    true
   }
 
   async fn metrics(self, _: context::Context, group_id: GroupId) -> TaskMetricsReply {
