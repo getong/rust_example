@@ -12,7 +12,7 @@ use std::{
 use libp2p::{PeerId, kad, request_response::OutboundRequestId, swarm::ConnectionId};
 use tokio::sync::{Semaphore, oneshot};
 
-use super::NetErr;
+use super::ClusterError;
 use crate::network::{openraft_sync::OpenRaftSyncState, rpc::UnifiedRpcResponse};
 
 /// Cap on concurrently executing inbound RPC dispatches (all protocols).
@@ -26,14 +26,14 @@ pub(crate) const MAX_CONCURRENT_INBOUND_DISPATCHES: usize = 256;
 /// Pending outbound RPC requests keyed by their request id.
 #[derive(Default)]
 pub(crate) struct PendingRpcTable {
-  inner: HashMap<OutboundRequestId, oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>>,
+  inner: HashMap<OutboundRequestId, oneshot::Sender<Result<UnifiedRpcResponse, ClusterError>>>,
 }
 
 impl PendingRpcTable {
   pub(crate) fn insert(
     &mut self,
     id: OutboundRequestId,
-    tx: oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>,
+    tx: oneshot::Sender<Result<UnifiedRpcResponse, ClusterError>>,
   ) {
     self.inner.insert(id, tx);
   }
@@ -42,7 +42,7 @@ impl PendingRpcTable {
   pub(crate) fn complete(
     &mut self,
     id: &OutboundRequestId,
-    result: Result<UnifiedRpcResponse, NetErr>,
+    result: Result<UnifiedRpcResponse, ClusterError>,
   ) {
     if let Some(tx) = self.inner.remove(id) {
       let _ = tx.send(result);
@@ -55,7 +55,7 @@ impl PendingRpcTable {
 
   pub(crate) fn fail_all(&mut self, reason: &str) {
     for (_, tx) in self.inner.drain() {
-      let _ = tx.send(Err(NetErr(reason.to_string())));
+      let _ = tx.send(Err(ClusterError::Network(reason.to_string())));
     }
   }
 }
@@ -64,7 +64,7 @@ impl PendingRpcTable {
 /// in-flight dial serves every concurrent caller.
 #[derive(Default)]
 pub(crate) struct PendingConnectTable {
-  inner: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  inner: HashMap<PeerId, Vec<oneshot::Sender<Result<(), ClusterError>>>>,
 }
 
 impl PendingConnectTable {
@@ -73,7 +73,7 @@ impl PendingConnectTable {
   pub(crate) fn add_waiter(
     &mut self,
     peer: PeerId,
-    tx: oneshot::Sender<Result<(), NetErr>>,
+    tx: oneshot::Sender<Result<(), ClusterError>>,
   ) -> bool {
     match self.inner.get_mut(&peer) {
       Some(waiters) => {
@@ -92,7 +92,7 @@ impl PendingConnectTable {
   }
 
   /// Resolve every waiter for `peer` with `result`.
-  pub(crate) fn finish(&mut self, peer: PeerId, result: Result<(), NetErr>) {
+  pub(crate) fn finish(&mut self, peer: PeerId, result: Result<(), ClusterError>) {
     let Some(waiters) = self.inner.remove(&peer) else {
       return;
     };
@@ -108,7 +108,7 @@ impl PendingConnectTable {
   pub(crate) fn fail_all(&mut self, reason: &str) {
     for (_, waiters) in self.inner.drain() {
       for waiter in waiters {
-        let _ = waiter.send(Err(NetErr(reason.to_string())));
+        let _ = waiter.send(Err(ClusterError::Network(reason.to_string())));
       }
     }
   }
@@ -116,24 +116,26 @@ impl PendingConnectTable {
 
 pub(crate) struct GetProvidersState {
   pub(crate) providers: HashSet<PeerId>,
-  pub(crate) resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
+  pub(crate) resp: oneshot::Sender<Result<HashSet<PeerId>, ClusterError>>,
 }
 
 /// In-flight kademlia queries (start_providing / get_providers) keyed by
 /// query id.
 #[derive(Default)]
 pub(crate) struct PendingKadTable {
-  pub(crate) start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
+  pub(crate) start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), ClusterError>>>,
   pub(crate) get_providers: HashMap<kad::QueryId, GetProvidersState>,
 }
 
 impl PendingKadTable {
   pub(crate) fn fail_all(&mut self, reason: &str) {
     for (_, resp) in self.start_providing.drain() {
-      let _ = resp.send(Err(NetErr(reason.to_string())));
+      let _ = resp.send(Err(ClusterError::Network(reason.to_string())));
     }
     for (_, state) in self.get_providers.drain() {
-      let _ = state.resp.send(Err(NetErr(reason.to_string())));
+      let _ = state
+        .resp
+        .send(Err(ClusterError::Network(reason.to_string())));
     }
   }
 }

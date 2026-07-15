@@ -30,8 +30,8 @@ use crate::{
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
       Behaviour, Command, CommandSenders, GOSSIP_TOPIC, KvClient, Libp2pClient,
-      NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, TaskRpcClient,
-      run_swarm,
+      NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, SwarmContext,
+      TaskRpcClient, run_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -111,6 +111,11 @@ pub(crate) fn build_libp2p_handles(
   // Two priority classes into the swarm loop: raft commands (Libp2pClient)
   // ride the high channel, everything else (kv / sqlite-sync / task) rides
   // low, so a KV burst cannot delay raft heartbeats or votes.
+  //
+  // Capacity 256 matches the outbound RPC guard's global in-flight cap
+  // (`RPC_GLOBAL_MAX_CONCURRENT`): the guard admits at most 256 concurrent
+  // RPCs, so a full channel means the loop is genuinely behind, and the
+  // resulting send backpressure is the intended signal.
   let (cmd_tx_high, cmd_rx_high) = mpsc::channel(256);
   let (cmd_tx_low, cmd_rx_low) = mpsc::channel(256);
   let client = Libp2pClient::new(cmd_tx_high.clone(), timeout);
@@ -256,6 +261,14 @@ pub(crate) fn build_swarm(
   listen_addr: Multiaddr,
   local_key: identity::Keypair,
 ) -> anyhow::Result<Swarm<Behaviour>> {
+  // Multiplexing (3.1): every transport multiplexes many concurrent RPC
+  // streams over one connection, so raft replication fan-out, snapshot
+  // transfer, and KV traffic to the same peer never serialize behind each
+  // other or pay per-request connection setup:
+  //   - QUIC has native stream multiplexing (one stream per request-response exchange, no
+  //     head-of-line blocking between streams);
+  //   - TCP/WebSocket use yamux, whose default `max_num_streams` (512 per connection) matches
+  //     `RPC_MAX_CONCURRENT_STREAMS` below.
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()
     .with_tcp(
@@ -284,7 +297,12 @@ pub(crate) fn build_swarm(
     )
     .context("build websocket transport")?
     .with_behaviour(|key| {
-      let cfg = request_response::Config::default();
+      // Raise the stream cap above the RPC guards' concurrency budget and
+      // stretch the substream timeout to cover snapshot transfers; see the
+      // constants' docs for the sizing rationale.
+      let cfg = request_response::Config::default()
+        .with_request_timeout(crate::network::swarm::RPC_PROTOCOL_REQUEST_TIMEOUT)
+        .with_max_concurrent_streams(crate::network::swarm::RPC_MAX_CONCURRENT_STREAMS);
       let peer_id = PeerId::from(key.public());
       let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)?;
       let mut kad_config =
@@ -369,22 +387,18 @@ pub(crate) fn spawn_libp2p_swarm(
   registry: crate::GroupRegistry,
 ) -> tokio::task::JoinHandle<()> {
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
-  let swarm_shutdown = shutdown.shutdown_rx();
-  let network_for_swarm = libp2p.network.clone();
-  let dispatcher_for_swarm = Arc::new(OpenRaftDispatcher::with_registry(registry.clone()));
-  let cmd_tx_for_swarm = libp2p.cmd_tx.clone();
+  let ctx = SwarmContext {
+    swarm,
+    cmd_rx_high,
+    cmd_rx_low,
+    cmd_tx: libp2p.cmd_tx.clone(),
+    network: libp2p.network.clone(),
+    dispatcher: Arc::new(OpenRaftDispatcher::with_registry(registry.clone())),
+    registry,
+    shutdown_rx: shutdown.shutdown_rx(),
+  };
   tokio::spawn(async move {
-    run_swarm(
-      swarm,
-      cmd_rx_high,
-      cmd_rx_low,
-      cmd_tx_for_swarm,
-      network_for_swarm,
-      dispatcher_for_swarm,
-      registry,
-      swarm_shutdown,
-    )
-    .await;
+    run_swarm(ctx).await;
     let _ = swarm_done.send(Ok(()));
   })
 }

@@ -1,4 +1,4 @@
-use std::{error::Error, fmt, future::Future, sync::Arc};
+use std::{future::Future, sync::Arc};
 
 use async_trait::async_trait;
 use openraft::{
@@ -7,30 +7,13 @@ use openraft::{
 };
 
 use crate::{
-  GroupId, NodeId, TypeConfig, Unreachable,
+  ClusterError, GroupId, NodeId, TypeConfig, Unreachable,
   network::rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
   typ::{
     AppendEntriesRequest, AppendEntriesResponse, RPCError, Snapshot, SnapshotResponse,
     StreamingError, Vote, VoteRequest, VoteResponse,
   },
 };
-
-#[derive(Debug, Clone)]
-struct BridgeErr(String);
-
-impl BridgeErr {
-  fn new(message: impl Into<String>) -> Self {
-    Self(message.into())
-  }
-}
-
-impl fmt::Display for BridgeErr {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.0)
-  }
-}
-
-impl Error for BridgeErr {}
 
 #[async_trait]
 pub trait P2PRaftNetwork: Send + Sync + 'static {
@@ -115,9 +98,9 @@ where
       RaftRpcResponse::AppendEntries(result) => {
         result.map_err(|err| RPCError::Unreachable(Unreachable::new(&err)))
       }
-      other => Err(RPCError::Unreachable(Unreachable::new(&BridgeErr::new(
-        format!("unexpected response: {other:?}"),
-      )))),
+      other => Err(RPCError::Unreachable(Unreachable::new(
+        &ClusterError::bridge(format!("unexpected response: {other:?}")),
+      ))),
     }
   }
 
@@ -130,9 +113,9 @@ where
       RaftRpcResponse::Vote(result) => {
         result.map_err(|err| RPCError::Unreachable(Unreachable::new(&err)))
       }
-      other => Err(RPCError::Unreachable(Unreachable::new(&BridgeErr::new(
-        format!("unexpected response: {other:?}"),
-      )))),
+      other => Err(RPCError::Unreachable(Unreachable::new(
+        &ClusterError::bridge(format!("unexpected response: {other:?}")),
+      ))),
     }
   }
 
@@ -162,7 +145,7 @@ where
         result.map_err(|err| StreamingError::Unreachable(Unreachable::new(&err)))
       }
       other => Err(StreamingError::Unreachable(Unreachable::new(
-        &BridgeErr::new(format!("unexpected response: {other:?}")),
+        &ClusterError::bridge(format!("unexpected response: {other:?}")),
       ))),
     }
   }

@@ -136,6 +136,15 @@ async fn guard_tick(
   down_since: &mut HashMap<NodeId, Instant>,
   membership_fence: &Arc<tokio::sync::Mutex<()>>,
 ) -> anyhow::Result<()> {
+  // Liveness of the guard itself: a flat `membership_guard_tick_total` in a
+  // dashboard means the guard task died or is wedged — the one failure mode
+  // `membership_guard_replacement_total` (which is usually 0) cannot show.
+  metrics::counter!(
+    "membership_guard_tick_total",
+    "group" => group_id.to_string(),
+  )
+  .increment(1);
+
   let metrics = raft.metrics().borrow_watched().clone();
   if !metrics.state.is_leader() {
     // The leader controller stops this task on role change, but clear the
@@ -172,6 +181,19 @@ async fn guard_tick(
     } else {
       down_since.entry(member.clone()).or_insert(now);
     }
+    // Per-member downtime gauge: 0 while alive, the current down-clock while
+    // not. Charts of it show how close each member gets to the replace
+    // timeout, and for how long members flap below it.
+    let downtime = down_since
+      .get(member)
+      .map(|since| now.duration_since(*since).as_secs_f64())
+      .unwrap_or(0.0);
+    metrics::gauge!(
+      "membership_guard_member_downtime_seconds",
+      "group" => group_id.to_string(),
+      "member" => member.to_string(),
+    )
+    .set(downtime);
   }
   down_since.retain(|id, _| member_ids.contains(id) && id != &self_id);
 

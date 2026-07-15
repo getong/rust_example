@@ -10,7 +10,7 @@ use std::{
 use libp2p::{PeerId, Swarm};
 
 use crate::network::swarm::{
-  Behaviour, NetErr, dial::DIAL_RETRY_BACKOFF, state::PendingConnectTable,
+  Behaviour, ClusterError, dial::DIAL_RETRY_BACKOFF, state::PendingConnectTable,
 };
 
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
@@ -91,7 +91,10 @@ pub(crate) fn handle_outgoing_connection_error<E: fmt::Display>(
       "outgoing connection failed; suppressing warning"
     );
   }
-  pending_connect.finish(peer_id, Err(NetErr(format!("dial failed: {error}"))));
+  pending_connect.finish(
+    peer_id,
+    Err(ClusterError::Network(format!("dial failed: {error}"))),
+  );
 }
 
 fn should_log_outgoing_failure(

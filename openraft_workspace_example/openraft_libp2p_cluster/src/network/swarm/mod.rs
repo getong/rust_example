@@ -15,7 +15,7 @@ pub(crate) mod events;
 pub(crate) mod reconnect;
 pub(crate) mod state;
 
-use std::{error::Error, fmt, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 pub use client::{CommandSenders, KvClient, Libp2pClient, SqliteSyncClient, TaskRpcClient};
 pub use commands::{Command, GossipTopicReport, Libp2pSwarmReport};
@@ -64,15 +64,45 @@ pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
 /// replacing the former four per-kind protocols.
 pub const UNIFIED_RPC_PROTOCOL: &str = "/openraft/rpc/2";
 pub const KAD_PROTOCOL: &str = "/openraft/kad/1";
+/// Inbound + outbound stream cap for the unified request-response
+/// behaviour. The libp2p default (100) is below the node's own concurrency
+/// budget — the outbound guard admits up to 256 in-flight RPCs
+/// (`RPC_GLOBAL_MAX_CONCURRENT`) and the inbound dispatcher another 256 —
+/// so under raft replication fan-out plus a KV burst the stream cap, not
+/// the RPC guards, would become the throughput ceiling. 512 covers both
+/// directions at their configured maximums; the muxer layers underneath
+/// (yamux `max_num_streams` defaults to 512 per connection, QUIC streams
+/// are cheaper still) already allow this much parallelism per connection.
+pub const RPC_MAX_CONCURRENT_STREAMS: usize = 512;
+/// libp2p-layer timeout for one unified-RPC request/response exchange.
+/// This must exceed the LONGEST application-level RPC timeout, because the
+/// request-response behaviour kills the substream when it fires regardless
+/// of what the caller is still willing to wait for. Snapshot transfers are
+/// the slowest RPC kind (tens of seconds for multi-megabyte state machines
+/// on a congested link), so this is sized for them; per-kind caller-side
+/// timeouts (see `Libp2pClient::request`) keep fast RPCs failing fast.
+pub const RPC_PROTOCOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// Max commands drained from the command channel per loop wakeup. Batching
 /// amortizes the `tokio::select!` round-trip: under RPC bursts (raft
 /// replication fan-out, response sends funneled back from spawned handlers)
 /// many commands are already queued, and handling them one-per-wakeup makes
 /// the single swarm loop the throughput ceiling.
+///
+/// Why 64: a quarter of the command channel capacity (256), so one drain
+/// clears a burst that filled a quarter of the queue, while the batch stays
+/// small enough that the other select! arms (shutdown, swarm events) are
+/// polled again within microseconds — command handlers only mutate behaviour
+/// state and complete oneshots, they never await.
 const SWARM_CMD_BATCH: usize = 64;
 /// Max additional already-ready swarm events drained after the one that woke
 /// the loop, before commands get a turn again. Bounded so a firehose of
 /// events cannot starve command processing.
+///
+/// Why 32 (half of `SWARM_CMD_BATCH`): event handling is heavier per item
+/// than command handling — inbound requests spawn dispatch tasks and
+/// connection events take address-book locks — and events arrive one poll at
+/// a time anyway, so a smaller opportunistic drain keeps the raft command
+/// channel's worst-case wait short.
 const SWARM_EVENT_BATCH: usize = 32;
 
 /// Gossipsub configuration shared by the full node and the client binaries.
@@ -97,16 +127,10 @@ pub fn build_gossipsub_config() -> Result<gossipsub::Config, gossipsub::ConfigBu
     .build()
 }
 
-#[derive(Debug, Clone)]
-pub struct NetErr(pub String);
-
-impl fmt::Display for NetErr {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.0)
-  }
-}
-
-impl Error for NetErr {}
+// The swarm layer's error type is the unified [`ClusterError`]
+// (`Network` variant); re-exported here because this module is where most
+// of its producers and consumers live.
+pub use crate::error::ClusterError;
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "BehaviourEvent")]
@@ -157,6 +181,24 @@ impl From<kad::Event> for BehaviourEvent {
   }
 }
 
+/// Everything the full-node swarm loop needs, bundled so `run_swarm` takes
+/// one argument instead of eight and call sites cannot silently swap two
+/// same-typed parameters (the two command receivers, most dangerously).
+pub struct SwarmContext {
+  pub swarm: Swarm<Behaviour>,
+  /// Raft traffic (vote / append-entries / snapshot): drained first.
+  pub cmd_rx_high: mpsc::Receiver<Command>,
+  /// KV / sqlite-sync / task RPC and connection management.
+  pub cmd_rx_low: mpsc::Receiver<Command>,
+  /// Senders back into the loop, used by spawned request handlers to funnel
+  /// their responses through the swarm.
+  pub cmd_tx: CommandSenders,
+  pub network: Libp2pNetworkFactory,
+  pub dispatcher: Arc<dyn SwarmRequestDispatcher>,
+  pub registry: crate::GroupRegistry,
+  pub shutdown_rx: ShutdownRx,
+}
+
 /// Full-node swarm loop.
 ///
 /// The loop owns the `Swarm` exclusively: every other component interacts
@@ -164,18 +206,21 @@ impl From<kad::Event> for BehaviourEvent {
 /// Long-running work (request dispatch, snapshot building/installing) is
 /// spawned onto separate tasks so the loop stays a thin, non-blocking
 /// multiplexer over swarm events and commands.
-#[allow(clippy::too_many_arguments)]
-pub async fn run_swarm(
-  mut swarm: Swarm<Behaviour>,
-  mut cmd_rx_high: mpsc::Receiver<Command>,
-  mut cmd_rx_low: mpsc::Receiver<Command>,
-  cmd_tx: CommandSenders,
-  network: Libp2pNetworkFactory,
-  dispatcher: Arc<dyn SwarmRequestDispatcher>,
-  registry: crate::GroupRegistry,
-  mut shutdown_rx: ShutdownRx,
-) {
+pub async fn run_swarm(ctx: SwarmContext) {
+  let SwarmContext {
+    mut swarm,
+    mut cmd_rx_high,
+    mut cmd_rx_low,
+    cmd_tx,
+    network,
+    dispatcher,
+    registry,
+    mut shutdown_rx,
+  } = ctx;
   let mut state = SwarmState::default();
+  // 12s: several raft election timeouts, so a pinned peer that dropped is
+  // redialed well before the membership guard's replace timeout (minutes),
+  // yet slow enough that N nodes redialing a dead peer stay negligible.
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
   reconnect_tick.tick().await;
 
@@ -351,7 +396,7 @@ pub async fn run_swarm_client_with_shutdown(
             request_response::Event::OutboundFailure { request_id, error, .. } => {
               state.pending_rpc.complete(
                 &request_id,
-                Err(NetErr(format!("outbound failure: {error}"))),
+                Err(ClusterError::Network(format!("outbound failure: {error}"))),
               );
             }
 

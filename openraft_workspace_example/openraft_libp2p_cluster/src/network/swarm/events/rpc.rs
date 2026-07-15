@@ -10,7 +10,9 @@ use crate::{
   network::{
     dispatcher::SwarmRequestDispatcher,
     rpc::{UnifiedRpcRequest, UnifiedRpcResponse},
-    swarm::{Behaviour, NetErr, client::CommandSenders, commands::Command, state::PendingRpcTable},
+    swarm::{
+      Behaviour, ClusterError, client::CommandSenders, commands::Command, state::PendingRpcTable,
+    },
   },
   proto::raft_kv::{ErrorResponse, RaftKvResponse, raft_kv_response::Op as KvResponseOp},
 };
@@ -89,7 +91,7 @@ pub(crate) fn handle_rpc_event(
     } => {
       pending_rpc.complete(
         &request_id,
-        Err(NetErr(format!("outbound failure: {error}"))),
+        Err(ClusterError::Network(format!("outbound failure: {error}"))),
       );
     }
     request_response::Event::InboundFailure { .. } => {}

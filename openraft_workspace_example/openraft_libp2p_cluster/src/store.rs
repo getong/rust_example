@@ -59,6 +59,11 @@ pub struct KvData {
   /// `<base>.secondary.<epoch>` directory because the old instance may still
   /// serve in-flight readers.
   rebuild_epoch: Arc<std::sync::atomic::AtomicU64>,
+  /// When the previous rebuild happened, for the
+  /// `kv_secondary_rebuild_interval_seconds` histogram: a shrinking interval
+  /// means the write volume outruns `SECONDARY_REBUILD_GAP` and the constant
+  /// (or the write batching) needs a second look.
+  last_rebuild_at: Arc<std::sync::Mutex<Option<Instant>>>,
 }
 
 impl KvData {
@@ -75,6 +80,7 @@ impl KvData {
       primary_path: Arc::new(primary_path.to_path_buf()),
       catch_up_lock: Arc::new(std::sync::Mutex::new(())),
       rebuild_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+      last_rebuild_at: Arc::new(std::sync::Mutex::new(None)),
     };
     catch_up(&kv_data.db.load())?;
     Ok(kv_data)
@@ -209,7 +215,30 @@ impl KvData {
         );
       }
     }
-    self.rebuild_secondary()
+    match self.rebuild_secondary() {
+      Ok(db) => Ok(db),
+      // Graceful degradation: a failed rebuild (disk full, primary mid-
+      // compaction, ...) must not make reads fail while the data is right
+      // there in the same process. Serve this read from the primary — giving
+      // up read/write isolation for it, but not availability — and let the
+      // next lagging read retry the rebuild.
+      Err(err) => {
+        tracing::error!(
+          error = ?err,
+          primary = %self.primary_path.display(),
+          "rocksdb secondary rebuild failed; falling back to reading the primary"
+        );
+        Ok(self.primary_fallback())
+      }
+    }
+  }
+
+  /// Degraded-mode read handle: the same-process primary. Reads on it are
+  /// thread-safe but contend with writes for the block cache, so this is
+  /// only used while the secondary cannot be rebuilt.
+  fn primary_fallback(&self) -> Arc<DB> {
+    metrics::counter!("kv_primary_fallback_read_total").increment(1);
+    self.primary.clone()
   }
 
   /// Blocking; caller holds `catch_up_lock`. Open a fresh secondary
@@ -233,6 +262,19 @@ impl KvData {
     let db = Arc::new(db);
     self.db.store(db.clone());
     metrics::counter!("kv_secondary_rebuild_total").increment(1);
+    // Time between consecutive rebuilds: the signal for whether
+    // `SECONDARY_REBUILD_GAP` fits the write volume (frequent rebuilds mean
+    // the secondary keeps falling irrecoverably behind).
+    let now = Instant::now();
+    if let Some(previous) = self
+      .last_rebuild_at
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
+      .replace(now)
+    {
+      metrics::histogram!("kv_secondary_rebuild_interval_seconds")
+        .record(now.duration_since(previous).as_secs_f64());
+    }
     tracing::info!(
       secondary = %secondary_path.display(),
       sequence = db.latest_sequence_number(),
@@ -780,6 +822,41 @@ mod tests {
     assert_eq!(
       kv_data.get("beta").await.expect("get beta"),
       Some("two".to_string())
+    );
+  }
+
+  #[tokio::test]
+  async fn kv_data_falls_back_to_primary_when_rebuild_fails() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let primary_path = temp.path().join("primary");
+
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    opts.create_missing_column_families(true);
+    let cfs = STORE_CFS
+      .into_iter()
+      .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
+    let db = Arc::new(DB::open_cf_descriptors(&opts, &primary_path, cfs).expect("open primary"));
+    let cf = db.cf_handle(SM_DATA_CF).expect("sm_data cf");
+    db.put_cf(&cf, b"alpha", b"one").expect("write alpha");
+
+    let kv_data = KvData::open(db.clone(), &primary_path).expect("open kv data");
+    // Point the rebuild path at a directory that cannot exist, so
+    // rebuild_secondary() fails deterministically.
+    let broken = KvData {
+      primary_path: Arc::new(temp.path().join("missing").join("primary")),
+      ..kv_data
+    };
+    assert!(broken.rebuild_secondary().is_err());
+
+    // The degraded read handle is the primary itself, and reads through it
+    // still see the data.
+    let fallback = broken.primary_fallback();
+    assert!(Arc::ptr_eq(&fallback, &db));
+    let cf = sm_data_cf(&fallback).expect("primary sm_data cf");
+    assert_eq!(
+      fallback.get_cf(&cf, b"alpha").expect("read via primary"),
+      Some(b"one".to_vec())
     );
   }
 

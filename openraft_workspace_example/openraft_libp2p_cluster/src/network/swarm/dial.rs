@@ -9,7 +9,7 @@ use libp2p::{
 };
 use tokio::sync::oneshot;
 
-use super::{Behaviour, NetErr, OPENRAFT_CLUSTER_PROVIDER_KEY, state::PendingConnectTable};
+use super::{Behaviour, ClusterError, OPENRAFT_CLUSTER_PROVIDER_KEY, state::PendingConnectTable};
 
 pub(crate) const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 
@@ -19,10 +19,12 @@ pub(crate) fn ensure_peer_connection(
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
   peer: PeerId,
   addr: Option<Multiaddr>,
-  resp: oneshot::Sender<Result<(), NetErr>>,
+  resp: oneshot::Sender<Result<(), ClusterError>>,
 ) {
   if peer == *swarm.local_peer_id() {
-    let _ = resp.send(Err(NetErr(format!("self dial blocked: peer={peer}"))));
+    let _ = resp.send(Err(ClusterError::Network(format!(
+      "self dial blocked: peer={peer}"
+    ))));
     return;
   }
 
@@ -35,7 +37,7 @@ pub(crate) fn ensure_peer_connection(
     let now = tokio::time::Instant::now();
     if now < until {
       let wait_ms = (until - now).as_millis();
-      let _ = resp.send(Err(NetErr(format!(
+      let _ = resp.send(Err(ClusterError::Network(format!(
         "dial backoff active: peer={peer}, retry_in_ms={wait_ms}"
       ))));
       return;

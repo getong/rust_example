@@ -7,6 +7,7 @@ use arc_swap::ArcSwap;
 
 pub mod app;
 pub mod constants;
+pub mod error;
 pub mod graphviz;
 pub mod http;
 pub mod leader_controller;
@@ -23,6 +24,8 @@ pub mod tasks;
 pub mod telemetry;
 pub mod typ;
 pub mod types_kv;
+
+pub use error::ClusterError;
 
 pub type TypeConfig = rocksstore_crud::TypeConfig;
 pub type NodeId = <TypeConfig as openraft::RaftTypeConfig>::NodeId;

@@ -183,6 +183,7 @@ impl PeerRpcGuard {
       _permit: permit,
       _global_permit: global_permit,
       state,
+      peer,
       open_at_ms: self.now_ms() + CIRCUIT_BREAKER_OPEN_DURATION.as_millis() as u64,
     })
   }
@@ -194,6 +195,8 @@ pub struct PeerRpcPermit {
   _permit: OwnedSemaphorePermit,
   _global_permit: OwnedSemaphorePermit,
   state: Arc<PeerGuardState>,
+  /// Which peer this permit targets, for the per-peer circuit-open metric.
+  peer: PeerId,
   /// Precomputed "open until" timestamp to store if this RPC fails and trips
   /// the circuit.
   open_at_ms: u64,
@@ -219,6 +222,15 @@ impl PeerRpcPermit {
         .store(self.open_at_ms, Ordering::Release);
       self.state.consecutive_failures.store(0, Ordering::Release);
       metrics::counter!("rpc_circuit_opened_total").increment(1);
+      // Per-peer breakdown of the same event, so dashboards can point at
+      // WHICH peer keeps failing. Kept separate from the unlabeled total:
+      // peer ids churn, and a high-cardinality label on the alerting metric
+      // would fragment its history.
+      metrics::counter!(
+        "circuit_breaker_open_total",
+        "peer" => self.peer.to_string(),
+      )
+      .increment(1);
     }
   }
 }

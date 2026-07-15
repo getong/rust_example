@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use libp2p::{Multiaddr, PeerId, Swarm, kad};
 
 use crate::network::{
-  swarm::{Behaviour, NetErr, state::PendingKadTable},
+  swarm::{Behaviour, ClusterError, state::PendingKadTable},
   transport::Libp2pNetworkFactory,
 };
 
@@ -68,7 +68,7 @@ pub(crate) fn handle_kad_event(
               let _ = resp.send(Ok(()));
             }
             Err(e) => {
-              let _ = resp.send(Err(NetErr(format!(
+              let _ = resp.send(Err(ClusterError::Network(format!(
                 "kademlia start_providing failed: {:?}",
                 e
               ))));
@@ -89,7 +89,7 @@ pub(crate) fn handle_kad_event(
         }
         Err(e) => {
           if let Some(state) = pending_kad.get_providers.remove(&id) {
-            let _ = state.resp.send(Err(NetErr(format!(
+            let _ = state.resp.send(Err(ClusterError::Network(format!(
               "kademlia get_providers failed: {:?}",
               e
             ))));

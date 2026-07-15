@@ -7,7 +7,7 @@ use libp2p::{Multiaddr, PeerId, Swarm, gossipsub, kad, request_response::Respons
 use tokio::sync::oneshot;
 
 use super::{
-  Behaviour, NetErr,
+  Behaviour, ClusterError,
   dial::{add_kad_address_from_p2p, dial_peer_addr, ensure_peer_connection, leave_kad},
   state::{GetProvidersState, SwarmState},
 };
@@ -25,15 +25,15 @@ pub enum Command {
   },
   StartProviding {
     key: String,
-    resp: oneshot::Sender<Result<(), NetErr>>,
+    resp: oneshot::Sender<Result<(), ClusterError>>,
   },
   LeaveKad {
     provider_keys: Vec<String>,
-    resp: oneshot::Sender<Result<(), NetErr>>,
+    resp: oneshot::Sender<Result<(), ClusterError>>,
   },
   GetProviders {
     key: String,
-    resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
+    resp: oneshot::Sender<Result<HashSet<PeerId>, ClusterError>>,
   },
   Dial {
     addr: Multiaddr,
@@ -41,11 +41,11 @@ pub enum Command {
   EnsureConnection {
     peer: PeerId,
     addr: Multiaddr,
-    resp: oneshot::Sender<Result<(), NetErr>>,
+    resp: oneshot::Sender<Result<(), ClusterError>>,
   },
   EnsureConnectionAny {
     peer: PeerId,
-    resp: oneshot::Sender<Result<(), NetErr>>,
+    resp: oneshot::Sender<Result<(), ClusterError>>,
   },
   GossipsubPublish {
     topic: String,
@@ -60,12 +60,12 @@ pub enum Command {
   /// swarm event processing.
   PublishOpenRaftSnapshotBuilt {
     partial: OpenRaftSnapshotPartial,
-    resp: oneshot::Sender<Result<String, NetErr>>,
+    resp: oneshot::Sender<Result<String, ClusterError>>,
   },
   RpcRequest {
     peer: PeerId,
     req: UnifiedRpcRequest,
-    resp: oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>,
+    resp: oneshot::Sender<Result<UnifiedRpcResponse, ClusterError>>,
   },
   RpcRespond {
     channel: ResponseChannel<UnifiedRpcResponse>,
@@ -128,7 +128,10 @@ pub(crate) fn handle_command(swarm: &mut Swarm<Behaviour>, cmd: Command, state: 
           state.pending_kad.start_providing.insert(query_id, resp);
         }
         Err(e) => {
-          let _ = resp.send(Err(NetErr(format!("start_providing failed: {:?}", e))));
+          let _ = resp.send(Err(ClusterError::Network(format!(
+            "start_providing failed: {:?}",
+            e
+          ))));
         }
       }
     }
@@ -186,7 +189,7 @@ pub(crate) fn handle_command(swarm: &mut Swarm<Behaviour>, cmd: Command, state: 
       let _ = resp.send(collect_swarm_report(swarm));
     }
     Command::PublishOpenRaftSnapshotBuilt { resp, .. } => {
-      let _ = resp.send(Err(NetErr(
+      let _ = resp.send(Err(ClusterError::Network(
         "openraft snapshot sync is not available in this swarm loop".to_string(),
       )));
     }
@@ -203,7 +206,7 @@ pub(crate) fn handle_command(swarm: &mut Swarm<Behaviour>, cmd: Command, state: 
 pub(crate) fn publish_openraft_snapshot_partial(
   swarm: &mut Swarm<Behaviour>,
   partial: OpenRaftSnapshotPartial,
-  resp: oneshot::Sender<Result<String, NetErr>>,
+  resp: oneshot::Sender<Result<String, ClusterError>>,
   openraft_sync: &mut OpenRaftSyncState,
 ) {
   let sync_group = group_id_string(&partial.group_id);
@@ -233,7 +236,7 @@ pub(crate) fn publish_openraft_snapshot_partial(
       let _ = resp.send(Ok(sync_group));
     }
     Err(err) => {
-      let _ = resp.send(Err(NetErr(format!(
+      let _ = resp.send(Err(ClusterError::Network(format!(
         "publish openraft snapshot partial failed: {err}"
       ))));
     }

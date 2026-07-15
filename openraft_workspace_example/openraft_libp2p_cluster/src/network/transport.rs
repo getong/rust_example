@@ -18,7 +18,7 @@ use crate::{
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork},
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{
-      GOSSIPSUB_MESH_N_LOW, KvClient, Libp2pClient, NetErr, SqliteSyncClient, TaskRpcClient,
+      ClusterError, GOSSIPSUB_MESH_N_LOW, KvClient, Libp2pClient, SqliteSyncClient, TaskRpcClient,
     },
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
@@ -566,7 +566,7 @@ impl Libp2pNetworkFactory {
     self.connected_peers.load().contains(peer)
   }
 
-  pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) -> Result<(), NetErr> {
+  pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) -> Result<(), ClusterError> {
     self.client.publish_gossipsub(topic, data).await
   }
 
@@ -574,7 +574,7 @@ impl Libp2pNetworkFactory {
     &self,
     group_id: String,
     registry: &crate::GroupRegistry,
-  ) -> Result<String, NetErr> {
+  ) -> Result<String, ClusterError> {
     self
       .client
       .publish_openraft_snapshot(group_id, registry)
@@ -596,7 +596,7 @@ impl Libp2pNetworkFactory {
   ) -> Result<RaftRpcResponse, Unreachable> {
     let (peer, addr) = self.peer_addr_for(node_id).await?;
     if peer == self.local_peer_id {
-      return Err(Unreachable::new(&NetErr(format!(
+      return Err(Unreachable::new(&ClusterError::Network(format!(
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
@@ -633,10 +633,9 @@ impl Libp2pNetworkFactory {
     peer: PeerId,
     rpc: impl Future<Output = Result<T, Unreachable>>,
   ) -> Result<T, Unreachable> {
-    let permit = self
-      .peer_guard
-      .try_acquire(peer)
-      .map_err(|rejection| Unreachable::new(&NetErr(format!("peer={peer}: {rejection}"))))?;
+    let permit = self.peer_guard.try_acquire(peer).map_err(|rejection| {
+      Unreachable::new(&ClusterError::Network(format!("peer={peer}: {rejection}")))
+    })?;
     let result = rpc.await;
     match &result {
       Ok(_) => permit.record_success(),
@@ -652,7 +651,7 @@ impl Libp2pNetworkFactory {
   ) -> Result<SqliteSyncRpcResponseMessage, Unreachable> {
     let (peer, addr) = self.peer_addr_for(&node_id).await?;
     if peer == self.local_peer_id {
-      return Err(Unreachable::new(&NetErr(format!(
+      return Err(Unreachable::new(&ClusterError::Network(format!(
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
@@ -683,7 +682,7 @@ impl Libp2pNetworkFactory {
   ) -> Result<TaskRpcResponseMessage, Unreachable> {
     let (peer, addr) = self.peer_addr_for(&node_id).await?;
     if peer == self.local_peer_id {
-      return Err(Unreachable::new(&NetErr(format!(
+      return Err(Unreachable::new(&ClusterError::Network(format!(
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
@@ -714,7 +713,7 @@ impl Libp2pNetworkFactory {
   ) -> Result<RaftKvResponse, Unreachable> {
     let (peer, addr) = self.peer_addr_for(&node_id).await?;
     if peer == self.local_peer_id {
-      return Err(Unreachable::new(&NetErr(format!(
+      return Err(Unreachable::new(&ClusterError::Network(format!(
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
@@ -744,7 +743,11 @@ impl Libp2pNetworkFactory {
       .load()
       .get(node_id)
       .map(|(peer, addr)| (*peer, addr.clone()))
-      .ok_or_else(|| Unreachable::new(&NetErr(format!("unknown target node_id={node_id}"))))
+      .ok_or_else(|| {
+        Unreachable::new(&ClusterError::Network(format!(
+          "unknown target node_id={node_id}"
+        )))
+      })
   }
 }
 
