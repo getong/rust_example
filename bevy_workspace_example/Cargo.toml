@@ -24,7 +24,7 @@ anyhow = "1.0"
 avian3d = { version = "0.7.0", default-features = false, features = ["3d", "f32", "parry-f32"] }
 bevior_tree = { version = "0.11.0", default-features = false }
 bevy = { version = "0.19.0", default-features = false }
-bevy_animation_graph = {  git = "https://github.com/getong/bevy_animation_graph", branch = "bevy-0.19", default-features = false }
+bevy_animation_graph = "0.11"
 bevy_ecs = "0.19.0"
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 bevy_replicon = { version = "0.41.1", default-features = false }
