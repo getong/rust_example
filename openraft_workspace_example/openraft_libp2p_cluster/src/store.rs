@@ -32,59 +32,60 @@ pub type StateMachineStore = RocksStateMachine;
 const SM_DATA_CF: &str = "sm_data";
 const STORE_CFS: [&str; 4] = ["meta", "sm_meta", SM_DATA_CF, "logs"];
 
+/// Rebuild (reopen) the secondary reader when it is still this many sequence
+/// numbers behind the primary after a catch-up attempt. Secondary mode
+/// catches up by replaying the primary's WAL; when the primary has purged
+/// old WAL files (post-checkpoint/snapshot) the secondary can no longer
+/// close the gap incrementally and must be reopened against the current SST
+/// set.
+const SECONDARY_REBUILD_GAP: u64 = 8192;
+
 #[derive(Debug, Clone)]
 pub struct KvData {
-  db: Arc<DB>,
+  /// Swappable secondary handle: reads `load()` it per operation, and a
+  /// rebuild replaces it atomically while in-flight readers finish on the
+  /// old instance.
+  db: Arc<arc_swap::ArcSwap<DB>>,
   /// Same-process primary the secondary reader mirrors. Sequence numbers
   /// from it decide whether a catch-up sync is needed at all.
   primary: Arc<DB>,
+  primary_path: Arc<PathBuf>,
   /// Single-flight guard for catch-up: under a concurrent read burst only
   /// one reader performs the manifest sync; the rest wait on the lock and
   /// then see the fresh sequence number, amortizing one catch-up across the
   /// whole batch instead of syncing once per reader.
   catch_up_lock: Arc<std::sync::Mutex<()>>,
+  /// Counts secondary rebuilds; each rebuild opens a fresh
+  /// `<base>.secondary.<epoch>` directory because the old instance may still
+  /// serve in-flight readers.
+  rebuild_epoch: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl KvData {
   pub fn open<P: AsRef<Path>>(primary: Arc<DB>, primary_path: P) -> anyhow::Result<Self> {
     let primary_path = primary_path.as_ref();
     let secondary_path = secondary_db_dir(primary_path);
-    if let Some(parent) = secondary_path.parent() {
-      fs::create_dir_all(parent)
-        .with_context(|| format!("create rocksdb secondary parent: {}", parent.display()))?;
-    }
-    fs::create_dir_all(&secondary_path)
-      .with_context(|| format!("create rocksdb secondary dir: {}", secondary_path.display()))?;
+    remove_stale_secondary_dirs(&secondary_path);
 
-    let mut opts = Options::default();
-    opts.set_max_open_files(-1);
-
-    let db = DB::open_cf_as_secondary(&opts, primary_path, &secondary_path, STORE_CFS)
-      .with_context(|| {
-        format!(
-          "open rocksdb secondary reader: primary={}, secondary={}",
-          primary_path.display(),
-          secondary_path.display()
-        )
-      })?;
+    let db = open_secondary(primary_path, &secondary_path)?;
 
     let kv_data = Self {
-      db: Arc::new(db),
+      db: Arc::new(arc_swap::ArcSwap::from_pointee(db)),
       primary,
+      primary_path: Arc::new(primary_path.to_path_buf()),
       catch_up_lock: Arc::new(std::sync::Mutex::new(())),
+      rebuild_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
     };
-    kv_data.catch_up()?;
+    catch_up(&kv_data.db.load())?;
     Ok(kv_data)
   }
 
   pub async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
-    let db = self.db.clone();
+    let this = self.clone();
     let key = key.to_string();
-    let primary = self.primary.clone();
-    let catch_up_lock = self.catch_up_lock.clone();
     let started = Instant::now();
     let result = TypeConfig::spawn_blocking(move || {
-      maybe_catch_up(&db, &primary, &catch_up_lock)?;
+      let db = this.synced_db()?;
       let cf = sm_data_cf(&db)?;
       db.get_cf(&cf, key.as_bytes())
         .context("read rocksdb kv value")?
@@ -102,12 +103,10 @@ impl KvData {
   }
 
   pub async fn entries(&self) -> anyhow::Result<Vec<(String, String)>> {
-    let db = self.db.clone();
-    let primary = self.primary.clone();
-    let catch_up_lock = self.catch_up_lock.clone();
+    let this = self.clone();
     let started = Instant::now();
     let result = TypeConfig::spawn_blocking(move || {
-      maybe_catch_up(&db, &primary, &catch_up_lock)?;
+      let db = this.synced_db()?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
       let mut entries = Vec::new();
@@ -127,12 +126,10 @@ impl KvData {
   }
 
   pub async fn entries_with_prefix(&self, prefix: String) -> anyhow::Result<Vec<(String, String)>> {
-    let db = self.db.clone();
-    let primary = self.primary.clone();
-    let catch_up_lock = self.catch_up_lock.clone();
+    let this = self.clone();
     let started = Instant::now();
     let result = TypeConfig::spawn_blocking(move || {
-      maybe_catch_up(&db, &primary, &catch_up_lock)?;
+      let db = this.synced_db()?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(
         &cf,
@@ -157,8 +154,139 @@ impl KvData {
     result
   }
 
-  fn catch_up(&self) -> anyhow::Result<()> {
-    catch_up(&self.db)
+  /// Blocking. Return the secondary handle to read from, caught up with the
+  /// same-process primary. Comparing `latest_sequence_number` is a lock-free
+  /// in-memory read, so idle/read-mostly workloads skip the per-read
+  /// manifest sync entirely — while a read issued right after a committed
+  /// write always catches up first, preserving read-your-writes (which a
+  /// time-based throttle would break).
+  ///
+  /// Single-flight: concurrent lagging readers serialize on the lock and
+  /// re-check the sequence numbers after acquiring it, so a burst of N reads
+  /// behind one write performs ONE catch-up, not N.
+  ///
+  /// When the secondary cannot catch up (the primary purged the WAL files
+  /// secondary mode replays) or stays more than `SECONDARY_REBUILD_GAP`
+  /// sequence numbers behind, it is rebuilt: reopened against the primary's
+  /// current SST set and swapped in atomically.
+  fn synced_db(&self) -> anyhow::Result<Arc<DB>> {
+    let db = self.db.load_full();
+    if db.latest_sequence_number() >= self.primary.latest_sequence_number() {
+      return Ok(db);
+    }
+
+    let _guard = self
+      .catch_up_lock
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Double-checked: whoever held the lock first has already caught up (or
+    // rebuilt the secondary — reload the handle).
+    let db = self.db.load_full();
+    if db.latest_sequence_number() >= self.primary.latest_sequence_number() {
+      return Ok(db);
+    }
+
+    match catch_up(&db) {
+      Ok(()) => {
+        let gap = self
+          .primary
+          .latest_sequence_number()
+          .saturating_sub(db.latest_sequence_number());
+        if gap <= SECONDARY_REBUILD_GAP {
+          return Ok(db);
+        }
+        tracing::warn!(
+          gap,
+          primary = %self.primary_path.display(),
+          "rocksdb secondary reader still far behind after catch-up; rebuilding"
+        );
+      }
+      Err(err) => {
+        tracing::warn!(
+          error = ?err,
+          primary = %self.primary_path.display(),
+          "rocksdb secondary reader catch-up failed; rebuilding"
+        );
+      }
+    }
+    self.rebuild_secondary()
+  }
+
+  /// Blocking; caller holds `catch_up_lock`. Open a fresh secondary
+  /// instance in a new epoch directory, catch it up, and swap it in. The old
+  /// instance stays alive until its last in-flight reader drops it; its
+  /// directory is removed on the next `open` (process restart).
+  fn rebuild_secondary(&self) -> anyhow::Result<Arc<DB>> {
+    let epoch = self
+      .rebuild_epoch
+      .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+      + 1;
+    let mut name = secondary_db_dir(&self.primary_path)
+      .file_name()
+      .map(OsString::from)
+      .unwrap_or_else(|| OsString::from("rocksdb.secondary"));
+    name.push(format!(".{epoch}"));
+    let secondary_path = self.primary_path.with_file_name(name);
+
+    let db = open_secondary(&self.primary_path, &secondary_path)?;
+    catch_up(&db)?;
+    let db = Arc::new(db);
+    self.db.store(db.clone());
+    metrics::counter!("kv_secondary_rebuild_total").increment(1);
+    tracing::info!(
+      secondary = %secondary_path.display(),
+      sequence = db.latest_sequence_number(),
+      "rebuilt rocksdb secondary reader"
+    );
+    Ok(db)
+  }
+}
+
+fn open_secondary(primary_path: &Path, secondary_path: &Path) -> anyhow::Result<DB> {
+  if let Some(parent) = secondary_path.parent() {
+    fs::create_dir_all(parent)
+      .with_context(|| format!("create rocksdb secondary parent: {}", parent.display()))?;
+  }
+  fs::create_dir_all(secondary_path)
+    .with_context(|| format!("create rocksdb secondary dir: {}", secondary_path.display()))?;
+
+  let mut opts = Options::default();
+  opts.set_max_open_files(-1);
+
+  DB::open_cf_as_secondary(&opts, primary_path, secondary_path, STORE_CFS).with_context(|| {
+    format!(
+      "open rocksdb secondary reader: primary={}, secondary={}",
+      primary_path.display(),
+      secondary_path.display()
+    )
+  })
+}
+
+/// Remove leftover secondary directories (the base dir and any
+/// `<base>.<epoch>` rebuild dirs) from a previous process run. Best-effort:
+/// a failure only wastes disk, so it is logged, not propagated.
+fn remove_stale_secondary_dirs(secondary_base: &Path) {
+  let Some(base_name) = secondary_base.file_name().and_then(|n| n.to_str()) else {
+    return;
+  };
+  let Some(parent) = secondary_base.parent() else {
+    return;
+  };
+  let Ok(entries) = fs::read_dir(parent) else {
+    return;
+  };
+  for entry in entries.flatten() {
+    let name = entry.file_name();
+    let Some(name) = name.to_str() else { continue };
+    if name == base_name || name.starts_with(&format!("{base_name}.")) {
+      if let Err(err) = fs::remove_dir_all(entry.path()) {
+        tracing::warn!(
+          path = %entry.path().display(),
+          error = ?err,
+          "failed to remove stale rocksdb secondary dir"
+        );
+      }
+    }
   }
 }
 
@@ -177,29 +305,6 @@ fn sm_data_cf(db: &DB) -> anyhow::Result<ColumnFamilyRef<'_>> {
 fn catch_up(db: &DB) -> anyhow::Result<()> {
   db.try_catch_up_with_primary()
     .context("catch up rocksdb secondary reader with primary")
-}
-
-/// Catch up the secondary reader only when it is actually behind the
-/// same-process primary. Comparing `latest_sequence_number` is a lock-free
-/// in-memory read, so idle/read-mostly workloads skip the per-read manifest
-/// sync entirely — while a read issued right after a committed write always
-/// catches up first, preserving read-your-writes (which a time-based
-/// throttle would break: a linearizable read within the throttle window
-/// would serve a pre-write snapshot).
-///
-/// Single-flight: concurrent lagging readers serialize on `lock` and
-/// re-check the sequence numbers after acquiring it, so a burst of N reads
-/// behind one write performs ONE catch-up, not N.
-fn maybe_catch_up(secondary: &DB, primary: &DB, lock: &std::sync::Mutex<()>) -> anyhow::Result<()> {
-  if secondary.latest_sequence_number() >= primary.latest_sequence_number() {
-    return Ok(());
-  }
-  let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-  // Double-checked: whoever held the lock first has already caught up.
-  if secondary.latest_sequence_number() >= primary.latest_sequence_number() {
-    return Ok(());
-  }
-  catch_up(secondary)
 }
 
 fn decode_utf8(bytes: &[u8], what: &str) -> anyhow::Result<String> {
@@ -634,12 +739,47 @@ mod tests {
     // After a read the secondary is at the primary's sequence number, so a
     // write-free read skips the catch-up sync entirely and still succeeds.
     assert_eq!(
-      kv_data.db.latest_sequence_number(),
+      kv_data.db.load().latest_sequence_number(),
       db.latest_sequence_number()
     );
     assert_eq!(
       kv_data.get("alpha").await.expect("get alpha again"),
       Some("four".to_string())
+    );
+  }
+
+  #[tokio::test]
+  async fn kv_data_rebuilds_secondary_and_keeps_serving() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let primary_path = temp.path().join("primary");
+
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    opts.create_missing_column_families(true);
+    let cfs = STORE_CFS
+      .into_iter()
+      .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
+    let db = Arc::new(DB::open_cf_descriptors(&opts, &primary_path, cfs).expect("open primary"));
+    let cf = db.cf_handle(SM_DATA_CF).expect("sm_data cf");
+    db.put_cf(&cf, b"alpha", b"one").expect("write alpha");
+
+    let kv_data = KvData::open(db.clone(), &primary_path).expect("open kv data");
+    let old_db = kv_data.db.load_full();
+
+    // Force a rebuild (the path taken when catch-up fails or the gap stays
+    // too large): the swapped-in secondary must serve reads, including data
+    // written after the swap.
+    kv_data.rebuild_secondary().expect("rebuild secondary");
+    assert!(!Arc::ptr_eq(&old_db, &kv_data.db.load_full()));
+
+    db.put_cf(&cf, b"beta", b"two").expect("write beta");
+    assert_eq!(
+      kv_data.get("alpha").await.expect("get alpha"),
+      Some("one".to_string())
+    );
+    assert_eq!(
+      kv_data.get("beta").await.expect("get beta"),
+      Some("two".to_string())
     );
   }
 

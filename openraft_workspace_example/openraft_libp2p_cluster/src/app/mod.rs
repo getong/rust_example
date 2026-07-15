@@ -498,17 +498,31 @@ pub(crate) async fn shutdown_openraft_groups(
     "shutdown phase: stopping openraft groups and waiting"
   );
 
-  let mut errors = Vec::new();
+  // Groups shut down concurrently, each under its own timeout: some groups
+  // fsync their write WAL on shutdown, and one stuck group must neither
+  // stall the process exit nor prevent the remaining groups from shutting
+  // down cleanly. All results are collected and reported together.
+  const OPENRAFT_GROUP_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+  let mut tasks = tokio::task::JoinSet::new();
   for (group_id, raft) in rafts {
-    tracing::info!(group = %group_id, "openraft group shutdown started");
-    match raft.shutdown().await {
-      Ok(()) => {
+    tasks.spawn(async move {
+      tracing::info!(group = %group_id, "openraft group shutdown started");
+      let result = tokio::time::timeout(OPENRAFT_GROUP_SHUTDOWN_TIMEOUT, raft.shutdown()).await;
+      (group_id, result)
+    });
+  }
+
+  let mut errors = Vec::new();
+  while let Some(joined) = tasks.join_next().await {
+    match joined {
+      Ok((group_id, Ok(Ok(())))) => {
         tracing::info!(
           group = %group_id,
           "openraft group shutdown completed; raft storage writes use sync wal"
         );
       }
-      Err(err) => {
+      Ok((group_id, Ok(Err(err)))) => {
         tracing::error!(
           group = %group_id,
           error = ?err,
@@ -517,6 +531,21 @@ pub(crate) async fn shutdown_openraft_groups(
         errors.push(anyhow!(
           "openraft group {group_id} shutdown failed: {err:?}"
         ));
+      }
+      Ok((group_id, Err(_elapsed))) => {
+        tracing::error!(
+          group = %group_id,
+          timeout_secs = OPENRAFT_GROUP_SHUTDOWN_TIMEOUT.as_secs(),
+          "openraft group shutdown timed out"
+        );
+        errors.push(anyhow!(
+          "openraft group {group_id} shutdown timed out after {}s",
+          OPENRAFT_GROUP_SHUTDOWN_TIMEOUT.as_secs()
+        ));
+      }
+      Err(join_err) => {
+        tracing::error!(error = ?join_err, "openraft group shutdown task panicked");
+        errors.push(anyhow!("openraft group shutdown task panicked: {join_err}"));
       }
     }
   }

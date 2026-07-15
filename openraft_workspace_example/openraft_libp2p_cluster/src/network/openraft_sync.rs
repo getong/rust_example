@@ -22,6 +22,14 @@ use crate::{
 };
 
 pub const OPENRAFT_SYNC_TOPIC: &str = "openraft/snapshot-sync/1";
+/// Plain gossipsub topic carrying lightweight "snapshot available"
+/// announcements. Partial messages on `OPENRAFT_SYNC_TOPIC` are best-effort:
+/// a peer that joins the mesh after the partials were pushed never learns a
+/// snapshot exists. The announcement is a small, regular gossip message —
+/// re-gossiped like any other — that lets such a peer create an empty local
+/// partial and advertise its need bitmap, pulling the missing parts from
+/// whoever holds them.
+pub const OPENRAFT_SYNC_AVAILABLE_TOPIC: &str = "openraft/snapshot-available/1";
 
 const PART_SIZE: usize = 8 * 1024;
 const MAX_PARTS_PER_MESSAGE: usize = 4;
@@ -287,6 +295,16 @@ impl OpenRaftSnapshotPartial {
     sonic_rs::from_slice(&bytes).map_err(Into::into)
   }
 
+  /// Announcement advertising this partial on
+  /// `OPENRAFT_SYNC_AVAILABLE_TOPIC`; carries the full metadata so a
+  /// receiver can construct an empty partial and start pulling parts.
+  pub fn available_announcement(&self) -> SnapshotAvailableAnnouncement {
+    SnapshotAvailableAnnouncement {
+      group_id: self.group_id.clone(),
+      metadata: self.metadata_bytes(),
+    }
+  }
+
   fn metadata_bytes(&self) -> Vec<u8> {
     let group_id = self.raft_group_id.as_bytes();
     let snapshot_id = self.snapshot_id.as_bytes();
@@ -489,6 +507,27 @@ impl Metadata for OpenRaftSnapshotPartialMetadata {
   }
 }
 
+/// Lightweight "snapshot available" broadcast published alongside every
+/// snapshot partial publication. See `OPENRAFT_SYNC_AVAILABLE_TOPIC`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotAvailableAnnouncement {
+  /// Partial group id (UUID v7 bytes) identifying the published partial set.
+  pub group_id: Vec<u8>,
+  /// Full partial metadata (header + sender bitmap), enough to construct an
+  /// empty local partial and advertise a need bitmap for it.
+  pub metadata: Vec<u8>,
+}
+
+impl SnapshotAvailableAnnouncement {
+  pub fn encode(&self) -> anyhow::Result<Vec<u8>> {
+    sonic_rs::to_vec(self).map_err(Into::into)
+  }
+
+  pub fn decode(data: &[u8]) -> anyhow::Result<Self> {
+    sonic_rs::from_slice(data).map_err(Into::into)
+  }
+}
+
 #[derive(Default)]
 pub struct OpenRaftSyncState {
   partials: HashMap<Vec<u8>, OpenRaftSnapshotPartial>,
@@ -502,6 +541,35 @@ impl OpenRaftSyncState {
 
   pub fn known_partials(&self) -> Vec<OpenRaftSnapshotPartial> {
     self.partials.values().cloned().collect()
+  }
+
+  /// Handle a "snapshot available" announcement: when the referenced
+  /// snapshot is unknown or incomplete locally, return the (possibly newly
+  /// created, empty) partial so the caller can advertise its need bitmap on
+  /// the sync topic — mesh peers holding the parts then push the missing
+  /// ones. Returns `None` when the snapshot is already complete or
+  /// installed.
+  pub fn handle_available_announcement(
+    &mut self,
+    announcement: &SnapshotAvailableAnnouncement,
+  ) -> Result<Option<OpenRaftSnapshotPartial>, PartialError> {
+    if self.installed.contains(&announcement.group_id) {
+      return Ok(None);
+    }
+    let remote_metadata = OpenRaftSnapshotPartial::parse_metadata(&announcement.metadata)?;
+    let partial = self
+      .partials
+      .entry(announcement.group_id.clone())
+      .or_insert_with(|| {
+        OpenRaftSnapshotPartial::empty(announcement.group_id.clone(), &remote_metadata)
+      });
+    if !partial.metadata_matches(&remote_metadata) {
+      return Err(PartialError::InvalidFormat);
+    }
+    if partial.is_complete() {
+      return Ok(None);
+    }
+    Ok(Some(partial.clone()))
   }
 
   pub fn handle_partial(
@@ -602,4 +670,8 @@ pub fn group_id_string(bytes: &[u8]) -> String {
 
 pub fn sync_topic_hash() -> TopicHash {
   libp2p::gossipsub::IdentTopic::new(OPENRAFT_SYNC_TOPIC).hash()
+}
+
+pub fn available_topic_hash() -> TopicHash {
+  libp2p::gossipsub::IdentTopic::new(OPENRAFT_SYNC_AVAILABLE_TOPIC).hash()
 }

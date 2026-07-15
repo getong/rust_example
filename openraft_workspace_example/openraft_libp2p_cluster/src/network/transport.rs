@@ -14,6 +14,7 @@ use openraft::BasicNode;
 use crate::{
   GroupId, NodeId, Unreachable,
   network::{
+    peer_guard::PeerRpcGuard,
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork},
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{
@@ -72,6 +73,10 @@ pub struct Libp2pNetworkFactory {
   /// connection-free liveness signal for peers we deliberately stay
   /// disconnected from.
   peer_last_announce: Arc<tokio::sync::RwLock<HashMap<PeerId, (tokio::time::Instant, Duration)>>>,
+  /// Per-target-peer bulkhead + circuit breaker over every outbound RPC
+  /// path, so one slow or dead peer cannot absorb unbounded in-flight
+  /// requests or shared dispatch capacity.
+  peer_guard: Arc<PeerRpcGuard>,
   group_id: Option<GroupId>,
   local_peer_id: PeerId,
 }
@@ -93,6 +98,7 @@ impl Libp2pNetworkFactory {
       connected_peers: Arc::new(ArcSwap::from_pointee(HashSet::new())),
       pinned_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       peer_last_announce: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+      peer_guard: Arc::new(PeerRpcGuard::default()),
       group_id: None,
       local_peer_id,
     }
@@ -112,6 +118,7 @@ impl Libp2pNetworkFactory {
       connected_peers: self.connected_peers.clone(),
       pinned_peers: self.pinned_peers.clone(),
       peer_last_announce: self.peer_last_announce.clone(),
+      peer_guard: self.peer_guard.clone(),
       group_id: Some(group_id),
       local_peer_id: self.local_peer_id,
     }
@@ -590,20 +597,45 @@ impl Libp2pNetworkFactory {
     // keep it in the proactive-reconnect set so raft latency never waits on
     // a fresh dial + handshake.
     self.pin_raft_peer(peer).await;
-    if let Err(err) = self.client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
-        return Err(err);
-      }
-      tracing::warn!(
-        node_id = %node_id,
-        peer = %peer,
-        addr = %addr,
-        error = %err,
-        "connect with configured address failed, trying any known address"
-      );
-      self.client.connect_any(peer).await?;
+    self
+      .guarded(peer, async {
+        if let Err(err) = self.client.connect(peer, addr.clone()).await {
+          if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
+            return Err(err);
+          }
+          tracing::warn!(
+            node_id = %node_id,
+            peer = %peer,
+            addr = %addr,
+            error = %err,
+            "connect with configured address failed, trying any known address"
+          );
+          self.client.connect_any(peer).await?;
+        }
+        self.client.request(peer, req).await
+      })
+      .await
+  }
+
+  /// Run one outbound RPC under the per-peer guard: admission (bulkhead +
+  /// circuit breaker) happens before any network activity, and the outcome
+  /// feeds the circuit so consecutive failures to a peer eventually reject
+  /// fast instead of piling up in-flight requests.
+  async fn guarded<T>(
+    &self,
+    peer: PeerId,
+    rpc: impl Future<Output = Result<T, Unreachable>>,
+  ) -> Result<T, Unreachable> {
+    let permit = self
+      .peer_guard
+      .try_acquire(peer)
+      .map_err(|rejection| Unreachable::new(&NetErr(format!("peer={peer}: {rejection}"))))?;
+    let result = rpc.await;
+    match &result {
+      Ok(_) => permit.record_success(),
+      Err(_) => permit.record_failure(),
     }
-    self.client.request(peer, req).await
+    result
   }
 
   pub async fn request_sqlite_sync(
@@ -617,20 +649,24 @@ impl Libp2pNetworkFactory {
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
-    if let Err(err) = self.sqlite_sync_client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
-        return Err(err);
-      }
-      tracing::warn!(
-        node_id = %node_id,
-        peer = %peer,
-        addr = %addr,
-        error = %err,
-        "connect with configured address failed, trying any known address for sqlite sync"
-      );
-      self.sqlite_sync_client.connect_any(peer).await?;
-    }
-    self.sqlite_sync_client.request(peer, req).await
+    self
+      .guarded(peer, async {
+        if let Err(err) = self.sqlite_sync_client.connect(peer, addr.clone()).await {
+          if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
+            return Err(err);
+          }
+          tracing::warn!(
+            node_id = %node_id,
+            peer = %peer,
+            addr = %addr,
+            error = %err,
+            "connect with configured address failed, trying any known address for sqlite sync"
+          );
+          self.sqlite_sync_client.connect_any(peer).await?;
+        }
+        self.sqlite_sync_client.request(peer, req).await
+      })
+      .await
   }
 
   pub async fn request_task_rpc(
@@ -644,20 +680,24 @@ impl Libp2pNetworkFactory {
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
-    if let Err(err) = self.task_rpc_client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
-        return Err(err);
-      }
-      tracing::warn!(
-        node_id = %node_id,
-        peer = %peer,
-        addr = %addr,
-        error = %err,
-        "connect with configured address failed, trying any known address for task rpc"
-      );
-      self.task_rpc_client.connect_any(peer).await?;
-    }
-    self.task_rpc_client.request(peer, req).await
+    self
+      .guarded(peer, async {
+        if let Err(err) = self.task_rpc_client.connect(peer, addr.clone()).await {
+          if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
+            return Err(err);
+          }
+          tracing::warn!(
+            node_id = %node_id,
+            peer = %peer,
+            addr = %addr,
+            error = %err,
+            "connect with configured address failed, trying any known address for task rpc"
+          );
+          self.task_rpc_client.connect_any(peer).await?;
+        }
+        self.task_rpc_client.request(peer, req).await
+      })
+      .await
   }
 
   pub async fn request_kv(
@@ -671,20 +711,24 @@ impl Libp2pNetworkFactory {
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
-    if let Err(err) = self.kv_client.connect(peer, addr.clone()).await {
-      if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
-        return Err(err);
-      }
-      tracing::warn!(
-        node_id = %node_id,
-        peer = %peer,
-        addr = %addr,
-        error = %err,
-        "connect with configured address failed, trying any known address for kv"
-      );
-      self.kv_client.connect_any(peer).await?;
-    }
-    self.kv_client.request(peer, req).await
+    self
+      .guarded(peer, async {
+        if let Err(err) = self.kv_client.connect(peer, addr.clone()).await {
+          if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
+            return Err(err);
+          }
+          tracing::warn!(
+            node_id = %node_id,
+            peer = %peer,
+            addr = %addr,
+            error = %err,
+            "connect with configured address failed, trying any known address for kv"
+          );
+          self.kv_client.connect_any(peer).await?;
+        }
+        self.kv_client.request(peer, req).await
+      })
+      .await
   }
 
   async fn peer_addr_for(&self, node_id: &NodeId) -> Result<(PeerId, Multiaddr), Unreachable> {

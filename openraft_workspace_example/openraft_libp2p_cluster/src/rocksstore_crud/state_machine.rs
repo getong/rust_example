@@ -8,7 +8,10 @@ use std::{
   io,
   io::{Cursor, Write},
   path::{Path, PathBuf},
-  sync::Arc,
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
 };
 
 use futures::{Stream, TryStreamExt};
@@ -31,6 +34,15 @@ const SM_DATA_CF: &str = "sm_data";
 const LAST_APPLIED_LOG_KEY: &str = "last_applied_log";
 const LAST_MEMBERSHIP_KEY: &str = "last_membership";
 const SNAPSHOT_TMP_SUFFIX: &str = ".tmp";
+/// Snapshot files carry a monotonically increasing epoch prefix
+/// (`epoch_0000000042-<snapshot_id>`), restored from the directory scan at
+/// startup. The epoch makes creation order explicit in the file name — no
+/// need to open and deserialize each file to order them — and gives
+/// concurrent builders distinct target names.
+const SNAPSHOT_EPOCH_PREFIX: &str = "epoch_";
+/// Snapshot files kept after a successful write; older ones are pruned so
+/// the snapshot directory does not grow without bound.
+const SNAPSHOT_RETAIN_COUNT: usize = 2;
 
 /// State machine backed by RocksDB for full persistence.
 /// All application data is stored directly in the `sm_data` column family.
@@ -40,6 +52,8 @@ pub struct RocksStateMachine {
   db: Arc<DB>,
   snapshot_dir: PathBuf,
   data: Arc<RwLock<BTreeMap<String, String>>>,
+  /// Next snapshot epoch; see `SNAPSHOT_EPOCH_PREFIX`.
+  snapshot_epoch: Arc<AtomicU64>,
 }
 
 #[derive(Debug)]
@@ -67,6 +81,7 @@ impl RocksStateMachine {
 
     // Create snapshot directory if it doesn't exist
     fs::create_dir_all(&snapshot_dir)?;
+    let snapshot_epoch = next_snapshot_epoch(&snapshot_dir)?;
     recover_from_latest_snapshot_if_newer(db.clone(), &snapshot_dir).await?;
 
     let data = TypeConfig::spawn_blocking({
@@ -92,6 +107,7 @@ impl RocksStateMachine {
       db,
       snapshot_dir,
       data: Arc::new(RwLock::new(data)),
+      snapshot_epoch: Arc::new(AtomicU64::new(snapshot_epoch)),
     })
   }
 
@@ -390,16 +406,93 @@ fn sync_dir(path: &Path) -> Result<(), io::Error> {
   }
 }
 
+/// File name for a snapshot: monotonically increasing epoch prefix plus the
+/// snapshot id, so creation order is visible in the name and two concurrent
+/// builds can never target the same path.
+fn snapshot_file_name(epoch: u64, snapshot_id: &str) -> String {
+  format!("{SNAPSHOT_EPOCH_PREFIX}{epoch:010}-{snapshot_id}")
+}
+
+fn parse_snapshot_epoch(name: &str) -> Option<u64> {
+  name
+    .strip_prefix(SNAPSHOT_EPOCH_PREFIX)?
+    .split('-')
+    .next()?
+    .parse()
+    .ok()
+}
+
+/// First epoch this process should use: one past the highest epoch found in
+/// the snapshot directory. Legacy files without an epoch prefix count as 0.
+fn next_snapshot_epoch(snapshot_dir: &Path) -> Result<u64, io::Error> {
+  let mut max_epoch = 0u64;
+  for entry in fs::read_dir(snapshot_dir)? {
+    let entry = entry?;
+    if let Some(epoch) = entry.file_name().to_str().and_then(parse_snapshot_epoch) {
+      max_epoch = max_epoch.max(epoch);
+    }
+  }
+  Ok(max_epoch + 1)
+}
+
+/// Delete all but the newest `keep` snapshot files, plus stale tmp files
+/// left behind by crashed writers. Newness is (epoch, file name): epochs are
+/// monotonic across process restarts and the snapshot id embeds a
+/// time-ordered UUID v7, so lexicographic name order is creation order
+/// within an epoch. Legacy un-prefixed files sort as epoch 0 and age out
+/// first.
+fn prune_old_snapshots(snapshot_dir: &Path, keep: usize) -> Result<(), io::Error> {
+  let own_tmp_marker = format!(".{}{}", std::process::id(), SNAPSHOT_TMP_SUFFIX);
+  let mut candidates: Vec<(u64, String, PathBuf)> = Vec::new();
+  for entry in fs::read_dir(snapshot_dir)? {
+    let entry = entry?;
+    let path = entry.path();
+    let Some(name) = path
+      .file_name()
+      .and_then(|n| n.to_str())
+      .map(str::to_string)
+    else {
+      continue;
+    };
+    if name.ends_with(SNAPSHOT_TMP_SUFFIX) {
+      // Tmp names embed the writer's pid; one from another pid is a
+      // leftover from a crash mid-write.
+      if !name.ends_with(&own_tmp_marker) {
+        let _ = fs::remove_file(&path);
+      }
+      continue;
+    }
+    if !path.is_file() {
+      continue;
+    }
+    candidates.push((parse_snapshot_epoch(&name).unwrap_or(0), name, path));
+  }
+
+  if candidates.len() <= keep {
+    return Ok(());
+  }
+  candidates.sort_by(|a, b| (b.0, &b.1).cmp(&(a.0, &a.1)));
+  for (_, name, path) in candidates.into_iter().skip(keep) {
+    match fs::remove_file(&path) {
+      Ok(()) => tracing::debug!(snapshot = %name, "pruned old rocksdb snapshot file"),
+      Err(err) => {
+        tracing::warn!(snapshot = %name, error = ?err, "failed to prune old rocksdb snapshot file")
+      }
+    }
+  }
+  sync_dir(snapshot_dir)
+}
+
 fn write_snapshot_file(
   snapshot_dir: &Path,
-  snapshot_id: &str,
+  snapshot_file_name: &str,
   snapshot_file: &SnapshotFile,
 ) -> Result<(), io::Error> {
   fs::create_dir_all(snapshot_dir)?;
 
-  let snapshot_path = snapshot_dir.join(snapshot_id);
+  let snapshot_path = snapshot_dir.join(snapshot_file_name);
   let tmp_path = snapshot_dir.join(format!(
-    "{snapshot_id}.{}{}",
+    "{snapshot_file_name}.{}{}",
     std::process::id(),
     SNAPSHOT_TMP_SUFFIX
   ));
@@ -529,7 +622,8 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let db = self.db.clone();
     let snapshot_dir = self.snapshot_dir.clone();
     let meta_for_file = meta.clone();
-    let snapshot_id_for_file = snapshot_id;
+    let epoch = self.snapshot_epoch.fetch_add(1, Ordering::SeqCst);
+    let file_name = snapshot_file_name(epoch, &snapshot_id);
 
     let data_bytes = TypeConfig::spawn_blocking(move || -> Result<Vec<u8>, io::Error> {
       let snapshot = db.snapshot();
@@ -550,7 +644,8 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
         meta: meta_for_file,
         data: snapshot_data,
       };
-      write_snapshot_file(&snapshot_dir, &snapshot_id_for_file, &snapshot_file)?;
+      write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
+      prune_old_snapshots(&snapshot_dir, SNAPSHOT_RETAIN_COUNT)?;
 
       // Return snapshot with data-only for backward compatibility with the data field
       serialize_io(&snapshot_file.data)
@@ -726,6 +821,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let db = self.db.clone();
     let snapshot_dir = self.snapshot_dir.clone();
     let meta_for_file = meta.clone();
+    let epoch = self.snapshot_epoch.fetch_add(1, Ordering::SeqCst);
 
     let data_map =
       TypeConfig::spawn_blocking(move || -> Result<BTreeMap<String, String>, io::Error> {
@@ -737,11 +833,9 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
         };
 
         restore_snapshot_to_db(&db, &snapshot_file)?;
-        write_snapshot_file(
-          &snapshot_dir,
-          &snapshot_file.meta.snapshot_id,
-          &snapshot_file,
-        )?;
+        let file_name = snapshot_file_name(epoch, &snapshot_file.meta.snapshot_id);
+        write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
+        prune_old_snapshots(&snapshot_dir, SNAPSHOT_RETAIN_COUNT)?;
         Ok(data_map)
       })
       .await??;

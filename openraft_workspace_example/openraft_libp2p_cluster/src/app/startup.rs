@@ -24,7 +24,7 @@ use crate::{
   constants::SERVICE_LIBP2P_SWARM,
   network::{
     openraft_dispatcher::OpenRaftDispatcher,
-    openraft_sync::OPENRAFT_SYNC_TOPIC,
+    openraft_sync::{OPENRAFT_SYNC_AVAILABLE_TOPIC, OPENRAFT_SYNC_TOPIC},
     proto_codec::UnifiedCodec,
     raft_bridge::P2PNetworkFactoryWrapper,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
@@ -179,6 +179,10 @@ pub(crate) async fn start_openraft_groups(
     election_timeout_min: opt.raft_election_timeout_min_ms,
     election_timeout_max: opt.raft_election_timeout_max_ms,
     enable_heartbeat: opt.raft_enable_heartbeat,
+    // Elections start disabled and are switched on after a per-node random
+    // pre-election delay (see below), so a cluster-wide restart or partition
+    // recovery does not have every node campaigning at the same instant.
+    enable_elect: false,
     snapshot_policy: openraft::SnapshotPolicy::LogsSinceLast(1000),
     max_payload_entries: 200,
     purge_batch_size: 200,
@@ -203,10 +207,48 @@ pub(crate) async fn start_openraft_groups(
     .await
     .context("create raft")?;
 
+    spawn_enable_elect_after_delay(&raft, &node_id, group_id, opt.raft_election_timeout_max_ms);
+
     groups.insert(group_id.clone(), GroupHandle { raft, kv_data });
   }
 
   Ok(groups)
+}
+
+/// Enable elections for `raft` after a pre-election delay unique to this
+/// (node, group) pair. When many nodes start (or a partition heals) at the
+/// same moment, they would otherwise all notice the missing leader within
+/// one election window and campaign concurrently; openraft's election
+/// timeout randomization alone spreads candidacies over at most
+/// `election_timeout_max - election_timeout_min`, which is not enough for a
+/// large cluster. The delay is hash-derived — deterministic per node, no
+/// randomness dependency — and spans `0..2 * election_timeout_max`, i.e. a
+/// few hundred ms to seconds, so it never meaningfully delays recovery.
+fn spawn_enable_elect_after_delay(
+  raft: &Raft,
+  node_id: &NodeId,
+  group_id: &GroupId,
+  election_timeout_max_ms: u64,
+) {
+  use std::hash::{Hash, Hasher};
+
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  node_id.hash(&mut hasher);
+  group_id.hash(&mut hasher);
+  let window_ms = election_timeout_max_ms.saturating_mul(2).max(1);
+  let delay = Duration::from_millis(hasher.finish() % window_ms);
+
+  let raft = raft.clone();
+  let group_id = group_id.clone();
+  tokio::spawn(async move {
+    tokio::time::sleep(delay).await;
+    raft.runtime_config().elect(true);
+    tracing::info!(
+      group = %group_id,
+      delay_ms = delay.as_millis(),
+      "pre-election delay elapsed; elections enabled"
+    );
+  });
 }
 
 pub(crate) fn build_swarm(
@@ -307,6 +349,12 @@ pub(crate) fn build_swarm(
     .gossipsub
     .subscribe(&announce_topic)
     .context("node announce gossipsub subscribe")?;
+  let sync_available_topic = gossipsub::IdentTopic::new(OPENRAFT_SYNC_AVAILABLE_TOPIC);
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&sync_available_topic)
+    .context("openraft snapshot-available gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
   Ok(swarm)
