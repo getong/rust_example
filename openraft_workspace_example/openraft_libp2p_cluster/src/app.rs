@@ -94,8 +94,17 @@ const STARTUP_NO_LEADER_WARN_INTERVAL: Duration = Duration::from_secs(15);
 /// Poll cadence of the known-nodes address book pruner.
 const KNOWN_NODE_PRUNE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// How often each node announces itself on gossipsub so peers can (re)build
-/// their known-nodes address book after prunes/restarts.
+/// their known-nodes address book after prunes/restarts. This is the base
+/// (small-cluster) interval; see [`adaptive_announce_interval`].
 pub const NODE_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(20);
+/// Above this many known nodes the announce interval stretches
+/// proportionally, capping the cluster-wide announce rate at roughly
+/// `NODE_ANNOUNCE_SCALE_THRESHOLD / NODE_ANNOUNCE_INTERVAL` messages per
+/// second no matter how large the cluster grows.
+pub const NODE_ANNOUNCE_SCALE_THRESHOLD: usize = 64;
+/// Upper bound on the stretched announce interval, so announce-based
+/// liveness and post-prune re-listing stay bounded even in huge clusters.
+pub const NODE_ANNOUNCE_MAX_INTERVAL: Duration = Duration::from_secs(300);
 
 #[derive(Parser, Debug, Clone, Default)]
 pub struct WebsocketOpt {
@@ -1894,27 +1903,39 @@ async fn run_openraft_startup_verifier(
   }
 }
 
+/// Announce interval for a cluster with `known_nodes` entries in the address
+/// book. Below [`NODE_ANNOUNCE_SCALE_THRESHOLD`] nodes this is the base
+/// interval; above it the interval stretches proportionally so the
+/// cluster-wide announce rate stays roughly constant (threshold / base
+/// messages per second) instead of growing O(N). Capped so a returning node
+/// is still re-listed within a bounded time.
+pub fn adaptive_announce_interval(known_nodes: usize) -> Duration {
+  let factor = known_nodes.div_ceil(NODE_ANNOUNCE_SCALE_THRESHOLD).max(1);
+  NODE_ANNOUNCE_INTERVAL
+    .saturating_mul(factor.min(u32::MAX as usize) as u32)
+    .min(NODE_ANNOUNCE_MAX_INTERVAL)
+}
+
 /// Periodically announce this node's identity and advertise address on the
 /// dedicated gossipsub topic. Peers use these announcements to (re)register
 /// the node in their known-nodes address book — the reliable counterpart to
 /// the pruner: a pruned node that comes back is re-listed within one
 /// announce interval instead of waiting for a slow mdns re-discovery cycle.
+///
+/// The interval adapts to cluster size (see [`adaptive_announce_interval`])
+/// and each announcement carries it, so receivers scale the sender's
+/// liveness TTL to the actual cadence instead of assuming the base one.
 async fn run_node_announcer(
   self_id: NodeId,
   advertise_addr: String,
+  network: Libp2pNetworkFactory,
   kv_client: KvClient,
   mut shutdown_rx: crate::signal::ShutdownRx,
 ) {
   use prost::Message as _;
 
-  let mut tick = tokio::time::interval(NODE_ANNOUNCE_INTERVAL);
-
   loop {
-    tokio::select! {
-      _ = shutdown_rx.changed() => return,
-      _ = tick.tick() => {}
-    }
-
+    let interval = adaptive_announce_interval(network.known_nodes_count().await);
     let announcement = crate::proto::raft_kv::NodeAnnouncement {
       node_id: self_id.to_string(),
       addr: advertise_addr.clone(),
@@ -1922,10 +1943,16 @@ async fn run_node_announcer(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default(),
+      announce_interval_ms: interval.as_millis() as u64,
     };
     kv_client
       .publish_gossipsub(NODE_ANNOUNCE_TOPIC, announcement.encode_to_vec())
       .await;
+
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tokio::time::sleep(interval) => {}
+    }
   }
 }
 
@@ -2366,6 +2393,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   tokio::spawn(run_node_announcer(
     opt.id.clone(),
     advertise_addr.clone(),
+    libp2p.network.clone(),
     libp2p.kv_client.clone(),
     signal_shutdown.shutdown_rx(),
   ));
@@ -2444,4 +2472,39 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
 
   tracing::info!("shutdown complete");
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn announce_interval_stays_base_for_small_clusters() {
+    assert_eq!(adaptive_announce_interval(0), NODE_ANNOUNCE_INTERVAL);
+    assert_eq!(adaptive_announce_interval(1), NODE_ANNOUNCE_INTERVAL);
+    assert_eq!(
+      adaptive_announce_interval(NODE_ANNOUNCE_SCALE_THRESHOLD),
+      NODE_ANNOUNCE_INTERVAL
+    );
+  }
+
+  #[test]
+  fn announce_interval_scales_linearly_with_cluster_size() {
+    assert_eq!(
+      adaptive_announce_interval(NODE_ANNOUNCE_SCALE_THRESHOLD + 1),
+      NODE_ANNOUNCE_INTERVAL * 2
+    );
+    assert_eq!(
+      adaptive_announce_interval(NODE_ANNOUNCE_SCALE_THRESHOLD * 4),
+      NODE_ANNOUNCE_INTERVAL * 4
+    );
+  }
+
+  #[test]
+  fn announce_interval_is_capped() {
+    assert_eq!(
+      adaptive_announce_interval(1_000_000),
+      NODE_ANNOUNCE_MAX_INTERVAL
+    );
+  }
 }

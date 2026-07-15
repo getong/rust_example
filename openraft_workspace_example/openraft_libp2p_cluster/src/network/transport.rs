@@ -27,10 +27,15 @@ use crate::{
 /// enough that peers removed from a group membership stop being redialed.
 const RAFT_PEER_PIN_TTL: Duration = Duration::from_secs(600);
 
-/// A peer counts as alive without a direct connection while its last
-/// node-announce gossip is younger than this (3x the announce interval, so a
-/// couple of lost gossip messages do not flap liveness).
-const PEER_ALIVE_TTL: Duration = crate::app::NODE_ANNOUNCE_INTERVAL.saturating_mul(3);
+/// Missed announcements tolerated before announce-based liveness lapses, so
+/// a couple of lost gossip messages do not flap liveness.
+const PEER_ALIVE_TTL_INTERVALS: u32 = 3;
+
+/// Default announce-based liveness TTL, assuming the base announce interval.
+/// Peers announcing at a stretched, cluster-size-scaled cadence carry their
+/// interval in the announcement and get a proportional per-peer TTL instead.
+const PEER_ALIVE_TTL: Duration =
+  crate::app::NODE_ANNOUNCE_INTERVAL.saturating_mul(PEER_ALIVE_TTL_INTERVALS);
 
 /// Why a peer must be kept connected by the proactive reconnect loop.
 #[derive(Clone, Copy)]
@@ -54,10 +59,11 @@ pub struct Libp2pNetworkFactory {
   /// on demand and is closed by the swarm idle-connection timeout, so the
   /// cluster does not degenerate into an O(N^2) full mesh.
   pinned_peers: Arc<tokio::sync::RwLock<HashMap<PeerId, PeerPin>>>,
-  /// Last time a node-announce gossip from this peer was seen. Used as a
+  /// Last time a node-announce gossip from this peer was seen, plus the
+  /// liveness TTL derived from the interval the peer announced. Used as a
   /// connection-free liveness signal for peers we deliberately stay
   /// disconnected from.
-  peer_last_announce: Arc<tokio::sync::RwLock<HashMap<PeerId, tokio::time::Instant>>>,
+  peer_last_announce: Arc<tokio::sync::RwLock<HashMap<PeerId, (tokio::time::Instant, Duration)>>>,
   group_id: Option<GroupId>,
   local_peer_id: PeerId,
 }
@@ -287,21 +293,43 @@ impl Libp2pNetworkFactory {
   }
 
   /// Register a peer address learned from a node-announce gossip message.
+  /// `announce_interval_ms` is the cadence the sender declared; 0 means an
+  /// old sender that announces at the default interval.
   ///
   /// Unlike [`register_node`](Self::register_node) this never dials: an
   /// announcement means "this node exists and is alive", not "open a
   /// connection to it". Dialing here would make every node connect to every
   /// announcer — an O(N^2) full mesh. Connections to announced peers are
   /// opened on demand by the RPC paths instead.
-  pub async fn register_announced_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {
+  ///
+  /// Announce volume is O(cluster size), so the steady-state case — the node
+  /// is already registered under the same address — must stay cheap: it only
+  /// takes the address-book read lock, never the write lock the RPC paths
+  /// contend on.
+  pub async fn register_announced_node(
+    &self,
+    node_id: NodeId,
+    addr: &str,
+    announce_interval_ms: u64,
+  ) -> anyhow::Result<()> {
     let (peer, maddr) = parse_p2p_addr(addr)?;
     if peer == self.local_peer_id {
       return Ok(());
     }
-    self.mark_peer_announced(peer).await;
     self
-      .register_configured_node_addr(node_id, peer, maddr)
+      .mark_peer_announced(peer, peer_alive_ttl(announce_interval_ms))
       .await;
+    let unchanged = {
+      let map = self.node_peers.read().await;
+      map
+        .get(&node_id)
+        .is_some_and(|(stored_peer, stored_addr)| *stored_peer == peer && *stored_addr == maddr)
+    };
+    if !unchanged {
+      self
+        .register_configured_node_addr(node_id, peer, maddr)
+        .await;
+    }
     Ok(())
   }
 
@@ -335,12 +363,12 @@ impl Libp2pNetworkFactory {
     }
   }
 
-  async fn mark_peer_announced(&self, peer: PeerId) {
+  async fn mark_peer_announced(&self, peer: PeerId, ttl: Duration) {
     self
       .peer_last_announce
       .write()
       .await
-      .insert(peer, tokio::time::Instant::now());
+      .insert(peer, (tokio::time::Instant::now(), ttl));
   }
 
   /// Whether this peer should be treated as running. True when a direct
@@ -357,7 +385,7 @@ impl Libp2pNetworkFactory {
       .read()
       .await
       .get(peer)
-      .is_some_and(|at| at.elapsed() < PEER_ALIVE_TTL)
+      .is_some_and(|(at, ttl)| at.elapsed() < *ttl)
   }
 
   pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
@@ -366,6 +394,12 @@ impl Libp2pNetworkFactory {
       .iter()
       .map(|(id, (peer, addr))| (id.clone(), *peer, addr.clone()))
       .collect()
+  }
+
+  /// Size of the known-nodes address book. Used by the announcer to scale
+  /// its interval with cluster size without cloning the whole map.
+  pub async fn known_nodes_count(&self) -> usize {
+    self.node_peers.read().await.len()
   }
 
   /// Known nodes the reconnect loop should proactively keep connected:
@@ -603,6 +637,15 @@ impl P2PRaftNetwork for Libp2pRaftNetwork {
   }
 }
 
+/// Liveness TTL for a peer that declared `announce_interval_ms` between its
+/// announcements. Never below the default TTL, so old senders (0) and
+/// senders on the base cadence keep today's behaviour.
+fn peer_alive_ttl(announce_interval_ms: u64) -> Duration {
+  Duration::from_millis(announce_interval_ms)
+    .saturating_mul(PEER_ALIVE_TTL_INTERVALS)
+    .max(PEER_ALIVE_TTL)
+}
+
 pub fn parse_p2p_addr(s: &str) -> anyhow::Result<(PeerId, Multiaddr)> {
   let addr: Multiaddr = s.parse().context("invalid multiaddr")?;
 
@@ -806,6 +849,62 @@ mod tests {
     let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
     assert!(registered);
     assert_eq!(stored_addr.to_string(), configured_addr);
+  }
+
+  #[tokio::test(start_paused = true)]
+  async fn announced_peer_liveness_uses_declared_interval_ttl() {
+    let local_peer = peer_id();
+    let peer = peer_id();
+    let network = test_network(local_peer);
+    let node_id = NodeId::from(peer.to_string());
+    let addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
+
+    // Announced at a stretched cadence of 100s: TTL is 3x that, well past
+    // the default TTL derived from the base interval.
+    let interval_ms = 100_000;
+    network
+      .register_announced_node(node_id.clone(), &addr, interval_ms)
+      .await
+      .expect("register announced node");
+
+    tokio::time::advance(PEER_ALIVE_TTL + Duration::from_secs(1)).await;
+    assert!(
+      network.is_peer_alive(&peer).await,
+      "peer must stay alive past the default TTL when it declared a longer interval"
+    );
+
+    tokio::time::advance(Duration::from_millis(
+      interval_ms * PEER_ALIVE_TTL_INTERVALS as u64,
+    ))
+    .await;
+    assert!(
+      !network.is_peer_alive(&peer).await,
+      "peer must lapse after 3x its declared interval"
+    );
+  }
+
+  #[tokio::test]
+  async fn announced_node_registers_addr_and_repeat_is_noop() {
+    let local_peer = peer_id();
+    let peer = peer_id();
+    let network = test_network(local_peer);
+    let node_id = NodeId::from(peer.to_string());
+    let addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
+
+    network
+      .register_announced_node(node_id.clone(), &addr, 0)
+      .await
+      .expect("register announced node");
+    // Steady-state announce with an unchanged address takes the read-lock
+    // fast path and must leave the stored address intact.
+    network
+      .register_announced_node(node_id.clone(), &addr, 0)
+      .await
+      .expect("repeat announced node");
+
+    let (_, stored_addr) = network.peer_addr_for(&node_id).await.expect("peer addr");
+    assert_eq!(stored_addr.to_string(), addr);
+    assert!(network.is_peer_alive(&peer).await);
   }
 
   #[test]

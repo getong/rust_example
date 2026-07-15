@@ -23,4 +23,10 @@ message NodeAnnouncement {
   string node_id = 1;
   string addr = 2;
   int64 ts_unix_ms = 3;
+  // Interval the sender will wait before its next announcement, in
+  // milliseconds. Senders stretch this with cluster size to keep the
+  // cluster-wide announce rate constant; receivers derive the sender's
+  // liveness TTL from it instead of assuming a fixed cadence. 0 means the
+  // sender predates this field and uses the default interval.
+  uint64 announce_interval_ms = 4;
 }

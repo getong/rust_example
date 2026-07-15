@@ -103,3 +103,4 @@ prost-build = "0.14.4"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+tokio = { version = "1.52", default-features = false, features = ["test-util"] }

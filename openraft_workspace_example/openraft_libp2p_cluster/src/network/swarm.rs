@@ -57,18 +57,36 @@ const PING_FAILURE_DISCONNECT_THRESHOLD: u32 = 3;
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
 const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
+/// Max commands drained from the command channel per loop wakeup. Batching
+/// amortizes the `tokio::select!` round-trip: under RPC bursts (raft
+/// replication fan-out, response sends funneled back from spawned handlers)
+/// many commands are already queued, and handling them one-per-wakeup makes
+/// the single swarm loop the throughput ceiling.
+const SWARM_CMD_BATCH: usize = 64;
+/// Max additional already-ready swarm events drained after the one that woke
+/// the loop, before commands get a turn again. Bounded so a firehose of
+/// events cannot starve command processing.
+const SWARM_EVENT_BATCH: usize = 32;
+/// Bounded queue between the swarm loop and the node-announce processor
+/// task. Announcements are periodic and idempotent, so dropping the overflow
+/// under a burst is safe — the next announce round re-delivers.
+const NODE_ANNOUNCE_QUEUE: usize = 1024;
+/// Max announcements the processor coalesces per round; duplicates from the
+/// same node are folded into the newest one before touching address-book
+/// locks.
+const NODE_ANNOUNCE_BATCH: usize = 256;
 
 /// Gossipsub configuration shared by the full node and the client binaries.
 ///
 /// The knobs that matter at scale are set explicitly instead of relying on
 /// library defaults:
-///   - `flood_publish(false)`: publish into the mesh (bounded degree) instead
-///     of to every connected subscriber, so a node with many live connections
-///     (e.g. the raft leader) does not pay O(connections) per publish;
-///   - explicit mesh degree bounds keep the per-node gossip fan-out constant
-///     no matter how many peers are known;
-///   - `max_transmit_size` fits an openraft snapshot partial message
-///     (4 x 8 KiB parts + metadata/bitmap) with generous headroom.
+///   - `flood_publish(false)`: publish into the mesh (bounded degree) instead of to every connected
+///     subscriber, so a node with many live connections (e.g. the raft leader) does not pay
+///     O(connections) per publish;
+///   - explicit mesh degree bounds keep the per-node gossip fan-out constant no matter how many
+///     peers are known;
+///   - `max_transmit_size` fits an openraft snapshot partial message (4 x 8 KiB parts +
+///     metadata/bitmap) with generous headroom.
 pub fn build_gossipsub_config() -> Result<gossipsub::Config, gossipsub::ConfigBuilderError> {
   gossipsub::ConfigBuilder::default()
     .heartbeat_interval(Duration::from_secs(1))
@@ -749,6 +767,14 @@ pub async fn run_swarm(
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
   reconnect_tick.tick().await;
 
+  // Node announcements are decoded and registered off-loop: the volume is
+  // O(cluster size) and registration takes address-book locks. The processor
+  // task ends by itself when the swarm loop drops `announce_tx`.
+  let (announce_tx, announce_rx) = mpsc::channel::<Vec<u8>>(NODE_ANNOUNCE_QUEUE);
+  tokio::spawn(run_node_announce_processor(network.clone(), announce_rx));
+
+  let mut cmd_batch: Vec<Command> = Vec::with_capacity(SWARM_CMD_BATCH);
+  let mut event_batch: Vec<SwarmEvent<BehaviourEvent>> = Vec::with_capacity(SWARM_EVENT_BATCH);
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
@@ -774,8 +800,8 @@ pub async fn run_swarm(
           &mut reconnect_backoff_until,
         ).await;
       }
-      cmd = cmd_rx.recv() => {
-        let Some(cmd) = cmd else {
+      n = cmd_rx.recv_many(&mut cmd_batch, SWARM_CMD_BATCH) => {
+        if n == 0 {
           tracing::warn!("swarm command channel closed; stopping swarm");
           leave_openraft_kad(&mut swarm);
           fail_pending_swarm_requests(
@@ -789,30 +815,31 @@ pub async fn run_swarm(
             "swarm command channel closed",
           );
           return;
-        };
-        if let Command::PublishOpenRaftSnapshot { group_id, resp } = cmd {
-          // Building the partial reads the raft snapshot and can take
-          // seconds; do it off-loop and publish via the follow-up command.
-          spawn_build_openraft_snapshot(cmd_tx.clone(), group_id, resp);
-          continue;
         }
-        if let Command::PublishOpenRaftSnapshotBuilt { partial, resp } = cmd {
-          publish_openraft_snapshot_partial(&mut swarm, partial, resp, &mut openraft_sync);
-          continue;
+        for cmd in cmd_batch.drain(..) {
+          match cmd {
+            Command::PublishOpenRaftSnapshot { group_id, resp } => {
+              // Building the partial reads the raft snapshot and can take
+              // seconds; do it off-loop and publish via the follow-up command.
+              spawn_build_openraft_snapshot(cmd_tx.clone(), group_id, resp);
+            }
+            Command::PublishOpenRaftSnapshotBuilt { partial, resp } => {
+              publish_openraft_snapshot_partial(&mut swarm, partial, resp, &mut openraft_sync);
+            }
+            cmd => handle_command(
+              &mut swarm,
+              cmd,
+              &mut pending_raft,
+              &mut pending_kv,
+              &mut pending_sqlite_sync,
+              &mut pending_task_rpc,
+              &mut pending_connect,
+              &mut dial_backoff_until,
+              &mut pending_start_providing,
+              &mut pending_get_providers,
+            ),
+          }
         }
-
-        handle_command(
-          &mut swarm,
-          cmd,
-          &mut pending_raft,
-          &mut pending_kv,
-          &mut pending_sqlite_sync,
-          &mut pending_task_rpc,
-          &mut pending_connect,
-          &mut dial_backoff_until,
-          &mut pending_start_providing,
-          &mut pending_get_providers,
-        );
       }
 
       ev = swarm.next() => {
@@ -830,27 +857,41 @@ pub async fn run_swarm(
           );
           break;
         };
-        handle_swarm_event(
-          &mut swarm,
-          ev,
-          &network,
-          dispatcher.clone(),
-          &cmd_tx,
-          &mut pending_raft,
-          &mut pending_kv,
-          &mut pending_sqlite_sync,
-          &mut pending_task_rpc,
-          &mut pending_connect,
-          &mut openraft_sync,
-          &mut connected_peers,
-          &mut dial_backoff_until,
-          &mut reconnect_backoff_until,
-          &mut outgoing_failure_log_backoff_until,
-          &mut pending_start_providing,
-          &mut pending_get_providers,
-          &mut ping_failures,
-        )
-        .await;
+        // Opportunistically drain events that are already ready, so a burst
+        // of RPC traffic is handled in one wakeup instead of paying the
+        // select! round-trip per event. A `Ready(None)` mid-drain is left
+        // for the next loop iteration to observe and shut down on.
+        event_batch.push(ev);
+        while event_batch.len() < SWARM_EVENT_BATCH {
+          match futures::poll!(swarm.next()) {
+            std::task::Poll::Ready(Some(ev)) => event_batch.push(ev),
+            _ => break,
+          }
+        }
+        for ev in event_batch.drain(..) {
+          handle_swarm_event(
+            &mut swarm,
+            ev,
+            &network,
+            dispatcher.clone(),
+            &cmd_tx,
+            &announce_tx,
+            &mut pending_raft,
+            &mut pending_kv,
+            &mut pending_sqlite_sync,
+            &mut pending_task_rpc,
+            &mut pending_connect,
+            &mut openraft_sync,
+            &mut connected_peers,
+            &mut dial_backoff_until,
+            &mut reconnect_backoff_until,
+            &mut outgoing_failure_log_backoff_until,
+            &mut pending_start_providing,
+            &mut pending_get_providers,
+            &mut ping_failures,
+          )
+          .await;
+        }
       }
     }
   }
@@ -1146,6 +1187,7 @@ async fn handle_swarm_event(
   network: &Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
+  announce_tx: &mpsc::Sender<Vec<u8>>,
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
   pending_sqlite_sync: &mut HashMap<
@@ -1183,7 +1225,7 @@ async fn handle_swarm_event(
       handle_mdns_event(swarm, network, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-      handle_gossipsub_event(swarm, network, openraft_sync, event).await;
+      handle_gossipsub_event(swarm, announce_tx, openraft_sync, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
       handle_ping_event(swarm, ping_failures, event);
@@ -1438,42 +1480,64 @@ fn node_announce_topic_hash() -> gossipsub::TopicHash {
   gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC).hash()
 }
 
-/// Handle a node self-announcement: (re)register the sender in the local
-/// known-nodes address book and refresh its liveness timestamp. This is what
-/// brings a node back into `known_nodes` after it crashed, was pruned, and
-/// restarted — mdns re-discovery alone can lag by minutes.
+/// Process node self-announcements queued by the swarm loop: (re)register
+/// each sender in the local known-nodes address book and refresh its
+/// liveness timestamp. This is what brings a node back into `known_nodes`
+/// after it crashed, was pruned, and restarted — mdns re-discovery alone can
+/// lag by minutes.
+///
+/// Announcements are drained in batches and deduplicated by node id (keeping
+/// the newest) before touching the address-book locks, so a gossip burst —
+/// e.g. right after a network partition heals — costs O(distinct nodes)
+/// lock acquisitions, not O(messages). Ends when the swarm loop drops its
+/// sender.
 ///
 /// Registration only: announcements never trigger a dial. Every node hears
 /// every announcement, so dialing here would have each node open connections
 /// to the whole cluster (O(N^2) connections in total).
-async fn handle_node_announcement(network: &Libp2pNetworkFactory, data: &[u8]) {
-  let announcement = match NodeAnnouncement::decode(data) {
-    Ok(announcement) => announcement,
-    Err(err) => {
-      tracing::debug!(error = %err, "invalid node announcement message");
+async fn run_node_announce_processor(
+  network: Libp2pNetworkFactory,
+  mut announce_rx: mpsc::Receiver<Vec<u8>>,
+) {
+  let mut raw = Vec::with_capacity(NODE_ANNOUNCE_BATCH);
+  let mut latest: HashMap<String, NodeAnnouncement> = HashMap::new();
+  loop {
+    if announce_rx.recv_many(&mut raw, NODE_ANNOUNCE_BATCH).await == 0 {
       return;
     }
-  };
-
-  if let Err(err) = network
-    .register_announced_node(
-      crate::NodeId::new(&announcement.node_id),
-      &announcement.addr,
-    )
-    .await
-  {
-    tracing::debug!(
-      node_id = %announcement.node_id,
-      addr = %announcement.addr,
-      error = ?err,
-      "failed to register announced node"
-    );
+    for data in raw.drain(..) {
+      match NodeAnnouncement::decode(data.as_slice()) {
+        Ok(announcement) => {
+          latest.insert(announcement.node_id.clone(), announcement);
+        }
+        Err(err) => {
+          tracing::debug!(error = %err, "invalid node announcement message");
+        }
+      }
+    }
+    for (_, announcement) in latest.drain() {
+      if let Err(err) = network
+        .register_announced_node(
+          crate::NodeId::new(&announcement.node_id),
+          &announcement.addr,
+          announcement.announce_interval_ms,
+        )
+        .await
+      {
+        tracing::debug!(
+          node_id = %announcement.node_id,
+          addr = %announcement.addr,
+          error = ?err,
+          "failed to register announced node"
+        );
+      }
+    }
   }
 }
 
 async fn handle_gossipsub_event(
   swarm: &mut Swarm<Behaviour>,
-  network: &Libp2pNetworkFactory,
+  announce_tx: &mpsc::Sender<Vec<u8>>,
   openraft_sync: &mut OpenRaftSyncState,
   event: gossipsub::Event,
 ) {
@@ -1486,12 +1550,16 @@ async fn handle_gossipsub_event(
       if message.topic == node_announce_topic_hash() {
         // Announce volume grows with cluster size (every node, every
         // announce interval) and registration takes address-book locks, so
-        // run it off-loop: a burst of announcements must not delay raft RPC
-        // event handling.
-        let network = network.clone();
-        tokio::spawn(async move {
-          handle_node_announcement(&network, message.data.as_slice()).await;
-        });
+        // hand it to the dedicated processor task: the swarm loop pays one
+        // try_send per announcement, and a burst must not delay raft RPC
+        // event handling. Overflow is dropped — announcements are periodic
+        // and idempotent, the next round re-delivers.
+        if announce_tx.try_send(message.data).is_err() {
+          tracing::debug!(
+            peer = %propagation_source,
+            "node announce queue full; dropping announcement"
+          );
+        }
         return;
       }
 
