@@ -26,7 +26,7 @@ cool-id-generator = "1"
 futures = "0.3"
 itertools = "0.15"
 mem-log = { path = "../mem-log", features = [] }
-openraft = { version = "0.10.0-alpha.29", features = [
+openraft = { version = "0.10.0-alpha.30", features = [
   "serde",
   "type-alias",
 ] }

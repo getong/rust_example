@@ -24,7 +24,7 @@ clap = { version = "4", features = [
 ] }
 directories = "6"
 futures = "0.3"
-openraft = { version = "0.10.0-alpha.29", features = [
+openraft = { version = "0.10.0-alpha.30", features = [
   "serde",
   "type-alias",
 ] }
