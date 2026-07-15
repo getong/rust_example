@@ -1,8 +1,24 @@
 use std::env;
 
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use once_cell::sync::Lazy;
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 const DEFAULT_LOG_FILTER: &str = "info";
+
+/// Process-wide Prometheus recorder. Installed lazily on first access, so
+/// every `metrics::histogram!`/`gauge!` call site records into it and the
+/// HTTP `/metrics` endpoint renders from it.
+static PROMETHEUS_HANDLE: Lazy<PrometheusHandle> = Lazy::new(|| {
+  PrometheusBuilder::new()
+    .install_recorder()
+    .expect("install prometheus metrics recorder")
+});
+
+/// Handle used by the `/metrics` endpoint to render the exposition text.
+pub fn prometheus_handle() -> PrometheusHandle {
+  PROMETHEUS_HANDLE.clone()
+}
 
 pub fn init_tracing(tokio_console: bool) {
   if tokio_console {

@@ -139,6 +139,11 @@ where
     _option: RPCOption,
   ) -> Result<SnapshotResponse, StreamingError> {
     let data = snapshot.snapshot.into_inner();
+    metrics::histogram!(
+      "raft_snapshot_transfer_bytes",
+      "group" => self.inner.group_id().clone(),
+    )
+    .record(data.len() as f64);
     let response = self
       .send_op(RaftRpcOp::FullSnapshot {
         vote,

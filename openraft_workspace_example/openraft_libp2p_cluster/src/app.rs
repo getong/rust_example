@@ -828,7 +828,7 @@ async fn run_control_services(
   let sqlite_flush_group_id = default_openraft_group_id();
 
   let leader_controller_groups = openraft_groups()
-    .cloned()
+    .map(|groups| groups.as_ref().clone())
     .ok_or_else(|| anyhow!("openraft groups are not initialized"))?;
   let http_state = build_http_state(
     &runtime.opt,
@@ -2363,8 +2363,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     &group_ids,
   )
   .await?;
-  set_openraft_groups(group_handles)
-    .map_err(|_| anyhow!("global openraft groups already initialized"))?;
+  set_openraft_groups(group_handles);
   maybe_initialize_bootstrap_openraft(opt.id.clone(), advertise_addr.clone(), bootstrap_self)
     .await?;
 

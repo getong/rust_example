@@ -35,6 +35,14 @@ CRASH_NODE="${CRASH_NODE:-6}"
 SETTLE_TIMEOUT="${SETTLE_TIMEOUT:-120}"
 FAIL_SETTLE_TIMEOUT="${FAIL_SETTLE_TIMEOUT:-150}"
 
+# Unique per invocation. Task records (and idempotency keys) are durable in
+# the raft state machine and survive across test runs, so every identifier a
+# phase counts on must be run-scoped: a fixed idem key would collide with the
+# previous run's record and the "first" push would silently deduplicate
+# instead of creating a row, throwing every incremental --expect-total off by
+# one from phase 3 onward.
+RUN_ID="$(date +%s)-$$"
+
 TASK_BIN="${CARGO_TARGET_DIR:-$WS_DIR/target}/debug/olpc-task"
 if [[ ! -x "$TASK_BIN" ]]; then
 	echo "Building olpc-task client..."
@@ -102,8 +110,12 @@ check "all tasks settle Done with exactly one attempt, spread over >=${min_worke
 
 echo
 echo "== phase 3: idempotency =="
-first="$(task push --to idem@example.com --idem same-key-1 | grep -o 'task_id=[^ ]*')"
-second="$(task push --to idem@example.com --idem same-key-1 | tail -1)"
+# Run-scoped recipient AND idem key: a fixed key would dedup against the
+# previous run's durable record, so no new row would be created this run.
+idem_to="idem-${RUN_ID}@example.com"
+idem_key="same-key-${RUN_ID}"
+first="$(task push --to "$idem_to" --idem "$idem_key" | grep -o 'task_id=[^ ]*')"
+second="$(task push --to "$idem_to" --idem "$idem_key" | tail -1)"
 echo "first:  $first"
 echo "second: $second"
 check "second push is deduplicated" grep -q "deduplicated=true" <<<"$second"
@@ -114,14 +126,18 @@ check "idempotent push created exactly one record" \
 
 echo
 echo "== phase 4: failure semantics (retry with backoff, then permanent) =="
-check "push failing task" task push --to fail-drill@example.com
+# Run-scoped recipient (the "fail" prefix is what triggers the simulated
+# failure): a fixed address would leave one failed row per past run, and the
+# attempts check below would match all of them instead of just this run's.
+fail_to="fail-drill-${RUN_ID}@example.com"
+check "push failing task" task push --to "$fail_to"
 total_after_p4=$((total_after_p3 + 1))
 # backoff: 10s + 20s between attempts → give it time to exhaust 3 attempts
 check "failing task ends Failed after retries; everything else stays Done" \
 	task watch --timeout-secs "$FAIL_SETTLE_TIMEOUT" \
 	--expect-total "$total_after_p4" \
 	--expect-failed "$((existing_failed + 1))"
-attempts="$(task list --status failed | awk '/fail-drill/ {print $3}')"
+attempts="$(task list --status failed | awk -v to="$fail_to" '$0 ~ to {print $3}')"
 echo "fail-drill attempts: $attempts"
 check "failing task used exactly MAX_TASK_ATTEMPTS (3)" test "${attempts:-0}" = "3"
 

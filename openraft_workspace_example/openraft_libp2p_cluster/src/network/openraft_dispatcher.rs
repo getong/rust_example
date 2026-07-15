@@ -40,7 +40,16 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
       return RaftRpcResponse::Error(format!("unknown group_id={group_id}"));
     };
 
-    handle_inbound_rpc(group.raft, request.op).await
+    let op_name = raft_op_name(&request.op);
+    let started = std::time::Instant::now();
+    let response = handle_inbound_rpc(group.raft, request.op).await;
+    metrics::histogram!(
+      "raft_rpc_duration_seconds",
+      "group" => group_id,
+      "op" => op_name,
+    )
+    .record(started.elapsed().as_secs_f64());
+    response
   }
 
   async fn handle_kv(&self, request: RaftKvRequest) -> RaftKvResponse {
@@ -239,6 +248,19 @@ fn kv_error_response_with_leader(
       message: message.into(),
       leader_id: leader_id.into(),
     })),
+  }
+}
+
+/// Stable low-cardinality label for the raft RPC latency histogram.
+fn raft_op_name(op: &RaftRpcOp) -> &'static str {
+  match op {
+    RaftRpcOp::AppendEntries(_) => "append_entries",
+    RaftRpcOp::Vote(_) => "vote",
+    RaftRpcOp::ClientWrite(_) => "client_write",
+    RaftRpcOp::GetMetrics => "get_metrics",
+    RaftRpcOp::JoinCluster(_) => "join_cluster",
+    RaftRpcOp::AddLearner(_) => "add_learner",
+    RaftRpcOp::FullSnapshot { .. } => "full_snapshot",
   }
 }
 

@@ -1,9 +1,10 @@
 #![allow(clippy::uninlined_format_args)]
 #![deny(unused_qualifications)]
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-use once_cell::sync::OnceCell;
+use arc_swap::ArcSwap;
+use once_cell::sync::Lazy;
 
 pub mod app;
 pub mod constants;
@@ -38,20 +39,29 @@ pub struct GroupHandle {
 
 pub type GroupHandleMap = BTreeMap<GroupId, GroupHandle>;
 
-pub static OPENRAFT_GROUPS: OnceCell<GroupHandleMap> = OnceCell::new();
+/// Global registry of raft groups. `ArcSwap` (instead of `OnceCell`) lets the
+/// whole map be atomically replaced at runtime, so groups can be added or
+/// removed without a restart (hot reconfiguration). Readers pay a lock-free
+/// load; an empty map means "not initialized yet".
+pub static OPENRAFT_GROUPS: Lazy<ArcSwap<GroupHandleMap>> =
+  Lazy::new(|| ArcSwap::from_pointee(GroupHandleMap::new()));
 
-pub fn set_openraft_groups(groups: GroupHandleMap) -> Result<(), GroupHandleMap> {
-  OPENRAFT_GROUPS.set(groups)
+/// Install or atomically replace the global group map.
+pub fn set_openraft_groups(groups: GroupHandleMap) {
+  OPENRAFT_GROUPS.store(Arc::new(groups));
 }
 
-pub fn openraft_groups() -> Option<&'static GroupHandleMap> {
-  OPENRAFT_GROUPS.get()
+pub fn openraft_groups() -> Option<Arc<GroupHandleMap>> {
+  let groups = OPENRAFT_GROUPS.load_full();
+  if groups.is_empty() {
+    None
+  } else {
+    Some(groups)
+  }
 }
 
 pub fn openraft_group(group_id: &str) -> Option<GroupHandle> {
-  openraft_groups()
-    .and_then(|groups| groups.get(group_id))
-    .cloned()
+  OPENRAFT_GROUPS.load().get(group_id).cloned()
 }
 
 pub mod groups {

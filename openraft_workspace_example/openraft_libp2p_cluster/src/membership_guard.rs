@@ -59,7 +59,47 @@ const MEMBERSHIP_CHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 /// missed intervals fit comfortably inside this window; it is deliberately
 /// far below any sane `voter_replace_timeout`, so raft-ack freshness delays
 /// no replacement — it only vetoes false ones.
+///
+/// This is the BASE window: when the gossipsub mesh is degraded (partition
+/// recovery, large cluster churn) the announce-based liveness observer is
+/// unreliable, so the window is stretched up to
+/// [`RAFT_ACK_TIMEOUT_MAX_SCALE`]x to lean harder on openraft's own signal
+/// and avoid false replacements.
 const RAFT_ACK_FRESH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Multiplier applied to [`RAFT_ACK_FRESH_TIMEOUT`] when the gossipsub mesh
+/// health is 0 (fully degraded). Health values in between scale linearly.
+const RAFT_ACK_TIMEOUT_MAX_SCALE: f64 = 3.0;
+
+/// Stretch the raft-ack freshness window as the gossipsub mesh degrades:
+/// health 1.0 keeps the base window, health 0.0 triples it.
+fn scaled_raft_ack_timeout(mesh_health: f64) -> Duration {
+  let health = mesh_health.clamp(0.0, 1.0);
+  let scale = 1.0 + (RAFT_ACK_TIMEOUT_MAX_SCALE - 1.0) * (1.0 - health);
+  RAFT_ACK_FRESH_TIMEOUT.mul_f64(scale)
+}
+
+/// Current raft-ack freshness window, adjusted by live gossipsub mesh
+/// health. Degrades to the base window when the health signal is
+/// unavailable.
+async fn raft_ack_fresh_timeout(group_id: &str, network: &Libp2pNetworkFactory) -> Duration {
+  let Some(health) = network
+    .gossipsub_mesh_health(crate::network::swarm::NODE_ANNOUNCE_TOPIC)
+    .await
+  else {
+    return RAFT_ACK_FRESH_TIMEOUT;
+  };
+  let timeout = scaled_raft_ack_timeout(health);
+  if timeout > RAFT_ACK_FRESH_TIMEOUT {
+    tracing::debug!(
+      group = %group_id,
+      mesh_health = health,
+      ack_timeout = ?timeout,
+      "gossipsub mesh degraded; stretching raft-ack liveness window"
+    );
+  }
+  timeout
+}
 
 pub async fn run_membership_guard(
   group_id: GroupId,
@@ -110,8 +150,11 @@ async fn guard_tick(
 
   // Second observer: members whose last raft heartbeat/replication ack is
   // fresh (leader-local view from openraft itself). Absent map (not leader /
-  // no data yet) degrades to the libp2p-only view.
-  let raft_ack_fresh = fresh_raft_acks(&metrics);
+  // no data yet) degrades to the libp2p-only view. The freshness window
+  // stretches with gossipsub mesh degradation, since a degraded mesh makes
+  // the announce-based observer unreliable.
+  let ack_timeout = raft_ack_fresh_timeout(group_id, network).await;
+  let raft_ack_fresh = fresh_raft_acks(&metrics, ack_timeout);
 
   // Track for how long each member (voter or learner) has been unreachable.
   // A member is alive if EITHER observer says so: a libp2p connection is
@@ -254,10 +297,10 @@ async fn node_alive(network: &Libp2pNetworkFactory, node_id: &NodeId) -> bool {
 
 /// Members whose last raft heartbeat/replication ack — openraft's own
 /// leader-local per-member observation (`RaftMetrics::heartbeat`) — is
-/// younger than [`RAFT_ACK_FRESH_TIMEOUT`]. Empty when the map is absent
-/// (metrics not yet populated), which degrades detection to the libp2p-only
-/// view rather than blocking it.
-fn fresh_raft_acks(metrics: &RaftMetrics) -> BTreeSet<NodeId> {
+/// younger than `ack_timeout` (the mesh-health-adjusted freshness window).
+/// Empty when the map is absent (metrics not yet populated), which degrades
+/// detection to the libp2p-only view rather than blocking it.
+fn fresh_raft_acks(metrics: &RaftMetrics, ack_timeout: Duration) -> BTreeSet<NodeId> {
   let Some(heartbeat) = metrics.heartbeat.as_ref() else {
     return BTreeSet::new();
   };
@@ -266,7 +309,7 @@ fn fresh_raft_acks(metrics: &RaftMetrics) -> BTreeSet<NodeId> {
     .filter(|(_, last_ack)| {
       last_ack
         .as_ref()
-        .map(|t| t.elapsed() < RAFT_ACK_FRESH_TIMEOUT)
+        .map(|t| t.elapsed() < ack_timeout)
         .unwrap_or(false)
     })
     .map(|(id, _)| id.clone())
@@ -296,6 +339,36 @@ async fn pick_promotable_learner(
     }
   }
   connected_only
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn healthy_mesh_keeps_base_ack_timeout() {
+    assert_eq!(scaled_raft_ack_timeout(1.0), RAFT_ACK_FRESH_TIMEOUT);
+  }
+
+  #[test]
+  fn degraded_mesh_stretches_ack_timeout() {
+    assert_eq!(
+      scaled_raft_ack_timeout(0.0),
+      RAFT_ACK_FRESH_TIMEOUT.mul_f64(RAFT_ACK_TIMEOUT_MAX_SCALE)
+    );
+    let half = scaled_raft_ack_timeout(0.5);
+    assert!(half > RAFT_ACK_FRESH_TIMEOUT);
+    assert!(half < RAFT_ACK_FRESH_TIMEOUT.mul_f64(RAFT_ACK_TIMEOUT_MAX_SCALE));
+  }
+
+  #[test]
+  fn out_of_range_health_is_clamped() {
+    assert_eq!(scaled_raft_ack_timeout(2.0), RAFT_ACK_FRESH_TIMEOUT);
+    assert_eq!(
+      scaled_raft_ack_timeout(-1.0),
+      RAFT_ACK_FRESH_TIMEOUT.mul_f64(RAFT_ACK_TIMEOUT_MAX_SCALE)
+    );
+  }
 }
 
 /// A spare worker is a known, alive libp2p peer (connected or recently

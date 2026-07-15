@@ -100,6 +100,7 @@ pub async fn run_task_scheduler(
   let mut down_since: HashMap<String, Instant> = HashMap::new();
 
   loop {
+    let pass_started = Instant::now();
     let next_due = match scheduler_tick(&group_id, &network, &mut down_since).await {
       Ok(next_due) => next_due,
       Err(err) => {
@@ -107,6 +108,8 @@ pub async fn run_task_scheduler(
         None
       }
     };
+    metrics::histogram!("task_scheduler_pass_duration_seconds", "group" => group_id.clone())
+      .record(pass_started.elapsed().as_secs_f64());
 
     // Retention cleanup on its own slow cadence, independent of how often
     // apply events wake the loop.

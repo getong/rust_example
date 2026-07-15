@@ -5,6 +5,7 @@ use std::{
   fs,
   path::{Path, PathBuf},
   sync::Arc,
+  time::Instant,
 };
 
 use anyhow::Context;
@@ -34,10 +35,13 @@ const STORE_CFS: [&str; 4] = ["meta", "sm_meta", SM_DATA_CF, "logs"];
 #[derive(Debug, Clone)]
 pub struct KvData {
   db: Arc<DB>,
+  /// Same-process primary the secondary reader mirrors. Sequence numbers
+  /// from it decide whether a catch-up sync is needed at all.
+  primary: Arc<DB>,
 }
 
 impl KvData {
-  pub fn open<P: AsRef<Path>>(primary_path: P) -> anyhow::Result<Self> {
+  pub fn open<P: AsRef<Path>>(primary: Arc<DB>, primary_path: P) -> anyhow::Result<Self> {
     let primary_path = primary_path.as_ref();
     let secondary_path = secondary_db_dir(primary_path);
     if let Some(parent) = secondary_path.parent() {
@@ -59,7 +63,10 @@ impl KvData {
         )
       })?;
 
-    let kv_data = Self { db: Arc::new(db) };
+    let kv_data = Self {
+      db: Arc::new(db),
+      primary,
+    };
     kv_data.catch_up()?;
     Ok(kv_data)
   }
@@ -67,8 +74,10 @@ impl KvData {
   pub async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
     let db = self.db.clone();
     let key = key.to_string();
-    TypeConfig::spawn_blocking(move || {
-      catch_up(&db)?;
+    let primary = self.primary.clone();
+    let started = Instant::now();
+    let result = TypeConfig::spawn_blocking(move || {
+      maybe_catch_up(&db, &primary)?;
       let cf = sm_data_cf(&db)?;
       db.get_cf(&cf, key.as_bytes())
         .context("read rocksdb kv value")?
@@ -76,7 +85,9 @@ impl KvData {
         .transpose()
     })
     .await
-    .context("join rocksdb kv get task")?
+    .context("join rocksdb kv get task")?;
+    record_kv_read_duration("get", started);
+    result
   }
 
   pub async fn contains_key(&self, key: &str) -> anyhow::Result<bool> {
@@ -85,8 +96,10 @@ impl KvData {
 
   pub async fn entries(&self) -> anyhow::Result<Vec<(String, String)>> {
     let db = self.db.clone();
-    TypeConfig::spawn_blocking(move || {
-      catch_up(&db)?;
+    let primary = self.primary.clone();
+    let started = Instant::now();
+    let result = TypeConfig::spawn_blocking(move || {
+      maybe_catch_up(&db, &primary)?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
       let mut entries = Vec::new();
@@ -100,13 +113,17 @@ impl KvData {
       Ok(entries)
     })
     .await
-    .context("join rocksdb kv entries task")?
+    .context("join rocksdb kv entries task")?;
+    record_kv_read_duration("entries", started);
+    result
   }
 
   pub async fn entries_with_prefix(&self, prefix: String) -> anyhow::Result<Vec<(String, String)>> {
     let db = self.db.clone();
-    TypeConfig::spawn_blocking(move || {
-      catch_up(&db)?;
+    let primary = self.primary.clone();
+    let started = Instant::now();
+    let result = TypeConfig::spawn_blocking(move || {
+      maybe_catch_up(&db, &primary)?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(
         &cf,
@@ -126,12 +143,21 @@ impl KvData {
       Ok(entries)
     })
     .await
-    .context("join rocksdb kv entries_with_prefix task")?
+    .context("join rocksdb kv entries_with_prefix task")?;
+    record_kv_read_duration("entries_with_prefix", started);
+    result
   }
 
   fn catch_up(&self) -> anyhow::Result<()> {
     catch_up(&self.db)
   }
+}
+
+/// KV read latency through the secondary reader, including the (throttled)
+/// catch-up. `op` is a static label: get / entries / entries_with_prefix.
+fn record_kv_read_duration(op: &'static str, started: Instant) {
+  metrics::histogram!("kv_read_duration_seconds", "op" => op)
+    .record(started.elapsed().as_secs_f64());
 }
 
 fn sm_data_cf(db: &DB) -> anyhow::Result<ColumnFamilyRef<'_>> {
@@ -142,6 +168,20 @@ fn sm_data_cf(db: &DB) -> anyhow::Result<ColumnFamilyRef<'_>> {
 fn catch_up(db: &DB) -> anyhow::Result<()> {
   db.try_catch_up_with_primary()
     .context("catch up rocksdb secondary reader with primary")
+}
+
+/// Catch up the secondary reader only when it is actually behind the
+/// same-process primary. Comparing `latest_sequence_number` is a lock-free
+/// in-memory read, so idle/read-mostly workloads skip the per-read manifest
+/// sync entirely — while a read issued right after a committed write always
+/// catches up first, preserving read-your-writes (which a time-based
+/// throttle would break: a linearizable read within the throttle window
+/// would serve a pre-write snapshot).
+fn maybe_catch_up(secondary: &DB, primary: &DB) -> anyhow::Result<()> {
+  if secondary.latest_sequence_number() >= primary.latest_sequence_number() {
+    return Ok(());
+  }
+  catch_up(secondary)
 }
 
 fn decode_utf8(bytes: &[u8], what: &str) -> anyhow::Result<String> {
@@ -230,7 +270,7 @@ pub async fn open_store_for_group<P: AsRef<Path>>(
   let db_path = group_db_dir(db_dir.as_ref(), group_id);
   let (mut log_store, mut state_machine) = open_store(&db_path).await?;
   verify_openraft_store_integrity(group_id, &mut log_store, &mut state_machine).await?;
-  let kv_data = KvData::open(&db_path)?;
+  let kv_data = KvData::open(state_machine.db(), &db_path)?;
   Ok((log_store, state_machine, kv_data))
 }
 
@@ -518,11 +558,11 @@ mod tests {
     let cfs = STORE_CFS
       .into_iter()
       .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
-    let db = DB::open_cf_descriptors(&opts, &primary_path, cfs).expect("open primary");
+    let db = Arc::new(DB::open_cf_descriptors(&opts, &primary_path, cfs).expect("open primary"));
     let cf = db.cf_handle(SM_DATA_CF).expect("sm_data cf");
     db.put_cf(&cf, b"alpha", b"one").expect("write alpha");
 
-    let kv_data = KvData::open(&primary_path).expect("open kv data");
+    let kv_data = KvData::open(db.clone(), &primary_path).expect("open kv data");
     assert_eq!(
       kv_data.get("alpha").await.expect("get alpha"),
       Some("one".to_string())
@@ -542,6 +582,46 @@ mod tests {
         ("alpha".to_string(), "two".to_string()),
         ("beta".to_string(), "three".to_string())
       ]
+    );
+  }
+
+  #[tokio::test]
+  async fn kv_data_reads_are_read_your_writes() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let primary_path = temp.path().join("primary");
+
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    opts.create_missing_column_families(true);
+    let cfs = STORE_CFS
+      .into_iter()
+      .map(|name| ColumnFamilyDescriptor::new(name, Options::default()));
+    let db = Arc::new(DB::open_cf_descriptors(&opts, &primary_path, cfs).expect("open primary"));
+    let cf = db.cf_handle(SM_DATA_CF).expect("sm_data cf");
+    db.put_cf(&cf, b"alpha", b"one").expect("write alpha");
+
+    let kv_data = KvData::open(db.clone(), &primary_path).expect("open kv data");
+
+    // Every committed primary write must be visible to the very next read —
+    // no throttle window, no sleep.
+    for value in ["two", "three", "four"] {
+      db.put_cf(&cf, b"alpha", value.as_bytes()).expect("write");
+      assert_eq!(
+        kv_data.get("alpha").await.expect("get alpha"),
+        Some(value.to_string()),
+        "read right after write must observe it"
+      );
+    }
+
+    // After a read the secondary is at the primary's sequence number, so a
+    // write-free read skips the catch-up sync entirely and still succeeds.
+    assert_eq!(
+      kv_data.db.latest_sequence_number(),
+      db.latest_sequence_number()
+    );
+    assert_eq!(
+      kv_data.get("alpha").await.expect("get alpha again"),
+      Some("four".to_string())
     );
   }
 

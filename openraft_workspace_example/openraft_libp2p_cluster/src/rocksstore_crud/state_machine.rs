@@ -49,6 +49,12 @@ enum DataChange {
 }
 
 impl RocksStateMachine {
+  /// Handle to the primary RocksDB. Used by the `KvData` secondary reader to
+  /// compare sequence numbers and skip needless catch-up syncs.
+  pub fn db(&self) -> Arc<DB> {
+    self.db.clone()
+  }
+
   pub(crate) async fn new(
     db: Arc<DB>,
     snapshot_dir: PathBuf,

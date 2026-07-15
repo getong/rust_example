@@ -188,6 +188,7 @@ pub async fn serve(
     .route("/cache/write", post(write_cached_value))
     .route("/cache/read", post(read_cached_value))
     .route("/sqlite/values", get(list_sqlite_values))
+    .route("/metrics", get(prometheus_metrics))
     .with_state(Arc::new(state));
 
   let listener = tokio::net::TcpListener::bind(addr)
@@ -2565,6 +2566,11 @@ async fn list_sqlite_values(State(state): State<Arc<AppState>>) -> Json<SqliteVa
       error: Some(err.to_string()),
     }),
   }
+}
+
+/// Prometheus exposition endpoint (`GET /metrics`).
+async fn prometheus_metrics() -> String {
+  crate::telemetry::prometheus_handle().render()
 }
 
 async fn send_kv_request(

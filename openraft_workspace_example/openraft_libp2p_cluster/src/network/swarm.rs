@@ -19,7 +19,7 @@ use libp2p::{
   },
 };
 use prost::Message;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 
 use crate::{
   Unreachable,
@@ -41,6 +41,10 @@ use crate::{
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 pub const NODE_ANNOUNCE_TOPIC: &str = "openraft/node-announce/1";
+/// Gossipsub `mesh_n_low`: the degree below which the mesh is considered
+/// under-connected. Shared with the mesh-health signal so "healthy" means
+/// "at or above the maintenance low-water mark".
+pub const GOSSIPSUB_MESH_N_LOW: usize = 4;
 pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
 pub const RAFT_RPC_PROTOCOL: &str = "/openraft/raft/1";
 pub const KV_RPC_PROTOCOL: &str = "/openraft/kv/1";
@@ -75,6 +79,13 @@ const NODE_ANNOUNCE_QUEUE: usize = 1024;
 /// same node are folded into the newest one before touching address-book
 /// locks.
 const NODE_ANNOUNCE_BATCH: usize = 256;
+/// Cap on concurrently executing inbound RPC dispatches (all protocols).
+/// Every inbound request spawns a task; without a cap, an election storm or
+/// a large cluster rejoin can proliferate dispatch tasks without bound. The
+/// permit is acquired inside the spawned task so the swarm loop itself never
+/// blocks; excess requests queue on the semaphore instead of all executing
+/// at once.
+const MAX_CONCURRENT_INBOUND_DISPATCHES: usize = 256;
 
 /// Gossipsub configuration shared by the full node and the client binaries.
 ///
@@ -91,7 +102,7 @@ pub fn build_gossipsub_config() -> Result<gossipsub::Config, gossipsub::ConfigBu
   gossipsub::ConfigBuilder::default()
     .heartbeat_interval(Duration::from_secs(1))
     .mesh_n(6)
-    .mesh_n_low(4)
+    .mesh_n_low(GOSSIPSUB_MESH_N_LOW)
     .mesh_n_high(12)
     .flood_publish(false)
     .max_transmit_size(128 * 1024)
@@ -483,17 +494,108 @@ impl Libp2pClient {
   }
 }
 
-#[derive(Clone)]
-pub struct KvClient {
-  tx: mpsc::Sender<Command>,
-  timeout: Duration,
+/// Generates a typed RPC client over the swarm command channel.
+///
+/// Every request-response protocol needs the same client surface —
+/// `connect`, `connect_any`, and a `request` that routes one `Command`
+/// variant and awaits the oneshot reply with a timeout. Only the command
+/// variant and the request/response types differ, so the ~80 lines per
+/// client are stamped out here instead of hand-copied per protocol.
+macro_rules! define_rpc_client {
+  (
+    $(#[$meta:meta])*
+    $name:ident, $request_variant:ident, $req:ty, $resp:ty
+  ) => {
+    $(#[$meta])*
+    #[derive(Clone)]
+    pub struct $name {
+      tx: mpsc::Sender<Command>,
+      timeout: Duration,
+    }
+
+    impl $name {
+      pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
+        Self { tx, timeout }
+      }
+
+      pub async fn connect(&self, peer: PeerId, addr: Multiaddr) -> Result<(), Unreachable> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self
+          .tx
+          .send(Command::EnsureConnection {
+            peer,
+            addr,
+            resp: resp_tx,
+          })
+          .await
+          .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+        let resp = tokio::time::timeout(self.timeout, resp_rx)
+          .await
+          .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
+          .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
+
+        resp.map_err(|e| Unreachable::new(&e))
+      }
+
+      pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self
+          .tx
+          .send(Command::EnsureConnectionAny {
+            peer,
+            resp: resp_tx,
+          })
+          .await
+          .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+        let resp = tokio::time::timeout(self.timeout, resp_rx)
+          .await
+          .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
+          .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
+
+        resp.map_err(|e| Unreachable::new(&e))
+      }
+
+      pub async fn request(&self, peer: PeerId, req: $req) -> Result<$resp, Unreachable> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self
+          .tx
+          .send(Command::$request_variant {
+            peer,
+            req,
+            resp: resp_tx,
+          })
+          .await
+          .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
+
+        let resp = tokio::time::timeout(self.timeout, resp_rx)
+          .await
+          .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
+          .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
+
+        resp.map_err(|e| Unreachable::new(&e))
+      }
+    }
+  };
 }
 
-impl KvClient {
-  pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
-    Self { tx, timeout }
-  }
+define_rpc_client!(KvClient, KvRequest, RaftKvRequest, RaftKvResponse);
+define_rpc_client!(
+  SqliteSyncClient,
+  SqliteSyncRequest,
+  SqliteSyncRpcRequestMessage,
+  SqliteSyncRpcResponseMessage
+);
+define_rpc_client!(
+  /// Client handle for the tarpc-based task RPC protocol (`/openraft/task/1`).
+  TaskRpcClient,
+  TaskRpcRequest,
+  TaskRpcRequestMessage,
+  TaskRpcResponseMessage
+);
 
+impl KvClient {
   pub async fn publish_gossipsub(&self, topic: &str, data: Vec<u8>) {
     let _ = self
       .tx
@@ -506,220 +608,6 @@ impl KvClient {
 
   pub async fn dial(&self, addr: Multiaddr) {
     let _ = self.tx.send(Command::Dial { addr }).await;
-  }
-
-  pub async fn connect(&self, peer: PeerId, addr: Multiaddr) -> Result<(), Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::EnsureConnection {
-        peer,
-        addr,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-
-  pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::EnsureConnectionAny {
-        peer,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-
-  pub async fn request(
-    &self,
-    peer: PeerId,
-    req: RaftKvRequest,
-  ) -> Result<RaftKvResponse, Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::KvRequest {
-        peer,
-        req,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-}
-
-#[derive(Clone)]
-pub struct SqliteSyncClient {
-  tx: mpsc::Sender<Command>,
-  timeout: Duration,
-}
-
-impl SqliteSyncClient {
-  pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
-    Self { tx, timeout }
-  }
-
-  pub async fn connect(&self, peer: PeerId, addr: Multiaddr) -> Result<(), Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::EnsureConnection {
-        peer,
-        addr,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-
-  pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::EnsureConnectionAny {
-        peer,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-
-  pub async fn request(
-    &self,
-    peer: PeerId,
-    req: SqliteSyncRpcRequestMessage,
-  ) -> Result<SqliteSyncRpcResponseMessage, Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::SqliteSyncRequest {
-        peer,
-        req,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-}
-
-/// Client handle for the tarpc-based task RPC protocol (`/openraft/task/1`).
-#[derive(Clone)]
-pub struct TaskRpcClient {
-  tx: mpsc::Sender<Command>,
-  timeout: Duration,
-}
-
-impl TaskRpcClient {
-  pub fn new(tx: mpsc::Sender<Command>, timeout: Duration) -> Self {
-    Self { tx, timeout }
-  }
-
-  pub async fn connect(&self, peer: PeerId, addr: Multiaddr) -> Result<(), Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::EnsureConnection {
-        peer,
-        addr,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-
-  pub async fn connect_any(&self, peer: PeerId) -> Result<(), Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::EnsureConnectionAny {
-        peer,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("connect timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("connect dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
-  }
-
-  pub async fn request(
-    &self,
-    peer: PeerId,
-    req: TaskRpcRequestMessage,
-  ) -> Result<TaskRpcResponseMessage, Unreachable> {
-    let (resp_tx, resp_rx) = oneshot::channel();
-    self
-      .tx
-      .send(Command::TaskRpcRequest {
-        peer,
-        req,
-        resp: resp_tx,
-      })
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("command channel closed: {e}"))))?;
-
-    let resp = tokio::time::timeout(self.timeout, resp_rx)
-      .await
-      .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
-      .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
-
-    resp.map_err(|e| Unreachable::new(&e))
   }
 }
 
@@ -738,32 +626,7 @@ pub async fn run_swarm(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   mut shutdown_rx: ShutdownRx,
 ) {
-  let mut pending_raft: HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
-  > = HashMap::new();
-  let mut pending_kv: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>> =
-    HashMap::new();
-  let mut pending_sqlite_sync: HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  > = HashMap::new();
-  let mut pending_task_rpc: HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  > = HashMap::new();
-  let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
-    HashMap::new();
-  let mut openraft_sync = OpenRaftSyncState::default();
-  let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
-  let mut reconnect_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
-  let mut outgoing_failure_log_backoff_until: HashMap<PeerId, tokio::time::Instant> =
-    HashMap::new();
-  let mut connected_peers: HashSet<PeerId> = HashSet::new();
-  let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
-    HashMap::new();
-  let mut pending_get_providers: HashMap<kad::QueryId, GetProvidersState> = HashMap::new();
-  let mut ping_failures: HashMap<ConnectionId, u32> = HashMap::new();
+  let mut state = SwarmState::default();
   let mut reconnect_tick = tokio::time::interval(Duration::from_secs(12));
   reconnect_tick.tick().await;
 
@@ -780,40 +643,23 @@ pub async fn run_swarm(
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm");
         leave_openraft_kad(&mut swarm);
-        fail_pending_swarm_requests(
-          &mut pending_raft,
-          &mut pending_kv,
-          &mut pending_sqlite_sync,
-          &mut pending_task_rpc,
-          &mut pending_connect,
-          &mut pending_start_providing,
-          &mut pending_get_providers,
-          "swarm shutting down",
-        );
+        state.fail_all_pending("swarm shutting down");
         break;
       }
       _ = reconnect_tick.tick() => {
+        record_swarm_gauges(&state);
         handle_reconnect_tick(
           &mut swarm,
           &network,
-          &connected_peers,
-          &mut reconnect_backoff_until,
+          &state.connected_peers,
+          &mut state.reconnect_backoff_until,
         ).await;
       }
       n = cmd_rx.recv_many(&mut cmd_batch, SWARM_CMD_BATCH) => {
         if n == 0 {
           tracing::warn!("swarm command channel closed; stopping swarm");
           leave_openraft_kad(&mut swarm);
-          fail_pending_swarm_requests(
-            &mut pending_raft,
-            &mut pending_kv,
-            &mut pending_sqlite_sync,
-            &mut pending_task_rpc,
-            &mut pending_connect,
-            &mut pending_start_providing,
-            &mut pending_get_providers,
-            "swarm command channel closed",
-          );
+          state.fail_all_pending("swarm command channel closed");
           return;
         }
         for cmd in cmd_batch.drain(..) {
@@ -824,20 +670,9 @@ pub async fn run_swarm(
               spawn_build_openraft_snapshot(cmd_tx.clone(), group_id, resp);
             }
             Command::PublishOpenRaftSnapshotBuilt { partial, resp } => {
-              publish_openraft_snapshot_partial(&mut swarm, partial, resp, &mut openraft_sync);
+              publish_openraft_snapshot_partial(&mut swarm, partial, resp, &mut state.openraft_sync);
             }
-            cmd => handle_command(
-              &mut swarm,
-              cmd,
-              &mut pending_raft,
-              &mut pending_kv,
-              &mut pending_sqlite_sync,
-              &mut pending_task_rpc,
-              &mut pending_connect,
-              &mut dial_backoff_until,
-              &mut pending_start_providing,
-              &mut pending_get_providers,
-            ),
+            cmd => handle_command(&mut swarm, cmd, &mut state),
           }
         }
       }
@@ -845,16 +680,7 @@ pub async fn run_swarm(
       ev = swarm.next() => {
         let Some(ev) = ev else {
           tracing::warn!("swarm stream ended; stopping swarm");
-          fail_pending_swarm_requests(
-            &mut pending_raft,
-            &mut pending_kv,
-            &mut pending_sqlite_sync,
-            &mut pending_task_rpc,
-            &mut pending_connect,
-            &mut pending_start_providing,
-            &mut pending_get_providers,
-            "swarm stream ended",
-          );
+          state.fail_all_pending("swarm stream ended");
           break;
         };
         // Opportunistically drain events that are already ready, so a burst
@@ -876,19 +702,7 @@ pub async fn run_swarm(
             dispatcher.clone(),
             &cmd_tx,
             &announce_tx,
-            &mut pending_raft,
-            &mut pending_kv,
-            &mut pending_sqlite_sync,
-            &mut pending_task_rpc,
-            &mut pending_connect,
-            &mut openraft_sync,
-            &mut connected_peers,
-            &mut dial_backoff_until,
-            &mut reconnect_backoff_until,
-            &mut outgoing_failure_log_backoff_until,
-            &mut pending_start_providing,
-            &mut pending_get_providers,
-            &mut ping_failures,
+            &mut state,
           )
           .await;
         }
@@ -947,6 +761,83 @@ struct GetProvidersState {
   resp: oneshot::Sender<Result<HashSet<PeerId>, NetErr>>,
 }
 
+/// All mutable bookkeeping owned by a swarm loop. Consolidated into one
+/// struct so command/event handlers take a single state parameter instead of
+/// ~19 loose `&mut` arguments, and adding a new pending table touches one
+/// place instead of every handler signature.
+struct SwarmState {
+  /// Bounds concurrently executing inbound dispatch tasks; see
+  /// `MAX_CONCURRENT_INBOUND_DISPATCHES`.
+  inbound_dispatch_limit: Arc<Semaphore>,
+  pending_raft: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
+  pending_kv: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
+  pending_sqlite_sync:
+    HashMap<OutboundRequestId, oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>>,
+  pending_task_rpc:
+    HashMap<OutboundRequestId, oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>>,
+  pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
+  openraft_sync: OpenRaftSyncState,
+  connected_peers: HashSet<PeerId>,
+  dial_backoff_until: HashMap<PeerId, tokio::time::Instant>,
+  reconnect_backoff_until: HashMap<PeerId, tokio::time::Instant>,
+  outgoing_failure_log_backoff_until: HashMap<PeerId, tokio::time::Instant>,
+  pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
+  pending_get_providers: HashMap<kad::QueryId, GetProvidersState>,
+  ping_failures: HashMap<ConnectionId, u32>,
+}
+
+impl Default for SwarmState {
+  fn default() -> Self {
+    Self {
+      inbound_dispatch_limit: Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND_DISPATCHES)),
+      pending_raft: HashMap::new(),
+      pending_kv: HashMap::new(),
+      pending_sqlite_sync: HashMap::new(),
+      pending_task_rpc: HashMap::new(),
+      pending_connect: HashMap::new(),
+      openraft_sync: OpenRaftSyncState::default(),
+      connected_peers: HashSet::new(),
+      dial_backoff_until: HashMap::new(),
+      reconnect_backoff_until: HashMap::new(),
+      outgoing_failure_log_backoff_until: HashMap::new(),
+      pending_start_providing: HashMap::new(),
+      pending_get_providers: HashMap::new(),
+      ping_failures: HashMap::new(),
+    }
+  }
+}
+
+/// Export the depth of each pending-request table plus connection and
+/// dispatch-permit gauges. Called on the (12s) reconnect tick, so gauge
+/// freshness costs nothing on the hot event path.
+fn record_swarm_gauges(state: &SwarmState) {
+  metrics::gauge!("swarm_pending_requests", "protocol" => "raft")
+    .set(state.pending_raft.len() as f64);
+  metrics::gauge!("swarm_pending_requests", "protocol" => "kv").set(state.pending_kv.len() as f64);
+  metrics::gauge!("swarm_pending_requests", "protocol" => "sqlite_sync")
+    .set(state.pending_sqlite_sync.len() as f64);
+  metrics::gauge!("swarm_pending_requests", "protocol" => "task_rpc")
+    .set(state.pending_task_rpc.len() as f64);
+  metrics::gauge!("swarm_pending_connects").set(state.pending_connect.len() as f64);
+  metrics::gauge!("swarm_connected_peers").set(state.connected_peers.len() as f64);
+  metrics::gauge!("swarm_inbound_dispatch_available_permits")
+    .set(state.inbound_dispatch_limit.available_permits() as f64);
+}
+
+impl SwarmState {
+  /// Fail every in-flight request with `reason`. Called on shutdown and when
+  /// the swarm stream or command channel ends.
+  fn fail_all_pending(&mut self, reason: &'static str) {
+    fail_pending_map(&mut self.pending_raft, reason);
+    fail_pending_map(&mut self.pending_kv, reason);
+    fail_pending_map(&mut self.pending_sqlite_sync, reason);
+    fail_pending_map(&mut self.pending_task_rpc, reason);
+    fail_pending_map(&mut self.pending_start_providing, reason);
+    fail_pending_connect(&mut self.pending_connect, reason);
+    fail_pending_get_providers(&mut self.pending_get_providers, reason);
+  }
+}
+
 fn collect_swarm_report(swarm: &mut Swarm<Behaviour>) -> Libp2pSwarmReport {
   let local_peer_id = swarm.local_peer_id().to_string();
   let listeners: Vec<String> = swarm.listeners().map(|addr| addr.to_string()).collect();
@@ -994,24 +885,7 @@ fn collect_swarm_report(swarm: &mut Swarm<Behaviour>) -> Libp2pSwarmReport {
   }
 }
 
-fn handle_command(
-  swarm: &mut Swarm<Behaviour>,
-  cmd: Command,
-  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
-  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
-  pending_sqlite_sync: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  >,
-  pending_task_rpc: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  >,
-  pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
-  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
-  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
-  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
-) {
+fn handle_command(swarm: &mut Swarm<Behaviour>, cmd: Command, state: &mut SwarmState) {
   match cmd {
     Command::SetKadMode { mode } => {
       swarm.behaviour_mut().kad.set_mode(Some(mode));
@@ -1021,7 +895,7 @@ fn handle_command(
       let record_key = kad::RecordKey::new(&key);
       match swarm.behaviour_mut().kad.start_providing(record_key) {
         Ok(query_id) => {
-          pending_start_providing.insert(query_id, resp);
+          state.pending_start_providing.insert(query_id, resp);
         }
         Err(e) => {
           let _ = resp.send(Err(NetErr(format!("start_providing failed: {:?}", e))));
@@ -1038,7 +912,7 @@ fn handle_command(
     Command::GetProviders { key, resp } => {
       let record_key = kad::RecordKey::new(&key);
       let query_id = swarm.behaviour_mut().kad.get_providers(record_key);
-      pending_get_providers.insert(
+      state.pending_get_providers.insert(
         query_id,
         GetProvidersState {
           providers: HashSet::new(),
@@ -1055,15 +929,22 @@ fn handle_command(
     Command::EnsureConnection { peer, addr, resp } => {
       ensure_peer_connection(
         swarm,
-        pending_connect,
-        dial_backoff_until,
+        &mut state.pending_connect,
+        &mut state.dial_backoff_until,
         peer,
         Some(addr),
         resp,
       );
     }
     Command::EnsureConnectionAny { peer, resp } => {
-      ensure_peer_connection(swarm, pending_connect, dial_backoff_until, peer, None, resp);
+      ensure_peer_connection(
+        swarm,
+        &mut state.pending_connect,
+        &mut state.dial_backoff_until,
+        peer,
+        None,
+        resp,
+      );
     }
     Command::GossipsubPublish { topic, data } => {
       let topic = gossipsub::IdentTopic::new(topic);
@@ -1082,14 +963,14 @@ fn handle_command(
     }
     Command::RaftRequest { peer, req, resp } => {
       let id = swarm.behaviour_mut().raft_rpc.send_request(&peer, req);
-      pending_raft.insert(id, resp);
+      state.pending_raft.insert(id, resp);
     }
     Command::RaftRespond { channel, resp } => {
       let _ = swarm.behaviour_mut().raft_rpc.send_response(channel, resp);
     }
     Command::KvRequest { peer, req, resp } => {
       let id = swarm.behaviour_mut().kv_rpc.send_request(&peer, req);
-      pending_kv.insert(id, resp);
+      state.pending_kv.insert(id, resp);
     }
     Command::KvRespond { channel, resp } => {
       let _ = swarm.behaviour_mut().kv_rpc.send_response(channel, resp);
@@ -1099,7 +980,7 @@ fn handle_command(
         .behaviour_mut()
         .sqlite_sync_rpc
         .send_request(&peer, req);
-      pending_sqlite_sync.insert(id, resp);
+      state.pending_sqlite_sync.insert(id, resp);
     }
     Command::SqliteSyncRespond { channel, resp } => {
       let _ = swarm
@@ -1109,7 +990,7 @@ fn handle_command(
     }
     Command::TaskRpcRequest { peer, req, resp } => {
       let id = swarm.behaviour_mut().task_rpc.send_request(&peer, req);
-      pending_task_rpc.insert(id, resp);
+      state.pending_task_rpc.insert(id, resp);
     }
     Command::TaskRpcRespond { channel, resp } => {
       let _ = swarm.behaviour_mut().task_rpc.send_response(channel, resp);
@@ -1188,68 +1069,75 @@ async fn handle_swarm_event(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
   announce_tx: &mpsc::Sender<Vec<u8>>,
-  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
-  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
-  pending_sqlite_sync: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  >,
-  pending_task_rpc: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  >,
-  pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
-  openraft_sync: &mut OpenRaftSyncState,
-  connected_peers: &mut HashSet<PeerId>,
-  dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
-  reconnect_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
-  outgoing_failure_log_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
-  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
-  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
-  ping_failures: &mut HashMap<ConnectionId, u32>,
+  state: &mut SwarmState,
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
-      handle_raft_event(dispatcher.clone(), cmd_tx, pending_raft, event).await;
+      handle_raft_event(
+        dispatcher.clone(),
+        cmd_tx,
+        state.inbound_dispatch_limit.clone(),
+        &mut state.pending_raft,
+        event,
+      )
+      .await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => {
-      handle_kv_event(dispatcher.clone(), cmd_tx, pending_kv, event);
+      handle_kv_event(
+        dispatcher.clone(),
+        cmd_tx,
+        state.inbound_dispatch_limit.clone(),
+        &mut state.pending_kv,
+        event,
+      );
     }
     SwarmEvent::Behaviour(BehaviourEvent::SqliteSync(event)) => {
-      handle_sqlite_sync_event(dispatcher.clone(), cmd_tx, pending_sqlite_sync, event);
+      handle_sqlite_sync_event(
+        dispatcher.clone(),
+        cmd_tx,
+        state.inbound_dispatch_limit.clone(),
+        &mut state.pending_sqlite_sync,
+        event,
+      );
     }
     SwarmEvent::Behaviour(BehaviourEvent::TaskRpc(event)) => {
-      handle_task_rpc_event(dispatcher.clone(), cmd_tx, pending_task_rpc, event);
+      handle_task_rpc_event(
+        dispatcher.clone(),
+        cmd_tx,
+        state.inbound_dispatch_limit.clone(),
+        &mut state.pending_task_rpc,
+        event,
+      );
     }
     SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
       handle_mdns_event(swarm, network, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-      handle_gossipsub_event(swarm, announce_tx, openraft_sync, event).await;
+      handle_gossipsub_event(swarm, announce_tx, &mut state.openraft_sync, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-      handle_ping_event(swarm, ping_failures, event);
+      handle_ping_event(swarm, &mut state.ping_failures, event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
       handle_kad_event(
         swarm,
         Some(network),
-        Some(connected_peers),
+        Some(&state.connected_peers),
         event,
-        pending_start_providing,
-        pending_get_providers,
+        &mut state.pending_start_providing,
+        &mut state.pending_get_providers,
       );
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
       handle_connection_established(
         swarm,
-        pending_connect,
-        connected_peers,
-        dial_backoff_until,
+        &mut state.pending_connect,
+        &mut state.connected_peers,
+        &mut state.dial_backoff_until,
         peer_id,
       );
-      reconnect_backoff_until.remove(&peer_id);
-      outgoing_failure_log_backoff_until.remove(&peer_id);
+      state.reconnect_backoff_until.remove(&peer_id);
+      state.outgoing_failure_log_backoff_until.remove(&peer_id);
       network.set_peer_connected(peer_id).await;
     }
     SwarmEvent::ConnectionClosed {
@@ -1259,8 +1147,14 @@ async fn handle_swarm_event(
       cause,
       ..
     } => {
-      ping_failures.remove(&connection_id);
-      handle_connection_closed(swarm, connected_peers, peer_id, num_established, cause);
+      state.ping_failures.remove(&connection_id);
+      handle_connection_closed(
+        swarm,
+        &mut state.connected_peers,
+        peer_id,
+        num_established,
+        cause,
+      );
       if num_established == 0 {
         network.set_peer_disconnected(peer_id).await;
       }
@@ -1271,9 +1165,9 @@ async fn handle_swarm_event(
     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
       handle_outgoing_connection_error(
         swarm,
-        pending_connect,
-        dial_backoff_until,
-        outgoing_failure_log_backoff_until,
+        &mut state.pending_connect,
+        &mut state.dial_backoff_until,
+        &mut state.outgoing_failure_log_backoff_until,
         peer_id,
         error,
       );
@@ -1285,6 +1179,7 @@ async fn handle_swarm_event(
 async fn handle_raft_event(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
+  dispatch_limit: Arc<Semaphore>,
   pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
   event: request_response::Event<RaftRpcRequest, RaftRpcResponse>,
 ) {
@@ -1296,7 +1191,12 @@ async fn handle_raft_event(
         let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
+          // Acquired inside the task: the swarm loop never blocks, but at
+          // most MAX_CONCURRENT_INBOUND_DISPATCHES dispatches execute at
+          // once. The semaphore is never closed, so acquire cannot fail.
+          let permit = dispatch_limit.acquire_owned().await;
           let resp = dispatcher.handle_raft(request).await;
+          drop(permit);
           let _ = tx.send(Command::RaftRespond { channel, resp }).await;
         });
       }
@@ -1324,6 +1224,7 @@ async fn handle_raft_event(
 fn handle_kv_event(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
+  dispatch_limit: Arc<Semaphore>,
   pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
   event: request_response::Event<RaftKvRequest, RaftKvResponse>,
 ) {
@@ -1335,7 +1236,9 @@ fn handle_kv_event(
         let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
+          let permit = dispatch_limit.acquire_owned().await;
           let resp = dispatcher.handle_kv(request).await;
+          drop(permit);
           let _ = tx.send(Command::KvRespond { channel, resp }).await;
         });
       }
@@ -1363,6 +1266,7 @@ fn handle_kv_event(
 fn handle_sqlite_sync_event(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
+  dispatch_limit: Arc<Semaphore>,
   pending_sqlite_sync: &mut HashMap<
     OutboundRequestId,
     oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
@@ -1377,7 +1281,9 @@ fn handle_sqlite_sync_event(
         let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
+          let permit = dispatch_limit.acquire_owned().await;
           let resp = dispatcher.handle_sqlite_sync(request).await;
+          drop(permit);
           let _ = tx.send(Command::SqliteSyncRespond { channel, resp }).await;
         });
       }
@@ -1405,6 +1311,7 @@ fn handle_sqlite_sync_event(
 fn handle_task_rpc_event(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
+  dispatch_limit: Arc<Semaphore>,
   pending_task_rpc: &mut HashMap<
     OutboundRequestId,
     oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
@@ -1419,7 +1326,9 @@ fn handle_task_rpc_event(
         let dispatcher = dispatcher.clone();
         let tx = cmd_tx.clone();
         tokio::spawn(async move {
+          let permit = dispatch_limit.acquire_owned().await;
           let resp = dispatcher.handle_task_rpc(request).await;
+          drop(permit);
           let _ = tx.send(Command::TaskRpcRespond { channel, resp }).await;
         });
       }
@@ -1851,91 +1760,30 @@ pub async fn run_swarm_client_with_shutdown(
   mut cmd_rx: mpsc::Receiver<Command>,
   mut shutdown_rx: ShutdownRx,
 ) {
-  let mut pending_raft: HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
-  > = HashMap::new();
-  let mut pending_kv: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>> =
-    HashMap::new();
-  let mut pending_sqlite_sync: HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  > = HashMap::new();
-  let mut pending_task_rpc: HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  > = HashMap::new();
-  let mut pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>> =
-    HashMap::new();
-  let mut dial_backoff_until: HashMap<PeerId, tokio::time::Instant> = HashMap::new();
-  let mut outgoing_failure_log_backoff_until: HashMap<PeerId, tokio::time::Instant> =
-    HashMap::new();
-  let mut connected_peers: HashSet<PeerId> = HashSet::new();
-  let mut pending_start_providing: HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>> =
-    HashMap::new();
-  let mut pending_get_providers: HashMap<kad::QueryId, GetProvidersState> = HashMap::new();
-  let mut ping_failures: HashMap<ConnectionId, u32> = HashMap::new();
+  let mut state = SwarmState::default();
 
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm client");
         leave_openraft_kad(&mut swarm);
-        fail_pending_swarm_requests(
-          &mut pending_raft,
-          &mut pending_kv,
-          &mut pending_sqlite_sync,
-          &mut pending_task_rpc,
-          &mut pending_connect,
-          &mut pending_start_providing,
-          &mut pending_get_providers,
-          "swarm client shutting down",
-        );
+        state.fail_all_pending("swarm client shutting down");
         break;
       }
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else {
           tracing::warn!("swarm client command channel closed; stopping swarm client");
           leave_openraft_kad(&mut swarm);
-          fail_pending_swarm_requests(
-            &mut pending_raft,
-            &mut pending_kv,
-            &mut pending_sqlite_sync,
-            &mut pending_task_rpc,
-            &mut pending_connect,
-            &mut pending_start_providing,
-            &mut pending_get_providers,
-            "swarm client command channel closed",
-          );
+          state.fail_all_pending("swarm client command channel closed");
           return;
         };
-        handle_command(
-          &mut swarm,
-          cmd,
-          &mut pending_raft,
-          &mut pending_kv,
-          &mut pending_sqlite_sync,
-          &mut pending_task_rpc,
-          &mut pending_connect,
-          &mut dial_backoff_until,
-          &mut pending_start_providing,
-          &mut pending_get_providers,
-        );
+        handle_command(&mut swarm, cmd, &mut state);
       }
 
       ev = swarm.next() => {
         let Some(ev) = ev else {
           tracing::warn!("swarm client stream ended; stopping swarm client");
-          fail_pending_swarm_requests(
-            &mut pending_raft,
-            &mut pending_kv,
-            &mut pending_sqlite_sync,
-            &mut pending_task_rpc,
-            &mut pending_connect,
-            &mut pending_start_providing,
-            &mut pending_get_providers,
-            "swarm client stream ended",
-          );
+          state.fail_all_pending("swarm client stream ended");
           break;
         };
         match ev {
@@ -1948,14 +1796,14 @@ pub async fn run_swarm_client_with_shutdown(
                   .send_response(channel, RaftRpcResponse::Error("client-only".to_string()));
               }
               request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = pending_raft.remove(&request_id) {
+                if let Some(tx) = state.pending_raft.remove(&request_id) {
                   let _ = tx.send(Ok(response));
                 }
               }
             },
 
             request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = pending_raft.remove(&request_id) {
+              if let Some(tx) = state.pending_raft.remove(&request_id) {
                 let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
               }
             }
@@ -1973,14 +1821,14 @@ pub async fn run_swarm_client_with_shutdown(
                   .send_response(channel, kv_error_response("client-only"));
               }
               request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = pending_kv.remove(&request_id) {
+                if let Some(tx) = state.pending_kv.remove(&request_id) {
                   let _ = tx.send(Ok(response));
                 }
               }
             },
 
             request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = pending_kv.remove(&request_id) {
+              if let Some(tx) = state.pending_kv.remove(&request_id) {
                 let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
               }
             }
@@ -2001,14 +1849,14 @@ pub async fn run_swarm_client_with_shutdown(
                   .send_response(channel, response);
               }
               request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = pending_sqlite_sync.remove(&request_id) {
+                if let Some(tx) = state.pending_sqlite_sync.remove(&request_id) {
                   let _ = tx.send(Ok(response));
                 }
               }
             },
 
             request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = pending_sqlite_sync.remove(&request_id) {
+              if let Some(tx) = state.pending_sqlite_sync.remove(&request_id) {
                 let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
               }
             }
@@ -2039,25 +1887,25 @@ pub async fn run_swarm_client_with_shutdown(
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-            handle_ping_event(&mut swarm, &mut ping_failures, event);
+            handle_ping_event(&mut swarm, &mut state.ping_failures, event);
           }
 
           SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-            handle_kad_event(&mut swarm, None, None, event, &mut pending_start_providing, &mut pending_get_providers);
+            handle_kad_event(&mut swarm, None, None, event, &mut state.pending_start_providing, &mut state.pending_get_providers);
           }
 
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-            connected_peers.insert(peer_id);
-            dial_backoff_until.remove(&peer_id);
-            outgoing_failure_log_backoff_until.remove(&peer_id);
-            finish_pending_connect(&mut pending_connect, peer_id, Ok(()));
+            state.connected_peers.insert(peer_id);
+            state.dial_backoff_until.remove(&peer_id);
+            state.outgoing_failure_log_backoff_until.remove(&peer_id);
+            finish_pending_connect(&mut state.pending_connect, peer_id, Ok(()));
             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
           }
 
           SwarmEvent::ConnectionClosed { peer_id, connection_id, num_established, .. } => {
-            ping_failures.remove(&connection_id);
+            state.ping_failures.remove(&connection_id);
             if num_established == 0 {
-              connected_peers.remove(&peer_id);
+              state.connected_peers.remove(&peer_id);
               swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
             }
           }
@@ -2065,9 +1913,9 @@ pub async fn run_swarm_client_with_shutdown(
           SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
             handle_outgoing_connection_error(
               &mut swarm,
-              &mut pending_connect,
-              &mut dial_backoff_until,
-              &mut outgoing_failure_log_backoff_until,
+              &mut state.pending_connect,
+              &mut state.dial_backoff_until,
+              &mut state.outgoing_failure_log_backoff_until,
               peer_id,
               error,
             );
@@ -2215,31 +2063,6 @@ fn leave_kad(swarm: &mut Swarm<Behaviour>, provider_keys: &[String]) {
   }
   swarm.behaviour_mut().kad.set_mode(Some(kad::Mode::Client));
   tracing::info!(provider_keys = ?provider_keys, "left kademlia provider mode");
-}
-
-fn fail_pending_swarm_requests(
-  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
-  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
-  pending_sqlite_sync: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  >,
-  pending_task_rpc: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  >,
-  pending_connect: &mut HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
-  pending_start_providing: &mut HashMap<kad::QueryId, oneshot::Sender<Result<(), NetErr>>>,
-  pending_get_providers: &mut HashMap<kad::QueryId, GetProvidersState>,
-  reason: &'static str,
-) {
-  fail_pending_map(pending_raft, reason);
-  fail_pending_map(pending_kv, reason);
-  fail_pending_map(pending_sqlite_sync, reason);
-  fail_pending_map(pending_task_rpc, reason);
-  fail_pending_map(pending_start_providing, reason);
-  fail_pending_connect(pending_connect, reason);
-  fail_pending_get_providers(pending_get_providers, reason);
 }
 
 fn fail_pending_map<K, T>(

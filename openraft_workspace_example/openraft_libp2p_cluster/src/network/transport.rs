@@ -15,7 +15,9 @@ use crate::{
   network::{
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork},
     rpc::{RaftRpcRequest, RaftRpcResponse},
-    swarm::{KvClient, Libp2pClient, NetErr, SqliteSyncClient, TaskRpcClient},
+    swarm::{
+      GOSSIPSUB_MESH_N_LOW, KvClient, Libp2pClient, NetErr, SqliteSyncClient, TaskRpcClient,
+    },
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
@@ -386,6 +388,27 @@ impl Libp2pNetworkFactory {
       .await
       .get(peer)
       .is_some_and(|(at, ttl)| at.elapsed() < *ttl)
+  }
+
+  /// Health of the local gossipsub mesh for `topic`, in `0.0..=1.0`:
+  /// the ratio of actual mesh peers to the expected mesh degree
+  /// (`min(mesh_n_low, subscribed peers)`). `1.0` means the mesh is at or
+  /// above its maintenance low-water mark (or there is nothing to mesh
+  /// with); values below `1.0` mean gossip delivery — and therefore the
+  /// announce-based liveness signal — may be unreliable. `None` when the
+  /// swarm report is unavailable or the topic is not subscribed.
+  pub async fn gossipsub_mesh_health(&self, topic: &str) -> Option<f64> {
+    let report = self.client.libp2p_info().await.ok()?;
+    let topic_hash = libp2p::gossipsub::IdentTopic::new(topic).hash().to_string();
+    let topic_report = report
+      .gossipsub_topics
+      .iter()
+      .find(|report| report.topic == topic_hash)?;
+    let expected = topic_report.subscribed_peers.min(GOSSIPSUB_MESH_N_LOW);
+    if expected == 0 {
+      return Some(1.0);
+    }
+    Some((topic_report.mesh_peers as f64 / expected as f64).clamp(0.0, 1.0))
   }
 
   pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
