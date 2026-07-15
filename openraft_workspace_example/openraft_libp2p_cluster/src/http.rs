@@ -27,7 +27,9 @@ use serde::{
 
 use crate::{
   GroupId, NodeId,
-  graphviz::{ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg},
+  graphviz::{
+    ClusterGraphGroup, ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg,
+  },
   groups,
   network::{
     openraft_dispatcher::process_kv_request,
@@ -244,11 +246,21 @@ struct KnownNodeResponse {
 #[derive(Serialize)]
 struct OpenRaftNodesResponse {
   ok: bool,
-  group_id: String,
-  groups: Vec<String>,
   local_node_id: NodeId,
   local_peer_id: String,
+  /// One entry per raft group (all groups by default; a single one when
+  /// filtered with `?group_id=`), each carrying its own leader and the
+  /// per-node leader/follower/learner roles for that group.
+  groups: Vec<OpenRaftGroupNodesResponse>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OpenRaftGroupNodesResponse {
+  group_id: String,
+  ok: bool,
   leader_id: Option<NodeId>,
+  /// The LOCAL node's raft server state in this group.
   raft_state: Option<String>,
   voters: usize,
   learners: usize,
@@ -520,6 +532,14 @@ struct ClusterQuery {
   group_id: Option<String>,
 }
 
+impl ClusterQuery {
+  /// The requested group filter; an EMPTY `group_id=` parameter (emitted by
+  /// the graph page's "all groups" links) counts as "no filter".
+  fn group_filter(self) -> Option<String> {
+    self.group_id.filter(|group_id| !group_id.is_empty())
+  }
+}
+
 async fn cluster_graph_page(
   State(state): State<Arc<AppState>>,
   Query(query): Query<ClusterQuery>,
@@ -587,52 +607,90 @@ async fn cluster_graph_svg_response(
 }
 
 async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> ClusterGraphSnapshot {
-  let group_id = query
-    .group_id
-    .unwrap_or_else(|| state.default_group.clone());
-  let groups = state
-    .registry
-    .all()
-    .map(|groups| groups.keys().cloned().collect())
-    .unwrap_or_default();
-
-  let (metrics, error) = match state.registry.get(&group_id) {
-    Some(group) => (Some(group.raft.metrics().borrow_watched().clone()), None),
-    None if state.registry.all().is_none() => (
-      None,
-      Some("openraft groups are not initialized".to_string()),
-    ),
-    None => (None, Some(format!("unknown group_id={group_id}"))),
+  // No (or empty) filter → render every raft group; each group contributes
+  // its own leader and replication edges to the same physical topology.
+  let selected = query.group_filter();
+  let all_group_ids = openraft_group_ids(&state.registry);
+  let render_ids = match selected.clone() {
+    Some(group_id) => vec![group_id],
+    None => all_group_ids.clone(),
   };
+
+  let error = render_ids
+    .is_empty()
+    .then(|| "openraft groups are not initialized".to_string());
+
+  let groups: Vec<ClusterGraphGroup> = render_ids
+    .into_iter()
+    .map(|group_id| match state.registry.get(&group_id) {
+      Some(group) => ClusterGraphGroup {
+        group_id,
+        metrics: Some(group.raft.metrics().borrow_watched().clone()),
+        error: None,
+      },
+      None => ClusterGraphGroup {
+        error: Some(format!("unknown group_id={group_id}")),
+        group_id,
+        metrics: None,
+      },
+    })
+    .collect();
 
   let known_nodes = state.network.known_nodes().await;
   let mut nodes = Vec::with_capacity(known_nodes.len());
   for (node_id, peer_id, addr) in known_nodes {
     let connected = state.network.is_peer_connected(&peer_id).await;
-    let server_state = if node_id == state.node_id {
-      metrics.as_ref().map(|metrics| metrics.state)
-    } else if connected {
-      remote_server_state(&group_id, &node_id, &state.network).await
-    } else {
-      None
-    };
+    let mut server_states = BTreeMap::new();
+    if node_id == state.node_id {
+      for group in &groups {
+        if let Some(metrics) = group.metrics.as_ref() {
+          server_states.insert(group.group_id.clone(), metrics.state);
+        }
+      }
+    }
     nodes.push(ClusterGraphNode {
       node_id,
       peer_id: peer_id.to_string(),
       addr: addr.to_string(),
       connected,
-      server_state,
+      server_states,
     });
+  }
+
+  // Live server states of remote nodes, fetched per (group, node) pair in
+  // parallel so the page pays one RPC round-trip, not groups x nodes.
+  let mut probes = Vec::new();
+  for group in &groups {
+    if group.metrics.is_none() {
+      continue;
+    }
+    for (index, node) in nodes.iter().enumerate() {
+      if node.node_id == state.node_id || !node.connected {
+        continue;
+      }
+      let group_id = group.group_id.clone();
+      let node_id = node.node_id.clone();
+      let network = state.network.clone();
+      probes.push(async move {
+        let server_state = remote_server_state(&group_id, &node_id, &network).await;
+        (index, group_id, server_state)
+      });
+    }
+  }
+  for (index, group_id, server_state) in futures::future::join_all(probes).await {
+    if let Some(server_state) = server_state {
+      nodes[index].server_states.insert(group_id, server_state);
+    }
   }
 
   ClusterGraphSnapshot {
     self_node_id: state.node_id.clone(),
     self_peer_id: state.peer_id.clone(),
     self_listen: state.listen.clone(),
-    group_id,
+    selected,
+    all_group_ids,
     groups,
     nodes,
-    metrics,
     error,
   }
 }
@@ -694,28 +752,42 @@ async fn fetch_remote_metrics(
 }
 
 fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {
-  let group_options = snapshot
-    .groups
-    .iter()
-    .map(|group| {
-      let selected = if group == &snapshot.group_id {
-        " selected"
-      } else {
-        ""
-      };
-      format!(
-        "<option value=\"{}\"{}>{}</option>",
-        html_escape(group),
-        selected,
-        html_escape(group)
-      )
-    })
-    .collect::<String>();
+  let all_selected = if snapshot.selected.is_none() {
+    " selected"
+  } else {
+    ""
+  };
+  let group_options = std::iter::once(format!(
+    "<option value=\"\"{all_selected}>all groups</option>"
+  ))
+  .chain(snapshot.all_group_ids.iter().map(|group| {
+    let selected = if snapshot.selected.as_deref() == Some(group.as_str()) {
+      " selected"
+    } else {
+      ""
+    };
+    format!(
+      "<option value=\"{}\"{}>{}</option>",
+      html_escape(group),
+      selected,
+      html_escape(group)
+    )
+  }))
+  .collect::<String>();
   let status = snapshot
     .error
-    .as_ref()
+    .iter()
+    .chain(
+      snapshot
+        .groups
+        .iter()
+        .filter_map(|group| group.error.as_ref()),
+    )
     .map(|err| format!("<p class=\"error\">{}</p>", html_escape(err)))
-    .unwrap_or_default();
+    .collect::<String>();
+  // Empty group_id in links/SVG means "all groups" (the snapshot treats an
+  // empty filter as no filter).
+  let selected_param = snapshot.selected.as_deref().unwrap_or("");
   format!(
     r#"<!doctype html>
 <html lang="en">
@@ -845,11 +917,11 @@ fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {
 </html>"#,
     html_escape(&snapshot.self_peer_id),
     group_options,
-    url_escape(&snapshot.group_id),
-    url_escape(&snapshot.group_id),
-    url_escape(&snapshot.group_id),
+    url_escape(selected_param),
+    url_escape(selected_param),
+    url_escape(selected_param),
     status,
-    url_escape(&snapshot.group_id),
+    url_escape(selected_param),
   )
 }
 
@@ -877,36 +949,64 @@ async fn openraft_nodes(
   State(state): State<Arc<AppState>>,
   Query(query): Query<ClusterQuery>,
 ) -> Json<OpenRaftNodesResponse> {
-  let group_id = query
-    .group_id
-    .unwrap_or_else(|| state.default_group.clone());
-  let groups = openraft_group_ids(&state.registry);
-  let Some(group) = state.registry.get(&group_id) else {
-    let error = if state.registry.all().is_none() {
-      "openraft groups are not initialized".to_string()
-    } else {
-      format!("unknown group_id={group_id}")
-    };
+  // No filter → every raft group, each with its own leader/follower/learner
+  // attribution; `?group_id=` narrows to one group.
+  let group_ids = match query.group_filter() {
+    Some(group_id) => vec![group_id],
+    None => openraft_group_ids(&state.registry),
+  };
+
+  if group_ids.is_empty() {
     return Json(OpenRaftNodesResponse {
       ok: false,
-      group_id,
-      groups,
       local_node_id: state.node_id.clone(),
       local_peer_id: state.peer_id.clone(),
+      groups: Vec::new(),
+      error: Some("openraft groups are not initialized".to_string()),
+    });
+  }
+
+  // The libp2p address book is group-independent; resolve it once.
+  let known_nodes = known_nodes_by_id(&state.network).await;
+  let mut groups = Vec::with_capacity(group_ids.len());
+  for group_id in group_ids {
+    groups.push(openraft_group_nodes(&state, group_id, &known_nodes).await);
+  }
+
+  let ok = groups.iter().all(|group| group.ok);
+  Json(OpenRaftNodesResponse {
+    ok,
+    local_node_id: state.node_id.clone(),
+    local_peer_id: state.peer_id.clone(),
+    groups,
+    error: (!ok).then(|| "one or more groups reported an error".to_string()),
+  })
+}
+
+/// Membership snapshot of one raft group: its leader plus every member's
+/// role (leader / follower / learner) as this group sees it.
+async fn openraft_group_nodes(
+  state: &AppState,
+  group_id: String,
+  known_nodes: &BTreeMap<NodeId, (PeerId, Multiaddr)>,
+) -> OpenRaftGroupNodesResponse {
+  let Some(group) = state.registry.get(&group_id) else {
+    return OpenRaftGroupNodesResponse {
+      error: Some(format!("unknown group_id={group_id}")),
+      group_id,
+      ok: false,
       leader_id: None,
       raft_state: None,
       voters: 0,
       learners: 0,
       nodes: Vec::new(),
-      error: Some(error),
-    });
+    };
   };
 
   let metrics = group.raft.metrics().borrow_watched().clone();
   let membership = metrics.membership_config.membership();
   let voters = membership.voter_ids().collect::<BTreeSet<_>>();
   let learners = membership.learner_ids().collect::<BTreeSet<_>>();
-  let known_nodes = known_nodes_by_id(&state.network).await;
   let mut nodes = Vec::new();
 
   for (node_id, node) in membership.nodes() {
@@ -914,7 +1014,7 @@ async fn openraft_nodes(
     let role = if is_leader {
       "leader"
     } else if voters.contains(node_id) {
-      "voter"
+      "follower"
     } else if learners.contains(node_id) {
       "learner"
     } else {
@@ -955,19 +1055,16 @@ async fn openraft_nodes(
 
   nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 
-  Json(OpenRaftNodesResponse {
-    ok: true,
+  OpenRaftGroupNodesResponse {
     group_id,
-    groups,
-    local_node_id: state.node_id.clone(),
-    local_peer_id: state.peer_id.clone(),
+    ok: true,
     leader_id: metrics.current_leader.clone(),
     raft_state: Some(server_state_name(metrics.state)),
     voters: voters.len(),
     learners: learners.len(),
     nodes,
     error: None,
-  })
+  }
 }
 
 #[derive(Serialize)]
@@ -1139,7 +1236,7 @@ async fn libp2p_nodes(
   Query(query): Query<ClusterQuery>,
 ) -> Json<Libp2pNodesResponse> {
   let group_id = query
-    .group_id
+    .group_filter()
     .unwrap_or_else(|| state.default_group.clone());
   let (roles, error) = match openraft_roles_by_node(&state.registry, &group_id) {
     Ok(roles) => (roles, None),
@@ -1785,7 +1882,7 @@ async fn cluster_info(
   nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 
   let group_id = query
-    .group_id
+    .group_filter()
     .unwrap_or_else(|| state.default_group.clone());
 
   let Some(global_groups) = state.registry.all() else {

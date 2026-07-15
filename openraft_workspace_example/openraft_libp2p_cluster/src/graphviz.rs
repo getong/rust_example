@@ -15,7 +15,18 @@ pub struct ClusterGraphNode {
   pub peer_id: String,
   pub addr: String,
   pub connected: bool,
-  pub server_state: Option<ServerState>,
+  /// Live raft server state of this node, PER GROUP (a node can be leader
+  /// of one group and follower of another).
+  pub server_states: BTreeMap<GroupId, ServerState>,
+}
+
+/// One raft group's view for the graph: its local metrics (membership,
+/// leader) or the reason they are unavailable.
+#[derive(Debug, Clone)]
+pub struct ClusterGraphGroup {
+  pub group_id: GroupId,
+  pub metrics: Option<RaftMetrics>,
+  pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -23,11 +34,29 @@ pub struct ClusterGraphSnapshot {
   pub self_node_id: NodeId,
   pub self_peer_id: String,
   pub self_listen: String,
-  pub group_id: GroupId,
-  pub groups: Vec<GroupId>,
+  /// `Some` when the view is filtered to one group; `None` = all groups.
+  pub selected: Option<GroupId>,
+  /// Every group id this node serves (for the group picker).
+  pub all_group_ids: Vec<GroupId>,
+  /// The groups actually rendered (all of them, or the selected one).
+  pub groups: Vec<ClusterGraphGroup>,
   pub nodes: Vec<ClusterGraphNode>,
-  pub metrics: Option<RaftMetrics>,
   pub error: Option<String>,
+}
+
+/// Per-group edge/accent colors, assigned by group position so every raft
+/// group's replication edges are visually distinct.
+const GROUP_COLORS: [&str; 6] = [
+  "#1d4ed8", // blue
+  "#0f766e", // teal
+  "#b45309", // amber
+  "#be185d", // pink
+  "#7c3aed", // violet
+  "#334155", // slate
+];
+
+fn group_color(index: usize) -> &'static str {
+  GROUP_COLORS[index % GROUP_COLORS.len()]
 }
 
 #[derive(Debug, Clone)]
@@ -55,43 +84,68 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
   let mut nodes = snapshot.nodes.clone();
   nodes.sort_by(|a, b| a.node_id.cmp(&b.node_id));
 
-  let role_by_node = role_by_node(snapshot.metrics.as_ref(), &nodes);
-  let leader_id = snapshot
-    .metrics
-    .as_ref()
-    .and_then(|metrics| metrics.current_leader.as_ref());
+  // Role of every node in EVERY rendered group: a node can be leader of one
+  // group and follower/learner of another, so attribution is per group.
+  let roles_by_group: Vec<(GroupId, BTreeMap<NodeId, String>)> = snapshot
+    .groups
+    .iter()
+    .map(|group| {
+      (
+        group.group_id.clone(),
+        group_roles(&group.group_id, group.metrics.as_ref(), &nodes),
+      )
+    })
+    .collect();
+  let leads_any_group = |node_id: &NodeId| {
+    snapshot.groups.iter().any(|group| {
+      group
+        .metrics
+        .as_ref()
+        .is_some_and(|metrics| metrics.current_leader.as_ref() == Some(node_id))
+    })
+  };
 
   for node in &nodes {
     known_node_ids.insert(node.node_id.clone());
-    let role = role_by_node
-      .get(&node.node_id)
-      .map(String::as_str)
-      .unwrap_or("discovered");
-    let is_leader = leader_id == Some(&node.node_id);
+    let is_leader = leads_any_group(&node.node_id);
     let is_self = node.node_id == snapshot.self_node_id;
     let title = short_peer(&node.peer_id);
-    let mut lines = vec![
-      format!("role: {role}"),
-      format!("peer_id: {}", short_peer(&node.peer_id)),
-      format!("addr: {}", compact_addr(&node.addr)),
-    ];
+
+    // One role line per group this node belongs to.
+    let mut member_of_any = false;
+    let mut lines = Vec::new();
+    let mut strongest_role = "discovered";
+    for (group_id, roles) in &roles_by_group {
+      if let Some(role) = roles.get(&node.node_id) {
+        member_of_any = true;
+        lines.push(format!("{group_id}: {role}"));
+        strongest_role = strongest_of(strongest_role, role);
+      }
+    }
+    if !member_of_any {
+      lines.push("role: discovered".to_string());
+    }
+    lines.push(format!("peer_id: {}", short_peer(&node.peer_id)));
+    lines.push(format!("addr: {}", compact_addr(&node.addr)));
     if is_self {
       lines.push("local HTTP view".to_string());
-    }
-    if let Some(metrics) = snapshot.metrics.as_ref().filter(|_| is_self) {
-      lines.push(format!("state: {:?}", metrics.state));
-      lines.push(format!("term: {}", metrics.current_term));
-      lines.push(format!(
-        "last log: {}",
-        display_option(metrics.last_log_index)
-      ));
+      for group in &snapshot.groups {
+        if let Some(metrics) = group.metrics.as_ref() {
+          lines.push(format!(
+            "{}: term {}, last log {}",
+            group.group_id,
+            metrics.current_term,
+            display_option(metrics.last_log_index)
+          ));
+        }
+      }
     }
 
     let index = graph.add_node(GraphNodeLabel {
       title,
       lines,
-      fill_color: node_fill_color(role, is_leader, is_self),
-      border_color: node_border_color(role, node.connected),
+      fill_color: node_fill_color(strongest_role, is_leader, is_self),
+      border_color: node_border_color(strongest_role, node.connected),
       pen_width: if is_leader || is_self { "2.4" } else { "1.5" },
     });
     indices.insert(node.node_id.clone(), index);
@@ -138,7 +192,12 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
     );
   }
 
-  if let Some(metrics) = snapshot.metrics.as_ref() {
+  // Replication edges of every rendered group, color-coded per group.
+  for (group_index, group) in snapshot.groups.iter().enumerate() {
+    let Some(metrics) = group.metrics.as_ref() else {
+      continue;
+    };
+    let color = group_color(group_index);
     let membership = metrics.membership_config.membership();
     let voters = membership.voter_ids().collect::<BTreeSet<_>>();
     let learners = membership.learner_ids().collect::<BTreeSet<_>>();
@@ -153,8 +212,8 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
           &indices,
           leader,
           voter,
-          "replicate follower",
-          "#1d4ed8",
+          &format!("{}: replicate follower", group.group_id),
+          color,
           "solid",
         );
       }
@@ -164,8 +223,8 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
           &indices,
           leader,
           learner,
-          "replicate learner",
-          "#7c3aed",
+          &format!("{}: replicate learner", group.group_id),
+          color,
           "dotted",
         );
       }
@@ -233,7 +292,11 @@ fn add_openraft_edge(
   );
 }
 
-fn role_by_node(
+/// Roles of every member of ONE group, derived from the group's local
+/// membership view and refined with the members' live server states (which
+/// can reveal e.g. a candidate mid-election).
+fn group_roles(
+  group_id: &GroupId,
   metrics: Option<&RaftMetrics>,
   nodes: &[ClusterGraphNode],
 ) -> BTreeMap<NodeId, String> {
@@ -252,12 +315,43 @@ fn role_by_node(
   }
 
   for node in nodes {
-    if let Some(state) = node.server_state {
-      roles.insert(node.node_id.clone(), server_state_label(state).to_string());
+    if let Some(state) = node.server_states.get(group_id) {
+      // Only refine members of this group; a live state for a node outside
+      // the membership view would otherwise conjure a phantom member.
+      if roles.contains_key(&node.node_id) {
+        roles.insert(node.node_id.clone(), server_state_label(*state).to_string());
+      }
     }
   }
 
   roles
+}
+
+/// For node coloring, pick the most significant role a node holds across
+/// groups: leader > candidate > follower > learner > everything else.
+fn strongest_of(current: &'static str, candidate: &str) -> &'static str {
+  fn rank(role: &str) -> u8 {
+    match role {
+      "leader" => 4,
+      "candidate" => 3,
+      "follower" => 2,
+      "learner" => 1,
+      _ => 0,
+    }
+  }
+  let interned = match candidate {
+    "leader" => "leader",
+    "candidate" => "candidate",
+    "follower" => "follower",
+    "learner" => "learner",
+    "shutdown" => "shutdown",
+    _ => "discovered",
+  };
+  if rank(interned) > rank(current) {
+    interned
+  } else {
+    current
+  }
 }
 
 fn server_state_label(state: ServerState) -> &'static str {
@@ -317,11 +411,29 @@ fn html_label(label: &GraphNodeLabel) -> String {
 }
 
 fn with_graph_attributes(dot: &str, snapshot: &ClusterGraphSnapshot) -> String {
+  let scope = match snapshot.selected.as_ref() {
+    Some(group_id) => format!("group: {group_id}"),
+    None => format!("all {} groups", snapshot.groups.len()),
+  };
+  let leaders = snapshot
+    .groups
+    .iter()
+    .map(|group| {
+      let leader = group
+        .metrics
+        .as_ref()
+        .and_then(|metrics| metrics.current_leader.as_ref())
+        .map(|leader| short_text(leader.as_str(), 8, 4))
+        .unwrap_or_else(|| "?".to_string());
+      format!("{}\u{2192}{}", group.group_id, leader)
+    })
+    .collect::<Vec<_>>()
+    .join(", ");
   let label = format!(
-    "libp2p / openraft cluster\\ngroup: {} | local peer_id: {} | groups: {}",
-    dot_escape(&snapshot.group_id),
+    "libp2p / openraft cluster\\n{} | local peer_id: {} | leaders: {}",
+    dot_escape(&scope),
     dot_escape(&snapshot.self_peer_id),
-    dot_escape(&snapshot.groups.join(", "))
+    dot_escape(&leaders)
   );
   let attrs = format!(
     "digraph {{\n  graph [rankdir=\"LR\", bgcolor=\"transparent\", pad=\"0.35\", \
