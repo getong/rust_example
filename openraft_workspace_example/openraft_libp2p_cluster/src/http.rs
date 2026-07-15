@@ -33,9 +33,8 @@ use crate::{
     openraft_dispatcher::process_kv_request,
     rpc::{AddLearnerRequest, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
-      GOSSIP_TOPIC, KAD_PROTOCOL, KV_RPC_PROTOCOL, KvClient, Libp2pClient, Libp2pSwarmReport,
-      NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, RAFT_RPC_PROTOCOL,
-      SQLITE_SYNC_RPC_PROTOCOL,
+      GOSSIP_TOPIC, KAD_PROTOCOL, KvClient, Libp2pClient, Libp2pSwarmReport, NODE_ANNOUNCE_TOPIC,
+      OPENRAFT_CLUSTER_PROVIDER_KEY, UNIFIED_RPC_PROTOCOL,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -189,6 +188,10 @@ pub async fn serve(
     .route("/cache/read", post(read_cached_value))
     .route("/sqlite/values", get(list_sqlite_values))
     .route("/metrics", get(prometheus_metrics))
+    .route(
+      "/config",
+      get(get_runtime_config).post(update_runtime_config),
+    )
     .with_state(Arc::new(state));
 
   let listener = tokio::net::TcpListener::bind(addr)
@@ -1081,29 +1084,15 @@ async fn libp2p_info(State(state): State<Arc<AppState>>) -> Json<Libp2pInfoRespo
         .rsplit_once(':')
         .and_then(|(_, port)| port.parse().ok()),
     },
-    request_response: vec![
-      RequestResponseProtocolInfo {
-        name: "raft_rpc",
-        protocol: RAFT_RPC_PROTOCOL,
-        support: "Full",
-        codec: "serde-json (ProtoCodec)",
-        used_for: "openraft AppendEntries/Vote/snapshot, JoinCluster, AddLearner, GetMetrics",
-      },
-      RequestResponseProtocolInfo {
-        name: "kv_rpc",
-        protocol: KV_RPC_PROTOCOL,
-        support: "Full",
-        codec: "protobuf (ProstCodec)",
-        used_for: "KV get/set/update/delete/list-prefix",
-      },
-      RequestResponseProtocolInfo {
-        name: "sqlite_sync_rpc",
-        protocol: SQLITE_SYNC_RPC_PROTOCOL,
-        support: "Full",
-        codec: "serde-json (SerdeCodec, tarpc envelope)",
-        used_for: "sqlite cache flush synchronization between control nodes",
-      },
-    ],
+    request_response: vec![RequestResponseProtocolInfo {
+      name: "rpc",
+      protocol: UNIFIED_RPC_PROTOCOL,
+      support: "Full",
+      codec: "kind-tagged envelope (UnifiedCodec): raft=json+lz4 snapshot frame, kv=protobuf, \
+              sqlite-sync/task=json",
+      used_for: "openraft AppendEntries/Vote/snapshot/JoinCluster/AddLearner/GetMetrics, KV ops, \
+                 sqlite cache sync, task RPC",
+    }],
     kad: KadInfo {
       protocol: KAD_PROTOCOL,
       mode: swarm.as_ref().map(|report| report.kad_mode.clone()),
@@ -2571,6 +2560,43 @@ async fn list_sqlite_values(State(state): State<Arc<AppState>>) -> Json<SqliteVa
 /// Prometheus exposition endpoint (`GET /metrics`).
 async fn prometheus_metrics() -> String {
   crate::telemetry::prometheus_handle().render()
+}
+
+#[derive(serde::Serialize)]
+struct RuntimeConfigResponse {
+  ok: bool,
+  config: crate::runtime_config::RuntimeConfig,
+  error: Option<String>,
+}
+
+/// `GET /config`: current hot-reloadable runtime configuration.
+async fn get_runtime_config() -> Json<RuntimeConfigResponse> {
+  Json(RuntimeConfigResponse {
+    ok: true,
+    config: (*crate::runtime_config::current()).clone(),
+    error: None,
+  })
+}
+
+/// `POST /config`: partial update of the hot-reloadable configuration. Only
+/// the fields present in the JSON body change; validation failures leave the
+/// config untouched. This node only — cluster-wide changes are a matter of
+/// POSTing to every node.
+async fn update_runtime_config(
+  body: Json<crate::runtime_config::RuntimeConfigPatch>,
+) -> Json<RuntimeConfigResponse> {
+  match crate::runtime_config::apply_patch(body.0) {
+    Ok(config) => Json(RuntimeConfigResponse {
+      ok: true,
+      config: (*config).clone(),
+      error: None,
+    }),
+    Err(err) => Json(RuntimeConfigResponse {
+      ok: false,
+      config: (*crate::runtime_config::current()).clone(),
+      error: Some(err),
+    }),
+  }
 }
 
 async fn send_kv_request(

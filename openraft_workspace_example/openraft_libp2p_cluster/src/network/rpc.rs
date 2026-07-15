@@ -2,12 +2,35 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
   GroupId, NodeId,
+  proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   rocksstore_crud::RocksRequest,
+  sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
+  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
   typ::{
     AppendEntriesRequest, AppendEntriesResponse, ClientWriteError, ClientWriteResponse, RaftError,
     RaftMetrics, SnapshotMeta, SnapshotResponse, Vote, VoteRequest, VoteResponse,
   },
 };
+
+/// One request enum for the single `/openraft/rpc/2` protocol. All four
+/// former request-response protocols (raft / kv / sqlite-sync / task) travel
+/// over one libp2p behaviour, so connections negotiate one protocol and the
+/// swarm loop keeps one pending table instead of four.
+#[derive(Debug)]
+pub enum UnifiedRpcRequest {
+  Raft(RaftRpcRequest),
+  Kv(RaftKvRequest),
+  SqliteSync(SqliteSyncRpcRequestMessage),
+  Task(TaskRpcRequestMessage),
+}
+
+#[derive(Debug)]
+pub enum UnifiedRpcResponse {
+  Raft(RaftRpcResponse),
+  Kv(RaftKvResponse),
+  SqliteSync(SqliteSyncRpcResponseMessage),
+  Task(TaskRpcResponseMessage),
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RaftRpcRequest {

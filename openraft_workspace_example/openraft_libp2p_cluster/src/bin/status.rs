@@ -14,16 +14,12 @@ use libp2p::{
 use openraft_libp2p_cluster::{
   app, groups,
   network::{
-    proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
+    proto_codec::UnifiedCodec,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{Behaviour, Libp2pClient, run_swarm_client_with_shutdown},
     transport::parse_p2p_addr,
   },
-  proto::raft_kv::{RaftKvRequest, RaftKvResponse},
-  signal,
-  sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
-  tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
-  telemetry,
+  signal, telemetry,
 };
 use tokio::sync::mpsc;
 
@@ -110,31 +106,10 @@ async fn main() -> anyhow::Result<()> {
       let ping = app::build_ping_behaviour();
 
       Ok(Behaviour {
-        raft_rpc: request_response::Behaviour::with_codec(
-          ProtoCodec::default(),
+        rpc: request_response::Behaviour::with_codec(
+          UnifiedCodec::default(),
           [(
-            StreamProtocol::new("/openraft/raft/1"),
-            ProtocolSupport::Full,
-          )],
-          cfg.clone(),
-        ),
-        kv_rpc: request_response::Behaviour::with_codec(
-          ProstCodec::<RaftKvRequest, RaftKvResponse>::default(),
-          [(StreamProtocol::new("/openraft/kv/1"), ProtocolSupport::Full)],
-          cfg.clone(),
-        ),
-        sqlite_sync_rpc: request_response::Behaviour::with_codec(
-          SerdeCodec::<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>::default(),
-          [(
-            StreamProtocol::new("/openraft/sqlite-sync/1"),
-            ProtocolSupport::Full,
-          )],
-          cfg.clone(),
-        ),
-        task_rpc: request_response::Behaviour::with_codec(
-          SerdeCodec::<TaskRpcRequestMessage, TaskRpcResponseMessage>::default(),
-          [(
-            StreamProtocol::new("/openraft/task/1"),
+            StreamProtocol::new(openraft_libp2p_cluster::network::swarm::UNIFIED_RPC_PROTOCOL),
             ProtocolSupport::Full,
           )],
           cfg,

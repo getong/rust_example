@@ -32,6 +32,30 @@ impl RocksNodeId {
   pub fn as_str(&self) -> &str {
     &self.0
   }
+
+  /// The libp2p peer id this node id encodes. A node id IS the base58
+  /// string form of the node's peer id, and this method (with the
+  /// `From<PeerId>` impls below) is the single sanctioned conversion between
+  /// the two — call sites must not hand-roll `PeerId::from_str` /
+  /// `peer.to_string()` pairs.
+  pub fn peer_id(&self) -> anyhow::Result<libp2p::PeerId> {
+    self
+      .0
+      .parse()
+      .map_err(|err| anyhow::anyhow!("node id {} is not a libp2p peer id: {err}", self.0))
+  }
+}
+
+impl From<libp2p::PeerId> for RocksNodeId {
+  fn from(peer: libp2p::PeerId) -> Self {
+    Self(peer.to_string())
+  }
+}
+
+impl From<&libp2p::PeerId> for RocksNodeId {
+  fn from(peer: &libp2p::PeerId) -> Self {
+    Self(peer.to_string())
+  }
 }
 
 impl fmt::Display for RocksNodeId {
@@ -158,4 +182,23 @@ where
     RocksLogStore::new(db.clone())?,
     RocksStateMachine::new(db, snapshot_dir).await?,
   ))
+}
+
+#[cfg(test)]
+mod node_id_tests {
+  use super::RocksNodeId;
+
+  #[test]
+  fn node_id_and_peer_id_roundtrip() {
+    let peer = libp2p::PeerId::random();
+    let node_id = RocksNodeId::from(peer);
+    assert_eq!(node_id.as_str(), peer.to_string());
+    assert_eq!(node_id.peer_id().expect("parse peer id"), peer);
+    assert_eq!(RocksNodeId::from(&peer), node_id);
+  }
+
+  #[test]
+  fn non_peer_node_id_fails_conversion() {
+    assert!(RocksNodeId::new("not-a-peer-id").peer_id().is_err());
+  }
 }

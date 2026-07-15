@@ -26,8 +26,8 @@ use crate::{
   network::{
     dispatcher::SwarmRequestDispatcher,
     openraft_sync::{OpenRaftSnapshotPartial, OpenRaftSyncState, group_id_string, sync_topic_hash},
-    proto_codec::{ProstCodec, ProtoCodec, SerdeCodec},
-    rpc::{RaftRpcRequest, RaftRpcResponse},
+    proto_codec::UnifiedCodec,
+    rpc::{RaftRpcRequest, RaftRpcResponse, UnifiedRpcRequest, UnifiedRpcResponse},
     transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{
@@ -46,10 +46,11 @@ pub const NODE_ANNOUNCE_TOPIC: &str = "openraft/node-announce/1";
 /// "at or above the maintenance low-water mark".
 pub const GOSSIPSUB_MESH_N_LOW: usize = 4;
 pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
-pub const RAFT_RPC_PROTOCOL: &str = "/openraft/raft/1";
-pub const KV_RPC_PROTOCOL: &str = "/openraft/kv/1";
-pub const SQLITE_SYNC_RPC_PROTOCOL: &str = "/openraft/sqlite-sync/1";
-pub const TASK_RPC_PROTOCOL: &str = "/openraft/task/1";
+/// Single request-response protocol carrying every RPC kind (raft / kv /
+/// sqlite-sync / task) as a tagged envelope. One protocol means one
+/// negotiation per connection and one pending table in the swarm loop,
+/// replacing the former four per-kind protocols.
+pub const UNIFIED_RPC_PROTOCOL: &str = "/openraft/rpc/2";
 pub const KAD_PROTOCOL: &str = "/openraft/kad/1";
 const DIAL_RETRY_BACKOFF: Duration = Duration::from_secs(2);
 /// Consecutive ping failures on one connection before it is force-closed.
@@ -123,13 +124,7 @@ impl Error for NetErr {}
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "BehaviourEvent")]
 pub struct Behaviour {
-  pub raft_rpc: request_response::Behaviour<ProtoCodec>,
-  pub kv_rpc: request_response::Behaviour<ProstCodec<RaftKvRequest, RaftKvResponse>>,
-  pub sqlite_sync_rpc: request_response::Behaviour<
-    SerdeCodec<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>,
-  >,
-  pub task_rpc:
-    request_response::Behaviour<SerdeCodec<TaskRpcRequestMessage, TaskRpcResponseMessage>>,
+  pub rpc: request_response::Behaviour<UnifiedCodec>,
   pub gossipsub: gossipsub::Behaviour,
   pub ping: ping::Behaviour,
   pub mdns: mdns::tokio::Behaviour,
@@ -138,43 +133,16 @@ pub struct Behaviour {
 
 #[derive(Debug)]
 pub enum BehaviourEvent {
-  Raft(request_response::Event<RaftRpcRequest, RaftRpcResponse>),
-  Kv(request_response::Event<RaftKvRequest, RaftKvResponse>),
-  SqliteSync(request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>),
-  TaskRpc(request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>),
+  Rpc(request_response::Event<UnifiedRpcRequest, UnifiedRpcResponse>),
   Gossipsub(gossipsub::Event),
   Ping(ping::Event),
   Mdns(mdns::Event),
   Kad(kad::Event),
 }
 
-impl From<request_response::Event<RaftRpcRequest, RaftRpcResponse>> for BehaviourEvent {
-  fn from(value: request_response::Event<RaftRpcRequest, RaftRpcResponse>) -> Self {
-    Self::Raft(value)
-  }
-}
-
-impl From<request_response::Event<RaftKvRequest, RaftKvResponse>> for BehaviourEvent {
-  fn from(value: request_response::Event<RaftKvRequest, RaftKvResponse>) -> Self {
-    Self::Kv(value)
-  }
-}
-
-impl From<request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>>
-  for BehaviourEvent
-{
-  fn from(
-    value: request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>,
-  ) -> Self {
-    Self::SqliteSync(value)
-  }
-}
-
-impl From<request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>>
-  for BehaviourEvent
-{
-  fn from(value: request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>) -> Self {
-    Self::TaskRpc(value)
+impl From<request_response::Event<UnifiedRpcRequest, UnifiedRpcResponse>> for BehaviourEvent {
+  fn from(value: request_response::Event<UnifiedRpcRequest, UnifiedRpcResponse>) -> Self {
+    Self::Rpc(value)
   }
 }
 
@@ -248,41 +216,14 @@ pub enum Command {
     partial: OpenRaftSnapshotPartial,
     resp: oneshot::Sender<Result<String, NetErr>>,
   },
-  RaftRequest {
+  RpcRequest {
     peer: PeerId,
-    req: RaftRpcRequest,
-    resp: oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
+    req: UnifiedRpcRequest,
+    resp: oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>,
   },
-  RaftRespond {
-    channel: ResponseChannel<RaftRpcResponse>,
-    resp: RaftRpcResponse,
-  },
-  KvRequest {
-    peer: PeerId,
-    req: RaftKvRequest,
-    resp: oneshot::Sender<Result<RaftKvResponse, NetErr>>,
-  },
-  KvRespond {
-    channel: ResponseChannel<RaftKvResponse>,
-    resp: RaftKvResponse,
-  },
-  SqliteSyncRequest {
-    peer: PeerId,
-    req: SqliteSyncRpcRequestMessage,
-    resp: oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  },
-  SqliteSyncRespond {
-    channel: ResponseChannel<SqliteSyncRpcResponseMessage>,
-    resp: SqliteSyncRpcResponseMessage,
-  },
-  TaskRpcRequest {
-    peer: PeerId,
-    req: TaskRpcRequestMessage,
-    resp: oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  },
-  TaskRpcRespond {
-    channel: ResponseChannel<TaskRpcResponseMessage>,
-    resp: TaskRpcResponseMessage,
+  RpcRespond {
+    channel: ResponseChannel<UnifiedRpcResponse>,
+    resp: UnifiedRpcResponse,
   },
 }
 
@@ -477,9 +418,9 @@ impl Libp2pClient {
     let (resp_tx, resp_rx) = oneshot::channel();
     self
       .tx
-      .send(Command::RaftRequest {
+      .send(Command::RpcRequest {
         peer,
-        req,
+        req: UnifiedRpcRequest::Raft(req),
         resp: resp_tx,
       })
       .await
@@ -490,17 +431,22 @@ impl Libp2pClient {
       .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
       .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
 
-    resp.map_err(|e| Unreachable::new(&e))
+    match resp.map_err(|e| Unreachable::new(&e))? {
+      UnifiedRpcResponse::Raft(resp) => Ok(resp),
+      other => Err(Unreachable::new(&NetErr(format!(
+        "unexpected rpc response kind: {other:?}"
+      )))),
+    }
   }
 }
 
 /// Generates a typed RPC client over the swarm command channel.
 ///
-/// Every request-response protocol needs the same client surface —
-/// `connect`, `connect_any`, and a `request` that routes one `Command`
-/// variant and awaits the oneshot reply with a timeout. Only the command
-/// variant and the request/response types differ, so the ~80 lines per
-/// client are stamped out here instead of hand-copied per protocol.
+/// Every RPC kind needs the same client surface — `connect`, `connect_any`,
+/// and a `request` that wraps the kind's `UnifiedRpcRequest` variant and
+/// unwraps the matching response variant with a timeout. Only the variant
+/// and the request/response types differ, so the ~80 lines per client are
+/// stamped out here instead of hand-copied per kind.
 macro_rules! define_rpc_client {
   (
     $(#[$meta:meta])*
@@ -561,9 +507,9 @@ macro_rules! define_rpc_client {
         let (resp_tx, resp_rx) = oneshot::channel();
         self
           .tx
-          .send(Command::$request_variant {
+          .send(Command::RpcRequest {
             peer,
-            req,
+            req: UnifiedRpcRequest::$request_variant(req),
             resp: resp_tx,
           })
           .await
@@ -574,23 +520,28 @@ macro_rules! define_rpc_client {
           .map_err(|e| Unreachable::new(&NetErr(format!("request timeout: {e}"))))
           .and_then(|r| r.map_err(|e| Unreachable::new(&NetErr(format!("response dropped: {e}")))))?;
 
-        resp.map_err(|e| Unreachable::new(&e))
+        match resp.map_err(|e| Unreachable::new(&e))? {
+          UnifiedRpcResponse::$request_variant(resp) => Ok(resp),
+          other => Err(Unreachable::new(&NetErr(format!(
+            "unexpected rpc response kind: {other:?}"
+          )))),
+        }
       }
     }
   };
 }
 
-define_rpc_client!(KvClient, KvRequest, RaftKvRequest, RaftKvResponse);
+define_rpc_client!(KvClient, Kv, RaftKvRequest, RaftKvResponse);
 define_rpc_client!(
   SqliteSyncClient,
-  SqliteSyncRequest,
+  SqliteSync,
   SqliteSyncRpcRequestMessage,
   SqliteSyncRpcResponseMessage
 );
 define_rpc_client!(
-  /// Client handle for the tarpc-based task RPC protocol (`/openraft/task/1`).
+  /// Client handle for the tarpc-based task RPC kind of `/openraft/rpc/2`.
   TaskRpcClient,
-  TaskRpcRequest,
+  Task,
   TaskRpcRequestMessage,
   TaskRpcResponseMessage
 );
@@ -769,12 +720,7 @@ struct SwarmState {
   /// Bounds concurrently executing inbound dispatch tasks; see
   /// `MAX_CONCURRENT_INBOUND_DISPATCHES`.
   inbound_dispatch_limit: Arc<Semaphore>,
-  pending_raft: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
-  pending_kv: HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
-  pending_sqlite_sync:
-    HashMap<OutboundRequestId, oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>>,
-  pending_task_rpc:
-    HashMap<OutboundRequestId, oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>>,
+  pending_rpc: HashMap<OutboundRequestId, oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>>,
   pending_connect: HashMap<PeerId, Vec<oneshot::Sender<Result<(), NetErr>>>>,
   openraft_sync: OpenRaftSyncState,
   connected_peers: HashSet<PeerId>,
@@ -790,10 +736,7 @@ impl Default for SwarmState {
   fn default() -> Self {
     Self {
       inbound_dispatch_limit: Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND_DISPATCHES)),
-      pending_raft: HashMap::new(),
-      pending_kv: HashMap::new(),
-      pending_sqlite_sync: HashMap::new(),
-      pending_task_rpc: HashMap::new(),
+      pending_rpc: HashMap::new(),
       pending_connect: HashMap::new(),
       openraft_sync: OpenRaftSyncState::default(),
       connected_peers: HashSet::new(),
@@ -807,17 +750,11 @@ impl Default for SwarmState {
   }
 }
 
-/// Export the depth of each pending-request table plus connection and
-/// dispatch-permit gauges. Called on the (12s) reconnect tick, so gauge
-/// freshness costs nothing on the hot event path.
+/// Export the pending-request depth plus connection and dispatch-permit
+/// gauges. Called on the (12s) reconnect tick, so gauge freshness costs
+/// nothing on the hot event path.
 fn record_swarm_gauges(state: &SwarmState) {
-  metrics::gauge!("swarm_pending_requests", "protocol" => "raft")
-    .set(state.pending_raft.len() as f64);
-  metrics::gauge!("swarm_pending_requests", "protocol" => "kv").set(state.pending_kv.len() as f64);
-  metrics::gauge!("swarm_pending_requests", "protocol" => "sqlite_sync")
-    .set(state.pending_sqlite_sync.len() as f64);
-  metrics::gauge!("swarm_pending_requests", "protocol" => "task_rpc")
-    .set(state.pending_task_rpc.len() as f64);
+  metrics::gauge!("swarm_pending_requests").set(state.pending_rpc.len() as f64);
   metrics::gauge!("swarm_pending_connects").set(state.pending_connect.len() as f64);
   metrics::gauge!("swarm_connected_peers").set(state.connected_peers.len() as f64);
   metrics::gauge!("swarm_inbound_dispatch_available_permits")
@@ -828,10 +765,7 @@ impl SwarmState {
   /// Fail every in-flight request with `reason`. Called on shutdown and when
   /// the swarm stream or command channel ends.
   fn fail_all_pending(&mut self, reason: &'static str) {
-    fail_pending_map(&mut self.pending_raft, reason);
-    fail_pending_map(&mut self.pending_kv, reason);
-    fail_pending_map(&mut self.pending_sqlite_sync, reason);
-    fail_pending_map(&mut self.pending_task_rpc, reason);
+    fail_pending_map(&mut self.pending_rpc, reason);
     fail_pending_map(&mut self.pending_start_providing, reason);
     fail_pending_connect(&mut self.pending_connect, reason);
     fail_pending_get_providers(&mut self.pending_get_providers, reason);
@@ -961,39 +895,12 @@ fn handle_command(swarm: &mut Swarm<Behaviour>, cmd: Command, state: &mut SwarmS
         "openraft snapshot sync is not available in this swarm loop".to_string(),
       )));
     }
-    Command::RaftRequest { peer, req, resp } => {
-      let id = swarm.behaviour_mut().raft_rpc.send_request(&peer, req);
-      state.pending_raft.insert(id, resp);
+    Command::RpcRequest { peer, req, resp } => {
+      let id = swarm.behaviour_mut().rpc.send_request(&peer, req);
+      state.pending_rpc.insert(id, resp);
     }
-    Command::RaftRespond { channel, resp } => {
-      let _ = swarm.behaviour_mut().raft_rpc.send_response(channel, resp);
-    }
-    Command::KvRequest { peer, req, resp } => {
-      let id = swarm.behaviour_mut().kv_rpc.send_request(&peer, req);
-      state.pending_kv.insert(id, resp);
-    }
-    Command::KvRespond { channel, resp } => {
-      let _ = swarm.behaviour_mut().kv_rpc.send_response(channel, resp);
-    }
-    Command::SqliteSyncRequest { peer, req, resp } => {
-      let id = swarm
-        .behaviour_mut()
-        .sqlite_sync_rpc
-        .send_request(&peer, req);
-      state.pending_sqlite_sync.insert(id, resp);
-    }
-    Command::SqliteSyncRespond { channel, resp } => {
-      let _ = swarm
-        .behaviour_mut()
-        .sqlite_sync_rpc
-        .send_response(channel, resp);
-    }
-    Command::TaskRpcRequest { peer, req, resp } => {
-      let id = swarm.behaviour_mut().task_rpc.send_request(&peer, req);
-      state.pending_task_rpc.insert(id, resp);
-    }
-    Command::TaskRpcRespond { channel, resp } => {
-      let _ = swarm.behaviour_mut().task_rpc.send_response(channel, resp);
+    Command::RpcRespond { channel, resp } => {
+      let _ = swarm.behaviour_mut().rpc.send_response(channel, resp);
     }
   }
 }
@@ -1072,40 +979,12 @@ async fn handle_swarm_event(
   state: &mut SwarmState,
 ) {
   match event {
-    SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => {
-      handle_raft_event(
+    SwarmEvent::Behaviour(BehaviourEvent::Rpc(event)) => {
+      handle_rpc_event(
         dispatcher.clone(),
         cmd_tx,
         state.inbound_dispatch_limit.clone(),
-        &mut state.pending_raft,
-        event,
-      )
-      .await;
-    }
-    SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => {
-      handle_kv_event(
-        dispatcher.clone(),
-        cmd_tx,
-        state.inbound_dispatch_limit.clone(),
-        &mut state.pending_kv,
-        event,
-      );
-    }
-    SwarmEvent::Behaviour(BehaviourEvent::SqliteSync(event)) => {
-      handle_sqlite_sync_event(
-        dispatcher.clone(),
-        cmd_tx,
-        state.inbound_dispatch_limit.clone(),
-        &mut state.pending_sqlite_sync,
-        event,
-      );
-    }
-    SwarmEvent::Behaviour(BehaviourEvent::TaskRpc(event)) => {
-      handle_task_rpc_event(
-        dispatcher.clone(),
-        cmd_tx,
-        state.inbound_dispatch_limit.clone(),
-        &mut state.pending_task_rpc,
+        &mut state.pending_rpc,
         event,
       );
     }
@@ -1176,12 +1055,12 @@ async fn handle_swarm_event(
   }
 }
 
-async fn handle_raft_event(
+fn handle_rpc_event(
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   cmd_tx: &mpsc::Sender<Command>,
   dispatch_limit: Arc<Semaphore>,
-  pending_raft: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftRpcResponse, NetErr>>>,
-  event: request_response::Event<RaftRpcRequest, RaftRpcResponse>,
+  pending_rpc: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<UnifiedRpcResponse, NetErr>>>,
+  event: request_response::Event<UnifiedRpcRequest, UnifiedRpcResponse>,
 ) {
   match event {
     request_response::Event::Message { message, .. } => match message {
@@ -1195,16 +1074,16 @@ async fn handle_raft_event(
           // most MAX_CONCURRENT_INBOUND_DISPATCHES dispatches execute at
           // once. The semaphore is never closed, so acquire cannot fail.
           let permit = dispatch_limit.acquire_owned().await;
-          let resp = dispatcher.handle_raft(request).await;
+          let resp = dispatch_unified_request(dispatcher.as_ref(), request).await;
           drop(permit);
-          let _ = tx.send(Command::RaftRespond { channel, resp }).await;
+          let _ = tx.send(Command::RpcRespond { channel, resp }).await;
         });
       }
       request_response::Message::Response {
         request_id,
         response,
       } => {
-        if let Some(tx) = pending_raft.remove(&request_id) {
+        if let Some(tx) = pending_rpc.remove(&request_id) {
           let _ = tx.send(Ok(response));
         }
       }
@@ -1212,7 +1091,7 @@ async fn handle_raft_event(
     request_response::Event::OutboundFailure {
       request_id, error, ..
     } => {
-      if let Some(tx) = pending_raft.remove(&request_id) {
+      if let Some(tx) = pending_rpc.remove(&request_id) {
         let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
       }
     }
@@ -1221,135 +1100,19 @@ async fn handle_raft_event(
   }
 }
 
-fn handle_kv_event(
-  dispatcher: Arc<dyn SwarmRequestDispatcher>,
-  cmd_tx: &mpsc::Sender<Command>,
-  dispatch_limit: Arc<Semaphore>,
-  pending_kv: &mut HashMap<OutboundRequestId, oneshot::Sender<Result<RaftKvResponse, NetErr>>>,
-  event: request_response::Event<RaftKvRequest, RaftKvResponse>,
-) {
-  match event {
-    request_response::Event::Message { message, .. } => match message {
-      request_response::Message::Request {
-        request, channel, ..
-      } => {
-        let dispatcher = dispatcher.clone();
-        let tx = cmd_tx.clone();
-        tokio::spawn(async move {
-          let permit = dispatch_limit.acquire_owned().await;
-          let resp = dispatcher.handle_kv(request).await;
-          drop(permit);
-          let _ = tx.send(Command::KvRespond { channel, resp }).await;
-        });
-      }
-      request_response::Message::Response {
-        request_id,
-        response,
-      } => {
-        if let Some(tx) = pending_kv.remove(&request_id) {
-          let _ = tx.send(Ok(response));
-        }
-      }
-    },
-    request_response::Event::OutboundFailure {
-      request_id, error, ..
-    } => {
-      if let Some(tx) = pending_kv.remove(&request_id) {
-        let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-      }
+/// Route an inbound unified request to the matching dispatcher handler and
+/// wrap the reply in the same kind's response variant.
+async fn dispatch_unified_request(
+  dispatcher: &dyn SwarmRequestDispatcher,
+  request: UnifiedRpcRequest,
+) -> UnifiedRpcResponse {
+  match request {
+    UnifiedRpcRequest::Raft(req) => UnifiedRpcResponse::Raft(dispatcher.handle_raft(req).await),
+    UnifiedRpcRequest::Kv(req) => UnifiedRpcResponse::Kv(dispatcher.handle_kv(req).await),
+    UnifiedRpcRequest::SqliteSync(req) => {
+      UnifiedRpcResponse::SqliteSync(dispatcher.handle_sqlite_sync(req).await)
     }
-    request_response::Event::InboundFailure { .. } => {}
-    request_response::Event::ResponseSent { .. } => {}
-  }
-}
-
-fn handle_sqlite_sync_event(
-  dispatcher: Arc<dyn SwarmRequestDispatcher>,
-  cmd_tx: &mpsc::Sender<Command>,
-  dispatch_limit: Arc<Semaphore>,
-  pending_sqlite_sync: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<SqliteSyncRpcResponseMessage, NetErr>>,
-  >,
-  event: request_response::Event<SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage>,
-) {
-  match event {
-    request_response::Event::Message { message, .. } => match message {
-      request_response::Message::Request {
-        request, channel, ..
-      } => {
-        let dispatcher = dispatcher.clone();
-        let tx = cmd_tx.clone();
-        tokio::spawn(async move {
-          let permit = dispatch_limit.acquire_owned().await;
-          let resp = dispatcher.handle_sqlite_sync(request).await;
-          drop(permit);
-          let _ = tx.send(Command::SqliteSyncRespond { channel, resp }).await;
-        });
-      }
-      request_response::Message::Response {
-        request_id,
-        response,
-      } => {
-        if let Some(tx) = pending_sqlite_sync.remove(&request_id) {
-          let _ = tx.send(Ok(response));
-        }
-      }
-    },
-    request_response::Event::OutboundFailure {
-      request_id, error, ..
-    } => {
-      if let Some(tx) = pending_sqlite_sync.remove(&request_id) {
-        let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-      }
-    }
-    request_response::Event::InboundFailure { .. } => {}
-    request_response::Event::ResponseSent { .. } => {}
-  }
-}
-
-fn handle_task_rpc_event(
-  dispatcher: Arc<dyn SwarmRequestDispatcher>,
-  cmd_tx: &mpsc::Sender<Command>,
-  dispatch_limit: Arc<Semaphore>,
-  pending_task_rpc: &mut HashMap<
-    OutboundRequestId,
-    oneshot::Sender<Result<TaskRpcResponseMessage, NetErr>>,
-  >,
-  event: request_response::Event<TaskRpcRequestMessage, TaskRpcResponseMessage>,
-) {
-  match event {
-    request_response::Event::Message { message, .. } => match message {
-      request_response::Message::Request {
-        request, channel, ..
-      } => {
-        let dispatcher = dispatcher.clone();
-        let tx = cmd_tx.clone();
-        tokio::spawn(async move {
-          let permit = dispatch_limit.acquire_owned().await;
-          let resp = dispatcher.handle_task_rpc(request).await;
-          drop(permit);
-          let _ = tx.send(Command::TaskRpcRespond { channel, resp }).await;
-        });
-      }
-      request_response::Message::Response {
-        request_id,
-        response,
-      } => {
-        if let Some(tx) = pending_task_rpc.remove(&request_id) {
-          let _ = tx.send(Ok(response));
-        }
-      }
-    },
-    request_response::Event::OutboundFailure {
-      request_id, error, ..
-    } => {
-      if let Some(tx) = pending_task_rpc.remove(&request_id) {
-        let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-      }
-    }
-    request_response::Event::InboundFailure { .. } => {}
-    request_response::Event::ResponseSent { .. } => {}
+    UnifiedRpcRequest::Task(req) => UnifiedRpcResponse::Task(dispatcher.handle_task_rpc(req).await),
   }
 }
 
@@ -1787,76 +1550,46 @@ pub async fn run_swarm_client_with_shutdown(
           break;
         };
         match ev {
-          SwarmEvent::Behaviour(BehaviourEvent::Raft(event)) => match event {
-            request_response::Event::Message { message, .. } => match message {
-              request_response::Message::Request { channel, .. } => {
-                let _ = swarm
-                  .behaviour_mut()
-                  .raft_rpc
-                  .send_response(channel, RaftRpcResponse::Error("client-only".to_string()));
-              }
-              request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = state.pending_raft.remove(&request_id) {
-                  let _ = tx.send(Ok(response));
-                }
-              }
-            },
-
-            request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = state.pending_raft.remove(&request_id) {
-                let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-              }
-            }
-
-            request_response::Event::InboundFailure { .. } => {}
-            request_response::Event::ResponseSent { .. } => {}
-          },
-
-          SwarmEvent::Behaviour(BehaviourEvent::Kv(event)) => match event {
-            request_response::Event::Message { message, .. } => match message {
-              request_response::Message::Request { channel, .. } => {
-                let _ = swarm
-                  .behaviour_mut()
-                  .kv_rpc
-                  .send_response(channel, kv_error_response("client-only"));
-              }
-              request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = state.pending_kv.remove(&request_id) {
-                  let _ = tx.send(Ok(response));
-                }
-              }
-            },
-
-            request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = state.pending_kv.remove(&request_id) {
-                let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
-              }
-            }
-
-            request_response::Event::InboundFailure { .. } => {}
-            request_response::Event::ResponseSent { .. } => {}
-          },
-
-          SwarmEvent::Behaviour(BehaviourEvent::SqliteSync(event)) => match event {
+          SwarmEvent::Behaviour(BehaviourEvent::Rpc(event)) => match event {
             request_response::Event::Message { message, .. } => match message {
               request_response::Message::Request {
                 request, channel, ..
-              } => {
-                let response = crate::sqlite_cache::process_sqlite_sync_rpc_request(request).await;
-                let _ = swarm
-                  .behaviour_mut()
-                  .sqlite_sync_rpc
-                  .send_response(channel, response);
-              }
+              } => match request {
+                // Client binaries serve no raft groups; answer with a typed
+                // error instead of hanging the requester.
+                UnifiedRpcRequest::Raft(_) => {
+                  let _ = swarm.behaviour_mut().rpc.send_response(
+                    channel,
+                    UnifiedRpcResponse::Raft(RaftRpcResponse::Error("client-only".to_string())),
+                  );
+                }
+                UnifiedRpcRequest::Kv(_) => {
+                  let _ = swarm.behaviour_mut().rpc.send_response(
+                    channel,
+                    UnifiedRpcResponse::Kv(kv_error_response("client-only")),
+                  );
+                }
+                UnifiedRpcRequest::SqliteSync(request) => {
+                  let response =
+                    crate::sqlite_cache::process_sqlite_sync_rpc_request(request).await;
+                  let _ = swarm
+                    .behaviour_mut()
+                    .rpc
+                    .send_response(channel, UnifiedRpcResponse::SqliteSync(response));
+                }
+                // No task worker runs in client binaries; dropping the
+                // channel fails the request on the requester side.
+                UnifiedRpcRequest::Task(_) => {}
+              },
               request_response::Message::Response { request_id, response } => {
-                if let Some(tx) = state.pending_sqlite_sync.remove(&request_id) {
+                if let Some(tx) = state.pending_rpc.remove(&request_id) {
                   let _ = tx.send(Ok(response));
                 }
               }
             },
 
             request_response::Event::OutboundFailure { request_id, error, .. } => {
-              if let Some(tx) = state.pending_sqlite_sync.remove(&request_id) {
+              if let Some(tx) = state.pending_rpc.remove(&request_id) {
                 let _ = tx.send(Err(NetErr(format!("outbound failure: {error}"))));
               }
             }

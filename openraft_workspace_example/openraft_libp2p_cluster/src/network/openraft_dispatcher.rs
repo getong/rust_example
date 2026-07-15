@@ -12,7 +12,6 @@ use crate::{
       RaftRpcRequest, RaftRpcResponse,
     },
   },
-  openraft_group,
   proto::raft_kv::{
     ErrorResponse, RaftKvRequest, RaftKvResponse, raft_kv_request::Op as KvRequestOp,
     raft_kv_response::Op as KvResponseOp,
@@ -24,11 +23,25 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct OpenRaftDispatcher;
+pub struct OpenRaftDispatcher {
+  /// Injected group registry: production wiring passes the process-wide
+  /// default, tests can pass an isolated instance.
+  registry: crate::GroupRegistry,
+}
 
 impl OpenRaftDispatcher {
   pub fn new() -> Self {
-    Self
+    Self::with_registry(crate::global_group_registry().clone())
+  }
+
+  pub fn with_registry(registry: crate::GroupRegistry) -> Self {
+    Self { registry }
+  }
+}
+
+impl Default for OpenRaftDispatcher {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -36,11 +49,16 @@ impl OpenRaftDispatcher {
 impl SwarmRequestDispatcher for OpenRaftDispatcher {
   async fn handle_raft(&self, request: RaftRpcRequest) -> RaftRpcResponse {
     let group_id = request.group_id.clone();
-    let Some(group) = openraft_group(&group_id) else {
+    let Some(group) = self.registry.get(&group_id) else {
       return RaftRpcResponse::Error(format!("unknown group_id={group_id}"));
     };
 
     let op_name = raft_op_name(&request.op);
+    // An inbound vote request means an election is underway somewhere in
+    // this group — count them to make election churn observable.
+    if matches!(request.op, RaftRpcOp::Vote(_)) {
+      metrics::counter!("raft_election_count_total", "group" => group_id.clone()).increment(1);
+    }
     let started = std::time::Instant::now();
     let response = handle_inbound_rpc(group.raft, request.op).await;
     metrics::histogram!(
@@ -58,7 +76,7 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
       return kv_error_response("missing group_id");
     }
 
-    let Some(group) = openraft_group(&group_id) else {
+    let Some(group) = self.registry.get(&group_id) else {
       return kv_error_response(format!("unknown group_id={group_id}"));
     };
 

@@ -432,10 +432,13 @@ async fn notify_worker(
   worker_node_id: &str,
   lease_epoch: u64,
 ) {
+  let started = Instant::now();
   // The leader may assign to its own co-located worker; RPC to self is
   // blocked at the transport, so wake the local channel directly.
   if worker_node_id == network.local_peer_id().to_string() {
     crate::tasks::worker::notify_assignment(worker_node_id, task_id, lease_epoch);
+    metrics::histogram!("task_scheduler_dispatch_latency_seconds", "path" => "local")
+      .record(started.elapsed().as_secs_f64());
     return;
   }
 
@@ -455,6 +458,8 @@ async fn notify_worker(
       "directed assignment wake failed; worker will reconcile via its fallback poll"
     );
   }
+  metrics::histogram!("task_scheduler_dispatch_latency_seconds", "path" => "rpc")
+    .record(started.elapsed().as_secs_f64());
 }
 
 pub fn current_unix_secs() -> u64 {

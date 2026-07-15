@@ -174,7 +174,7 @@ impl Libp2pNetworkFactory {
       return false;
     }
 
-    let node_id = NodeId::from(peer.to_string());
+    let node_id = NodeId::from(peer);
     let addr = ensure_p2p_addr(addr, peer);
     if is_undialable_discovered_addr(&addr) {
       tracing::debug!(
@@ -837,7 +837,7 @@ mod tests {
     let local_peer = peer_id();
     let peer = peer_id();
     let network = test_network(local_peer);
-    let node_id = NodeId::from(peer.to_string());
+    let node_id = NodeId::from(peer);
     let configured_addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
 
     network
@@ -858,7 +858,7 @@ mod tests {
     let local_peer = peer_id();
     let peer = peer_id();
     let network = test_network(local_peer);
-    let node_id = NodeId::from(peer.to_string());
+    let node_id = NodeId::from(peer);
     let configured_addr = format!("/ip4/127.0.0.1/tcp/4004/wss/p2p/{peer}");
 
     let registered = network
@@ -879,7 +879,7 @@ mod tests {
     let local_peer = peer_id();
     let peer = peer_id();
     let network = test_network(local_peer);
-    let node_id = NodeId::from(peer.to_string());
+    let node_id = NodeId::from(peer);
     let addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
 
     // Announced at a stretched cadence of 100s: TTL is 3x that, well past
@@ -911,7 +911,7 @@ mod tests {
     let local_peer = peer_id();
     let peer = peer_id();
     let network = test_network(local_peer);
-    let node_id = NodeId::from(peer.to_string());
+    let node_id = NodeId::from(peer);
     let addr = format!("/ip4/192.168.31.29/tcp/4002/wss/p2p/{peer}");
 
     network

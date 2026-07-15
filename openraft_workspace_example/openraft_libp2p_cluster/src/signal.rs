@@ -123,53 +123,91 @@ impl ShutdownHandler {
     (t, r, results)
   }
 
+  /// Await every registered service's completion oneshot. Event-driven:
+  /// each receiver is awaited directly (no polling loop), so completions are
+  /// observed immediately instead of after up to 100ms of backoff sleep. A
+  /// 5s ticker still logs which services are outstanding.
   async fn await_all(
-    mut self,
+    self,
     results: &mut Vec<(&'static str, ShutdownResult)>,
   ) -> (ShutdownTx, ShutdownRx) {
+    use futures::stream::{FuturesUnordered, StreamExt};
+
+    let Self { tx, rx, services } = self;
     let start = tokio::time::Instant::now();
-    let mut report = tokio::time::Instant::now();
-    let mut sleep = std::time::Duration::from_millis(10);
 
-    loop {
-      self.services.retain(|k, v| match v.try_recv() {
-        Ok(res) => {
-          results.push((*k, res));
-          false
+    let mut remaining: std::collections::BTreeSet<&'static str> =
+      services.keys().copied().collect();
+    let mut waits: FuturesUnordered<_> = services
+      .into_iter()
+      .map(|(name, done_rx)| async move {
+        let res = done_rx
+          .await
+          .unwrap_or_else(|_| Err(anyhow::anyhow!("task exited without result")));
+        (name, res)
+      })
+      .collect();
+
+    let mut report_tick = tokio::time::interval(std::time::Duration::from_secs(5));
+    report_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    report_tick.tick().await;
+
+    while !waits.is_empty() {
+      tokio::select! {
+        Some((name, res)) = waits.next() => {
+          remaining.remove(name);
+          results.push((name, res));
         }
-        Err(oneshot::error::TryRecvError::Empty) => true,
-        Err(oneshot::error::TryRecvError::Closed) => {
-          results.push((*k, Err(anyhow::anyhow!("task exited without result"))));
-          false
+        _ = report_tick.tick() => {
+          tracing::debug!(tasks = ?remaining, "tasks still running");
         }
-      });
-
-      if self.services.is_empty() {
-        tracing::info!(
-          elapsed = ?start.elapsed(),
-          count = results.len(),
-          "services all finished"
-        );
-        break;
       }
-
-      if report.elapsed() > std::time::Duration::from_secs(5) {
-        report = tokio::time::Instant::now();
-        tracing::debug!(
-          tasks = ?self.services.keys().collect::<Vec<_>>(),
-          "tasks still running"
-        );
-      }
-
-      tokio::time::sleep(sleep).await;
-      sleep = std::cmp::min(
-        sleep + std::time::Duration::from_millis(10),
-        std::time::Duration::from_millis(100),
-      );
     }
 
-    (self.tx, self.rx)
+    tracing::info!(
+      elapsed = ?start.elapsed(),
+      count = results.len(),
+      "services all finished"
+    );
+
+    (tx, rx)
   }
 }
 
 // copy from https://github.com/EmbarkStudios/quilkin/blob/main/src/signal.rs
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[tokio::test]
+  async fn shutdown_collects_all_service_results() {
+    let (tx, rx) = channel();
+    let mut handler = ShutdownHandler::new(tx, rx);
+
+    let a_done = handler.push("service-a");
+    let b_done = handler.push("service-b");
+    let mut a_shutdown = handler.shutdown_rx();
+    let mut b_shutdown = handler.shutdown_rx();
+
+    tokio::spawn(async move {
+      let _ = a_shutdown.changed().await;
+      let _ = a_done.send(Ok(()));
+    });
+    tokio::spawn(async move {
+      let _ = b_shutdown.changed().await;
+      // Dropping without sending simulates a task that died mid-shutdown.
+      drop(b_done);
+    });
+
+    let (_tx, _rx, mut results) = handler.shutdown().await;
+    results.sort_by_key(|(name, _)| *name);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].0, "service-a");
+    assert!(results[0].1.is_ok());
+    assert_eq!(results[1].0, "service-b");
+    assert!(
+      results[1].1.is_err(),
+      "dropped oneshot must surface as error"
+    );
+  }
+}

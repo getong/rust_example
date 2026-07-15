@@ -21,7 +21,6 @@
 
 use std::{
   collections::{BTreeSet, HashMap},
-  str::FromStr,
   time::Duration,
 };
 
@@ -38,10 +37,9 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct MembershipGuardConfig {
-  /// How long a member (voter or learner) must stay unreachable before it is
-  /// replaced (voter) or removed (learner).
-  pub voter_replace_timeout: Duration,
-  /// How often the guard inspects the membership.
+  /// How often the guard inspects the membership. The unreachable-member
+  /// timeout itself is hot-reloadable and read from
+  /// [`crate::runtime_config`] on every tick.
   pub tick_interval: Duration,
 }
 
@@ -119,7 +117,7 @@ pub async fn run_membership_guard(
         return Ok(());
       }
       _ = tick.tick() => {
-        if let Err(err) = guard_tick(&group_id, &raft, &network, &config, &mut down_since).await {
+        if let Err(err) = guard_tick(&group_id, &raft, &network, &mut down_since).await {
           tracing::warn!(group = %group_id, error = ?err, "membership guard tick failed; retrying next tick");
         }
       }
@@ -131,7 +129,6 @@ async fn guard_tick(
   group_id: &str,
   raft: &Raft,
   network: &Libp2pNetworkFactory,
-  config: &MembershipGuardConfig,
   down_since: &mut HashMap<NodeId, Instant>,
 ) -> anyhow::Result<()> {
   let metrics = raft.metrics().borrow_watched().clone();
@@ -173,11 +170,13 @@ async fn guard_tick(
   }
   down_since.retain(|id, _| member_ids.contains(id) && id != &self_id);
 
-  // Act on at most ONE member per tick; pick the longest-down one.
+  // Act on at most ONE member per tick; pick the longest-down one. The
+  // timeout is hot-reloadable (POST /config), so it is read per tick.
+  let replace_timeout = crate::runtime_config::current().voter_replace_timeout();
   let expired = down_since
     .iter()
     .map(|(id, since)| (id.clone(), now.duration_since(*since)))
-    .filter(|(_, downtime)| *downtime >= config.voter_replace_timeout)
+    .filter(|(_, downtime)| *downtime >= replace_timeout)
     .max_by_key(|(_, downtime)| *downtime);
 
   let Some((dead_member, downtime)) = expired else {
@@ -218,6 +217,12 @@ async fn guard_tick(
     .await
     .map_err(|_| anyhow!("change_membership timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
     .map_err(|err| anyhow!("change_membership failed: {err:?}"))?;
+    metrics::counter!(
+      "membership_guard_replacement_total",
+      "group" => group_id.to_string(),
+      "kind" => "replace_voter",
+    )
+    .increment(1);
   } else {
     // Dead learner: drop it from the membership so it no longer shows up as
     // a member; a returning node re-registers itself as a learner.
@@ -238,6 +243,12 @@ async fn guard_tick(
     .await
     .map_err(|_| anyhow!("remove learner timed out after {MEMBERSHIP_CHANGE_TIMEOUT:?}"))?
     .map_err(|err| anyhow!("remove learner failed: {err:?}"))?;
+    metrics::counter!(
+      "membership_guard_replacement_total",
+      "group" => group_id.to_string(),
+      "kind" => "remove_learner",
+    )
+    .increment(1);
   }
   down_since.remove(&dead_member);
 
@@ -289,7 +300,7 @@ async fn backfill_learner(
 /// idle peer is intentionally not connected, so raw connectedness alone would
 /// mark it dead; a fresh node-announce gossip counts as alive too.
 async fn node_alive(network: &Libp2pNetworkFactory, node_id: &NodeId) -> bool {
-  match libp2p::PeerId::from_str(node_id.as_str()) {
+  match node_id.peer_id() {
     Ok(peer_id) => network.is_peer_alive(&peer_id).await,
     Err(_) => false,
   }

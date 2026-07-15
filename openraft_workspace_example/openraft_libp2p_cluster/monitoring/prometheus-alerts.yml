@@ -1,0 +1,110 @@
+# Prometheus alerting rules for openraft_libp2p_cluster.
+#
+# Scrape target: every node's HTTP endpoint exposes `GET /metrics`
+# (Prometheus exposition text). Load this file via `rule_files:` in
+# prometheus.yml and adjust the thresholds to your deployment's SLOs.
+#
+# Metric inventory (all emitted by the node binary):
+#   raft_rpc_duration_seconds{group,op}           histogram  inbound raft RPC handling
+#   raft_append_entries_latency_seconds{group}    histogram  leader→follower replication round-trip
+#   raft_election_count_total{group}              counter    inbound vote requests (election churn)
+#   raft_snapshot_transfer_bytes{group}           histogram  outbound full-snapshot size
+#   kv_read_duration_seconds{op}                  histogram  KV reads via the rocksdb secondary
+#   task_scheduler_pass_duration_seconds{group}   histogram  scheduler tick duration
+#   task_scheduler_dispatch_latency_seconds{path} histogram  assignment wake (local / rpc)
+#   membership_guard_replacement_total{group,kind} counter   voters replaced / learners removed
+#   swarm_pending_requests                        gauge      in-flight outbound RPCs
+#   swarm_pending_connects                        gauge      in-flight dial attempts
+#   swarm_connected_peers                         gauge      established peer count
+#   swarm_inbound_dispatch_available_permits      gauge      free inbound-dispatch slots
+
+groups:
+  - name: openraft-libp2p-cluster
+    rules:
+      - alert: RaftReplicationSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le, group) (rate(raft_append_entries_latency_seconds_bucket[5m]))
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "raft replication p99 above 500ms in group {{ $labels.group }}"
+          description: >-
+            Leader-to-follower AppendEntries round-trips are slow; check
+            network health and follower disk pressure before elections start.
+
+      - alert: RaftElectionChurn
+        expr: sum by (group) (rate(raft_election_count_total[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "repeated raft elections in group {{ $labels.group }}"
+          description: >-
+            More than one election per 5 seconds sustained for 5 minutes —
+            the group cannot hold a stable leader. Check heartbeat latency
+            versus the election timeout and look for a flapping voter.
+
+      - alert: MembershipReplacementsFrequent
+        expr: sum by (group) (increase(membership_guard_replacement_total[1h])) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "membership guard acted more than twice in 1h in group {{ $labels.group }}"
+          description: >-
+            The self-healing guard is repeatedly replacing voters or removing
+            learners; nodes are flapping past voter_replace_timeout. Raise
+            the timeout (POST /config) or fix the unstable nodes.
+
+      - alert: InboundDispatchSaturated
+        expr: swarm_inbound_dispatch_available_permits == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "inbound RPC dispatch permits exhausted on {{ $labels.instance }}"
+          description: >-
+            All inbound dispatch slots are busy for 2 minutes; requests are
+            queueing on the semaphore. Look for slow handlers (kv reads,
+            snapshot installs) or an RPC storm.
+
+      - alert: SwarmPendingRequestsHigh
+        expr: swarm_pending_requests > 512
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "many in-flight outbound RPCs on {{ $labels.instance }}"
+          description: >-
+            The outbound pending table stays large; responses are not coming
+            back. Check peer connectivity and remote node health.
+
+      - alert: KvReadSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le, op) (rate(kv_read_duration_seconds_bucket[5m]))
+          ) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "kv {{ $labels.op }} p99 above 200ms"
+          description: >-
+            Reads through the rocksdb secondary are slow; check compaction
+            backlog and catch-up frequency on the primary.
+
+      - alert: TaskDispatchSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(task_scheduler_dispatch_latency_seconds_bucket[5m]))
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "task assignment wakes p99 above 1s"
+          description: >-
+            Directed assignment RPCs to workers are slow or timing out;
+            workers fall back to reconciliation polling, delaying tasks.

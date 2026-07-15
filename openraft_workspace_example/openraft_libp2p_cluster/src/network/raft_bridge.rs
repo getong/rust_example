@@ -102,10 +102,15 @@ where
     req: AppendEntriesRequest,
     _option: RPCOption,
   ) -> Result<AppendEntriesResponse, RPCError> {
-    let response = self
-      .send_op(RaftRpcOp::AppendEntries(req))
-      .await
-      .map_err(RPCError::Unreachable)?;
+    // Leader-side replication latency: full RPC round-trip to one follower.
+    let started = std::time::Instant::now();
+    let result = self.send_op(RaftRpcOp::AppendEntries(req)).await;
+    metrics::histogram!(
+      "raft_append_entries_latency_seconds",
+      "group" => self.inner.group_id().clone(),
+    )
+    .record(started.elapsed().as_secs_f64());
+    let response = result.map_err(RPCError::Unreachable)?;
     match response {
       RaftRpcResponse::AppendEntries(result) => {
         result.map_err(|err| RPCError::Unreachable(Unreachable::new(&err)))
