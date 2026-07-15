@@ -570,8 +570,15 @@ impl Libp2pNetworkFactory {
     self.client.publish_gossipsub(topic, data).await
   }
 
-  pub async fn publish_openraft_snapshot(&self, group_id: String) -> Result<String, NetErr> {
-    self.client.publish_openraft_snapshot(group_id).await
+  pub async fn publish_openraft_snapshot(
+    &self,
+    group_id: String,
+    registry: &crate::GroupRegistry,
+  ) -> Result<String, NetErr> {
+    self
+      .client
+      .publish_openraft_snapshot(group_id, registry)
+      .await
   }
 
   pub async fn request(
@@ -752,6 +759,9 @@ impl P2PNetworkFactory for Libp2pNetworkFactory {
   type Network = Libp2pRaftNetwork;
 
   async fn new_p2p_client(&self, target: NodeId, target_info: &BasicNode) -> Self::Network {
+    // Best-effort registration (fails only on a malformed addr): the RPC
+    // path re-resolves the peer per request, so a failure here just means
+    // the first request dials from older address-book state.
     let _ = self.register_node(target.clone(), &target_info.addr).await;
     if let Ok((peer, _)) = parse_p2p_addr(&target_info.addr) {
       self.pin_raft_peer(peer).await;

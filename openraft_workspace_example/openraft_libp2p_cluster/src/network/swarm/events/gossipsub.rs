@@ -138,6 +138,7 @@ fn handle_snapshot_available(
 pub(crate) async fn handle_gossipsub_event(
   swarm: &mut Swarm<Behaviour>,
   announce_tx: &mpsc::Sender<Vec<u8>>,
+  registry: &crate::GroupRegistry,
   openraft_sync: &mut OpenRaftSyncState,
   event: gossipsub::Event,
 ) {
@@ -244,10 +245,11 @@ pub(crate) async fn handle_gossipsub_event(
         // can take seconds; run it off-loop so swarm event processing (raft
         // RPCs included) is not stalled behind it.
         let partial = update.partial;
+        let registry = registry.clone();
         tokio::spawn(async move {
           let raft_group_id = partial.raft_group_id.clone();
           let snapshot_id = partial.snapshot_id.clone();
-          match partial.install().await {
+          match partial.install(&registry).await {
             Ok(resp) => {
               tracing::info!(
                 peer = %peer_id,

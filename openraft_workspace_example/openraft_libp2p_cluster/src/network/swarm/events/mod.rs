@@ -17,11 +17,13 @@ use tokio::sync::mpsc;
 use super::{Behaviour, BehaviourEvent, client::CommandSenders, state::SwarmState};
 use crate::network::{dispatcher::SwarmRequestDispatcher, transport::Libp2pNetworkFactory};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_swarm_event(
   swarm: &mut Swarm<Behaviour>,
   event: SwarmEvent<BehaviourEvent>,
   network: &Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
+  registry: &crate::GroupRegistry,
   cmd_tx: &CommandSenders,
   announce_tx: &mpsc::Sender<Vec<u8>>,
   state: &mut SwarmState,
@@ -41,7 +43,14 @@ pub(crate) async fn handle_swarm_event(
       mdns::handle_mdns_event(swarm, network, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
-      gossipsub::handle_gossipsub_event(swarm, announce_tx, &mut state.openraft_sync, event).await;
+      gossipsub::handle_gossipsub_event(
+        swarm,
+        announce_tx,
+        registry,
+        &mut state.openraft_sync,
+        event,
+      )
+      .await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
       ping::handle_ping_event(swarm, &mut state.ping_failures, event);

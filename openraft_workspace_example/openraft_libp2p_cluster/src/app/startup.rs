@@ -209,7 +209,7 @@ pub(crate) async fn start_openraft_groups(
 
     spawn_enable_elect_after_delay(&raft, &node_id, group_id, opt.raft_election_timeout_max_ms);
 
-    groups.insert(group_id.clone(), GroupHandle { raft, kv_data });
+    groups.insert(group_id.clone(), GroupHandle::new(raft, kv_data));
   }
 
   Ok(groups)
@@ -366,11 +366,12 @@ pub(crate) fn spawn_libp2p_swarm(
   cmd_rx_high: mpsc::Receiver<Command>,
   cmd_rx_low: mpsc::Receiver<Command>,
   libp2p: &Libp2pHandles,
+  registry: crate::GroupRegistry,
 ) -> tokio::task::JoinHandle<()> {
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
   let swarm_shutdown = shutdown.shutdown_rx();
   let network_for_swarm = libp2p.network.clone();
-  let dispatcher_for_swarm = Arc::new(OpenRaftDispatcher::new());
+  let dispatcher_for_swarm = Arc::new(OpenRaftDispatcher::with_registry(registry.clone()));
   let cmd_tx_for_swarm = libp2p.cmd_tx.clone();
   tokio::spawn(async move {
     run_swarm(
@@ -380,6 +381,7 @@ pub(crate) fn spawn_libp2p_swarm(
       cmd_tx_for_swarm,
       network_for_swarm,
       dispatcher_for_swarm,
+      registry,
       swarm_shutdown,
     )
     .await;

@@ -164,6 +164,7 @@ impl From<kad::Event> for BehaviourEvent {
 /// Long-running work (request dispatch, snapshot building/installing) is
 /// spawned onto separate tasks so the loop stays a thin, non-blocking
 /// multiplexer over swarm events and commands.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_swarm(
   mut swarm: Swarm<Behaviour>,
   mut cmd_rx_high: mpsc::Receiver<Command>,
@@ -171,6 +172,7 @@ pub async fn run_swarm(
   cmd_tx: CommandSenders,
   network: Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
+  registry: crate::GroupRegistry,
   mut shutdown_rx: ShutdownRx,
 ) {
   let mut state = SwarmState::default();
@@ -232,6 +234,7 @@ pub async fn run_swarm(
             ev,
             &network,
             dispatcher.clone(),
+            &registry,
             &cmd_tx,
             &announce_tx,
             &mut state,
@@ -324,8 +327,13 @@ pub async fn run_swarm_client_with_shutdown(
                   );
                 }
                 UnifiedRpcRequest::SqliteSync(request) => {
-                  let response =
-                    crate::sqlite_cache::process_sqlite_sync_rpc_request(request).await;
+                  // Client binaries serve no raft groups: an empty registry
+                  // makes every group lookup answer "not enabled here".
+                  let response = crate::sqlite_cache::process_sqlite_sync_rpc_request(
+                    request,
+                    crate::GroupRegistry::default(),
+                  )
+                  .await;
                   let _ = swarm
                     .behaviour_mut()
                     .rpc

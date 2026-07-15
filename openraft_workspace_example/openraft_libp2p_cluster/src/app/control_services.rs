@@ -20,6 +20,7 @@ pub(crate) fn spawn_openraft_leader_controller(
   shutdown: &mut crate::signal::ShutdownHandler,
   groups: GroupHandleMap,
   network: Libp2pNetworkFactory,
+  registry: crate::GroupRegistry,
   membership_guard_config: Option<MembershipGuardConfig>,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_OPENRAFT_LEADER_WORKER);
@@ -28,6 +29,7 @@ pub(crate) fn spawn_openraft_leader_controller(
     let res = leader_controller::run_leader_controller(
       groups,
       network,
+      registry,
       membership_guard_config,
       Duration::from_secs(OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS),
       shutdown_rx,
@@ -62,6 +64,7 @@ pub(crate) async fn run_control_services(
     &runtime.opt,
     &runtime.identity,
     &runtime.libp2p,
+    runtime.registry.clone(),
     sqlite_cache.clone(),
     http::TaskFrontend::Control,
   );
@@ -78,6 +81,7 @@ pub(crate) async fn run_control_services(
     &mut shutdown,
     leader_controller_groups,
     runtime.libp2p.network.clone(),
+    runtime.registry.clone(),
     membership_guard_config,
   );
 
@@ -88,6 +92,7 @@ pub(crate) async fn run_control_services(
       sqlite_flush_group_id,
       runtime.libp2p.network.clone(),
       runtime.libp2p.kv_client.clone(),
+      runtime.registry.clone(),
     )
   });
 
@@ -225,6 +230,7 @@ pub(crate) fn spawn_sqlite_cache_flusher(
   group_id: GroupId,
   network: Libp2pNetworkFactory,
   kv_client: KvClient,
+  registry: crate::GroupRegistry,
 ) -> tokio::task::JoinHandle<()> {
   let done = shutdown.push(SERVICE_SQLITE_CACHE_FLUSHER);
   let shutdown_rx = shutdown.shutdown_rx();
@@ -234,6 +240,7 @@ pub(crate) fn spawn_sqlite_cache_flusher(
       group_id,
       network,
       kv_client,
+      registry,
       Duration::from_secs(SQLITE_CACHE_FLUSH_INTERVAL_SECS),
       shutdown_rx,
     )

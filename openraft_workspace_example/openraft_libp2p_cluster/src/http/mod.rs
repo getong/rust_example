@@ -125,6 +125,9 @@ pub struct AppState {
   /// instead of the process-wide global, so tests can serve an isolated set
   /// of groups.
   pub registry: crate::GroupRegistry,
+  /// Short-TTL cache for `/graph*` snapshots (bounds the remote-probe RPC
+  /// fan-out under auto-refresh).
+  pub graph_cache: Arc<graph::GraphSnapshotCache>,
 }
 
 /// How this node reaches the replicated task queue.

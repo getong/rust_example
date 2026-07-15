@@ -530,6 +530,13 @@ async fn resolve_kv_target(
     .ok_or_else(|| format!("unknown target node_id={node_id}"))
 }
 
+/// Accept a JSON string, integer, or bool as the KV value; REJECT floats.
+///
+/// Floats are refused rather than stringified because the conversion is
+/// lossy: `1.0` would silently become `"1"`, and large magnitudes render in
+/// scientific notation (`1.2345678901234568e9`) — round-tripping a client's
+/// decimal through f64 can change the stored bytes. Clients that need a
+/// decimal value must send it as a string to keep the exact representation.
 fn string_or_number<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
   D: Deserializer<'de>,
@@ -540,7 +547,7 @@ where
     type Value = String;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-      formatter.write_str("a string, number, or bool")
+      formatter.write_str("a string, integer, or bool (send decimals as strings)")
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -582,7 +589,10 @@ where
     where
       E: de::Error,
     {
-      Ok(value.to_string())
+      Err(E::custom(format!(
+        "float values are not accepted (f64 round-trips lose precision); send {value} as a JSON \
+         string instead"
+      )))
     }
   }
 

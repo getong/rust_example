@@ -29,6 +29,8 @@ pub(crate) fn handle_kad_event(
         let network = network.clone();
         tokio::spawn(async move {
           for addr in addrs {
+            // Best-effort: kad re-discovers peers periodically, so a failed
+            // registration is retried on the next discovery round.
             let _ = network.register_discovered_peer(peer, addr).await;
           }
         });

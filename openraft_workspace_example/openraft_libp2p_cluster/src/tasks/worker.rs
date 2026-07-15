@@ -41,11 +41,9 @@ use crate::{
   types_kv::TaskRequest as StateCommand,
 };
 
-const WORKER_LEASE_INTERVAL: Duration = Duration::from_secs(10);
 /// Hard cap on a single task execution; a hung handler counts as a failure
 /// and goes through the normal retry/backoff path.
 pub(crate) const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
-const WORKER_LEASE_TTL_SECS: u64 = 30;
 /// Reconciliation poll for missed wakes only; assignments normally arrive
 /// through the wake channel with everything needed to claim.
 const WORKER_POLL_FALLBACK: Duration = Duration::from_secs(30);
@@ -67,8 +65,27 @@ pub struct TaskAssignment {
 /// directed `notify_assigned` for this node.
 static TASK_WAKE_TX: OnceLock<broadcast::Sender<TaskAssignment>> = OnceLock::new();
 
+/// Default capacity of the assignment wake channel. All workers on this node
+/// share one broadcast channel and each receiver filters by
+/// `worker_node_id`, so the capacity must absorb assignment bursts for every
+/// local worker together; an undersized channel drops wakes (`Lagged`),
+/// which degrades to the slower reconciliation poll instead of losing tasks.
+const TASK_WAKE_CHANNEL_CAPACITY_DEFAULT: usize = 512;
+
+/// Env override for the wake channel capacity, read once at first use:
+/// `TASK_WAKE_CHANNEL_CAPACITY=1024`.
+const TASK_WAKE_CHANNEL_CAPACITY_ENV: &str = "TASK_WAKE_CHANNEL_CAPACITY";
+
+fn wake_channel_capacity() -> usize {
+  std::env::var(TASK_WAKE_CHANNEL_CAPACITY_ENV)
+    .ok()
+    .and_then(|raw| raw.parse::<usize>().ok())
+    .filter(|capacity| *capacity > 0)
+    .unwrap_or(TASK_WAKE_CHANNEL_CAPACITY_DEFAULT)
+}
+
 fn wake_channel() -> &'static broadcast::Sender<TaskAssignment> {
-  TASK_WAKE_TX.get_or_init(|| broadcast::channel(64).0)
+  TASK_WAKE_TX.get_or_init(|| broadcast::channel(wake_channel_capacity()).0)
 }
 
 /// Called from `TaskRpc::notify_assigned` (and directly by a leader waking
@@ -103,6 +120,8 @@ async fn execute_task_with_timeout(
 /// hints (tarpc TaskRpc over libp2p), and return the raw write reply of the
 /// node that accepted it. Works for any [`StateCommand`], not just task
 /// commands — handlers use this for e.g. KV writes.
+#[must_use = "the reply carries whether the raft write was accepted; dropping it hides rejected \
+              writes"]
 pub async fn submit_reply(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodes>,
@@ -159,6 +178,8 @@ pub async fn submit_reply(
 }
 
 /// Submit a TASK command and decode the state machine's `TaskOpResult`.
+#[must_use = "the result carries whether the state-machine command was applied; dropping it hides \
+              rejected writes"]
 pub async fn submit_command(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodes>,
@@ -183,6 +204,8 @@ async fn follow_leader_hint(
     return None;
   }
   if let Some(addr) = reply.leader_addr.as_deref() {
+    // Best-effort address-book refresh: the retry against the hinted leader
+    // below works from existing state even if registration fails.
     let _ = network.register_node(leader_id.clone(), addr).await;
   }
   control_nodes.lock().await.report_leader(leader_id.clone());
@@ -191,6 +214,7 @@ async fn follow_leader_hint(
 
 /// Read-style RPC against any reachable control node. Takes a builder
 /// because the tarpc-generated request enum is not `Clone`.
+#[must_use = "the result carries the read reply or the RPC failure; dropping it hides errors"]
 pub async fn call_read(
   network: &Libp2pNetworkFactory,
   control_nodes: &Mutex<ControlNodes>,
@@ -441,12 +465,14 @@ async fn run_lease_renewal(
   mut shutdown_rx: ShutdownRx,
 ) {
   let mut lease_epoch = current_unix_secs();
-  let mut tick = tokio::time::interval(WORKER_LEASE_INTERVAL);
 
   loop {
+    // Interval and TTL are hot-reloadable (POST /config), so both are read
+    // per round instead of being captured in a fixed `interval` timer.
+    let config = crate::runtime_config::current();
     tokio::select! {
       _ = shutdown_rx.changed() => return,
-      _ = tick.tick() => {}
+      _ = tokio::time::sleep(config.worker_lease_interval()) => {}
     }
 
     lease_epoch = lease_epoch.saturating_add(1);
@@ -454,7 +480,7 @@ async fn run_lease_renewal(
       node_id: node_id.to_string(),
       worker_name: worker_name.clone(),
       lease_epoch,
-      expires_at: current_unix_secs() + WORKER_LEASE_TTL_SECS,
+      expires_at: current_unix_secs() + config.worker_lease_ttl_secs,
     };
     if let Err(err) = submit_command(&network, &control_nodes, &group_id, lease).await {
       tracing::warn!(

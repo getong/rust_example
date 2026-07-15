@@ -5,13 +5,16 @@
 //! unbounded number of in-flight requests — most visibly when the membership
 //! guard replaces a dead voter and every raft RPC to it hangs until timeout.
 //!
-//! Two mechanisms, both per target peer:
+//! Three mechanisms — two per target peer, one global:
 //!   - **Bulkhead**: at most [`PER_PEER_MAX_CONCURRENT_RPCS`] RPCs in flight to one peer; excess
 //!     callers get an immediate typed failure instead of queueing.
 //!   - **Circuit breaker**: after [`CIRCUIT_BREAKER_FAILURE_THRESHOLD`] consecutive failures the
 //!     circuit opens for [`CIRCUIT_BREAKER_OPEN_DURATION`]; requests are rejected without touching
 //!     the network. After the cooldown the circuit is half-open: traffic flows again, but a single
 //!     failure re-opens it immediately, while one success closes it fully.
+//!   - **Global cap**: at most [`global_max_concurrent_rpcs`] outbound RPCs in flight across ALL
+//!     peers, so a large cluster (many peers, each within its per-peer limit) cannot exhaust this
+//!     node's resources with outbound traffic.
 //!
 //! Rejections surface as `Unreachable` to callers, which every RPC consumer
 //! already handles with its own retry/backoff (openraft included).
@@ -35,6 +38,22 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 const PER_PEER_MAX_CONCURRENT_RPCS: usize = 32;
 /// Consecutive failures to one peer before its circuit opens.
 const CIRCUIT_BREAKER_FAILURE_THRESHOLD: u32 = 5;
+/// Default cap on concurrently in-flight outbound RPCs across ALL peers.
+/// The per-peer bulkhead bounds damage from one slow peer; this bounds the
+/// aggregate (N peers x 32 each would otherwise grow with cluster size).
+/// Matches the receiver-side inbound dispatch cap (256).
+const GLOBAL_MAX_CONCURRENT_RPCS_DEFAULT: usize = 256;
+/// Env override for the global outbound RPC cap, read once at startup:
+/// `RPC_GLOBAL_MAX_CONCURRENT=512`.
+const GLOBAL_MAX_CONCURRENT_RPCS_ENV: &str = "RPC_GLOBAL_MAX_CONCURRENT";
+
+fn global_max_concurrent_rpcs() -> usize {
+  std::env::var(GLOBAL_MAX_CONCURRENT_RPCS_ENV)
+    .ok()
+    .and_then(|raw| raw.parse::<usize>().ok())
+    .filter(|cap| *cap > 0)
+    .unwrap_or(GLOBAL_MAX_CONCURRENT_RPCS_DEFAULT)
+}
 /// How long an open circuit rejects requests before going half-open.
 const CIRCUIT_BREAKER_OPEN_DURATION: Duration = Duration::from_secs(10);
 
@@ -45,6 +64,8 @@ pub enum PeerRpcRejection {
   CircuitOpen { retry_in: Duration },
   /// The per-peer concurrency limit is fully in use.
   BulkheadFull,
+  /// The node-wide outbound concurrency limit is fully in use.
+  GlobalLimitFull,
 }
 
 impl fmt::Display for PeerRpcRejection {
@@ -59,6 +80,7 @@ impl fmt::Display for PeerRpcRejection {
         f,
         "per-peer rpc concurrency limit ({PER_PEER_MAX_CONCURRENT_RPCS}) exhausted"
       ),
+      Self::GlobalLimitFull => write!(f, "node-wide outbound rpc concurrency limit exhausted"),
     }
   }
 }
@@ -88,13 +110,23 @@ impl PeerGuardState {
 pub struct PeerRpcGuard {
   created: tokio::time::Instant,
   peers: Mutex<HashMap<PeerId, Arc<PeerGuardState>>>,
+  /// Node-wide outbound in-flight cap, shared by every peer.
+  global_bulkhead: Arc<Semaphore>,
 }
 
 impl Default for PeerRpcGuard {
   fn default() -> Self {
+    Self::with_global_limit(global_max_concurrent_rpcs())
+  }
+}
+
+impl PeerRpcGuard {
+  /// Build a guard with an explicit global outbound cap (tests).
+  pub fn with_global_limit(global_limit: usize) -> Self {
     Self {
       created: tokio::time::Instant::now(),
       peers: Mutex::new(HashMap::new()),
+      global_bulkhead: Arc::new(Semaphore::new(global_limit)),
     }
   }
 }
@@ -139,8 +171,17 @@ impl PeerRpcGuard {
       }
     };
 
+    let global_permit = match self.global_bulkhead.clone().try_acquire_owned() {
+      Ok(permit) => permit,
+      Err(TryAcquireError::NoPermits) | Err(TryAcquireError::Closed) => {
+        metrics::counter!("rpc_global_limit_reject_total").increment(1);
+        return Err(PeerRpcRejection::GlobalLimitFull);
+      }
+    };
+
     Ok(PeerRpcPermit {
       _permit: permit,
+      _global_permit: global_permit,
       state,
       open_at_ms: self.now_ms() + CIRCUIT_BREAKER_OPEN_DURATION.as_millis() as u64,
     })
@@ -151,6 +192,7 @@ impl PeerRpcGuard {
 /// the caller reports the outcome so the circuit breaker can act on it.
 pub struct PeerRpcPermit {
   _permit: OwnedSemaphorePermit,
+  _global_permit: OwnedSemaphorePermit,
   state: Arc<PeerGuardState>,
   /// Precomputed "open until" timestamp to store if this RPC fails and trips
   /// the circuit.
@@ -241,6 +283,25 @@ mod tests {
 
     drop(permits);
     assert!(guard.try_acquire(target).is_ok());
+  }
+
+  #[tokio::test]
+  async fn global_limit_bounds_total_outbound_rpcs() {
+    // Global cap below one peer's bulkhead: the global limit must reject
+    // even though the per-peer slot is available.
+    let guard = PeerRpcGuard::with_global_limit(2);
+    let a = peer();
+    let b = peer();
+
+    let _p1 = guard.try_acquire(a).expect("global slot available");
+    let _p2 = guard.try_acquire(b).expect("global slot available");
+    assert!(matches!(
+      guard.try_acquire(a),
+      Err(PeerRpcRejection::GlobalLimitFull)
+    ));
+
+    drop(_p1);
+    assert!(guard.try_acquire(a).is_ok());
   }
 
   #[tokio::test]

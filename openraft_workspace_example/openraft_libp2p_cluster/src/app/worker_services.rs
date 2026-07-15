@@ -135,6 +135,7 @@ pub(crate) async fn run_worker_services_until_promotion(
     &runtime.opt,
     &runtime.identity,
     &runtime.libp2p,
+    runtime.registry.clone(),
     None,
     http::TaskFrontend::Worker {
       control_nodes: shared_control_nodes,

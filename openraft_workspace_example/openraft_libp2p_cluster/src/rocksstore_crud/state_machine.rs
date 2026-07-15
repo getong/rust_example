@@ -282,9 +282,14 @@ fn deserialize_io<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, io::E
   sonic_rs::from_slice(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
+/// Write options for raft storage. The WAL is always enabled; whether each
+/// write batch also fsyncs it is governed by the hot-reloadable
+/// `rocksdb_sync_writes` runtime config (default `true` = strong single-node
+/// durability; `false` trades crash durability for throughput and relies on
+/// raft replication — see [`crate::runtime_config::RuntimeConfig`]).
 fn durable_write_options() -> WriteOptions {
   let mut opts = WriteOptions::default();
-  opts.set_sync(true);
+  opts.set_sync(crate::runtime_config::current().rocksdb_sync_writes);
   opts.disable_wal(false);
   opts
 }

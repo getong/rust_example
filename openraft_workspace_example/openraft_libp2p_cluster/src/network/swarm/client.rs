@@ -185,9 +185,13 @@ impl Libp2pClient {
   /// partial to the swarm loop for publishing. Building reads the raft
   /// snapshot (disk + serialization) and can take seconds, so it must happen
   /// here — off the swarm loop — and not behind the command channel.
-  pub async fn publish_openraft_snapshot(&self, group_id: String) -> Result<String, NetErr> {
+  pub async fn publish_openraft_snapshot(
+    &self,
+    group_id: String,
+    registry: &crate::GroupRegistry,
+  ) -> Result<String, NetErr> {
     let partial = match crate::network::openraft_sync::OpenRaftSnapshotPartial::from_raft_group(
-      &group_id,
+      &group_id, registry,
     )
     .await
     {

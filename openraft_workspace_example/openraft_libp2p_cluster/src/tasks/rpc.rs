@@ -11,7 +11,7 @@
 use tarpc::{context, server::Serve};
 
 use crate::{
-  GroupId, NodeId, openraft_group,
+  GroupId, NodeId,
   store::ensure_linearizable_read,
   tasks::{
     TASK_REC_PREFIX, TASK_WORKER_PREFIX, TaskQueueMetrics, TaskRecord, WorkerLeaseRecord,
@@ -120,11 +120,14 @@ pub fn task_rpc_response(response: TaskRpcResponseMessage) -> anyhow::Result<Tas
 
 /// Server side: unwrap the envelope, serve, re-wrap. Mirrors
 /// `process_sqlite_sync_rpc_request`.
-pub async fn process_task_rpc_request(request: TaskRpcRequestMessage) -> TaskRpcResponseMessage {
+pub async fn process_task_rpc_request(
+  request: TaskRpcRequestMessage,
+  registry: crate::GroupRegistry,
+) -> TaskRpcResponseMessage {
   match request {
     tarpc::ClientMessage::Request(request) => {
       let request_id = request.id;
-      let response = TaskRpcService
+      let response = TaskRpcService { registry }
         .serve()
         .serve(request.context, request.message)
         .await;
@@ -151,7 +154,9 @@ pub async fn process_task_rpc_request(request: TaskRpcRequestMessage) -> TaskRpc
 }
 
 #[derive(Clone)]
-pub struct TaskRpcService;
+pub struct TaskRpcService {
+  registry: crate::GroupRegistry,
+}
 
 impl TaskRpc for TaskRpcService {
   async fn submit(
@@ -160,7 +165,7 @@ impl TaskRpc for TaskRpcService {
     group_id: GroupId,
     cmd: StateCommand,
   ) -> TaskWriteReply {
-    let Some(group) = openraft_group(&group_id) else {
+    let Some(group) = self.registry.get(&group_id) else {
       return TaskWriteReply::error(format!("unknown group_id={group_id}"));
     };
 
@@ -202,7 +207,13 @@ impl TaskRpc for TaskRpcService {
     group_id: GroupId,
     node_id: String,
   ) -> TaskIdsReply {
-    match read_entries(&group_id, assigned_idx_node_prefix(&node_id)).await {
+    match read_entries(
+      &self.registry,
+      &group_id,
+      assigned_idx_node_prefix(&node_id),
+    )
+    .await
+    {
       Ok(entries) => {
         let mut assigned = Vec::with_capacity(entries.len());
         for (key, value) in entries {
@@ -235,7 +246,7 @@ impl TaskRpc for TaskRpcService {
   }
 
   async fn list_tasks(self, _: context::Context, group_id: GroupId) -> TaskRecordsReply {
-    match read_entries(&group_id, TASK_REC_PREFIX.to_string()).await {
+    match read_entries(&self.registry, &group_id, TASK_REC_PREFIX.to_string()).await {
       Ok(entries) => {
         let mut tasks = Vec::with_capacity(entries.len());
         for (key, value) in entries {
@@ -260,7 +271,7 @@ impl TaskRpc for TaskRpcService {
   }
 
   async fn list_workers(self, _: context::Context, group_id: GroupId) -> WorkerLeasesReply {
-    match read_entries(&group_id, TASK_WORKER_PREFIX.to_string()).await {
+    match read_entries(&self.registry, &group_id, TASK_WORKER_PREFIX.to_string()).await {
       Ok(entries) => {
         let mut workers = Vec::with_capacity(entries.len());
         for (key, value) in entries {
@@ -296,7 +307,7 @@ impl TaskRpc for TaskRpcService {
   }
 
   async fn metrics(self, _: context::Context, group_id: GroupId) -> TaskMetricsReply {
-    let records = match Self::read_records(&group_id).await {
+    let records = match self.read_records(&group_id).await {
       Ok(records) => records,
       Err(err) => {
         return TaskMetricsReply {
@@ -306,7 +317,7 @@ impl TaskRpc for TaskRpcService {
         };
       }
     };
-    let leases = match Self::read_leases(&group_id).await {
+    let leases = match self.read_leases(&group_id).await {
       Ok(leases) => leases,
       Err(err) => {
         return TaskMetricsReply {
@@ -326,8 +337,12 @@ impl TaskRpc for TaskRpcService {
 }
 
 impl TaskRpcService {
-  async fn read_records(group_id: &str) -> Result<Vec<TaskRecord>, String> {
-    let entries = read_entries(group_id, TASK_REC_PREFIX.to_string()).await?;
+  pub fn new(registry: crate::GroupRegistry) -> Self {
+    Self { registry }
+  }
+
+  async fn read_records(&self, group_id: &str) -> Result<Vec<TaskRecord>, String> {
+    let entries = read_entries(&self.registry, group_id, TASK_REC_PREFIX.to_string()).await?;
     let mut records = Vec::with_capacity(entries.len());
     for (key, value) in entries {
       match sonic_rs::from_str::<TaskRecord>(&value) {
@@ -338,8 +353,8 @@ impl TaskRpcService {
     Ok(records)
   }
 
-  async fn read_leases(group_id: &str) -> Result<Vec<WorkerLeaseRecord>, String> {
-    let entries = read_entries(group_id, TASK_WORKER_PREFIX.to_string()).await?;
+  async fn read_leases(&self, group_id: &str) -> Result<Vec<WorkerLeaseRecord>, String> {
+    let entries = read_entries(&self.registry, group_id, TASK_WORKER_PREFIX.to_string()).await?;
     let mut leases = Vec::with_capacity(entries.len());
     for (key, value) in entries {
       match sonic_rs::from_str::<WorkerLeaseRecord>(&value) {
@@ -351,8 +366,12 @@ impl TaskRpcService {
   }
 }
 
-async fn read_entries(group_id: &str, prefix: String) -> Result<Vec<(String, String)>, String> {
-  let Some(group) = openraft_group(group_id) else {
+async fn read_entries(
+  registry: &crate::GroupRegistry,
+  group_id: &str,
+  prefix: String,
+) -> Result<Vec<(String, String)>, String> {
+  let Some(group) = registry.get(group_id) else {
     return Err(format!("unknown group_id={group_id}"));
   };
   ensure_linearizable_read(&group.raft)

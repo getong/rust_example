@@ -429,6 +429,17 @@ async fn replace_openraft_member_in_group(
     );
   };
 
+  // Fence the whole add_learner → catch-up → change_membership window: a
+  // concurrent membership change interleaving inside it would race the
+  // membership view captured below (TOCTOU).
+  let Ok(_fence) = group.membership_fence.try_lock() else {
+    return fail(
+      &BTreeSet::new(),
+      None,
+      format!("another membership change is in progress for group {group_id}; retry later"),
+    );
+  };
+
   let metrics = group.raft.metrics().borrow_watched().clone();
   let membership = metrics.membership_config.membership();
   let before_voters = membership.voter_ids().collect::<BTreeSet<_>>();
@@ -573,6 +584,24 @@ async fn add_openraft_member_to_group(
       learner_added: false,
       promoted: false,
       error: Some(format!("unknown group_id={group_id}")),
+    };
+  };
+
+  // Same fence as the replace flow: the learner-add plus optional promotion
+  // below spans multiple raft calls and must not interleave with another
+  // membership change on this group.
+  let Ok(_fence) = group.membership_fence.try_lock() else {
+    return AddOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: Vec::new(),
+      after_voters: Vec::new(),
+      leader_id: None,
+      learner_added: false,
+      promoted: false,
+      error: Some(format!(
+        "another membership change is in progress for group {group_id}; retry later"
+      )),
     };
   };
 
@@ -750,6 +779,8 @@ async fn forward_add_learner_to_leader(
   network: &Libp2pNetworkFactory,
 ) -> AddOpenRaftMemberGroupResponse {
   if let Some(addr) = leader_addr.as_ref() {
+    // Best-effort: the forwarded RPC below fails with its own clear error if
+    // the leader stays unreachable.
     let _ = network.register_node(leader_id.clone(), addr).await;
   }
 
@@ -872,6 +903,21 @@ async fn remove_openraft_member_from_group(
       after_voters: Vec::new(),
       leader_id: None,
       error: Some(format!("unknown group_id={group_id}")),
+    };
+  };
+
+  // Fence against a concurrent multi-step membership change: the voter set
+  // captured below must still be current when change_membership commits.
+  let Ok(_fence) = group.membership_fence.try_lock() else {
+    return RemoveOpenRaftMemberGroupResponse {
+      group_id: group_id.to_string(),
+      ok: false,
+      before_voters: Vec::new(),
+      after_voters: Vec::new(),
+      leader_id: None,
+      error: Some(format!(
+        "another membership change is in progress for group {group_id}; retry later"
+      )),
     };
   };
 

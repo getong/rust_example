@@ -1,9 +1,4 @@
-use std::{
-  collections::{BTreeMap, hash_map::DefaultHasher},
-  hash::{Hash, Hasher},
-  path::Path,
-  time::Duration,
-};
+use std::{collections::BTreeMap, path::Path, time::Duration};
 
 use anyhow::Context;
 use once_cell::sync::OnceCell;
@@ -16,7 +11,6 @@ use tarpc::{context, server::Serve};
 use crate::{
   GroupHandle, GroupId, NodeId,
   network::{swarm::KvClient, transport::Libp2pNetworkFactory},
-  openraft_group,
   proto::raft_kv::{
     DeleteValueRequest, ErrorResponse, RaftKvRequest, RaftKvResponse, SetValueRequest,
     raft_kv_request::Op as KvRequestOp, raft_kv_response::Op as KvResponseOp,
@@ -186,6 +180,7 @@ pub async fn run_sqlite_flush_worker(
   group_id: GroupId,
   network: Libp2pNetworkFactory,
   kv_client: KvClient,
+  registry: crate::GroupRegistry,
   interval: Duration,
   mut shutdown_rx: crate::signal::ShutdownRx,
 ) {
@@ -199,7 +194,7 @@ pub async fn run_sqlite_flush_worker(
           group = %group_id,
           "shutdown signal received, running final sqlite cache flush"
         );
-        match flush_once(&local_node_id, &group_id, &network, &kv_client).await {
+        match flush_once(&local_node_id, &group_id, &network, &kv_client, &registry).await {
           Ok(()) => {
             tracing::info!(group = %group_id, "final sqlite cache flush completed");
           }
@@ -215,7 +210,7 @@ pub async fn run_sqlite_flush_worker(
         break;
       }
       _ = tick.tick() => {
-        if let Err(err) = flush_once(&local_node_id, &group_id, &network, &kv_client).await {
+        if let Err(err) = flush_once(&local_node_id, &group_id, &network, &kv_client, &registry).await {
           tracing::warn!(group = %group_id, error = ?err, "sqlite cache flush failed");
         }
       }
@@ -228,8 +223,9 @@ async fn flush_once(
   group_id: &str,
   network: &Libp2pNetworkFactory,
   kv_client: &KvClient,
+  registry: &crate::GroupRegistry,
 ) -> anyhow::Result<()> {
-  let Some(group) = openraft_group(group_id) else {
+  let Some(group) = registry.get(group_id) else {
     tracing::debug!(
       group = group_id,
       "sqlite cache flush skipped: openraft group is not enabled on this node"
@@ -334,9 +330,9 @@ fn assign_tasks_to_followers(
   }
 
   for task in tasks {
-    let mut hasher = DefaultHasher::new();
-    task.data_key.hash(&mut hasher);
-    let index = (hasher.finish() as usize) % followers.len();
+    // Stable across Rust releases (unlike `DefaultHasher`), so an upgrade
+    // never re-shards keys onto different flush followers.
+    let index = (xxhash_rust::xxh3::xxh3_64(task.data_key.as_bytes()) as usize) % followers.len();
     assignments
       .entry(followers[index].clone())
       .or_insert_with(Vec::new)
@@ -560,7 +556,9 @@ pub fn delete_succeeded(op: Option<KvResponseOp>) -> bool {
 }
 
 #[derive(Clone)]
-pub struct SqliteSyncService;
+pub struct SqliteSyncService {
+  registry: crate::GroupRegistry,
+}
 
 impl SqliteSyncRpc for SqliteSyncService {
   async fn flush_pending(
@@ -569,17 +567,18 @@ impl SqliteSyncRpc for SqliteSyncService {
     group_id: GroupId,
     tasks: Vec<SqliteFlushTask>,
   ) -> SqliteFlushReport {
-    execute_follower_flush(&group_id, tasks).await
+    execute_follower_flush(&group_id, tasks, &self.registry).await
   }
 }
 
 pub async fn process_sqlite_sync_rpc_request(
   request: SqliteSyncRpcRequestMessage,
+  registry: crate::GroupRegistry,
 ) -> SqliteSyncRpcResponseMessage {
   match request {
     tarpc::ClientMessage::Request(request) => {
       let request_id = request.id;
-      let response = SqliteSyncService
+      let response = SqliteSyncService { registry }
         .serve()
         .serve(request.context, request.message)
         .await;
@@ -605,12 +604,16 @@ pub async fn process_sqlite_sync_rpc_request(
   }
 }
 
-async fn execute_follower_flush(group_id: &str, tasks: Vec<SqliteFlushTask>) -> SqliteFlushReport {
+async fn execute_follower_flush(
+  group_id: &str,
+  tasks: Vec<SqliteFlushTask>,
+  registry: &crate::GroupRegistry,
+) -> SqliteFlushReport {
   let Some(cache) = sqlite_cache() else {
     return SqliteFlushReport::service_error("sqlite cache is disabled on this node");
   };
 
-  let Some(group) = openraft_group(group_id) else {
+  let Some(group) = registry.get(group_id) else {
     return SqliteFlushReport::service_error(format!(
       "openraft group {group_id} is not enabled on this node"
     ));

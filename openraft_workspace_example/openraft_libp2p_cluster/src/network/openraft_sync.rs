@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
   GroupId, Raft,
   network::rpc::RaftRpcResponse,
-  openraft_group,
   typ::{LogId, RaftError, Snapshot, SnapshotMeta, Vote},
 };
 
@@ -67,8 +66,11 @@ pub struct OpenRaftSnapshotPartial {
 }
 
 impl OpenRaftSnapshotPartial {
-  pub async fn from_raft_group(group_id: &str) -> anyhow::Result<Option<Self>> {
-    let Some(group) = openraft_group(group_id) else {
+  pub async fn from_raft_group(
+    group_id: &str,
+    registry: &crate::GroupRegistry,
+  ) -> anyhow::Result<Option<Self>> {
+    let Some(group) = registry.get(group_id) else {
       anyhow::bail!("unknown group_id={group_id}");
     };
 
@@ -259,9 +261,9 @@ impl OpenRaftSnapshotPartial {
     self.parts.iter().filter(|part| part.is_some()).count()
   }
 
-  pub async fn install(&self) -> anyhow::Result<RaftRpcResponse> {
+  pub async fn install(&self, registry: &crate::GroupRegistry) -> anyhow::Result<RaftRpcResponse> {
     let payload = self.to_payload()?;
-    let Some(group) = openraft_group(&payload.group_id) else {
+    let Some(group) = registry.get(&payload.group_id) else {
       anyhow::bail!("unknown group_id={}", payload.group_id);
     };
     let snapshot = Snapshot {

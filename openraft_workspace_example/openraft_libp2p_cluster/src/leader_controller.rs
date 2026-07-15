@@ -5,7 +5,7 @@ use openraft::async_runtime::WatchReceiver;
 use tokio::task::{JoinHandle, JoinSet};
 
 use crate::{
-  GroupHandleMap, GroupId, Raft, groups,
+  GroupHandle, GroupHandleMap, GroupId, groups,
   membership_guard::{self, MembershipGuardConfig},
   network::transport::Libp2pNetworkFactory,
   signal::{self, ShutdownRx, ShutdownTx},
@@ -17,6 +17,7 @@ use crate::{
 enum LeaderWork {
   TaskScheduler {
     network: Libp2pNetworkFactory,
+    registry: crate::GroupRegistry,
   },
   MembershipGuard {
     network: Libp2pNetworkFactory,
@@ -41,19 +42,26 @@ struct RunningLeaderWork {
 }
 
 impl RunningLeaderWork {
-  fn start(group_id: GroupId, raft: Raft, work: LeaderWork, interval: Duration) -> Self {
+  fn start(group_id: GroupId, group: GroupHandle, work: LeaderWork, interval: Duration) -> Self {
     let name = work.name();
     let (stop_tx, stop_rx) = signal::channel();
     let task_group_id = group_id.clone();
     let handle = tokio::spawn(async move {
       match work {
-        LeaderWork::TaskScheduler { network } => {
-          let _ = raft;
-          scheduler::run_task_scheduler(task_group_id, network, interval, stop_rx).await
+        LeaderWork::TaskScheduler { network, registry } => {
+          let _ = group;
+          scheduler::run_task_scheduler(task_group_id, network, registry, interval, stop_rx).await
         }
         LeaderWork::MembershipGuard { network, config } => {
-          membership_guard::run_membership_guard(task_group_id, raft, network, config, stop_rx)
-            .await
+          membership_guard::run_membership_guard(
+            task_group_id,
+            group.raft,
+            network,
+            config,
+            group.membership_fence,
+            stop_rx,
+          )
+          .await
         }
       }
     });
@@ -82,6 +90,7 @@ impl RunningLeaderWork {
 pub async fn run_leader_controller(
   groups: GroupHandleMap,
   network: Libp2pNetworkFactory,
+  registry: crate::GroupRegistry,
   membership_guard_config: Option<MembershipGuardConfig>,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
@@ -94,10 +103,15 @@ pub async fn run_leader_controller(
 
   let mut group_tasks = JoinSet::new();
   for (group_id, group) in groups {
-    let works = leader_works_for_group(&group_id, &network, membership_guard_config.as_ref());
+    let works = leader_works_for_group(
+      &group_id,
+      &network,
+      &registry,
+      membership_guard_config.as_ref(),
+    );
     group_tasks.spawn(run_group_leader_controller(
       group_id,
-      group.raft,
+      group,
       works,
       tick_interval,
       shutdown_rx.clone(),
@@ -156,6 +170,7 @@ pub async fn run_leader_controller(
 fn leader_works_for_group(
   group_id: &str,
   network: &Libp2pNetworkFactory,
+  registry: &crate::GroupRegistry,
   membership_guard_config: Option<&MembershipGuardConfig>,
 ) -> Vec<LeaderWork> {
   let mut works = Vec::new();
@@ -170,6 +185,7 @@ fn leader_works_for_group(
   if group_id == groups::TASKS {
     works.push(LeaderWork::TaskScheduler {
       network: network.clone(),
+      registry: registry.clone(),
     });
   }
 
@@ -178,18 +194,18 @@ fn leader_works_for_group(
 
 async fn run_group_leader_controller(
   group_id: GroupId,
-  raft: Raft,
+  group: GroupHandle,
   works: Vec<LeaderWork>,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
-  let mut metrics_rx = raft.metrics();
+  let mut metrics_rx = group.raft.metrics();
   let mut running: Vec<RunningLeaderWork> = Vec::new();
 
   let metrics = metrics_rx.borrow_watched().clone();
   apply_group_role(
     &group_id,
-    &raft,
+    &group,
     &metrics,
     &works,
     &mut running,
@@ -210,7 +226,7 @@ async fn run_group_leader_controller(
         }
 
         let metrics = metrics_rx.borrow_watched().clone();
-        apply_group_role(&group_id, &raft, &metrics, &works, &mut running, tick_interval).await?;
+        apply_group_role(&group_id, &group, &metrics, &works, &mut running, tick_interval).await?;
       }
     }
   }
@@ -218,7 +234,7 @@ async fn run_group_leader_controller(
 
 async fn apply_group_role(
   group_id: &str,
-  raft: &Raft,
+  group: &GroupHandle,
   metrics: &RaftMetrics,
   works: &[LeaderWork],
   running: &mut Vec<RunningLeaderWork>,
@@ -236,7 +252,7 @@ async fn apply_group_role(
         );
         running.push(RunningLeaderWork::start(
           group_id.to_string(),
-          raft.clone(),
+          group.clone(),
           work.clone(),
           tick_interval,
         ));

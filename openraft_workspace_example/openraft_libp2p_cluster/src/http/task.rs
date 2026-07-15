@@ -83,7 +83,7 @@ async fn submit_task_state_command(
   let group_id = groups::TASKS.to_string();
   match &state.task_frontend {
     TaskFrontend::Control => {
-      let reply = TaskRpcService
+      let reply = TaskRpcService::new(state.registry.clone())
         .submit(
           tarpc::context::current(),
           group_id.clone(),
@@ -101,6 +101,8 @@ async fn submit_task_state_command(
       if let Some(leader_id) = reply.leader_id.as_deref() {
         let leader = NodeId::new(leader_id);
         if let Some(addr) = reply.leader_addr.as_deref() {
+          // Best-effort address-book refresh; submit_command below retries
+          // through existing routes if this fails.
           let _ = state.network.register_node(leader.clone(), addr).await;
         }
         let control_nodes = tokio::sync::Mutex::new(ControlNodes::new(vec![leader]));
@@ -203,7 +205,7 @@ pub(super) async fn list_tasks(State(state): State<Arc<AppState>>) -> Json<Tasks
   let group_id = groups::TASKS.to_string();
   let reply = match &state.task_frontend {
     TaskFrontend::Control => {
-      TaskRpcService
+      TaskRpcService::new(state.registry.clone())
         .list_tasks(tarpc::context::current(), group_id)
         .await
     }
@@ -247,7 +249,7 @@ pub(super) async fn list_task_workers(
   let group_id = groups::TASKS.to_string();
   let reply = match &state.task_frontend {
     TaskFrontend::Control => {
-      TaskRpcService
+      TaskRpcService::new(state.registry.clone())
         .list_workers(tarpc::context::current(), group_id)
         .await
     }
@@ -289,7 +291,7 @@ pub(super) async fn task_metrics(State(state): State<Arc<AppState>>) -> Json<Tas
   let group_id = groups::TASKS.to_string();
   let reply = match &state.task_frontend {
     TaskFrontend::Control => {
-      TaskRpcService
+      TaskRpcService::new(state.registry.clone())
         .metrics(tarpc::context::current(), group_id)
         .await
     }

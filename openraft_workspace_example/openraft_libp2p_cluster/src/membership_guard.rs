@@ -21,10 +21,7 @@
 
 use std::{
   collections::{BTreeSet, HashMap},
-  sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-  },
+  sync::Arc,
   time::Duration,
 };
 
@@ -108,14 +105,10 @@ pub async fn run_membership_guard(
   raft: Raft,
   network: Libp2pNetworkFactory,
   config: MembershipGuardConfig,
+  membership_fence: Arc<tokio::sync::Mutex<()>>,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
   let mut down_since: HashMap<NodeId, Instant> = HashMap::new();
-  // At most one membership change committing at a time. The change itself
-  // runs on a background task (it can block up to MEMBERSHIP_CHANGE_TIMEOUT
-  // around a marginal quorum), so ticks keep observing liveness meanwhile
-  // instead of going blind for the duration.
-  let change_in_flight = Arc::new(AtomicBool::new(false));
   let mut tick = tokio::time::interval(config.tick_interval);
   tick.tick().await;
 
@@ -127,7 +120,7 @@ pub async fn run_membership_guard(
       }
       _ = tick.tick() => {
         if let Err(err) =
-          guard_tick(&group_id, &raft, &network, &mut down_since, &change_in_flight).await
+          guard_tick(&group_id, &raft, &network, &mut down_since, &membership_fence).await
         {
           tracing::warn!(group = %group_id, error = ?err, "membership guard tick failed; retrying next tick");
         }
@@ -141,7 +134,7 @@ async fn guard_tick(
   raft: &Raft,
   network: &Libp2pNetworkFactory,
   down_since: &mut HashMap<NodeId, Instant>,
-  change_in_flight: &Arc<AtomicBool>,
+  membership_fence: &Arc<tokio::sync::Mutex<()>>,
 ) -> anyhow::Result<()> {
   let metrics = raft.metrics().borrow_watched().clone();
   if !metrics.state.is_leader() {
@@ -195,18 +188,20 @@ async fn guard_tick(
     return Ok(());
   };
 
-  // One membership change at a time. While a previous change is still
-  // committing on its background task, the tick only keeps tracking
+  // One membership change at a time — across the WHOLE process, not just
+  // this guard: the fence is shared with the HTTP membership handlers and
+  // the AddLearner/JoinCluster RPC paths (GroupHandle::membership_fence).
+  // While any change is still committing, the tick only keeps tracking
   // liveness; the down clock is preserved, so a failed change is re-proposed
   // immediately on a later tick instead of waiting a full timeout again.
-  if change_in_flight.load(Ordering::Acquire) {
+  let Ok(fence) = membership_fence.clone().try_lock_owned() else {
     tracing::debug!(
       group = %group_id,
       dead_member = %dead_member,
       "membership change already in flight; deferring action to a later tick"
     );
     return Ok(());
-  }
+  };
 
   // Pick the action while the tick-local observer data is at hand; the
   // (potentially slow) raft write then runs off-tick.
@@ -225,12 +220,12 @@ async fn guard_tick(
     None
   };
 
-  change_in_flight.store(true, Ordering::Release);
-  let in_flight = change_in_flight.clone();
   let group_id = group_id.to_string();
   let raft = raft.clone();
   let network = network.clone();
   tokio::spawn(async move {
+    // Owns the fence permit for the full change window; released on drop.
+    let _fence = fence;
     let result = execute_membership_change(
       &group_id,
       &raft,
@@ -242,7 +237,6 @@ async fn guard_tick(
       promoted,
     )
     .await;
-    in_flight.store(false, Ordering::Release);
     if let Err(err) = result {
       tracing::warn!(
         group = %group_id,

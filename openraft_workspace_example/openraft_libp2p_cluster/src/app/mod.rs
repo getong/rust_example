@@ -388,10 +388,10 @@ pub(crate) fn build_http_state(
   opt: &Opt,
   identity: &NodeIdentity,
   libp2p: &Libp2pHandles,
+  registry: crate::GroupRegistry,
   sqlite_cache: Option<SqliteCache>,
   task_frontend: http::TaskFrontend,
 ) -> http::AppState {
-  let registry = crate::global_group_registry().clone();
   let default_group = default_openraft_group_id(&registry);
 
   http::AppState {
@@ -407,6 +407,7 @@ pub(crate) fn build_http_state(
     default_group,
     task_frontend,
     sqlite_cache,
+    graph_cache: Default::default(),
   }
 }
 
@@ -638,6 +639,11 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   crate::runtime_config::install(crate::runtime_config::RuntimeConfig {
     node_announce_interval_secs: NODE_ANNOUNCE_INTERVAL.as_secs(),
     voter_replace_timeout_secs: opt.voter_replace_timeout_secs,
+    // Strong durability by default; opt out at runtime via POST /config
+    // {"rocksdb_sync_writes": false} after reading the tradeoff notes on
+    // RuntimeConfig.
+    rocksdb_sync_writes: true,
+    ..crate::runtime_config::RuntimeConfig::default()
   });
   let http_addr: SocketAddr = opt.http.parse().context("invalid --http")?;
 
@@ -677,12 +683,18 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   let mut libp2p_shutdown =
     crate::signal::ShutdownHandler::new(libp2p_shutdown_tx, libp2p_shutdown_rx);
 
+  // Composition root: the one registry instance for this process. Created
+  // before the swarm so the inbound-RPC dispatcher can hold it; filled with
+  // the group handles once the raft groups are started below.
+  let registry = crate::GroupRegistry::new();
+
   let swarm_handle = spawn_libp2p_swarm(
     swarm,
     &mut libp2p_shutdown,
     cmd_rx_high,
     cmd_rx_low,
     &libp2p,
+    registry.clone(),
   );
 
   let members = register_members(&libp2p.network, &configured_nodes).await?;
@@ -717,9 +729,6 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     &group_ids,
   )
   .await?;
-  // Composition root: resolve the process-wide registry once; everything
-  // below receives it as a parameter.
-  let registry = crate::global_group_registry().clone();
   registry.set(group_handles);
   maybe_initialize_bootstrap_openraft(
     &registry,

@@ -57,48 +57,65 @@ pub enum TaskPayload {
   Wasm(WasmExec),
 }
 
+/// ONE table binding each kind tag to its variant and payload type.
+/// `kind()`, `decode()` and the known-kinds list are all generated from it,
+/// so the tag ↔ variant mapping cannot drift between them (the failure mode
+/// of maintaining three hand-written `match`es). The serde tag on the enum
+/// is pinned to this table by the `all_variants_roundtrip_with_kind_tag`
+/// test. Adding a task type = one new table row (+ the `execute` arm, which
+/// the compiler's exhaustiveness check enforces).
+macro_rules! task_payload_kinds {
+  ($(($kind:literal, $variant:ident, $ty:ty)),+ $(,)?) => {
+    impl TaskPayload {
+      /// Kind tags understood by [`TaskPayload::decode`].
+      pub const KNOWN_KINDS: &'static [&'static str] = &[$($kind),+];
+
+      /// The `kind` tag of this payload (matches the serde tag).
+      pub fn kind(&self) -> &'static str {
+        match self {
+          $(TaskPayload::$variant(_) => $kind,)+
+        }
+      }
+
+      /// Decode a stored payload: read the `kind` tag, then decode the
+      /// matching variant struct (the extra `kind` field is ignored by
+      /// serde). A JSON object without a tag is the legacy email shape; an
+      /// unknown kind fails here listing the known ones.
+      pub fn decode(payload: &str) -> Result<Self, String> {
+        fn variant<T: serde::de::DeserializeOwned>(
+          kind: &str,
+          payload: &str,
+          wrap: fn(T) -> TaskPayload,
+        ) -> Result<TaskPayload, String> {
+          sonic_rs::from_str::<T>(payload)
+            .map(wrap)
+            .map_err(|err| format!("decode {kind} payload: {err}"))
+        }
+
+        match payload_kind(payload)?.as_deref() {
+          // Legacy untagged payloads predate the kind tag: email shape.
+          None => variant::<Email>("email", payload, TaskPayload::Email),
+          $(Some($kind) => variant::<$ty>($kind, payload, TaskPayload::$variant),)+
+          Some(other) => Err(format!(
+            "unknown task kind {other:?} (known: {})",
+            Self::KNOWN_KINDS.join(", ")
+          )),
+        }
+      }
+    }
+  };
+}
+
+task_payload_kinds! {
+  ("email", Email, Email),
+  ("webhook", Webhook, Webhook),
+  ("digest", Digest, DigestSpec),
+  ("kv_set", KvSet, KvSet),
+  ("sleep", Sleep, Sleep),
+  ("wasm", Wasm, WasmExec),
+}
+
 impl TaskPayload {
-  /// The `kind` tag of this payload (matches the serde tag).
-  pub fn kind(&self) -> &'static str {
-    match self {
-      TaskPayload::Email(_) => "email",
-      TaskPayload::Webhook(_) => "webhook",
-      TaskPayload::Digest(_) => "digest",
-      TaskPayload::KvSet(_) => "kv_set",
-      TaskPayload::Sleep(_) => "sleep",
-      TaskPayload::Wasm(_) => "wasm",
-    }
-  }
-
-  /// Decode a stored payload: read the `kind` tag, then decode the matching
-  /// variant struct (the extra `kind` field is ignored by serde). A JSON
-  /// object without a tag is the legacy email shape; an unknown kind fails
-  /// here listing the known ones. New variants MUST add their arm — like
-  /// `execute`, the match is exhaustive over the kinds.
-  pub fn decode(payload: &str) -> Result<Self, String> {
-    fn variant<T: serde::de::DeserializeOwned>(
-      kind: &str,
-      payload: &str,
-      wrap: fn(T) -> TaskPayload,
-    ) -> Result<TaskPayload, String> {
-      sonic_rs::from_str::<T>(payload)
-        .map(wrap)
-        .map_err(|err| format!("decode {kind} payload: {err}"))
-    }
-
-    match payload_kind(payload)?.as_deref() {
-      None | Some("email") => variant("email", payload, TaskPayload::Email),
-      Some("webhook") => variant("webhook", payload, TaskPayload::Webhook),
-      Some("digest") => variant("digest", payload, TaskPayload::Digest),
-      Some("kv_set") => variant("kv_set", payload, TaskPayload::KvSet),
-      Some("sleep") => variant("sleep", payload, TaskPayload::Sleep),
-      Some("wasm") => variant("wasm", payload, TaskPayload::Wasm),
-      Some(other) => Err(format!(
-        "unknown task kind {other:?} (known: email, webhook, digest, kv_set, sleep, wasm)"
-      )),
-    }
-  }
-
   /// Encode as kind-tagged JSON (the storage/wire format).
   pub fn encode(&self) -> Result<String, String> {
     sonic_rs::to_string(self).map_err(|err| format!("encode task payload: {err}"))

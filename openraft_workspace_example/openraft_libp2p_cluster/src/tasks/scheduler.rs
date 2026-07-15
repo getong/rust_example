@@ -16,8 +16,7 @@
 //! module never mutates task state directly.
 
 use std::{
-  collections::{BTreeSet, HashMap, hash_map::DefaultHasher},
-  hash::{Hash, Hasher},
+  collections::{BTreeSet, HashMap},
   str::FromStr,
   time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -28,7 +27,6 @@ use tokio::time::Instant;
 use crate::{
   GroupId, NodeId,
   network::transport::Libp2pNetworkFactory,
-  openraft_group,
   signal::ShutdownRx,
   tasks::{
     TASK_ASSIGNED_IDX_PREFIX, TASK_QUEUED_IDX_PREFIX, TASK_TERMINAL_IDX_PREFIX, TASK_WORKER_PREFIX,
@@ -38,11 +36,6 @@ use crate::{
   },
   types_kv::TaskRequest as StateCommand,
 };
-
-/// A task stuck in Assigned/Running on a LIVE worker for longer than this is
-/// returned to the queue (crash-free hangs: worker bug, lost wake, endless
-/// execution). Dead workers are handled separately via lease liveness.
-pub const TASK_STUCK_REQUEUE_SECS: u64 = 60;
 
 /// Slow fallback between passes when no apply event arrives. Time-based work
 /// (lease expiry, stuck detection) tolerates this latency; new work is
@@ -82,6 +75,7 @@ fn task_retention_secs() -> u64 {
 pub async fn run_task_scheduler(
   group_id: GroupId,
   network: Libp2pNetworkFactory,
+  registry: crate::GroupRegistry,
   tick_interval: Duration,
   mut shutdown_rx: ShutdownRx,
 ) -> anyhow::Result<()> {
@@ -101,7 +95,7 @@ pub async fn run_task_scheduler(
 
   loop {
     let pass_started = Instant::now();
-    let next_due = match scheduler_tick(&group_id, &network, &mut down_since).await {
+    let next_due = match scheduler_tick(&group_id, &network, &registry, &mut down_since).await {
       Ok(next_due) => next_due,
       Err(err) => {
         tracing::warn!(group = %group_id, error = ?err, "task scheduler pass failed");
@@ -116,7 +110,7 @@ pub async fn run_task_scheduler(
     let now = current_unix_secs();
     if now >= next_vacuum_at {
       next_vacuum_at = now + VACUUM_INTERVAL_SECS;
-      if let Err(err) = vacuum_expired_tasks(&group_id, now).await {
+      if let Err(err) = vacuum_expired_tasks(&group_id, &registry, now).await {
         tracing::warn!(group = %group_id, error = ?err, "task vacuum pass failed");
       }
     }
@@ -145,21 +139,22 @@ pub async fn run_task_scheduler(
 async fn scheduler_tick(
   group_id: &str,
   network: &Libp2pNetworkFactory,
+  registry: &crate::GroupRegistry,
   down_since: &mut HashMap<String, Instant>,
 ) -> anyhow::Result<Option<u64>> {
-  let Some(group) = openraft_group(group_id) else {
+  let Some(group) = registry.get(group_id) else {
     return Err(anyhow!("unknown group_id={group_id}"));
   };
   let now = current_unix_secs();
 
-  let view = worker_view(group_id, network, now, down_since).await?;
+  let view = worker_view(group_id, network, registry, now, down_since).await?;
   let workers = view.assignable;
 
   // 1) Requeue in-flight tasks that are unrecoverable on their worker:
   //    - the worker's lease expired, or it stayed disconnected past the suspect grace window (see
   //      WORKER_DISCONNECT_GRACE_SECS), or
   //    - the worker is alive but the task has been stuck in Assigned/Running past
-  //      TASK_STUCK_REQUEUE_SECS (execution hang, lost wake-up, worker bug).
+  //      task_stuck_requeue_secs (execution hang, lost wake-up, worker bug).
   let assigned = group
     .kv_data
     .entries_with_prefix(TASK_ASSIGNED_IDX_PREFIX.to_string())
@@ -177,7 +172,8 @@ async fn scheduler_tick(
         Some(raw) => match sonic_rs::from_str::<TaskRecord>(&raw) {
           Ok(record)
             if matches!(record.status, TaskStatus::Assigned | TaskStatus::Running)
-              && now.saturating_sub(record.updated_at) > TASK_STUCK_REQUEUE_SECS =>
+              && now.saturating_sub(record.updated_at)
+                > crate::runtime_config::current().task_stuck_requeue_secs =>
           {
             "stuck past timeout on live worker"
           }
@@ -270,8 +266,12 @@ async fn scheduler_tick(
 /// Scan the terminal index for records past retention and propose one
 /// bounded `TaskVacuum`. The scan runs OUTSIDE apply; apply re-validates
 /// each id, so a stale scan can never delete live tasks.
-async fn vacuum_expired_tasks(group_id: &str, now: u64) -> anyhow::Result<()> {
-  let Some(group) = openraft_group(group_id) else {
+async fn vacuum_expired_tasks(
+  group_id: &str,
+  registry: &crate::GroupRegistry,
+  now: u64,
+) -> anyhow::Result<()> {
+  let Some(group) = registry.get(group_id) else {
     return Err(anyhow!("unknown group_id={group_id}"));
   };
   let cutoff = now.saturating_sub(task_retention_secs());
@@ -332,10 +332,11 @@ struct WorkerView {
 async fn worker_view(
   group_id: &str,
   network: &Libp2pNetworkFactory,
+  registry: &crate::GroupRegistry,
   now: u64,
   down_since: &mut HashMap<String, Instant>,
 ) -> anyhow::Result<WorkerView> {
-  let Some(group) = openraft_group(group_id) else {
+  let Some(group) = registry.get(group_id) else {
     return Err(anyhow!("unknown group_id={group_id}"));
   };
   let entries = group
@@ -416,9 +417,10 @@ fn select_worker<'a>(
   if workers.is_empty() {
     return None;
   }
-  let mut hasher = DefaultHasher::new();
-  task_id.hash(&mut hasher);
-  workers.get((hasher.finish() as usize) % workers.len())
+  // xxh3 is stable across Rust releases; `DefaultHasher` is not, and a
+  // toolchain upgrade must not reshuffle task→worker placement.
+  let hash = xxhash_rust::xxh3::xxh3_64(task_id.as_bytes());
+  workers.get((hash as usize) % workers.len())
 }
 
 /// Directed assignment wake: tell exactly the assigned worker about its new

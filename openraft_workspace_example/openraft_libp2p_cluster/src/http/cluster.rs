@@ -733,7 +733,7 @@ pub(super) async fn sync_snapshot(
 
   match state
     .network
-    .publish_openraft_snapshot(group_id.clone())
+    .publish_openraft_snapshot(group_id.clone(), &state.registry)
     .await
   {
     Ok(sync_group_id) => Json(SyncSnapshotResponse {

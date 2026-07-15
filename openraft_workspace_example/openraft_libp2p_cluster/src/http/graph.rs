@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+  collections::{BTreeMap, HashMap},
+  sync::Arc,
+  time::Duration,
+};
 
 use axum::{
   extract::{Query, State},
@@ -14,6 +18,43 @@ use super::{AppState, ClusterQuery, openraft_group_ids, remote_server_state};
 use crate::graphviz::{
   ClusterGraphGroup, ClusterGraphNode, ClusterGraphSnapshot, cluster_graph_dot, cluster_graph_svg,
 };
+
+/// How long a built snapshot stays fresh. The graph page auto-refreshes
+/// every 5s and each render (HTML page + SVG image) triggers a full
+/// O(groups x nodes) remote-probe fan-out; a short TTL means concurrent
+/// viewers and the page/SVG double-fetch share one fan-out instead of each
+/// paying their own.
+const GRAPH_SNAPSHOT_TTL: Duration = Duration::from_secs(2);
+
+/// Upper bound on the WHOLE remote-probe fan-out. Each probe RPC has its own
+/// timeout, but N slow peers still stack up to the slowest one; past this
+/// deadline the snapshot is served without the missing remote states rather
+/// than holding the HTTP response.
+const GRAPH_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Per-filter TTL cache of cluster graph snapshots, shared via
+/// [`super::AppState`].
+#[derive(Default)]
+pub struct GraphSnapshotCache {
+  entries:
+    tokio::sync::Mutex<HashMap<Option<String>, (tokio::time::Instant, ClusterGraphSnapshot)>>,
+}
+
+impl GraphSnapshotCache {
+  async fn get_fresh(&self, key: &Option<String>) -> Option<ClusterGraphSnapshot> {
+    let entries = self.entries.lock().await;
+    let (built_at, snapshot) = entries.get(key)?;
+    (built_at.elapsed() < GRAPH_SNAPSHOT_TTL).then(|| snapshot.clone())
+  }
+
+  async fn put(&self, key: Option<String>, snapshot: ClusterGraphSnapshot) {
+    let mut entries = self.entries.lock().await;
+    // The key space is the group filters actually requested (small), but
+    // prune stale entries so arbitrary query strings cannot grow the map.
+    entries.retain(|_, (built_at, _)| built_at.elapsed() < GRAPH_SNAPSHOT_TTL);
+    entries.insert(key, (tokio::time::Instant::now(), snapshot));
+  }
+}
 
 pub(super) async fn cluster_graph_page(
   State(state): State<Arc<AppState>>,
@@ -85,6 +126,10 @@ async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> Cluste
   // No (or empty) filter → render every raft group; each group contributes
   // its own leader and replication edges to the same physical topology.
   let selected = query.group_filter();
+
+  if let Some(cached) = state.graph_cache.get_fresh(&selected).await {
+    return cached;
+  }
   let all_group_ids = openraft_group_ids(&state.registry);
   let render_ids = match selected.clone() {
     Some(group_id) => vec![group_id],
@@ -152,22 +197,34 @@ async fn cluster_graph_snapshot(state: &AppState, query: ClusterQuery) -> Cluste
       });
     }
   }
-  for (index, group_id, server_state) in futures::future::join_all(probes).await {
-    if let Some(server_state) = server_state {
-      nodes[index].server_states.insert(group_id, server_state);
+  match tokio::time::timeout(GRAPH_PROBE_TIMEOUT, futures::future::join_all(probes)).await {
+    Ok(results) => {
+      for (index, group_id, server_state) in results {
+        if let Some(server_state) = server_state {
+          nodes[index].server_states.insert(group_id, server_state);
+        }
+      }
+    }
+    Err(_) => {
+      tracing::debug!(
+        timeout = ?GRAPH_PROBE_TIMEOUT,
+        "cluster graph remote probes timed out; rendering without remote server states"
+      );
     }
   }
 
-  ClusterGraphSnapshot {
+  let snapshot = ClusterGraphSnapshot {
     self_node_id: state.node_id.clone(),
     self_peer_id: state.peer_id.clone(),
     self_listen: state.listen.clone(),
-    selected,
+    selected: selected.clone(),
     all_group_ids,
     groups,
     nodes,
     error,
-  }
+  };
+  state.graph_cache.put(selected, snapshot.clone()).await;
+  snapshot
 }
 
 fn render_cluster_graph_page(snapshot: &ClusterGraphSnapshot) -> String {

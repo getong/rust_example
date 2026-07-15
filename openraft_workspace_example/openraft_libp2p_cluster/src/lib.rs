@@ -4,7 +4,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use arc_swap::ArcSwap;
-use once_cell::sync::Lazy;
 
 pub mod app;
 pub mod constants;
@@ -36,16 +35,33 @@ pub type Unreachable = openraft::error::Unreachable<TypeConfig>;
 pub struct GroupHandle {
   pub raft: Raft,
   pub kv_data: store::KvData,
+  /// Per-group membership-change fence. Multi-step flows (add_learner →
+  /// catch-up → change_membership) are NOT atomic in openraft; holding this
+  /// lock across the whole window keeps a concurrent membership request from
+  /// interleaving inside it (TOCTOU). Writers use `try_lock` and reject with
+  /// "membership change in progress" instead of queueing, so a slow catch-up
+  /// window never piles up blocked changes behind it.
+  pub membership_fence: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl GroupHandle {
+  pub fn new(raft: Raft, kv_data: store::KvData) -> Self {
+    Self {
+      raft,
+      kv_data,
+      membership_fence: Arc::new(tokio::sync::Mutex::new(())),
+    }
+  }
 }
 
 pub type GroupHandleMap = BTreeMap<GroupId, GroupHandle>;
 
 /// Cloneable handle to a set of raft groups: lock-free reads via `ArcSwap`,
 /// atomic whole-map replacement (hot reconfiguration). Components that need
-/// group access take a registry instead of reaching for a global, so tests
-/// construct their own isolated instance; the process-wide default instance
-/// ([`OPENRAFT_GROUPS`]) backs the `openraft_group*` convenience helpers.
-/// An empty map means "not initialized yet".
+/// group access take a registry — the composition root (`app::run`) creates
+/// one instance and injects it everywhere (HTTP `AppState`, swarm dispatcher,
+/// schedulers), so tests construct their own isolated instance and there is
+/// no process-wide global. An empty map means "not initialized yet".
 #[derive(Clone, Default)]
 pub struct GroupRegistry {
   groups: Arc<ArcSwap<GroupHandleMap>>,
@@ -73,26 +89,6 @@ impl GroupRegistry {
   pub fn get(&self, group_id: &str) -> Option<GroupHandle> {
     self.groups.load().get(group_id).cloned()
   }
-}
-
-/// Process-wide default registry used by the node binary.
-pub static OPENRAFT_GROUPS: Lazy<GroupRegistry> = Lazy::new(GroupRegistry::new);
-
-pub fn global_group_registry() -> &'static GroupRegistry {
-  &OPENRAFT_GROUPS
-}
-
-/// Install or atomically replace the global group map.
-pub fn set_openraft_groups(groups: GroupHandleMap) {
-  OPENRAFT_GROUPS.set(groups);
-}
-
-pub fn openraft_groups() -> Option<Arc<GroupHandleMap>> {
-  OPENRAFT_GROUPS.all()
-}
-
-pub fn openraft_group(group_id: &str) -> Option<GroupHandle> {
-  OPENRAFT_GROUPS.get(group_id)
 }
 
 pub mod groups {

@@ -94,6 +94,7 @@ tokio = { version = "1.52", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.23.5", features = ["v7"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 wasi-preview1-component-adapter-provider = "46.0.1"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow

@@ -24,24 +24,14 @@ use crate::{
 
 #[derive(Clone)]
 pub struct OpenRaftDispatcher {
-  /// Injected group registry: production wiring passes the process-wide
-  /// default, tests can pass an isolated instance.
+  /// Injected group registry: production wiring passes the composition-root
+  /// instance, tests can pass an isolated instance.
   registry: crate::GroupRegistry,
 }
 
 impl OpenRaftDispatcher {
-  pub fn new() -> Self {
-    Self::with_registry(crate::global_group_registry().clone())
-  }
-
   pub fn with_registry(registry: crate::GroupRegistry) -> Self {
     Self { registry }
-  }
-}
-
-impl Default for OpenRaftDispatcher {
-  fn default() -> Self {
-    Self::new()
   }
 }
 
@@ -60,7 +50,7 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
       metrics::counter!("raft_election_count_total", "group" => group_id.clone()).increment(1);
     }
     let started = std::time::Instant::now();
-    let response = handle_inbound_rpc(group.raft, request.op).await;
+    let response = handle_inbound_rpc(group, request.op).await;
     metrics::histogram!(
       "raft_rpc_duration_seconds",
       "group" => group_id,
@@ -87,14 +77,14 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
     &self,
     request: crate::sqlite_sync_rpc::SqliteSyncRpcRequestMessage,
   ) -> crate::sqlite_sync_rpc::SqliteSyncRpcResponseMessage {
-    crate::sqlite_cache::process_sqlite_sync_rpc_request(request).await
+    crate::sqlite_cache::process_sqlite_sync_rpc_request(request, self.registry.clone()).await
   }
 
   async fn handle_task_rpc(
     &self,
     request: crate::tasks::rpc::TaskRpcRequestMessage,
   ) -> crate::tasks::rpc::TaskRpcResponseMessage {
-    crate::tasks::rpc::process_task_rpc_request(request).await
+    crate::tasks::rpc::process_task_rpc_request(request, self.registry.clone()).await
   }
 }
 
@@ -282,7 +272,8 @@ fn raft_op_name(op: &RaftRpcOp) -> &'static str {
   }
 }
 
-async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
+async fn handle_inbound_rpc(group: crate::GroupHandle, request: RaftRpcOp) -> RaftRpcResponse {
+  let raft = group.raft.clone();
   match request {
     RaftRpcOp::AppendEntries(req) => {
       let res = raft.append_entries(req).await;
@@ -307,10 +298,23 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
       RaftRpcResponse::GetMetrics(metrics)
     }
     RaftRpcOp::JoinCluster(req) => {
+      // Membership-mutating op: hold the group fence across the whole
+      // add_learner → catch-up → change_membership window (see
+      // GroupHandle::membership_fence). Busy fence → reject; joiners retry.
+      let Ok(_fence) = group.membership_fence.try_lock() else {
+        return RaftRpcResponse::Error(
+          "another membership change is in progress for this group; retry later".to_string(),
+        );
+      };
       let res = handle_join_cluster(raft, req).await;
       RaftRpcResponse::JoinCluster(res)
     }
     RaftRpcOp::AddLearner(req) => {
+      let Ok(_fence) = group.membership_fence.try_lock() else {
+        return RaftRpcResponse::Error(
+          "another membership change is in progress for this group; retry later".to_string(),
+        );
+      };
       let res = handle_add_learner(raft, req).await;
       RaftRpcResponse::AddLearner(res)
     }
