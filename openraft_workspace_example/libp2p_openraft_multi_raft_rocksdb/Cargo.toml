@@ -56,7 +56,7 @@ openraft = { version = "0.10.0-alpha.30", features = [
 petgraph = "0.8.3"
 prost = "0.14.4"
 rand = "0.10"
-redis = { version = "1.3.0", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.4.0", features = ["aio", "tokio-comp", "connection-manager"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 sonic-rs = "0.5.8"

@@ -54,7 +54,7 @@ libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "93c505994dfb99b
   "yamux",
 ] }
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.17", default-features = false }
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 once_cell = "1.21.4"
 openraft = { version = "0.10.0-alpha.30", features = [
   "serde",
@@ -63,7 +63,7 @@ openraft = { version = "0.10.0-alpha.30", features = [
 ] }
 petgraph = "0.8.3"
 prost = "0.14.4"
-redis = { version = "1.3.0", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.4.0", features = ["aio", "tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
