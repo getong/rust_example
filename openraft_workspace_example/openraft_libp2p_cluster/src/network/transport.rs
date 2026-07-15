@@ -2,6 +2,7 @@ use std::{
   collections::{HashMap, HashSet},
   net::IpAddr,
   sync::Arc,
+  time::Duration,
 };
 
 use anyhow::Context;
@@ -21,6 +22,25 @@ use crate::{
   tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
 };
 
+/// How long a raft RPC target stays in the proactive-reconnect set after the
+/// last raft traffic to it. Long enough to ride out leader hiccups, short
+/// enough that peers removed from a group membership stop being redialed.
+const RAFT_PEER_PIN_TTL: Duration = Duration::from_secs(600);
+
+/// A peer counts as alive without a direct connection while its last
+/// node-announce gossip is younger than this (3x the announce interval, so a
+/// couple of lost gossip messages do not flap liveness).
+const PEER_ALIVE_TTL: Duration = crate::app::NODE_ANNOUNCE_INTERVAL.saturating_mul(3);
+
+/// Why a peer must be kept connected by the proactive reconnect loop.
+#[derive(Clone, Copy)]
+enum PeerPin {
+  /// Configured/bootstrap peer: keep connected for the process lifetime.
+  Permanent,
+  /// Raft RPC target: keep connected until the pin expires unrefreshed.
+  Until(tokio::time::Instant),
+}
+
 #[derive(Clone)]
 pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
@@ -29,6 +49,15 @@ pub struct Libp2pNetworkFactory {
   task_rpc_client: TaskRpcClient,
   node_peers: Arc<tokio::sync::RwLock<HashMap<NodeId, (PeerId, Multiaddr)>>>,
   connected_peers: Arc<tokio::sync::RwLock<HashSet<PeerId>>>,
+  /// Peers the reconnect loop must keep connected: configured members,
+  /// bootstrap nodes, and recent raft RPC targets. Everything else connects
+  /// on demand and is closed by the swarm idle-connection timeout, so the
+  /// cluster does not degenerate into an O(N^2) full mesh.
+  pinned_peers: Arc<tokio::sync::RwLock<HashMap<PeerId, PeerPin>>>,
+  /// Last time a node-announce gossip from this peer was seen. Used as a
+  /// connection-free liveness signal for peers we deliberately stay
+  /// disconnected from.
+  peer_last_announce: Arc<tokio::sync::RwLock<HashMap<PeerId, tokio::time::Instant>>>,
   group_id: Option<GroupId>,
   local_peer_id: PeerId,
 }
@@ -48,6 +77,8 @@ impl Libp2pNetworkFactory {
       task_rpc_client,
       node_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       connected_peers: Arc::new(tokio::sync::RwLock::new(HashSet::new())),
+      pinned_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+      peer_last_announce: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       group_id: None,
       local_peer_id,
     }
@@ -61,6 +92,8 @@ impl Libp2pNetworkFactory {
       task_rpc_client: self.task_rpc_client.clone(),
       node_peers: self.node_peers.clone(),
       connected_peers: self.connected_peers.clone(),
+      pinned_peers: self.pinned_peers.clone(),
+      peer_last_announce: self.peer_last_announce.clone(),
       group_id: Some(group_id),
       local_peer_id: self.local_peer_id,
     }
@@ -249,6 +282,80 @@ impl Libp2pNetworkFactory {
     !is_undialable_discovered_addr(&ensure_p2p_addr(addr, peer))
   }
 
+  /// Register a peer address learned from a node-announce gossip message.
+  ///
+  /// Unlike [`register_node`](Self::register_node) this never dials: an
+  /// announcement means "this node exists and is alive", not "open a
+  /// connection to it". Dialing here would make every node connect to every
+  /// announcer — an O(N^2) full mesh. Connections to announced peers are
+  /// opened on demand by the RPC paths instead.
+  pub async fn register_announced_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {
+    let (peer, maddr) = parse_p2p_addr(addr)?;
+    if peer == self.local_peer_id {
+      return Ok(());
+    }
+    self.mark_peer_announced(peer).await;
+    self
+      .register_configured_node_addr(node_id, peer, maddr)
+      .await;
+    Ok(())
+  }
+
+  /// Keep this peer in the proactive-reconnect set for the process lifetime.
+  /// Used for explicitly configured members and bootstrap nodes.
+  pub async fn pin_peer(&self, peer: PeerId) {
+    if peer == self.local_peer_id {
+      return;
+    }
+    self
+      .pinned_peers
+      .write()
+      .await
+      .insert(peer, PeerPin::Permanent);
+  }
+
+  /// Keep this peer in the proactive-reconnect set for [`RAFT_PEER_PIN_TTL`].
+  /// Refreshed on every raft RPC, so active group members stay connected and
+  /// removed members age out instead of being redialed forever.
+  pub async fn pin_raft_peer(&self, peer: PeerId) {
+    if peer == self.local_peer_id {
+      return;
+    }
+    let until = tokio::time::Instant::now() + RAFT_PEER_PIN_TTL;
+    let mut pins = self.pinned_peers.write().await;
+    match pins.get(&peer) {
+      Some(PeerPin::Permanent) => {}
+      _ => {
+        pins.insert(peer, PeerPin::Until(until));
+      }
+    }
+  }
+
+  async fn mark_peer_announced(&self, peer: PeerId) {
+    self
+      .peer_last_announce
+      .write()
+      .await
+      .insert(peer, tokio::time::Instant::now());
+  }
+
+  /// Whether this peer should be treated as running. True when a direct
+  /// connection exists OR its last node-announce gossip is fresh. Liveness
+  /// consumers (membership guard, task scheduler, known-nodes pruner) must
+  /// use this instead of raw connectedness: with on-demand connections a
+  /// healthy but idle peer is intentionally not connected.
+  pub async fn is_peer_alive(&self, peer: &PeerId) -> bool {
+    if self.is_peer_connected(peer).await {
+      return true;
+    }
+    self
+      .peer_last_announce
+      .read()
+      .await
+      .get(peer)
+      .is_some_and(|at| at.elapsed() < PEER_ALIVE_TTL)
+  }
+
   pub async fn known_nodes(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
     let map = self.node_peers.read().await;
     map
@@ -257,11 +364,37 @@ impl Libp2pNetworkFactory {
       .collect()
   }
 
+  /// Known nodes the reconnect loop should proactively keep connected:
+  /// pinned peers only. Expired raft pins are pruned on the way.
+  pub async fn reconnect_targets(&self) -> Vec<(NodeId, PeerId, Multiaddr)> {
+    let now = tokio::time::Instant::now();
+    {
+      let mut pins = self.pinned_peers.write().await;
+      pins.retain(|_, pin| match pin {
+        PeerPin::Permanent => true,
+        PeerPin::Until(until) => *until > now,
+      });
+    }
+    let pins = self.pinned_peers.read().await;
+    let map = self.node_peers.read().await;
+    map
+      .iter()
+      .filter(|(_, (peer, _))| pins.contains_key(peer))
+      .map(|(id, (peer, addr))| (id.clone(), *peer, addr.clone()))
+      .collect()
+  }
+
   /// Drop a node from the known-nodes address book. Used to prune nodes that
   /// stayed disconnected past the healing timeout; a returning node is
   /// re-registered through mdns discovery or its bootstrap dial.
   pub async fn remove_known_node(&self, node_id: &NodeId) -> bool {
-    self.node_peers.write().await.remove(node_id).is_some()
+    let removed = self.node_peers.write().await.remove(node_id);
+    let Some((peer, _)) = removed else {
+      return false;
+    };
+    self.pinned_peers.write().await.remove(&peer);
+    self.peer_last_announce.write().await.remove(&peer);
+    true
   }
 
   pub async fn set_peer_connected(&self, peer: PeerId) {
@@ -309,6 +442,10 @@ impl Libp2pNetworkFactory {
         "self dial blocked: node_id={node_id}, peer={peer}"
       ))));
     }
+    // Raft traffic to this peer means it is a live replication/vote target:
+    // keep it in the proactive-reconnect set so raft latency never waits on
+    // a fresh dial + handshake.
+    self.pin_raft_peer(peer).await;
     if let Err(err) = self.client.connect(peer, addr.clone()).await {
       if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
         return Err(err);
@@ -427,6 +564,9 @@ impl P2PNetworkFactory for Libp2pNetworkFactory {
 
   async fn new_p2p_client(&self, target: NodeId, target_info: &BasicNode) -> Self::Network {
     let _ = self.register_node(target.clone(), &target_info.addr).await;
+    if let Ok((peer, _)) = parse_p2p_addr(&target_info.addr) {
+      self.pin_raft_peer(peer).await;
+    }
     let group_id = self
       .group_id
       .clone()

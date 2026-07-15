@@ -8,7 +8,8 @@
 //!
 //! "Unreachable" is judged from TWO observers, and a member is treated as
 //! alive if EITHER says so:
-//!   - the libp2p connection view (`network.is_peer_connected`), and
+//!   - the libp2p liveness view (`network.is_peer_alive`: a direct connection or a fresh
+//!     node-announce gossip), and
 //!   - openraft's own heartbeat acknowledgements (`RaftMetrics::heartbeat`, the leader-local
 //!     last-ack time per member — a member that recently acked AppendEntries is alive at the raft
 //!     layer no matter what the transport view says).
@@ -121,7 +122,7 @@ async fn guard_tick(
     if member == &self_id {
       continue;
     }
-    if node_connected(network, member).await || raft_ack_fresh.contains(member) {
+    if node_alive(network, member).await || raft_ack_fresh.contains(member) {
       down_since.remove(member);
     } else {
       down_since.entry(member.clone()).or_insert(now);
@@ -241,9 +242,12 @@ async fn backfill_learner(
   }
 }
 
-async fn node_connected(network: &Libp2pNetworkFactory, node_id: &NodeId) -> bool {
+/// Connection-or-announce liveness. With on-demand connections a healthy but
+/// idle peer is intentionally not connected, so raw connectedness alone would
+/// mark it dead; a fresh node-announce gossip counts as alive too.
+async fn node_alive(network: &Libp2pNetworkFactory, node_id: &NodeId) -> bool {
   match libp2p::PeerId::from_str(node_id.as_str()) {
-    Ok(peer_id) => network.is_peer_connected(&peer_id).await,
+    Ok(peer_id) => network.is_peer_alive(&peer_id).await,
     Err(_) => false,
   }
 }
@@ -281,7 +285,7 @@ async fn pick_promotable_learner(
 ) -> Option<NodeId> {
   let mut connected_only = None;
   for learner in learners {
-    if !node_connected(network, learner).await {
+    if !node_alive(network, learner).await {
       continue;
     }
     if raft_ack_fresh.contains(learner) {
@@ -294,8 +298,9 @@ async fn pick_promotable_learner(
   connected_only
 }
 
-/// A spare worker is a known, connected libp2p peer that is not part of the
-/// group membership (and is not the voter we just removed).
+/// A spare worker is a known, alive libp2p peer (connected or recently
+/// announcing) that is not part of the group membership (and is not the
+/// voter we just removed).
 async fn pick_spare_worker(
   network: &Libp2pNetworkFactory,
   member_ids: &BTreeSet<NodeId>,
@@ -306,7 +311,7 @@ async fn pick_spare_worker(
     if member_ids.contains(&node_id) || &node_id == dead_voter {
       continue;
     }
-    if !network.is_peer_connected(&peer_id).await {
+    if !network.is_peer_alive(&peer_id).await {
       continue;
     }
     candidates.push((node_id, addr.to_string()));

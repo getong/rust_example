@@ -368,21 +368,24 @@ async fn worker_view(
       continue;
     }
 
-    let connected = match libp2p::PeerId::from_str(&lease.node_id) {
-      Ok(peer) => network.is_peer_connected(&peer).await,
+    // Alive = connected OR announcing recently. With on-demand connections a
+    // healthy idle worker is intentionally not connected to this leader, so
+    // raw connectedness alone would starve the assignable pool.
+    let alive = match libp2p::PeerId::from_str(&lease.node_id) {
+      Ok(peer) => network.is_peer_alive(&peer).await,
       Err(_) => false,
     };
-    if connected {
+    if alive {
       down_since.remove(&lease.node_id);
       retained.insert(lease.node_id.clone());
       assignable.push(lease);
       continue;
     }
 
-    // Fresh lease but this leader cannot see a direct connection: a
-    // single-observer signal (asymmetric partition, transient drop). Keep
-    // the worker's in-flight tasks for the grace window instead of
-    // requeueing on the first blip.
+    // Fresh lease but this leader sees neither a connection nor recent
+    // announcements: a single-observer signal (asymmetric partition,
+    // transient drop). Keep the worker's in-flight tasks for the grace
+    // window instead of requeueing on the first blip.
     let since = *down_since.entry(lease.node_id.clone()).or_insert(tick_now);
     if tick_now.duration_since(since) < grace {
       retained.insert(lease.node_id.clone());

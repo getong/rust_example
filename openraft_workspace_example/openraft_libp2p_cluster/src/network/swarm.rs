@@ -7,7 +7,7 @@ use std::{
   time::Duration,
 };
 
-use futures::{StreamExt, future::poll_fn};
+use futures::StreamExt;
 use libp2p::{
   Multiaddr, PeerId, Swarm, gossipsub,
   kad::{self, store::MemoryStore},
@@ -18,9 +18,8 @@ use libp2p::{
     dial_opts::{DialOpts, PeerCondition},
   },
 };
-use once_cell::sync::OnceCell;
 use prost::Message;
-use tokio::sync::{Mutex, MutexGuard, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
   Unreachable,
@@ -58,22 +57,6 @@ const PING_FAILURE_DISCONNECT_THRESHOLD: u32 = 3;
 const RECONNECT_RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
 const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
-
-pub type SharedSwarm = Arc<Mutex<Swarm<Behaviour>>>;
-
-pub static LIBP2P_SWARM: OnceCell<SharedSwarm> = OnceCell::new();
-
-pub fn set_libp2p_swarm(swarm: SharedSwarm) -> Result<(), SharedSwarm> {
-  LIBP2P_SWARM.set(swarm)
-}
-
-pub fn libp2p_swarm() -> Option<SharedSwarm> {
-  LIBP2P_SWARM.get().cloned()
-}
-
-pub async fn lock_swarm(swarm: &SharedSwarm) -> MutexGuard<'_, Swarm<Behaviour>> {
-  swarm.lock().await
-}
 
 #[derive(Debug, Clone)]
 pub struct NetErr(pub String);
@@ -205,6 +188,13 @@ pub enum Command {
   },
   PublishOpenRaftSnapshot {
     group_id: String,
+    resp: oneshot::Sender<Result<String, NetErr>>,
+  },
+  /// Internal follow-up to `PublishOpenRaftSnapshot`: the snapshot partial
+  /// was built off-loop (it can take seconds for a large state machine) and
+  /// is ready to be published without stalling swarm event processing.
+  PublishOpenRaftSnapshotBuilt {
+    partial: OpenRaftSnapshotPartial,
     resp: oneshot::Sender<Result<String, NetErr>>,
   },
   RaftRequest {
@@ -693,18 +683,21 @@ impl TaskRpcClient {
   }
 }
 
+/// Full-node swarm loop.
+///
+/// The loop owns the `Swarm` exclusively: every other component interacts
+/// with it through the `Command` mpsc channel, never through a shared lock.
+/// Long-running work (request dispatch, snapshot building/installing) is
+/// spawned onto separate tasks so the loop stays a thin, non-blocking
+/// multiplexer over swarm events and commands.
 pub async fn run_swarm(
+  mut swarm: Swarm<Behaviour>,
   mut cmd_rx: mpsc::Receiver<Command>,
   cmd_tx: mpsc::Sender<Command>,
   network: Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
   mut shutdown_rx: ShutdownRx,
 ) {
-  let Some(swarm) = libp2p_swarm() else {
-    tracing::error!("global libp2p swarm is not initialized");
-    return;
-  };
-
   let mut pending_raft: HashMap<
     OutboundRequestId,
     oneshot::Sender<Result<RaftRpcResponse, NetErr>>,
@@ -738,10 +731,7 @@ pub async fn run_swarm(
     tokio::select! {
       _ = shutdown_rx.changed() => {
         tracing::info!("shutdown signal received, stopping swarm");
-        {
-          let mut swarm = lock_swarm(&swarm).await;
-          leave_openraft_kad(&mut swarm);
-        }
+        leave_openraft_kad(&mut swarm);
         fail_pending_swarm_requests(
           &mut pending_raft,
           &mut pending_kv,
@@ -756,7 +746,7 @@ pub async fn run_swarm(
       }
       _ = reconnect_tick.tick() => {
         handle_reconnect_tick(
-          &swarm,
+          &mut swarm,
           &network,
           &connected_peers,
           &mut reconnect_backoff_until,
@@ -765,10 +755,7 @@ pub async fn run_swarm(
       cmd = cmd_rx.recv() => {
         let Some(cmd) = cmd else {
           tracing::warn!("swarm command channel closed; stopping swarm");
-          {
-            let mut swarm = lock_swarm(&swarm).await;
-            leave_openraft_kad(&mut swarm);
-          }
+          leave_openraft_kad(&mut swarm);
           fail_pending_swarm_requests(
             &mut pending_raft,
             &mut pending_kv,
@@ -782,11 +769,16 @@ pub async fn run_swarm(
           return;
         };
         if let Command::PublishOpenRaftSnapshot { group_id, resp } = cmd {
-          handle_publish_openraft_snapshot(&swarm, group_id, resp, &mut openraft_sync).await;
+          // Building the partial reads the raft snapshot and can take
+          // seconds; do it off-loop and publish via the follow-up command.
+          spawn_build_openraft_snapshot(cmd_tx.clone(), group_id, resp);
+          continue;
+        }
+        if let Command::PublishOpenRaftSnapshotBuilt { partial, resp } = cmd {
+          publish_openraft_snapshot_partial(&mut swarm, partial, resp, &mut openraft_sync);
           continue;
         }
 
-        let mut swarm = lock_swarm(&swarm).await;
         handle_command(
           &mut swarm,
           cmd,
@@ -801,7 +793,7 @@ pub async fn run_swarm(
         );
       }
 
-      ev = next_swarm_event(&swarm) => {
+      ev = swarm.next() => {
         let Some(ev) = ev else {
           tracing::warn!("swarm stream ended; stopping swarm");
           fail_pending_swarm_requests(
@@ -817,7 +809,7 @@ pub async fn run_swarm(
           break;
         };
         handle_swarm_event(
-          &swarm,
+          &mut swarm,
           ev,
           &network,
           dispatcher.clone(),
@@ -842,14 +834,20 @@ pub async fn run_swarm(
   }
 }
 
+/// Proactively redial disconnected peers that must stay connected: configured
+/// members, bootstrap nodes, and active raft RPC targets (see
+/// `Libp2pNetworkFactory::reconnect_targets`). Deliberately NOT all of
+/// `known_nodes`: redialing every announced/discovered node would build an
+/// O(N^2) full mesh across the cluster and exhaust file descriptors at scale.
+/// Non-pinned peers are dialed on demand by the RPC paths and reaped by the
+/// swarm idle-connection timeout.
 async fn handle_reconnect_tick(
-  swarm: &SharedSwarm,
+  swarm: &mut Swarm<Behaviour>,
   network: &Libp2pNetworkFactory,
   connected_peers: &HashSet<PeerId>,
   reconnect_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
 ) {
-  let nodes = network.known_nodes().await;
-  let mut swarm = lock_swarm(swarm).await;
+  let nodes = network.reconnect_targets().await;
   let now = tokio::time::Instant::now();
   for (_node_id, peer_id, addr) in nodes {
     if peer_id == *swarm.local_peer_id() {
@@ -875,36 +873,9 @@ async fn handle_reconnect_tick(
       addr = %addr,
       "reconnecting to peer"
     );
-    dial_peer_addr(&mut swarm, addr.clone());
-    add_kad_address_from_p2p(&mut swarm, &addr);
+    dial_peer_addr(swarm, addr.clone());
+    add_kad_address_from_p2p(swarm, &addr);
     reconnect_backoff_until.insert(peer_id, now + RECONNECT_RETRY_BACKOFF);
-  }
-}
-
-enum NextSwarmPoll {
-  Event(SwarmEvent<BehaviourEvent>),
-  Busy,
-  Ended,
-}
-
-async fn next_swarm_event(swarm: &SharedSwarm) -> Option<SwarmEvent<BehaviourEvent>> {
-  loop {
-    match poll_fn(|cx| {
-      let Ok(mut swarm) = swarm.try_lock() else {
-        return std::task::Poll::Ready(NextSwarmPoll::Busy);
-      };
-      match swarm.poll_next_unpin(cx) {
-        std::task::Poll::Ready(Some(event)) => std::task::Poll::Ready(NextSwarmPoll::Event(event)),
-        std::task::Poll::Ready(None) => std::task::Poll::Ready(NextSwarmPoll::Ended),
-        std::task::Poll::Pending => std::task::Poll::Pending,
-      }
-    })
-    .await
-    {
-      NextSwarmPoll::Event(event) => return Some(event),
-      NextSwarmPoll::Ended => return None,
-      NextSwarmPoll::Busy => tokio::task::yield_now().await,
-    }
   }
 }
 
@@ -1040,7 +1011,8 @@ fn handle_command(
     Command::GetLibp2pInfo { resp } => {
       let _ = resp.send(collect_swarm_report(swarm));
     }
-    Command::PublishOpenRaftSnapshot { resp, .. } => {
+    Command::PublishOpenRaftSnapshot { resp, .. }
+    | Command::PublishOpenRaftSnapshotBuilt { resp, .. } => {
       let _ = resp.send(Err(NetErr(
         "openraft snapshot sync is not available in this swarm loop".to_string(),
       )));
@@ -1082,37 +1054,56 @@ fn handle_command(
   }
 }
 
-async fn handle_publish_openraft_snapshot(
-  swarm: &SharedSwarm,
+/// Build the snapshot partial on a separate task and hand it back to the
+/// swarm loop as `Command::PublishOpenRaftSnapshotBuilt`. Building reads the
+/// raft snapshot (disk + serialization) and must not stall the swarm loop.
+fn spawn_build_openraft_snapshot(
+  cmd_tx: mpsc::Sender<Command>,
   group_id: String,
+  resp: oneshot::Sender<Result<String, NetErr>>,
+) {
+  tokio::spawn(async move {
+    let partial = match OpenRaftSnapshotPartial::from_raft_group(&group_id).await {
+      Ok(Some(partial)) => partial,
+      Ok(None) => {
+        let _ = resp.send(Err(NetErr(format!(
+          "openraft group {group_id} has no snapshot"
+        ))));
+        return;
+      }
+      Err(err) => {
+        let _ = resp.send(Err(NetErr(format!(
+          "build openraft snapshot partial failed: {err}"
+        ))));
+        return;
+      }
+    };
+
+    if cmd_tx
+      .send(Command::PublishOpenRaftSnapshotBuilt { partial, resp })
+      .await
+      .is_err()
+    {
+      tracing::warn!(
+        group_id = %group_id,
+        "swarm loop stopped before the built openraft snapshot could be published"
+      );
+    }
+  });
+}
+
+fn publish_openraft_snapshot_partial(
+  swarm: &mut Swarm<Behaviour>,
+  partial: OpenRaftSnapshotPartial,
   resp: oneshot::Sender<Result<String, NetErr>>,
   openraft_sync: &mut OpenRaftSyncState,
 ) {
-  let partial = match OpenRaftSnapshotPartial::from_raft_group(&group_id).await {
-    Ok(Some(partial)) => partial,
-    Ok(None) => {
-      let _ = resp.send(Err(NetErr(format!(
-        "openraft group {group_id} has no snapshot"
-      ))));
-      return;
-    }
-    Err(err) => {
-      let _ = resp.send(Err(NetErr(format!(
-        "build openraft snapshot partial failed: {err}"
-      ))));
-      return;
-    }
-  };
-
   let sync_group = group_id_string(&partial.group_id);
   let topic = sync_topic_hash();
-  let publish_result = {
-    let mut swarm = lock_swarm(swarm).await;
-    swarm
-      .behaviour_mut()
-      .gossipsub
-      .publish_partial(topic, partial.clone())
-  };
+  let publish_result = swarm
+    .behaviour_mut()
+    .gossipsub
+    .publish_partial(topic, partial.clone());
 
   match publish_result {
     Ok(()) => {
@@ -1128,7 +1119,7 @@ async fn handle_publish_openraft_snapshot(
 }
 
 async fn handle_swarm_event(
-  swarm: &SharedSwarm,
+  swarm: &mut Swarm<Behaviour>,
   event: SwarmEvent<BehaviourEvent>,
   network: &Libp2pNetworkFactory,
   dispatcher: Arc<dyn SwarmRequestDispatcher>,
@@ -1173,13 +1164,11 @@ async fn handle_swarm_event(
       handle_gossipsub_event(swarm, network, openraft_sync, event).await;
     }
     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => {
-      let mut swarm = lock_swarm(swarm).await;
-      handle_ping_event(&mut swarm, ping_failures, event);
+      handle_ping_event(swarm, ping_failures, event);
     }
     SwarmEvent::Behaviour(BehaviourEvent::Kad(event)) => {
-      let mut swarm = lock_swarm(swarm).await;
       handle_kad_event(
-        &mut swarm,
+        swarm,
         Some(network),
         Some(connected_peers),
         event,
@@ -1188,16 +1177,13 @@ async fn handle_swarm_event(
       );
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-      {
-        let mut swarm = lock_swarm(swarm).await;
-        handle_connection_established(
-          &mut swarm,
-          pending_connect,
-          connected_peers,
-          dial_backoff_until,
-          peer_id,
-        );
-      }
+      handle_connection_established(
+        swarm,
+        pending_connect,
+        connected_peers,
+        dial_backoff_until,
+        peer_id,
+      );
       reconnect_backoff_until.remove(&peer_id);
       outgoing_failure_log_backoff_until.remove(&peer_id);
       network.set_peer_connected(peer_id).await;
@@ -1210,10 +1196,7 @@ async fn handle_swarm_event(
       ..
     } => {
       ping_failures.remove(&connection_id);
-      {
-        let mut swarm = lock_swarm(swarm).await;
-        handle_connection_closed(&mut swarm, connected_peers, peer_id, num_established, cause);
-      }
+      handle_connection_closed(swarm, connected_peers, peer_id, num_established, cause);
       if num_established == 0 {
         network.set_peer_disconnected(peer_id).await;
       }
@@ -1222,9 +1205,8 @@ async fn handle_swarm_event(
       tracing::info!("listening on {address}");
     }
     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-      let mut swarm = lock_swarm(swarm).await;
       handle_outgoing_connection_error(
-        &mut swarm,
+        swarm,
         pending_connect,
         dial_backoff_until,
         outgoing_failure_log_backoff_until,
@@ -1399,16 +1381,12 @@ fn handle_task_rpc_event(
 }
 
 async fn handle_mdns_event(
-  swarm: &SharedSwarm,
+  swarm: &mut Swarm<Behaviour>,
   network: &Libp2pNetworkFactory,
   event: mdns::Event,
 ) {
   match event {
     mdns::Event::Discovered(list) => {
-      // Register the peers first (async network calls), then apply all swarm
-      // mutations under a single lock instead of re-locking per peer.
-      let mut gossip_peers = Vec::new();
-      let mut kad_addrs = Vec::new();
       for (peer, addr) in list {
         if crate::network::transport::is_undialable_discovered_addr(&addr) {
           continue;
@@ -1418,26 +1396,13 @@ async fn handle_mdns_event(
           use_discovered_addr = true;
         }
         if use_discovered_addr {
-          kad_addrs.push((peer, addr));
+          // New routing-table entries trigger kad's automatic bootstrap.
+          add_kad_peer_address(swarm, peer, addr);
         }
-        gossip_peers.push(peer);
-      }
-
-      if gossip_peers.is_empty() {
-        return;
-      }
-
-      let mut swarm = lock_swarm(swarm).await;
-      // New routing-table entries trigger kad's automatic bootstrap.
-      for (peer, addr) in kad_addrs {
-        add_kad_peer_address(&mut swarm, peer, addr);
-      }
-      for peer in gossip_peers {
         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
       }
     }
     mdns::Event::Expired(list) => {
-      let mut swarm = lock_swarm(swarm).await;
       for (peer, addr) in list {
         let addr = strip_p2p(addr);
         swarm.behaviour_mut().kad.remove_address(&peer, &addr);
@@ -1456,9 +1421,13 @@ fn task_assign_topic_hash() -> gossipsub::TopicHash {
 }
 
 /// Handle a node self-announcement: (re)register the sender in the local
-/// known-nodes address book. This is what brings a node back into
-/// `known_nodes` after it crashed, was pruned, and restarted — mdns
-/// re-discovery alone can lag by minutes.
+/// known-nodes address book and refresh its liveness timestamp. This is what
+/// brings a node back into `known_nodes` after it crashed, was pruned, and
+/// restarted — mdns re-discovery alone can lag by minutes.
+///
+/// Registration only: announcements never trigger a dial. Every node hears
+/// every announcement, so dialing here would have each node open connections
+/// to the whole cluster (O(N^2) connections in total).
 async fn handle_node_announcement(network: &Libp2pNetworkFactory, data: &[u8]) {
   let announcement = match NodeAnnouncement::decode(data) {
     Ok(announcement) => announcement,
@@ -1469,7 +1438,7 @@ async fn handle_node_announcement(network: &Libp2pNetworkFactory, data: &[u8]) {
   };
 
   if let Err(err) = network
-    .register_node(
+    .register_announced_node(
       crate::NodeId::new(&announcement.node_id),
       &announcement.addr,
     )
@@ -1485,7 +1454,7 @@ async fn handle_node_announcement(network: &Libp2pNetworkFactory, data: &[u8]) {
 }
 
 async fn handle_gossipsub_event(
-  swarm: &SharedSwarm,
+  swarm: &mut Swarm<Behaviour>,
   network: &Libp2pNetworkFactory,
   openraft_sync: &mut OpenRaftSyncState,
   event: gossipsub::Event,
@@ -1556,7 +1525,6 @@ async fn handle_gossipsub_event(
 
       let Some(metadata) = metadata else {
         tracing::warn!(peer = %peer_id, group = %group_id_string(&group_id), "openraft snapshot partial missing metadata");
-        let mut swarm = lock_swarm(swarm).await;
         swarm
           .behaviour_mut()
           .gossipsub
@@ -1574,7 +1542,6 @@ async fn handle_gossipsub_event(
               error = ?err,
               "invalid openraft snapshot partial"
             );
-            let mut swarm = lock_swarm(swarm).await;
             swarm
               .behaviour_mut()
               .gossipsub
@@ -1584,7 +1551,6 @@ async fn handle_gossipsub_event(
         };
 
       if update.should_republish {
-        let mut swarm = lock_swarm(swarm).await;
         if let Err(err) = swarm
           .behaviour_mut()
           .gossipsub
@@ -1595,28 +1561,34 @@ async fn handle_gossipsub_event(
       }
 
       if update.first_complete {
-        let raft_group_id = update.partial.raft_group_id.clone();
-        let snapshot_id = update.partial.snapshot_id.clone();
-        match update.partial.install().await {
-          Ok(resp) => {
-            tracing::info!(
-              peer = %peer_id,
-              group = %raft_group_id,
-              snapshot_id = %snapshot_id,
-              response = ?resp,
-              "installed openraft snapshot from gossipsub partial sync"
-            );
+        // Installing a snapshot feeds it through the raft state machine and
+        // can take seconds; run it off-loop so swarm event processing (raft
+        // RPCs included) is not stalled behind it.
+        let partial = update.partial;
+        tokio::spawn(async move {
+          let raft_group_id = partial.raft_group_id.clone();
+          let snapshot_id = partial.snapshot_id.clone();
+          match partial.install().await {
+            Ok(resp) => {
+              tracing::info!(
+                peer = %peer_id,
+                group = %raft_group_id,
+                snapshot_id = %snapshot_id,
+                response = ?resp,
+                "installed openraft snapshot from gossipsub partial sync"
+              );
+            }
+            Err(err) => {
+              tracing::warn!(
+                peer = %peer_id,
+                group = %raft_group_id,
+                snapshot_id = %snapshot_id,
+                error = ?err,
+                "failed to install openraft snapshot from gossipsub partial sync"
+              );
+            }
           }
-          Err(err) => {
-            tracing::warn!(
-              peer = %peer_id,
-              group = %raft_group_id,
-              snapshot_id = %snapshot_id,
-              error = ?err,
-              "failed to install openraft snapshot from gossipsub partial sync"
-            );
-          }
-        }
+        });
       } else {
         tracing::debug!(
           peer = %peer_id,
@@ -1641,7 +1613,6 @@ async fn handle_gossipsub_event(
       }
 
       let known_snapshots = openraft_sync.known_partials();
-      let mut swarm = lock_swarm(swarm).await;
       for partial in known_snapshots {
         if let Err(err) = swarm
           .behaviour_mut()

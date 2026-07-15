@@ -11,7 +11,7 @@ use anyhow::{Context, anyhow};
 use clap::{ArgAction, Parser};
 use futures::{AsyncRead, AsyncWrite};
 use libp2p::{
-  Multiaddr, PeerId, StreamProtocol, Transport,
+  Multiaddr, PeerId, StreamProtocol, Swarm, Transport,
   core::upgrade::Version,
   dns, gossipsub, identity,
   kad::{self, store::MemoryStore},
@@ -41,7 +41,7 @@ use crate::{
     },
     swarm::{
       Behaviour, Command, GOSSIP_TOPIC, KvClient, Libp2pClient, NODE_ANNOUNCE_TOPIC,
-      OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, TaskRpcClient, run_swarm, set_libp2p_swarm,
+      OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, TaskRpcClient, run_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -240,15 +240,23 @@ pub struct Opt {
   pub max_control_nodes: usize,
 
   /// OpenRaft heartbeat interval in milliseconds (leader keepalive cadence).
-  #[arg(long, default_value_t = 250)]
+  ///
+  /// Must be well below --raft-election-timeout-min-ms so that a few missed
+  /// or delayed heartbeats (GC pause, swarm lock contention, RTT jitter) do
+  /// not trigger a spurious election.
+  #[arg(long, default_value_t = 500)]
   pub raft_keepalive_ms: u64,
 
   /// OpenRaft election timeout minimum in milliseconds.
-  #[arg(long, default_value_t = 299)]
+  ///
+  /// Followers wait a random duration in [min, max) before starting an
+  /// election. Keep the [min, max) window wide (several heartbeat intervals)
+  /// so simultaneous candidacies — and thus split votes — stay unlikely.
+  #[arg(long, default_value_t = 1500)]
   pub raft_election_timeout_min_ms: u64,
 
   /// OpenRaft election timeout maximum in milliseconds.
-  #[arg(long, default_value_t = 300)]
+  #[arg(long, default_value_t = 3000)]
   pub raft_election_timeout_max_ms: u64,
 
   /// Whether OpenRaft leader heartbeats are enabled.
@@ -491,6 +499,30 @@ async fn start_openraft_groups(
     return Err(anyhow!("no group ids configured"));
   }
 
+  // openraft's own validate() only enforces heartbeat < min < max, which
+  // still admits degenerate settings such as a 1ms randomization window or
+  // an election timeout barely above the heartbeat interval. Both defeat
+  // Raft's split-vote avoidance, so warn loudly when overridden that way.
+  let randomization_window = opt
+    .raft_election_timeout_max_ms
+    .saturating_sub(opt.raft_election_timeout_min_ms);
+  if randomization_window < opt.raft_keepalive_ms {
+    tracing::warn!(
+      election_timeout_min_ms = opt.raft_election_timeout_min_ms,
+      election_timeout_max_ms = opt.raft_election_timeout_max_ms,
+      "election timeout randomization window is narrower than one heartbeat interval; concurrent \
+       candidacies are likely to split votes"
+    );
+  }
+  if opt.raft_election_timeout_min_ms < opt.raft_keepalive_ms.saturating_mul(3) {
+    tracing::warn!(
+      heartbeat_interval_ms = opt.raft_keepalive_ms,
+      election_timeout_min_ms = opt.raft_election_timeout_min_ms,
+      "election timeout min is less than 3x the heartbeat interval; a single delayed heartbeat \
+       can trigger a spurious election"
+    );
+  }
+
   let config = openraft::Config {
     heartbeat_interval: opt.raft_keepalive_ms,
     election_timeout_min: opt.raft_election_timeout_min_ms,
@@ -530,7 +562,7 @@ fn build_swarm(
   opt: &Opt,
   listen_addr: Multiaddr,
   local_key: identity::Keypair,
-) -> anyhow::Result<libp2p::Swarm<Behaviour>> {
+) -> anyhow::Result<Swarm<Behaviour>> {
   let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
     .with_tokio()
     .with_tcp(
@@ -661,6 +693,7 @@ fn build_swarm(
 }
 
 fn spawn_libp2p_swarm(
+  swarm: Swarm<Behaviour>,
   shutdown: &mut crate::signal::ShutdownHandler,
   cmd_rx: mpsc::Receiver<Command>,
   libp2p: &Libp2pHandles,
@@ -672,6 +705,7 @@ fn spawn_libp2p_swarm(
   let cmd_tx_for_swarm = libp2p.cmd_tx.clone();
   tokio::spawn(async move {
     run_swarm(
+      swarm,
       cmd_rx,
       cmd_tx_for_swarm,
       network_for_swarm,
@@ -1494,6 +1528,12 @@ async fn register_members(
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
   for (id, addr) in nodes {
     network.register_node(id.clone(), &addr).await?;
+    // Explicitly configured nodes (--node / --bootstrap-node) are the small
+    // set the reconnect loop keeps permanently connected; everything learned
+    // via gossip/mdns connects on demand instead.
+    if let Ok((peer, _)) = parse_p2p_addr(addr) {
+      network.pin_peer(peer).await;
+    }
     members.insert(
       id.clone(),
       BasicNode {
@@ -1929,7 +1969,9 @@ async fn run_known_nodes_pruner(
       }
       present.insert(node_id.clone());
 
-      if network.is_peer_connected(&peer_id).await {
+      // Alive = connected OR announcing recently; with on-demand connections
+      // a healthy idle node is intentionally not connected to us.
+      if network.is_peer_alive(&peer_id).await {
         down_since.remove(&node_id);
         continue;
       }
@@ -2264,15 +2306,13 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     .collect::<anyhow::Result<Vec<_>>>()?;
 
   let swarm = build_swarm(&opt, listen_addr, local_key)?;
-  let swarm = Arc::new(tokio::sync::Mutex::new(swarm));
-  set_libp2p_swarm(swarm).map_err(|_| anyhow!("global libp2p swarm already initialized"))?;
   let signal_shutdown = crate::signal::spawn_handler();
   let shutdown_rx_for_ordering = signal_shutdown.shutdown_rx();
   let (libp2p_shutdown_tx, libp2p_shutdown_rx) = crate::signal::channel();
   let mut libp2p_shutdown =
     crate::signal::ShutdownHandler::new(libp2p_shutdown_tx, libp2p_shutdown_rx);
 
-  let swarm_handle = spawn_libp2p_swarm(&mut libp2p_shutdown, cmd_rx, &libp2p);
+  let swarm_handle = spawn_libp2p_swarm(swarm, &mut libp2p_shutdown, cmd_rx, &libp2p);
 
   let members = register_members(&libp2p.network, &configured_nodes).await?;
   maybe_bootstrap(&libp2p.client, &configured_bootstrap_nodes, &opt.id).await;
