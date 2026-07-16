@@ -102,6 +102,14 @@ enum Cmd {
     #[arg(long)]
     status: Option<String>,
   },
+  /// Replay a permanently failed (dead-letter) task: back to the queue with
+  /// a fresh attempt budget, due immediately. Refused for tasks that passed
+  /// their commit point (the side effect may have executed).
+  Replay {
+    /// Task id (see `list --status failed`).
+    #[arg(long)]
+    id: String,
+  },
   /// List worker leases.
   Workers,
   /// Queue health metrics.
@@ -141,6 +149,13 @@ struct EmailResponse {
 struct TasksResponse {
   ok: bool,
   tasks: Vec<TaskRecord>,
+  error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ReplayResponse {
+  ok: bool,
+  task_id: String,
   error: Option<String>,
 }
 
@@ -224,6 +239,25 @@ impl Client {
     if !response.ok {
       return Err(anyhow!(
         "push-task rejected: {}",
+        response.error.clone().unwrap_or_default()
+      ));
+    }
+    Ok(response)
+  }
+
+  async fn replay(&self, id: &str) -> anyhow::Result<ReplayResponse> {
+    let response: ReplayResponse = self
+      .http
+      .post(format!("{}/tasks/{id}/replay", self.base))
+      .send()
+      .await
+      .context("replay request failed")?
+      .json()
+      .await
+      .context("decode replay response")?;
+    if !response.ok {
+      return Err(anyhow!(
+        "replay rejected: {}",
         response.error.clone().unwrap_or_default()
       ));
     }
@@ -531,6 +565,10 @@ async fn main() -> anyhow::Result<()> {
         tasks.retain(|task| task.status.as_str().eq_ignore_ascii_case(&filter));
       }
       print_tasks(&tasks);
+    }
+    Cmd::Replay { id } => {
+      let response = client.replay(&id).await?;
+      println!("replayed task_id={}", response.task_id);
     }
     Cmd::Workers => {
       let workers = client.workers().await?;

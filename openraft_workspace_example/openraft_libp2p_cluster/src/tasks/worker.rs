@@ -48,6 +48,19 @@ pub(crate) const TASK_EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
 /// through the wake channel with everything needed to claim.
 const WORKER_POLL_FALLBACK: Duration = Duration::from_secs(30);
 const RETRY_BACKOFF_BASE_SECS: u64 = 5;
+
+/// Retry delay: exponential backoff (base * 2^attempts, exponent capped at
+/// 6) plus jitter in [0, backoff/2] so a batch of tasks that failed together
+/// (downstream outage) spreads over the retry window instead of hammering
+/// the recovering dependency in lockstep. The jitter is HASHED from
+/// (task id, attempt), not sampled: the same retry decision always proposes
+/// the same `retry_at`, which keeps raft re-proposals idempotent.
+fn retry_backoff_secs(task_id: &str, attempts: u32) -> u64 {
+  let backoff = RETRY_BACKOFF_BASE_SECS * (1u64 << attempts.min(6));
+  let jitter =
+    xxhash_rust::xxh3::xxh3_64(format!("{task_id}:{attempts}").as_bytes()) % (backoff / 2 + 1);
+  backoff + jitter
+}
 const MAX_LEADER_REDIRECTS: usize = 3;
 /// Per-node cap on concurrently executing tasks.
 const WORKER_MAX_CONCURRENT_TASKS: usize = 4;
@@ -428,7 +441,7 @@ async fn claim_and_execute(ctx: &WorkerCtx, task_id: &str, lease_epoch: u64) -> 
       let retry_at = if record.attempts >= MAX_TASK_ATTEMPTS {
         0 // permanent failure
       } else {
-        now + RETRY_BACKOFF_BASE_SECS * (1 << record.attempts.min(6)) as u64
+        now + retry_backoff_secs(&record.id, record.attempts)
       };
       tracing::warn!(
         task_id = %record.id,
@@ -489,5 +502,38 @@ async fn run_lease_renewal(
         "worker lease renewal failed; scheduler will drop this worker if it keeps failing"
       );
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn retry_backoff_is_bounded_and_deterministic() {
+    for attempts in 0 .. 10 {
+      let backoff = RETRY_BACKOFF_BASE_SECS * (1u64 << attempts.min(6));
+      let delay = retry_backoff_secs("t1", attempts);
+      assert!(
+        (backoff ..= backoff + backoff / 2).contains(&delay),
+        "attempt {attempts}: delay {delay} outside [{backoff}, {}]",
+        backoff + backoff / 2
+      );
+      // Same (task, attempt) → same delay: raft re-proposals stay idempotent.
+      assert_eq!(delay, retry_backoff_secs("t1", attempts));
+    }
+  }
+
+  #[test]
+  fn retry_backoff_jitter_spreads_a_failed_batch() {
+    let delays: std::collections::BTreeSet<u64> = (0 .. 100)
+      .map(|task| retry_backoff_secs(&format!("task-{task}"), 2))
+      .collect();
+    assert!(
+      delays.len() > 5,
+      "100 tasks failing the same attempt should spread over the jitter window, got {} distinct \
+       delays",
+      delays.len()
+    );
   }
 }

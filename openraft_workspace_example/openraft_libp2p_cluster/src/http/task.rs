@@ -3,7 +3,7 @@ use std::{
   time::{SystemTime, UNIX_EPOCH},
 };
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 
 use super::{AppState, Json, TaskFrontend};
@@ -63,6 +63,13 @@ pub(super) struct TaskWorkersResponse {
 pub(super) struct TaskMetricsResponse {
   ok: bool,
   metrics: Option<TaskQueueMetrics>,
+  error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(super) struct ReplayResponse {
+  ok: bool,
+  task_id: String,
   error: Option<String>,
 }
 
@@ -199,6 +206,31 @@ pub(super) async fn push_task(
     return Json(push_error(err));
   }
   Json(enqueue_task(&state, payload, req.idem_key, req.delay_secs).await)
+}
+
+/// Dead-letter replay (`POST /tasks/{id}/replay`): return a permanently
+/// failed task to the queue with a fresh attempt budget. The rules live in
+/// the state machine (Failed only; committed tasks refused because their
+/// side effect may have executed), so this endpoint just proposes the
+/// command and relays the verdict.
+pub(super) async fn replay_task(
+  State(state): State<Arc<AppState>>,
+  Path(id): Path<String>,
+) -> Json<ReplayResponse> {
+  let cmd = StateCommand::TaskReplay {
+    id: id.clone(),
+    now: unix_now_secs(),
+  };
+  let (ok, error) = match submit_task_state_command(&state, cmd).await {
+    Ok(result) if result.ok => (true, None),
+    Ok(result) => (false, result.reason),
+    Err(err) => (false, Some(err.to_string())),
+  };
+  Json(ReplayResponse {
+    ok,
+    task_id: id,
+    error,
+  })
 }
 
 pub(super) async fn list_tasks(State(state): State<Arc<AppState>>) -> Json<TasksResponse> {

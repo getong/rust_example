@@ -327,6 +327,7 @@ pub fn is_schedule_event(cmd: &TaskRequest) -> bool {
     cmd,
     TaskRequest::TaskEnqueue { .. }
       | TaskRequest::TaskRequeue { .. }
+      | TaskRequest::TaskReplay { .. }
       | TaskRequest::TaskFail { .. }
       | TaskRequest::WorkerLease { .. }
   )
@@ -392,6 +393,7 @@ pub fn apply_task_command(
       now,
     ),
     TaskRequest::TaskRequeue { id } => apply_requeue(read, id),
+    TaskRequest::TaskReplay { id, now } => apply_replay(read, id, now),
     TaskRequest::TaskVacuum { ids } => apply_vacuum(read, ids),
     TaskRequest::WorkerLease {
       node_id,
@@ -774,6 +776,62 @@ fn apply_requeue(
   ));
   mutations.insert(0, KvMutation::put(rec_key(&id), encode_record(&record)?));
   Ok((mutations, TaskOpResult::ok().into_response()))
+}
+
+/// Operator-driven dead-letter replay: Failed → Queued with a fresh attempt
+/// budget and `run_at = now`. Committed tasks are refused — their side
+/// effect may already have executed, so a replay could duplicate it; they
+/// need reconciliation, not a re-run.
+fn apply_replay(
+  read: &mut StateRead<'_>,
+  id: String,
+  now: u64,
+) -> Result<(Vec<KvMutation>, Response), String> {
+  let Some(mut record) = read_record(read, &id)? else {
+    return Ok((
+      Vec::new(),
+      TaskOpResult::rejected("task not found").into_response(),
+    ));
+  };
+  if record.status != TaskStatus::Failed {
+    return Ok((
+      Vec::new(),
+      TaskOpResult::rejected(format!("task is {}, not failed", record.status.as_str()))
+        .into_response(),
+    ));
+  }
+  if record.committed {
+    return Ok((
+      Vec::new(),
+      TaskOpResult::rejected(
+        "replay refused: task passed its commit point; side effect may have executed — needs \
+         reconciliation",
+      )
+      .into_response(),
+    ));
+  }
+
+  let terminal_key = terminal_idx_key(record.completed_at, &id);
+  record.status = TaskStatus::Queued;
+  record.attempts = 0;
+  record.run_at = now;
+  record.error = None;
+  record.updated_at = now;
+  record.completed_at = 0;
+
+  let mutations = vec![
+    KvMutation::put(rec_key(&id), encode_record(&record)?),
+    KvMutation::del(terminal_key),
+    KvMutation::put(queued_idx_key(now, &id), id.clone()),
+  ];
+  let result = TaskOpResult {
+    ok: true,
+    id: Some(id),
+    deduplicated: None,
+    record: None,
+    reason: None,
+  };
+  Ok((mutations, result.into_response()))
 }
 
 /// Delete terminal (done/failed) records plus their terminal-index entries
@@ -1161,6 +1219,113 @@ mod tests {
     );
     assert!(!state.has_key(&queued_idx_key(2000, "t1")));
     assert!(state.has_key(&terminal_idx_key(1030, "t1")));
+  }
+
+  /// Helper: drive `id` to permanent failure on (nodeA, 1) at now=1003.
+  fn failed_task(state: &mut MapState, id: &str) {
+    running_task(state, id);
+    state.apply(TaskRequest::TaskFail {
+      id: id.into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      attempts: 3,
+      error: "boom".into(),
+      retry_at: 0,
+      now: 1003,
+    });
+  }
+
+  #[test]
+  fn replay_returns_failed_task_to_queue() {
+    let mut state = MapState::new();
+    failed_task(&mut state, "t1");
+    assert_eq!(state.record("t1").status, TaskStatus::Failed);
+
+    let replayed = state.apply(TaskRequest::TaskReplay {
+      id: "t1".into(),
+      now: 2000,
+    });
+    assert!(replayed.ok);
+    let record = state.record("t1");
+    assert_eq!(record.status, TaskStatus::Queued);
+    assert_eq!(record.attempts, 0);
+    assert_eq!(record.run_at, 2000);
+    assert_eq!(record.updated_at, 2000);
+    assert_eq!(record.completed_at, 0);
+    assert!(record.error.is_none());
+    assert!(state.has_key(&queued_idx_key(2000, "t1")));
+    assert!(!state.has_key(&terminal_idx_key(1003, "t1")));
+
+    // The replayed task is invisible to vacuum until it fails again.
+    let vacuumed = state.apply(TaskRequest::TaskVacuum {
+      ids: vec!["t1".into()],
+    });
+    assert_eq!(vacuumed.reason.as_deref(), Some("vacuumed 0"));
+    assert!(state.has_key(&rec_key("t1")));
+  }
+
+  #[test]
+  fn replay_rejects_non_failed_task() {
+    let mut state = MapState::new();
+    state.apply(enqueue("t1", None));
+
+    let replayed = state.apply(TaskRequest::TaskReplay {
+      id: "t1".into(),
+      now: 2000,
+    });
+    assert!(!replayed.ok);
+    assert_eq!(state.record("t1").status, TaskStatus::Queued);
+    // Original due time untouched; no duplicate queued-index entry created.
+    assert!(state.has_key(&queued_idx_key(100, "t1")));
+    assert!(!state.has_key(&queued_idx_key(2000, "t1")));
+
+    let missing = state.apply(TaskRequest::TaskReplay {
+      id: "nope".into(),
+      now: 2000,
+    });
+    assert!(!missing.ok);
+  }
+
+  #[test]
+  fn replay_refuses_committed_task() {
+    let mut state = MapState::new();
+    running_task(&mut state, "t1");
+    state.apply(TaskRequest::TaskMarkCommitted {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      now: 1002,
+    });
+    // Timeout after the commit point lands terminal with committed=true.
+    state.apply(TaskRequest::TaskFail {
+      id: "t1".into(),
+      node_id: "nodeA".into(),
+      lease_epoch: 1,
+      attempts: 1,
+      error: "execution timed out".into(),
+      retry_at: 2000,
+      now: 1030,
+    });
+    let record = state.record("t1");
+    assert_eq!(record.status, TaskStatus::Failed);
+    assert!(record.committed);
+
+    let replayed = state.apply(TaskRequest::TaskReplay {
+      id: "t1".into(),
+      now: 3000,
+    });
+    assert!(!replayed.ok);
+    assert!(
+      replayed
+        .reason
+        .as_deref()
+        .unwrap_or("")
+        .contains("commit point")
+    );
+    // Terminal state and index untouched.
+    assert_eq!(state.record("t1").status, TaskStatus::Failed);
+    assert!(state.has_key(&terminal_idx_key(1030, "t1")));
+    assert!(!state.has_key(&queued_idx_key(3000, "t1")));
   }
 
   #[test]

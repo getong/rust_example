@@ -122,6 +122,17 @@ pub enum TaskRequest {
   /// Leader returns an assigned/running task of an inactive worker to the
   /// queue.
   TaskRequeue { id: String },
+  /// Operator-driven dead-letter replay: return a permanently FAILED task
+  /// to the queue with a fresh attempt budget. Committed tasks are refused —
+  /// their side effect may already have executed, so a re-run could
+  /// duplicate it (reconcile instead).
+  TaskReplay {
+    id: String,
+    /// Replay time (proposer-supplied): stamps `updated_at` and becomes the
+    /// new `run_at`, so the task is due immediately.
+    #[serde(default)]
+    now: u64,
+  },
   /// Leader-driven retention cleanup: delete the listed TERMINAL
   /// (done/failed) task records, their terminal-index entries, and their
   /// idempotency keys. The leader picks the ids OUTSIDE apply (scan of the
@@ -153,6 +164,7 @@ impl fmt::Display for TaskRequest {
       TaskRequest::TaskDone { id, .. } => write!(f, "TaskDone {{ id: {id} }}"),
       TaskRequest::TaskFail { id, .. } => write!(f, "TaskFail {{ id: {id} }}"),
       TaskRequest::TaskRequeue { id } => write!(f, "TaskRequeue {{ id: {id} }}"),
+      TaskRequest::TaskReplay { id, .. } => write!(f, "TaskReplay {{ id: {id} }}"),
       TaskRequest::TaskVacuum { ids } => write!(f, "TaskVacuum {{ ids: {} }}", ids.len()),
       TaskRequest::WorkerLease { node_id, .. } => write!(f, "WorkerLease {{ node: {node_id} }}"),
     }

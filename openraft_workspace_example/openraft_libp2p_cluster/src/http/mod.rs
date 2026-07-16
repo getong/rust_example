@@ -179,6 +179,7 @@ pub async fn serve(
     .route("/tasks", get(task::list_tasks))
     .route("/tasks/workers", get(task::list_task_workers))
     .route("/tasks/metrics", get(task::task_metrics))
+    .route("/tasks/{id}/replay", post(task::replay_task))
     .route("/write", post(kv::set_value))
     .route("/update", post(kv::update_value))
     .route("/delete", post(kv::delete_value))

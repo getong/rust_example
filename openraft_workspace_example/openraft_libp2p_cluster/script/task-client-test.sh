@@ -10,6 +10,12 @@
 #                    and both entry paths agree on the same task list
 #   3. idempotency   same idem key pushed twice → single task, dedup reply
 #   4. failure       fail* task → Failed after exactly MAX attempts (3)
+#   4b. retry jitter  a burst of fail* tasks → first-retry delays land in the
+#                    [backoff, 1.5*backoff] window and are NOT all identical
+#                    (hashed jitter spreads a failed batch)
+#   4c. dead-letter   replay the phase-4 Failed task → leaves Failed with a
+#      replay        fresh attempt budget, re-fails after MAX attempts;
+#                    Done / unknown ids are refused
 #   5. metrics       /tasks/metrics agrees with the task list
 #   6. multi-kind    digest / sleep / kv_set / webhook (task-chaining) pushed
 #                    together → all Done; kinds run side by side, not
@@ -30,6 +36,10 @@ WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 CONTROL_HTTP="${CONTROL_HTTP:-127.0.0.1:3001}"
 WORKER_HTTP="${WORKER_HTTP:-127.0.0.1:3006}"
 BATCH="${BATCH:-6}"
+# Burst size for the retry-jitter phase. First-retry jitter has 6 possible
+# values (backoff 10s + hash % 6), so 6 tasks make an all-identical outcome
+# vanishingly unlikely (~1e-4) while keeping the phase fast.
+JITTER_BATCH="${JITTER_BATCH:-6}"
 WITH_CRASH="${WITH_CRASH:-0}"
 CRASH_NODE="${CRASH_NODE:-6}"
 SETTLE_TIMEOUT="${SETTLE_TIMEOUT:-120}"
@@ -140,6 +150,104 @@ check "failing task ends Failed after retries; everything else stays Done" \
 attempts="$(task list --status failed | awk -v to="$fail_to" '$0 ~ to {print $3}')"
 echo "fail-drill attempts: $attempts"
 check "failing task used exactly MAX_TASK_ATTEMPTS (3)" test "${attempts:-0}" = "3"
+failed_now=$((existing_failed + 1))
+
+# task_field_by_payload <payload-substring> <field>: value of <field> for the
+# first record whose payload contains the substring.
+task_field_by_payload() {
+	curl -fsS -m 5 "http://$CONTROL_HTTP/tasks" | python3 -c '
+import json, sys
+needle, field = sys.argv[1], sys.argv[2]
+for t in json.load(sys.stdin)["tasks"]:
+    if needle in t.get("payload", ""):
+        print(t.get(field, ""))
+        break
+' "$1" "$2"
+}
+
+echo
+echo "== phase 4b: retry backoff jitter (a failed batch must not retry in lockstep) =="
+# A burst of instant-fail tasks lands in the retry-wait state together. Each
+# waiting record exposes run_at (retry due time) and updated_at (failure
+# time), both stamped from the same proposal, so run_at - updated_at is the
+# EXACT backoff+jitter the worker computed: first retry = 10s + xxh3(task,
+# attempt) % 6 → [10, 15]. Without jitter every delay would be exactly 10.
+jitter_to="fail-jitter-${RUN_ID}@example.com"
+check "push jitter burst (${JITTER_BATCH} instant-fail tasks)" \
+	task push --to "$jitter_to" --count "$JITTER_BATCH"
+jitter_delays="$(python3 - "$CONTROL_HTTP" "fail-jitter-${RUN_ID}" "$JITTER_BATCH" << 'EOF'
+import json, sys, time, urllib.request
+base, needle, want = sys.argv[1], sys.argv[2], int(sys.argv[3])
+delays = {}
+deadline = time.time() + 60
+while time.time() < deadline and len(delays) < want:
+    try:
+        with urllib.request.urlopen(f"http://{base}/tasks", timeout=5) as response:
+            tasks = json.load(response)["tasks"]
+    except Exception:
+        time.sleep(0.3)
+        continue
+    for t in tasks:
+        # Queued with attempts=1 == waiting for its FIRST retry.
+        if (needle in t.get("payload", "")
+                and str(t.get("status", "")).lower() == "queued"
+                and t.get("attempts", 0) == 1
+                and t["id"] not in delays):
+            delays[t["id"]] = t["run_at"] - t["updated_at"]
+    time.sleep(0.3)
+print(" ".join(str(d) for d in delays.values()))
+EOF
+)"
+echo "first-retry delays (backoff 10s + jitter [0,5]s): ${jitter_delays:-<none>}"
+collected="$(wc -w <<<"$jitter_delays" | tr -d ' ')"
+distinct="$(tr ' ' '\n' <<<"$jitter_delays" | sort -u | grep -c . || true)"
+# One task may slip past the observation window on a loaded cluster; N-1
+# samples still make an all-identical result vanishingly unlikely.
+check "observed the first-retry delay of >=$((JITTER_BATCH - 1)) jitter tasks" \
+	test "${collected:-0}" -ge "$((JITTER_BATCH - 1))"
+check "every observed delay is inside the [10, 15]s backoff+jitter window" \
+	python3 -c '
+import sys
+delays = [int(x) for x in sys.argv[1].split()]
+assert delays and all(10 <= d <= 15 for d in delays), delays
+' "$jitter_delays"
+check "delays are jittered, not lockstep (>=2 distinct values)" test "${distinct:-0}" -ge 2
+total_after_p4b=$((total_after_p4 + JITTER_BATCH))
+failed_now=$((failed_now + JITTER_BATCH))
+check "jitter burst settles Failed after retries" \
+	task watch --timeout-secs "$FAIL_SETTLE_TIMEOUT" \
+	--expect-total "$total_after_p4b" \
+	--expect-failed "$failed_now"
+
+echo
+echo "== phase 4c: dead-letter replay (failed tasks must be replayable, once safe) =="
+replay_id="$(task_field_by_payload "$fail_to" id)"
+echo "replaying dead-letter task: $replay_id"
+check "found the phase-4 dead-letter task id" test -n "$replay_id"
+check "replay via CLI (POST /tasks/{id}/replay)" task replay --id "$replay_id"
+# Replay resets the record to Queued/due-now; it cannot be Failed again until
+# a fresh 3-attempt budget burns down (>=30s of backoff), so an immediate
+# read reliably observes the resurrection.
+status_after_replay="$(task_field_by_payload "$fail_to" status | tr '[:upper:]' '[:lower:]')"
+echo "status right after replay: $status_after_replay"
+check "replayed task left the Failed state" \
+	bash -c 'test -n "$1" && test "$1" != failed' _ "$status_after_replay"
+# The payload still starts with "fail", so the replayed task burns its fresh
+# budget and returns to Failed: totals and failed count end unchanged.
+check "replayed task re-fails after a fresh retry cycle (counts unchanged)" \
+	task watch --timeout-secs "$FAIL_SETTLE_TIMEOUT" \
+	--expect-total "$total_after_p4b" \
+	--expect-failed "$failed_now"
+attempts_after_replay="$(task list --status failed | awk -v to="$fail_to" '$0 ~ to {print $3}')"
+echo "attempts after replay: $attempts_after_replay"
+check "replay granted a fresh MAX_TASK_ATTEMPTS budget (3 again, no duplicate row)" \
+	test "${attempts_after_replay:-0}" = "3"
+# Guardrails: only Failed tasks are replayable, and the id must exist.
+done_id="$(task_field_by_payload "$idem_to" id)"
+check "replaying a Done task is refused" \
+	bash -c '! "$1" --http "$2" replay --id "$3" 2>/dev/null' _ "$TASK_BIN" "$CONTROL_HTTP" "$done_id"
+check "replaying an unknown id is refused" \
+	bash -c '! "$1" --http "$2" replay --id no-such-task 2>/dev/null' _ "$TASK_BIN" "$CONTROL_HTTP"
 
 echo
 echo "== phase 5: metrics consistency =="
@@ -195,11 +303,11 @@ check "push wasm stats task (argv list + env in, guest-built JSON out)" \
 big_payload="$(python3 -c 'import json; print(json.dumps({"kind":"wasm","module_wat":"x"*300_000,"name":"oversized"}))')"
 check "oversized wasm payload is rejected before the raft log" \
 	bash -c '! '"$TASK_BIN"' --http '"$CONTROL_HTTP"' push-task --payload "$1" 2>/dev/null' _ "$big_payload"
-total_after_p6=$((total_after_p4 + 8))
+total_after_p6=$((total_after_p4b + 8))
 check "all kinds settle Done side by side" \
 	task watch --timeout-secs "$SETTLE_TIMEOUT" \
 	--expect-total "$total_after_p6" \
-	--expect-failed "$((existing_failed + 1))"
+	--expect-failed "$failed_now"
 done_has() {
 	# done_has <label-pattern> [<content-pattern>]: the Done list has a row
 	# matching both patterns.
@@ -262,7 +370,7 @@ if [[ "$WITH_CRASH" == "1" ]]; then
 	check "burst completes despite worker crash" \
 		task watch --timeout-secs "$SETTLE_TIMEOUT" \
 		--expect-total "$total_after_p7" \
-		--expect-failed "$((existing_failed + 1))"
+		--expect-failed "$failed_now"
 	"$SCRIPT_DIR/restart-nodes.sh" "$CRASH_NODE" >/dev/null 2>&1
 	check "crashed worker restarted" curl -fsS -m 10 "http://127.0.0.1:$((3000 + CRASH_NODE))/cluster" -o /dev/null
 fi
