@@ -46,6 +46,7 @@ pub mod keys;
 pub mod records;
 pub mod rpc;
 pub mod scheduler;
+pub mod wasm_runtime;
 pub mod worker;
 
 // The submodule split is an internal layering; `crate::tasks::X` stays the
@@ -65,8 +66,11 @@ pub use records::{
 pub const MAX_TASK_ATTEMPTS: u32 = 3;
 
 /// Hard cap on one stored task payload, enforced at every enqueue door
-/// (HTTP and task RPC). Wasm tasks carry the handler MODULE inside the
+/// (HTTP and task RPC). Wasm tasks may carry the handler MODULE inside the
 /// payload, and every payload byte is replicated through the raft log and
 /// into snapshots on all nodes — oversized modules must be rejected up
-/// front rather than degrade the whole log.
+/// front rather than degrade the whole log. Modules bigger than this cap
+/// belong in the docker-like module store (`wasm_runtime::WasmModuleStore`):
+/// deploy the `.wasm` file to the workers and enqueue a tiny `module_file`
+/// reference instead.
 pub const MAX_TASK_PAYLOAD_BYTES: usize = 256 * 1024;

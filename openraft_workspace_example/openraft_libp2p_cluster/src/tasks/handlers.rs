@@ -28,6 +28,7 @@ use crate::{
     TaskRecord,
     rpc::ControlNodes,
     scheduler::current_unix_secs,
+    wasm_runtime,
     worker::{TASK_EXECUTION_TIMEOUT, submit_command, submit_reply},
   },
   types_kv::TaskRequest as StateCommand,
@@ -530,38 +531,51 @@ impl TaskHandler for SleepHandler {
   }
 }
 
-/// The handler function stored as data (the "handler as data" design from
-/// `docs/handler-as-data-research.md`): the task carries a WebAssembly
-/// module — WAT text or a base64 wasm binary — so the PROCESSING LOGIC
-/// itself is replicated through the raft log alongside the arguments.
+/// The handler function stored as DATA or as a FILE:
 ///
-/// Execution runs on the WASI 0.2 (preview 2) COMPONENT runtime
-/// (`wasmtime_wasi::p2`, `wasi:cli/run` command world). Native p2
-/// components run directly; classic p1 core modules (including hand-written
-/// WAT importing `wasi_snapshot_preview1`) are wrapped with wasmtime's
-/// official preview1 command adapter at load time, so every guest flows
-/// through the single p2 path. Hardened with the fuel budget from
-/// `wasmtime_workspace_example/wasmtime_sandbox_limits`: the guest gets
-/// argv/env, its stdout is captured (bounded) as the task result, and a
-/// fuel limit terminates runaway modules deterministically — execution
-/// stays on the worker, never inside `apply()`.
+/// - Code-as-data: the task carries the WebAssembly module itself — WAT text (`module_wat`) or a
+///   base64 wasm binary (`module_b64`) — so the processing logic is replicated through the raft log
+///   alongside the arguments.
+/// - Code-as-file (docker-like): the task carries only a `module_file` reference into the worker's
+///   [`wasm_runtime::WasmModuleStore`] directory — the module is a `.wasm`/`.wat` file deployed
+///   like a docker image, and the raft log stays small. An optional `module_sha256` pins the file's
+///   content digest (docker digest-pinning) so a swapped file is refused instead of silently
+///   executed.
+///
+/// Execution goes through the engine-agnostic
+/// [`wasm_runtime::WasmRuntime`] trait (selected via `WASM_RUNTIME`, today
+/// wasmtime's WASI p2 component runtime): the guest gets argv/env, its
+/// stdout is captured (bounded) as the task result, and a fuel budget
+/// terminates runaway modules deterministically — execution stays on the
+/// worker, never inside `apply()`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmExec {
   /// Human-readable WAT text (core module or component syntax).
-  /// Exactly one of `module_wat` / `module_b64`.
+  /// Exactly one of `module_wat` / `module_b64` / `module_file`.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module_wat: Option<String>,
   /// Base64-encoded wasm binary: a p2 component (wasm32-wasip2 output) or
   /// a p1 core module (wasm32-wasip1) — both are accepted.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module_b64: Option<String>,
+  /// Bare file name of a module in the worker's module store directory
+  /// (`WASM_MODULES_DIR`, default `wasm_modules/`); `<name>`, `<name>.wasm`
+  /// and `<name>.wat` are tried in that order. Path separators and `..`
+  /// are rejected.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module_file: Option<String>,
+  /// Optional content-digest pin (hex sha256 of the module bytes, with or
+  /// without a `sha256:` prefix). Execution is refused on mismatch.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub module_sha256: Option<String>,
   /// argv[1..] for the guest (argv[0] is always "task.wasm").
   #[serde(default)]
   pub args: Vec<String>,
   /// Environment variables for the guest.
   #[serde(default)]
   pub env: std::collections::BTreeMap<String, String>,
-  /// Display name for lists/logs (defaults to the module's content hash).
+  /// Display name for lists/logs (defaults to the file reference or the
+  /// module's content hash).
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub name: Option<String>,
 }
@@ -571,176 +585,55 @@ impl WasmExec {
     if let Some(name) = &self.name {
       return name.clone();
     }
+    if let Some(file) = &self.module_file {
+      return format!("file:{file}");
+    }
     match self.module_source() {
-      Ok(bytes) => format!("sha256:{}", &to_hex(&Sha256::digest(&bytes))[.. 12]),
+      Ok(bytes) => format!("sha256:{}", &wasm_runtime::module_hash(&bytes)[.. 12]),
       Err(_) => "<invalid module>".to_string(),
     }
   }
 
-  /// Raw module bytes: WAT text as-is (wasmtime's `Module::new` accepts
-  /// both text and binary), or the decoded base64 binary.
+  /// Raw module bytes from exactly one source: WAT text as-is, the decoded
+  /// base64 binary, or the referenced file in the module store. Verifies
+  /// the `module_sha256` digest pin when present.
   fn module_source(&self) -> Result<Vec<u8>, String> {
-    match (&self.module_wat, &self.module_b64) {
-      (Some(wat), None) => Ok(wat.clone().into_bytes()),
-      (None, Some(b64)) => {
+    let bytes = match (&self.module_wat, &self.module_b64, &self.module_file) {
+      (Some(wat), None, None) => wat.clone().into_bytes(),
+      (None, Some(b64), None) => {
         use base64::Engine as _;
         base64::engine::general_purpose::STANDARD
           .decode(b64)
-          .map_err(|err| format!("decode module_b64: {err}"))
+          .map_err(|err| format!("decode module_b64: {err}"))?
       }
-      (Some(_), Some(_)) => Err("set exactly one of module_wat / module_b64, not both".to_string()),
-      (None, None) => Err("wasm task needs module_wat or module_b64".to_string()),
+      (None, None, Some(file)) => wasm_runtime::WasmModuleStore::from_env().load(file)?,
+      (None, None, None) => {
+        return Err("wasm task needs module_wat, module_b64 or module_file".to_string());
+      }
+      _ => {
+        return Err(
+          "set exactly one of module_wat / module_b64 / module_file, not several".to_string(),
+        );
+      }
+    };
+
+    if let Some(pin) = &self.module_sha256 {
+      let expected = pin.strip_prefix("sha256:").unwrap_or(pin).to_lowercase();
+      let actual = wasm_runtime::module_hash(&bytes);
+      if actual != expected {
+        return Err(format!(
+          "module digest mismatch: payload pins sha256:{expected}, module is sha256:{actual}"
+        ));
+      }
     }
+    Ok(bytes)
   }
 }
 
-/// Fuel budget per execution. Bounds runaway guests deterministically
-/// (an infinite loop traps instead of eating the 30s execution timeout);
-/// generous enough for demo workloads (~hundreds of millions of ops).
-pub const WASM_FUEL_LIMIT: u64 = 500_000_000;
-/// Captured-stdout cap; a guest writing past it traps (bounded results).
-const WASM_STDOUT_CAPACITY: usize = 64 * 1024;
-
-/// One shared engine (fuel metering on); components are compiled once per
-/// content hash and cached, so repeated tasks reuse the compilation.
-fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
-  static ENGINE: std::sync::OnceLock<Result<wasmtime::Engine, String>> = std::sync::OnceLock::new();
-  ENGINE
-    .get_or_init(|| {
-      let mut config = wasmtime::Config::new();
-      config.consume_fuel(true);
-      wasmtime::Engine::new(&config).map_err(|err| format!("create wasm engine: {err}"))
-    })
-    .as_ref()
-    .map_err(Clone::clone)
-}
-
-/// Per-execution store state for the p2 WASI host (the `WasiView` pattern
-/// from `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade`).
-struct WasmHostState {
-  wasi: wasmtime_wasi::WasiCtx,
-  table: wasmtime_wasi::ResourceTable,
-}
-
-impl wasmtime_wasi::WasiView for WasmHostState {
-  fn ctx(&mut self) -> wasmtime_wasi::WasiCtxView<'_> {
-    wasmtime_wasi::WasiCtxView {
-      ctx: &mut self.wasi,
-      table: &mut self.table,
-    }
-  }
-}
-
-/// One shared component linker with the full p2 WASI host wired in; shared
-/// across executions (each execution gets its own Store).
-fn wasm_linker() -> Result<&'static wasmtime::component::Linker<WasmHostState>, String> {
-  static LINKER: std::sync::OnceLock<Result<wasmtime::component::Linker<WasmHostState>, String>> =
-    std::sync::OnceLock::new();
-  LINKER
-    .get_or_init(|| {
-      let engine = wasm_engine()?;
-      let mut linker = wasmtime::component::Linker::new(engine);
-      wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
-        .map_err(|err| format!("link p2 wasi: {err}"))?;
-      Ok(linker)
-    })
-    .as_ref()
-    .map_err(Clone::clone)
-}
-
-/// True when the binary is a component (layer field 1) rather than a core
-/// module (layer 0). Header: `\0asm` + version u16 + layer u16.
-fn is_component_binary(bytes: &[u8]) -> bool {
-  bytes.len() >= 8 && bytes[0 .. 4] == *b"\0asm" && bytes[6 .. 8] == [0x01, 0x00]
-}
-
-/// The handler function stored as data in wasmtime (p2 component pattern
-/// from `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade/src/wasm_rule.rs`).
-///
-/// Stores the compiled [`wasmtime::component::Component`] — the expensive
-/// part — so repeated tasks with the same module bytes skip compilation.
-/// Command components are one-shot (the Store is consumed after one `run`),
-/// so Store/instance are created per execution.
-pub struct WasmHandler {
-  component: wasmtime::component::Component,
-}
-
-impl WasmHandler {
-  /// Normalize a WASM source (WAT text, core-module binary, or component
-  /// binary) into p2 component bytes: components pass through; p1 core
-  /// modules are wrapped with wasmtime's official preview1 command adapter
-  /// so they run on the same p2 runtime.
-  pub fn componentize(source: &[u8]) -> Result<Vec<u8>, String> {
-    // `wat::parse_bytes` is a no-op for binaries and assembles WAT text
-    // (both `(module ...)` and `(component ...)` syntax).
-    let binary = wat::parse_bytes(source)
-      .map_err(|err| format!("parse wasm source: {err}"))?
-      .into_owned();
-    if is_component_binary(&binary) {
-      return Ok(binary);
-    }
-    wit_component::ComponentEncoder::default()
-      .module(&binary)
-      .map_err(|err| format!("read core wasm module: {err}"))?
-      .adapter(
-        "wasi_snapshot_preview1",
-        wasi_preview1_component_adapter_provider::WASI_SNAPSHOT_PREVIEW1_COMMAND_ADAPTER,
-      )
-      .map_err(|err| format!("attach preview1 adapter: {err}"))?
-      .validate(true)
-      .encode()
-      .map_err(|err| format!("componentize p1 module: {err}"))
-  }
-
-  /// Load a WASM source and compile it into a runnable command component.
-  /// It is NOT instantiated here — that happens per-execution.
-  fn load(engine: &wasmtime::Engine, source: &[u8]) -> Result<Self, String> {
-    let component_bytes = Self::componentize(source)?;
-    let component = wasmtime::component::Component::new(engine, &component_bytes)
-      .map_err(|err| format!("compile wasm component: {err}"))?;
-    Ok(Self { component })
-  }
-}
-
-/// Cache capacity: compiled modules are a few hundred KB each; a stream of
-/// distinct modules must not grow worker memory without bound.
-const WASM_HANDLER_CACHE_CAP: usize = 64;
-
-/// Bounded FIFO cache of loaded WASM handlers, keyed by module content
-/// hash. Same module bytes → same hash → reuse compiled Module; when full,
-/// the oldest entry is evicted.
-#[derive(Default)]
-struct WasmHandlerCache {
-  handlers: std::collections::HashMap<String, WasmHandler>,
-  order: std::collections::VecDeque<String>,
-}
-
-impl WasmHandlerCache {
-  fn get(&self, hash: &str) -> Option<wasmtime::component::Component> {
-    self.handlers.get(hash).map(|h| h.component.clone())
-  }
-
-  fn insert(&mut self, hash: String, handler: WasmHandler) {
-    if self.handlers.contains_key(&hash) {
-      return; // lost a compile race; keep the existing entry
-    }
-    while self.handlers.len() >= WASM_HANDLER_CACHE_CAP {
-      let Some(evicted) = self.order.pop_front() else {
-        break;
-      };
-      self.handlers.remove(&evicted);
-    }
-    self.order.push_back(hash.clone());
-    self.handlers.insert(hash, handler);
-  }
-}
-
-fn wasm_handler_cache() -> &'static std::sync::Mutex<WasmHandlerCache> {
-  static CACHE: std::sync::OnceLock<std::sync::Mutex<WasmHandlerCache>> =
-    std::sync::OnceLock::new();
-  CACHE.get_or_init(Default::default)
-}
-
+/// Executes [`WasmExec`] payloads on the engine selected by `WASM_RUNTIME`
+/// (see [`wasm_runtime::selected_runtime`]). Holding the engine as a trait
+/// object keeps this handler engine-agnostic: a future wasmer backend plugs
+/// in through the registry without touching this code.
 pub struct WasmExecHandler;
 
 #[async_trait::async_trait]
@@ -753,117 +646,33 @@ impl TaskHandler for WasmExecHandler {
     record: &TaskRecord,
     wasm: &WasmExec,
   ) -> Result<Option<String>, String> {
+    let runtime = wasm_runtime::selected_runtime()?;
     let source = wasm.module_source()?;
-    let module_hash = to_hex(&Sha256::digest(&source));
-    let args = wasm.args.clone();
-    let env: Vec<(String, String)> = wasm.env.clone().into_iter().collect();
+    let module_hash = wasm_runtime::module_hash(&source);
+    let invocation = wasm_runtime::WasmInvocation {
+      args: wasm.args.clone(),
+      env: wasm.env.clone().into_iter().collect(),
+      fuel_limit: Some(wasm_runtime::WASM_FUEL_LIMIT),
+    };
     tracing::info!(
       task_id = %record.id,
+      runtime = runtime.name(),
       module_hash = %module_hash[.. 12],
       module_bytes = source.len(),
       "executing wasm task"
     );
 
-    // Wasm execution is CPU-bound and the WASI p1 host calls are sync:
-    // run on the blocking pool; the fuel budget bounds the runtime.
-    let outcome = tokio::task::spawn_blocking(move || -> Result<(String, u64), String> {
-      let engine = wasm_engine()?;
+    // Wasm execution is CPU-bound and the guest host calls are sync: run on
+    // the blocking pool; the fuel budget bounds the runtime.
+    let outcome = tokio::task::spawn_blocking(move || runtime.execute(&source, invocation))
+      .await
+      .map_err(|err| format!("wasm worker panicked: {err}"))??;
 
-      // Get or create the WasmHandler: the first task with a given module
-      // compiles it (componentize + cranelift codegen — the expensive
-      // part); subsequent tasks with the same module bytes reuse the
-      // compiled Component. Component is Arc-backed so clone is cheap.
-      // Compilation happens OUTSIDE the cache lock so a slow compile
-      // never serializes other wasm executions; a concurrent duplicate
-      // compile just loses the insert race.
-      let cached = wasm_handler_cache()
-        .lock()
-        .map_err(|_| "wasm handler cache poisoned".to_string())?
-        .get(&module_hash);
-      let component = match cached {
-        Some(component) => {
-          tracing::debug!(
-            module_hash = %module_hash[.. 12],
-            "reusing cached wasm handler (compiled component)"
-          );
-          component
-        }
-        None => {
-          tracing::debug!(
-            module_hash = %module_hash[.. 12],
-            "compiling and caching new wasm handler"
-          );
-          let handler = WasmHandler::load(engine, &source)
-            .map_err(|err| format!("load wasm handler: {err}"))?;
-          let component = handler.component.clone();
-          wasm_handler_cache()
-            .lock()
-            .map_err(|_| "wasm handler cache poisoned".to_string())?
-            .insert(module_hash.clone(), handler);
-          component
-        }
-      };
-
-      // Fresh p2 WASI context + Store per execution; the linker (with the
-      // full WASI host) and the compiled component are shared.
-      let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
-      let mut argv = vec!["task.wasm".to_string()];
-      argv.extend(args);
-      let wasi = wasmtime_wasi::WasiCtx::builder()
-        .stdout(stdout.clone())
-        .args(&argv)
-        .envs(&env)
-        .build();
-
-      let mut store = wasmtime::Store::new(
-        engine,
-        WasmHostState {
-          wasi,
-          table: wasmtime_wasi::ResourceTable::new(),
-        },
-      );
-      store
-        .set_fuel(WASM_FUEL_LIMIT)
-        .map_err(|err| format!("set wasm fuel: {err}"))?;
-
-      let command = wasmtime_wasi::p2::bindings::sync::Command::instantiate(
-        &mut store,
-        &component,
-        wasm_linker()?,
-      )
-      .map_err(|err| format!("instantiate wasm component: {err}"))?;
-
-      match command.wasi_cli_run().call_run(&mut store) {
-        Ok(Ok(())) => {}
-        Ok(Err(())) => return Err("wasm command run returned failure".to_string()),
-        Err(err) => {
-          // `exit(n)` surfaces as an I32Exit in the error chain; 0 is
-          // success, anything else is a failure.
-          let exit = err
-            .chain()
-            .find_map(|cause| cause.downcast_ref::<wasmtime_wasi::I32Exit>());
-          match exit {
-            Some(wasmtime_wasi::I32Exit(0)) => {}
-            Some(wasmtime_wasi::I32Exit(code)) => {
-              return Err(format!("wasm module exited with code {code}"));
-            }
-            None => return Err(format!("wasm execution trapped: {err}")),
-          }
-        }
-      }
-
-      let fuel_used = WASM_FUEL_LIMIT.saturating_sub(store.get_fuel().unwrap_or(0));
-      let output = String::from_utf8_lossy(&stdout.contents()).into_owned();
-      Ok((output, fuel_used))
-    })
-    .await
-    .map_err(|err| format!("wasm worker panicked: {err}"))?;
-
-    let (output, fuel_used) = outcome?;
     let result = sonic_rs::to_string(&sonic_rs::json!({
-      "stdout": output,
-      "fuel_used": fuel_used,
+      "stdout": outcome.stdout,
+      "fuel_used": outcome.fuel_used,
       "module": wasm.display_name(),
+      "runtime": runtime.name(),
     }))
     .map_err(|err| format!("encode task result: {err}"))?;
     Ok(Some(result))
@@ -930,6 +739,8 @@ mod tests {
       TaskPayload::Wasm(WasmExec {
         module_wat: Some("(module)".to_string()),
         module_b64: None,
+        module_file: None,
+        module_sha256: None,
         args: vec!["x".to_string()],
         env: Default::default(),
         name: Some("noop".to_string()),
@@ -1015,6 +826,8 @@ mod tests {
     let payload = TaskPayload::Wasm(WasmExec {
       module_wat: Some(HELLO_WAT.to_string()),
       module_b64: None,
+      module_file: None,
+      module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
       name: Some("hello".to_string()),
@@ -1038,14 +851,16 @@ mod tests {
   #[tokio::test]
   async fn wasm_component_binary_runs_directly() {
     use base64::Engine as _;
-    let component = WasmHandler::componentize(HELLO_WAT.as_bytes()).expect("componentize");
+    let component = wasm_runtime::componentize(HELLO_WAT.as_bytes()).expect("componentize");
     assert!(
-      is_component_binary(&component),
+      wasm_runtime::is_component_binary(&component),
       "componentize must produce a component binary"
     );
     let payload = TaskPayload::Wasm(WasmExec {
       module_wat: None,
       module_b64: Some(base64::engine::general_purpose::STANDARD.encode(component)),
+      module_file: None,
+      module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
       name: Some("hello-component".to_string()),
@@ -1075,6 +890,8 @@ mod tests {
     let payload = TaskPayload::Wasm(WasmExec {
       module_wat: Some(wat),
       module_b64: None,
+      module_file: None,
+      module_sha256: None,
       args: vec!["1000".to_string()],
       env: Default::default(),
       name: Some("prime-count".to_string()),
@@ -1104,6 +921,8 @@ mod tests {
     let payload = TaskPayload::Wasm(WasmExec {
       module_wat: Some(wat),
       module_b64: None,
+      module_file: None,
+      module_sha256: None,
       args: vec!["12", "7", "42", "19"]
         .into_iter()
         .map(String::from)
@@ -1144,6 +963,8 @@ mod tests {
     let payload = TaskPayload::Wasm(WasmExec {
       module_wat: Some(spin_wat.to_string()),
       module_b64: None,
+      module_file: None,
+      module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
       name: Some("spin".to_string()),
@@ -1173,6 +994,8 @@ mod tests {
     let payload = TaskPayload::Wasm(WasmExec {
       module_wat: Some(wat.to_string()),
       module_b64: None,
+      module_file: None,
+      module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
       name: None,
@@ -1194,9 +1017,76 @@ mod tests {
       .await
       .unwrap_err();
     assert!(
-      err.contains("module_wat or module_b64"),
+      err.contains("module_wat, module_b64 or module_file"),
       "unexpected error: {err}"
     );
+  }
+
+  /// Docker-like code-as-file: the module lives as a file in the store
+  /// directory; the payload carries only its name (plus an optional digest
+  /// pin). Store dir, execution, and a swapped-file digest mismatch are all
+  /// exercised in ONE test so the env var is touched from a single place.
+  #[tokio::test]
+  async fn wasm_module_file_runs_from_store_and_digest_pin_protects() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.wat"), HELLO_WAT).unwrap();
+    // SAFETY: single-threaded moment for this test; no other test reads
+    // WASM_MODULES_DIR (module_file is exercised only here).
+    unsafe { std::env::set_var(wasm_runtime::WASM_MODULES_DIR_ENV, dir.path()) };
+
+    let payload = TaskPayload::Wasm(WasmExec {
+      module_wat: None,
+      module_b64: None,
+      module_file: Some("hello".to_string()),
+      module_sha256: Some(wasm_runtime::module_hash(HELLO_WAT.as_bytes())),
+      args: Vec::new(),
+      env: Default::default(),
+      name: None,
+    })
+    .encode()
+    .unwrap();
+    // The payload is tiny — the raft log carries the reference, not the code.
+    assert!(payload.len() < 256, "reference payload should stay small");
+    let result = execute_payload(&TaskCtx::detached(), &record(&payload))
+      .await
+      .unwrap()
+      .unwrap();
+    assert!(
+      result.contains("hello from wasm task"),
+      "stdout missing from result: {result}"
+    );
+    assert!(
+      result.contains("file:hello"),
+      "file label missing: {result}"
+    );
+
+    // Same reference with a stale digest pin: the swapped module is refused.
+    let pinned = TaskPayload::Wasm(WasmExec {
+      module_wat: None,
+      module_b64: None,
+      module_file: Some("hello".to_string()),
+      module_sha256: Some(format!("sha256:{}", wasm_runtime::module_hash(b"other"))),
+      args: Vec::new(),
+      env: Default::default(),
+      name: None,
+    })
+    .encode()
+    .unwrap();
+    let err = execute_payload(&TaskCtx::detached(), &record(&pinned))
+      .await
+      .unwrap_err();
+    assert!(err.contains("digest mismatch"), "unexpected error: {err}");
+  }
+
+  #[tokio::test]
+  async fn wasm_with_two_module_sources_is_rejected() {
+    let err = execute_payload(
+      &TaskCtx::detached(),
+      &record(r#"{"kind":"wasm","module_wat":"(module)","module_file":"hello"}"#),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("exactly one of"), "unexpected error: {err}");
   }
 
   #[tokio::test]

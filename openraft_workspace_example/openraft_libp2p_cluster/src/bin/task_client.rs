@@ -68,7 +68,8 @@ enum Cmd {
   /// Enqueue task(s) of any kind from a raw kind-tagged JSON payload, e.g.
   /// '{"kind":"digest","data":"abc","iterations":10000}'. Kinds are the
   /// TaskPayload enum variants: email, webhook, digest, kv_set, sleep, wasm
-  /// (wasm carries the handler itself: module_wat or module_b64 + args/env).
+  /// (wasm carries the handler itself — module_wat/module_b64 — or a
+  /// docker-like module_file store reference, + args/env).
   PushTask {
     /// Kind-tagged JSON payload (a TaskPayload variant). Prefix with `@` to
     /// read the JSON from a file (`@path`) or stdin (`@-`); this is the only
@@ -87,24 +88,37 @@ enum Cmd {
     #[arg(long, default_value_t = 0)]
     delay_secs: u64,
   },
-  /// Enqueue a wasm task whose HANDLER travels inside the payload
-  /// (code-as-data): the module file — WAT text or a compiled wasm
-  /// binary — is read here and stored with the task in the raft log; a
-  /// worker executes it on the WASI p2 component runtime (wasmtime) and
-  /// stores its stdout as the task result.
+  /// Enqueue a wasm task. The handler travels either INSIDE the payload
+  /// (code-as-data: --wat-file/--wasm-file read here and stored with the
+  /// task in the raft log) or as a docker-like FILE REFERENCE
+  /// (code-as-file: --module-file names a .wasm/.wat module already
+  /// deployed in the workers' module store dir, WASM_MODULES_DIR); a
+  /// worker executes it on the configured WASM runtime (WASM_RUNTIME,
+  /// default wasmtime's WASI p2 component runtime) and stores its stdout
+  /// as the task result.
   PushWasm {
     /// Human-readable WAT text module file.
     #[arg(
       long,
-      conflicts_with = "wasm_file",
-      required_unless_present = "wasm_file"
+      conflicts_with_all = ["wasm_file", "module_file"],
+      required_unless_present_any = ["wasm_file", "module_file"]
     )]
     wat_file: Option<PathBuf>,
     /// Compiled wasm binary module file (base64-encoded into the
     /// payload): a p2 component (wasm32-wasip2) or a p1 core module
     /// (wasm32-wasip1) — p1 modules are auto-adapted server-side.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "module_file")]
     wasm_file: Option<PathBuf>,
+    /// Bare name of a module in the workers' module store directory
+    /// (docker-like: the payload carries only this reference, so the
+    /// module must already be deployed as a file on the worker nodes).
+    #[arg(long)]
+    module_file: Option<String>,
+    /// Hex sha256 digest pin for the module bytes (docker digest-pinning;
+    /// mainly for --module-file): the worker refuses to run a module
+    /// whose content does not match.
+    #[arg(long)]
+    module_sha256: Option<String>,
     /// Display name for lists (defaults to the module file stem).
     #[arg(long)]
     name: Option<String>,
@@ -528,32 +542,49 @@ async fn main() -> anyhow::Result<()> {
     Cmd::PushWasm {
       wat_file,
       wasm_file,
+      module_file,
+      module_sha256,
       name,
       args,
       env,
       idem,
       delay_secs,
     } => {
-      let (module_wat, module_b64, module_path) = match (&wat_file, &wasm_file) {
-        (Some(path), None) => {
+      // `shown` is the operator-facing module label; `local_bytes` is only
+      // known for code-as-data sources read here (a store reference is
+      // resolved on the worker).
+      let (module_wat, module_b64, shown, local_bytes) = match (&wat_file, &wasm_file, &module_file)
+      {
+        (Some(path), None, None) => {
           let wat = std::fs::read_to_string(path)
             .with_context(|| format!("read wat module {}", path.display()))?;
-          (Some(wat), None, path.clone())
+          let bytes = wat.len() as u64;
+          (Some(wat), None, path.display().to_string(), Some(bytes))
         }
-        (None, Some(path)) => {
+        (None, Some(path), None) => {
           use base64::Engine as _;
           let bytes =
             std::fs::read(path).with_context(|| format!("read wasm module {}", path.display()))?;
+          let len = bytes.len() as u64;
           let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-          (None, Some(b64), path.clone())
+          (None, Some(b64), path.display().to_string(), Some(len))
         }
-        _ => return Err(anyhow!("pass exactly one of --wat-file / --wasm-file")),
+        (None, None, Some(store_name)) => (None, None, format!("store:{store_name}"), None),
+        _ => {
+          return Err(anyhow!(
+            "pass exactly one of --wat-file / --wasm-file / --module-file"
+          ));
+        }
       };
-      let name = name.or_else(|| {
-        module_path
-          .file_stem()
-          .map(|stem| stem.to_string_lossy().into_owned())
-      });
+      let name = name
+        .or_else(|| {
+          wat_file
+            .as_deref()
+            .or(wasm_file.as_deref())
+            .and_then(|path| path.file_stem())
+            .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .or_else(|| module_file.clone());
       let mut env_pairs = BTreeMap::new();
       for pair in env {
         let (key, value) = pair
@@ -565,6 +596,8 @@ async fn main() -> anyhow::Result<()> {
       let payload = TaskPayload::Wasm(WasmExec {
         module_wat,
         module_b64,
+        module_file,
+        module_sha256,
         args,
         env: env_pairs,
         name,
@@ -577,10 +610,10 @@ async fn main() -> anyhow::Result<()> {
         .await?;
       println!(
         "pushed wasm module={} bytes={} task_id={} deduplicated={}",
-        module_path.display(),
-        std::fs::metadata(&module_path)
-          .map(|m| m.len())
-          .unwrap_or(0),
+        shown,
+        local_bytes
+          .map(|len| len.to_string())
+          .unwrap_or_else(|| "-".to_string()),
         response.task_id.as_deref().unwrap_or("-"),
         response.deduplicated.unwrap_or(false)
       );
