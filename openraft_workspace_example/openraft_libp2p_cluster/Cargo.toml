@@ -65,6 +65,10 @@ petgraph = "0.8.3"
 prost = "0.14.4"
 redis = { version = "1.4.1", features = ["aio", "tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
+# Backoff delay strategies for task retries. Default `random` feature is off:
+# retry jitter must be deterministic (hashed), never sampled, so raft
+# re-proposals stay idempotent.
+retry = { version = "2.2.0", default-features = false }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 sha2 = "0.11"
@@ -94,7 +98,6 @@ tokio = { version = "1.53", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.24.0", features = ["v7"] }
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
 wasi-preview1-component-adapter-provider = "46.0.1"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
@@ -102,14 +105,11 @@ wasi-preview1-component-adapter-provider = "46.0.1"
 wasmtime = "46.0.1"
 wasmtime-wasi = "46.0.1"
 wat = "1.253.0"
+wit-component = "0.253"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.
 zstd = "0.13"
-wit-component = "0.253"
-# Backoff delay strategies for task retries. Default `random` feature is off:
-# retry jitter must be deterministic (hashed), never sampled, so raft
-# re-proposals stay idempotent.
-retry = { version = "2.2.0", default-features = false }
 
 [build-dependencies]
 prost-build = "0.14.4"

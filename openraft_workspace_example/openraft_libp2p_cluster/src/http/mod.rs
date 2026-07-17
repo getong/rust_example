@@ -24,7 +24,7 @@ use crate::{
   },
   signal::ShutdownRx,
   sqlite_cache::SqliteCache,
-  tasks::rpc::ControlNodes,
+  tasks::api::TaskApi,
 };
 
 pub mod cluster;
@@ -119,7 +119,9 @@ pub struct AppState {
   pub kv_client: KvClient,
   pub libp2p_client: Libp2pClient,
   pub default_group: GroupId,
-  pub task_frontend: TaskFrontend,
+  /// The unified task-domain facade (octopii's `OctopiiNode` pattern):
+  /// enqueue / replay / list / metrics, hiding the control-vs-worker split.
+  pub task_api: TaskApi,
   pub sqlite_cache: Option<SqliteCache>,
   /// Injected raft group registry: handlers resolve groups through this
   /// instead of the process-wide global, so tests can serve an isolated set
@@ -128,17 +130,6 @@ pub struct AppState {
   /// Short-TTL cache for `/graph*` snapshots (bounds the remote-probe RPC
   /// fan-out under auto-refresh).
   pub graph_cache: Arc<graph::GraphSnapshotCache>,
-}
-
-/// How this node reaches the replicated task queue.
-#[derive(Clone)]
-pub enum TaskFrontend {
-  /// Control node: submit directly through the local raft handle.
-  Control,
-  /// Worker node: go through the tarpc TaskRpc protocol to control nodes.
-  Worker {
-    control_nodes: Arc<tokio::sync::Mutex<ControlNodes>>,
-  },
 }
 
 pub async fn serve(

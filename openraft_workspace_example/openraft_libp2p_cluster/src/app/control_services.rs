@@ -10,10 +10,11 @@ use super::*;
 use crate::{
   GroupHandleMap, GroupId, NodeId,
   constants::{SERVICE_OPENRAFT_LEADER_WORKER, SERVICE_SQLITE_CACHE_FLUSHER},
-  http, leader_controller,
+  leader_controller,
   membership_guard::MembershipGuardConfig,
   network::{swarm::KvClient, transport::Libp2pNetworkFactory},
   sqlite_cache::{self, SqliteCache},
+  tasks::api::TaskFrontend,
 };
 
 pub(crate) fn spawn_openraft_leader_controller(
@@ -66,7 +67,7 @@ pub(crate) async fn run_control_services(
     &runtime.libp2p,
     runtime.registry.clone(),
     sqlite_cache.clone(),
-    http::TaskFrontend::Control,
+    TaskFrontend::Control,
   );
 
   let mut shutdown = linked_shutdown(shutdown_rx_for_ordering.clone());

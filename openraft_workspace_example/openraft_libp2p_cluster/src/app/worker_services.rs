@@ -10,7 +10,7 @@ use super::*;
 use crate::{
   NodeId,
   constants::SERVICE_TASK_WORKER,
-  groups, http,
+  groups,
   network::{
     rpc::{AddLearnerRequest, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     transport::Libp2pNetworkFactory,
@@ -137,7 +137,7 @@ pub(crate) async fn run_worker_services_until_promotion(
     &runtime.libp2p,
     runtime.registry.clone(),
     None,
-    http::TaskFrontend::Worker {
+    tasks::api::TaskFrontend::Worker {
       control_nodes: shared_control_nodes,
     },
   );

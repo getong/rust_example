@@ -390,9 +390,11 @@ pub(crate) fn build_http_state(
   libp2p: &Libp2pHandles,
   registry: crate::GroupRegistry,
   sqlite_cache: Option<SqliteCache>,
-  task_frontend: http::TaskFrontend,
+  task_frontend: crate::tasks::api::TaskFrontend,
 ) -> http::AppState {
   let default_group = default_openraft_group_id(&registry);
+  let task_api =
+    crate::tasks::api::TaskApi::new(libp2p.network.clone(), registry.clone(), task_frontend);
 
   http::AppState {
     registry,
@@ -405,7 +407,7 @@ pub(crate) fn build_http_state(
     kv_client: libp2p.kv_client.clone(),
     libp2p_client: libp2p.client.clone(),
     default_group,
-    task_frontend,
+    task_api,
     sqlite_cache,
     graph_cache: Default::default(),
   }
