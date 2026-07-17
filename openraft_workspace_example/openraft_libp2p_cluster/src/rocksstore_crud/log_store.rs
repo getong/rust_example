@@ -13,11 +13,17 @@ use openraft::{
   entry::RaftEntry,
   storage::{IOFlushed, RaftLogStorage},
 };
+use rayon::prelude::*;
 use rocksdb::{ColumnFamily, DB, Direction, WriteOptions};
 
 const META_CF: &str = "meta";
 const LOGS_CF: &str = "logs";
 const MAX_LOG_READ_PREALLOC: usize = 1024;
+/// Below this many entries a log read deserializes inline: the per-entry
+/// JSON work would not amortize the rayon pool dispatch. Reached mostly by
+/// replication catch-up and the startup integrity scan, where batches are
+/// large and the parallel decode pays off.
+const PAR_DESERIALIZE_MIN: usize = 64;
 
 #[derive(Clone)]
 pub struct RocksLogStore<C>
@@ -175,7 +181,7 @@ where
     };
 
     let start = id_to_bin(start_index);
-    let mut res = Vec::with_capacity(range_len_hint(&range));
+    let mut raw = Vec::with_capacity(range_len_hint(&range));
     let iter = self.db.iterator_cf(
       self.cf_logs(),
       rocksdb::IteratorMode::From(&start, Direction::Forward),
@@ -189,9 +195,12 @@ where
         break;
       }
 
-      let entry: EntryOf<C> = sonic_rs::from_slice(val.as_ref()).map_err(read_logs_err)?;
+      raw.push((id, val));
+    }
 
-      if id != entry.index() {
+    let decode = |(id, val): &(u64, Box<[u8]>)| -> Result<EntryOf<C>, io::Error> {
+      let entry: EntryOf<C> = sonic_rs::from_slice(val.as_ref()).map_err(read_logs_err)?;
+      if *id != entry.index() {
         return Err(io::Error::new(
           io::ErrorKind::InvalidData,
           format!(
@@ -200,10 +209,14 @@ where
           ),
         ));
       }
+      Ok(entry)
+    };
 
-      res.push(entry);
+    if raw.len() < PAR_DESERIALIZE_MIN {
+      raw.iter().map(decode).collect()
+    } else {
+      raw.par_iter().map(decode).collect()
     }
-    Ok(res)
   }
 
   async fn read_vote(&mut self) -> Result<Option<VoteOf<C>>, io::Error> {

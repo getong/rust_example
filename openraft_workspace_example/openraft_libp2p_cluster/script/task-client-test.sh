@@ -20,6 +20,14 @@
 #   6. multi-kind    digest / sleep / kv_set / webhook (task-chaining) pushed
 #                    together → all Done; kinds run side by side, not
 #                    mutually exclusive
+#   6b. rayon bulk   >=PAR_DECODE_MIN_LEN (1024) KV pairs written through
+#      decode        raft → the /cluster full-table scan crosses the rayon
+#                    parallel-decode threshold in KvData::entries() and must
+#                    return every pair byte-exact; the raft log now also
+#                    holds >=PAR_DESERIALIZE_MIN (64) entries, so replication
+#                    catch-up reads take the parallel deserialize path in
+#                    try_get_log_entries; a snapshot publish then round-trips
+#                    the bulk state through the parallel snapshot decode
 #   7. crash drill   (WITH_CRASH=1) kill a worker mid-burst → still all Done,
 #                    then restart it
 #

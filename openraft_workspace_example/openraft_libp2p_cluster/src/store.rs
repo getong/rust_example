@@ -16,6 +16,7 @@ use openraft::{
   storage::{RaftLogStorage, RaftStateMachine},
   type_config::TypeConfigExt,
 };
+use rayon::prelude::*;
 use rocksdb::{ColumnFamilyRef, DB, Options};
 
 use crate::{
@@ -39,6 +40,9 @@ const STORE_CFS: [&str; 4] = ["meta", "sm_meta", SM_DATA_CF, "logs"];
 /// close the gap incrementally and must be reopened against the current SST
 /// set.
 const SECONDARY_REBUILD_GAP: u64 = 8192;
+
+/// Raw key/value pair as yielded by a RocksDB iterator.
+type RawKv = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Debug, Clone)]
 pub struct KvData {
@@ -115,15 +119,10 @@ impl KvData {
       let db = this.synced_db()?;
       let cf = sm_data_cf(&db)?;
       let iter = db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
-      let mut entries = Vec::new();
-      for item in iter {
-        let (key, value) = item.context("iterate rocksdb kv data")?;
-        entries.push((
-          decode_utf8(key.as_ref(), "key")?,
-          decode_utf8(value.as_ref(), "value")?,
-        ));
-      }
-      Ok(entries)
+      let raw: Vec<RawKv> = iter
+        .collect::<Result<_, _>>()
+        .context("iterate rocksdb kv data")?;
+      decode_kv_entries(raw)
     })
     .await
     .context("join rocksdb kv entries task")?;
@@ -141,18 +140,15 @@ impl KvData {
         &cf,
         rocksdb::IteratorMode::From(prefix.as_bytes(), rocksdb::Direction::Forward),
       );
-      let mut entries = Vec::new();
+      let mut raw = Vec::new();
       for item in iter {
         let (key, value) = item.context("iterate rocksdb kv data")?;
         if !key.starts_with(prefix.as_bytes()) {
           break;
         }
-        entries.push((
-          decode_utf8(key.as_ref(), "key")?,
-          decode_utf8(value.as_ref(), "value")?,
-        ));
+        raw.push((key, value));
       }
-      Ok(entries)
+      decode_kv_entries(raw)
     })
     .await
     .context("join rocksdb kv entries_with_prefix task")?;
@@ -351,6 +347,20 @@ fn catch_up(db: &DB) -> anyhow::Result<()> {
 
 fn decode_utf8(bytes: &[u8], what: &str) -> anyhow::Result<String> {
   String::from_utf8(bytes.to_vec()).with_context(|| format!("decode rocksdb kv {what} as utf-8"))
+}
+
+/// Below this many pairs a scan decodes inline; whole-table scans past it
+/// amortize the rayon pool dispatch. RocksDB iteration itself stays
+/// sequential — only the UTF-8 decode fans out.
+const PAR_DECODE_MIN_LEN: usize = 1024;
+
+fn decode_kv_entries(raw: Vec<RawKv>) -> anyhow::Result<Vec<(String, String)>> {
+  let decode = |(key, value): RawKv| Ok((decode_utf8(&key, "key")?, decode_utf8(&value, "value")?));
+  if raw.len() < PAR_DECODE_MIN_LEN {
+    raw.into_iter().map(decode).collect()
+  } else {
+    raw.into_par_iter().map(decode).collect()
+  }
 }
 
 pub async fn open_store<P: AsRef<Path>>(

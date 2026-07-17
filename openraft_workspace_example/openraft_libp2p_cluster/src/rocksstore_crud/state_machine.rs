@@ -22,6 +22,7 @@ use openraft::{
   storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
+use rayon::prelude::*;
 use rocksdb::{DB, WriteOptions};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -43,6 +44,9 @@ const SNAPSHOT_EPOCH_PREFIX: &str = "epoch_";
 /// Snapshot files kept after a successful write; older ones are pruned so
 /// the snapshot directory does not grow without bound.
 const SNAPSHOT_RETAIN_COUNT: usize = 2;
+
+/// Raw key/value pair as yielded by a RocksDB iterator.
+type RawKv = (Box<[u8]>, Box<[u8]>);
 
 /// State machine backed by RocksDB for full persistence.
 /// All application data is stored directly in the `sm_data` column family.
@@ -91,14 +95,20 @@ impl RocksStateMachine {
           .cf_handle(SM_DATA_CF)
           .ok_or_else(|| io::Error::other(format!("column family `{SM_DATA_CF}` not found")))?;
         let iter = db.iterator_cf(cf_data, rocksdb::IteratorMode::Start);
-        let mut map = BTreeMap::new();
-        for item in iter {
-          let (key, value) = item.map_err(|e| io::Error::other(e.to_string()))?;
-          let key = decode_utf8(key.to_vec(), "snapshot key")?;
-          let value = decode_utf8(value.to_vec(), "snapshot value")?;
-          map.insert(key, value);
-        }
-        Ok(map)
+        // RocksDB iteration is inherently sequential; collect the raw bytes
+        // first, then decode them on the rayon pool.
+        let raw: Vec<RawKv> = iter
+          .collect::<Result<_, _>>()
+          .map_err(|e| io::Error::other(e.to_string()))?;
+        raw
+          .into_par_iter()
+          .map(|(key, value)| {
+            Ok((
+              decode_utf8(key.into_vec(), "snapshot key")?,
+              decode_utf8(value.into_vec(), "snapshot value")?,
+            ))
+          })
+          .collect()
       }
     })
     .await??;
@@ -307,14 +317,15 @@ fn decode_utf8(bytes: Vec<u8>, what: &str) -> Result<String, io::Error> {
 fn snapshot_data_to_map(
   data: &[(Vec<u8>, Vec<u8>)],
 ) -> Result<BTreeMap<String, String>, io::Error> {
-  let mut map = BTreeMap::new();
-  for (key, value) in data {
-    map.insert(
-      decode_utf8(key.clone(), "snapshot key")?,
-      decode_utf8(value.clone(), "snapshot value")?,
-    );
-  }
-  Ok(map)
+  data
+    .par_iter()
+    .map(|(key, value)| {
+      Ok((
+        decode_utf8(key.clone(), "snapshot key")?,
+        decode_utf8(value.clone(), "snapshot value")?,
+      ))
+    })
+    .collect()
 }
 
 fn apply_memory_changes(map: &mut BTreeMap<String, String>, changes: Vec<DataChange>) {
@@ -366,35 +377,40 @@ fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, io::Error> {
 }
 
 fn read_latest_snapshot_file(snapshot_dir: &Path) -> Result<Option<SnapshotFile>, io::Error> {
-  let mut latest: Option<SnapshotFile> = None;
-
+  let mut candidates = Vec::new();
   for entry in fs::read_dir(snapshot_dir)? {
-    let entry = entry?;
-    let path = entry.path();
-    if !is_snapshot_candidate(&path) {
-      continue;
-    }
-
-    match read_snapshot_file(&path) {
-      Ok(snapshot_file) => {
-        if latest
-          .as_ref()
-          .is_none_or(|current| snapshot_is_newer(&snapshot_file, current))
-        {
-          latest = Some(snapshot_file);
-        }
-      }
-      Err(err) => {
-        tracing::warn!(
-          path = %path.display(),
-          error = ?err,
-          "skip unreadable persisted rocksdb snapshot"
-        );
-      }
+    let path = entry?.path();
+    if is_snapshot_candidate(&path) {
+      candidates.push(path);
     }
   }
 
-  Ok(latest)
+  // Reading + JSON-decoding each multi-megabyte snapshot file dominates
+  // here; parse the candidates on the rayon pool and keep the newest.
+  // `snapshot_is_newer` is a total order, so the reduction result does not
+  // depend on rayon's split order.
+  Ok(
+    candidates
+      .into_par_iter()
+      .filter_map(|path| match read_snapshot_file(&path) {
+        Ok(snapshot_file) => Some(snapshot_file),
+        Err(err) => {
+          tracing::warn!(
+            path = %path.display(),
+            error = ?err,
+            "skip unreadable persisted rocksdb snapshot"
+          );
+          None
+        }
+      })
+      .reduce_with(|current, candidate| {
+        if snapshot_is_newer(&candidate, &current) {
+          candidate
+        } else {
+          current
+        }
+      }),
+  )
 }
 
 pub(crate) fn read_latest_snapshot_meta(
