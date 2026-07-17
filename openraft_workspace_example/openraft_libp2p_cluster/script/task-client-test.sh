@@ -35,6 +35,7 @@
 #   ./script/task-client-test.sh                        # defaults below
 #   CONTROL_HTTP=127.0.0.1:3001 WORKER_HTTP=127.0.0.1:3006 \
 #     BATCH=6 WITH_CRASH=1 ./script/task-client-test.sh
+#   RAYON_KV_COUNT=2000 ./script/task-client-test.sh    # bigger phase-6b scan
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -366,6 +367,93 @@ report = json.loads(sys.argv[1])
 assert report == {"label": "cluster-run", "count": 4, "sum": 80,
                   "min": 7, "max": 42, "avg": 20}, report
 ' "$stats_out"
+
+echo
+echo "== phase 6b: rayon bulk-decode paths (KV scan past the parallel threshold + snapshot) =="
+# The rocksdb read paths hand decoding to the rayon pool once a scan crosses
+# PAR_DECODE_MIN_LEN (1024 pairs, store.rs) and a log read crosses
+# PAR_DESERIALIZE_MIN (64 entries, log_store.rs). Push enough pairs through
+# raft that every later full scan takes the parallel path, then assert the
+# parallel decode returns the exact key->value mapping the writes proposed —
+# a wrong pairing, ordering, or dropped chunk in the rayon fan-out would
+# show up here as a mismatched or missing key.
+RAYON_KV_COUNT="${RAYON_KV_COUNT:-1100}"
+rayon_prefix="rayon-${RUN_ID}"
+bulk_ok="$(python3 - "$CONTROL_HTTP" "$rayon_prefix" "$RAYON_KV_COUNT" << 'EOF'
+import concurrent.futures, json, sys, urllib.request
+base, prefix, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+
+def write(i):
+    body = json.dumps({
+        "key": f"{prefix}:{i:05d}",
+        "value": f"val-{prefix}-{i:05d}",
+        "group_id": "users",
+    }).encode()
+    req = urllib.request.Request(
+        f"http://{base}/write", data=body,
+        headers={"Content-Type": "application/json"})
+    for _ in range(3):  # a write may land during leader churn; retry it
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                if json.load(resp).get("ok"):
+                    return True
+        except Exception:
+            pass
+    return False
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool:
+    print(sum(pool.map(write, range(count))))
+EOF
+)"
+echo "bulk KV writes acknowledged: ${bulk_ok:-0}/${RAYON_KV_COUNT}"
+check "all ${RAYON_KV_COUNT} bulk KV writes acknowledged" \
+	test "${bulk_ok:-0}" = "$RAYON_KV_COUNT"
+
+# Full-table scan: /cluster kv_data → KvData::entries() → parallel UTF-8
+# decode (the scan now holds >= 1024 pairs). Poll because the serving node
+# may still be applying the last committed entries when the first read runs.
+check "parallel-decoded full scan returns every bulk pair byte-exact" \
+	python3 - "$CONTROL_HTTP" "$rayon_prefix" "$RAYON_KV_COUNT" << 'EOF'
+import json, sys, time, urllib.request
+base, prefix, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+deadline = time.time() + 60
+bad = ["not-read-yet"]
+while time.time() < deadline and bad:
+    try:
+        with urllib.request.urlopen(
+                f"http://{base}/cluster?group_id=users", timeout=30) as resp:
+            pairs = {p["key"]: p["value"] for p in json.load(resp)["kv_data"]}
+    except Exception:
+        time.sleep(0.5)
+        continue
+    bad = [i for i in range(count)
+           if pairs.get(f"{prefix}:{i:05d}") != f"val-{prefix}-{i:05d}"]
+    if bad:
+        time.sleep(0.5)
+assert not bad, f"{len(bad)} pairs wrong/missing, first: {bad[:5]}"
+EOF
+
+# Snapshot round-trip over the bulk-loaded group: building serializes the
+# large state machine, and the receiving side rebuilds its in-memory map
+# through the parallel snapshot_data_to_map path.
+check "snapshot publish accepted for the bulk-loaded group" \
+	bash -c 'curl -fsS -m 30 -X POST "http://$1/sync/snapshot" \
+		-H "Content-Type: application/json" -d "{\"group_id\":\"users\"}" \
+		| python3 -c "import json,sys; assert json.load(sys.stdin)[\"ok\"]"' _ "$CONTROL_HTTP"
+
+# The bulk data must be intact after the snapshot cycle: spot-check the
+# first, a middle, and the last key through the same parallel scan.
+check "bulk pairs survive the snapshot cycle" \
+	python3 - "$CONTROL_HTTP" "$rayon_prefix" "$RAYON_KV_COUNT" << 'EOF'
+import json, sys, urllib.request
+base, prefix, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
+with urllib.request.urlopen(
+        f"http://{base}/cluster?group_id=users", timeout=30) as resp:
+    pairs = {p["key"]: p["value"] for p in json.load(resp)["kv_data"]}
+for i in (0, count // 2, count - 1):
+    key = f"{prefix}:{i:05d}"
+    assert pairs.get(key) == f"val-{prefix}-{i:05d}", (key, pairs.get(key))
+EOF
 
 if [[ "$WITH_CRASH" == "1" ]]; then
 	echo
