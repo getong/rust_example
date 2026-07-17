@@ -9,7 +9,7 @@
 # DB_ROOT defaults to the newest cluster under ${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}.
 # Node conventions must match the ones used by run-20nodes.sh:
 #   P2P_PORT_BASE (4000), HTTP_PORT_BASE (3000), CONSOLE_PORT_BASE (6668),
-#   CONTROL_NODES (5), REDIS_PORT (6380).
+#   MAX_CONTROL_NODES (5, the voter cap), REDIS_PORT (6380).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -18,8 +18,9 @@ WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 
 DB_BASE="${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}"
 DB_ROOT="${DB_ROOT:-}"
-CONTROL_NODES="${CONTROL_NODES:-5}"
-MAX_CONTROL_NODES="${MAX_CONTROL_NODES:-$CONTROL_NODES}"
+# CONTROL_NODES stays supported as an alias: run-20nodes.sh uses it as the
+# voter cap, not as a set of pre-designated control node indices.
+MAX_CONTROL_NODES="${MAX_CONTROL_NODES:-${CONTROL_NODES:-5}}"
 P2P_PORT_BASE="${P2P_PORT_BASE:-4000}"
 HTTP_PORT_BASE="${HTTP_PORT_BASE:-3000}"
 CONSOLE_PORT_BASE="${CONSOLE_PORT_BASE:-6668}"
@@ -154,10 +155,10 @@ restart_node() {
 		--advertise "$advertise"
 	)
 
-	# Control nodes get the redis-backed sqlite cache when redis is reachable,
-	# matching how run-20nodes.sh started them.
-	if ((index <= CONTROL_NODES)) && [[ "$DISABLE_SQLITE_CACHE" != "1" ]] \
-		&& tcp_port_open 127.0.0.1 "$REDIS_PORT"; then
+	# Control membership is decided by the runtime join protocol, not by node
+	# index, so every node gets the redis-backed sqlite cache when redis is
+	# reachable — matching how run-20nodes.sh starts them.
+	if [[ "$DISABLE_SQLITE_CACHE" != "1" ]] && tcp_port_open 127.0.0.1 "$REDIS_PORT"; then
 		cmd+=(--redis-url "$REDIS_URL")
 	else
 		cmd+=(--disable-sqlite-cache)

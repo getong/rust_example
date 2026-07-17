@@ -18,7 +18,7 @@ set -euo pipefail
 
 DB_BASE="${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}"
 DB_ROOT="${DB_ROOT:-}"
-CONTROL_NODES="${CONTROL_NODES:-5}"
+HTTP_PORT_BASE="${HTTP_PORT_BASE:-3000}"
 CRASH_SIGNAL="${CRASH_SIGNAL:-KILL}"
 GRACEFUL_WAIT_SECS="${GRACEFUL_WAIT_SECS:-40}"
 GRACEFUL=0
@@ -142,6 +142,25 @@ node_peer_id() {
 	fi
 }
 
+# Peer ids that are currently OpenRaft voters (leader/follower in any raft
+# group). Control membership is decided at runtime by the join protocol —
+# no fixed node index is a control node — so ask a running node for the
+# actual membership instead of assuming indices.
+openraft_voter_peer_ids() {
+	local index
+	local body
+	for index in $(running_indices); do
+		body="$(curl -fsS -m 3 "http://127.0.0.1:$((HTTP_PORT_BASE + index))/openraft/nodes" 2>/dev/null)" || continue
+		printf '%s' "$body" |
+			grep -o '"node_id":"[^"]*"[^{]*"role":"[^"]*"' |
+			grep -E '"role":"(leader|follower)"' |
+			sed 's/"node_id":"\([^"]*\)".*/\1/' |
+			sort -u
+		return 0
+	done
+	return 1
+}
+
 # Wait for a pid to exit, then confirm the node logged its clean shutdown.
 # $3 = number of log lines that existed before the signal was sent, so we
 # only search the freshly appended region (the log survives restarts).
@@ -176,6 +195,14 @@ VOTERS_STOPPED=0
 declare -a GRACE_PIDS=()
 declare -a GRACE_LOG_LINES=()
 
+# Snapshot the real voter membership while the targets are still running so
+# the quorum warning below reflects which nodes actually are voters.
+VOTER_PEER_IDS="$(openraft_voter_peer_ids || true)"
+VOTER_COUNT=0
+if [[ -n "$VOTER_PEER_IDS" ]]; then
+	VOTER_COUNT="$(printf '%s\n' "$VOTER_PEER_IDS" | grep -c .)"
+fi
+
 for index in "${TARGETS[@]}"; do
 	if pid="$(node_pid "$index")"; then
 		if ((GRACEFUL)); then
@@ -191,7 +218,8 @@ for index in "${TARGETS[@]}"; do
 		kill "-$CRASH_SIGNAL" "$pid"
 		STOPPED+=("$index")
 		STOPPED_NAMES+=("node$index")
-		if ((index <= CONTROL_NODES)); then
+		if [[ -n "$VOTER_PEER_IDS" ]] &&
+			printf '%s\n' "$VOTER_PEER_IDS" | grep -qxF "$(node_peer_id "$index")"; then
 			VOTERS_STOPPED=$((VOTERS_STOPPED + 1))
 		fi
 	else
@@ -240,10 +268,12 @@ for index in "${STOPPED[@]}"; do
 	echo "  node$index peer=$(node_peer_id "$index") http=http://127.0.0.1:$((${HTTP_PORT_BASE:-3000} + index))"
 done
 echo "Recorded stopped nodes in $CRASHED_FILE: $(paste -sd' ' "$CRASHED_FILE")"
-if ((VOTERS_STOPPED > (CONTROL_NODES - 1) / 2)); then
-	echo "WARNING: $VOTERS_STOPPED of $CONTROL_NODES control voters are down; raft quorum is LOST until enough voters restart." >&2
+if [[ -z "$VOTER_PEER_IDS" ]]; then
+	echo "Note: could not query the openraft membership before stopping; unable to tell whether voters went down."
+elif ((VOTERS_STOPPED > (VOTER_COUNT - 1) / 2)); then
+	echo "WARNING: $VOTERS_STOPPED of $VOTER_COUNT raft voters are down; raft quorum is LOST until enough voters restart." >&2
 elif ((VOTERS_STOPPED > 0)); then
-	echo "Note: $VOTERS_STOPPED control voter(s) stopped. The membership guard replaces a dead voter"
+	echo "Note: $VOTERS_STOPPED raft voter(s) stopped. The membership guard replaces a dead voter"
 	echo "      with a learner after --voter-replace-timeout-secs (run-20nodes.sh default: 60s);"
 	echo "      restart it sooner with ./script/restart-nodes.sh to keep its voter seat."
 fi

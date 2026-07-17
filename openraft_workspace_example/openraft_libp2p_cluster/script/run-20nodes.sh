@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Launch a 20-node local cluster:
-#   - node1 bootstraps OpenRaft; nodes 2..5 join as control voters
-#     (MAX_CONTROL_NODES=5 guarantees exactly 5 voters).
-#   - nodes 6..20 start as libp2p workers in RANDOM order; LEARNER_NODES of
-#     them (randomly chosen, default 5) are then registered as OpenRaft
-#     learners (promote=false) through the control HTTP API.
+#   - node1 bootstraps OpenRaft; every other node starts identically (in
+#     RANDOM order) and races to join the control membership on its own.
+#     Whichever nodes join first become the control voters (CONTROL_NODES
+#     caps the voter count via --max-control-nodes); the rest stay libp2p
+#     workers. No node is pre-designated as a control node by this script:
+#     a node is a control node only because it joined the openraft cluster.
+#   - LEARNER_NODES of the non-voter workers (randomly chosen, default 5)
+#     are then registered as OpenRaft learners (promote=false) over HTTP.
 #
 # Tunables (env): TOTAL_NODES, CONTROL_NODES, LEARNER_NODES, DB_ROOT,
 #   REDIS_URL, DISABLE_SQLITE_CACHE, P2P_PORT_BASE, HTTP_PORT_BASE,
@@ -411,7 +414,6 @@ node_advertise_addr() {
 
 start_node() {
 	local index="$1"
-	local role="$2" # control | worker
 	local name="node${index}"
 	local db
 	db="$(node_db_dir "$index")"
@@ -436,7 +438,10 @@ start_node() {
 		--advertise "$advertise"
 	)
 
-	if [[ "$role" == "control" && "${DISABLE_SQLITE_CACHE:-0}" != "1" ]]; then
+	# Every node gets the same flags: control membership is decided by the
+	# runtime join protocol, so any node may become (or be promoted to) a
+	# control node and must be able to use the redis-backed sqlite cache.
+	if [[ "${DISABLE_SQLITE_CACHE:-0}" != "1" ]]; then
 		cmd+=(--redis-url "$REDIS_URL")
 	else
 		cmd+=(--disable-sqlite-cache)
@@ -458,7 +463,7 @@ start_node() {
 	NODE_PIDS+=("$pid")
 	NODE_NAMES+=("$name")
 	NODE_LOGS+=("$log")
-	echo "$name ($role) pid=$pid http=http://$http log=$log"
+	echo "$name pid=$pid http=http://$http log=$log"
 }
 
 wait_for_http() {
@@ -510,19 +515,32 @@ wait_for_voters() {
 			fi
 		done
 		if [[ -z "$pending" ]]; then
-			echo "All raft groups have $expected control voters."
+			echo "All raft groups have $expected voters."
 			return 0
 		fi
 		if ((SECONDS - start >= timeout)); then
-			echo "Error: expected $expected control voters in every group within ${timeout}s (pending:$pending)." >&2
+			echo "Error: expected $expected voters in every group within ${timeout}s (pending:$pending)." >&2
 			return 1
 		fi
 		sleep 1
 	done
 }
 
+# Node ids that are currently OpenRaft voters, as reported by node1 for the
+# first raft group. Control membership is decided by the runtime join
+# protocol, so ask the cluster which nodes actually joined instead of
+# assuming fixed indices.
+openraft_voter_node_ids() {
+	local group="${GROUP_IDS%% *}"
+	curl -fsS "http://$(node_http 1)/openraft/nodes?group_id=${group}" 2>/dev/null |
+		grep -o '"node_id":"[^"]*"[^{]*"role":"[^"]*"' |
+		grep -E '"role":"(leader|follower)"' |
+		sed 's/"node_id":"\([^"]*\)".*/\1/'
+}
+
 # Register node <index> as an OpenRaft learner (promote=false) by asking each
-# control node until the current leader accepts the membership change.
+# node in turn until the current leader accepts the membership change; nodes
+# that did not join the control membership simply reject and are skipped.
 add_learner() {
 	local index="$1"
 	local timeout="$2"
@@ -536,7 +554,7 @@ add_learner() {
 	local resp
 
 	while true; do
-		for ((c = 1; c <= CONTROL_NODES; c++)); do
+		for ((c = 1; c <= TOTAL_NODES; c++)); do
 			resp="$(curl -fsS -X POST "http://$(node_http "$c")/openraft/membership/add" \
 				-H 'content-type: application/json' \
 				-d "$body" 2>/dev/null)" || continue
@@ -603,44 +621,52 @@ BOOTSTRAP_KV="${NODE_PEER_IDS[1]}=$(node_advertise_addr 1)"
 
 echo "Workspace:  $WS_DIR"
 echo "export DB_ROOT=$DB_ROOT"
-echo "Total nodes: $TOTAL_NODES (control: $CONTROL_NODES, workers: $WORKER_NODES, learners among workers: $LEARNER_NODES)"
+echo "Total nodes: $TOTAL_NODES (max openraft voters: $CONTROL_NODES, learners among workers: $LEARNER_NODES)"
 echo "Self-healing: dead members replaced/removed and dead workers pruned after ${VOTER_REPLACE_TIMEOUT_SECS}s"
 echo "Bootstrap:   $BOOTSTRAP_KV"
 echo
 
-echo "Starting control node 1 (bootstrap)..."
-start_node 1 control
+echo "Starting node 1 (libp2p bootstrap)..."
+start_node 1
 wait_for_http 1 "$CONTROL_UP_TIMEOUT_SECS"
 
-echo "Starting control nodes 2..$CONTROL_NODES..."
-for ((i = 2; i <= CONTROL_NODES; i++)); do
-	start_node "$i" control
-	sleep 1
-done
-
-echo "Waiting for $CONTROL_NODES OpenRaft control voters in every raft group..."
-wait_for_voters "$CONTROL_NODES" "$CONTROL_UP_TIMEOUT_SECS"
-
-# Start the remaining nodes as workers in random order.
+# Start every other node identically in random order: they race to join the
+# openraft cluster on their own, and whichever nodes join first become the
+# control voters (capped at CONTROL_NODES). The rest stay libp2p workers.
 SHUFFLED=()
-for ((i = CONTROL_NODES + 1; i <= TOTAL_NODES; i++)); do
+for ((i = 2; i <= TOTAL_NODES; i++)); do
 	SHUFFLED+=("$i")
 done
 shuffle_array
 
-echo "Starting $WORKER_NODES worker nodes in random order: ${SHUFFLED[*]}"
+echo "Starting nodes 2..$TOTAL_NODES in random order: ${SHUFFLED[*]}"
 for i in "${SHUFFLED[@]}"; do
-	start_node "$i" worker
+	start_node "$i"
 	random_sleep
 done
 
-# Pick LEARNER_NODES workers at random and register them as learners.
+echo "Waiting for $CONTROL_NODES OpenRaft voters in every raft group..."
+wait_for_voters "$CONTROL_NODES" "$CONTROL_UP_TIMEOUT_SECS"
+
+# Pick LEARNER_NODES nodes at random among the ones that did NOT win a voter
+# seat and register them as learners.
 LEARNER_FAILURES=0
 if ((LEARNER_NODES > 0)); then
+	VOTER_IDS="$(openraft_voter_node_ids || true)"
+	SHUFFLED=()
+	for ((i = 1; i <= TOTAL_NODES; i++)); do
+		if ! printf '%s\n' "$VOTER_IDS" | grep -qxF "${NODE_PEER_IDS[$i]}"; then
+			SHUFFLED+=("$i")
+		fi
+	done
 	shuffle_array
+	if ((LEARNER_NODES > ${#SHUFFLED[@]})); then
+		echo "Warning: only ${#SHUFFLED[@]} non-voter workers available; clamping LEARNER_NODES." >&2
+		LEARNER_NODES=${#SHUFFLED[@]}
+	fi
 	LEARNER_PICKS=("${SHUFFLED[@]:0:$LEARNER_NODES}")
 
-	echo "Registering $LEARNER_NODES randomly picked workers as OpenRaft learners: ${LEARNER_PICKS[*]}"
+	echo "Registering $LEARNER_NODES randomly picked non-voter workers as OpenRaft learners: ${LEARNER_PICKS[*]}"
 	for i in "${LEARNER_PICKS[@]}"; do
 		wait_for_http "$i" "$CONTROL_UP_TIMEOUT_SECS" || {
 			LEARNER_FAILURES=$((LEARNER_FAILURES + 1))
