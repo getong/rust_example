@@ -38,6 +38,15 @@
 #   RAYON_KV_COUNT=2000 ./script/task-client-test.sh    # bigger phase-6b scan
 set -uo pipefail
 
+# Every request this test makes (curl probes and the olpc-task client alike)
+# targets the loopback cluster. If the environment has an http_proxy/all_proxy
+# set, those localhost requests would be routed through the proxy, which cannot
+# reach 127.0.0.1 and returns 502 — spuriously failing the checks. Force
+# loopback to bypass any proxy.
+no_proxy="$(printf '127.0.0.1,localhost,::1%s' "${no_proxy:+,$no_proxy}")"
+NO_PROXY="$no_proxy"
+export no_proxy NO_PROXY
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS_DIR="$(cd "$ROOT_DIR/.." && pwd)"
@@ -308,10 +317,15 @@ check "push wasm stats task (argv list + env in, guest-built JSON out)" \
 	--name stats --arg 12 --arg 7 --arg 42 --arg 19 --env LABEL=cluster-run
 
 # Server-side guard: a payload past MAX_TASK_PAYLOAD_BYTES (256 KiB) must be
-# rejected at the enqueue door before it can reach the raft log.
-big_payload="$(python3 -c 'import json; print(json.dumps({"kind":"wasm","module_wat":"x"*300_000,"name":"oversized"}))')"
+# rejected at the enqueue door before it can reach the raft log. The payload is
+# ~300 KiB, which is larger than the OS per-argument limit (MAX_ARG_STRLEN,
+# 128 KiB on Linux), so it CANNOT be passed on the command line — write it to a
+# file and hand it to push-task via the `@file` indirection.
+big_payload_file="$(mktemp "${TMPDIR:-/tmp}/olpc-oversized-payload.XXXXXX.json")"
+python3 -c 'import json,sys; sys.stdout.write(json.dumps({"kind":"wasm","module_wat":"x"*300_000,"name":"oversized"}))' >"$big_payload_file"
 check "oversized wasm payload is rejected before the raft log" \
-	bash -c '! '"$TASK_BIN"' --http '"$CONTROL_HTTP"' push-task --payload "$1" 2>/dev/null' _ "$big_payload"
+	bash -c '! "$1" --http "$2" push-task --payload "@$3" 2>/dev/null' _ "$TASK_BIN" "$CONTROL_HTTP" "$big_payload_file"
+rm -f "$big_payload_file"
 total_after_p6=$((total_after_p4b + 8))
 check "all kinds settle Done side by side" \
 	task watch --timeout-secs "$SETTLE_TIMEOUT" \

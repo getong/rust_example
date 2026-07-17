@@ -14,6 +14,27 @@ use openraft_libp2p_cluster::tasks::{
 };
 use serde::Deserialize;
 
+/// Resolve a CLI string that may be an inline value or a `@`-prefixed
+/// indirection: `@-` reads stdin, `@path` reads a file, anything else is
+/// returned verbatim. Lets callers pass payloads that exceed the OS
+/// per-argument size limit without putting them on the command line.
+fn read_arg_or_file(spec: &str) -> anyhow::Result<String> {
+  match spec.strip_prefix('@') {
+    None => Ok(spec.to_string()),
+    Some("-") => {
+      use std::io::Read;
+      let mut buf = String::new();
+      std::io::stdin()
+        .read_to_string(&mut buf)
+        .context("read payload from stdin")?;
+      Ok(buf)
+    }
+    Some(path) => {
+      std::fs::read_to_string(path).with_context(|| format!("read payload file: {path}"))
+    }
+  }
+}
+
 #[derive(Parser)]
 #[command(
   author,
@@ -49,7 +70,11 @@ enum Cmd {
   /// TaskPayload enum variants: email, webhook, digest, kv_set, sleep, wasm
   /// (wasm carries the handler itself: module_wat or module_b64 + args/env).
   PushTask {
-    /// Kind-tagged JSON payload (a TaskPayload variant).
+    /// Kind-tagged JSON payload (a TaskPayload variant). Prefix with `@` to
+    /// read the JSON from a file (`@path`) or stdin (`@-`); this is the only
+    /// way to submit a payload larger than the OS per-argument limit
+    /// (`MAX_ARG_STRLEN`, 128 KiB on Linux), e.g. when probing the server's
+    /// 256 KiB enqueue guard.
     #[arg(long)]
     payload: String,
     /// Number of copies to push.
@@ -485,6 +510,7 @@ async fn main() -> anyhow::Result<()> {
       idem,
       delay_secs,
     } => {
+      let payload = read_arg_or_file(&payload).context("read --payload")?;
       let payload: sonic_rs::Value =
         sonic_rs::from_str(&payload).context("--payload must be valid JSON")?;
       for _ in 1 ..= count {
