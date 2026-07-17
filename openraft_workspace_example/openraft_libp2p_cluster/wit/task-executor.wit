@@ -1,0 +1,42 @@
+package cluster:task;
+
+/// Host capabilities a typed task guest may import (the guest→host
+/// direction of `docs/first-wasm-optimization-review.md` §7). Kept minimal
+/// and side-effect free: anything that mutates cluster state must keep
+/// flowing through the claim/ack raft protocol, not a host call.
+interface host {
+  /// Structured log line from the guest, surfaced through the host's
+  /// tracing (better than parsing interleaved stdout).
+  log: func(message: string);
+}
+
+/// The typed task entry point (§3): replaces argv/env + stdout scraping
+/// with typed WIT records for guests that opt in. Guests compiled from
+/// Rust target wasm32-wasip2 and implement this interface with
+/// wit-bindgen; the host detects the export and skips the WASI CLI path.
+interface runner {
+  /// What the worker hands one execution.
+  record task-input {
+    /// argv[1..] of the task payload.
+    args: list<string>,
+    /// "KEY=VALUE" pairs from the task payload.
+    env: list<string>,
+  }
+
+  /// What one execution produced.
+  record task-output {
+    /// Human-readable output (stored on the task record).
+    stdout: string,
+    /// Optional machine-readable JSON result.
+    structured: option<string>,
+  }
+
+  /// Run one task. A guest-level failure is the error string (routed to
+  /// the task retry path); traps and fuel exhaustion are host-side errors.
+  run: func(input: task-input) -> result<task-output, string>;
+}
+
+world task-executor {
+  import host;
+  export runner;
+}

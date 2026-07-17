@@ -19,6 +19,18 @@ path = "src/bin/status.rs"
 name = "olpc-task"
 path = "src/bin/task_client.rs"
 
+[features]
+default = ["p1-compat"]
+# Runtime adaptation of WAT text and preview1 (wasm32-wasip1) core modules
+# into p2 components. Builds that only ever run ready-made wasm32-wasip2
+# component binaries can drop this to shed the adapter tooling
+# (docs/first-wasm-optimization-review.md §8).
+p1-compat = [
+    "dep:wasi-preview1-component-adapter-provider",
+    "dep:wat",
+    "dep:wit-component",
+]
+
 [dependencies]
 anyhow = "1.0.103"
 arc-swap = "1"
@@ -99,14 +111,14 @@ tokio = { version = "1.53", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.24.0", features = ["v7"] }
-wasi-preview1-component-adapter-provider = "46.0.1"
+wasi-preview1-component-adapter-provider = { version = "46.0.1", optional = true }
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
 # wasmtime_workspace_example).
 wasmtime = "46.0.1"
 wasmtime-wasi = "46.0.1"
-wat = "1.253.0"
-wit-component = "0.253"
+wat = { version = "1.253.0", optional = true }
+wit-component = { version = "0.253", optional = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.

@@ -653,6 +653,10 @@ impl TaskHandler for WasmExecHandler {
       args: wasm.args.clone(),
       env: wasm.env.clone().into_iter().collect(),
       fuel_limit: Some(wasm_runtime::WASM_FUEL_LIMIT),
+      // Epoch backstop just past the task timeout: even if this future is
+      // dropped on timeout, the guest is interrupted and the executor
+      // thread is released instead of spinning to fuel exhaustion.
+      wall_clock_limit: Some(TASK_EXECUTION_TIMEOUT + Duration::from_secs(5)),
     };
     tracing::info!(
       task_id = %record.id,
@@ -662,15 +666,15 @@ impl TaskHandler for WasmExecHandler {
       "executing wasm task"
     );
 
-    // Wasm execution is CPU-bound and the guest host calls are sync: run on
-    // the blocking pool; the fuel budget bounds the runtime.
-    let outcome = tokio::task::spawn_blocking(move || runtime.execute(&source, invocation))
-      .await
-      .map_err(|err| format!("wasm worker panicked: {err}"))??;
+    // Wasm execution is CPU-bound and the guest host calls are sync: run
+    // on the dedicated wasm executor pool (isolated from tokio's blocking
+    // pool); fuel + the epoch deadline bound the runtime.
+    let outcome = wasm_runtime::execute_pooled(runtime, source, invocation).await?;
 
     let result = sonic_rs::to_string(&sonic_rs::json!({
       "stdout": outcome.stdout,
       "fuel_used": outcome.fuel_used,
+      "structured": outcome.structured,
       "module": wasm.display_name(),
       "runtime": runtime.name(),
     }))
@@ -803,6 +807,7 @@ mod tests {
 
   /// A hand-written WASI module: the handler function stored as data.
   /// Writes "hello from wasm task\n" (21 bytes) to fd 1 via fd_write.
+  #[cfg(feature = "p1-compat")]
   const HELLO_WAT: &str = r#"
     (module
       (import "wasi_snapshot_preview1" "fd_write"
@@ -821,6 +826,7 @@ mod tests {
         ))))
   "#;
 
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_module_runs_and_captures_stdout() {
     let payload = TaskPayload::Wasm(WasmExec {
@@ -848,6 +854,7 @@ mod tests {
   /// The direct p2 path: a real component binary (here produced by the
   /// same adapter used at load time) submitted via `module_b64` runs
   /// without re-adaptation.
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_component_binary_runs_directly() {
     use base64::Engine as _;
@@ -880,6 +887,7 @@ mod tests {
   /// The richer end-to-end example shared with the test script: a stored
   /// handler that PARSES argv, COMPUTES (trial-division prime counting)
   /// and FORMATS its own output. π(1000) = 168.
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_prime_count_computes_from_argv() {
     let wat = std::fs::read_to_string(concat!(
@@ -914,6 +922,7 @@ mod tests {
   /// The richest shared example: stats.wat folds argv numbers into
   /// count/sum/min/max/avg, reads a LABEL env var, and assembles a JSON
   /// report INSIDE the guest — the task result's stdout is itself JSON.
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_stats_builds_json_report_from_argv_and_env() {
     let wat = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/script/wat/stats.wat"))
@@ -950,6 +959,7 @@ mod tests {
     assert_eq!(report.get("avg").as_i64(), Some(20));
   }
 
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_infinite_loop_is_stopped_by_fuel() {
     // The preview1 command adapter requires the core module to export its
@@ -980,6 +990,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_nonzero_exit_is_a_failure() {
     // WASI p1 host functions require the guest to export a `memory`, even
@@ -1026,6 +1037,7 @@ mod tests {
   /// directory; the payload carries only its name (plus an optional digest
   /// pin). Store dir, execution, and a swapped-file digest mismatch are all
   /// exercised in ONE test so the env var is touched from a single place.
+  #[cfg(feature = "p1-compat")]
   #[tokio::test]
   async fn wasm_module_file_runs_from_store_and_digest_pin_protects() {
     let dir = tempfile::tempdir().unwrap();

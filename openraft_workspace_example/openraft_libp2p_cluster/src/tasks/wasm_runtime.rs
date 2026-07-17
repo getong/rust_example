@@ -4,18 +4,36 @@
 //!
 //! - [`WasmRuntime`] — the generic execution trait. The worker pipeline only talks to `&'static dyn
 //!   WasmRuntime`; today the sole implementation is [`WasmtimeRuntime`] (WASI 0.2 component runtime
-//!   with fuel metering, moved here from `handlers.rs`). Supporting another engine (e.g. wasmer) =
-//!   implement the trait + add one arm in [`runtime_by_name`] — no change to handlers or the worker
-//!   loop.
+//!   with fuel metering). Supporting another engine (e.g. wasmer) = implement the trait + add one
+//!   arm in [`runtime_by_name`] — no change to handlers or the worker loop.
 //! - [`WasmModuleStore`] — the docker-like "code as file" side: a directory of `.wasm`/`.wat`
 //!   module files (images). A task payload can carry just a `module_file` reference (+ optional
 //!   sha256 digest pin) instead of embedding the whole module in the raft log.
+//!
+//! Hardening and performance follow `docs/first-wasm-optimization-review.md`:
+//!
+//! - Sandbox (§2): fuel metering + [`ExecutionLimiter`] (memory/table caps) + epoch interruption as
+//!   a wall-clock backstop, so a guest that defeats fuel accounting still cannot pin an executor
+//!   thread forever.
+//! - Scheduling (§1): executions run on a dedicated fixed-size thread pool ([`execute_pooled`]),
+//!   isolated from tokio's shared blocking pool, with execution/fuel metrics.
+//! - Compile cache (§5/§6): componentize+compile results are cached by content hash behind an
+//!   `RwLock` (reads never contend), LRU-evicted by entry count AND total byte budget;
+//!   [`warm_compile_cache`] precompiles the module store at worker startup.
+//! - Typed guests (§3/§4/§7): components exporting the `cluster:task/runner` WIT interface
+//!   (`wit/task-executor.wit`) exchange typed records instead of stdout scraping, may call back
+//!   into host functions (`cluster:task/host`), and batch executions reuse one instance
+//!   ([`WasmRuntime::execute_batch`]). Classic WASI CLI guests keep working unchanged.
 //!
 //! The runtime is selected once per process via the `WASM_RUNTIME` env var
 //! (default `wasmtime`); the store directory via `WASM_MODULES_DIR`
 //! (default `wasm_modules`, resolved against the worker's working dir).
 
-use std::path::{Path, PathBuf};
+use std::{
+  path::{Path, PathBuf},
+  sync::atomic::{AtomicU64, Ordering},
+  time::Duration,
+};
 
 use sha2::{Digest as _, Sha256};
 
@@ -25,6 +43,8 @@ pub const WASM_RUNTIME_ENV: &str = "WASM_RUNTIME";
 pub const WASM_MODULES_DIR_ENV: &str = "WASM_MODULES_DIR";
 /// Default module store directory (relative to the worker's working dir).
 pub const WASM_MODULES_DIR_DEFAULT: &str = "wasm_modules";
+/// Env var sizing the dedicated wasm executor pool (`WASM_EXECUTOR_THREADS`).
+pub const WASM_EXECUTOR_THREADS_ENV: &str = "WASM_EXECUTOR_THREADS";
 
 /// Fuel budget per execution. Bounds runaway guests deterministically
 /// (an infinite loop traps instead of eating the 30s execution timeout);
@@ -33,35 +53,87 @@ pub const WASM_FUEL_LIMIT: u64 = 500_000_000;
 /// Captured-stdout cap; a guest writing past it traps (bounded results).
 const WASM_STDOUT_CAPACITY: usize = 64 * 1024;
 
+/// Per-execution linear-memory cap (all memories in the Store together
+/// stay under this via [`ExecutionLimiter`]); prevents a guest OOMing the
+/// worker regardless of fuel.
+pub const WASM_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+/// Per-table element cap.
+pub const WASM_TABLE_LIMIT_ELEMENTS: usize = 10_000;
+/// Core instances allowed per Store. A p2 component expands to several
+/// core instances (module + adapter shims), so this is a hard backstop,
+/// not "one instance".
+const WASM_MAX_INSTANCES: usize = 16;
+/// Linear memories / tables allowed per Store (component + shims).
+const WASM_MAX_MEMORIES: usize = 8;
+const WASM_MAX_TABLES: usize = 8;
+
+/// Wall-clock backstop when the invocation does not set one: even if fuel
+/// accounting is defeated (host-call heavy loops burn little fuel), the
+/// epoch deadline interrupts the guest and releases the executor thread.
+pub const WASM_WALL_CLOCK_BACKSTOP: Duration = Duration::from_secs(60);
+/// How often the background ticker advances the engine epoch; one tick is
+/// the granularity of every wall-clock deadline.
+const WASM_EPOCH_TICK: Duration = Duration::from_millis(100);
+
+/// Warn when one execution burns more than this share of its fuel budget —
+/// the operator signal (review §1) that a workload is about to start
+/// failing with fuel exhaustion.
+const WASM_FUEL_WARN_RATIO: f64 = 0.8;
+
 /// Everything an execution needs besides the module bytes: guest argv[1..],
-/// environment, and the fuel budget (`None` = unmetered, for engines
-/// without deterministic metering).
+/// environment, the fuel budget (`None` = engine default), and an optional
+/// wall-clock cap (`None` = [`WASM_WALL_CLOCK_BACKSTOP`]).
 #[derive(Debug, Clone, Default)]
 pub struct WasmInvocation {
   pub args: Vec<String>,
   pub env: Vec<(String, String)>,
   pub fuel_limit: Option<u64>,
+  pub wall_clock_limit: Option<Duration>,
 }
 
-/// What an execution produced: captured stdout (the task result) and fuel
-/// burned (`None` when the engine does not meter).
+/// What an execution produced: captured stdout (the task result), fuel
+/// burned (`None` when the engine does not meter), and the optional typed
+/// JSON result returned by `cluster:task/runner` guests.
 #[derive(Debug, Clone)]
 pub struct WasmOutcome {
   pub stdout: String,
   pub fuel_used: Option<u64>,
+  pub structured: Option<String>,
 }
 
 /// The generic execution engine interface (dyn-safe, sync — callers run it
-/// on the blocking pool). `source` is any accepted module form: WAT text,
-/// a core wasm binary, or a component binary; each engine normalizes
-/// internally and is expected to cache compilations by content hash.
+/// on the dedicated executor pool via [`execute_pooled`]). `source` is any
+/// accepted module form: WAT text, a core wasm binary, or a component
+/// binary; each engine normalizes internally and is expected to cache
+/// compilations by content hash.
 pub trait WasmRuntime: Send + Sync {
   /// Registry name (`wasmtime`, later maybe `wasmer`).
   fn name(&self) -> &'static str;
 
-  /// Run `source` as a WASI command with `invocation`; non-zero guest exit
-  /// or a trap is an `Err` (routed to the task retry path by the caller).
+  /// Run `source` as one task with `invocation`; guest failure, traps and
+  /// fuel/deadline exhaustion are `Err` (routed to the task retry path).
   fn execute(&self, source: &[u8], invocation: WasmInvocation) -> Result<WasmOutcome, String>;
+
+  /// Run several invocations of the SAME module (review §4). The default
+  /// simply loops [`WasmRuntime::execute`]; engines may override to
+  /// amortize instantiation (wasmtime reuses one Store + instance for
+  /// typed `cluster:task/runner` guests).
+  fn execute_batch(
+    &self,
+    source: &[u8],
+    invocations: Vec<WasmInvocation>,
+  ) -> Vec<Result<WasmOutcome, String>> {
+    invocations
+      .into_iter()
+      .map(|invocation| self.execute(source, invocation))
+      .collect()
+  }
+
+  /// Compile `source` into the engine's cache without running it (cache
+  /// warm-up, review §5). Default: no-op for engines without a cache.
+  fn prepare(&self, _source: &[u8]) -> Result<(), String> {
+    Ok(())
+  }
 }
 
 /// Engine names [`runtime_by_name`] understands.
@@ -158,6 +230,135 @@ impl WasmModuleStore {
       self.dir.display()
     ))
   }
+
+  /// File names of every `.wasm`/`.wat` module in the store (empty when
+  /// the directory does not exist — an empty store is not an error).
+  pub fn list(&self) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(&self.dir) else {
+      return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+      .filter_map(|entry| entry.ok())
+      .filter(|entry| entry.path().is_file())
+      .filter_map(|entry| entry.file_name().into_string().ok())
+      .filter(|name| name.ends_with(".wasm") || name.ends_with(".wat"))
+      .collect();
+    names.sort();
+    names
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated executor pool (review §1)
+// ---------------------------------------------------------------------------
+
+/// Fixed-size pool for wasm execution, isolated from tokio's shared
+/// blocking pool: a burst of wasm tasks can no longer starve the blocking
+/// threads used by file IO / DNS / other `spawn_blocking` users, and the
+/// pool size caps concurrent guest memory (pool_size × memory limit).
+fn wasm_executor_pool() -> &'static rayon::ThreadPool {
+  static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+  POOL.get_or_init(|| {
+    let threads = std::env::var(WASM_EXECUTOR_THREADS_ENV)
+      .ok()
+      .and_then(|raw| raw.parse::<usize>().ok())
+      .filter(|n| *n > 0)
+      .unwrap_or_else(|| {
+        std::thread::available_parallelism()
+          .map(|n| n.get().min(4))
+          .unwrap_or(2)
+      });
+    rayon::ThreadPoolBuilder::new()
+      .num_threads(threads)
+      .thread_name(|i| format!("wasm-exec-{i}"))
+      // A panicking execution must not take the process down; the oneshot
+      // sender is dropped and the caller sees a clean error.
+      .panic_handler(|panic| tracing::error!(?panic, "wasm executor thread panicked"))
+      .build()
+      .expect("build wasm executor pool")
+  })
+}
+
+/// Execute on the dedicated pool and record execution metrics: duration,
+/// outcome, fuel burned, and a warning when a task gets close to its fuel
+/// budget (the review §1 "fuel alert threshold").
+pub async fn execute_pooled(
+  runtime: &'static dyn WasmRuntime,
+  source: Vec<u8>,
+  invocation: WasmInvocation,
+) -> Result<WasmOutcome, String> {
+  let fuel_budget = invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT);
+  let (tx, rx) = tokio::sync::oneshot::channel();
+  wasm_executor_pool().spawn(move || {
+    let started = std::time::Instant::now();
+    let outcome = runtime.execute(&source, invocation);
+    let _ = tx.send((outcome, started.elapsed()));
+  });
+  let (outcome, elapsed) = rx
+    .await
+    .map_err(|_| "wasm executor dropped the result (execution panicked?)".to_string())?;
+
+  let runtime_label = runtime.name();
+  metrics::histogram!("wasm_execution_duration_seconds", "runtime" => runtime_label)
+    .record(elapsed.as_secs_f64());
+  match &outcome {
+    Ok(done) => {
+      metrics::counter!("wasm_executions_total", "runtime" => runtime_label, "outcome" => "ok")
+        .increment(1);
+      if let Some(fuel_used) = done.fuel_used {
+        metrics::histogram!("wasm_fuel_used", "runtime" => runtime_label).record(fuel_used as f64);
+        if fuel_budget > 0 && fuel_used as f64 / fuel_budget as f64 > WASM_FUEL_WARN_RATIO {
+          tracing::warn!(
+            fuel_used,
+            fuel_budget,
+            "wasm execution used more than {}% of its fuel budget",
+            (WASM_FUEL_WARN_RATIO * 100.0) as u32
+          );
+        }
+      }
+    }
+    Err(error) => {
+      metrics::counter!("wasm_executions_total", "runtime" => runtime_label, "outcome" => "err")
+        .increment(1);
+      if error.contains("out of fuel") {
+        metrics::counter!("wasm_fuel_exhausted_total", "runtime" => runtime_label).increment(1);
+      }
+    }
+  }
+  outcome
+}
+
+/// Precompile every module in the store on the executor pool (review §5
+/// cache warm-up): the first task referencing a deployed `module_file`
+/// skips its cold-compile latency. Fire-and-forget; failures only log.
+pub fn warm_compile_cache() {
+  let runtime = match selected_runtime() {
+    Ok(runtime) => runtime,
+    Err(err) => {
+      tracing::warn!(error = %err, "skipping wasm cache warm-up");
+      return;
+    }
+  };
+  let store = WasmModuleStore::from_env();
+  let names = store.list();
+  if names.is_empty() {
+    return;
+  }
+  tracing::info!(
+    modules = names.len(),
+    dir = %store.dir().display(),
+    "warming wasm compile cache from module store"
+  );
+  for name in names {
+    let dir = store.dir().to_path_buf();
+    wasm_executor_pool().spawn(move || {
+      let store = WasmModuleStore::new(dir);
+      match store.load(&name).and_then(|bytes| runtime.prepare(&bytes)) {
+        Ok(()) => tracing::debug!(module = %name, "warmed wasm compile cache"),
+        Err(err) => tracing::warn!(module = %name, error = %err, "wasm cache warm-up failed"),
+      }
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,35 +366,139 @@ impl WasmModuleStore {
 // ---------------------------------------------------------------------------
 
 /// The wasmtime engine: WASI 0.2 (preview 2) component runtime
-/// (`wasmtime_wasi::p2`, `wasi:cli/run` command world). Native p2
-/// components run directly; classic p1 core modules (including hand-written
-/// WAT importing `wasi_snapshot_preview1`) are wrapped with wasmtime's
-/// official preview1 command adapter at load time, so every guest flows
-/// through the single p2 path. Hardened with a fuel budget (from
-/// `wasmtime_workspace_example/wasmtime_sandbox_limits`): stdout is
-/// captured (bounded) as the task result and a fuel limit terminates
-/// runaway modules deterministically.
+/// (`wasmtime_wasi::p2`). Guests exporting the typed
+/// `cluster:task/runner` interface run through WIT records; everything
+/// else runs as a `wasi:cli/run` command. Native p2 components run
+/// directly; classic p1 core modules (including hand-written WAT importing
+/// `wasi_snapshot_preview1`) are wrapped with wasmtime's official preview1
+/// command adapter at load time (feature `p1-compat`). Hardened with fuel,
+/// memory/table limits and an epoch wall-clock backstop (patterns from
+/// `wasmtime_workspace_example/wasmtime_sandbox_limits`).
 pub struct WasmtimeRuntime;
 
-/// One shared engine (fuel metering on); components are compiled once per
-/// content hash and cached, so repeated tasks reuse the compilation.
+/// Host-side bindings for `wit/task-executor.wit` (typed guests, §3/§7).
+mod typed {
+  wasmtime::component::bindgen!({
+    path: "wit/task-executor.wit",
+    world: "task-executor",
+  });
+}
+
+/// One shared engine (fuel metering + epoch interruption on); components
+/// are compiled once per content hash and cached. The first use spawns the
+/// epoch ticker thread that advances the wall clock for every Store.
 fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
   static ENGINE: std::sync::OnceLock<Result<wasmtime::Engine, String>> = std::sync::OnceLock::new();
   ENGINE
     .get_or_init(|| {
       let mut config = wasmtime::Config::new();
       config.consume_fuel(true);
-      wasmtime::Engine::new(&config).map_err(|err| format!("create wasm engine: {err}"))
+      config.epoch_interruption(true);
+      let engine =
+        wasmtime::Engine::new(&config).map_err(|err| format!("create wasm engine: {err}"))?;
+      // Wall-clock backstop (review §2): fuel is deterministic but can be
+      // gamed by host-call heavy guests; the epoch ticker guarantees every
+      // execution is interrupted after its deadline regardless.
+      let ticker = engine.clone();
+      std::thread::Builder::new()
+        .name("wasm-epoch-ticker".to_string())
+        .spawn(move || {
+          loop {
+            std::thread::sleep(WASM_EPOCH_TICK);
+            ticker.increment_epoch();
+          }
+        })
+        .map_err(|err| format!("spawn wasm epoch ticker: {err}"))?;
+      Ok(engine)
     })
     .as_ref()
     .map_err(Clone::clone)
 }
 
-/// Per-execution store state for the p2 WASI host (the `WasiView` pattern
-/// from `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade`).
+/// Ticks of [`WASM_EPOCH_TICK`] covering `limit` (rounded up, minimum 1).
+fn epoch_deadline_ticks(limit: Duration) -> u64 {
+  limit
+    .as_millis()
+    .div_ceil(WASM_EPOCH_TICK.as_millis())
+    .max(1) as u64
+}
+
+/// Per-Store resource limiter (review §2, pattern from
+/// `wasmtime_sandbox_limits`): denies memory growth past
+/// [`WASM_MEMORY_LIMIT_BYTES`] and table growth past
+/// [`WASM_TABLE_LIMIT_ELEMENTS`]. The guest sees `memory.grow`/`table.grow`
+/// fail (-1), exactly like a resource-exhausted host.
+struct ExecutionLimiter {
+  memory_limit_bytes: usize,
+  table_limit_elements: usize,
+}
+
+impl Default for ExecutionLimiter {
+  fn default() -> Self {
+    Self {
+      memory_limit_bytes: WASM_MEMORY_LIMIT_BYTES,
+      table_limit_elements: WASM_TABLE_LIMIT_ELEMENTS,
+    }
+  }
+}
+
+impl wasmtime::ResourceLimiter for ExecutionLimiter {
+  fn memory_growing(
+    &mut self,
+    current: usize,
+    desired: usize,
+    _maximum: Option<usize>,
+  ) -> wasmtime::Result<bool> {
+    let allowed = desired <= self.memory_limit_bytes;
+    if !allowed {
+      tracing::warn!(
+        current,
+        desired,
+        limit = self.memory_limit_bytes,
+        "wasm memory growth denied by limiter"
+      );
+    }
+    Ok(allowed)
+  }
+
+  fn table_growing(
+    &mut self,
+    current: usize,
+    desired: usize,
+    _maximum: Option<usize>,
+  ) -> wasmtime::Result<bool> {
+    let allowed = desired <= self.table_limit_elements;
+    if !allowed {
+      tracing::warn!(
+        current,
+        desired,
+        limit = self.table_limit_elements,
+        "wasm table growth denied by limiter"
+      );
+    }
+    Ok(allowed)
+  }
+
+  fn instances(&self) -> usize {
+    WASM_MAX_INSTANCES
+  }
+
+  fn tables(&self) -> usize {
+    WASM_MAX_TABLES
+  }
+
+  fn memories(&self) -> usize {
+    WASM_MAX_MEMORIES
+  }
+}
+
+/// Per-execution store state: p2 WASI host (the `WasiView` pattern from
+/// `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade`) + the resource
+/// limiter + the `cluster:task/host` import implementation.
 struct WasmHostState {
   wasi: wasmtime_wasi::WasiCtx,
   table: wasmtime_wasi::ResourceTable,
+  limiter: ExecutionLimiter,
 }
 
 impl wasmtime_wasi::WasiView for WasmHostState {
@@ -205,8 +510,18 @@ impl wasmtime_wasi::WasiView for WasmHostState {
   }
 }
 
-/// One shared component linker with the full p2 WASI host wired in; shared
-/// across executions (each execution gets its own Store).
+/// The guest→host direction (review §7): typed guests call
+/// `cluster:task/host.log` instead of interleaving diagnostics into stdout.
+impl typed::cluster::task::host::Host for WasmHostState {
+  fn log(&mut self, message: String) {
+    tracing::info!(target: "wasm_guest", "{message}");
+  }
+}
+
+/// One shared component linker with the full p2 WASI host AND the
+/// `cluster:task/host` functions wired in; shared across executions (each
+/// execution gets its own Store). Classic CLI guests simply never link
+/// against the extra host interface.
 fn wasm_linker() -> Result<&'static wasmtime::component::Linker<WasmHostState>, String> {
   static LINKER: std::sync::OnceLock<Result<wasmtime::component::Linker<WasmHostState>, String>> =
     std::sync::OnceLock::new();
@@ -216,6 +531,11 @@ fn wasm_linker() -> Result<&'static wasmtime::component::Linker<WasmHostState>, 
       let mut linker = wasmtime::component::Linker::new(engine);
       wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
         .map_err(|err| format!("link p2 wasi: {err}"))?;
+      typed::cluster::task::host::add_to_linker::<_, wasmtime::component::HasSelf<WasmHostState>>(
+        &mut linker,
+        |state| state,
+      )
+      .map_err(|err| format!("link cluster:task/host: {err}"))?;
       Ok(linker)
     })
     .as_ref()
@@ -231,7 +551,12 @@ pub(crate) fn is_component_binary(bytes: &[u8]) -> bool {
 /// Normalize a WASM source (WAT text, core-module binary, or component
 /// binary) into p2 component bytes: components pass through; p1 core
 /// modules are wrapped with wasmtime's official preview1 command adapter
-/// so they run on the same p2 runtime.
+/// so they run on the same p2 runtime. Adaptation happens at most once per
+/// content hash — the result feeds the compile cache (review §6), so the
+/// adapter cost is not paid per execution. Binary validation is a
+/// debug-build check only (§6): release builds trust `Component::new`'s own
+/// validation.
+#[cfg(feature = "p1-compat")]
 pub fn componentize(source: &[u8]) -> Result<Vec<u8>, String> {
   // `wat::parse_bytes` is a no-op for binaries and assembles WAT text
   // (both `(module ...)` and `(component ...)` syntax).
@@ -249,66 +574,292 @@ pub fn componentize(source: &[u8]) -> Result<Vec<u8>, String> {
       wasi_preview1_component_adapter_provider::WASI_SNAPSHOT_PREVIEW1_COMMAND_ADAPTER,
     )
     .map_err(|err| format!("attach preview1 adapter: {err}"))?
-    .validate(true)
+    .validate(cfg!(debug_assertions))
     .encode()
     .map_err(|err| format!("componentize p1 module: {err}"))
 }
 
+/// Without the `p1-compat` feature (review §8) the adapter tooling (`wat`,
+/// `wit-component`, the preview1 adapter blob) is compiled out: only
+/// ready-made component binaries (wasm32-wasip2 output) are accepted.
+#[cfg(not(feature = "p1-compat"))]
+pub fn componentize(source: &[u8]) -> Result<Vec<u8>, String> {
+  if is_component_binary(source) {
+    return Ok(source.to_vec());
+  }
+  Err(
+    "this build only accepts wasm component binaries (wasm32-wasip2); WAT text and preview1 core \
+     modules need the `p1-compat` feature"
+      .to_string(),
+  )
+}
+
 /// A compiled command component — the expensive part, cached by content
-/// hash. Command components are one-shot (the Store is consumed after one
-/// `run`), so Store/instance are created per execution.
+/// hash together with its (approximate) size for the byte budget.
 struct CompiledWasm {
   component: wasmtime::component::Component,
+  /// Component binary size — proxy for the cache entry's memory footprint.
+  bytes: usize,
+  /// Logical timestamp of the last cache hit (LRU eviction order).
+  last_used: AtomicU64,
 }
 
 impl CompiledWasm {
-  /// Load a WASM source and compile it into a runnable command component.
-  /// It is NOT instantiated here — that happens per-execution.
+  /// Load a WASM source and compile it into a runnable component. It is
+  /// NOT instantiated here — that happens per-execution.
   fn load(engine: &wasmtime::Engine, source: &[u8]) -> Result<Self, String> {
     let component_bytes = componentize(source)?;
     let component = wasmtime::component::Component::new(engine, &component_bytes)
       .map_err(|err| format!("compile wasm component: {err}"))?;
-    Ok(Self { component })
+    Ok(Self {
+      component,
+      bytes: component_bytes.len(),
+      last_used: AtomicU64::new(0),
+    })
   }
 }
 
-/// Cache capacity: compiled modules are a few hundred KB each; a stream of
-/// distinct modules must not grow worker memory without bound.
+/// Cache capacity in entries and total component bytes (review §5): a
+/// stream of distinct modules must not grow worker memory without bound,
+/// and a handful of huge modules must not either.
 const WASM_COMPILE_CACHE_CAP: usize = 64;
+const WASM_COMPILE_CACHE_BYTE_CAP: usize = 256 * 1024 * 1024;
 
-/// Bounded FIFO cache of compiled components, keyed by module content
-/// hash. Same module bytes → same hash → reuse compiled component; when
-/// full, the oldest entry is evicted.
-#[derive(Default)]
+/// LRU cache of compiled components keyed by module content hash. Reads
+/// (the hot path) take the read lock and bump an atomic recency stamp, so
+/// concurrent executions of cached modules never contend; only a cold
+/// compile takes the write lock, and compilation itself happens outside
+/// any lock.
 struct WasmCompileCache {
-  compiled: std::collections::HashMap<String, CompiledWasm>,
-  order: std::collections::VecDeque<String>,
+  entries: std::collections::HashMap<String, CompiledWasm>,
+  total_bytes: usize,
+  entry_cap: usize,
+  byte_cap: usize,
+  clock: AtomicU64,
 }
 
 impl WasmCompileCache {
-  fn get(&self, hash: &str) -> Option<wasmtime::component::Component> {
-    self.compiled.get(hash).map(|c| c.component.clone())
+  fn new(entry_cap: usize, byte_cap: usize) -> Self {
+    Self {
+      entries: std::collections::HashMap::new(),
+      total_bytes: 0,
+      entry_cap,
+      byte_cap,
+      clock: AtomicU64::new(0),
+    }
   }
 
+  /// Read-lock path: clone the Arc-backed component and stamp recency.
+  fn get(&self, hash: &str) -> Option<wasmtime::component::Component> {
+    let entry = self.entries.get(hash)?;
+    let now = self.clock.fetch_add(1, Ordering::Relaxed) + 1;
+    entry.last_used.store(now, Ordering::Relaxed);
+    Some(entry.component.clone())
+  }
+
+  /// Write-lock path: insert and evict least-recently-used entries until
+  /// both the entry cap and the byte budget hold.
   fn insert(&mut self, hash: String, compiled: CompiledWasm) {
-    if self.compiled.contains_key(&hash) {
+    if self.entries.contains_key(&hash) {
       return; // lost a compile race; keep the existing entry
     }
-    while self.compiled.len() >= WASM_COMPILE_CACHE_CAP {
-      let Some(evicted) = self.order.pop_front() else {
+    let incoming = compiled.bytes;
+    while !self.entries.is_empty()
+      && (self.entries.len() >= self.entry_cap || self.total_bytes + incoming > self.byte_cap)
+    {
+      let Some(evict) = self
+        .entries
+        .iter()
+        .min_by_key(|(_, entry)| entry.last_used.load(Ordering::Relaxed))
+        .map(|(key, _)| key.clone())
+      else {
         break;
       };
-      self.compiled.remove(&evicted);
+      if let Some(evicted) = self.entries.remove(&evict) {
+        self.total_bytes -= evicted.bytes;
+        tracing::debug!(module_hash = %evict[.. 12.min(evict.len())], "evicted compiled wasm from cache");
+      }
     }
-    self.order.push_back(hash.clone());
-    self.compiled.insert(hash, compiled);
+    let now = self.clock.fetch_add(1, Ordering::Relaxed) + 1;
+    compiled.last_used.store(now, Ordering::Relaxed);
+    self.total_bytes += incoming;
+    self.entries.insert(hash, compiled);
   }
 }
 
-fn wasm_compile_cache() -> &'static std::sync::Mutex<WasmCompileCache> {
-  static CACHE: std::sync::OnceLock<std::sync::Mutex<WasmCompileCache>> =
+fn wasm_compile_cache() -> &'static std::sync::RwLock<WasmCompileCache> {
+  static CACHE: std::sync::OnceLock<std::sync::RwLock<WasmCompileCache>> =
     std::sync::OnceLock::new();
-  CACHE.get_or_init(Default::default)
+  CACHE.get_or_init(|| {
+    std::sync::RwLock::new(WasmCompileCache::new(
+      WASM_COMPILE_CACHE_CAP,
+      WASM_COMPILE_CACHE_BYTE_CAP,
+    ))
+  })
+}
+
+/// Get the compiled component for `source`, compiling and caching on miss.
+/// Compilation happens OUTSIDE any lock so a slow compile never serializes
+/// other executions; a concurrent duplicate compile loses the insert race.
+fn compile_cached(source: &[u8]) -> Result<wasmtime::component::Component, String> {
+  let engine = wasm_engine()?;
+  let hash = module_hash(source);
+
+  let cached = wasm_compile_cache()
+    .read()
+    .map_err(|_| "wasm compile cache poisoned".to_string())?
+    .get(&hash);
+  if let Some(component) = cached {
+    tracing::debug!(module_hash = %hash[.. 12], "reusing cached compiled wasm component");
+    return Ok(component);
+  }
+
+  tracing::debug!(module_hash = %hash[.. 12], "compiling and caching new wasm component");
+  let compiled =
+    CompiledWasm::load(engine, source).map_err(|err| format!("load wasm module: {err}"))?;
+  let component = compiled.component.clone();
+  wasm_compile_cache()
+    .write()
+    .map_err(|_| "wasm compile cache poisoned".to_string())?
+    .insert(hash, compiled);
+  Ok(component)
+}
+
+/// Fresh Store with WASI ctx, resource limiter, fuel budget and epoch
+/// deadline — the shared sandbox setup for both execution paths.
+fn new_store(
+  engine: &wasmtime::Engine,
+  invocation: &WasmInvocation,
+  stdout: wasmtime_wasi::p2::pipe::MemoryOutputPipe,
+) -> Result<wasmtime::Store<WasmHostState>, String> {
+  let mut argv = vec!["task.wasm".to_string()];
+  argv.extend(invocation.args.iter().cloned());
+  let wasi = wasmtime_wasi::WasiCtx::builder()
+    .stdout(stdout)
+    .args(&argv)
+    .envs(&invocation.env)
+    .build();
+
+  let mut store = wasmtime::Store::new(
+    engine,
+    WasmHostState {
+      wasi,
+      table: wasmtime_wasi::ResourceTable::new(),
+      limiter: ExecutionLimiter::default(),
+    },
+  );
+  store.limiter(|state| &mut state.limiter);
+  store
+    .set_fuel(invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT))
+    .map_err(|err| format!("set wasm fuel: {err}"))?;
+  store.epoch_deadline_trap();
+  store.set_epoch_deadline(epoch_deadline_ticks(
+    invocation
+      .wall_clock_limit
+      .unwrap_or(WASM_WALL_CLOCK_BACKSTOP),
+  ));
+  Ok(store)
+}
+
+/// Fuel burned so far in `store` against `fuel_limit`.
+fn fuel_used(store: &wasmtime::Store<WasmHostState>, fuel_limit: u64) -> u64 {
+  fuel_limit.saturating_sub(store.get_fuel().unwrap_or(0))
+}
+
+/// Turn a wasmtime error into the task-facing message, naming the two
+/// sandbox trips (fuel, wall clock) explicitly so operators can tell them
+/// from guest bugs.
+fn describe_wasm_error(err: &wasmtime::Error, fuel_limit: u64) -> String {
+  if let Some(trap) = err.downcast_ref::<wasmtime::Trap>() {
+    return match trap {
+      wasmtime::Trap::OutOfFuel => {
+        format!("wasm ran out of fuel (budget {fuel_limit})")
+      }
+      wasmtime::Trap::Interrupt => {
+        "wasm exceeded the wall-clock backstop (epoch deadline)".to_string()
+      }
+      other => format!("wasm execution trapped: {other:?}"),
+    };
+  }
+  format!("wasm execution trapped: {err}")
+}
+
+/// Does the component export the typed `cluster:task/runner` interface?
+fn has_typed_runner(engine: &wasmtime::Engine, component: &wasmtime::component::Component) -> bool {
+  component
+    .component_type()
+    .exports(engine)
+    .any(|(name, _)| name == "cluster:task/runner")
+}
+
+/// Run one typed invocation against an already-instantiated runner.
+fn call_typed_runner(
+  bindings: &typed::TaskExecutor,
+  store: &mut wasmtime::Store<WasmHostState>,
+  invocation: &WasmInvocation,
+) -> Result<WasmOutcome, String> {
+  let fuel_limit = invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT);
+  let input = typed::exports::cluster::task::runner::TaskInput {
+    args: invocation.args.clone(),
+    env: invocation
+      .env
+      .iter()
+      .map(|(key, value)| format!("{key}={value}"))
+      .collect(),
+  };
+  match bindings.cluster_task_runner().call_run(&mut *store, &input) {
+    Ok(Ok(output)) => Ok(WasmOutcome {
+      stdout: output.stdout,
+      fuel_used: Some(fuel_used(store, fuel_limit)),
+      structured: output.structured,
+    }),
+    // The guest-level error string is a task failure (retry path).
+    Ok(Err(guest_error)) => Err(format!("wasm task returned error: {guest_error}")),
+    Err(err) => Err(describe_wasm_error(&err, fuel_limit)),
+  }
+}
+
+/// Run one `wasi:cli/run` command invocation (classic guests): stdout is
+/// the result, exit codes and traps are failures.
+fn run_cli_command(
+  component: &wasmtime::component::Component,
+  invocation: &WasmInvocation,
+) -> Result<WasmOutcome, String> {
+  let engine = wasm_engine()?;
+  let fuel_limit = invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT);
+  let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
+  let mut store = new_store(engine, invocation, stdout.clone())?;
+
+  let command =
+    wasmtime_wasi::p2::bindings::sync::Command::instantiate(&mut store, component, wasm_linker()?)
+      .map_err(|err| format!("instantiate wasm component: {err}"))?;
+
+  match command.wasi_cli_run().call_run(&mut store) {
+    Ok(Ok(())) => {}
+    Ok(Err(())) => return Err("wasm command run returned failure".to_string()),
+    Err(err) => {
+      // `exit(n)` surfaces as an I32Exit in the error chain; 0 is
+      // success, anything else is a failure.
+      let exit = err
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<wasmtime_wasi::I32Exit>());
+      match exit {
+        Some(wasmtime_wasi::I32Exit(0)) => {}
+        Some(wasmtime_wasi::I32Exit(code)) => {
+          return Err(format!("wasm module exited with code {code}"));
+        }
+        None => return Err(describe_wasm_error(&err, fuel_limit)),
+      }
+    }
+  }
+
+  let fuel = fuel_used(&store, fuel_limit);
+  let output = String::from_utf8_lossy(&stdout.contents()).into_owned();
+  Ok(WasmOutcome {
+    stdout: output,
+    fuel_used: Some(fuel),
+    structured: None,
+  })
 }
 
 impl WasmRuntime for WasmtimeRuntime {
@@ -318,91 +869,93 @@ impl WasmRuntime for WasmtimeRuntime {
 
   fn execute(&self, source: &[u8], invocation: WasmInvocation) -> Result<WasmOutcome, String> {
     let engine = wasm_engine()?;
-    let hash = module_hash(source);
+    let component = compile_cached(source)?;
 
-    // Get or compile: the first execution of a given module compiles it
-    // (componentize + cranelift codegen — the expensive part); subsequent
-    // executions with the same bytes reuse the compiled component
-    // (Arc-backed, so clone is cheap). Compilation happens OUTSIDE the
-    // cache lock so a slow compile never serializes other wasm executions;
-    // a concurrent duplicate compile just loses the insert race.
-    let cached = wasm_compile_cache()
-      .lock()
-      .map_err(|_| "wasm compile cache poisoned".to_string())?
-      .get(&hash);
-    let component = match cached {
-      Some(component) => {
-        tracing::debug!(module_hash = %hash[.. 12], "reusing cached compiled wasm component");
-        component
-      }
-      None => {
-        tracing::debug!(module_hash = %hash[.. 12], "compiling and caching new wasm component");
-        let compiled =
-          CompiledWasm::load(engine, source).map_err(|err| format!("load wasm module: {err}"))?;
-        let component = compiled.component.clone();
-        wasm_compile_cache()
-          .lock()
-          .map_err(|_| "wasm compile cache poisoned".to_string())?
-          .insert(hash.clone(), compiled);
-        component
-      }
-    };
-
-    // Fresh p2 WASI context + Store per execution; the linker (with the
-    // full WASI host) and the compiled component are shared.
-    let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
-    let mut argv = vec!["task.wasm".to_string()];
-    argv.extend(invocation.args);
-    let wasi = wasmtime_wasi::WasiCtx::builder()
-      .stdout(stdout.clone())
-      .args(&argv)
-      .envs(&invocation.env)
-      .build();
-
-    let mut store = wasmtime::Store::new(
-      engine,
-      WasmHostState {
-        wasi,
-        table: wasmtime_wasi::ResourceTable::new(),
-      },
-    );
-    let fuel_limit = invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT);
-    store
-      .set_fuel(fuel_limit)
-      .map_err(|err| format!("set wasm fuel: {err}"))?;
-
-    let command = wasmtime_wasi::p2::bindings::sync::Command::instantiate(
-      &mut store,
-      &component,
-      wasm_linker()?,
-    )
-    .map_err(|err| format!("instantiate wasm component: {err}"))?;
-
-    match command.wasi_cli_run().call_run(&mut store) {
-      Ok(Ok(())) => {}
-      Ok(Err(())) => return Err("wasm command run returned failure".to_string()),
-      Err(err) => {
-        // `exit(n)` surfaces as an I32Exit in the error chain; 0 is
-        // success, anything else is a failure.
-        let exit = err
-          .chain()
-          .find_map(|cause| cause.downcast_ref::<wasmtime_wasi::I32Exit>());
-        match exit {
-          Some(wasmtime_wasi::I32Exit(0)) => {}
-          Some(wasmtime_wasi::I32Exit(code)) => {
-            return Err(format!("wasm module exited with code {code}"));
-          }
-          None => return Err(format!("wasm execution trapped: {err}")),
-        }
-      }
+    if has_typed_runner(engine, &component) {
+      let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
+      let mut store = new_store(engine, &invocation, stdout)?;
+      let bindings = typed::TaskExecutor::instantiate(&mut store, &component, wasm_linker()?)
+        .map_err(|err| format!("instantiate typed wasm component: {err}"))?;
+      return call_typed_runner(&bindings, &mut store, &invocation);
     }
 
-    let fuel_used = fuel_limit.saturating_sub(store.get_fuel().unwrap_or(0));
-    let output = String::from_utf8_lossy(&stdout.contents()).into_owned();
-    Ok(WasmOutcome {
-      stdout: output,
-      fuel_used: Some(fuel_used),
-    })
+    run_cli_command(&component, &invocation)
+  }
+
+  /// Batch execution (review §4): typed runners are instantiated ONCE and
+  /// called per invocation — one Store, one instance, N calls — with the
+  /// fuel budget and epoch deadline re-armed between calls. A trap poisons
+  /// the shared instance, so remaining invocations fail fast with the trap
+  /// error. CLI command components are one-shot by design (`_start` →
+  /// exit), so they fall back to the per-invocation loop.
+  fn execute_batch(
+    &self,
+    source: &[u8],
+    invocations: Vec<WasmInvocation>,
+  ) -> Vec<Result<WasmOutcome, String>> {
+    let setup = (|| -> Result<_, String> {
+      let engine = wasm_engine()?;
+      let component = compile_cached(source)?;
+      Ok((engine, component))
+    })();
+    let (engine, component) = match setup {
+      Ok(pair) => pair,
+      Err(err) => return invocations.iter().map(|_| Err(err.clone())).collect(),
+    };
+
+    if !has_typed_runner(engine, &component) {
+      return invocations
+        .into_iter()
+        .map(|invocation| run_cli_command(&component, &invocation))
+        .collect();
+    }
+
+    let batch_setup = (|| -> Result<_, String> {
+      let stdout = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(WASM_STDOUT_CAPACITY);
+      let first = invocations.first().cloned().unwrap_or_default();
+      let mut store = new_store(engine, &first, stdout)?;
+      let bindings = typed::TaskExecutor::instantiate(&mut store, &component, wasm_linker()?)
+        .map_err(|err| format!("instantiate typed wasm component: {err}"))?;
+      Ok((store, bindings))
+    })();
+    let (mut store, bindings) = match batch_setup {
+      Ok(pair) => pair,
+      Err(err) => return invocations.iter().map(|_| Err(err.clone())).collect(),
+    };
+
+    let mut results = Vec::with_capacity(invocations.len());
+    let mut poisoned: Option<String> = None;
+    for invocation in &invocations {
+      if let Some(trap) = &poisoned {
+        results.push(Err(format!("skipped after earlier trap in batch: {trap}")));
+        continue;
+      }
+      // Re-arm the sandbox budgets for this call on the shared Store.
+      if let Err(err) = store.set_fuel(invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT)) {
+        results.push(Err(format!("set wasm fuel: {err}")));
+        continue;
+      }
+      store.set_epoch_deadline(epoch_deadline_ticks(
+        invocation
+          .wall_clock_limit
+          .unwrap_or(WASM_WALL_CLOCK_BACKSTOP),
+      ));
+      let result = call_typed_runner(&bindings, &mut store, invocation);
+      if let Err(err) = &result {
+        // A trap (fuel, deadline, or guest trap) leaves the shared
+        // instance unusable for the rest of the batch; a guest-level
+        // error string does not.
+        if err.contains("out of fuel") || err.contains("wall-clock") || err.contains("trapped") {
+          poisoned = Some(err.clone());
+        }
+      }
+      results.push(result);
+    }
+    results
+  }
+
+  fn prepare(&self, source: &[u8]) -> Result<(), String> {
+    compile_cached(source).map(|_| ())
   }
 }
 
@@ -431,6 +984,7 @@ mod tests {
     assert_eq!(store.load("hello").unwrap(), b"(module)");
     assert_eq!(store.load("hello.wat").unwrap(), b"(module)");
     assert_eq!(store.load("bin").unwrap(), b"\0asm");
+    assert_eq!(store.list(), vec!["bin.wasm", "hello.wat"]);
     let err = store.load("missing").unwrap_err();
     assert!(err.contains("not found"), "unexpected error: {err}");
   }
@@ -448,6 +1002,7 @@ mod tests {
   }
 
   /// Executing through the trait object (the worker's view of the engine).
+  #[cfg(feature = "p1-compat")]
   #[test]
   fn wasmtime_runtime_executes_via_trait_object() {
     let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
@@ -469,5 +1024,270 @@ mod tests {
       .unwrap();
     assert_eq!(outcome.stdout, "ok\n");
     assert!(outcome.fuel_used.unwrap() > 0);
+    assert!(outcome.structured.is_none());
+  }
+
+  /// Review §2: memory growth past the limiter cap is denied — the guest
+  /// sees `memory.grow` return -1 while growth under the cap succeeds.
+  #[cfg(feature = "p1-compat")]
+  #[test]
+  fn memory_limiter_denies_growth_past_cap() {
+    let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+    // Grows by 8 pages (fine), then by 2000 pages (128MB > 64MB cap, must
+    // be denied → -1 → guest exits cleanly; a non--1 result traps).
+    let wat = r#"
+      (module
+        (memory 1)
+        (export "memory" (memory 0))
+        (func (export "_start")
+          (if (i32.eq (memory.grow (i32.const 8)) (i32.const -1))
+            (then unreachable))
+          (if (i32.ne (memory.grow (i32.const 2000)) (i32.const -1))
+            (then unreachable))))
+    "#;
+    let outcome = runtime.execute(wat.as_bytes(), WasmInvocation::default());
+    assert!(
+      outcome.is_ok(),
+      "limiter should deny the huge grow without trapping: {outcome:?}"
+    );
+  }
+
+  /// Review §2: the epoch deadline interrupts a spin loop long before its
+  /// (huge) fuel budget runs out — the wall-clock backstop works.
+  #[cfg(feature = "p1-compat")]
+  #[test]
+  fn epoch_deadline_interrupts_spin_loop() {
+    let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+    let spin_wat = r#"
+      (module
+        (memory 1)
+        (export "memory" (memory 0))
+        (func (export "_start") (loop br 0)))
+    "#;
+    let started = std::time::Instant::now();
+    let err = runtime
+      .execute(
+        spin_wat.as_bytes(),
+        WasmInvocation {
+          fuel_limit: Some(u64::MAX / 2),
+          wall_clock_limit: Some(Duration::from_millis(300)),
+          ..Default::default()
+        },
+      )
+      .unwrap_err();
+    assert!(
+      err.contains("wall-clock"),
+      "expected epoch interrupt, got: {err}"
+    );
+    assert!(
+      started.elapsed() < Duration::from_secs(10),
+      "interrupt took too long: {:?}",
+      started.elapsed()
+    );
+  }
+
+  /// Review §5: LRU + byte-budget eviction. A small cache keeps the
+  /// recently-used entry and evicts the stale one.
+  #[cfg(feature = "p1-compat")]
+  #[test]
+  fn compile_cache_evicts_least_recently_used() {
+    let engine = wasm_engine().unwrap();
+    let compile = |tag: &str| {
+      let wat = format!(
+        r#"(module (memory 1) (export "memory" (memory 0)) (data (i32.const 8) "{tag}") (func (export "_start")))"#
+      );
+      CompiledWasm::load(engine, wat.as_bytes()).unwrap()
+    };
+    let mut cache = WasmCompileCache::new(2, usize::MAX);
+    cache.insert("a".into(), compile("a"));
+    cache.insert("b".into(), compile("b"));
+    assert!(cache.get("a").is_some()); // bump a's recency; b is now LRU
+    cache.insert("c".into(), compile("c"));
+    assert!(cache.get("a").is_some(), "recently used entry evicted");
+    assert!(cache.get("b").is_none(), "LRU entry should be evicted");
+    assert!(cache.get("c").is_some());
+
+    // Byte budget: a cache with a tiny byte cap holds at most one entry.
+    let mut tiny = WasmCompileCache::new(64, 1);
+    tiny.insert("a".into(), compile("a"));
+    tiny.insert("b".into(), compile("b"));
+    assert!(tiny.get("a").is_none(), "byte budget should evict a");
+    assert!(tiny.get("b").is_some());
+  }
+
+  /// A hand-written component implementing `cluster:task/runner` (the
+  /// typed path of review §3/§7): returns a typed record instead of
+  /// writing stdout, and calls the `cluster:task/host.log` import.
+  #[cfg(feature = "p1-compat")]
+  const TYPED_RUNNER_WAT: &str = r#"
+    (component
+      (import "cluster:task/host" (instance $host
+        (export "log" (func (param "message" string)))))
+
+      (core module $memory_mod
+        (memory (export "memory") 2))
+      (core instance $mem_inst (instantiate $memory_mod))
+      (alias core export $mem_inst "memory" (core memory $guest_mem))
+
+      (core func $log_lowered (canon lower (func $host "log")
+        (memory $guest_mem) string-encoding=utf8))
+
+      (core module $impl
+        (import "env" "memory" (memory 2))
+        (import "host" "log" (func $log (param i32 i32)))
+        (global $bump (mut i32) (i32.const 65536))
+        (data (i32.const 16) "typed-ok\n")
+        (data (i32.const 32) "{\22typed\22:true}")
+        (data (i32.const 56) "typed guest running")
+        (func (export "cabi_realloc")
+          (param $old i32) (param $oldsz i32) (param $align i32) (param $size i32) (result i32)
+          (local $ptr i32)
+          (local.set $ptr
+            (i32.and
+              (i32.add (global.get $bump) (i32.sub (local.get $align) (i32.const 1)))
+              (i32.xor (i32.sub (local.get $align) (i32.const 1)) (i32.const -1))))
+          (global.set $bump (i32.add (local.get $ptr) (local.get $size)))
+          (local.get $ptr))
+        (func (export "run") (param i32 i32 i32 i32) (result i32)
+          (call $log (i32.const 56) (i32.const 19))
+          ;; result<task-output, string>: ok discriminant + task-output
+          (i32.store8 (i32.const 128) (i32.const 0))   ;; ok
+          (i32.store (i32.const 132) (i32.const 16))   ;; stdout.ptr
+          (i32.store (i32.const 136) (i32.const 9))    ;; stdout.len
+          (i32.store8 (i32.const 140) (i32.const 1))   ;; structured = some
+          (i32.store (i32.const 144) (i32.const 32))   ;; structured.ptr
+          (i32.store (i32.const 148) (i32.const 14))   ;; structured.len
+          (i32.const 128)))
+
+      (core instance $impl_inst (instantiate $impl
+        (with "env" (instance (export "memory" (memory $guest_mem))))
+        (with "host" (instance (export "log" (func $log_lowered))))))
+
+      (alias core export $impl_inst "run" (core func $run_core))
+      (alias core export $impl_inst "cabi_realloc" (core func $realloc_core))
+
+      (type $task-input (record
+        (field "args" (list string))
+        (field "env" (list string))))
+      (type $task-output (record
+        (field "stdout" string)
+        (field "structured" (option string))))
+
+      (func $run (param "input" $task-input) (result (result $task-output (error string)))
+        (canon lift (core func $run_core)
+          (memory $guest_mem) (realloc (func $realloc_core)) string-encoding=utf8))
+
+      (instance $runner
+        (export "task-input" (type $task-input))
+        (export "task-output" (type $task-output))
+        (export "run" (func $run)))
+
+      (export "cluster:task/runner" (instance $runner))
+    )
+  "#;
+
+  #[cfg(feature = "p1-compat")]
+  #[test]
+  fn typed_runner_component_returns_records() {
+    let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+    let component = wat::parse_str(TYPED_RUNNER_WAT).expect("assemble typed component");
+    let outcome = runtime
+      .execute(
+        &component,
+        WasmInvocation {
+          args: vec!["a".to_string(), "b".to_string()],
+          env: vec![("K".to_string(), "V".to_string())],
+          ..Default::default()
+        },
+      )
+      .unwrap();
+    assert_eq!(outcome.stdout, "typed-ok\n");
+    assert_eq!(outcome.structured.as_deref(), Some(r#"{"typed":true}"#));
+    assert!(outcome.fuel_used.unwrap() > 0);
+  }
+
+  /// Review §4: a typed batch reuses one instance for N calls; every call
+  /// gets its own outcome and its own re-armed fuel budget.
+  #[cfg(feature = "p1-compat")]
+  #[test]
+  fn typed_batch_executes_all_invocations() {
+    let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+    let component = wat::parse_str(TYPED_RUNNER_WAT).expect("assemble typed component");
+    let invocations = vec![WasmInvocation::default(), WasmInvocation::default()];
+    let results = runtime.execute_batch(&component, invocations);
+    assert_eq!(results.len(), 2);
+    for result in results {
+      let outcome = result.unwrap();
+      assert_eq!(outcome.stdout, "typed-ok\n");
+      assert_eq!(outcome.structured.as_deref(), Some(r#"{"typed":true}"#));
+    }
+  }
+
+  /// The batch default also covers classic CLI guests (loop fallback).
+  #[cfg(feature = "p1-compat")]
+  #[test]
+  fn cli_batch_falls_back_to_per_invocation_loop() {
+    let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+    let wat = r#"
+      (module
+        (memory 1)
+        (export "memory" (memory 0))
+        (func (export "_start")))
+    "#;
+    let results = runtime.execute_batch(wat.as_bytes(), vec![WasmInvocation::default(); 3]);
+    assert_eq!(results.len(), 3);
+    assert!(results.into_iter().all(|r| r.is_ok()));
+  }
+
+  /// End-to-end typed path with a REAL wit-bindgen guest: the example
+  /// crate in `wasm_guests/typed_hello` compiled to wasm32-wasip2. Runs
+  /// only when the artifact exists (build the guest to enable):
+  /// `cd wasm_guests/typed_hello && cargo build --release --target wasm32-wasip2`
+  #[test]
+  fn rust_typed_guest_runs_when_built() {
+    let path = concat!(
+      env!("CARGO_MANIFEST_DIR"),
+      "/wasm_guests/typed_hello/target/wasm32-wasip2/release/typed_hello.wasm"
+    );
+    let Ok(bytes) = std::fs::read(path) else {
+      eprintln!("typed_hello guest not built; skipping");
+      return;
+    };
+    let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+    let outcome = runtime
+      .execute(
+        &bytes,
+        WasmInvocation {
+          args: vec!["41".to_string()],
+          ..Default::default()
+        },
+      )
+      .unwrap();
+    assert!(
+      outcome.stdout.contains("41 + 1 = 42"),
+      "unexpected stdout: {}",
+      outcome.stdout
+    );
+    assert_eq!(
+      outcome.structured.as_deref(),
+      Some(r#"{"input":41,"answer":42}"#)
+    );
+  }
+
+  /// The pooled entry point used by the task handler (review §1).
+  #[cfg(feature = "p1-compat")]
+  #[tokio::test]
+  async fn execute_pooled_runs_on_dedicated_pool() {
+    let runtime = runtime_by_name("wasmtime").unwrap();
+    let wat = r#"
+      (module
+        (memory 1)
+        (export "memory" (memory 0))
+        (func (export "_start")))
+    "#;
+    let outcome = execute_pooled(runtime, wat.as_bytes().to_vec(), WasmInvocation::default())
+      .await
+      .unwrap();
+    assert_eq!(outcome.stdout, "");
   }
 }

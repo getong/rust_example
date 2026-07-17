@@ -289,6 +289,10 @@ pub async fn run_task_worker(
   let control_nodes = Arc::new(Mutex::new(ControlNodes::new(control_nodes)));
   let mut wake_rx = wake_channel().subscribe();
 
+  // Precompile deployed module-store files on the wasm executor pool so the
+  // first `module_file` task skips its cold-compile latency.
+  crate::tasks::wasm_runtime::warm_compile_cache();
+
   // Lease renewal keeps this node in the scheduler's active-worker set.
   let lease_handle = tokio::spawn(run_lease_renewal(
     node_id.clone(),

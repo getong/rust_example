@@ -1,0 +1,27 @@
+# Example TYPED task guest (docs/first-wasm-optimization-review.md §3):
+# implements the `cluster:task/runner` WIT interface instead of the WASI
+# CLI stdout protocol. Built separately from the cluster workspace:
+#
+#   rustup target add wasm32-wasip2
+#   cargo build --release --target wasm32-wasip2
+#   cp target/wasm32-wasip2/release/typed_hello.wasm <worker>/wasm_modules/
+#
+# then enqueue with:  olpc-task push-wasm --module-file typed_hello --arg 41
+[package]
+name = "typed_hello"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone: keep this guest out of the surrounding cluster workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.46"
+
+[profile.release]
+lto = true
+opt-level = "s"
+strip = true
