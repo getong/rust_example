@@ -20,6 +20,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use retry::delay::Exponential;
 use tokio::sync::{Mutex, Semaphore, broadcast};
 
 /// Kept as a re-export so existing callers (HTTP frontend) keep compiling;
@@ -52,11 +53,18 @@ const RETRY_BACKOFF_BASE_SECS: u64 = 5;
 /// Retry delay: exponential backoff (base * 2^attempts, exponent capped at
 /// 6) plus jitter in [0, backoff/2] so a batch of tasks that failed together
 /// (downstream outage) spreads over the retry window instead of hammering
-/// the recovering dependency in lockstep. The jitter is HASHED from
-/// (task id, attempt), not sampled: the same retry decision always proposes
-/// the same `retry_at`, which keeps raft re-proposals idempotent.
+/// the recovering dependency in lockstep. The backoff ladder comes from the
+/// `retry` crate's [`Exponential`] delay strategy (factor 2.0); its blocking
+/// `retry::retry` loop is NOT used because retries here are scheduled
+/// through raft (`retry_at`), not spun in-process. The jitter is HASHED from
+/// (task id, attempt), not sampled (so no `retry::delay::jitter`): the same
+/// retry decision always proposes the same `retry_at`, which keeps raft
+/// re-proposals idempotent.
 fn retry_backoff_secs(task_id: &str, attempts: u32) -> u64 {
-  let backoff = RETRY_BACKOFF_BASE_SECS * (1u64 << attempts.min(6));
+  let backoff = Exponential::from_millis(RETRY_BACKOFF_BASE_SECS * 1000)
+    .nth(attempts.min(6) as usize)
+    .expect("Exponential delay iterator is infinite")
+    .as_secs();
   let jitter =
     xxhash_rust::xxh3::xxh3_64(format!("{task_id}:{attempts}").as_bytes()) % (backoff / 2 + 1);
   backoff + jitter

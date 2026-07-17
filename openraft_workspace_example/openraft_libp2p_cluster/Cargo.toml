@@ -30,7 +30,7 @@ axum = { version = "0.8.9", default-features = false, features = [
 ] }
 base64 = "0.22"
 bytes = "1"
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.2", features = ["derive"] }
 console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
 futures = "0.3.32"
@@ -63,7 +63,7 @@ openraft = { version = "0.10.0-alpha.30", features = [
 ] }
 petgraph = "0.8.3"
 prost = "0.14.4"
-redis = { version = "1.4.0", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.4.1", features = ["aio", "tokio-comp", "connection-manager"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -81,7 +81,7 @@ sqlx = { version = "0.9", default-features = false, features = [
     "uuid",
   ] }
 tarpc = { version = "0.37", features = ["serde1", "tokio1"] }
-tokio = { version = "1.52", default-features = false, features = [
+tokio = { version = "1.53", default-features = false, features = [
   "io-util",
   "macros",
   "net",
@@ -93,7 +93,7 @@ tokio = { version = "1.52", default-features = false, features = [
 ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.23.5", features = ["v7"] }
+uuid = { version = "1.24.0", features = ["v7"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 wasi-preview1-component-adapter-provider = "46.0.1"
 # The "handler as data" execution substrate: wasm modules carried in task
@@ -106,10 +106,14 @@ wat = "1.253.0"
 # multi-megabyte state machine snapshots.
 zstd = "0.13"
 wit-component = "0.253"
+# Backoff delay strategies for task retries. Default `random` feature is off:
+# retry jitter must be deterministic (hashed), never sampled, so raft
+# re-proposals stay idempotent.
+retry = { version = "2.2.0", default-features = false }
 
 [build-dependencies]
 prost-build = "0.14.4"
 
 [dev-dependencies]
 tempfile = "3.27.0"
-tokio = { version = "1.52", default-features = false, features = ["test-util"] }
+tokio = { version = "1.53", default-features = false, features = ["test-util"] }

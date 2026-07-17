@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 bincode = "=2"
-clap = { version = "4.6.1", features = ["derive", "env"] }
+clap = { version = "4.6.2", features = ["derive", "env"] }
 dashmap = "6.2.1"
 futures = "0.3.32"
 log-mem = { path = "../log-mem", features = [] }
@@ -16,7 +16,7 @@ openraft = { version = "0.10.0-alpha.30", default-features = false, features = [
 prost = "0.14.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.53.0", features = ["full"] }
 tonic = "0.14.6"
 tonic-prost = "0.14.6"
 tracing = "0.1.44"
