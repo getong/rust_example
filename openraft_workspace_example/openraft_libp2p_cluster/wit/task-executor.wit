@@ -1,13 +1,34 @@
 package cluster:task;
 
 /// Host capabilities a typed task guest may import (the guest→host
-/// direction of `docs/first-wasm-optimization-review.md` §7). Kept minimal
-/// and side-effect free: anything that mutates cluster state must keep
-/// flowing through the claim/ack raft protocol, not a host call.
+/// direction of `docs/first-wasm-optimization-review.md` §7, extended per
+/// `docs/wasm-optimization-v2.md` §4/§5). Kept side-effect free towards
+/// the cluster: anything that mutates cluster state must keep flowing
+/// through the claim/ack raft protocol, not a host call.
 interface host {
   /// Structured log line from the guest, surfaced through the host's
   /// tracing (better than parsing interleaved stdout).
   log: func(message: string);
+
+  /// Id of the task record being executed (empty outside a task, e.g.
+  /// cache warm-up or tests).
+  task-id: func() -> string;
+
+  /// Fuel left in this execution's budget — lets a guest checkpoint or
+  /// wind down before the deterministic trap.
+  fuel-remaining: func() -> u64;
+
+  /// Milliseconds until the wall-clock backstop (epoch deadline)
+  /// interrupts this execution; 0 when already past due.
+  wall-clock-remaining-ms: func() -> s64;
+
+  /// Report progress (surfaced via host tracing + metrics; no cluster
+  /// state is touched).
+  report-progress: func(progress: u32, total: u32);
+
+  /// Read a task-supplied configuration value (the `config` map of the
+  /// wasm payload). Read-only; unknown keys return none.
+  config-get: func(key: string) -> option<string>;
 }
 
 /// The typed task entry point (§3): replaces argv/env + stdout scraping

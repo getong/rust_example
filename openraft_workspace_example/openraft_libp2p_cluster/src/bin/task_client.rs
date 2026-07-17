@@ -128,6 +128,10 @@ enum Cmd {
     /// KEY=VALUE guest environment variable (repeatable).
     #[arg(long = "env")]
     env: Vec<String>,
+    /// KEY=VALUE read-only config for typed guests, served through the
+    /// cluster:task/host.config-get host function (repeatable).
+    #[arg(long = "config")]
+    config: Vec<String>,
     /// Idempotency key; a repeated push with the same key is deduplicated.
     #[arg(long)]
     idem: Option<String>,
@@ -547,6 +551,7 @@ async fn main() -> anyhow::Result<()> {
       name,
       args,
       env,
+      config,
       idem,
       delay_secs,
     } => {
@@ -592,6 +597,13 @@ async fn main() -> anyhow::Result<()> {
           .ok_or_else(|| anyhow!("--env expects KEY=VALUE, got {pair:?}"))?;
         env_pairs.insert(key.to_string(), value.to_string());
       }
+      let mut config_pairs = BTreeMap::new();
+      for pair in config {
+        let (key, value) = pair
+          .split_once('=')
+          .ok_or_else(|| anyhow!("--config expects KEY=VALUE, got {pair:?}"))?;
+        config_pairs.insert(key.to_string(), value.to_string());
+      }
 
       let payload = TaskPayload::Wasm(WasmExec {
         module_wat,
@@ -600,6 +612,7 @@ async fn main() -> anyhow::Result<()> {
         module_sha256,
         args,
         env: env_pairs,
+        config: config_pairs,
         name,
       })
       .encode()

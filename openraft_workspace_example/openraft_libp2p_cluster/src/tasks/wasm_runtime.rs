@@ -89,6 +89,10 @@ pub struct WasmInvocation {
   pub env: Vec<(String, String)>,
   pub fuel_limit: Option<u64>,
   pub wall_clock_limit: Option<Duration>,
+  /// Task record id, surfaced to typed guests via `host.task-id`.
+  pub task_id: Option<String>,
+  /// Read-only key/value config, surfaced via `host.config-get`.
+  pub config: Vec<(String, String)>,
 }
 
 /// What an execution produced: captured stdout (the task result), fuel
@@ -384,6 +388,21 @@ mod typed {
   });
 }
 
+/// Stop signal for the epoch ticker thread (v2 review §6): the process
+/// lifetime model never needs it, but embedders and tests can call
+/// [`stop_epoch_ticker`] to let the thread exit instead of leaking it.
+fn epoch_ticker_stop() -> &'static std::sync::atomic::AtomicBool {
+  static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+  &STOP
+}
+
+/// Ask the background epoch ticker to exit after its next tick. NOTE:
+/// running and future executions lose the wall-clock backstop (the fuel
+/// budget still bounds them) — only call this on the way to shutdown.
+pub fn stop_epoch_ticker() {
+  epoch_ticker_stop().store(true, Ordering::Relaxed);
+}
+
 /// One shared engine (fuel metering + epoch interruption on); components
 /// are compiled once per content hash and cached. The first use spawns the
 /// epoch ticker thread that advances the wall clock for every Store.
@@ -394,6 +413,10 @@ fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
       let mut config = wasmtime::Config::new();
       config.consume_fuel(true);
       config.epoch_interruption(true);
+      // Explicit even though wasmtime v46 defaults it on (v2 review §1):
+      // the component::{Component, Linker} usage below must not silently
+      // break if a future wasmtime changes the default.
+      config.wasm_component_model(true);
       let engine =
         wasmtime::Engine::new(&config).map_err(|err| format!("create wasm engine: {err}"))?;
       // Wall-clock backstop (review §2): fuel is deterministic but can be
@@ -403,10 +426,11 @@ fn wasm_engine() -> Result<&'static wasmtime::Engine, String> {
       std::thread::Builder::new()
         .name("wasm-epoch-ticker".to_string())
         .spawn(move || {
-          loop {
+          while !epoch_ticker_stop().load(Ordering::Relaxed) {
             std::thread::sleep(WASM_EPOCH_TICK);
             ticker.increment_epoch();
           }
+          tracing::debug!("wasm epoch ticker stopped");
         })
         .map_err(|err| format!("spawn wasm epoch ticker: {err}"))?;
       Ok(engine)
@@ -494,11 +518,18 @@ impl wasmtime::ResourceLimiter for ExecutionLimiter {
 
 /// Per-execution store state: p2 WASI host (the `WasiView` pattern from
 /// `wasmtime_workspace_example/kameo_wasmtime_hot_upgrade`) + the resource
-/// limiter + the `cluster:task/host` import implementation.
+/// limiter + the data backing the `cluster:task/host` import.
 struct WasmHostState {
   wasi: wasmtime_wasi::WasiCtx,
   table: wasmtime_wasi::ResourceTable,
   limiter: ExecutionLimiter,
+  /// Task record id surfaced to the guest via `host.task-id`.
+  task_id: Option<String>,
+  /// Task-supplied read-only configuration for `host.config-get`.
+  config: std::collections::HashMap<String, String>,
+  /// When the epoch backstop will interrupt this execution
+  /// (`host.wall-clock-remaining-ms`).
+  deadline: std::time::Instant,
 }
 
 impl wasmtime_wasi::WasiView for WasmHostState {
@@ -510,12 +541,112 @@ impl wasmtime_wasi::WasiView for WasmHostState {
   }
 }
 
-/// The guest→host direction (review §7): typed guests call
-/// `cluster:task/host.log` instead of interleaving diagnostics into stdout.
-impl typed::cluster::task::host::Host for WasmHostState {
-  fn log(&mut self, message: String) {
-    tracing::info!(target: "wasm_guest", "{message}");
+/// The state-backed half of the `cluster:task/host` interface (v2 review
+/// §4/§5), factored into a trait so tests can mock it (§11) and drive
+/// guest-mirroring logic without a wasm instance. The fuel / wall-clock
+/// queries are NOT here: they need the live Store handle and are
+/// implemented directly in the [`add_task_host_to_linker`] closures.
+#[cfg_attr(test, mockall::automock)]
+pub trait TaskHostOps {
+  /// Guest diagnostics through host tracing.
+  fn log(&mut self, message: &str);
+  /// Guest progress, surfaced via tracing + metrics.
+  fn report_progress(&mut self, progress: u32, total: u32);
+  /// The executing task's record id ("" outside a task).
+  fn task_id(&self) -> String;
+  /// Task-supplied read-only config lookup.
+  fn config_get(&self, key: &str) -> Option<String>;
+}
+
+impl TaskHostOps for WasmHostState {
+  fn log(&mut self, message: &str) {
+    tracing::info!(target: "wasm_guest", task_id = self.task_id.as_deref().unwrap_or(""), "{message}");
   }
+
+  fn report_progress(&mut self, progress: u32, total: u32) {
+    tracing::info!(
+      target: "wasm_guest",
+      task_id = self.task_id.as_deref().unwrap_or(""),
+      progress,
+      total,
+      "guest progress"
+    );
+    metrics::counter!("wasm_guest_progress_reports_total").increment(1);
+  }
+
+  fn task_id(&self) -> String {
+    self.task_id.clone().unwrap_or_default()
+  }
+
+  fn config_get(&self, key: &str) -> Option<String> {
+    self.config.get(key).cloned()
+  }
+}
+
+/// Wire the `cluster:task/host` interface. Registered by hand with
+/// `LinkerInstance::func_wrap` instead of bindgen's generated
+/// `add_to_linker` because `fuel-remaining` / `wall-clock-remaining-ms`
+/// need the live Store handle (fuel lives on the Store, not in the store
+/// DATA), which only raw `func_wrap` closures receive.
+fn add_task_host_to_linker(
+  linker: &mut wasmtime::component::Linker<WasmHostState>,
+) -> Result<(), String> {
+  let mut host = linker
+    .instance("cluster:task/host")
+    .map_err(|err| format!("define cluster:task/host: {err}"))?;
+  host
+    .func_wrap(
+      "log",
+      |mut store: wasmtime::StoreContextMut<'_, WasmHostState>, (message,): (String,)| {
+        store.data_mut().log(&message);
+        Ok(())
+      },
+    )
+    .map_err(|err| format!("link host.log: {err}"))?;
+  host
+    .func_wrap(
+      "task-id",
+      |store: wasmtime::StoreContextMut<'_, WasmHostState>, (): ()| Ok((store.data().task_id(),)),
+    )
+    .map_err(|err| format!("link host.task-id: {err}"))?;
+  host
+    .func_wrap(
+      "fuel-remaining",
+      |store: wasmtime::StoreContextMut<'_, WasmHostState>, (): ()| {
+        Ok((store.get_fuel().unwrap_or(0),))
+      },
+    )
+    .map_err(|err| format!("link host.fuel-remaining: {err}"))?;
+  host
+    .func_wrap(
+      "wall-clock-remaining-ms",
+      |store: wasmtime::StoreContextMut<'_, WasmHostState>, (): ()| {
+        let remaining = store
+          .data()
+          .deadline
+          .saturating_duration_since(std::time::Instant::now());
+        Ok((remaining.as_millis() as i64,))
+      },
+    )
+    .map_err(|err| format!("link host.wall-clock-remaining-ms: {err}"))?;
+  host
+    .func_wrap(
+      "report-progress",
+      |mut store: wasmtime::StoreContextMut<'_, WasmHostState>, (progress, total): (u32, u32)| {
+        store.data_mut().report_progress(progress, total);
+        Ok(())
+      },
+    )
+    .map_err(|err| format!("link host.report-progress: {err}"))?;
+  host
+    .func_wrap(
+      "config-get",
+      |store: wasmtime::StoreContextMut<'_, WasmHostState>, (key,): (String,)| {
+        Ok((store.data().config_get(&key),))
+      },
+    )
+    .map_err(|err| format!("link host.config-get: {err}"))?;
+  Ok(())
 }
 
 /// One shared component linker with the full p2 WASI host AND the
@@ -531,11 +662,7 @@ fn wasm_linker() -> Result<&'static wasmtime::component::Linker<WasmHostState>, 
       let mut linker = wasmtime::component::Linker::new(engine);
       wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
         .map_err(|err| format!("link p2 wasi: {err}"))?;
-      typed::cluster::task::host::add_to_linker::<_, wasmtime::component::HasSelf<WasmHostState>>(
-        &mut linker,
-        |state| state,
-      )
-      .map_err(|err| format!("link cluster:task/host: {err}"))?;
+      add_task_host_to_linker(&mut linker)?;
       Ok(linker)
     })
     .as_ref()
@@ -604,11 +731,23 @@ struct CompiledWasm {
   last_used: AtomicU64,
 }
 
+/// Pre-validation before compilation (v2 review §2): the same
+/// `wasmparser` validator wasmtime uses internally, run up front so a
+/// malformed or malicious binary is rejected with a precise diagnostic
+/// BEFORE any cranelift compilation time is spent on it.
+fn pre_validate(component_bytes: &[u8]) -> Result<(), String> {
+  wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
+    .validate_all(component_bytes)
+    .map(|_| ())
+    .map_err(|err| format!("invalid wasm component binary: {err}"))
+}
+
 impl CompiledWasm {
   /// Load a WASM source and compile it into a runnable component. It is
   /// NOT instantiated here — that happens per-execution.
   fn load(engine: &wasmtime::Engine, source: &[u8]) -> Result<Self, String> {
     let component_bytes = componentize(source)?;
+    pre_validate(&component_bytes)?;
     let component = wasmtime::component::Component::new(engine, &component_bytes)
       .map_err(|err| format!("compile wasm component: {err}"))?;
     Ok(Self {
@@ -740,12 +879,18 @@ fn new_store(
     .envs(&invocation.env)
     .build();
 
+  let wall_clock = invocation
+    .wall_clock_limit
+    .unwrap_or(WASM_WALL_CLOCK_BACKSTOP);
   let mut store = wasmtime::Store::new(
     engine,
     WasmHostState {
       wasi,
       table: wasmtime_wasi::ResourceTable::new(),
       limiter: ExecutionLimiter::default(),
+      task_id: invocation.task_id.clone(),
+      config: invocation.config.iter().cloned().collect(),
+      deadline: std::time::Instant::now() + wall_clock,
     },
   );
   store.limiter(|state| &mut state.limiter);
@@ -753,11 +898,7 @@ fn new_store(
     .set_fuel(invocation.fuel_limit.unwrap_or(WASM_FUEL_LIMIT))
     .map_err(|err| format!("set wasm fuel: {err}"))?;
   store.epoch_deadline_trap();
-  store.set_epoch_deadline(epoch_deadline_ticks(
-    invocation
-      .wall_clock_limit
-      .unwrap_or(WASM_WALL_CLOCK_BACKSTOP),
-  ));
+  store.set_epoch_deadline(epoch_deadline_ticks(wall_clock));
   Ok(store)
 }
 
@@ -935,11 +1076,20 @@ impl WasmRuntime for WasmtimeRuntime {
         results.push(Err(format!("set wasm fuel: {err}")));
         continue;
       }
-      store.set_epoch_deadline(epoch_deadline_ticks(
-        invocation
-          .wall_clock_limit
-          .unwrap_or(WASM_WALL_CLOCK_BACKSTOP),
-      ));
+      let wall_clock = invocation
+        .wall_clock_limit
+        .unwrap_or(WASM_WALL_CLOCK_BACKSTOP);
+      store.set_epoch_deadline(epoch_deadline_ticks(wall_clock));
+      // Re-arm the host-call state per invocation too (v2 review §10).
+      // Deliberately NOT re-armed: the WASI ctx (argv/env), which keeps
+      // the FIRST invocation's values — typed runners receive args/env
+      // through the task-input record and must not read WASI
+      // argv/env; a guest that needs per-call WASI env cannot be
+      // batched (fall back to `execute`).
+      let state = store.data_mut();
+      state.task_id = invocation.task_id.clone();
+      state.config = invocation.config.iter().cloned().collect();
+      state.deadline = std::time::Instant::now() + wall_clock;
       let result = call_typed_runner(&bindings, &mut store, invocation);
       if let Err(err) = &result {
         // A trap (fuel, deadline, or guest trap) leaves the shared
@@ -1239,17 +1389,22 @@ mod tests {
     assert!(results.into_iter().all(|r| r.is_ok()));
   }
 
-  /// End-to-end typed path with a REAL wit-bindgen guest: the example
-  /// crate in `wasm_guests/typed_hello` compiled to wasm32-wasip2. Runs
-  /// only when the artifact exists (build the guest to enable):
-  /// `cd wasm_guests/typed_hello && cargo build --release --target wasm32-wasip2`
-  #[test]
-  fn rust_typed_guest_runs_when_built() {
+  /// Bytes of the real wit-bindgen guest (auto-built by build.rs, v2
+  /// review §7); `None` when the wasm32-wasip2 target is unavailable.
+  fn typed_hello_guest() -> Option<Vec<u8>> {
     let path = concat!(
       env!("CARGO_MANIFEST_DIR"),
       "/wasm_guests/typed_hello/target/wasm32-wasip2/release/typed_hello.wasm"
     );
-    let Ok(bytes) = std::fs::read(path) else {
+    std::fs::read(path).ok()
+  }
+
+  /// End-to-end typed path with a REAL wit-bindgen guest, exercising the
+  /// extended host surface (v2 review §4/§5): task-id, fuel-remaining,
+  /// wall-clock-remaining-ms, report-progress and config-get.
+  #[test]
+  fn rust_typed_guest_runs_when_built() {
+    let Some(bytes) = typed_hello_guest() else {
       eprintln!("typed_hello guest not built; skipping");
       return;
     };
@@ -1259,6 +1414,7 @@ mod tests {
         &bytes,
         WasmInvocation {
           args: vec!["41".to_string()],
+          task_id: Some("test-task".to_string()),
           ..Default::default()
         },
       )
@@ -1270,8 +1426,118 @@ mod tests {
     );
     assert_eq!(
       outcome.structured.as_deref(),
-      Some(r#"{"input":41,"answer":42}"#)
+      Some(r#"{"input":41,"answer":42,"generation":1}"#)
     );
+
+    // config-get feeds guest logic: bonus=2 shifts the answer.
+    let outcome = runtime
+      .execute(
+        &bytes,
+        WasmInvocation {
+          args: vec!["41".to_string()],
+          config: vec![("bonus".to_string(), "2".to_string())],
+          ..Default::default()
+        },
+      )
+      .unwrap();
+    assert_eq!(
+      outcome.structured.as_deref(),
+      Some(r#"{"input":41,"answer":44,"generation":1}"#)
+    );
+  }
+
+  /// v2 review §2: a malformed binary is rejected by wasmparser
+  /// pre-validation with a precise diagnostic, before compilation.
+  #[test]
+  fn pre_validation_rejects_malformed_binary() {
+    let err = pre_validate(&[0x00, 0x61, 0x73, 0x6d, 0xff, 0xff, 0xff, 0xff]).unwrap_err();
+    assert!(err.contains("invalid wasm"), "unexpected error: {err}");
+    // A well-formed component passes.
+    #[cfg(feature = "p1-compat")]
+    {
+      let component = wat::parse_str(TYPED_RUNNER_WAT).expect("assemble typed component");
+      pre_validate(&component).expect("valid component must pass pre-validation");
+    }
+  }
+
+  /// v2 review §11 mock strategy (pattern from
+  /// `wasmtime_actor/tests/wasm_actor_mockall.rs`): the guest's
+  /// host-visible flow is mirrored natively and driven against a mocked
+  /// [`TaskHostOps`], verifying host-call sequencing and config plumbing
+  /// without instantiating any wasm.
+  #[test]
+  fn mocked_host_sees_guest_call_sequence() {
+    use mockall::predicate::eq;
+
+    /// Native mirror of typed_hello's host interaction.
+    fn guest_mirror(host: &mut dyn TaskHostOps, n: u64) -> u64 {
+      let task_id = host.task_id();
+      host.log(&format!("start task {task_id}"));
+      let bonus: u64 = host
+        .config_get("bonus")
+        .and_then(|raw| raw.parse().ok())
+        .unwrap_or(0);
+      host.report_progress(1, 1);
+      n + 1 + bonus
+    }
+
+    let mut host = MockTaskHostOps::new();
+    host
+      .expect_task_id()
+      .times(1)
+      .return_const("task-9".to_string());
+    host
+      .expect_log()
+      .withf(|message| message.contains("task-9"))
+      .times(1)
+      .return_const(());
+    host
+      .expect_config_get()
+      .with(eq("bonus"))
+      .times(1)
+      .return_const(Some("2".to_string()));
+    host
+      .expect_report_progress()
+      .with(eq(1), eq(1))
+      .times(1)
+      .return_const(());
+
+    assert_eq!(guest_mirror(&mut host, 41), 44);
+  }
+
+  proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig {
+      cases: 8, // each case runs real wasm twice; keep the budget small
+      ..Default::default()
+    })]
+
+    /// v2 review §11 property strategy: the typed guest is DETERMINISTIC
+    /// (same input → identical records twice) and matches the native
+    /// model (answer = n + 1 + bonus) across random inputs.
+    #[test]
+    fn typed_guest_is_deterministic_and_matches_model(
+      n in 0u64 .. 1_000_000,
+      bonus in 0u64 .. 1_000,
+    ) {
+      let Some(bytes) = typed_hello_guest() else {
+        return Ok(()); // guest not built; property vacuously holds
+      };
+      let runtime: &dyn WasmRuntime = runtime_by_name("wasmtime").unwrap();
+      let invocation = WasmInvocation {
+        args: vec![n.to_string()],
+        config: vec![("bonus".to_string(), bonus.to_string())],
+        ..Default::default()
+      };
+      let first = runtime.execute(&bytes, invocation.clone()).unwrap();
+      let second = runtime.execute(&bytes, invocation).unwrap();
+      let expected = format!(
+        r#"{{"input":{n},"answer":{},"generation":1}}"#,
+        n + 1 + bonus
+      );
+      proptest::prop_assert_eq!(first.stdout.clone(), second.stdout);
+      proptest::prop_assert_eq!(first.structured.as_deref(), Some(expected.as_str()));
+      proptest::prop_assert_eq!(first.structured, second.structured);
+    }
   }
 
   /// The pooled entry point used by the task handler (review §1).

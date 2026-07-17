@@ -1,6 +1,7 @@
 # Example TYPED task guest (docs/first-wasm-optimization-review.md §3):
 # implements the `cluster:task/runner` WIT interface instead of the WASI
-# CLI stdout protocol. Built separately from the cluster workspace:
+# CLI stdout protocol. Auto-built by the cluster crate's build.rs
+# (wasm-optimization-v2.md §7); manual build:
 #
 #   rustup target add wasm32-wasip2
 #   cargo build --release --target wasm32-wasip2
@@ -15,10 +16,20 @@ edition = "2021"
 # Standalone: keep this guest out of the surrounding cluster workspace.
 [workspace]
 
+[features]
+default = ["guest-v1"]
+# Hot-upgrade style versioning (wasm-optimization-v2.md §12, pattern from
+# wasmtime_actor): the same crate builds generation 1 or 2 of the handler;
+# deploy the new .wasm into the module store to "upgrade" the task logic.
+guest-v1 = []
+guest-v2 = []
+
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
+# Integer→string without format!'s heap machinery on the hot path (§12).
+itoa = "1"
 wit-bindgen = "0.46"
 
 [profile.release]

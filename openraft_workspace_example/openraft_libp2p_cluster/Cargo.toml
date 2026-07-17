@@ -112,10 +112,15 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.24.0", features = ["v7"] }
 wasi-preview1-component-adapter-provider = { version = "46.0.1", optional = true }
+# Pre-validation of component binaries before compilation (the validator
+# wasmtime itself uses); precise diagnostics before cranelift time is spent.
+wasmparser = "0.253"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
-# wasmtime_workspace_example).
-wasmtime = "46.0.1"
+# wasmtime_workspace_example). `component-model` is on by default in v46
+# but declared explicitly: the component::{Component, Linker} usage must
+# not break if a future version changes the default.
+wasmtime = { version = "46.0.1", features = ["component-model"] }
 wasmtime-wasi = "46.0.1"
 wat = { version = "1.253.0", optional = true }
 wit-component = { version = "0.253", optional = true }
@@ -128,5 +133,10 @@ zstd = "0.13"
 prost-build = "0.14.4"
 
 [dev-dependencies]
+# Mock the TaskHostOps host-function surface to test guest-mirroring logic
+# without a wasm instance (wasm-optimization-v2.md §11).
+mockall = "0.13"
+# Property-based determinism checks for typed guests.
+proptest = "1"
 tempfile = "3.27.0"
 tokio = { version = "1.53", default-features = false, features = ["test-util"] }

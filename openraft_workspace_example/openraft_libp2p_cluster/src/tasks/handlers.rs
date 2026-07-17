@@ -574,6 +574,10 @@ pub struct WasmExec {
   /// Environment variables for the guest.
   #[serde(default)]
   pub env: std::collections::BTreeMap<String, String>,
+  /// Read-only key/value config surfaced to typed guests via the
+  /// `cluster:task/host.config-get` host function.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub config: std::collections::BTreeMap<String, String>,
   /// Display name for lists/logs (defaults to the file reference or the
   /// module's content hash).
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -657,6 +661,8 @@ impl TaskHandler for WasmExecHandler {
       // dropped on timeout, the guest is interrupted and the executor
       // thread is released instead of spinning to fuel exhaustion.
       wall_clock_limit: Some(TASK_EXECUTION_TIMEOUT + Duration::from_secs(5)),
+      task_id: Some(record.id.clone()),
+      config: wasm.config.clone().into_iter().collect(),
     };
     tracing::info!(
       task_id = %record.id,
@@ -747,6 +753,7 @@ mod tests {
         module_sha256: None,
         args: vec!["x".to_string()],
         env: Default::default(),
+        config: Default::default(),
         name: Some("noop".to_string()),
       }),
     ];
@@ -836,6 +843,7 @@ mod tests {
       module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
+      config: Default::default(),
       name: Some("hello".to_string()),
     })
     .encode()
@@ -870,6 +878,7 @@ mod tests {
       module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
+      config: Default::default(),
       name: Some("hello-component".to_string()),
     })
     .encode()
@@ -902,6 +911,7 @@ mod tests {
       module_sha256: None,
       args: vec!["1000".to_string()],
       env: Default::default(),
+      config: Default::default(),
       name: Some("prime-count".to_string()),
     })
     .encode()
@@ -937,6 +947,7 @@ mod tests {
         .map(String::from)
         .collect(),
       env: [("LABEL".to_string(), "unit-test".to_string())].into(),
+      config: Default::default(),
       name: Some("stats".to_string()),
     })
     .encode()
@@ -977,6 +988,7 @@ mod tests {
       module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
+      config: Default::default(),
       name: Some("spin".to_string()),
     })
     .encode()
@@ -1009,6 +1021,7 @@ mod tests {
       module_sha256: None,
       args: Vec::new(),
       env: Default::default(),
+      config: Default::default(),
       name: None,
     })
     .encode()
@@ -1053,6 +1066,7 @@ mod tests {
       module_sha256: Some(wasm_runtime::module_hash(HELLO_WAT.as_bytes())),
       args: Vec::new(),
       env: Default::default(),
+      config: Default::default(),
       name: None,
     })
     .encode()
@@ -1080,6 +1094,7 @@ mod tests {
       module_sha256: Some(format!("sha256:{}", wasm_runtime::module_hash(b"other"))),
       args: Vec::new(),
       env: Default::default(),
+      config: Default::default(),
       name: None,
     })
     .encode()
