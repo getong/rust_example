@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use libp2p::{
   Multiaddr, StreamProtocol, Transport,
   core::upgrade::Version,
-  dns, gossipsub, identity,
+  gossipsub, identity,
   kad::{self, store::MemoryStore},
   mdns, noise,
   request_response::{self, ProtocolSupport},
@@ -85,8 +85,9 @@ async fn main() -> anyhow::Result<()> {
     .with_quic()
     .with_other_transport(
       |key| -> Result<_, Box<dyn std::error::Error + Send + Sync>> {
-        let tcp_transport = tcp::tokio::Transport::new(tcp::Config::default());
-        let dns_transport = dns::tokio::Transport::system(tcp_transport)?;
+        let dns_transport = app::build_dns_transport(|| {
+          tcp::tokio::Transport::new(tcp::Config::default())
+        });
         let mut ws_transport = websocket::Config::new(dns_transport);
         app::apply_websocket_limits(&mut ws_transport, &opt.websocket);
         app::apply_websocket_tls(&mut ws_transport, &opt.websocket)

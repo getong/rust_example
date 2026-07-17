@@ -73,6 +73,15 @@ P2P_PORT_BASE="${P2P_PORT_BASE:-4000}"       # node i listens on P2P_PORT_BASE+i
 HTTP_PORT_BASE="${HTTP_PORT_BASE:-3000}"     # node i http on HTTP_PORT_BASE+i
 CONSOLE_PORT_BASE="${CONSOLE_PORT_BASE:-6668}" # node i tokio-console on CONSOLE_PORT_BASE+i
 
+# Every HTTP probe in this script targets the loopback node APIs. If the
+# environment has an http_proxy/all_proxy configured (common on machines behind
+# a corporate/VPN proxy), curl would route these localhost requests through the
+# proxy, which cannot reach 127.0.0.1 and returns 502 — making wait_for_http
+# time out even though the node is healthy. Force loopback to bypass any proxy.
+no_proxy="$(printf '127.0.0.1,localhost,::1%s' "${no_proxy:+,$no_proxy}")"
+NO_PROXY="$no_proxy"
+export no_proxy NO_PROXY
+
 REDIS_PORT="${REDIS_PORT:-6380}"
 REDIS_URL="${REDIS_URL:-redis://127.0.0.1:${REDIS_PORT}/}"
 DISABLE_SQLITE_CACHE="${DISABLE_SQLITE_CACHE:-0}"

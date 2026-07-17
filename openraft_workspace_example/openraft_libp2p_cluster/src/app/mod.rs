@@ -15,7 +15,7 @@ use anyhow::{Context, anyhow};
 use clap::{ArgAction, Parser};
 use futures::{AsyncRead, AsyncWrite};
 use libp2p::{
-  Multiaddr, PeerId, Transport, identity,
+  Multiaddr, PeerId, Transport, dns, identity,
   kad::{self},
   ping, websocket,
 };
@@ -108,6 +108,38 @@ pub struct WebsocketOpt {
   /// Websocket TLS certificate chain (DER).
   #[arg(long)]
   pub ws_tls_cert: Option<PathBuf>,
+}
+
+/// Build a DNS-wrapping transport, tolerating a system resolver that has no
+/// usable configuration.
+///
+/// `dns::tokio::Transport::system` reads `/etc/resolv.conf` (via hickory's
+/// `read_system_conf`) and returns an error such as "no nameservers found in
+/// config" when the file exists but declares no `nameserver`. That error would
+/// otherwise abort node startup before the HTTP server ever binds. Since this
+/// cluster dials only IP-literal multiaddrs (`/ip4/.../wss`), DNS resolution is
+/// not actually required; on failure we fall back to a default resolver config
+/// so the node still comes up.
+///
+/// `build_inner` is a closure because `Transport::system` consumes the inner
+/// transport even on failure, so the fallback path needs a freshly built one.
+pub fn build_dns_transport<T>(build_inner: impl Fn() -> T) -> dns::tokio::Transport<T> {
+  match dns::tokio::Transport::system(build_inner()) {
+    Ok(transport) => transport,
+    Err(err) => {
+      tracing::warn!(
+        error = %err,
+        "system DNS config unusable (e.g. no nameservers in /etc/resolv.conf); \
+         falling back to a default resolver config. IP-literal multiaddrs such \
+         as /ip4/.../wss are unaffected."
+      );
+      dns::tokio::Transport::custom(
+        build_inner(),
+        dns::ResolverConfig::default(),
+        dns::ResolverOpts::default(),
+      )
+    }
+  }
 }
 
 pub fn apply_websocket_limits<T>(ws: &mut websocket::Config<T>, opt: &WebsocketOpt)
