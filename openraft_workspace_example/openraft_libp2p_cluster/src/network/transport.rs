@@ -33,6 +33,11 @@ use crate::{
 /// enough that peers removed from a group membership stop being redialed.
 const RAFT_PEER_PIN_TTL: Duration = Duration::from_secs(600);
 
+/// How long a --bootstrap-node peer stays in the proactive-reconnect set
+/// after startup. Covers the control-membership join race and initial raft
+/// convergence; see [`Libp2pNetworkFactory::pin_bootstrap_peer`].
+const BOOTSTRAP_PEER_PIN_TTL: Duration = Duration::from_secs(600);
+
 /// Missed announcements tolerated before announce-based liveness lapses, so
 /// a couple of lost gossip messages do not flap liveness.
 const PEER_ALIVE_TTL_INTERVALS: u32 = 3;
@@ -434,13 +439,29 @@ impl Libp2pNetworkFactory {
   /// Refreshed on every raft RPC, so active group members stay connected and
   /// removed members age out instead of being redialed forever.
   pub async fn pin_raft_peer(&self, peer: PeerId) {
+    self.pin_peer_with_ttl(peer, RAFT_PEER_PIN_TTL).await;
+  }
+
+  /// Keep a bootstrap node in the proactive-reconnect set for
+  /// [`BOOTSTRAP_PEER_PIN_TTL`] — long enough to cover joining and initial
+  /// convergence. NOT permanent: with a permanent pin every node in the
+  /// cluster would hold and redial a connection to the bootstrap forever,
+  /// concentrating O(cluster size) connections on one process. After the
+  /// TTL the bootstrap is dialed on demand like any other known node.
+  pub async fn pin_bootstrap_peer(&self, peer: PeerId) {
+    self.pin_peer_with_ttl(peer, BOOTSTRAP_PEER_PIN_TTL).await;
+  }
+
+  async fn pin_peer_with_ttl(&self, peer: PeerId, ttl: Duration) {
     if peer == self.local_peer_id {
       return;
     }
-    let until = tokio::time::Instant::now() + RAFT_PEER_PIN_TTL;
+    let until = tokio::time::Instant::now() + ttl;
     let mut pins = self.pinned_peers.write().await;
     match pins.get(&peer) {
       Some(PeerPin::Permanent) => {}
+      // Never shorten an existing longer lease.
+      Some(PeerPin::Until(existing)) if *existing > until => {}
       _ => {
         pins.insert(peer, PeerPin::Until(until));
       }

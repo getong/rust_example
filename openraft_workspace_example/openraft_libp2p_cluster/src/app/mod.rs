@@ -49,6 +49,16 @@ pub(crate) const MEMBERSHIP_GUARD_TICK_SECS: u64 = 5;
 pub(crate) const EVICTED_LEARNER_REGISTER_RETRY_SECS: u64 = 10;
 pub(crate) const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
 pub(crate) const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
+/// Above this many known nodes the promotion-poll interval stretches
+/// proportionally (announce-style). Every poll is a per-worker GetMetrics
+/// RPC to the control set; a fixed 2s cadence at N workers concentrates
+/// N/2 rps on a handful of control nodes AND keeps every worker inside the
+/// connection janitor's activity window, pinning O(N) connections on each
+/// control node.
+pub(crate) const CONTROL_PROMOTION_POLL_SCALE_THRESHOLD: usize = 8;
+/// Cap on the stretched promotion-poll interval: an overlooked promotion is
+/// still noticed within five minutes even in a huge cluster.
+pub(crate) const CONTROL_PROMOTION_POLL_MAX_INTERVAL: Duration = Duration::from_secs(300);
 /// Poll cadence of the control demotion watcher (kad Server → Client when
 /// this node is evicted from the voter set while still running).
 pub(crate) const CONTROL_DEMOTION_POLL_INTERVAL_SECS: u64 = 30;
@@ -63,7 +73,14 @@ pub const OPENRAFT_KAD_PROVIDER_PUBLICATION_INTERVAL: Duration = Duration::from_
 /// Kademlia's built-in periodic bootstrap cadence. Bootstraps also trigger
 /// automatically (throttled) whenever a new peer enters the routing table,
 /// so no manual bootstrap calls are needed anywhere.
-pub const OPENRAFT_KAD_PERIODIC_BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(60);
+///
+/// 300s, deliberately slow: every bootstrap walks the DHT and dials a batch
+/// of peers, and at the previous 60s cadence that dial churn alone kept
+/// most of the cluster connected to most of the cluster (each fresh
+/// connection enjoys the janitor's activity grace). RT freshness for the
+/// provider-record directory does not need a sub-minute walk; add-triggered
+/// bootstraps still fire when genuinely new peers appear.
+pub const OPENRAFT_KAD_PERIODIC_BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(300);
 pub const PING_INTERVAL: Duration = Duration::from_secs(3);
 pub const PING_TIMEOUT: Duration = Duration::from_secs(6);
 pub(crate) const DEFAULT_MAX_CONTROL_NODES: usize = 3;
@@ -304,6 +321,23 @@ pub struct Opt {
   /// Close an idle libp2p connection only after this many seconds.
   #[arg(long, default_value_t = 30)]
   pub swarm_idle_connection_timeout_secs: u64,
+
+  /// Soft cap on concurrently open libp2p peer connections. A periodic
+  /// janitor closes the least-recently-active connections above this cap,
+  /// sparing pinned peers (configured members / bootstrap / active raft
+  /// targets), gossipsub mesh links, in-flight dials and recently active
+  /// RPC partners — keeping per-node connection count O(1) instead of
+  /// O(cluster size). 0 disables the cap.
+  #[arg(long, default_value_t = 32)]
+  pub max_peer_connections: usize,
+
+  /// Overlay floor: while the node has fewer connections than this, it
+  /// dials random known-alive peers so gossipsub can graft a healthy mesh
+  /// without funnelling all gossip through the bootstrap node. Should stay
+  /// >= the gossipsub mesh low-watermark (4) and below
+  /// --max-peer-connections. 0 disables proactive overlay dialing.
+  #[arg(long, default_value_t = 8)]
+  pub overlay_min_connections: usize,
 
   /// Automatically replace voters that stay unreachable with learners and
   /// backfill the learner pool from spare workers (runs on each group leader).
@@ -750,6 +784,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     cmd_rx_low,
     &libp2p,
     registry.clone(),
+    &opt,
   );
 
   let members = register_members(&libp2p.network, &configured_nodes).await?;

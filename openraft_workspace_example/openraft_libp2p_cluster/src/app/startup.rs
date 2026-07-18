@@ -393,8 +393,17 @@ pub(crate) fn spawn_libp2p_swarm(
   cmd_rx_low: mpsc::Receiver<Command>,
   libp2p: &Libp2pHandles,
   registry: crate::GroupRegistry,
+  opt: &Opt,
 ) -> tokio::task::JoinHandle<()> {
   let swarm_done = shutdown.push(SERVICE_LIBP2P_SWARM);
+  // An overlay floor above the budget would make the janitor and the
+  // overlay dialer fight each other; clamp instead of erroring.
+  let max_peer_connections = opt.max_peer_connections;
+  let overlay_min_connections = if max_peer_connections > 0 {
+    opt.overlay_min_connections.min(max_peer_connections)
+  } else {
+    opt.overlay_min_connections
+  };
   let ctx = SwarmContext {
     swarm,
     cmd_rx_high,
@@ -404,6 +413,8 @@ pub(crate) fn spawn_libp2p_swarm(
     dispatcher: Arc::new(OpenRaftDispatcher::with_registry(registry.clone())),
     registry,
     shutdown_rx: shutdown.shutdown_rx(),
+    max_peer_connections,
+    overlay_min_connections,
   };
   tokio::spawn(async move {
     run_swarm(ctx).await;
@@ -413,16 +424,24 @@ pub(crate) fn spawn_libp2p_swarm(
 
 pub(crate) async fn register_members(
   network: &Libp2pNetworkFactory,
-  nodes: &[(NodeId, String)],
+  nodes: &[(NodeId, String, bool)],
 ) -> anyhow::Result<BTreeMap<NodeId, BasicNode>> {
   let mut members: BTreeMap<NodeId, BasicNode> = BTreeMap::new();
-  for (id, addr) in nodes {
+  for (id, addr, permanent) in nodes {
     network.register_node(id.clone(), &addr).await?;
-    // Explicitly configured nodes (--node / --bootstrap-node) are the small
-    // set the reconnect loop keeps permanently connected; everything learned
-    // via gossip/mdns connects on demand instead.
     if let Ok((peer, _)) = parse_p2p_addr(addr) {
-      network.pin_peer(peer).await;
+      if *permanent {
+        // Explicit --node members are the small static set the reconnect
+        // loop keeps permanently connected.
+        network.pin_peer(peer).await;
+      } else {
+        // --bootstrap-node peers are only needed while joining. A permanent
+        // pin would make every node in the cluster hold (and redial) a
+        // connection to the bootstrap forever — an O(N) hub on one process
+        // at scale. The TTL pin keeps the join window connected; afterwards
+        // the bootstrap is reachable on demand like any other known node.
+        network.pin_bootstrap_peer(peer).await;
+      }
     }
     members.insert(
       id.clone(),
@@ -434,13 +453,24 @@ pub(crate) async fn register_members(
   Ok(members)
 }
 
-pub(crate) fn configured_nodes(opt: &Opt) -> anyhow::Result<Vec<(NodeId, String)>> {
-  let mut nodes = BTreeMap::new();
-  for raw in opt.nodes.iter().chain(opt.bootstrap_nodes.iter()) {
+/// Nodes from --node (permanent members, `true`) and --bootstrap-node
+/// (join-window pins, `false`). A node listed by both keeps `true`.
+pub(crate) fn configured_nodes(opt: &Opt) -> anyhow::Result<Vec<(NodeId, String, bool)>> {
+  let mut nodes: BTreeMap<NodeId, (String, bool)> = BTreeMap::new();
+  for raw in opt.nodes.iter() {
     let (id, addr) = parse_node_kv(raw)?;
-    nodes.insert(id, addr);
+    nodes.insert(id, (addr, true));
   }
-  Ok(nodes.into_iter().collect())
+  for raw in opt.bootstrap_nodes.iter() {
+    let (id, addr) = parse_node_kv(raw)?;
+    nodes.entry(id).or_insert((addr, false));
+  }
+  Ok(
+    nodes
+      .into_iter()
+      .map(|(id, (addr, permanent))| (id, addr, permanent))
+      .collect(),
+  )
 }
 
 pub(crate) fn known_control_nodes(

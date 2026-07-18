@@ -60,7 +60,15 @@ pub const WASM_MODULES_TOPIC: &str = "openraft/wasm-modules/1";
 /// Gossipsub `mesh_n_low`: the degree below which the mesh is considered
 /// under-connected. Shared with the mesh-health signal so "healthy" means
 /// "at or above the maintenance low-water mark".
-pub const GOSSIPSUB_MESH_N_LOW: usize = 4;
+///
+/// Kept low deliberately: this crate subscribes ~10 topics and the
+/// connection janitor spares every mesh link, so the per-node connection
+/// floor is roughly the UNION of all topic meshes. At the gossipsub default
+/// degree (6/12 high) that union soaked up 60+ connections per node and
+/// made the --max-peer-connections budget unenforceable; at 3/4/6 the union
+/// stays comfortably inside the budget while each topic still has D=4
+/// eager peers plus IHAVE/IWANT gossip redundancy.
+pub const GOSSIPSUB_MESH_N_LOW: usize = 3;
 pub const OPENRAFT_CLUSTER_PROVIDER_KEY: &str = "openraft_cluster";
 /// Single request-response protocol carrying every RPC kind (raft / kv /
 /// sqlite-sync / task) as a tagged envelope. One protocol means one
@@ -123,9 +131,12 @@ const SWARM_EVENT_BATCH: usize = 32;
 pub fn build_gossipsub_config() -> Result<gossipsub::Config, gossipsub::ConfigBuilderError> {
   gossipsub::ConfigBuilder::default()
     .heartbeat_interval(Duration::from_secs(1))
-    .mesh_n(6)
+    // Low mesh degree: see GOSSIPSUB_MESH_N_LOW — with ~10 subscribed
+    // topics the mesh UNION is the real per-node connection floor.
+    // mesh_outbound_min (default 2) must stay <= mesh_n_low and <= mesh_n/2.
+    .mesh_n(4)
     .mesh_n_low(GOSSIPSUB_MESH_N_LOW)
-    .mesh_n_high(12)
+    .mesh_n_high(6)
     .flood_publish(false)
     .max_transmit_size(128 * 1024)
     .build()
@@ -201,6 +212,12 @@ pub struct SwarmContext {
   pub dispatcher: Arc<dyn SwarmRequestDispatcher>,
   pub registry: crate::GroupRegistry,
   pub shutdown_rx: ShutdownRx,
+  /// Soft cap on open peer connections, enforced by the reconnect-tick
+  /// janitor (`--max-peer-connections`; 0 disables).
+  pub max_peer_connections: usize,
+  /// Overlay floor: dial random known-alive peers while below this many
+  /// connections (`--overlay-min-connections`; 0 disables).
+  pub overlay_min_connections: usize,
 }
 
 /// Full-node swarm loop.
@@ -220,6 +237,8 @@ pub async fn run_swarm(ctx: SwarmContext) {
     dispatcher,
     registry,
     mut shutdown_rx,
+    max_peer_connections,
+    overlay_min_connections,
   } = ctx;
   let mut state = SwarmState::default();
   // 12s: several raft election timeouts, so a pinned peer that dropped is
@@ -307,8 +326,9 @@ pub async fn run_swarm(ctx: SwarmContext) {
         handle_reconnect_tick(
           &mut swarm,
           &network,
-          &state.connected_peers,
-          &mut state.reconnect_backoff_until,
+          &mut state,
+          max_peer_connections,
+          overlay_min_connections,
         ).await;
       }
     }
@@ -419,16 +439,17 @@ pub async fn run_swarm_client_with_shutdown(
           SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => match event {
             mdns::Event::Discovered(list) => {
               // New routing-table entries trigger kad's automatic bootstrap.
+              // Registration only — no gossipsub explicit peers (see
+              // events/mdns.rs: explicit peers are actively kept connected
+              // by gossipsub and would build a full mesh).
               for (peer, addr) in list {
                 add_kad_peer_address(&mut swarm, peer, addr);
-                swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
               }
             }
             mdns::Event::Expired(list) => {
               for (peer, addr) in list {
                 let addr = strip_p2p(addr);
                 swarm.behaviour_mut().kad.remove_address(&peer, &addr);
-                swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
               }
             }
           },
@@ -448,7 +469,6 @@ pub async fn run_swarm_client_with_shutdown(
           SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             state.outgoing_failure_log_backoff_until.remove(&peer_id);
             handle_connection_established(
-              &mut swarm,
               &mut state.pending_connect,
               &mut state.connected_peers,
               &mut state.dial_backoff_until,
@@ -460,7 +480,6 @@ pub async fn run_swarm_client_with_shutdown(
             state.ping_failures.remove(&connection_id);
             if num_established == 0 {
               state.connected_peers.remove(&peer_id);
-              swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
             }
           }
 

@@ -53,19 +53,39 @@ pub(crate) enum ControlJoinWatchResult {
   Shutdown,
 }
 
+/// Promotion-poll cadence scaled to cluster size: 2s while the cluster is
+/// small (fast voter backfill), stretched proportionally above
+/// [`CONTROL_PROMOTION_POLL_SCALE_THRESHOLD`] known nodes and capped at
+/// [`CONTROL_PROMOTION_POLL_MAX_INTERVAL`]. See the threshold constant for
+/// why a fixed cadence does not scale.
+fn adaptive_promotion_poll_interval(known_nodes: usize) -> Duration {
+  let factor = known_nodes
+    .div_ceil(CONTROL_PROMOTION_POLL_SCALE_THRESHOLD)
+    .max(1);
+  Duration::from_secs(CONTROL_PROMOTION_POLL_INTERVAL_SECS)
+    .saturating_mul(factor.min(u32::MAX as usize) as u32)
+    .min(CONTROL_PROMOTION_POLL_MAX_INTERVAL)
+}
+
 pub(crate) async fn run_control_promotion_watcher(
   runtime: ControlRuntime,
   mut shutdown_rx: crate::signal::ShutdownRx,
 ) -> anyhow::Result<PromotionWatchResult> {
-  let mut tick = tokio::time::interval(Duration::from_secs(CONTROL_PROMOTION_POLL_INTERVAL_SECS));
-  tick.tick().await;
+  // First poll after the small-cluster base interval; each subsequent poll
+  // re-reads the known-node count so the cadence tracks cluster growth.
+  let mut next_poll =
+    tokio::time::Instant::now() + Duration::from_secs(CONTROL_PROMOTION_POLL_INTERVAL_SECS);
 
   loop {
     tokio::select! {
       _ = shutdown_rx.changed() => {
         return Ok(PromotionWatchResult::Shutdown);
       }
-      _ = tick.tick() => {
+      _ = tokio::time::sleep_until(next_poll) => {
+        next_poll = tokio::time::Instant::now()
+          + adaptive_promotion_poll_interval(
+            runtime.libp2p.network.known_nodes_count().await,
+          );
         if remote_openraft_voters_contain_self(
           &runtime.opt.id,
           &runtime.group_ids,

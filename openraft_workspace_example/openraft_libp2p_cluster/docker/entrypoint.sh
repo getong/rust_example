@@ -92,6 +92,12 @@ fi
 if [[ -n "${AUTO_HEAL_MEMBERSHIP:-}" ]]; then
   args+=(--auto-heal-membership "$AUTO_HEAL_MEMBERSHIP")
 fi
+if [[ -n "${MAX_PEER_CONNECTIONS:-}" ]]; then
+  args+=(--max-peer-connections "$MAX_PEER_CONNECTIONS")
+fi
+if [[ -n "${OVERLAY_MIN_CONNECTIONS:-}" ]]; then
+  args+=(--overlay-min-connections "$OVERLAY_MIN_CONNECTIONS")
+fi
 if [[ -n "${EXTRA_ARGS:-}" ]]; then
   read -r -a extra <<<"$EXTRA_ARGS"
   args+=("${extra[@]}")

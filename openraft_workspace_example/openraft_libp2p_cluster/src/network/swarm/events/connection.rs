@@ -15,8 +15,13 @@ use crate::network::swarm::{
 
 const OUTGOING_FAILURE_LOG_BACKOFF: Duration = Duration::from_secs(30);
 
+/// Note: connected peers are deliberately NOT registered as gossipsub
+/// explicit peers. Gossipsub keeps explicit peers connected (and redials
+/// them) forever, which turned every transient on-demand connection
+/// permanent and let the cluster drift into a full mesh. Gossip fan-out is
+/// bounded by the mesh degree config instead, and surplus connections are
+/// reaped by the connection janitor in the reconnect tick.
 pub(crate) fn handle_connection_established(
-  swarm: &mut Swarm<Behaviour>,
   pending_connect: &mut PendingConnectTable,
   connected_peers: &mut HashSet<PeerId>,
   dial_backoff_until: &mut HashMap<PeerId, tokio::time::Instant>,
@@ -25,11 +30,9 @@ pub(crate) fn handle_connection_established(
   connected_peers.insert(peer_id);
   dial_backoff_until.remove(&peer_id);
   pending_connect.finish(peer_id, Ok(()));
-  swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
 }
 
 pub(crate) fn handle_connection_closed<E: fmt::Display>(
-  swarm: &mut Swarm<Behaviour>,
   connected_peers: &mut HashSet<PeerId>,
   peer_id: PeerId,
   num_established: u32,
@@ -37,10 +40,6 @@ pub(crate) fn handle_connection_closed<E: fmt::Display>(
 ) {
   if num_established == 0 {
     connected_peers.remove(&peer_id);
-    swarm
-      .behaviour_mut()
-      .gossipsub
-      .remove_explicit_peer(&peer_id);
     if let Some(cause) = cause {
       tracing::warn!(peer = %peer_id, error = %cause, "connection closed");
     } else {

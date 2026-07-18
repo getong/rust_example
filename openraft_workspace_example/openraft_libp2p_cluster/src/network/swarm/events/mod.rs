@@ -30,6 +30,14 @@ pub(crate) async fn handle_swarm_event(
 ) {
   match event {
     SwarmEvent::Behaviour(BehaviourEvent::Rpc(event)) => {
+      // Any RPC message (inbound request or response) counts as activity:
+      // the connection janitor spares recently active peers, so in-flight
+      // exchanges are not cut mid-conversation.
+      if let libp2p::request_response::Event::Message { peer, .. } = &event {
+        state
+          .last_peer_activity
+          .insert(*peer, tokio::time::Instant::now());
+      }
       rpc::handle_rpc_event(
         swarm,
         dispatcher.clone(),
@@ -66,7 +74,6 @@ pub(crate) async fn handle_swarm_event(
     }
     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
       connection::handle_connection_established(
-        swarm,
         &mut state.pending_connect,
         &mut state.connected_peers,
         &mut state.dial_backoff_until,
@@ -74,6 +81,11 @@ pub(crate) async fn handle_swarm_event(
       );
       state.reconnect_backoff_until.remove(&peer_id);
       state.outgoing_failure_log_backoff_until.remove(&peer_id);
+      // A fresh connection counts as activity so the janitor gives the
+      // dialer's first RPC a grace window before considering it surplus.
+      state
+        .last_peer_activity
+        .insert(peer_id, tokio::time::Instant::now());
       network.set_peer_connected(peer_id).await;
     }
     SwarmEvent::ConnectionClosed {
@@ -85,13 +97,13 @@ pub(crate) async fn handle_swarm_event(
     } => {
       state.ping_failures.remove(&connection_id);
       connection::handle_connection_closed(
-        swarm,
         &mut state.connected_peers,
         peer_id,
         num_established,
         cause,
       );
       if num_established == 0 {
+        state.last_peer_activity.remove(&peer_id);
         network.set_peer_disconnected(peer_id).await;
       }
     }

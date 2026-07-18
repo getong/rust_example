@@ -68,6 +68,11 @@ pub(crate) struct PendingConnectTable {
 }
 
 impl PendingConnectTable {
+  /// Peers with a dial in flight; the connection janitor never closes them.
+  pub(crate) fn peers(&self) -> impl Iterator<Item = &PeerId> {
+    self.inner.keys()
+  }
+
   /// Register a waiter for `peer`. Returns `true` when this is the first
   /// waiter — i.e. the caller should start the dial.
   pub(crate) fn add_waiter(
@@ -153,6 +158,11 @@ pub(crate) struct SwarmState {
   pub(crate) pending_kad: PendingKadTable,
   pub(crate) openraft_sync: OpenRaftSyncState,
   pub(crate) connected_peers: HashSet<PeerId>,
+  /// Last RPC message (or connection establishment) per peer. Consulted by
+  /// the connection janitor: peers active within its protect window are
+  /// never closed for budget reasons. Entries are dropped on disconnect and
+  /// aged out by the janitor itself.
+  pub(crate) last_peer_activity: HashMap<PeerId, tokio::time::Instant>,
   pub(crate) dial_backoff_until: HashMap<PeerId, tokio::time::Instant>,
   pub(crate) reconnect_backoff_until: HashMap<PeerId, tokio::time::Instant>,
   pub(crate) outgoing_failure_log_backoff_until: HashMap<PeerId, tokio::time::Instant>,
@@ -168,6 +178,7 @@ impl Default for SwarmState {
       pending_kad: PendingKadTable::default(),
       openraft_sync: OpenRaftSyncState::default(),
       connected_peers: HashSet::new(),
+      last_peer_activity: HashMap::new(),
       dial_backoff_until: HashMap::new(),
       reconnect_backoff_until: HashMap::new(),
       outgoing_failure_log_backoff_until: HashMap::new(),

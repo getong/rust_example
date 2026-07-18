@@ -29,14 +29,18 @@ pub(crate) async fn handle_mdns_event(
           // New routing-table entries trigger kad's automatic bootstrap.
           add_kad_peer_address(swarm, peer, addr);
         }
-        swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+        // Registration only — never a gossipsub explicit peer. Gossipsub
+        // actively dials and keeps explicit peers connected, so marking every
+        // mdns-discovered neighbour explicit made each node build an O(N^2)
+        // full mesh on shared-L2 deployments (an all-localhost demo cluster
+        // discovers everyone). Address book + kad entry is enough: peers
+        // connect on demand and via the overlay floor of the reconnect tick.
       }
     }
     mdns::Event::Expired(list) => {
       for (peer, addr) in list {
         let addr = strip_p2p(addr);
         swarm.behaviour_mut().kad.remove_address(&peer, &addr);
-        swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
       }
     }
   }
