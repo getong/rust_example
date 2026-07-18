@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Launch a 20-node local cluster:
+# Launch a local cluster (default 100 nodes; pass a count as the first
+# argument, e.g. `./run-20nodes.sh 20` for 20 nodes):
 #   - node1 bootstraps OpenRaft; every other node starts identically (in
 #     RANDOM order) and races to join the control membership on its own.
 #     Whichever nodes join first become the control voters (CONTROL_NODES
@@ -48,7 +49,16 @@ if [[ "${USE_ENV_DB_ROOT:-0}" != "1" ]]; then
 	unset DB_ROOT
 fi
 
-TOTAL_NODES="${TOTAL_NODES:-20}"
+# Node count: first positional argument wins, then TOTAL_NODES env, then 100.
+if [[ $# -ge 1 ]]; then
+	if [[ ! "$1" =~ ^[0-9]+$ ]] || (($1 < 1)); then
+		echo "Error: node count must be a positive integer (got '$1')." >&2
+		echo "Usage: $0 [total_nodes]" >&2
+		exit 1
+	fi
+	TOTAL_NODES="$1"
+fi
+TOTAL_NODES="${TOTAL_NODES:-100}"
 CONTROL_NODES="${CONTROL_NODES:-5}"
 MAX_CONTROL_NODES="$CONTROL_NODES"
 if ((CONTROL_NODES < 1 || CONTROL_NODES > TOTAL_NODES)); then
@@ -100,11 +110,61 @@ NODE_LOGS=()
 NODE_PEER_IDS=()
 SHUTTING_DOWN=0
 
-CONTROL_UP_TIMEOUT_SECS="${CONTROL_UP_TIMEOUT_SECS:-120}"
-LEARNER_ADD_TIMEOUT_SECS="${LEARNER_ADD_TIMEOUT_SECS:-120}"
+# Scale the wait budgets with cluster size: 100 debug-build nodes need much
+# longer to converge than 20.
+CONTROL_UP_TIMEOUT_SECS="${CONTROL_UP_TIMEOUT_SECS:-$((120 + 2 * TOTAL_NODES))}"
+LEARNER_ADD_TIMEOUT_SECS="${LEARNER_ADD_TIMEOUT_SECS:-$((120 + TOTAL_NODES))}"
 
 if [[ "${RUSTFLAGS:-}" != *"tokio_unstable"* ]]; then
 	export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--cfg tokio_unstable"
+fi
+
+# Per-node resource caps. With default settings every node spawns a
+# num_cpus-sized tokio pool, a num_cpus-sized rayon pool, tokio-console
+# instrumentation, and info-level raft logging; at 100 nodes on a 16-core
+# host that is thousands of runnable threads (observed load average 800+),
+# and the resulting scheduling starvation breaks raft quorum with election
+# storms. Cap parallelism and quiet the logs for large clusters; every knob
+# stays overridable via env.
+if ((TOTAL_NODES > 30)); then
+	# Debug-build nodes burn ~14% CPU each just idling (4 raft groups
+	# heartbeating over wss); 100 of them saturate the host even with thread
+	# caps. Release nodes idle roughly an order of magnitude cheaper.
+	BUILD_PROFILE="${BUILD_PROFILE:-release}"
+	# Keep wasm_sync at info even in quiet mode: its per-module sync lines are
+	# low-volume and task-client-test.sh phase 8 greps them as resume proof.
+	NODE_RUST_LOG="${RUST_LOG:-warn,openraft_libp2p_cluster::wasm_sync=info}"
+	TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-2}"
+	RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-2}"
+	NODE_TOKIO_CONSOLE="${NODE_TOKIO_CONSOLE:-0}"
+	# Wider raft timings for a saturated host. openraft's linearizable-read
+	# quorum probes and heartbeat RPCs both time out after ONE
+	# heartbeat-interval; at the 500ms default on a host running 100 nodes
+	# they miss constantly (QuorumNotEnough on every read, heartbeat WARN
+	# storms). Election timeouts scale with keepalive (>=3x min, wide
+	# randomization window) per the binary's own validation guidance.
+	RAFT_KEEPALIVE_MS="${RAFT_KEEPALIVE_MS:-2000}"
+	RAFT_ELECTION_TIMEOUT_MIN_MS="${RAFT_ELECTION_TIMEOUT_MIN_MS:-6000}"
+	RAFT_ELECTION_TIMEOUT_MAX_MS="${RAFT_ELECTION_TIMEOUT_MAX_MS:-12000}"
+else
+	BUILD_PROFILE="${BUILD_PROFILE:-debug}"
+	NODE_RUST_LOG="${RUST_LOG:-info}"
+	TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-}"
+	RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-}"
+	NODE_TOKIO_CONSOLE="${NODE_TOKIO_CONSOLE:-1}"
+	RAFT_KEEPALIVE_MS="${RAFT_KEEPALIVE_MS:-}"
+	RAFT_ELECTION_TIMEOUT_MIN_MS="${RAFT_ELECTION_TIMEOUT_MIN_MS:-}"
+	RAFT_ELECTION_TIMEOUT_MAX_MS="${RAFT_ELECTION_TIMEOUT_MAX_MS:-}"
+fi
+if [[ "$BUILD_PROFILE" != "debug" && "$BUILD_PROFILE" != "release" ]]; then
+	echo "Error: BUILD_PROFILE must be debug or release (got '$BUILD_PROFILE')." >&2
+	exit 1
+fi
+if [[ -n "$TOKIO_WORKER_THREADS" ]]; then
+	export TOKIO_WORKER_THREADS
+fi
+if [[ -n "$RAYON_NUM_THREADS" ]]; then
+	export RAYON_NUM_THREADS
 fi
 
 WSS_CERT_DIR="${WSS_CERT_DIR:-$DB_ROOT/certs}"
@@ -470,6 +530,23 @@ start_node() {
 		cmd+=(--disable-sqlite-cache)
 	fi
 
+	# tokio-console instrumentation is per-poll overhead on every task; too
+	# expensive with a large cluster on one host.
+	if [[ "$NODE_TOKIO_CONSOLE" != "1" ]]; then
+		cmd+=(--no-tokio-console)
+	fi
+
+	# Optional raft timing knobs (defaults live in the binary).
+	if [[ -n "$RAFT_KEEPALIVE_MS" ]]; then
+		cmd+=(--raft-keepalive-ms "$RAFT_KEEPALIVE_MS")
+	fi
+	if [[ -n "$RAFT_ELECTION_TIMEOUT_MIN_MS" ]]; then
+		cmd+=(--raft-election-timeout-min-ms "$RAFT_ELECTION_TIMEOUT_MIN_MS")
+	fi
+	if [[ -n "$RAFT_ELECTION_TIMEOUT_MAX_MS" ]]; then
+		cmd+=(--raft-election-timeout-max-ms "$RAFT_ELECTION_TIMEOUT_MAX_MS")
+	fi
+
 	# Optional membership self-healing knobs (defaults live in the binary).
 	if [[ -n "${VOTER_REPLACE_TIMEOUT_SECS:-}" ]]; then
 		cmd+=(--voter-replace-timeout-secs "$VOTER_REPLACE_TIMEOUT_SECS")
@@ -482,7 +559,7 @@ start_node() {
 	# (like a per-host docker image cache), which is what the p2p wasm sync
 	# service distributes modules between. A shared cwd-relative store would
 	# make every module look locally present on every node.
-	RUST_LOG="${RUST_LOG:-info}" \
+	RUST_LOG="$NODE_RUST_LOG" \
 		LIBP2P_SELF_NAME="$name" \
 		TOKIO_CONSOLE_BIND="$console" \
 		WASM_MODULES_DIR="$db/wasm_modules" \
@@ -506,7 +583,7 @@ wait_for_http() {
 	local url
 	url="http://$(node_http "$index")/cluster"
 	local start=$SECONDS
-	while ! curl -fsS "$url" >/dev/null 2>&1; do
+	while ! curl -fsS --max-time 5 "$url" >/dev/null 2>&1; do
 		if ((SECONDS - start >= timeout)); then
 			echo "Error: node$index HTTP did not come up at $url within ${timeout}s." >&2
 			return 1
@@ -519,7 +596,7 @@ openraft_voter_count() {
 	local index="$1"
 	local group="$2"
 	local body
-	body="$(curl -fsS "http://$(node_http "$index")/openraft/nodes?group_id=${group}" 2>/dev/null)" || return 1
+	body="$(curl -fsS --max-time 5 "http://$(node_http "$index")/openraft/nodes?group_id=${group}" 2>/dev/null)" || return 1
 	printf '%s' "$body" | grep -o '"voters":[0-9]*' | head -1 | cut -d: -f2
 }
 
@@ -527,7 +604,7 @@ openraft_learner_count() {
 	local index="$1"
 	local group="$2"
 	local body
-	body="$(curl -fsS "http://$(node_http "$index")/openraft/nodes?group_id=${group}" 2>/dev/null)" || return 1
+	body="$(curl -fsS --max-time 5 "http://$(node_http "$index")/openraft/nodes?group_id=${group}" 2>/dev/null)" || return 1
 	printf '%s' "$body" | grep -o '"learners":[0-9]*' | head -1 | cut -d: -f2
 }
 
@@ -566,15 +643,18 @@ wait_for_voters() {
 # assuming fixed indices.
 openraft_voter_node_ids() {
 	local group="${GROUP_IDS%% *}"
-	curl -fsS "http://$(node_http 1)/openraft/nodes?group_id=${group}" 2>/dev/null |
+	curl -fsS --max-time 5 "http://$(node_http 1)/openraft/nodes?group_id=${group}" 2>/dev/null |
 		grep -o '"node_id":"[^"]*"[^{]*"role":"[^"]*"' |
 		grep -E '"role":"(leader|follower)"' |
 		sed 's/"node_id":"\([^"]*\)".*/\1/'
 }
 
-# Register node <index> as an OpenRaft learner (promote=false) by asking each
-# node in turn until the current leader accepts the membership change; nodes
-# that did not join the control membership simply reject and are skipped.
+# Register node <index> as an OpenRaft learner (promote=false). Only control
+# (voter) nodes can apply a membership change — any voter forwards a
+# learner-only add to each group's leader, while plain workers always reject
+# with "must be submitted to the leader node". So probe just the current
+# voters (refreshed every round, leadership may move) instead of blasting all
+# TOTAL_NODES nodes per attempt.
 add_learner() {
 	local index="$1"
 	local timeout="$2"
@@ -586,10 +666,20 @@ add_learner() {
 	local start=$SECONDS
 	local c
 	local resp
+	local voter_ids
+	local candidates
 
 	while true; do
+		voter_ids="$(openraft_voter_node_ids || true)"
+		candidates=()
 		for ((c = 1; c <= TOTAL_NODES; c++)); do
-			resp="$(curl -fsS -X POST "http://$(node_http "$c")/openraft/membership/add" \
+			if printf '%s\n' "$voter_ids" | grep -qxF "${NODE_PEER_IDS[$c]}"; then
+				candidates+=("$c")
+			fi
+		done
+		((${#candidates[@]} == 0)) && candidates=(1)
+		for c in "${candidates[@]}"; do
+			resp="$(curl -fsS --max-time 20 -X POST "http://$(node_http "$c")/openraft/membership/add" \
 				-H 'content-type: application/json' \
 				-d "$body" 2>/dev/null)" || continue
 			if [[ "$resp" == '{"ok":true'* ]]; then
@@ -617,8 +707,16 @@ shuffle_array() {
 }
 
 random_sleep() {
-	# 0.2s .. ~2.1s
-	sleep "$((RANDOM % 2)).$((RANDOM % 10))2"
+	# Stagger keeps the control-membership join race fair, but with 100 nodes
+	# a 0.2..2.1s stagger alone adds ~2 minutes to startup — shrink it for
+	# large clusters (still random).
+	if ((TOTAL_NODES > 30)); then
+		# 0.1s .. 0.4s
+		sleep "0.$((RANDOM % 4 + 1))"
+	else
+		# 0.2s .. ~2.1s
+		sleep "$((RANDOM % 2)).$((RANDOM % 10))2"
+	fi
 }
 
 trap 'cleanup 130' INT
@@ -633,25 +731,74 @@ export REDIS_URL DISABLE_SQLITE_CACHE MAX_CONTROL_NODES
 
 cd "$WS_DIR"
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-	echo "Building..."
-	cargo build -p openraft_libp2p_cluster >/dev/null
+	echo "Building ($BUILD_PROFILE)..."
+	if [[ "$BUILD_PROFILE" == "release" ]]; then
+		cargo build --release -p openraft_libp2p_cluster >/dev/null
+	else
+		cargo build -p openraft_libp2p_cluster >/dev/null
+	fi
 fi
 
-NODE_BIN="${CARGO_TARGET_DIR:-$WS_DIR/target}/debug/openraft_libp2p_cluster"
+NODE_BIN="${CARGO_TARGET_DIR:-$WS_DIR/target}/$BUILD_PROFILE/openraft_libp2p_cluster"
 if [[ ! -x "$NODE_BIN" ]]; then
 	echo "Error: node binary not found at $NODE_BIN (build failed?)." >&2
 	exit 1
 fi
 
 echo "Generating peer ids for $TOTAL_NODES nodes..."
+# Prefer calling the peer-id binary directly: generate_libp2p_id.sh goes
+# through `cargo run` each time, whose per-invocation overhead is painful at
+# 100 nodes. The binary is part of the package built above.
+PEER_ID_BIN="${PEER_ID_BIN:-$(dirname "$NODE_BIN")/olpc-peer-id}"
+gen_peer_id() {
+	local db="$1"
+	if [[ -x "$PEER_ID_BIN" ]]; then
+		"$PEER_ID_BIN" --key "$db/node.key" --create | tail -1 >"$db/peer.id"
+	else
+		"$GEN_ID_SCRIPT" --key "$db/node.key" --out "$db/peer.id" >/dev/null
+	fi
+}
+# Generate in parallel batches. Track pids explicitly: a bare `wait` would
+# also block on the long-lived demo Redis child.
+GEN_ID_JOBS="${GEN_ID_JOBS:-8}"
 NODE_PEER_IDS[0]="" # 1-based
+GEN_PIDS=()
 for ((i = 1; i <= TOTAL_NODES; i++)); do
 	db="$(node_db_dir "$i")"
 	mkdir -p "$db"
-	NODE_PEER_IDS[i]="$("$GEN_ID_SCRIPT" --key "$db/node.key" --out "$db/peer.id" | tail -1)"
+	gen_peer_id "$db" &
+	GEN_PIDS+=("$!")
+	if ((${#GEN_PIDS[@]} >= GEN_ID_JOBS)); then
+		wait "${GEN_PIDS[@]}" || true
+		GEN_PIDS=()
+	fi
+done
+((${#GEN_PIDS[@]} > 0)) && wait "${GEN_PIDS[@]}" || true
+for ((i = 1; i <= TOTAL_NODES; i++)); do
+	db="$(node_db_dir "$i")"
+	NODE_PEER_IDS[i]="$(tail -1 "$db/peer.id")"
+	if [[ -z "${NODE_PEER_IDS[$i]}" ]]; then
+		echo "Error: failed to generate peer id for node$i (missing $db/peer.id)." >&2
+		exit 1
+	fi
 done
 
 BOOTSTRAP_KV="${NODE_PEER_IDS[1]}=$(node_advertise_addr 1)"
+
+# Record the node knobs restart-nodes.sh must reuse to revive nodes with the
+# same binary profile and resource caps as the launcher. Values are written
+# as defaults so explicit env still overrides when sourcing.
+cat >"$DB_ROOT/cluster-env" <<EOF
+BUILD_PROFILE="\${BUILD_PROFILE:-$BUILD_PROFILE}"
+NODE_RUST_LOG="\${NODE_RUST_LOG:-$NODE_RUST_LOG}"
+NODE_TOKIO_CONSOLE="\${NODE_TOKIO_CONSOLE:-$NODE_TOKIO_CONSOLE}"
+TOKIO_WORKER_THREADS="\${TOKIO_WORKER_THREADS:-$TOKIO_WORKER_THREADS}"
+RAYON_NUM_THREADS="\${RAYON_NUM_THREADS:-$RAYON_NUM_THREADS}"
+MAX_CONTROL_NODES="\${MAX_CONTROL_NODES:-$MAX_CONTROL_NODES}"
+RAFT_KEEPALIVE_MS="\${RAFT_KEEPALIVE_MS:-$RAFT_KEEPALIVE_MS}"
+RAFT_ELECTION_TIMEOUT_MIN_MS="\${RAFT_ELECTION_TIMEOUT_MIN_MS:-$RAFT_ELECTION_TIMEOUT_MIN_MS}"
+RAFT_ELECTION_TIMEOUT_MAX_MS="\${RAFT_ELECTION_TIMEOUT_MAX_MS:-$RAFT_ELECTION_TIMEOUT_MAX_MS}"
+EOF
 
 echo "Workspace:  $WS_DIR"
 echo "export DB_ROOT=$DB_ROOT"

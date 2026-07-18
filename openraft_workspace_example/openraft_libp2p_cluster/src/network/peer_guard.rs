@@ -5,9 +5,9 @@
 //! unbounded number of in-flight requests — most visibly when the membership
 //! guard replaces a dead voter and every raft RPC to it hangs until timeout.
 //!
-//! Three mechanisms — two per target peer, one global:
-//!   - **Bulkhead**: at most [`PER_PEER_MAX_CONCURRENT_RPCS`] RPCs in flight to one peer; excess
-//!     callers get an immediate typed failure instead of queueing.
+//! Three mechanisms — two per (protocol, target peer), one global:
+//!   - **Bulkhead**: at most [`PER_PEER_MAX_CONCURRENT_RPCS`] RPCs in flight to one peer per
+//!     protocol; excess callers get an immediate typed failure instead of queueing.
 //!   - **Circuit breaker**: after [`CIRCUIT_BREAKER_FAILURE_THRESHOLD`] consecutive failures the
 //!     circuit opens for [`CIRCUIT_BREAKER_OPEN_DURATION`]; requests are rejected without touching
 //!     the network. After the cooldown the circuit is half-open: traffic flows again, but a single
@@ -15,6 +15,13 @@
 //!   - **Global cap**: at most [`global_max_concurrent_rpcs`] outbound RPCs in flight across ALL
 //!     peers, so a large cluster (many peers, each within its per-peer limit) cannot exhaust this
 //!     node's resources with outbound traffic.
+//!
+//! Bulkhead and circuit state are keyed by ([`RpcKind`], peer), not peer
+//! alone: an overloaded raft leader that keeps timing out task RPCs must not
+//! have its wasm-sync (or any other protocol's) traffic rejected by a
+//! circuit that only ever saw task-RPC failures. A peer that is actually
+//! down trips every protocol's circuit on that protocol's first failures, so
+//! the dead-peer protection is unchanged.
 //!
 //! Rejections surface as `Unreachable` to callers, which every RPC consumer
 //! already handles with its own retry/backoff (openraft included).
@@ -56,6 +63,18 @@ fn global_max_concurrent_rpcs() -> usize {
 }
 /// How long an open circuit rejects requests before going half-open.
 const CIRCUIT_BREAKER_OPEN_DURATION: Duration = Duration::from_secs(10);
+
+/// Which outbound RPC protocol a request belongs to. Guard state is
+/// partitioned by this, so failure streaks on one protocol never reject
+/// another protocol's traffic to the same peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RpcKind {
+  Raft,
+  SqliteSync,
+  TaskRpc,
+  WasmSync,
+  Kv,
+}
 
 /// Why an RPC to a peer was rejected without being sent.
 #[derive(Debug, Clone)]
@@ -106,11 +125,11 @@ impl PeerGuardState {
   }
 }
 
-/// Guards all outbound RPC traffic of one node, keyed by target peer.
+/// Guards all outbound RPC traffic of one node, keyed by (protocol, peer).
 pub struct PeerRpcGuard {
   created: tokio::time::Instant,
-  peers: Mutex<HashMap<PeerId, Arc<PeerGuardState>>>,
-  /// Node-wide outbound in-flight cap, shared by every peer.
+  peers: Mutex<HashMap<(RpcKind, PeerId), Arc<PeerGuardState>>>,
+  /// Node-wide outbound in-flight cap, shared by every peer and protocol.
   global_bulkhead: Arc<Semaphore>,
 }
 
@@ -136,19 +155,19 @@ impl PeerRpcGuard {
     self.created.elapsed().as_millis() as u64
   }
 
-  fn state_for(&self, peer: PeerId) -> Arc<PeerGuardState> {
+  fn state_for(&self, kind: RpcKind, peer: PeerId) -> Arc<PeerGuardState> {
     let mut peers = self.peers.lock().expect("peer guard lock poisoned");
     peers
-      .entry(peer)
+      .entry((kind, peer))
       .or_insert_with(|| Arc::new(PeerGuardState::new()))
       .clone()
   }
 
-  /// Admit an RPC to `peer`, or reject it without touching the network. The
-  /// returned permit must be fed the outcome (`record_success` /
-  /// `record_failure`) so the circuit tracks consecutive failures.
-  pub fn try_acquire(&self, peer: PeerId) -> Result<PeerRpcPermit, PeerRpcRejection> {
-    let state = self.state_for(peer);
+  /// Admit a `kind` RPC to `peer`, or reject it without touching the
+  /// network. The returned permit must be fed the outcome (`record_success`
+  /// / `record_failure`) so the circuit tracks consecutive failures.
+  pub fn try_acquire(&self, kind: RpcKind, peer: PeerId) -> Result<PeerRpcPermit, PeerRpcRejection> {
+    let state = self.state_for(kind, peer);
 
     let open_until_ms = state.open_until_ms.load(Ordering::Acquire);
     if open_until_ms != 0 {
@@ -249,35 +268,43 @@ mod tests {
     let target = peer();
 
     for _ in 0 .. CIRCUIT_BREAKER_FAILURE_THRESHOLD {
-      let permit = guard.try_acquire(target).expect("closed circuit admits");
+      let permit = guard
+        .try_acquire(RpcKind::Raft, target)
+        .expect("closed circuit admits");
       permit.record_failure();
     }
 
     // Open: rejected without a permit.
     assert!(matches!(
-      guard.try_acquire(target),
+      guard.try_acquire(RpcKind::Raft, target),
       Err(PeerRpcRejection::CircuitOpen { .. })
     ));
 
     // After the cooldown the circuit is half-open: one probe is admitted.
     tokio::time::advance(CIRCUIT_BREAKER_OPEN_DURATION + Duration::from_millis(1)).await;
-    let probe = guard.try_acquire(target).expect("half-open admits a probe");
+    let probe = guard
+      .try_acquire(RpcKind::Raft, target)
+      .expect("half-open admits a probe");
 
     // A half-open failure re-opens immediately (no need for a full streak).
     probe.record_failure();
     assert!(matches!(
-      guard.try_acquire(target),
+      guard.try_acquire(RpcKind::Raft, target),
       Err(PeerRpcRejection::CircuitOpen { .. })
     ));
 
     // Cooldown again, then a success closes the circuit fully.
     tokio::time::advance(CIRCUIT_BREAKER_OPEN_DURATION + Duration::from_millis(1)).await;
-    let probe = guard.try_acquire(target).expect("half-open admits a probe");
+    let probe = guard
+      .try_acquire(RpcKind::Raft, target)
+      .expect("half-open admits a probe");
     probe.record_success();
-    let permit = guard.try_acquire(target).expect("closed circuit admits");
+    let permit = guard
+      .try_acquire(RpcKind::Raft, target)
+      .expect("closed circuit admits");
     permit.record_failure();
     // One failure after recovery must not re-open the circuit.
-    assert!(guard.try_acquire(target).is_ok());
+    assert!(guard.try_acquire(RpcKind::Raft, target).is_ok());
   }
 
   #[tokio::test]
@@ -286,15 +313,19 @@ mod tests {
     let target = peer();
 
     let permits: Vec<_> = (0 .. PER_PEER_MAX_CONCURRENT_RPCS)
-      .map(|_| guard.try_acquire(target).expect("slot available"))
+      .map(|_| {
+        guard
+          .try_acquire(RpcKind::Raft, target)
+          .expect("slot available")
+      })
       .collect();
     assert!(matches!(
-      guard.try_acquire(target),
+      guard.try_acquire(RpcKind::Raft, target),
       Err(PeerRpcRejection::BulkheadFull)
     ));
 
     drop(permits);
-    assert!(guard.try_acquire(target).is_ok());
+    assert!(guard.try_acquire(RpcKind::Raft, target).is_ok());
   }
 
   #[tokio::test]
@@ -305,15 +336,19 @@ mod tests {
     let a = peer();
     let b = peer();
 
-    let _p1 = guard.try_acquire(a).expect("global slot available");
-    let _p2 = guard.try_acquire(b).expect("global slot available");
+    let _p1 = guard
+      .try_acquire(RpcKind::Raft, a)
+      .expect("global slot available");
+    let _p2 = guard
+      .try_acquire(RpcKind::Raft, b)
+      .expect("global slot available");
     assert!(matches!(
-      guard.try_acquire(a),
+      guard.try_acquire(RpcKind::Raft, a),
       Err(PeerRpcRejection::GlobalLimitFull)
     ));
 
     drop(_p1);
-    assert!(guard.try_acquire(a).is_ok());
+    assert!(guard.try_acquire(RpcKind::Raft, a).is_ok());
   }
 
   #[tokio::test]
@@ -324,15 +359,36 @@ mod tests {
 
     for _ in 0 .. CIRCUIT_BREAKER_FAILURE_THRESHOLD {
       guard
-        .try_acquire(slow)
+        .try_acquire(RpcKind::Raft, slow)
         .expect("closed circuit admits")
         .record_failure();
     }
     assert!(matches!(
-      guard.try_acquire(slow),
+      guard.try_acquire(RpcKind::Raft, slow),
       Err(PeerRpcRejection::CircuitOpen { .. })
     ));
     // The slow peer's open circuit must not affect other peers.
-    assert!(guard.try_acquire(healthy).is_ok());
+    assert!(guard.try_acquire(RpcKind::Raft, healthy).is_ok());
+  }
+
+  #[tokio::test]
+  async fn protocols_are_isolated_per_peer() {
+    let guard = PeerRpcGuard::default();
+    let target = peer();
+
+    // A task-RPC failure streak toward an overloaded peer opens ONLY the
+    // task-RPC circuit; wasm sync to the same peer keeps flowing.
+    for _ in 0 .. CIRCUIT_BREAKER_FAILURE_THRESHOLD {
+      guard
+        .try_acquire(RpcKind::TaskRpc, target)
+        .expect("closed circuit admits")
+        .record_failure();
+    }
+    assert!(matches!(
+      guard.try_acquire(RpcKind::TaskRpc, target),
+      Err(PeerRpcRejection::CircuitOpen { .. })
+    ));
+    assert!(guard.try_acquire(RpcKind::WasmSync, target).is_ok());
+    assert!(guard.try_acquire(RpcKind::Raft, target).is_ok());
   }
 }

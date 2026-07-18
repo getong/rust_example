@@ -41,7 +41,25 @@ fi
 CRASHED_FILE="$DB_ROOT/crashed-nodes.txt"
 LOG_DIR="$DB_ROOT/logs"
 CERT_DIR="$DB_ROOT/certs"
-NODE_BIN="${CARGO_TARGET_DIR:-$WS_DIR/target}/debug/openraft_libp2p_cluster"
+
+# Revive nodes with the same binary profile and per-node resource caps the
+# launcher used (recorded by run-20nodes.sh); explicit env still overrides
+# because the file assigns with ':-' defaults.
+if [[ -f "$DB_ROOT/cluster-env" ]]; then
+	# shellcheck source=/dev/null
+	. "$DB_ROOT/cluster-env"
+fi
+BUILD_PROFILE="${BUILD_PROFILE:-debug}"
+NODE_RUST_LOG="${NODE_RUST_LOG:-${RUST_LOG:-info}}"
+NODE_TOKIO_CONSOLE="${NODE_TOKIO_CONSOLE:-1}"
+if [[ -n "${TOKIO_WORKER_THREADS:-}" ]]; then
+	export TOKIO_WORKER_THREADS
+fi
+if [[ -n "${RAYON_NUM_THREADS:-}" ]]; then
+	export RAYON_NUM_THREADS
+fi
+
+NODE_BIN="${CARGO_TARGET_DIR:-$WS_DIR/target}/$BUILD_PROFILE/openraft_libp2p_cluster"
 
 if [[ ! -x "$NODE_BIN" ]]; then
 	echo "Error: node binary not found at $NODE_BIN; build it first (cargo build -p openraft_libp2p_cluster)." >&2
@@ -164,17 +182,32 @@ restart_node() {
 		cmd+=(--disable-sqlite-cache)
 	fi
 
+	# Same raft timings as the launcher (recorded in cluster-env), so a
+	# revived node rejoins with matching heartbeat/election cadence.
+	if [[ -n "${RAFT_KEEPALIVE_MS:-}" ]]; then
+		cmd+=(--raft-keepalive-ms "$RAFT_KEEPALIVE_MS")
+	fi
+	if [[ -n "${RAFT_ELECTION_TIMEOUT_MIN_MS:-}" ]]; then
+		cmd+=(--raft-election-timeout-min-ms "$RAFT_ELECTION_TIMEOUT_MIN_MS")
+	fi
+	if [[ -n "${RAFT_ELECTION_TIMEOUT_MAX_MS:-}" ]]; then
+		cmd+=(--raft-election-timeout-max-ms "$RAFT_ELECTION_TIMEOUT_MAX_MS")
+	fi
+
 	if [[ -n "${VOTER_REPLACE_TIMEOUT_SECS:-}" ]]; then
 		cmd+=(--voter-replace-timeout-secs "$VOTER_REPLACE_TIMEOUT_SECS")
 	fi
 	if [[ -n "${AUTO_HEAL_MEMBERSHIP:-}" ]]; then
 		cmd+=(--auto-heal-membership "$AUTO_HEAL_MEMBERSHIP")
 	fi
+	if [[ "$NODE_TOKIO_CONSOLE" != "1" ]]; then
+		cmd+=(--no-tokio-console)
+	fi
 
 	mkdir -p "$LOG_DIR"
 	# Same per-node wasm module store as run-20nodes.sh, so a restarted node
 	# resumes its partial wasm downloads from the same directory.
-	RUST_LOG="${RUST_LOG:-info}" \
+	RUST_LOG="$NODE_RUST_LOG" \
 		LIBP2P_SELF_NAME="node${index}" \
 		TOKIO_CONSOLE_BIND="127.0.0.1:${console_port}" \
 		WASM_MODULES_DIR="$db/wasm_modules" \

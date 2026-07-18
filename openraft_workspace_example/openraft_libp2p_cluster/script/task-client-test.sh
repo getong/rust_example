@@ -479,17 +479,32 @@ check "snapshot publish accepted for the bulk-loaded group" \
 		| python3 -c "import json,sys; assert json.load(sys.stdin)[\"ok\"]"' _ "$CONTROL_HTTP"
 
 # The bulk data must be intact after the snapshot cycle: spot-check the
-# first, a middle, and the last key through the same parallel scan.
+# first, a middle, and the last key through the same parallel scan. Poll with
+# a deadline: on large clusters the serving node may still be reinstalling
+# the snapshot when the first read lands, transiently hiding the pairs.
 check "bulk pairs survive the snapshot cycle" \
 	python3 - "$CONTROL_HTTP" "$rayon_prefix" "$RAYON_KV_COUNT" << 'EOF'
-import json, sys, urllib.request
+import json, sys, time, urllib.request
 base, prefix, count = sys.argv[1], sys.argv[2], int(sys.argv[3])
-with urllib.request.urlopen(
-        f"http://{base}/cluster?group_id=users", timeout=30) as resp:
-    pairs = {p["key"]: p["value"] for p in json.load(resp)["kv_data"]}
-for i in (0, count // 2, count - 1):
-    key = f"{prefix}:{i:05d}"
-    assert pairs.get(key) == f"val-{prefix}-{i:05d}", (key, pairs.get(key))
+deadline = time.time() + 60
+bad = ("not-read-yet", None)
+while time.time() < deadline and bad:
+    try:
+        with urllib.request.urlopen(
+                f"http://{base}/cluster?group_id=users", timeout=30) as resp:
+            pairs = {p["key"]: p["value"] for p in json.load(resp)["kv_data"]}
+    except Exception:
+        time.sleep(0.5)
+        continue
+    bad = None
+    for i in (0, count // 2, count - 1):
+        key = f"{prefix}:{i:05d}"
+        if pairs.get(key) != f"val-{prefix}-{i:05d}":
+            bad = (key, pairs.get(key))
+            break
+    if bad:
+        time.sleep(0.5)
+assert not bad, bad
 EOF
 
 if [[ "$WITH_CRASH" == "1" ]]; then

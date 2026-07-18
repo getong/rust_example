@@ -14,7 +14,7 @@ use openraft::BasicNode;
 use crate::{
   GroupId, NodeId, Unreachable,
   network::{
-    peer_guard::PeerRpcGuard,
+    peer_guard::{PeerRpcGuard, RpcKind},
     raft_bridge::{P2PNetworkFactory, P2PRaftNetwork},
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{
@@ -611,7 +611,7 @@ impl Libp2pNetworkFactory {
     // a fresh dial + handshake.
     self.pin_raft_peer(peer).await;
     self
-      .guarded(peer, async {
+      .guarded(RpcKind::Raft, peer, async {
         if let Err(err) = self.client.connect(peer, addr.clone()).await {
           if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
             return Err(err);
@@ -630,16 +630,17 @@ impl Libp2pNetworkFactory {
       .await
   }
 
-  /// Run one outbound RPC under the per-peer guard: admission (bulkhead +
-  /// circuit breaker) happens before any network activity, and the outcome
-  /// feeds the circuit so consecutive failures to a peer eventually reject
-  /// fast instead of piling up in-flight requests.
+  /// Run one outbound RPC under the per-(protocol, peer) guard: admission
+  /// (bulkhead + circuit breaker) happens before any network activity, and
+  /// the outcome feeds the circuit so consecutive failures to a peer
+  /// eventually reject fast instead of piling up in-flight requests.
   async fn guarded<T>(
     &self,
+    kind: RpcKind,
     peer: PeerId,
     rpc: impl Future<Output = Result<T, Unreachable>>,
   ) -> Result<T, Unreachable> {
-    let permit = self.peer_guard.try_acquire(peer).map_err(|rejection| {
+    let permit = self.peer_guard.try_acquire(kind, peer).map_err(|rejection| {
       Unreachable::new(&ClusterError::Network(format!("peer={peer}: {rejection}")))
     })?;
     let result = rpc.await;
@@ -662,7 +663,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     self
-      .guarded(peer, async {
+      .guarded(RpcKind::SqliteSync, peer, async {
         if let Err(err) = self.sqlite_sync_client.connect(peer, addr.clone()).await {
           if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
             return Err(err);
@@ -693,7 +694,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     self
-      .guarded(peer, async {
+      .guarded(RpcKind::TaskRpc, peer, async {
         if let Err(err) = self.task_rpc_client.connect(peer, addr.clone()).await {
           if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
             return Err(err);
@@ -724,7 +725,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     self
-      .guarded(peer, async {
+      .guarded(RpcKind::WasmSync, peer, async {
         if let Err(err) = self.wasm_sync_client.connect(peer, addr.clone()).await {
           if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
             return Err(err);
@@ -755,7 +756,7 @@ impl Libp2pNetworkFactory {
       ))));
     }
     self
-      .guarded(peer, async {
+      .guarded(RpcKind::Kv, peer, async {
         if let Err(err) = self.kv_client.connect(peer, addr.clone()).await {
           if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
             return Err(err);

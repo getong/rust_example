@@ -657,13 +657,46 @@ fn max_log_id(
   }
 }
 
+/// Retry budget for the ReadIndex quorum probe. openraft confirms
+/// leadership with one-shot heartbeat RPCs whose timeout is a single
+/// `heartbeat_interval`, so on a loaded host a probe round can miss quorum
+/// even while writes commit fine. `QuorumNotEnough` is that transient
+/// probe-round failure, not a partition verdict — retry it briefly before
+/// surfacing an error to the caller.
+const LINEARIZABLE_READ_ATTEMPTS: u32 = 5;
+const LINEARIZABLE_READ_BACKOFF: std::time::Duration = std::time::Duration::from_millis(200);
+
 pub async fn ensure_linearizable_read(raft: &Raft) -> Result<(), RaftError<LinearizableReadError>> {
-  let linearizer = raft.get_read_linearizer(ReadPolicy::ReadIndex).await?;
-  linearizer
-    .await_ready(raft)
-    .await
-    .map(|_| ())
-    .map_err(RaftError::Fatal)
+  let mut backoff = LINEARIZABLE_READ_BACKOFF;
+  for attempt in 1 .. {
+    let err = match raft.get_read_linearizer(ReadPolicy::ReadIndex).await {
+      Ok(linearizer) => {
+        return linearizer
+          .await_ready(raft)
+          .await
+          .map(|_| ())
+          .map_err(RaftError::Fatal);
+      }
+      Err(err) => err,
+    };
+    // ForwardToLeader must reach the caller immediately (it carries the
+    // leader hint) and Fatal is final; only the probe-round miss retries.
+    let transient = matches!(
+      &err,
+      RaftError::APIError(LinearizableReadError::QuorumNotEnough(_))
+    );
+    if !transient || attempt >= LINEARIZABLE_READ_ATTEMPTS {
+      return Err(err);
+    }
+    tracing::debug!(
+      attempt,
+      backoff_ms = backoff.as_millis() as u64,
+      "linearizable read probe missed quorum; retrying"
+    );
+    tokio::time::sleep(backoff).await;
+    backoff = backoff.saturating_mul(2);
+  }
+  unreachable!("loop returns on success, non-transient error, or attempt cap")
 }
 
 fn secondary_db_dir(primary_path: &Path) -> PathBuf {
