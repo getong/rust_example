@@ -57,6 +57,19 @@ enum PeerPin {
   Until(tokio::time::Instant),
 }
 
+/// One raft group's voter set as learned from the leader's
+/// `MembershipAnnouncement` gossip. `log_index` orders views: only a
+/// higher-index announcement replaces the stored one, so re-gossiped or
+/// reordered stale views cannot roll the map back.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GossipMembership {
+  pub voters: HashSet<NodeId>,
+  pub leader_id: NodeId,
+  pub log_index: u64,
+}
+
+pub type GossipMembershipMap = HashMap<GroupId, GossipMembership>;
+
 #[derive(Clone)]
 pub struct Libp2pNetworkFactory {
   client: Libp2pClient,
@@ -85,6 +98,10 @@ pub struct Libp2pNetworkFactory {
   /// path, so one slow or dead peer cannot absorb unbounded in-flight
   /// requests or shared dispatch capacity.
   peer_guard: Arc<PeerRpcGuard>,
+  /// Per-group voter sets pushed by group leaders over membership gossip.
+  /// The watch channel lets the worker promotion watcher sleep until a new
+  /// announcement lands instead of polling the control nodes over RPC.
+  gossip_membership: Arc<tokio::sync::watch::Sender<GossipMembershipMap>>,
   group_id: Option<GroupId>,
   local_peer_id: PeerId,
 }
@@ -109,6 +126,7 @@ impl Libp2pNetworkFactory {
       pinned_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       peer_last_announce: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
       peer_guard: Arc::new(PeerRpcGuard::default()),
+      gossip_membership: Arc::new(tokio::sync::watch::channel(GossipMembershipMap::new()).0),
       group_id: None,
       local_peer_id,
     }
@@ -130,9 +148,33 @@ impl Libp2pNetworkFactory {
       pinned_peers: self.pinned_peers.clone(),
       peer_last_announce: self.peer_last_announce.clone(),
       peer_guard: self.peer_guard.clone(),
+      gossip_membership: self.gossip_membership.clone(),
       group_id: Some(group_id),
       local_peer_id: self.local_peer_id,
     }
+  }
+
+  /// Fold one leader-published membership announcement into the local view.
+  /// Stale announcements (log index at or below the stored view for that
+  /// group) are dropped, so watchers only wake for genuinely newer views.
+  pub fn apply_gossip_membership(&self, group_id: GroupId, membership: GossipMembership) {
+    self.gossip_membership.send_if_modified(|map| {
+      let stale = map
+        .get(&group_id)
+        .is_some_and(|current| current.log_index >= membership.log_index);
+      if stale {
+        return false;
+      }
+      map.insert(group_id, membership);
+      true
+    });
+  }
+
+  /// Watch the gossip-pushed per-group voter sets. The receiver starts with
+  /// whatever has been heard so far; callers should inspect the current
+  /// value before awaiting `changed()`.
+  pub fn subscribe_gossip_membership(&self) -> tokio::sync::watch::Receiver<GossipMembershipMap> {
+    self.gossip_membership.subscribe()
   }
 
   pub async fn register_node(&self, node_id: NodeId, addr: &str) -> anyhow::Result<()> {

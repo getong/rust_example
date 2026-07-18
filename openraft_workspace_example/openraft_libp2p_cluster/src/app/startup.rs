@@ -29,7 +29,7 @@ use crate::{
     raft_bridge::P2PNetworkFactoryWrapper,
     rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
     swarm::{
-      Behaviour, Command, CommandSenders, GOSSIP_TOPIC, KvClient, Libp2pClient,
+      Behaviour, Command, CommandSenders, GOSSIP_TOPIC, KvClient, Libp2pClient, MEMBERSHIP_TOPIC,
       NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, SwarmContext,
       TaskRpcClient, WASM_MODULES_TOPIC, WasmSyncClient, run_swarm,
     },
@@ -381,6 +381,12 @@ pub(crate) fn build_swarm(
     .gossipsub
     .subscribe(&wasm_modules_topic)
     .context("wasm modules gossipsub subscribe")?;
+  let membership_topic = gossipsub::IdentTopic::new(MEMBERSHIP_TOPIC);
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&membership_topic)
+    .context("membership gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
   Ok(swarm)

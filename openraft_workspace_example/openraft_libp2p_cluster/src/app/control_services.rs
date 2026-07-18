@@ -2,9 +2,10 @@
 //! flusher, plus the demotion watcher that drops the kademlia control role
 //! when this node is evicted from the voter set while running.
 
-use std::{net::SocketAddr, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use anyhow::anyhow;
+use openraft::async_runtime::WatchReceiver;
 
 use super::*;
 use crate::{
@@ -12,7 +13,10 @@ use crate::{
   constants::{SERVICE_OPENRAFT_LEADER_WORKER, SERVICE_SQLITE_CACHE_FLUSHER},
   leader_controller,
   membership_guard::MembershipGuardConfig,
-  network::{swarm::KvClient, transport::Libp2pNetworkFactory},
+  network::{
+    swarm::{KvClient, MEMBERSHIP_TOPIC},
+    transport::Libp2pNetworkFactory,
+  },
   sqlite_cache::{self, SqliteCache},
   tasks::api::TaskFrontend,
 };
@@ -106,6 +110,13 @@ pub(crate) async fn run_control_services(
     ));
   }
 
+  // Push each group's voter set over gossip so workers detect their own
+  // promotion without polling the control nodes over RPC.
+  tokio::spawn(run_membership_announcer(
+    runtime.clone(),
+    shutdown_rx_for_ordering.clone(),
+  ));
+
   let (_tx, _rx, results) = shutdown.await_any_then_shutdown().await;
 
   let mut errors = Vec::new();
@@ -127,6 +138,90 @@ pub(crate) async fn run_control_services(
         let _ = writeln!(&mut msg, "  {err}");
       }
       Err(anyhow!(msg))
+    }
+  }
+}
+
+/// Publish each raft group's voter set on the membership gossipsub topic
+/// ([`MEMBERSHIP_TOPIC`]). Runs on every control node, but only the group's
+/// LIVE leader publishes, so the topic carries one announcement per group
+/// per change (within one [`MEMBERSHIP_ANNOUNCE_TICK_SECS`] tick) plus a
+/// slow unconditional refresh every [`MEMBERSHIP_ANNOUNCE_REFRESH`] for
+/// workers that grafted onto the mesh after the last change.
+///
+/// This is the push half of worker promotion detection: the worker-side
+/// watcher sleeps on the gossip view instead of polling GetMetrics, which
+/// used to pin O(workers) connections on the control set.
+pub(crate) async fn run_membership_announcer(
+  runtime: ControlRuntime,
+  mut shutdown_rx: crate::signal::ShutdownRx,
+) {
+  use prost::Message as _;
+
+  let mut tick = tokio::time::interval(Duration::from_secs(MEMBERSHIP_ANNOUNCE_TICK_SECS));
+  tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+  tick.tick().await;
+  // Last published membership log index and publish time per group; a
+  // repeat publish is only due when the index moved or the refresh window
+  // elapsed. Cleared for groups this node stops leading, so regaining
+  // leadership re-announces immediately.
+  let mut published: HashMap<GroupId, (u64, tokio::time::Instant)> = HashMap::new();
+
+  loop {
+    tokio::select! {
+      _ = shutdown_rx.changed() => return,
+      _ = tick.tick() => {}
+    }
+
+    let Some(groups) = runtime.registry.all() else {
+      continue;
+    };
+    for (group_id, group) in groups.iter() {
+      let metrics = {
+        let metrics_rx = group.raft.metrics();
+        let metrics = metrics_rx.borrow_watched();
+        if !metrics.state.is_leader() {
+          published.remove(group_id);
+          continue;
+        }
+        metrics.clone()
+      };
+
+      let log_index = metrics
+        .membership_config
+        .log_id()
+        .as_ref()
+        .map(|log_id| log_id.index())
+        .unwrap_or(0);
+      let now = tokio::time::Instant::now();
+      let fresh = published.get(group_id).is_some_and(|(index, at)| {
+        *index == log_index && now.duration_since(*at) < MEMBERSHIP_ANNOUNCE_REFRESH
+      });
+      if fresh {
+        continue;
+      }
+
+      let announcement = crate::proto::raft_kv::MembershipAnnouncement {
+        group_id: group_id.clone(),
+        voter_ids: metrics
+          .membership_config
+          .membership()
+          .voter_ids()
+          .map(|id| id.to_string())
+          .collect(),
+        membership_log_index: log_index,
+        leader_id: runtime.opt.id.to_string(),
+        ts_unix_ms: std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .map(|d| d.as_millis() as i64)
+          .unwrap_or_default(),
+      };
+      runtime
+        .libp2p
+        .kv_client
+        .publish_gossipsub(MEMBERSHIP_TOPIC, announcement.encode_to_vec())
+        .await;
+      published.insert(group_id.clone(), (log_index, now));
     }
   }
 }

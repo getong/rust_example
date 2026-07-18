@@ -13,10 +13,10 @@ use crate::{
       OpenRaftSyncState, SnapshotAvailableAnnouncement, available_topic_hash, group_id_string,
       sync_topic_hash,
     },
-    swarm::{Behaviour, NODE_ANNOUNCE_TOPIC, WASM_MODULES_TOPIC},
-    transport::Libp2pNetworkFactory,
+    swarm::{Behaviour, MEMBERSHIP_TOPIC, NODE_ANNOUNCE_TOPIC, WASM_MODULES_TOPIC},
+    transport::{GossipMembership, Libp2pNetworkFactory},
   },
-  proto::raft_kv::{ChatMessage, NodeAnnouncement},
+  proto::raft_kv::{ChatMessage, MembershipAnnouncement, NodeAnnouncement},
 };
 
 /// Bounded queue between the swarm loop and the node-announce processor
@@ -34,6 +34,45 @@ pub(crate) fn node_announce_topic_hash() -> gossipsub::TopicHash {
 
 pub(crate) fn wasm_modules_topic_hash() -> gossipsub::TopicHash {
   gossipsub::IdentTopic::new(WASM_MODULES_TOPIC).hash()
+}
+
+pub(crate) fn membership_topic_hash() -> gossipsub::TopicHash {
+  gossipsub::IdentTopic::new(MEMBERSHIP_TOPIC).hash()
+}
+
+/// Fold a leader-published `MembershipAnnouncement` into the network
+/// factory's gossip membership view. Decoding and the view update are cheap
+/// (message volume is one announcement per group leader per change/refresh,
+/// independent of cluster size), so this runs inline on the swarm loop —
+/// unlike node announcements, whose volume grows with the cluster.
+fn handle_membership_announcement(
+  network: &Libp2pNetworkFactory,
+  peer_id: libp2p::PeerId,
+  data: &[u8],
+) {
+  let announcement = match MembershipAnnouncement::decode(data) {
+    Ok(announcement) => announcement,
+    Err(err) => {
+      tracing::debug!(peer = %peer_id, error = %err, "invalid membership announcement");
+      return;
+    }
+  };
+  if announcement.group_id.is_empty() {
+    tracing::debug!(peer = %peer_id, "membership announcement without group id");
+    return;
+  }
+  network.apply_gossip_membership(
+    announcement.group_id,
+    GossipMembership {
+      voters: announcement
+        .voter_ids
+        .into_iter()
+        .map(crate::NodeId::new)
+        .collect(),
+      leader_id: crate::NodeId::new(announcement.leader_id),
+      log_index: announcement.membership_log_index,
+    },
+  );
 }
 
 /// Process node self-announcements queued by the swarm loop: (re)register
@@ -141,6 +180,7 @@ fn handle_snapshot_available(
 
 pub(crate) async fn handle_gossipsub_event(
   swarm: &mut Swarm<Behaviour>,
+  network: &Libp2pNetworkFactory,
   announce_tx: &mpsc::Sender<Vec<u8>>,
   registry: &crate::GroupRegistry,
   openraft_sync: &mut OpenRaftSyncState,
@@ -170,6 +210,11 @@ pub(crate) async fn handle_gossipsub_event(
 
       if message.topic == available_topic_hash() {
         handle_snapshot_available(swarm, openraft_sync, propagation_source, &message.data);
+        return;
+      }
+
+      if message.topic == membership_topic_hash() {
+        handle_membership_announcement(network, propagation_source, &message.data);
         return;
       }
 

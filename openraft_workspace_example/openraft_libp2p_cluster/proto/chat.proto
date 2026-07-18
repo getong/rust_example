@@ -30,3 +30,21 @@ message NodeAnnouncement {
   // sender predates this field and uses the default interval.
   uint64 announce_interval_ms = 4;
 }
+
+// Voter set of one raft group, published on its own gossipsub topic by the
+// group's LIVE leader — immediately when the membership changes and at a
+// slow periodic refresh for peers that joined the mesh later. Workers use
+// this to detect their own promotion to voter without polling the control
+// nodes over RPC (which pinned O(workers) connections on the control set).
+message MembershipAnnouncement {
+  string group_id = 1;
+  // Node ids of the group's current voters.
+  repeated string voter_ids = 2;
+  // Index of the log entry that established this membership; receivers keep
+  // the highest-index view per group and drop stale announcements that were
+  // reordered or re-gossiped.
+  uint64 membership_log_index = 3;
+  // Node id of the publishing leader.
+  string leader_id = 4;
+  int64 ts_unix_ms = 5;
+}

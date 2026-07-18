@@ -57,6 +57,12 @@ pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 pub const NODE_ANNOUNCE_TOPIC: &str = "openraft/node-announce/1";
 /// Per-node wasm module inventory announcements (see [`crate::wasm_sync`]).
 pub const WASM_MODULES_TOPIC: &str = "openraft/wasm-modules/1";
+/// Per-group voter-set announcements published by each group's live leader
+/// (`MembershipAnnouncement`). Replaces the worker-side promotion RPC poll:
+/// workers learn about their promotion to voter from this topic instead of
+/// keeping a GetMetrics poll — and thus a pinned connection — open against
+/// the control nodes.
+pub const MEMBERSHIP_TOPIC: &str = "openraft/membership/1";
 /// Gossipsub `mesh_n_low`: the degree below which the mesh is considered
 /// under-connected. Shared with the mesh-health signal so "healthy" means
 /// "at or above the maintenance low-water mark".

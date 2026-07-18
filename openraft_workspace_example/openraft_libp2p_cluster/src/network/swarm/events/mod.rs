@@ -53,6 +53,7 @@ pub(crate) async fn handle_swarm_event(
     SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
       gossipsub::handle_gossipsub_event(
         swarm,
+        network,
         announce_tx,
         registry,
         &mut state.openraft_sync,

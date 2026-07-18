@@ -48,17 +48,23 @@ pub(crate) const OPENRAFT_LEADER_CONTROLLER_INTERVAL_SECS: u64 = 1;
 pub(crate) const MEMBERSHIP_GUARD_TICK_SECS: u64 = 5;
 pub(crate) const EVICTED_LEARNER_REGISTER_RETRY_SECS: u64 = 10;
 pub(crate) const SQLITE_CACHE_FLUSH_INTERVAL_SECS: u64 = 5;
-pub(crate) const CONTROL_PROMOTION_POLL_INTERVAL_SECS: u64 = 2;
-/// Above this many known nodes the promotion-poll interval stretches
-/// proportionally (announce-style). Every poll is a per-worker GetMetrics
-/// RPC to the control set; a fixed 2s cadence at N workers concentrates
-/// N/2 rps on a handful of control nodes AND keeps every worker inside the
-/// connection janitor's activity window, pinning O(N) connections on each
-/// control node.
-pub(crate) const CONTROL_PROMOTION_POLL_SCALE_THRESHOLD: usize = 8;
-/// Cap on the stretched promotion-poll interval: an overlooked promotion is
-/// still noticed within five minutes even in a huge cluster.
-pub(crate) const CONTROL_PROMOTION_POLL_MAX_INTERVAL: Duration = Duration::from_secs(300);
+/// How often each group's live leader checks its local metrics for a
+/// membership change to publish on the membership gossip topic. A change is
+/// therefore announced within ~2s; the check itself is a local watch-channel
+/// read, no RPC.
+pub(crate) const MEMBERSHIP_ANNOUNCE_TICK_SECS: u64 = 2;
+/// Unconditional re-publish cadence for the membership announcement, so
+/// workers that grafted onto the gossipsub mesh after the last change still
+/// converge on the current voter set. Per-group-leader volume, independent
+/// of cluster size.
+pub(crate) const MEMBERSHIP_ANNOUNCE_REFRESH: Duration = Duration::from_secs(30);
+/// Fallback cadence of the worker promotion watcher's GetMetrics RPC poll.
+/// Promotion detection is gossip-pushed (see [`MEMBERSHIP_ANNOUNCE_TICK_SECS`]);
+/// this slow poll only backstops lost gossip, so an overlooked promotion is
+/// still noticed within five minutes. Deliberately far above the connection
+/// janitor's activity window: workers must NOT keep a pinned connection to
+/// the control set, or control-node degree grows O(workers) again.
+pub(crate) const CONTROL_PROMOTION_FALLBACK_POLL_INTERVAL: Duration = Duration::from_secs(300);
 /// Poll cadence of the control demotion watcher (kad Server → Client when
 /// this node is evicted from the voter set while still running).
 pub(crate) const CONTROL_DEMOTION_POLL_INTERVAL_SECS: u64 = 30;

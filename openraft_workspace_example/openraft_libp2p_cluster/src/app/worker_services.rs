@@ -53,53 +53,90 @@ pub(crate) enum ControlJoinWatchResult {
   Shutdown,
 }
 
-/// Promotion-poll cadence scaled to cluster size: 2s while the cluster is
-/// small (fast voter backfill), stretched proportionally above
-/// [`CONTROL_PROMOTION_POLL_SCALE_THRESHOLD`] known nodes and capped at
-/// [`CONTROL_PROMOTION_POLL_MAX_INTERVAL`]. See the threshold constant for
-/// why a fixed cadence does not scale.
-fn adaptive_promotion_poll_interval(known_nodes: usize) -> Duration {
-  let factor = known_nodes
-    .div_ceil(CONTROL_PROMOTION_POLL_SCALE_THRESHOLD)
-    .max(1);
-  Duration::from_secs(CONTROL_PROMOTION_POLL_INTERVAL_SECS)
-    .saturating_mul(factor.min(u32::MAX as usize) as u32)
-    .min(CONTROL_PROMOTION_POLL_MAX_INTERVAL)
+/// True when the gossip-pushed membership view lists this node as a voter
+/// of every raft group. A group the view has not heard about yet counts as
+/// "not a voter" — promotion never fires on missing evidence.
+fn gossip_view_promotes_self(
+  view: &crate::network::transport::GossipMembershipMap,
+  self_id: &NodeId,
+  group_ids: &[GroupId],
+) -> bool {
+  !group_ids.is_empty()
+    && group_ids.iter().all(|group_id| {
+      view
+        .get(group_id)
+        .is_some_and(|membership| membership.voters.contains(self_id))
+    })
 }
 
+/// Wait until this worker has been promoted to voter in every raft group.
+///
+/// Detection is push-based: each group's live leader gossips its voter set
+/// on the membership topic (see `run_membership_announcer`), and this
+/// watcher sleeps on the resulting local view instead of polling the
+/// control nodes — the old GetMetrics poll kept every worker inside the
+/// connection janitor's activity window and pinned O(workers) connections
+/// on the control set. When the view claims promotion, one GetMetrics RPC
+/// confirms it before the worker restarts as a control node, so a stale or
+/// forged announcement cannot flip the node's role by itself. A slow
+/// fallback poll ([`CONTROL_PROMOTION_FALLBACK_POLL_INTERVAL`]) backstops
+/// lost gossip.
 pub(crate) async fn run_control_promotion_watcher(
   runtime: ControlRuntime,
   mut shutdown_rx: crate::signal::ShutdownRx,
 ) -> anyhow::Result<PromotionWatchResult> {
-  // First poll after the small-cluster base interval; each subsequent poll
-  // re-reads the known-node count so the cadence tracks cluster growth.
-  let mut next_poll =
-    tokio::time::Instant::now() + Duration::from_secs(CONTROL_PROMOTION_POLL_INTERVAL_SECS);
+  /// Re-confirm cadence while the gossip view claims promotion but the
+  /// control set has not confirmed it yet (joint-consensus change still in
+  /// flight, or a transient RPC failure right after the announcement).
+  const PROMOTION_CONFIRM_RETRY: Duration = Duration::from_secs(5);
+
+  let mut membership_rx = runtime.libp2p.network.subscribe_gossip_membership();
+  let mut fallback = tokio::time::interval(CONTROL_PROMOTION_FALLBACK_POLL_INTERVAL);
+  fallback.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+  // The interval's immediate first tick doubles as the startup check for a
+  // promotion that happened while this node was offline (the gossip view
+  // starts empty and only fills on the next leader announcement).
+  let mut confirm_due = false;
+  let mut gossip_closed = false;
 
   loop {
+    let view_promotes = gossip_view_promotes_self(
+      &membership_rx.borrow_and_update(),
+      &runtime.opt.id,
+      &runtime.group_ids,
+    );
+
+    if (view_promotes || confirm_due)
+      && remote_openraft_voters_contain_self(
+        &runtime.opt.id,
+        &runtime.group_ids,
+        &runtime.libp2p.network,
+      )
+      .await
+    {
+      tracing::info!(
+        node_id = %runtime.opt.id,
+        via_gossip = view_promotes,
+        "local node is now a voter in every OpenRaft group; promoting worker to control"
+      );
+      return Ok(PromotionWatchResult::Promote);
+    }
+    confirm_due = false;
+
     tokio::select! {
       _ = shutdown_rx.changed() => {
         return Ok(PromotionWatchResult::Shutdown);
       }
-      _ = tokio::time::sleep_until(next_poll) => {
-        next_poll = tokio::time::Instant::now()
-          + adaptive_promotion_poll_interval(
-            runtime.libp2p.network.known_nodes_count().await,
-          );
-        if remote_openraft_voters_contain_self(
-          &runtime.opt.id,
-          &runtime.group_ids,
-          &runtime.libp2p.network,
-        )
-        .await
-        {
-          tracing::info!(
-            node_id = %runtime.opt.id,
-            "local node is now a voter in every OpenRaft group; promoting worker to control"
-          );
-          return Ok(PromotionWatchResult::Promote);
-        }
+      changed = membership_rx.changed(), if !gossip_closed => {
+        // The sender lives in the network factory and outlives this
+        // watcher in practice; if it ever closes, degrade to the fallback
+        // poll instead of spinning on a closed channel.
+        gossip_closed = changed.is_err();
       }
+      _ = fallback.tick() => {
+        confirm_due = true;
+      }
+      _ = tokio::time::sleep(PROMOTION_CONFIRM_RETRY), if view_promotes => {}
     }
   }
 }
@@ -377,4 +414,52 @@ pub(crate) async fn register_self_as_group_learner(
     "register as learner for group {group_id} failed: {}",
     last_error.unwrap_or_else(|| "no reachable control node".to_string())
   ))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::network::transport::{GossipMembership, GossipMembershipMap};
+
+  fn view(entries: &[(&str, &[&str])]) -> GossipMembershipMap {
+    entries
+      .iter()
+      .map(|(group_id, voters)| {
+        (
+          group_id.to_string(),
+          GossipMembership {
+            voters: voters.iter().map(|voter| NodeId::new(*voter)).collect(),
+            leader_id: NodeId::new("leader"),
+            log_index: 1,
+          },
+        )
+      })
+      .collect()
+  }
+
+  #[test]
+  fn promotes_only_when_voter_in_every_group() {
+    let groups = vec!["kv".to_string(), "tasks".to_string()];
+    let me = NodeId::new("me");
+
+    let all = view(&[("kv", &["me", "other"]), ("tasks", &["me"])]);
+    assert!(gossip_view_promotes_self(&all, &me, &groups));
+
+    let partial = view(&[("kv", &["me"]), ("tasks", &["other"])]);
+    assert!(!gossip_view_promotes_self(&partial, &me, &groups));
+  }
+
+  #[test]
+  fn unknown_group_counts_as_not_a_voter() {
+    let groups = vec!["kv".to_string(), "tasks".to_string()];
+    let me = NodeId::new("me");
+    let only_kv = view(&[("kv", &["me"])]);
+    assert!(!gossip_view_promotes_self(&only_kv, &me, &groups));
+  }
+
+  #[test]
+  fn empty_group_list_never_promotes() {
+    let me = NodeId::new("me");
+    assert!(!gossip_view_promotes_self(&view(&[]), &me, &[]));
+  }
 }
