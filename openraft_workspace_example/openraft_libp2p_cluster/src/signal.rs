@@ -113,9 +113,14 @@ impl ShutdownHandler {
 
     let mut results = Vec::with_capacity(self.services.len());
 
-    // If a task exited first, signal shutdown so others know to stop.
+    // If a task exited first, signal shutdown so others know to stop. Its
+    // completion oneshot was consumed by the poll above and MUST leave the
+    // map: `await_all` re-awaiting a completed tokio oneshot panics with
+    // "called after complete", which would turn any early service exit into
+    // a process abort instead of a graceful shutdown.
     if !which.is_empty() {
       let _ = self.tx.send(());
+      self.services.remove(which);
       results.push((which, res));
     }
 
@@ -178,6 +183,34 @@ impl ShutdownHandler {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[tokio::test]
+  async fn early_service_exit_does_not_repoll_its_completed_oneshot() {
+    let (tx, rx) = channel();
+    let mut handler = ShutdownHandler::new(tx, rx);
+
+    let a_done = handler.push("service-a");
+    let b_done = handler.push("service-b");
+    let mut b_shutdown = handler.shutdown_rx();
+
+    // service-a dies FIRST (before any shutdown signal): its completion
+    // must be consumed exactly once — re-awaiting the finished oneshot in
+    // await_all used to panic with "called after complete" and abort the
+    // process instead of shutting down gracefully.
+    let _ = a_done.send(Err(anyhow::anyhow!("raft core panicked")));
+    tokio::spawn(async move {
+      let _ = b_shutdown.changed().await;
+      let _ = b_done.send(Ok(()));
+    });
+
+    let (_tx, _rx, mut results) = handler.await_any_then_shutdown().await;
+    results.sort_by_key(|(name, _)| *name);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].0, "service-a");
+    assert!(results[0].1.is_err());
+    assert_eq!(results[1].0, "service-b");
+    assert!(results[1].1.is_ok());
+  }
 
   #[tokio::test]
   async fn shutdown_collects_all_service_results() {

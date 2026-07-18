@@ -86,6 +86,13 @@ impl SwarmRequestDispatcher for OpenRaftDispatcher {
   ) -> crate::tasks::rpc::TaskRpcResponseMessage {
     crate::tasks::rpc::process_task_rpc_request(request, self.registry.clone()).await
   }
+
+  async fn handle_wasm_sync(
+    &self,
+    request: crate::wasm_sync::WasmSyncRequest,
+  ) -> crate::wasm_sync::WasmSyncResponse {
+    crate::wasm_sync::process_wasm_sync_request(request).await
+  }
 }
 
 pub async fn process_kv_request(

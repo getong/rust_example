@@ -32,6 +32,7 @@ const KIND_RAFT: u32 = 1;
 const KIND_KV: u32 = 2;
 const KIND_SQLITE_SYNC: u32 = 3;
 const KIND_TASK: u32 = 4;
+const KIND_WASM_SYNC: u32 = 5;
 
 #[derive(Clone)]
 pub struct UnifiedCodec {
@@ -175,6 +176,11 @@ fn encode_unified_request(req: UnifiedRpcRequest) -> io::Result<Vec<u8>> {
       binary: Bytes::new(),
       kind: KIND_TASK,
     },
+    UnifiedRpcRequest::WasmSync(msg) => ProtoEnvelope {
+      payload: encode_json(&msg)?.into(),
+      binary: Bytes::new(),
+      kind: KIND_WASM_SYNC,
+    },
   };
   Ok(envelope.encode_to_vec())
 }
@@ -193,6 +199,7 @@ fn decode_unified_request(envelope: ProtoEnvelope) -> io::Result<UnifiedRpcReque
       &envelope.payload,
     )?)),
     KIND_TASK => Ok(UnifiedRpcRequest::Task(decode_json(&envelope.payload)?)),
+    KIND_WASM_SYNC => Ok(UnifiedRpcRequest::WasmSync(decode_json(&envelope.payload)?)),
     other => Err(invalid_data(format!("unknown rpc request kind: {other}"))),
   }
 }
@@ -219,6 +226,28 @@ fn encode_unified_response(resp: UnifiedRpcResponse) -> io::Result<Vec<u8>> {
       binary: Bytes::new(),
       kind: KIND_TASK,
     },
+    UnifiedRpcResponse::WasmSync(mut msg) => {
+      // Wasm chunk bytes bypass the JSON payload the same way raft
+      // snapshot data does: pulled out of the response, zstd-compressed,
+      // carried in the envelope's binary frame.
+      let chunk_data = match &mut msg {
+        crate::wasm_sync::WasmSyncResponse::Chunk { data, .. } => std::mem::take(data),
+        _ => Vec::new(),
+      };
+      let binary = if chunk_data.is_empty() {
+        Bytes::new()
+      } else {
+        Bytes::from(
+          zstd::stream::encode_all(chunk_data.as_slice(), SNAPSHOT_ZSTD_LEVEL)
+            .map_err(invalid_data)?,
+        )
+      };
+      ProtoEnvelope {
+        payload: encode_json(&msg)?.into(),
+        binary,
+        kind: KIND_WASM_SYNC,
+      }
+    }
   };
   Ok(envelope.encode_to_vec())
 }
@@ -233,6 +262,18 @@ fn decode_unified_response(envelope: ProtoEnvelope) -> io::Result<UnifiedRpcResp
       &envelope.payload,
     )?)),
     KIND_TASK => Ok(UnifiedRpcResponse::Task(decode_json(&envelope.payload)?)),
+    KIND_WASM_SYNC => {
+      let mut response: crate::wasm_sync::WasmSyncResponse = decode_json(&envelope.payload)?;
+      if !envelope.binary.is_empty() {
+        let crate::wasm_sync::WasmSyncResponse::Chunk { data, .. } = &mut response else {
+          return Err(invalid_data(
+            "binary frame on a non-chunk wasm sync response",
+          ));
+        };
+        *data = zstd::stream::decode_all(&envelope.binary[..]).map_err(invalid_data)?;
+      }
+      Ok(UnifiedRpcResponse::WasmSync(response))
+    }
     other => Err(invalid_data(format!("unknown rpc response kind: {other}"))),
   }
 }
@@ -407,6 +448,57 @@ mod tests {
         }
       }
       other => panic!("expected Kv, got {other:?}"),
+    }
+  }
+
+  #[tokio::test]
+  async fn wasm_sync_chunk_roundtrips_out_of_band() {
+    let mut codec = UnifiedCodec::default();
+    let data = b"wasm-module-chunk-".repeat(10_000);
+    let resp = UnifiedRpcResponse::WasmSync(crate::wasm_sync::WasmSyncResponse::Chunk {
+      sha256: "a".repeat(64),
+      index: 3,
+      data: data.clone(),
+    });
+    let mut buf = Cursor::new(Vec::new());
+    codec
+      .write_response(&protocol(), &mut buf, resp)
+      .await
+      .expect("write wasm sync response");
+    let encoded = buf.into_inner();
+    // Chunk bytes must travel compressed outside the JSON payload, not as a
+    // JSON number array.
+    assert!(encoded.len() < data.len() / 2);
+    let mut read = Cursor::new(encoded);
+    let decoded = codec
+      .read_response(&protocol(), &mut read)
+      .await
+      .expect("read wasm sync response");
+    match decoded {
+      UnifiedRpcResponse::WasmSync(crate::wasm_sync::WasmSyncResponse::Chunk {
+        sha256,
+        index,
+        data: decoded_data,
+      }) => {
+        assert_eq!(sha256, "a".repeat(64));
+        assert_eq!(index, 3);
+        assert_eq!(decoded_data, data);
+      }
+      other => panic!("expected wasm sync chunk, got {other:?}"),
+    }
+
+    // Requests and non-chunk responses stay pure JSON.
+    let req = UnifiedRpcRequest::WasmSync(crate::wasm_sync::WasmSyncRequest::Chunk {
+      sha256: "b".repeat(64),
+      index: 0,
+    });
+    let (_, decoded) = roundtrip_request(req).await;
+    match decoded {
+      UnifiedRpcRequest::WasmSync(crate::wasm_sync::WasmSyncRequest::Chunk { sha256, index }) => {
+        assert_eq!(sha256, "b".repeat(64));
+        assert_eq!(index, 0);
+      }
+      other => panic!("expected wasm sync chunk request, got {other:?}"),
     }
   }
 

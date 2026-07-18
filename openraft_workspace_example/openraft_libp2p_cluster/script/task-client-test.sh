@@ -30,12 +30,27 @@
 #                    the bulk state through the parallel snapshot decode
 #   7. crash drill   (WITH_CRASH=1) kill a worker mid-burst → still all Done,
 #                    then restart it
+#   8. wasm p2p sync  a module dropped into ONE node's WASM_MODULES_DIR
+#      (断点续传)      propagates to every node over libp2p (gossip announce +
+#                    chunked pulls, sha256-verified); then a BIG module's
+#                    seed is SIGKILLed mid-transfer → downloads stall with
+#                    persisted .partial state (received chunk bitmap), the
+#                    seed restarts, and every node completes by RESUMING
+#                    from the partial (log-verified missing < total);
+#                    finally the module is kept on only TWO nodes and
+#                    deleted elsewhere → the re-downloads stripe chunks
+#                    across BOTH keepers (metrics-verified: all nodes
+#                    participate in serving). Needs local access to the
+#                    cluster's DB_ROOT (run-20nodes.sh with per-node
+#                    WASM_MODULES_DIR); skip with WITH_WASM_SYNC=0.
 #
 # Usage:
 #   ./script/task-client-test.sh                        # defaults below
 #   CONTROL_HTTP=127.0.0.1:3001 WORKER_HTTP=127.0.0.1:3006 \
 #     BATCH=6 WITH_CRASH=1 ./script/task-client-test.sh
 #   RAYON_KV_COUNT=2000 ./script/task-client-test.sh    # bigger phase-6b scan
+#   WASM_SYNC_BIG_MB=64 ./script/task-client-test.sh    # longer phase-8 resume window
+#   WITH_WASM_SYNC=0 ./script/task-client-test.sh       # skip phase 8
 set -uo pipefail
 
 # Every request this test makes (curl probes and the olpc-task client alike)
@@ -62,6 +77,14 @@ WITH_CRASH="${WITH_CRASH:-0}"
 CRASH_NODE="${CRASH_NODE:-6}"
 SETTLE_TIMEOUT="${SETTLE_TIMEOUT:-120}"
 FAIL_SETTLE_TIMEOUT="${FAIL_SETTLE_TIMEOUT:-150}"
+# Phase 8 (wasm p2p sync). The big module must be large enough that killing
+# its only seeder mid-transfer reliably lands BEFORE any downloader finishes
+# — 32 MiB is 128 chunks of 256 KiB, i.e. many seconds of chunked transfer.
+WITH_WASM_SYNC="${WITH_WASM_SYNC:-1}"
+WASM_SYNC_BIG_MB="${WASM_SYNC_BIG_MB:-32}"
+WASM_SYNC_TIMEOUT="${WASM_SYNC_TIMEOUT:-150}"
+WASM_SYNC_BIG_TIMEOUT="${WASM_SYNC_BIG_TIMEOUT:-240}"
+WASM_HTTP_PORT_BASE="${HTTP_PORT_BASE:-3000}"
 
 # Unique per invocation. Task records (and idempotency keys) are durable in
 # the raft state machine and survive across test runs, so every identifier a
@@ -483,6 +506,265 @@ if [[ "$WITH_CRASH" == "1" ]]; then
 		--expect-failed "$failed_now"
 	"$SCRIPT_DIR/restart-nodes.sh" "$CRASH_NODE" >/dev/null 2>&1
 	check "crashed worker restarted" curl -fsS -m 10 "http://127.0.0.1:$((3000 + CRASH_NODE))/cluster" -o /dev/null
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 8: p2p wasm module sync — propagation, resume (断点续传), multi-source
+# ---------------------------------------------------------------------------
+# Everything here works on the node stores directly ($DB_ROOT/nodeN-N/
+# wasm_modules), so it needs the cluster's data dirs on THIS machine and a
+# cluster started by run-20nodes.sh (which gives every node its own
+# WASM_MODULES_DIR — a shared store would make sync a no-op).
+
+wasm_store_dir() {
+	printf '%s/node%s-%s/wasm_modules' "$DB_ROOT" "$1" "$1"
+}
+
+wasm_node_pid() {
+	local db="$DB_ROOT/node${1}-${1}"
+	local pid cmdline
+	while read -r pid; do
+		cmdline="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+		if [[ "$cmdline" == *"--db $db "* || "$cmdline" == *"--db $db" ]]; then
+			printf '%s' "$pid"
+			return 0
+		fi
+	done < <(pgrep -f openraft_libp2p_cluster || true)
+	return 1
+}
+
+wasm_sha256() {
+	python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"
+}
+
+# wasm_wait_all <name> <sha256> <timeout-secs> <index...>: succeed once every
+# listed node's store holds <name> with exactly <sha256>.
+wasm_wait_all() {
+	python3 - "$DB_ROOT" "$@" << 'EOF'
+import hashlib, sys, time
+root, name, sha, timeout = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+pending = set(sys.argv[5:])
+deadline = time.time() + timeout
+while pending and time.time() < deadline:
+    for i in sorted(pending):
+        path = f"{root}/node{i}-{i}/wasm_modules/{name}"
+        try:
+            data = open(path, "rb").read()
+        except OSError:
+            continue
+        if hashlib.sha256(data).hexdigest() == sha:
+            pending.discard(i)
+    if pending:
+        time.sleep(1)
+if pending:
+    print(f"module {name} missing/mismatched on nodes: {sorted(pending)}", file=sys.stderr)
+    sys.exit(1)
+EOF
+}
+
+if [[ "$WITH_WASM_SYNC" == "1" ]]; then
+	echo
+	echo "== phase 8: wasm p2p sync (chunked distribution + 断点续传 resume) =="
+	DB_BASE="${DB_BASE:-/tmp/openraft_libp2p_cluster_demo}"
+	if [[ -z "${DB_ROOT:-}" ]]; then
+		DB_ROOT="$(ls -td "$DB_BASE"/*/ 2>/dev/null | head -1 || true)"
+		DB_ROOT="${DB_ROOT%/}"
+	fi
+	if [[ -z "${DB_ROOT:-}" || ! -d "$DB_ROOT" ]]; then
+		echo "SKIP: no cluster data dirs under ${DB_BASE} on this machine; wasm sync phase needs local store access (WITH_WASM_SYNC=0 silences this)."
+	else
+		echo "cluster data: $DB_ROOT"
+
+		# Nodes = data dirs whose HTTP endpoint answers right now.
+		wasm_nodes=()
+		for dir in "$DB_ROOT"/node*-*/; do
+			[[ -d "$dir" ]] || continue
+			idx="$(basename "$dir")"
+			idx="${idx#node}"
+			idx="${idx%%-*}"
+			if curl -fsS -m 2 "http://127.0.0.1:$((WASM_HTTP_PORT_BASE + idx))/cluster" -o /dev/null 2>/dev/null; then
+				wasm_nodes+=("$idx")
+			fi
+		done
+		wasm_node_count="${#wasm_nodes[@]}"
+		if ((wasm_node_count > 0)); then
+			IFS=$'\n' wasm_nodes=($(printf '%s\n' "${wasm_nodes[@]}" | sort -n))
+			unset IFS
+		fi
+		echo "running nodes: ${wasm_nodes[*]-none}"
+		check "at least 3 running nodes for the sync drill" test "$wasm_node_count" -ge 3
+
+		if ((wasm_node_count >= 3)); then
+			# Seed = highest-index running node: never the control/worker HTTP
+			# entry nodes the other phases depend on.
+			SEED_NODE="${WASM_SEED_NODE:-${wasm_nodes[$((${#wasm_nodes[@]} - 1))]}}"
+			wasm_targets=()
+			for idx in "${wasm_nodes[@]}"; do
+				[[ "$idx" != "$SEED_NODE" ]] && wasm_targets+=("$idx")
+			done
+			seed_store="$(wasm_store_dir "$SEED_NODE")"
+			mkdir -p "$seed_store"
+			echo "seed node: node${SEED_NODE} ($seed_store), targets: ${wasm_targets[*]}"
+
+			echo
+			echo "-- 8a: a module dropped on ONE node reaches every node (upgrade gap fill) --"
+			small_name="p2psync-${RUN_ID}-small.wasm"
+			head -c 614400 /dev/urandom >"$seed_store/$small_name" # 600 KiB = 3 chunks
+			small_sha="$(wasm_sha256 "$seed_store/$small_name")"
+			echo "seeded $small_name sha256=$small_sha"
+			check "small module propagated to all ${#wasm_targets[@]} peers, byte-identical (announce ≤30s + chunked pull)" \
+				wasm_wait_all "$small_name" "$small_sha" "$WASM_SYNC_TIMEOUT" "${wasm_targets[@]}"
+
+			echo
+			echo "-- 8b: 断点续传 — kill the only seeder mid-transfer, progress must persist and resume --"
+			big_name="p2psync-${RUN_ID}-big.wasm"
+			head -c "$((WASM_SYNC_BIG_MB * 1024 * 1024))" /dev/urandom >"$seed_store/$big_name"
+			big_sha="$(wasm_sha256 "$seed_store/$big_name")"
+			echo "seeded $big_name (${WASM_SYNC_BIG_MB} MiB) sha256=$big_sha"
+
+			# Wait until some downloader has PERSISTED a couple of chunks
+			# (its .partial meta lists >=2 received), then kill the seed —
+			# received counts only grow, so the kill is guaranteed to land
+			# mid-transfer, long before any node holds all chunks.
+			in_flight="$(python3 - "$DB_ROOT" "$big_sha" "$WASM_SYNC_TIMEOUT" "${wasm_targets[@]}" << 'EOF'
+import json, sys, time
+root, sha, timeout = sys.argv[1], sys.argv[2], int(sys.argv[3])
+deadline = time.time() + timeout
+while time.time() < deadline:
+    for i in sys.argv[4:]:
+        meta = f"{root}/node{i}-{i}/wasm_modules/.partial/{sha}.meta.json"
+        try:
+            received = len(json.load(open(meta))["received"])
+        except Exception:
+            continue
+        if received >= 2:
+            print(f"{i} {received}")
+            sys.exit(0)
+    time.sleep(0.2)
+sys.exit(1)
+EOF
+)" || in_flight=""
+			echo "first persisted progress: ${in_flight:-<none within ${WASM_SYNC_TIMEOUT}s>}"
+			check "a downloader persisted partial chunk state (.partial bitmap on disk)" test -n "$in_flight"
+
+			seed_pid="$(wasm_node_pid "$SEED_NODE" || true)"
+			check "SIGKILL the seed mid-transfer (node${SEED_NODE})" \
+				bash -c 'test -n "$1" && kill -9 "$1"' _ "$seed_pid"
+			# Let in-flight chunk RPCs to the dead seed time out (5s client
+			# timeout) so every downloader has observed the disconnect.
+			sleep 8
+
+			stall_state="$(python3 - "$DB_ROOT" "$big_name" "$big_sha" "${wasm_targets[@]}" << 'EOF'
+import json, os, sys
+root, name, sha = sys.argv[1], sys.argv[2], sys.argv[3]
+completed, best = [], None
+for i in sys.argv[4:]:
+    store = f"{root}/node{i}-{i}/wasm_modules"
+    if os.path.isfile(f"{store}/{name}"):
+        completed.append(i)
+        continue
+    try:
+        meta = json.load(open(f"{store}/.partial/{sha}.meta.json"))
+    except Exception:
+        continue
+    received, total = len(meta["received"]), len(meta["manifest"]["chunk_hashes"])
+    if 0 < received < total and (best is None or received > best[1]):
+        best = (i, received, total)
+# The single seeder is dead: nobody can have finished, and someone must be
+# sitting on persisted mid-transfer state.
+assert not completed, f"nodes {completed} completed although the only seeder was killed mid-transfer"
+assert best, "no node holds resumable partial state"
+print(f"{best[0]} {best[1]} {best[2]}")
+EOF
+)" || stall_state=""
+			echo "stalled with persisted progress: ${stall_state:-<none>} (node received total)"
+			check "downloads stalled: no complete copy anywhere, resumable partial state on disk" \
+				test -n "$stall_state"
+			stalled_node="${stall_state%% *}"
+
+			check "restart the seed node" \
+				bash -c 'DB_ROOT="$1" "$2/restart-nodes.sh" "$3" >/dev/null 2>&1' _ "$DB_ROOT" "$SCRIPT_DIR" "$SEED_NODE"
+			check "big module completes on ALL peers after the seed returns, byte-identical" \
+				wasm_wait_all "$big_name" "$big_sha" "$WASM_SYNC_BIG_TIMEOUT" "${wasm_targets[@]}"
+
+			# Resume proof, not just completion: the stalled node's post-restart
+			# sync round must log missing < total for this module — it fetched
+			# only the chunks it lacked instead of starting over.
+			check "stalled node resumed from its partial (log shows 0 < missing < total)" \
+				python3 - "$DB_ROOT/logs/node${stalled_node:-0}.log" "$big_sha" << 'EOF'
+import re, sys
+log, sha = sys.argv[1], sys.argv[2]
+for line in open(log, errors="replace"):
+    if "syncing wasm module" in line and sha in line:
+        m = re.search(r"missing=(\d+) total=(\d+)", line)
+        if m and 0 < int(m.group(1)) < int(m.group(2)):
+            sys.exit(0)
+sys.exit(1)
+EOF
+
+			echo
+			echo "-- 8c: multi-source striping — every holder shares the transfer load --"
+			# Deterministic multi-seeder setup: keep the big module on exactly
+			# TWO nodes, delete it everywhere else. The re-downloaders stripe
+			# chunk i across the provider ring (chunk i → provider (i+attempt)
+			# % N), so BOTH keepers must end up serving chunks — the "all
+			# nodes participate" property, without racing on completion order.
+			wasm_served_total() {
+				curl -fsS -m 3 "http://127.0.0.1:$((WASM_HTTP_PORT_BASE + $1))/metrics" 2>/dev/null |
+					awk '/^wasm_sync_chunks_served_total/ {sum += $NF} END {print sum + 0}'
+			}
+			wasm_node_up() {
+				curl -fsS -m 2 "http://127.0.0.1:$((WASM_HTTP_PORT_BASE + $1))/cluster" -o /dev/null 2>/dev/null
+			}
+			# Keepers must be ALIVE nodes that actually hold the intact module —
+			# after the 8b crash drill, blindly trusting the node list would
+			# elect a dead or incomplete keeper and void the striping assertion.
+			keep_a=""
+			keep_b=""
+			for idx in "${wasm_targets[@]}"; do
+				wasm_node_up "$idx" || continue
+				[[ -f "$(wasm_store_dir "$idx")/$big_name" ]] || continue
+				[[ "$(wasm_sha256 "$(wasm_store_dir "$idx")/$big_name")" == "$big_sha" ]] || continue
+				if [[ -z "$keep_a" ]]; then
+					keep_a="$idx"
+				else
+					keep_b="$idx"
+					break
+				fi
+			done
+			check "found two alive nodes holding the intact module to act as keepers" \
+				bash -c 'test -n "$1" && test -n "$2"' _ "$keep_a" "$keep_b"
+			if [[ -n "$keep_a" && -n "$keep_b" ]]; then
+				served_a_before="$(wasm_served_total "$keep_a")"
+				served_b_before="$(wasm_served_total "$keep_b")"
+				refetchers=()
+				for idx in "${wasm_nodes[@]}"; do
+					[[ "$idx" == "$keep_a" || "$idx" == "$keep_b" ]] && continue
+					# Only alive nodes can re-download; a dead node would just
+					# time the wait out without testing anything.
+					wasm_node_up "$idx" || continue
+					rm -f "$(wasm_store_dir "$idx")/$big_name"
+					refetchers+=("$idx")
+				done
+				echo "kept $big_name only on node${keep_a} + node${keep_b}; deleted from: ${refetchers[*]-none}"
+				check "deleted copies re-sync on all ${#refetchers[@]} nodes from the two keepers" \
+					wasm_wait_all "$big_name" "$big_sha" "$WASM_SYNC_BIG_TIMEOUT" "${refetchers[@]}"
+				served_a=$(($(wasm_served_total "$keep_a") - served_a_before))
+				served_b=$(($(wasm_served_total "$keep_b") - served_b_before))
+				echo "chunks served during 8c: node${keep_a}=$served_a node${keep_b}=$served_b"
+				check "BOTH keeper nodes served chunks (load striped across all holders)" \
+					bash -c 'test "$1" -gt 0 && test "$2" -gt 0' _ "$served_a" "$served_b"
+			fi
+
+			# Cleanup: drop the test modules everywhere so repeated runs do not
+			# accumulate 32 MiB per node per run in /tmp.
+			for idx in "${wasm_nodes[@]}"; do
+				store="$(wasm_store_dir "$idx")"
+				rm -f "$store/$small_name" "$store/$big_name" \
+					"$store/.partial/${small_sha}."* "$store/.partial/${big_sha}."* 2>/dev/null
+			done
+		fi
+	fi
 fi
 
 echo

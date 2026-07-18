@@ -31,7 +31,7 @@ use crate::{
     swarm::{
       Behaviour, Command, CommandSenders, GOSSIP_TOPIC, KvClient, Libp2pClient,
       NODE_ANNOUNCE_TOPIC, OPENRAFT_CLUSTER_PROVIDER_KEY, SqliteSyncClient, SwarmContext,
-      TaskRpcClient, run_swarm,
+      TaskRpcClient, WASM_MODULES_TOPIC, WasmSyncClient, run_swarm,
     },
     transport::{Libp2pNetworkFactory, parse_p2p_addr},
   },
@@ -122,11 +122,13 @@ pub(crate) fn build_libp2p_handles(
   let kv_client = KvClient::new(cmd_tx_low.clone(), timeout);
   let sqlite_sync_client = SqliteSyncClient::new(cmd_tx_low.clone(), timeout);
   let task_rpc_client = TaskRpcClient::new(cmd_tx_low.clone(), timeout);
+  let wasm_sync_client = WasmSyncClient::new(cmd_tx_low.clone(), timeout);
   let network = Libp2pNetworkFactory::new(
     client.clone(),
     kv_client.clone(),
     sqlite_sync_client.clone(),
     task_rpc_client,
+    wasm_sync_client,
     local_peer_id,
   );
   (
@@ -373,6 +375,12 @@ pub(crate) fn build_swarm(
     .gossipsub
     .subscribe(&sync_available_topic)
     .context("openraft snapshot-available gossipsub subscribe")?;
+  let wasm_modules_topic = gossipsub::IdentTopic::new(WASM_MODULES_TOPIC);
+  swarm
+    .behaviour_mut()
+    .gossipsub
+    .subscribe(&wasm_modules_topic)
+    .context("wasm modules gossipsub subscribe")?;
 
   swarm.listen_on(listen_addr).context("listen_on")?;
   Ok(swarm)

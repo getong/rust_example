@@ -24,6 +24,7 @@ pub mod tasks;
 pub mod telemetry;
 pub mod typ;
 pub mod types_kv;
+pub mod wasm_sync;
 
 pub use error::ClusterError;
 

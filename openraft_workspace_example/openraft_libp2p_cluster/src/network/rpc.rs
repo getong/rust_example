@@ -10,6 +10,7 @@ use crate::{
     AppendEntriesRequest, AppendEntriesResponse, ClientWriteError, ClientWriteResponse, RaftError,
     RaftMetrics, SnapshotMeta, SnapshotResponse, Vote, VoteRequest, VoteResponse,
   },
+  wasm_sync::{WasmSyncRequest, WasmSyncResponse},
 };
 
 /// One request enum for the single `/openraft/rpc/2` protocol. All four
@@ -22,6 +23,7 @@ pub enum UnifiedRpcRequest {
   Kv(RaftKvRequest),
   SqliteSync(SqliteSyncRpcRequestMessage),
   Task(TaskRpcRequestMessage),
+  WasmSync(WasmSyncRequest),
 }
 
 #[derive(Debug)]
@@ -30,6 +32,7 @@ pub enum UnifiedRpcResponse {
   Kv(RaftKvResponse),
   SqliteSync(SqliteSyncRpcResponseMessage),
   Task(TaskRpcResponseMessage),
+  WasmSync(WasmSyncResponse),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

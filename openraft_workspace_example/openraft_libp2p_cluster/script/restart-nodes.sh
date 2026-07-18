@@ -172,9 +172,12 @@ restart_node() {
 	fi
 
 	mkdir -p "$LOG_DIR"
+	# Same per-node wasm module store as run-20nodes.sh, so a restarted node
+	# resumes its partial wasm downloads from the same directory.
 	RUST_LOG="${RUST_LOG:-info}" \
 		LIBP2P_SELF_NAME="node${index}" \
 		TOKIO_CONSOLE_BIND="127.0.0.1:${console_port}" \
+		WASM_MODULES_DIR="$db/wasm_modules" \
 		nohup "${cmd[@]}" >>"$log" 2>&1 &
 	local pid=$!
 	disown "$pid" 2>/dev/null || true

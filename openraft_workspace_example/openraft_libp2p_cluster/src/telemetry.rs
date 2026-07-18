@@ -21,6 +21,15 @@ pub fn prometheus_handle() -> PrometheusHandle {
 }
 
 pub fn init_tracing(tokio_console: bool) {
+  // Force the recorder in place before any counter fires: `Lazy` alone
+  // installs it on the FIRST `/metrics` scrape, silently dropping every
+  // metric recorded earlier (a counter that only moves during startup or a
+  // one-off drill would never appear at all).
+  let _ = prometheus_handle();
+  init_tracing_subscriber(tokio_console);
+}
+
+fn init_tracing_subscriber(tokio_console: bool) {
   if tokio_console {
     let node_name = env::var("LIBP2P_SELF_NAME").unwrap_or_else(|_| "node".to_string());
     let console_bind =

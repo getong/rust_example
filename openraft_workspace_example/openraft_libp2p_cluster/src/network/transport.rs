@@ -19,11 +19,13 @@ use crate::{
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{
       ClusterError, GOSSIPSUB_MESH_N_LOW, KvClient, Libp2pClient, SqliteSyncClient, TaskRpcClient,
+      WasmSyncClient,
     },
   },
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
   tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
+  wasm_sync::{WasmSyncRequest, WasmSyncResponse},
 };
 
 /// How long a raft RPC target stays in the proactive-reconnect set after the
@@ -56,6 +58,7 @@ pub struct Libp2pNetworkFactory {
   kv_client: KvClient,
   sqlite_sync_client: SqliteSyncClient,
   task_rpc_client: TaskRpcClient,
+  wasm_sync_client: WasmSyncClient,
   /// Snapshot-read address book: read on every RPC routing decision and
   /// liveness check, mutated only on (rare) registrations. `ArcSwap` makes
   /// the reads lock-free; writers copy-on-write via `rcu`.
@@ -87,6 +90,7 @@ impl Libp2pNetworkFactory {
     kv_client: KvClient,
     sqlite_sync_client: SqliteSyncClient,
     task_rpc_client: TaskRpcClient,
+    wasm_sync_client: WasmSyncClient,
     local_peer_id: PeerId,
   ) -> Self {
     Self {
@@ -94,6 +98,7 @@ impl Libp2pNetworkFactory {
       kv_client,
       sqlite_sync_client,
       task_rpc_client,
+      wasm_sync_client,
       node_peers: Arc::new(ArcSwap::from_pointee(HashMap::new())),
       connected_peers: Arc::new(ArcSwap::from_pointee(HashSet::new())),
       pinned_peers: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
@@ -114,6 +119,7 @@ impl Libp2pNetworkFactory {
       kv_client: self.kv_client.clone(),
       sqlite_sync_client: self.sqlite_sync_client.clone(),
       task_rpc_client: self.task_rpc_client.clone(),
+      wasm_sync_client: self.wasm_sync_client.clone(),
       node_peers: self.node_peers.clone(),
       connected_peers: self.connected_peers.clone(),
       pinned_peers: self.pinned_peers.clone(),
@@ -706,6 +712,37 @@ impl Libp2pNetworkFactory {
       .await
   }
 
+  pub async fn request_wasm_sync(
+    &self,
+    node_id: NodeId,
+    req: WasmSyncRequest,
+  ) -> Result<WasmSyncResponse, Unreachable> {
+    let (peer, addr) = self.peer_addr_for(&node_id).await?;
+    if peer == self.local_peer_id {
+      return Err(Unreachable::new(&ClusterError::Network(format!(
+        "self dial blocked: node_id={node_id}, peer={peer}"
+      ))));
+    }
+    self
+      .guarded(peer, async {
+        if let Err(err) = self.wasm_sync_client.connect(peer, addr.clone()).await {
+          if is_loopback_addr(&addr) || is_link_local_addr(&addr) {
+            return Err(err);
+          }
+          tracing::warn!(
+            node_id = %node_id,
+            peer = %peer,
+            addr = %addr,
+            error = %err,
+            "connect with configured address failed, trying any known address for wasm sync"
+          );
+          self.wasm_sync_client.connect_any(peer).await?;
+        }
+        self.wasm_sync_client.request(peer, req).await
+      })
+      .await
+  }
+
   pub async fn request_kv(
     &self,
     node_id: NodeId,
@@ -918,12 +955,14 @@ mod tests {
     let client = Libp2pClient::new(tx.clone(), Duration::from_secs(1));
     let kv_client = KvClient::new(tx.clone(), Duration::from_secs(1));
     let sqlite_sync_client = SqliteSyncClient::new(tx.clone(), Duration::from_secs(1));
-    let task_rpc_client = TaskRpcClient::new(tx, Duration::from_secs(1));
+    let task_rpc_client = TaskRpcClient::new(tx.clone(), Duration::from_secs(1));
+    let wasm_sync_client = WasmSyncClient::new(tx, Duration::from_secs(1));
     Libp2pNetworkFactory::new(
       client,
       kv_client,
       sqlite_sync_client,
       task_rpc_client,
+      wasm_sync_client,
       local_peer,
     )
   }

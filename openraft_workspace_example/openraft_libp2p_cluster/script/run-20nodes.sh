@@ -378,11 +378,18 @@ cleanup() {
 	if ((${#NODE_PIDS[@]} > 0)); then
 		echo "Stopping ${#NODE_PIDS[@]} node process(es) gracefully..."
 		kill -TERM "${NODE_PIDS[@]}" 2>/dev/null || true
+		# Nodes are disowned (see start_node), so `wait` cannot observe them;
+		# poll the process table instead, bounded so one hung node cannot
+		# stall the launcher exit forever.
 		local i
 		local pid
+		local deadline=$((SECONDS + 45))
 		for i in "${!NODE_PIDS[@]}"; do
 			pid="${NODE_PIDS[$i]}"
-			wait "$pid" 2>/dev/null || true
+			while ((SECONDS < deadline)) && [[ -n "$(ps -p "$pid" -o stat= 2>/dev/null)" ]] &&
+				[[ "$(ps -p "$pid" -o stat= 2>/dev/null)" != Z* ]]; do
+				sleep 0.3
+			done
 		done
 		NODE_PIDS=()
 	fi
@@ -455,11 +462,22 @@ start_node() {
 		cmd+=(--auto-heal-membership "$AUTO_HEAL_MEMBERSHIP")
 	fi
 
+	# Per-node wasm module store: gives every node its own store directory
+	# (like a per-host docker image cache), which is what the p2p wasm sync
+	# service distributes modules between. A shared cwd-relative store would
+	# make every module look locally present on every node.
 	RUST_LOG="${RUST_LOG:-info}" \
 		LIBP2P_SELF_NAME="$name" \
 		TOKIO_CONSOLE_BIND="$console" \
+		WASM_MODULES_DIR="$db/wasm_modules" \
 		"${cmd[@]}" >>"$log" 2>&1 &
 	local pid=$!
+	# Drop the node from the shell's job table: crash drills SIGKILL nodes,
+	# and bash would otherwise print a scary async "line N: PID Killed: 9"
+	# job notice that reads like a launcher crash. Disowned children are
+	# still reaped silently by the shell and remain killable by pid; the
+	# monitor loop and cleanup() both track liveness via ps, not wait.
+	disown "$pid" 2>/dev/null || true
 	NODE_PIDS+=("$pid")
 	NODE_NAMES+=("$name")
 	NODE_LOGS+=("$log")
@@ -713,7 +731,7 @@ while true; do
 	for i in "${!NODE_PIDS[@]}"; do
 		pid="${NODE_PIDS[$i]}"
 		if ! node_alive "$pid"; then
-			wait "$pid" 2>/dev/null || true # reap the zombie
+			# Disowned children are reaped by the shell silently; no wait here.
 			echo "${NODE_NAMES[$i]} (pid=$pid) exited; cluster keeps running (log: ${NODE_LOGS[$i]})."
 			echo "  Restart it with: DB_ROOT=$DB_ROOT ./script/restart-nodes.sh"
 			unset 'NODE_PIDS[i]' 'NODE_NAMES[i]' 'NODE_LOGS[i]'

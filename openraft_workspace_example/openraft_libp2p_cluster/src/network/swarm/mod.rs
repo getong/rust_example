@@ -17,7 +17,9 @@ pub(crate) mod state;
 
 use std::{sync::Arc, time::Duration};
 
-pub use client::{CommandSenders, KvClient, Libp2pClient, SqliteSyncClient, TaskRpcClient};
+pub use client::{
+  CommandSenders, KvClient, Libp2pClient, SqliteSyncClient, TaskRpcClient, WasmSyncClient,
+};
 pub use commands::{Command, GossipTopicReport, Libp2pSwarmReport};
 use futures::StreamExt;
 use libp2p::{
@@ -53,6 +55,8 @@ use crate::{
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
 pub const NODE_ANNOUNCE_TOPIC: &str = "openraft/node-announce/1";
+/// Per-node wasm module inventory announcements (see [`crate::wasm_sync`]).
+pub const WASM_MODULES_TOPIC: &str = "openraft/wasm-modules/1";
 /// Gossipsub `mesh_n_low`: the degree below which the mesh is considered
 /// under-connected. Shared with the mesh-health signal so "healthy" means
 /// "at or above the maintenance low-water mark".
@@ -387,6 +391,14 @@ pub async fn run_swarm_client_with_shutdown(
                 // No task worker runs in client binaries; dropping the
                 // channel fails the request on the requester side.
                 UnifiedRpcRequest::Task(_) => {}
+                UnifiedRpcRequest::WasmSync(_) => {
+                  let _ = swarm.behaviour_mut().rpc.send_response(
+                    channel,
+                    UnifiedRpcResponse::WasmSync(crate::wasm_sync::WasmSyncResponse::Error(
+                      "client-only".to_string(),
+                    )),
+                  );
+                }
               },
               request_response::Message::Response { request_id, response } => {
                 state.pending_rpc.complete(&request_id, Ok(response));

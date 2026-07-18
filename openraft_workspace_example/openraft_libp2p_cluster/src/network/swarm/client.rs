@@ -15,6 +15,7 @@ use crate::{
   proto::raft_kv::{RaftKvRequest, RaftKvResponse},
   sqlite_sync_rpc::{SqliteSyncRpcRequestMessage, SqliteSyncRpcResponseMessage},
   tasks::rpc::{TaskRpcRequestMessage, TaskRpcResponseMessage},
+  wasm_sync::{WasmSyncRequest, WasmSyncResponse},
 };
 
 pub(crate) const OPENRAFT_SNAPSHOT_SYNC_TIMEOUT: Duration = Duration::from_secs(45);
@@ -408,6 +409,14 @@ define_rpc_client!(
   Task,
   TaskRpcRequestMessage,
   TaskRpcResponseMessage
+);
+define_rpc_client!(
+  /// Client handle for the wasm module sync kind of `/openraft/rpc/2`
+  /// (manifest + chunk pulls, see [`crate::wasm_sync`]).
+  WasmSyncClient,
+  WasmSync,
+  WasmSyncRequest,
+  WasmSyncResponse
 );
 
 impl KvClient {

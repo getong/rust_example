@@ -261,11 +261,42 @@ impl OpenRaftSnapshotPartial {
     self.parts.iter().filter(|part| part.is_some()).count()
   }
 
-  pub async fn install(&self, registry: &crate::GroupRegistry) -> anyhow::Result<RaftRpcResponse> {
+  /// Install the assembled snapshot into the local raft group. Returns
+  /// `Ok(None)` when the local node must NOT install it:
+  ///   - the local node is the group's current leader (leaders are the source of snapshots; a
+  ///     gossip republish can loop the leader's own snapshot back to it — e.g. a restarted learner
+  ///     re-publishing completed partials — and `install_full_snapshot` on a live leader trips
+  ///     openraft's `self.leader.is_none()` assertion, panicking RaftCore);
+  ///   - the local applied state is already at or past the snapshot (nothing to gain, and
+  ///     re-installing history churns the state machine for nothing).
+  pub async fn install(
+    &self,
+    registry: &crate::GroupRegistry,
+  ) -> anyhow::Result<Option<RaftRpcResponse>> {
     let payload = self.to_payload()?;
     let Some(group) = registry.get(&payload.group_id) else {
       anyhow::bail!("unknown group_id={}", payload.group_id);
     };
+
+    let metrics = group.raft.metrics().borrow_watched().clone();
+    if metrics.state.is_leader() {
+      tracing::debug!(
+        group = %payload.group_id,
+        snapshot_last_log = ?payload.meta.last_log_id,
+        "skip gossip snapshot install: local node is the group leader"
+      );
+      return Ok(None);
+    }
+    if metrics.last_applied >= payload.meta.last_log_id {
+      tracing::debug!(
+        group = %payload.group_id,
+        local_applied = ?metrics.last_applied,
+        snapshot_last_log = ?payload.meta.last_log_id,
+        "skip gossip snapshot install: local state is already at or past the snapshot"
+      );
+      return Ok(None);
+    }
+
     let snapshot = Snapshot {
       meta: payload.meta,
       snapshot: std::io::Cursor::new(payload.data),
@@ -275,7 +306,7 @@ impl OpenRaftSnapshotPartial {
       .install_full_snapshot(payload.vote, snapshot)
       .await
       .map_err(RaftError::Fatal);
-    Ok(RaftRpcResponse::FullSnapshot(res))
+    Ok(Some(RaftRpcResponse::FullSnapshot(res)))
   }
 
   fn to_payload(&self) -> anyhow::Result<OpenRaftSnapshotPayload> {

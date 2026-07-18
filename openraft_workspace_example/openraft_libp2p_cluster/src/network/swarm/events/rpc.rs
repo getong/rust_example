@@ -53,6 +53,15 @@ pub(crate) fn handle_rpc_event(
               // dropping the channel fails the request on the caller side
               // immediately, and both protocols already retry.
               UnifiedRpcRequest::SqliteSync(_) | UnifiedRpcRequest::Task(_) => return,
+              UnifiedRpcRequest::WasmSync(_) => {
+                let _ = swarm.behaviour_mut().rpc.send_response(
+                  channel,
+                  UnifiedRpcResponse::WasmSync(crate::wasm_sync::WasmSyncResponse::Error(
+                    "server busy; retry with backoff".to_string(),
+                  )),
+                );
+                return;
+              }
             }
           }
         };
@@ -112,6 +121,9 @@ pub(crate) async fn dispatch_unified_request(
       UnifiedRpcResponse::SqliteSync(dispatcher.handle_sqlite_sync(req).await)
     }
     UnifiedRpcRequest::Task(req) => UnifiedRpcResponse::Task(dispatcher.handle_task_rpc(req).await),
+    UnifiedRpcRequest::WasmSync(req) => {
+      UnifiedRpcResponse::WasmSync(dispatcher.handle_wasm_sync(req).await)
+    }
   }
 }
 

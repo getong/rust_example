@@ -13,7 +13,7 @@ use crate::{
       OpenRaftSyncState, SnapshotAvailableAnnouncement, available_topic_hash, group_id_string,
       sync_topic_hash,
     },
-    swarm::{Behaviour, NODE_ANNOUNCE_TOPIC},
+    swarm::{Behaviour, NODE_ANNOUNCE_TOPIC, WASM_MODULES_TOPIC},
     transport::Libp2pNetworkFactory,
   },
   proto::raft_kv::{ChatMessage, NodeAnnouncement},
@@ -30,6 +30,10 @@ const NODE_ANNOUNCE_BATCH: usize = 256;
 
 pub(crate) fn node_announce_topic_hash() -> gossipsub::TopicHash {
   gossipsub::IdentTopic::new(NODE_ANNOUNCE_TOPIC).hash()
+}
+
+pub(crate) fn wasm_modules_topic_hash() -> gossipsub::TopicHash {
+  gossipsub::IdentTopic::new(WASM_MODULES_TOPIC).hash()
 }
 
 /// Process node self-announcements queued by the swarm loop: (re)register
@@ -169,6 +173,23 @@ pub(crate) async fn handle_gossipsub_event(
         return;
       }
 
+      if message.topic == wasm_modules_topic_hash() {
+        // Decode here (cheap, no locks) and hand off to the wasm sync
+        // service through its broadcast channel; downloads never run on
+        // the swarm loop.
+        match sonic_rs::from_slice::<crate::wasm_sync::WasmInventoryAnnouncement>(&message.data) {
+          Ok(announcement) => crate::wasm_sync::notify_announcement(announcement),
+          Err(err) => {
+            tracing::debug!(
+              peer = %propagation_source,
+              error = ?err,
+              "invalid wasm inventory announcement"
+            );
+          }
+        }
+        return;
+      }
+
       match ChatMessage::decode(message.data.as_slice()) {
         Ok(chat) => {
           tracing::info!(
@@ -250,13 +271,21 @@ pub(crate) async fn handle_gossipsub_event(
           let raft_group_id = partial.raft_group_id.clone();
           let snapshot_id = partial.snapshot_id.clone();
           match partial.install(&registry).await {
-            Ok(resp) => {
+            Ok(Some(resp)) => {
               tracing::info!(
                 peer = %peer_id,
                 group = %raft_group_id,
                 snapshot_id = %snapshot_id,
                 response = ?resp,
                 "installed openraft snapshot from gossipsub partial sync"
+              );
+            }
+            Ok(None) => {
+              tracing::debug!(
+                peer = %peer_id,
+                group = %raft_group_id,
+                snapshot_id = %snapshot_id,
+                "skipped gossipsub snapshot install (leader or already up to date)"
               );
             }
             Err(err) => {

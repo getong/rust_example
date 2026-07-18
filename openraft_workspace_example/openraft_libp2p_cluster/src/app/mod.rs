@@ -803,6 +803,14 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
     signal_shutdown.shutdown_rx(),
   ));
 
+  // Keep the local wasm module store in sync with the cluster: announce
+  // what this node has, pull (resumably, from every holder) what it lacks.
+  tokio::spawn(crate::wasm_sync::service::run_wasm_sync_service(
+    opt.id.clone(),
+    libp2p.network.clone(),
+    signal_shutdown.shutdown_rx(),
+  ));
+
   let runtime = ControlRuntime {
     opt,
     identity,
