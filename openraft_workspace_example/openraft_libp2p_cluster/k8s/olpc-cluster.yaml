@@ -1,0 +1,235 @@
+# openraft_libp2p_cluster on kubernetes: 1 bootstrap node + 99 workers
+# (100 nodes total) + one valkey cache.
+#
+# Deploy with ./script/k8s-run-100nodes.sh — it builds/loads the image and
+# creates the two dynamic objects this file references before applying it:
+#   - Secret  olpc-bootstrap-key    (node.key: pre-generated libp2p identity of
+#                                    the bootstrap pod, so its peer id is known)
+#   - ConfigMap olpc-cluster-config (BOOTSTRAP_PEER_ID + shared node env)
+#
+# Topology mirrors script/run-100docker.sh: every pod runs the same image and
+# entrypoint; the bootstrap pod bootstraps OpenRaft because its peer id equals
+# BOOTSTRAP_PEER_ID, all other pods race to join and the first
+# MAX_CONTROL_NODES joiners become the voters. Nodes talk plain-websocket
+# libp2p (/dns4/<pod-fqdn>/tcp/4001/ws) over the two headless services.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: olpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: olpc-redis
+  namespace: olpc
+  labels:
+    app: olpc-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: olpc-redis
+  template:
+    metadata:
+      labels:
+        app: olpc-redis
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8-alpine
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: olpc-redis
+  namespace: olpc
+spec:
+  selector:
+    app: olpc-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+# Headless service: stable per-pod DNS for the bootstrap node
+# (olpc-bootstrap-0.olpc-bootstrap.olpc.svc.cluster.local).
+apiVersion: v1
+kind: Service
+metadata:
+  name: olpc-bootstrap
+  namespace: olpc
+spec:
+  clusterIP: None
+  # Nodes must resolve/dial each other while still unready or the join race
+  # deadlocks on DNS.
+  publishNotReadyAddresses: true
+  selector:
+    app: olpc-bootstrap
+  ports:
+    - name: p2p
+      port: 4001
+    - name: http
+      port: 3000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: olpc-bootstrap
+  namespace: olpc
+spec:
+  serviceName: olpc-bootstrap
+  replicas: 1
+  selector:
+    matchLabels:
+      app: olpc-bootstrap
+  template:
+    metadata:
+      labels:
+        app: olpc-bootstrap
+        olpc-cluster: demo
+    spec:
+      containers:
+        - name: node
+          image: openraft-libp2p-cluster:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: p2p
+              containerPort: 4001
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: olpc-cluster-config
+          env:
+            - name: ADVERTISE_HOST
+              value: olpc-bootstrap-0.olpc-bootstrap.olpc.svc.cluster.local
+            - name: LIBP2P_SELF_NAME
+              value: olpc-bootstrap-0
+            # The pre-generated identity: peer id == BOOTSTRAP_PEER_ID, which
+            # makes this pod bootstrap OpenRaft locally.
+            - name: BOOTSTRAP_KEY_FILE
+              value: /bootstrap-key/node.key
+          volumeMounts:
+            - name: bootstrap-key
+              mountPath: /bootstrap-key
+              readOnly: true
+            - name: data
+              mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /cluster
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /cluster
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: bootstrap-key
+          secret:
+            secretName: olpc-bootstrap-key
+        - name: data
+          emptyDir: {}
+---
+# Headless service: per-pod DNS for the workers
+# (olpc-worker-<i>.olpc-workers.olpc.svc.cluster.local).
+apiVersion: v1
+kind: Service
+metadata:
+  name: olpc-workers
+  namespace: olpc
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: olpc-worker
+  ports:
+    - name: p2p
+      port: 4001
+    - name: http
+      port: 3000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: olpc-worker
+  namespace: olpc
+spec:
+  serviceName: olpc-workers
+  # 99 workers + 1 bootstrap = 100 nodes. k8s-run-100nodes.sh scales this to
+  # <total_nodes> - 1 when a different count is requested.
+  replicas: 99
+  # Start all workers at once — the whole point is the join race; OrderedReady
+  # would serialize 99 slow raft convergences.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: olpc-worker
+  template:
+    metadata:
+      labels:
+        app: olpc-worker
+        olpc-cluster: demo
+    spec:
+      containers:
+        - name: node
+          image: openraft-libp2p-cluster:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: p2p
+              containerPort: 4001
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: olpc-cluster-config
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ADVERTISE_HOST
+              value: $(POD_NAME).olpc-workers.olpc.svc.cluster.local
+            - name: LIBP2P_SELF_NAME
+              value: $(POD_NAME)
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /cluster
+              port: http
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /cluster
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          emptyDir: {}

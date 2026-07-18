@@ -1,0 +1,17 @@
+# Keep the build context to what `cargo build --release --bins` needs:
+# Cargo.toml, build.rs, proto/, src/, wit/, docker/.
+target
+**/target
+docs
+error.txt
+monitoring
+python_script.bak
+script
+valkey_config
+# build.rs skips the best-effort wasm guest cross-build when the guest crate
+# is absent from the context (no wasm32-wasip2 target in the builder image).
+wasm_guests
+k8s
+.env
+*.log
+.git
