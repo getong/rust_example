@@ -215,6 +215,10 @@ for index in "${TARGETS[@]}"; do
 		else
 			echo "crashed node$index (pid=$pid, signal=$CRASH_SIGNAL, peer=$(node_peer_id "$index"))"
 		fi
+		# Journal the deliberate stop so the run-20nodes.sh monitor reports
+		# it as a crash drill instead of an unexplained node exit.
+		echo "$(date '+%Y-%m-%dT%H:%M:%S') node=${index} pid=${pid} SIG${CRASH_SIGNAL} by crash-nodes.sh" \
+			>>"$DB_ROOT/crash-drill.log"
 		kill "-$CRASH_SIGNAL" "$pid"
 		STOPPED+=("$index")
 		STOPPED_NAMES+=("node$index")

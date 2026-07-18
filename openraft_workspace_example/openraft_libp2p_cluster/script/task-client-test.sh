@@ -648,6 +648,10 @@ EOF
 			check "a downloader persisted partial chunk state (.partial bitmap on disk)" test -n "$in_flight"
 
 			seed_pid="$(wasm_node_pid "$SEED_NODE" || true)"
+			# Journal the deliberate kill BEFORE sending it, so the launcher's
+			# monitor can report "crash drill" instead of an unexplained exit.
+			echo "$(date '+%Y-%m-%dT%H:%M:%S') node=${SEED_NODE} pid=${seed_pid:-?} SIGKILL by task-client-test.sh phase 8b (wasm resume drill; restarted right after)" \
+				>>"$DB_ROOT/crash-drill.log"
 			check "SIGKILL the seed mid-transfer (node${SEED_NODE})" \
 				bash -c 'test -n "$1" && kill -9 "$1"' _ "$seed_pid"
 			# Let in-flight chunk RPCs to the dead seed time out (5s client

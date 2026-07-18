@@ -394,6 +394,22 @@ cleanup() {
 		NODE_PIDS=()
 	fi
 
+	# Nodes revived by restart-nodes.sh are NOT children of this launcher,
+	# but they belong to this cluster (their --db lives under DB_ROOT).
+	# Ctrl-C means "stop the demo": stop them too instead of leaving strays
+	# that spam connection-refused against a cluster that no longer exists.
+	local stray
+	local strays=()
+	while read -r stray; do
+		if ps -p "$stray" -o command= 2>/dev/null | grep -q -- "--db $DB_ROOT/"; then
+			strays+=("$stray")
+		fi
+	done < <(pgrep -f openraft_libp2p_cluster || true)
+	if ((${#strays[@]} > 0)); then
+		echo "Stopping ${#strays[@]} detached node(s) restarted by restart-nodes.sh..."
+		kill -TERM "${strays[@]}" 2>/dev/null || true
+	fi
+
 	if [[ -n "${REDIS_PID:-}" ]]; then
 		if kill -0 "$REDIS_PID" 2>/dev/null; then
 			echo "Stopping demo Redis process $REDIS_PID..."
@@ -721,6 +737,27 @@ node_alive() {
 	[[ -n "$stat" && "$stat" != Z* ]]
 }
 
+# Why did node <index> exit? Deliberate kills (crash-nodes.sh, the
+# task-client-test.sh wasm drill) journal themselves in
+# $DB_ROOT/crash-drill.log BEFORE signaling, so an exit found there is a
+# drill, not a crash; otherwise inspect the node log for a panic. Keeps a
+# drill kill from reading like a spontaneous crash in the launcher output.
+node_exit_reason() {
+	local index="$1"
+	local log="$2"
+	local journal="$DB_ROOT/crash-drill.log"
+	local entry
+	if [[ -f "$journal" ]] && entry="$(grep " node=${index} " "$journal" | tail -1)" && [[ -n "$entry" ]]; then
+		printf 'deliberately stopped by a crash drill (%s)' "$entry"
+		return
+	fi
+	if [[ -f "$log" ]] && grep -q "panicked at" "$log"; then
+		printf 'UNEXPECTED exit, panic found in its log'
+		return
+	fi
+	printf 'UNEXPECTED exit (no drill record, no panic in log; external kill or OOM?)'
+}
+
 # Supervise instead of a bare `wait`: crash drills (crash-nodes.sh) kill
 # individual nodes, and restart-nodes.sh revives them outside this script,
 # so launcher-owned children dying must NOT end the launcher (the EXIT trap
@@ -732,7 +769,9 @@ while true; do
 		pid="${NODE_PIDS[$i]}"
 		if ! node_alive "$pid"; then
 			# Disowned children are reaped by the shell silently; no wait here.
-			echo "${NODE_NAMES[$i]} (pid=$pid) exited; cluster keeps running (log: ${NODE_LOGS[$i]})."
+			node_index="${NODE_NAMES[$i]#node}"
+			echo "${NODE_NAMES[$i]} (pid=$pid) exited: $(node_exit_reason "$node_index" "${NODE_LOGS[$i]}")."
+			echo "  Cluster keeps running (log: ${NODE_LOGS[$i]})."
 			echo "  Restart it with: DB_ROOT=$DB_ROOT ./script/restart-nodes.sh"
 			unset 'NODE_PIDS[i]' 'NODE_NAMES[i]' 'NODE_LOGS[i]'
 		fi
