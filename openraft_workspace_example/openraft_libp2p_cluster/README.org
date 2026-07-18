@@ -336,3 +336,92 @@ Notes:
 - http://127.0.0.1:3001/graph
 - http://127.0.0.1:3001/graph.svg
 - http://127.0.0.1:3001/graph.dot
+
+** docker (100 节点集群)
+
+镜像构建（163 apt 源加速；`~/.cargo` 与 workspace =Cargo.lock= 作为 build
+context 传入，cargo 全程离线；编译产物缓存在 BuildKit cache mount 里）：
+
+#+begin_src shell
+./script/build-docker.sh                       # -> openraft-libp2p-cluster:0.1
+CARGO_JOBS=8 ./script/build-docker.sh          # VM 内存充足时提高编译并行度
+IMAGE=myrepo/olpc TAG=v1 PUSH=1 ./script/build-docker.sh   # 构建并推送
+#+end_src
+
+运行 / 停止本机 docker 集群（bridge 网络内 /dns4/olpc-node-<i>/tcp/4001/ws
+明文 websocket，无需 wss 证书；node1 的 HTTP 发布在 127.0.0.1:3001）：
+
+#+begin_src shell
+./script/run-100docker.sh            # 100 个节点（默认）
+./script/run-100docker.sh 20         # 20 个节点
+SKIP_BUILD=1 ./script/run-100docker.sh   # 跳过镜像构建
+
+curl http://127.0.0.1:3001/openraft/nodes    # 集群成员 / voter
+open http://127.0.0.1:3001/graph             # 拓扑图（容器内已装 graphviz）
+docker ps --filter label=olpc-cluster=demo   # 列出全部节点容器
+docker logs -f olpc-node-1                   # 看单个节点日志
+docker rm -f olpc-node-7                     # 杀一个节点做 crash 演练
+
+./script/stop-docker-nodes.sh        # 停止并清理容器/数据卷/网络
+#+end_src
+
+** kubernetes (100 节点集群)
+
+部署（自动构建镜像；docker-desktop 多节点 containerd 集群会自动
+=docker save | ctr images import= 到每个 k8s 节点；kind/minikube 用
+=LOAD_MODE= 指定）：
+
+#+begin_src shell
+./script/k8s-run-100nodes.sh                 # 100 节点 = 1 bootstrap + 99 worker
+./script/k8s-run-100nodes.sh 20              # 20 节点
+SKIP_BUILD=1 ./script/k8s-run-100nodes.sh    # 镜像已构建好时跳过 build
+LOAD_MODE=kind KIND_CLUSTER=dev ./script/k8s-run-100nodes.sh
+./script/k8s-delete.sh                       # 删除整个 olpc namespace
+#+end_src
+
+集群状态与 HTTP API（镜像里没有 curl，统一走 apiserver 的 pod proxy）：
+
+#+begin_src shell
+kubectl -n olpc get pods -o wide                       # 全部 pod 与所在节点
+kubectl -n olpc get pods -w                            # 实时观察收敛
+kubectl -n olpc top pods --sum=true                    # 资源占用（需 metrics-server）
+
+kubectl get --raw "/api/v1/namespaces/olpc/pods/olpc-bootstrap-0:3000/proxy/cluster"
+kubectl get --raw "/api/v1/namespaces/olpc/pods/olpc-bootstrap-0:3000/proxy/openraft/nodes"
+kubectl get --raw "/api/v1/namespaces/olpc/pods/olpc-bootstrap-0:3000/proxy/openraft/nodes?group_id=orders"
+kubectl get --raw "/api/v1/namespaces/olpc/pods/olpc-bootstrap-0:3000/proxy/libp2p/info"
+kubectl get --raw "/api/v1/namespaces/olpc/pods/olpc-bootstrap-0:3000/proxy/graph.dot"
+kubectl get --raw "/api/v1/namespaces/olpc/pods/olpc-bootstrap-0:3000/proxy/graph.svg" > /tmp/graph.svg
+
+# 浏览器访问拓扑图 http://127.0.0.1:3000/graph
+kubectl -n olpc port-forward svc/olpc-bootstrap 3000:3000
+#+end_src
+
+日志与调试：
+
+#+begin_src shell
+kubectl -n olpc logs -f olpc-bootstrap-0               # bootstrap 节点日志
+kubectl -n olpc logs -f olpc-worker-42                 # 任意 worker 日志
+kubectl -n olpc logs olpc-worker-42 --previous         # 上一次崩溃前的日志
+kubectl -n olpc describe pod olpc-worker-42            # 事件 / 探针失败原因
+kubectl -n olpc get events --sort-by=.lastTimestamp | tail -20
+kubectl -n olpc exec -it olpc-bootstrap-0 -- bash      # 进容器（olpc-* CLI 可用）
+kubectl -n olpc exec olpc-bootstrap-0 -- olpc-peer-id --key /data/node.key
+#+end_src
+
+伸缩与故障演练（voter 挂掉后由 membership guard 按
+=VOTER_REPLACE_TIMEOUT_SECS= 自动替换/补位）：
+
+#+begin_src shell
+kubectl -n olpc scale statefulset olpc-worker --replicas=50    # 缩到 51 节点
+kubectl -n olpc scale statefulset olpc-worker --replicas=99    # 扩回 100 节点
+kubectl -n olpc delete pod olpc-worker-3                       # 杀 pod 做 crash 演练
+kubectl -n olpc rollout restart statefulset olpc-worker        # 滚动重启全部 worker
+#+end_src
+
+改代码后更新镜像并重启集群（重新 build + 导入 k8s 节点 + 重新部署）：
+
+#+begin_src shell
+./script/build-docker.sh
+SKIP_BUILD=1 ./script/k8s-run-100nodes.sh
+#+end_src
