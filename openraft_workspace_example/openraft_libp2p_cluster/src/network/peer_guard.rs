@@ -166,7 +166,11 @@ impl PeerRpcGuard {
   /// Admit a `kind` RPC to `peer`, or reject it without touching the
   /// network. The returned permit must be fed the outcome (`record_success`
   /// / `record_failure`) so the circuit tracks consecutive failures.
-  pub fn try_acquire(&self, kind: RpcKind, peer: PeerId) -> Result<PeerRpcPermit, PeerRpcRejection> {
+  pub fn try_acquire(
+    &self,
+    kind: RpcKind,
+    peer: PeerId,
+  ) -> Result<PeerRpcPermit, PeerRpcRejection> {
     let state = self.state_for(kind, peer);
 
     let open_until_ms = state.open_until_ms.load(Ordering::Acquire);

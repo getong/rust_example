@@ -240,12 +240,20 @@ struct CachedManifest {
   manifest: WasmModuleManifest,
 }
 
-static MANIFEST_CACHE: OnceLock<
-  std::sync::Mutex<std::collections::HashMap<PathBuf, CachedManifest>>,
-> = OnceLock::new();
+/// Manifest cache plus a sha256 → path index over the same entries.
+/// Manifest reads are the hot, read-mostly path of concurrent chunk
+/// serving, hence `RwLock` (a `Mutex` here serialized every chunk RPC on a
+/// cache hit); the index turns `serve_chunk`'s module lookup from an O(n)
+/// scan of the store into one hash probe.
+#[derive(Default)]
+struct ManifestCache {
+  by_path: std::collections::HashMap<PathBuf, CachedManifest>,
+  by_sha256: std::collections::HashMap<String, PathBuf>,
+}
 
-fn manifest_cache() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, CachedManifest>>
-{
+static MANIFEST_CACHE: OnceLock<std::sync::RwLock<ManifestCache>> = OnceLock::new();
+
+fn manifest_cache() -> &'static std::sync::RwLock<ManifestCache> {
   MANIFEST_CACHE.get_or_init(Default::default)
 }
 
@@ -255,8 +263,9 @@ pub fn manifest_for_file(path: &Path) -> Result<WasmModuleManifest, String> {
   let mtime = meta.modified().ok();
   let size = meta.len();
   if let Some(cached) = manifest_cache()
-    .lock()
+    .read()
     .expect("manifest cache poisoned")
+    .by_path
     .get(path)
     .filter(|cached| cached.mtime == mtime && cached.size == size)
   {
@@ -270,18 +279,56 @@ pub fn manifest_for_file(path: &Path) -> Result<WasmModuleManifest, String> {
     .to_string();
   let bytes = std::fs::read(path).map_err(|err| format!("read {}: {err}", path.display()))?;
   let manifest = WasmModuleManifest::from_bytes(&name, &bytes);
-  manifest_cache()
-    .lock()
-    .expect("manifest cache poisoned")
-    .insert(
-      path.to_path_buf(),
-      CachedManifest {
-        mtime,
-        size,
-        manifest: manifest.clone(),
-      },
-    );
+  let mut cache = manifest_cache().write().expect("manifest cache poisoned");
+  // A redeploy under the same path changes its hash: drop the old index
+  // entry so the stale sha256 no longer resolves to this path.
+  let previous_sha256 = cache
+    .by_path
+    .get(path)
+    .map(|previous| previous.manifest.sha256.clone())
+    .filter(|previous| *previous != manifest.sha256);
+  if let Some(previous) = previous_sha256 {
+    cache.by_sha256.remove(&previous);
+  }
+  cache
+    .by_sha256
+    .insert(manifest.sha256.clone(), path.to_path_buf());
+  cache.by_path.insert(
+    path.to_path_buf(),
+    CachedManifest {
+      mtime,
+      size,
+      manifest: manifest.clone(),
+    },
+  );
   Ok(manifest)
+}
+
+/// Resolve a content hash to its (still valid) store file via the index:
+/// re-validates through [`manifest_for_file`] so a deleted or redeployed
+/// file is never served under its old hash.
+fn module_path_by_sha256(store: &WasmModuleStore, sha256: &str) -> Option<PathBuf> {
+  let indexed = manifest_cache()
+    .read()
+    .expect("manifest cache poisoned")
+    .by_sha256
+    .get(sha256)
+    .cloned();
+  if let Some(path) = indexed
+    && path.parent() == Some(store.dir())
+    && manifest_for_file(&path).is_ok_and(|manifest| manifest.sha256 == sha256)
+  {
+    return Some(path);
+  }
+  // Index miss (fresh process, file added out of band): one full scan
+  // populates the cache and the index for every following request.
+  for name in store.list() {
+    let path = store.dir().join(&name);
+    if manifest_for_file(&path).is_ok_and(|manifest| manifest.sha256 == sha256) {
+      return Some(path);
+    }
+  }
+  None
 }
 
 /// Local module inventory for announcements: every `.wasm`/`.wat` file in
@@ -312,7 +359,7 @@ pub fn local_inventory(store: &WasmModuleStore) -> Vec<WasmModuleSummary> {
 /// async workers under a download fan-in.
 pub async fn process_wasm_sync_request(request: WasmSyncRequest) -> WasmSyncResponse {
   let result = tokio::task::spawn_blocking(move || {
-    let store = WasmModuleStore::from_env();
+    let store = WasmModuleStore::from_env_cached();
     match request {
       WasmSyncRequest::Manifest { name } => serve_manifest(&store, &name),
       WasmSyncRequest::Chunk { sha256, index } => serve_chunk(&store, &sha256, index),
@@ -344,15 +391,12 @@ fn serve_chunk(store: &WasmModuleStore, sha256: &str, index: u32) -> WasmSyncRes
     return WasmSyncResponse::Error(format!("invalid sha256 {sha256:?}"));
   }
 
-  // Fully present in the store?
-  for name in store.list() {
-    let path = store.dir().join(&name);
-    let Ok(manifest) = manifest_for_file(&path) else {
-      continue;
+  // Fully present in the store? (One index probe, not a store scan.)
+  if let Some(path) = module_path_by_sha256(store, sha256) {
+    let manifest = match manifest_for_file(&path) {
+      Ok(manifest) => manifest,
+      Err(err) => return WasmSyncResponse::Error(err),
     };
-    if manifest.sha256 != sha256 {
-      continue;
-    }
     return match read_verified_chunk(&path, &manifest, index) {
       Ok(Some(data)) => {
         metrics::counter!("wasm_sync_chunks_served_total", "source" => "store").increment(1);
@@ -509,5 +553,37 @@ mod tests {
       serve_manifest(&store, "../m.wasm"),
       WasmSyncResponse::Error(_)
     ));
+  }
+
+  /// The sha256 → path index must follow a redeploy: the old hash stops
+  /// resolving (never serve stale bytes under it), the new hash serves.
+  #[test]
+  fn chunk_index_follows_redeployed_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("m.wasm");
+    let store = WasmModuleStore::new(dir.path());
+
+    let v1: Vec<u8> = vec![1u8; 100];
+    std::fs::write(&path, &v1).unwrap();
+    let sha_v1 = manifest_for_file(&path).unwrap().sha256;
+    assert!(matches!(
+      serve_chunk(&store, &sha_v1, 0),
+      WasmSyncResponse::Chunk { .. }
+    ));
+
+    // Redeploy with different content (different size so the (mtime, size)
+    // invalidation fires regardless of filesystem mtime granularity).
+    let v2: Vec<u8> = vec![2u8; 200];
+    std::fs::write(&path, &v2).unwrap();
+    let sha_v2 = manifest_for_file(&path).unwrap().sha256;
+    assert_ne!(sha_v1, sha_v2);
+    assert!(matches!(
+      serve_chunk(&store, &sha_v1, 0),
+      WasmSyncResponse::NotFound
+    ));
+    let WasmSyncResponse::Chunk { data, .. } = serve_chunk(&store, &sha_v2, 0) else {
+      panic!("expected chunk for redeployed content");
+    };
+    assert_eq!(data, v2);
   }
 }

@@ -666,6 +666,27 @@ pub(crate) fn combine_errors(label: &str, mut errors: Vec<anyhow::Error>) -> any
   Err(anyhow!(msg))
 }
 
+/// Wire the read-only `cluster:task/host.kv-get` host function to this
+/// node's local raft groups. The wasm executor pool threads are plain
+/// (non-tokio) threads, so the sync host call bridges into the captured
+/// runtime handle with `block_on`; a node not hosting the requested group
+/// (e.g. a pure worker) simply answers none.
+fn register_wasm_kv_reader(registry: &crate::GroupRegistry) {
+  let registry = registry.clone();
+  let handle = tokio::runtime::Handle::current();
+  crate::tasks::wasm_runtime::register_wasm_kv_reader(std::sync::Arc::new(move |group_id, key| {
+    let group = registry.get(group_id)?;
+    let key = key.to_string();
+    match handle.block_on(async move { group.kv_data.get(&key).await }) {
+      Ok(value) => value,
+      Err(err) => {
+        tracing::warn!(group = %group_id, error = %err, "wasm kv-get read failed");
+        None
+      }
+    }
+  }));
+}
+
 pub async fn run(opt: Opt) -> anyhow::Result<()> {
   load_env_file();
   // Seed the hot-reloadable runtime config from the CLI; POST /config can
@@ -764,6 +785,7 @@ pub async fn run(opt: Opt) -> anyhow::Result<()> {
   )
   .await?;
   registry.set(group_handles);
+  register_wasm_kv_reader(&registry);
   maybe_initialize_bootstrap_openraft(
     &registry,
     opt.id.clone(),

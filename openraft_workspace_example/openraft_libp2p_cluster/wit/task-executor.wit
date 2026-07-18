@@ -29,6 +29,12 @@ interface host {
   /// Read a task-supplied configuration value (the `config` map of the
   /// wasm payload). Read-only; unknown keys return none.
   config-get: func(key: string) -> option<string>;
+
+  /// Read a value from a replicated KV group's local state machine
+  /// (read-only — writes still go through the claim/ack raft protocol,
+  /// e.g. a kv_set task). Returns none for unknown keys, unknown groups,
+  /// and on nodes that do not host the group locally.
+  kv-get: func(group: string, key: string) -> option<string>;
 }
 
 /// The typed task entry point (§3): replaces argv/env + stdout scraping

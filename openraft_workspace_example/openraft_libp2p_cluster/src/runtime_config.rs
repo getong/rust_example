@@ -22,6 +22,7 @@ const MIN_NODE_ANNOUNCE_INTERVAL_SECS: u64 = 1;
 const MIN_VOTER_REPLACE_TIMEOUT_SECS: u64 = 5;
 const MIN_WORKER_LEASE_INTERVAL_SECS: u64 = 1;
 const MIN_TASK_STUCK_REQUEUE_SECS: u64 = 5;
+const MIN_WASM_SYNC_ANNOUNCE_INTERVAL_SECS: u64 = 1;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RuntimeConfig {
@@ -57,6 +58,11 @@ pub struct RuntimeConfig {
   /// is returned to the queue. Raise it for long-running task kinds (high
   /// fuel budget WASM, slow webhooks) so they are not requeued mid-run.
   pub task_stuck_requeue_secs: u64,
+  /// Wasm module inventory announce cadence (gossipsub) in seconds. Also
+  /// the effective retry cadence for stalled module downloads. Lower it on
+  /// small/fast clusters for snappier propagation; raise it on large
+  /// clusters or slow networks to cut gossip traffic.
+  pub wasm_sync_announce_interval_secs: u64,
 }
 
 impl Default for RuntimeConfig {
@@ -68,6 +74,8 @@ impl Default for RuntimeConfig {
       worker_lease_ttl_secs: 30,
       worker_lease_interval_secs: 10,
       task_stuck_requeue_secs: 60,
+      wasm_sync_announce_interval_secs: crate::wasm_sync::service::WASM_SYNC_ANNOUNCE_INTERVAL
+        .as_secs(),
     }
   }
 }
@@ -84,6 +92,10 @@ impl RuntimeConfig {
   pub fn worker_lease_interval(&self) -> Duration {
     Duration::from_secs(self.worker_lease_interval_secs)
   }
+
+  pub fn wasm_sync_announce_interval(&self) -> Duration {
+    Duration::from_secs(self.wasm_sync_announce_interval_secs)
+  }
 }
 
 /// Partial update: only the provided fields change.
@@ -95,6 +107,7 @@ pub struct RuntimeConfigPatch {
   pub worker_lease_ttl_secs: Option<u64>,
   pub worker_lease_interval_secs: Option<u64>,
   pub task_stuck_requeue_secs: Option<u64>,
+  pub wasm_sync_announce_interval_secs: Option<u64>,
 }
 
 static RUNTIME_CONFIG: Lazy<ArcSwap<RuntimeConfig>> =
@@ -140,6 +153,14 @@ pub fn apply_patch(patch: RuntimeConfigPatch) -> Result<Arc<RuntimeConfig>, Stri
       "task_stuck_requeue_secs must be >= {MIN_TASK_STUCK_REQUEUE_SECS}, got {secs}"
     ));
   }
+  if let Some(secs) = patch.wasm_sync_announce_interval_secs
+    && secs < MIN_WASM_SYNC_ANNOUNCE_INTERVAL_SECS
+  {
+    return Err(format!(
+      "wasm_sync_announce_interval_secs must be >= {MIN_WASM_SYNC_ANNOUNCE_INTERVAL_SECS}, got \
+       {secs}"
+    ));
+  }
   // The TTL must comfortably outlive the renewal interval, or a single slow
   // renewal expires the lease and the scheduler requeues live workers' tasks.
   {
@@ -178,6 +199,9 @@ pub fn apply_patch(patch: RuntimeConfigPatch) -> Result<Arc<RuntimeConfig>, Stri
     if let Some(secs) = patch.task_stuck_requeue_secs {
       next.task_stuck_requeue_secs = secs;
     }
+    if let Some(secs) = patch.wasm_sync_announce_interval_secs {
+      next.wasm_sync_announce_interval_secs = secs;
+    }
     next
   });
 
@@ -206,6 +230,27 @@ mod tests {
     assert_eq!(updated.node_announce_interval_secs, 20);
     assert_eq!(updated.voter_replace_timeout_secs, 60);
     assert_eq!(current().voter_replace_timeout_secs, 60);
+  }
+
+  #[test]
+  fn wasm_sync_announce_interval_is_patchable_and_bounded() {
+    let updated = apply_patch(RuntimeConfigPatch {
+      wasm_sync_announce_interval_secs: Some(120),
+      ..Default::default()
+    })
+    .expect("apply patch");
+    assert_eq!(updated.wasm_sync_announce_interval_secs, 120);
+    assert_eq!(
+      updated.wasm_sync_announce_interval(),
+      Duration::from_secs(120)
+    );
+    assert!(
+      apply_patch(RuntimeConfigPatch {
+        wasm_sync_announce_interval_secs: Some(0),
+        ..Default::default()
+      })
+      .is_err()
+    );
   }
 
   #[test]

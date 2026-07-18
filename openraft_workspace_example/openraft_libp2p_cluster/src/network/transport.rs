@@ -640,9 +640,12 @@ impl Libp2pNetworkFactory {
     peer: PeerId,
     rpc: impl Future<Output = Result<T, Unreachable>>,
   ) -> Result<T, Unreachable> {
-    let permit = self.peer_guard.try_acquire(kind, peer).map_err(|rejection| {
-      Unreachable::new(&ClusterError::Network(format!("peer={peer}: {rejection}")))
-    })?;
+    let permit = self
+      .peer_guard
+      .try_acquire(kind, peer)
+      .map_err(|rejection| {
+        Unreachable::new(&ClusterError::Network(format!("peer={peer}: {rejection}")))
+      })?;
     let result = rpc.await;
     match &result {
       Ok(_) => permit.record_success(),

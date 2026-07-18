@@ -34,14 +34,25 @@ use crate::{
   tasks::wasm_runtime::WasmModuleStore,
 };
 
-/// Inventory announce cadence. Also the effective retry cadence for
-/// downloads that stalled with every provider unreachable: each announce
-/// round from a returning provider re-triggers the pull.
+/// Default inventory announce cadence (the
+/// [`crate::runtime_config::RuntimeConfig::wasm_sync_announce_interval_secs`]
+/// default). Also the effective retry cadence for downloads that stalled
+/// with every provider unreachable: each announce round from a returning
+/// provider re-triggers the pull.
 pub const WASM_SYNC_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Current announce cadence: hot-reloadable via `POST /config` for large
+/// clusters / slow networks, re-read every round so an update takes effect
+/// on the next cycle.
+fn announce_interval() -> Duration {
+  crate::runtime_config::current().wasm_sync_announce_interval()
+}
 
 /// Providers that have not re-announced within this window are dropped from
 /// the provider map (3 announce intervals, mirroring peer liveness).
-const PROVIDER_TTL: Duration = WASM_SYNC_ANNOUNCE_INTERVAL.saturating_mul(3);
+fn provider_ttl() -> Duration {
+  announce_interval().saturating_mul(3)
+}
 
 /// One remembered module offer: which nodes currently announce it.
 struct ProviderEntry {
@@ -60,7 +71,10 @@ pub async fn run_wasm_sync_service(
   // are distinct offers, and the conflict policy is applied at download
   // planning, not here.
   let mut providers: HashMap<String, ProviderEntry> = HashMap::new();
-  let mut announce_tick = tokio::time::interval(WASM_SYNC_ANNOUNCE_INTERVAL);
+  // Announce cadence is a runtime-config tunable: sleep the CURRENT
+  // interval each round instead of a fixed `interval`, so `POST /config`
+  // changes apply from the next round. First round fires immediately.
+  let mut next_announce = tokio::time::Instant::now();
 
   loop {
     tokio::select! {
@@ -68,7 +82,8 @@ pub async fn run_wasm_sync_service(
         tracing::info!("shutdown signal received, stopping wasm sync service");
         return;
       }
-      _ = announce_tick.tick() => {
+      _ = tokio::time::sleep_until(next_announce) => {
+        next_announce = tokio::time::Instant::now() + announce_interval();
         announce_local_inventory(&self_id, &network).await;
         prune_providers(&mut providers);
         sync_missing_modules(&self_id, &network, &mut providers, &mut announce_rx, &mut shutdown_rx)
@@ -97,7 +112,7 @@ pub async fn run_wasm_sync_service(
 }
 
 async fn announce_local_inventory(self_id: &NodeId, network: &Libp2pNetworkFactory) {
-  let store = WasmModuleStore::from_env();
+  let store = WasmModuleStore::from_env_cached();
   let modules = tokio::task::spawn_blocking(move || local_inventory(&store))
     .await
     .unwrap_or_default();
@@ -143,10 +158,11 @@ fn record_announcement(
 
 fn prune_providers(providers: &mut HashMap<String, ProviderEntry>) {
   let now = tokio::time::Instant::now();
+  let ttl = provider_ttl();
   providers.retain(|_, entry| {
     entry
       .nodes
-      .retain(|_, last_seen| now.duration_since(*last_seen) < PROVIDER_TTL);
+      .retain(|_, last_seen| now.duration_since(*last_seen) < ttl);
     !entry.nodes.is_empty()
   });
 }
@@ -239,7 +255,7 @@ async fn sync_missing_modules(
   announce_rx: &mut tokio::sync::broadcast::Receiver<WasmInventoryAnnouncement>,
   shutdown_rx: &mut ShutdownRx,
 ) {
-  let store = WasmModuleStore::from_env();
+  let store = WasmModuleStore::from_env_cached();
   let wanted = plan_wanted_modules(&store, providers);
   for (sha256, summary) in wanted {
     if current_sources(network, providers, &sha256, self_id)
@@ -550,7 +566,7 @@ mod tests {
     prune_providers(&mut providers);
     assert_eq!(providers.len(), 1);
 
-    tokio::time::advance(PROVIDER_TTL + Duration::from_secs(1)).await;
+    tokio::time::advance(provider_ttl() + Duration::from_secs(1)).await;
     prune_providers(&mut providers);
     assert!(providers.is_empty());
   }
