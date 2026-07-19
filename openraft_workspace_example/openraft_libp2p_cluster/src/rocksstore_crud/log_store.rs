@@ -14,7 +14,9 @@ use openraft::{
   storage::{IOFlushed, RaftLogStorage},
 };
 use rayon::prelude::*;
-use rocksdb::{ColumnFamily, DB, Direction, WriteOptions};
+use rocksdb::{ColumnFamily, DB, Direction, ReadOptions, WriteOptions};
+
+use super::OperationTimer;
 
 const META_CF: &str = "meta";
 const LOGS_CF: &str = "logs";
@@ -129,9 +131,11 @@ where
       value,
     );
 
-    self.append_log_deletes(&mut batch, 0 ..= log_id.index())?;
+    let deleted = self.append_log_deletes(&mut batch, 0 ..= log_id.index())?;
 
-    write_batch_sync(&self.db, batch)
+    write_batch_sync(&self.db, batch)?;
+    metrics::counter!("rocksdb_log_purge_entries_total").increment(deleted as u64);
+    Ok(())
   }
 
   fn append_log_deletes<R>(
@@ -147,8 +151,9 @@ where
     };
 
     let start = id_to_bin(start_index);
-    let iter = self.db.iterator_cf(
+    let iter = self.db.iterator_cf_opt(
       self.cf_logs(),
+      log_scan_read_options(),
       rocksdb::IteratorMode::From(&start, Direction::Forward),
     );
     let mut deleted = 0;
@@ -176,14 +181,16 @@ where
     &mut self,
     range: RB,
   ) -> Result<Vec<C::Entry>, io::Error> {
+    let _timer = OperationTimer::start("rocksdb_log_read_duration_seconds");
     let Some(start_index) = range_start(&range) else {
       return Ok(Vec::new());
     };
 
     let start = id_to_bin(start_index);
     let mut raw = Vec::with_capacity(range_len_hint(&range));
-    let iter = self.db.iterator_cf(
+    let iter = self.db.iterator_cf_opt(
       self.cf_logs(),
+      log_scan_read_options(),
       rocksdb::IteratorMode::From(&start, Direction::Forward),
     );
 
@@ -292,6 +299,7 @@ where
   where
     I: IntoIterator<Item = EntryOf<C>> + Send,
   {
+    let _timer = OperationTimer::start("rocksdb_log_append_duration_seconds");
     let mut batch = rocksdb::WriteBatch::default();
     let mut appended = 0;
     for entry in entries {
@@ -442,6 +450,14 @@ fn durable_write_options() -> WriteOptions {
   let mut opts = WriteOptions::default();
   opts.set_sync(crate::runtime_config::current().rocksdb_sync_writes);
   opts.disable_wal(false);
+  opts
+}
+
+fn log_scan_read_options() -> ReadOptions {
+  let mut opts = ReadOptions::default();
+  // Raft reads and purges walk contiguous ranges. Do not let one catch-up or
+  // purge evict point-read blocks from the deliberately small logs cache.
+  opts.fill_cache(false);
   opts
 }
 

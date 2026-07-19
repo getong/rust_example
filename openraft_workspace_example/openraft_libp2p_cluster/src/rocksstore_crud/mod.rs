@@ -5,19 +5,30 @@
 #![allow(clippy::uninlined_format_args)]
 
 pub mod log_store;
+pub(crate) mod options;
 pub mod state_machine;
 
 #[cfg(test)]
 mod test;
 
-use std::{convert::Infallible, fmt, io, path::Path, str::FromStr, sync::Arc};
+use std::{
+  convert::Infallible,
+  fmt, io,
+  path::Path,
+  str::FromStr,
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use openraft::RaftTypeConfig;
-use rocksdb::{ColumnFamilyDescriptor, DB, Options};
+use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 
-use self::log_store::RocksLogStore;
 pub use self::state_machine::RocksStateMachine;
+use self::{
+  log_store::RocksLogStore,
+  options::{primary_cf_descriptors, primary_db_options},
+};
 use crate::types_kv;
 
 #[derive(Serialize, Deserialize, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -136,6 +147,30 @@ pub struct RocksResponse {
   pub value: Option<String>,
 }
 
+pub(super) struct OperationTimer {
+  metric: &'static str,
+  started: Instant,
+}
+
+impl OperationTimer {
+  pub(super) fn start(metric: &'static str) -> Self {
+    Self {
+      metric,
+      started: Instant::now(),
+    }
+  }
+}
+
+impl Drop for OperationTimer {
+  fn drop(&mut self) {
+    metrics::histogram!(self.metric).record(self.started.elapsed().as_secs_f64());
+  }
+}
+
+fn record_db_open_duration(duration: Duration) {
+  metrics::histogram!("rocksdb_db_open_duration_seconds").record(duration.as_secs_f64());
+}
+
 impl From<types_kv::Response> for RocksResponse {
   fn from(response: types_kv::Response) -> Self {
     RocksResponse {
@@ -162,20 +197,15 @@ pub async fn new<C, P: AsRef<Path>>(
 where
   C: RaftTypeConfig,
 {
-  let mut db_opts = Options::default();
-  db_opts.create_missing_column_families(true);
-  db_opts.create_if_missing(true);
-
-  let meta = ColumnFamilyDescriptor::new("meta", Options::default());
-  let sm_meta = ColumnFamilyDescriptor::new("sm_meta", Options::default());
-  let sm_data = ColumnFamilyDescriptor::new("sm_data", Options::default());
-  let logs = ColumnFamilyDescriptor::new("logs", Options::default());
+  let db_opts = primary_db_options();
 
   let db_path = db_path.as_ref();
   let snapshot_dir = db_path.join("snapshots");
 
-  let db = DB::open_cf_descriptors(&db_opts, db_path, vec![meta, sm_meta, sm_data, logs])
-    .map_err(io::Error::other)?;
+  let started = Instant::now();
+  let db = DB::open_cf_descriptors(&db_opts, db_path, primary_cf_descriptors());
+  record_db_open_duration(started.elapsed());
+  let db = db.map_err(io::Error::other)?;
 
   let db = Arc::new(db);
   Ok((

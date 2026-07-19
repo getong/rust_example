@@ -27,7 +27,7 @@ use rocksdb::{DB, WriteOptions};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use super::TypeConfig;
+use super::{OperationTimer, TypeConfig};
 use crate::{tasks, types_kv};
 
 const SM_META_CF: &str = "sm_meta";
@@ -43,7 +43,9 @@ const SNAPSHOT_TMP_SUFFIX: &str = ".tmp";
 const SNAPSHOT_EPOCH_PREFIX: &str = "epoch_";
 /// Snapshot files kept after a successful write; older ones are pruned so
 /// the snapshot directory does not grow without bound.
-const SNAPSHOT_RETAIN_COUNT: usize = 2;
+const SNAPSHOT_RETAIN_COUNT: usize = 3;
+const SNAPSHOT_ZSTD_LEVEL: i32 = 3;
+const ZSTD_FRAME_MAGIC: &[u8; 4] = b"\x28\xb5\x2f\xfd";
 
 /// Raw key/value pair as yielded by a RocksDB iterator.
 type RawKv = (Box<[u8]>, Box<[u8]>);
@@ -278,6 +280,58 @@ mod tests {
       );
     }
   }
+
+  #[test]
+  fn persisted_snapshot_is_zstd_compressed_and_round_trips() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let snapshot = SnapshotFile {
+      meta: SnapshotMetaOf::<TypeConfig> {
+        last_log_id: Some(log_id(7)),
+        last_membership: StoredMembershipOf::<TypeConfig>::default(),
+        snapshot_id: "compressed-snapshot".to_string(),
+      },
+      data: vec![(b"key".to_vec(), vec![b'x'; 32 * 1024])],
+    };
+    let raw_size = serialize_io(&snapshot)
+      .expect("serialize raw snapshot")
+      .len();
+
+    let persisted_size =
+      write_snapshot_file(temp.path(), "snapshot", &snapshot).expect("write snapshot");
+    let bytes = fs::read(temp.path().join("snapshot")).expect("read snapshot bytes");
+    assert!(bytes.starts_with(ZSTD_FRAME_MAGIC));
+    assert_eq!(persisted_size, bytes.len() as u64);
+    assert!(bytes.len() < raw_size);
+
+    let restored = read_snapshot_file(&temp.path().join("snapshot")).expect("read snapshot");
+    assert_eq!(restored.meta.last_log_id, snapshot.meta.last_log_id);
+    assert_eq!(restored.meta.snapshot_id, snapshot.meta.snapshot_id);
+    assert_eq!(restored.data, snapshot.data);
+  }
+
+  #[test]
+  fn legacy_uncompressed_snapshot_still_loads() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let path = temp.path().join("legacy-snapshot");
+    let snapshot = SnapshotFile {
+      meta: SnapshotMetaOf::<TypeConfig> {
+        last_log_id: Some(log_id(3)),
+        last_membership: StoredMembershipOf::<TypeConfig>::default(),
+        snapshot_id: "legacy-snapshot".to_string(),
+      },
+      data: vec![(b"alpha".to_vec(), b"one".to_vec())],
+    };
+    fs::write(
+      &path,
+      serialize_io(&snapshot).expect("serialize legacy snapshot"),
+    )
+    .expect("write legacy snapshot");
+
+    let restored = read_snapshot_file(&path).expect("read legacy snapshot");
+    assert_eq!(restored.meta.last_log_id, snapshot.meta.last_log_id);
+    assert_eq!(restored.meta.snapshot_id, snapshot.meta.snapshot_id);
+    assert_eq!(restored.data, snapshot.data);
+  }
 }
 
 fn deserialize<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, StorageError<TypeConfig>> {
@@ -373,7 +427,13 @@ fn is_snapshot_candidate(path: &Path) -> bool {
 
 fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, io::Error> {
   let file_bytes = fs::read(path)?;
-  deserialize_io(&file_bytes)
+  if file_bytes.starts_with(ZSTD_FRAME_MAGIC) {
+    let decoded = zstd::stream::decode_all(file_bytes.as_slice())?;
+    deserialize_io(&decoded)
+  } else {
+    // Snapshots written before local compression was enabled are raw JSON.
+    deserialize_io(&file_bytes)
+  }
 }
 
 fn read_latest_snapshot_file(snapshot_dir: &Path) -> Result<Option<SnapshotFile>, io::Error> {
@@ -508,7 +568,7 @@ fn write_snapshot_file(
   snapshot_dir: &Path,
   snapshot_file_name: &str,
   snapshot_file: &SnapshotFile,
-) -> Result<(), io::Error> {
+) -> Result<u64, io::Error> {
   fs::create_dir_all(snapshot_dir)?;
 
   let snapshot_path = snapshot_dir.join(snapshot_file_name);
@@ -518,17 +578,17 @@ fn write_snapshot_file(
     SNAPSHOT_TMP_SUFFIX
   ));
   let file_bytes = serialize_io(snapshot_file)?;
-
-  {
-    let mut file = File::create(&tmp_path)?;
-    file.write_all(&file_bytes)?;
-    file.sync_all()?;
-  }
+  let file = File::create(&tmp_path)?;
+  let mut encoder = zstd::stream::write::Encoder::new(file, SNAPSHOT_ZSTD_LEVEL)?;
+  encoder.write_all(&file_bytes)?;
+  let file = encoder.finish()?;
+  file.sync_all()?;
+  let persisted_size = file.metadata()?.len();
 
   fs::rename(&tmp_path, &snapshot_path)?;
   sync_dir(snapshot_dir)?;
 
-  Ok(())
+  Ok(persisted_size)
 }
 
 fn read_last_applied_log(db: &DB) -> Result<Option<LogIdOf<TypeConfig>>, io::Error> {
@@ -614,6 +674,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
   async fn build_snapshot(
     &mut self,
   ) -> Result<SnapshotOf<TypeConfig, Self::SnapshotData>, io::Error> {
+    let _timer = OperationTimer::start("rocksdb_snapshot_build_duration_seconds");
     let (last_applied_log, last_membership) = self.get_meta()?;
 
     // UUID v7 is time-ordered, so the lexicographic snapshot_id tiebreaker in
@@ -646,32 +707,38 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let epoch = self.snapshot_epoch.fetch_add(1, Ordering::SeqCst);
     let file_name = snapshot_file_name(epoch, &snapshot_id);
 
-    let data_bytes = TypeConfig::spawn_blocking(move || -> Result<Vec<u8>, io::Error> {
-      let snapshot = db.snapshot();
-      let cf_data = db
-        .cf_handle(SM_DATA_CF)
-        .expect("column family `sm_data` not found");
+    let (data_bytes, persisted_size) =
+      TypeConfig::spawn_blocking(move || -> Result<(Vec<u8>, u64), io::Error> {
+        let snapshot = db.snapshot();
+        let cf_data = db
+          .cf_handle(SM_DATA_CF)
+          .expect("column family `sm_data` not found");
 
-      let mut snapshot_data = Vec::new();
-      let iter = snapshot.iterator_cf(cf_data, rocksdb::IteratorMode::Start);
+        let mut snapshot_data = Vec::new();
+        let iter = snapshot.iterator_cf(cf_data, rocksdb::IteratorMode::Start);
 
-      for item in iter {
-        let (key, value) = item.map_err(|e| io::Error::other(e.to_string()))?;
-        snapshot_data.push((key.to_vec(), value.to_vec()));
-      }
+        for item in iter {
+          let (key, value) = item.map_err(|e| io::Error::other(e.to_string()))?;
+          snapshot_data.push((key.to_vec(), value.to_vec()));
+        }
 
-      // Serialize both metadata and data together
-      let snapshot_file = SnapshotFile {
-        meta: meta_for_file,
-        data: snapshot_data,
-      };
-      write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
-      prune_old_snapshots(&snapshot_dir, SNAPSHOT_RETAIN_COUNT)?;
+        // Serialize both metadata and data together
+        let snapshot_file = SnapshotFile {
+          meta: meta_for_file,
+          data: snapshot_data,
+        };
+        let persisted_size = write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
+        prune_old_snapshots(&snapshot_dir, SNAPSHOT_RETAIN_COUNT)?;
 
-      // Return snapshot with data-only for backward compatibility with the data field
-      serialize_io(&snapshot_file.data)
-    })
-    .await??;
+        // Return snapshot with data-only for backward compatibility with the data field
+        Ok((serialize_io(&snapshot_file.data)?, persisted_size))
+      })
+      .await??;
+
+    metrics::histogram!("rocksdb_snapshot_size_bytes", "kind" => "wire")
+      .record(data_bytes.len() as f64);
+    metrics::histogram!("rocksdb_snapshot_size_bytes", "kind" => "persisted")
+      .record(persisted_size as f64);
 
     Ok(SnapshotOf::<TypeConfig, Self::SnapshotData> {
       meta,
@@ -695,6 +762,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
   where
     Strm: Stream<Item = Result<EntryResponder<TypeConfig>, io::Error>> + Unpin + OptionalSend,
   {
+    let _timer = OperationTimer::start("rocksdb_sm_apply_duration_seconds");
     let mut data_changes = Vec::new();
     let mut last_applied_log = None;
     let mut last_membership: Option<StoredMembershipOf<TypeConfig>> = None;
@@ -831,6 +899,9 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     meta: &SnapshotMetaOf<TypeConfig>,
     snapshot: Self::SnapshotData,
   ) -> Result<(), io::Error> {
+    let _timer = OperationTimer::start("rocksdb_snapshot_install_duration_seconds");
+    metrics::histogram!("rocksdb_snapshot_size_bytes", "kind" => "wire")
+      .record(snapshot.get_ref().len() as f64);
     tracing::info!(
       { snapshot_size = snapshot.get_ref().len() },
       "decoding snapshot for installation"
@@ -855,7 +926,9 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
 
         restore_snapshot_to_db(&db, &snapshot_file)?;
         let file_name = snapshot_file_name(epoch, &snapshot_file.meta.snapshot_id);
-        write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
+        let persisted_size = write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
+        metrics::histogram!("rocksdb_snapshot_size_bytes", "kind" => "persisted")
+          .record(persisted_size as f64);
         prune_old_snapshots(&snapshot_dir, SNAPSHOT_RETAIN_COUNT)?;
         Ok(data_map)
       })

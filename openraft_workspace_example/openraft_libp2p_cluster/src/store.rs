@@ -17,11 +17,13 @@ use openraft::{
   type_config::TypeConfigExt,
 };
 use rayon::prelude::*;
-use rocksdb::{ColumnFamilyRef, DB, Options};
+use rocksdb::{ColumnFamilyRef, DB};
 
 use crate::{
   rocksstore_crud::{
-    RocksStateMachine, TypeConfig, log_store::RocksLogStore,
+    RocksStateMachine, TypeConfig,
+    log_store::RocksLogStore,
+    options::{secondary_cf_descriptors, secondary_db_options},
     state_machine::read_latest_snapshot_meta,
   },
   typ::{LinearizableReadError, Raft, RaftError, StoredMembership},
@@ -31,8 +33,6 @@ pub type LogStore = RocksLogStore<TypeConfig>;
 pub type StateMachineStore = RocksStateMachine;
 
 const SM_DATA_CF: &str = "sm_data";
-const STORE_CFS: [&str; 4] = ["meta", "sm_meta", SM_DATA_CF, "logs"];
-
 /// Rebuild (reopen) the secondary reader when it is still this many sequence
 /// numbers behind the primary after a catch-up attempt. Secondary mode
 /// catches up by replaying the primary's WAL; when the primary has purged
@@ -288,10 +288,14 @@ fn open_secondary(primary_path: &Path, secondary_path: &Path) -> anyhow::Result<
   fs::create_dir_all(secondary_path)
     .with_context(|| format!("create rocksdb secondary dir: {}", secondary_path.display()))?;
 
-  let mut opts = Options::default();
-  opts.set_max_open_files(-1);
-
-  DB::open_cf_as_secondary(&opts, primary_path, secondary_path, STORE_CFS).with_context(|| {
+  let opts = secondary_db_options();
+  DB::open_cf_descriptors_as_secondary(
+    &opts,
+    primary_path,
+    secondary_path,
+    secondary_cf_descriptors(),
+  )
+  .with_context(|| {
     format!(
       "open rocksdb secondary reader: primary={}, secondary={}",
       primary_path.display(),
@@ -384,10 +388,8 @@ pub fn read_persisted_membership_for_group(
     return read_persisted_snapshot_membership(&db_path);
   }
 
-  let mut opts = Options::default();
-  opts.set_max_open_files(-1);
-
-  let db = DB::open_cf_for_read_only(&opts, &db_path, STORE_CFS, false)
+  let opts = secondary_db_options();
+  let db = DB::open_cf_descriptors_read_only(&opts, &db_path, secondary_cf_descriptors(), false)
     .with_context(|| format!("open rocksdb read-only: {}", db_path.display()))?;
   let cf = db
     .cf_handle("sm_meta")
@@ -724,6 +726,8 @@ mod tests {
   use super::*;
   use crate::NodeId;
 
+  const STORE_CFS: [&str; 4] = ["meta", "sm_meta", SM_DATA_CF, "logs"];
+
   fn log_id(node_id: &NodeId) -> LogIdOf<TypeConfig> {
     LogIdOf::<TypeConfig>::new(
       <TypeConfig as RaftTypeConfig>::LeaderId::new_committed(1, node_id.clone()),
@@ -932,6 +936,31 @@ mod tests {
     let membership = read_persisted_membership_for_group(temp.path(), group_id)
       .expect("read persisted membership")
       .expect("membership from snapshot");
+    assert!(membership.membership().get_node(&node_id).is_some());
+  }
+
+  #[tokio::test]
+  async fn read_persisted_membership_opens_tuned_read_only_db() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let group_id = "users";
+    let node_id = NodeId::from("node-a");
+
+    {
+      let (_log_store, mut state_machine, _kv_data) = open_store_for_group(temp.path(), group_id)
+        .await
+        .expect("open group store");
+      state_machine
+        .apply(futures::stream::iter([Ok((
+          membership_entry(node_id.clone()),
+          None,
+        ))]))
+        .await
+        .expect("apply membership");
+    }
+
+    let membership = read_persisted_membership_for_group(temp.path(), group_id)
+      .expect("read persisted membership")
+      .expect("membership from rocksdb");
     assert!(membership.membership().get_node(&node_id).is_some());
   }
 }
