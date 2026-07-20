@@ -9,15 +9,15 @@ all-features = true
 [features]
 
 [dependencies]
-futures = "0.3.32"
+futures = "0.3.33"
 log-mem = { path = "../log-mem", features = [] }
 mem-log = { path = "../mem-log", features = [] }
 openraft = { version = "0.10.0-alpha.30", features = [
   "serde",
   "type-alias",
 ] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 sm-mem = { path = "../sm-mem" }
 tokio = { version = "1.53.0", features = ["full"] }
 tracing = "0.1.44"

@@ -16,10 +16,10 @@ name = "lpmr-status"
 path = "src/bin/status.rs"
 
 [dependencies]
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 apalis = { version = "1.0.0-rc.9", features = ["retry"] }
 apalis-core = "1.0.0-rc.9"
-async-trait = "0.1.89"
+async-trait = "0.1.91"
 axum = { version = "0.8.9", default-features = false, features = [
   "http1",
   "query",
@@ -28,7 +28,7 @@ axum = { version = "0.8.9", default-features = false, features = [
 byteorder = "1.5.0"
 clap = { version = "4.6.2", features = ["derive"] }
 console-subscriber = "0.5.0"
-futures = "0.3.32"
+futures = "0.3.33"
 graphviz-rust = "0.9.8"
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "4f8e0a49cf45a49b262ffdcf6d4ba02e5cd5d14d", features = [
   "dns",
@@ -58,7 +58,7 @@ prost = "0.14.4"
 rand = "0.10"
 redis = { version = "1.4.1", features = ["aio", "tokio-comp", "connection-manager"] }
 rocksdb = "0.24.0"
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 sonic-rs = "0.5.8"
 sqlx = { version = "0.9", default-features = false, features = [
     "chrono",

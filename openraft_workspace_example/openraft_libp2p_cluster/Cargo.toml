@@ -32,9 +32,9 @@ p1-compat = [
 ]
 
 [dependencies]
-anyhow = "1.0.103"
+anyhow = "1.0.104"
 arc-swap = "1"
-async-trait = "0.1.89"
+async-trait = "0.1.91"
 axum = { version = "0.8.9", default-features = false, features = [
   "http1",
   "query",
@@ -45,9 +45,9 @@ bytes = "1"
 clap = { version = "4.6.2", features = ["derive"] }
 console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
-futures = "0.3.32"
+futures = "0.3.33"
 graphviz-rust = "0.9.8"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "47b06362ef2d28c04df24cf1a8d099beb9f3afb3", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "0f90c086a8df3c45f72368a0cb3a1c9c2f886c41", features = [
   "dns",
   "ed25519",
   "gossipsub",
@@ -83,7 +83,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json"] }
 # re-proposals stay idempotent.
 retry = { version = "2.2.0", default-features = false }
 rocksdb = "0.24.0"
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11"
 sonic-rs = "0.5.8"
 sqlx = { version = "0.9", default-features = false, features = [
@@ -135,7 +135,7 @@ prost-build = "0.14.4"
 [dev-dependencies]
 # Mock the TaskHostOps host-function surface to test guest-mirroring logic
 # without a wasm instance (wasm-optimization-v2.md §11).
-mockall = "0.13"
+mockall = "0.15"
 # Property-based determinism checks for typed guests.
 proptest = "1"
 tempfile = "3.27.0"

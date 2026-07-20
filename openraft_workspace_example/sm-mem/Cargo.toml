@@ -16,7 +16,7 @@ repository = "https://github.com/databendlabs/openraft"
 all-features = true
 
 [dependencies]
-futures = "0.3.32"
+futures = "0.3.33"
 openraft = { version = "0.10.0-alpha.30", default-features = false, features = ["type-alias", "tokio-rt"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

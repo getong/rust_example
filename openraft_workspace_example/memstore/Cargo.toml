@@ -20,7 +20,7 @@ all-features = true
 serde = ["openraft/serde"]
 
 [dependencies]
-futures = "0.3.32"
+futures = "0.3.33"
 openraft = { version = "0.10.0-alpha.30", features = [
   "type-alias",
   "tokio-rt",
