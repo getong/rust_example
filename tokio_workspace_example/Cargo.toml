@@ -1,6 +1,6 @@
 [workspace]
 
-resolver = "2"
+resolver = "3"
 
 members = [
   # "tokio_fork_child_process_example",
@@ -201,5 +201,7 @@ members = [
   "tokio_once_cell_mutex_timeout_example",
   "once_cell_const_new_example",
   "tokio_struct_future_example",
-  "tokio_vsock_test_server_example", "duplexstream_example",
+  "tokio_vsock_test_server_example",
+  "duplexstream_example",
+  "topcoat_example",
 ]
