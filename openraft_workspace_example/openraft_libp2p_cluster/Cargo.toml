@@ -42,12 +42,12 @@ axum = { version = "0.8.9", default-features = false, features = [
 ] }
 base64 = "0.22"
 bytes = "1"
-clap = { version = "4.6.2", features = ["derive"] }
+clap = { version = "4.6.4", features = ["derive"] }
 console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
 futures = "0.3.33"
 graphviz-rust = "0.9.8"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "0f90c086a8df3c45f72368a0cb3a1c9c2f886c41", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "8862b796aebfcca12d03bfe1b78924de4c5f5e0b", features = [
   "dns",
   "ed25519",
   "gossipsub",
@@ -111,19 +111,19 @@ tokio = { version = "1.53", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.24.0", features = ["v7"] }
-wasi-preview1-component-adapter-provider = { version = "46.0.1", optional = true }
+wasi-preview1-component-adapter-provider = { version = "47.0.2", optional = true }
 # Pre-validation of component binaries before compilation (the validator
 # wasmtime itself uses); precise diagnostics before cranelift time is spent.
-wasmparser = "0.253"
+wasmparser = "0.254"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
 # wasmtime_workspace_example). `component-model` is on by default in v46
 # but declared explicitly: the component::{Component, Linker} usage must
 # not break if a future version changes the default.
-wasmtime = { version = "46.0.1", features = ["component-model"] }
-wasmtime-wasi = "46.0.1"
-wat = { version = "1.253.0", optional = true }
-wit-component = { version = "0.253", optional = true }
+wasmtime = { version = "47.0.2", features = ["component-model"] }
+wasmtime-wasi = "47.0.2"
+wat = { version = "1.254.0", optional = true }
+wit-component = { version = "0.254", optional = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.

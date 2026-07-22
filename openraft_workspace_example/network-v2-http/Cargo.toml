@@ -9,13 +9,13 @@ openraft = { version = "0.10.0-alpha.30", features = ["serde", "type-alias"] }
 
 bytes = "1.12"
 http-body-util = "0.1"
-hyper = { version = "1.10", features = ["http1", "server"] }
+hyper = { version = "1.11", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 log = "0.4"
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tokio = { version = "1.53.0", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
 
 [features]
 default = []

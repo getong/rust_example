@@ -8,8 +8,7 @@ use hyper::{
 };
 use hyper_util::{rt::TokioIo, server::conn::auto::Builder as ServerConnBuilder};
 use mlua::{
-  chunk, Error as LuaError, Function, Lua, RegistryKey, String as LuaString, Table, UserData,
-  UserDataMethods,
+  chunk, Error as LuaError, Function, Lua, LuaString, RegistryKey, Table, UserData, UserDataMethods,
 };
 use tokio::{net::TcpListener, task::LocalSet};
 
@@ -17,7 +16,7 @@ use tokio::{net::TcpListener, task::LocalSet};
 struct LuaRequest(SocketAddr, Request<Incoming>);
 
 impl UserData for LuaRequest {
-  fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+  fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
     methods.add_method("remote_addr", |_lua, req, ()| Ok(req.0.to_string()));
     methods.add_method("method", |_lua, req, ()| Ok(req.1.method().to_string()));
     methods.add_method("path", |_lua, req, ()| Ok(req.1.uri().path().to_string()));
@@ -54,23 +53,23 @@ impl hyper::service::Service<Request<Incoming>> for Svc {
     let lua_req = LuaRequest(self.peer_addr, req);
     Box::pin(async move {
       let handler: Function = lua.registry_value(&handler_key)?;
-      match handler.call_async::<_, Table>(lua_req).await {
+      match handler.call_async::<Table>(lua_req).await {
         Ok(lua_resp) => {
-          let status = lua_resp.get::<_, Option<u16>>("status")?.unwrap_or(200);
+          let status = lua_resp.get::<Option<u16>>("status")?.unwrap_or(200);
           let mut resp = Response::builder().status(status);
 
           // Set headers
-          if let Some(headers) = lua_resp.get::<_, Option<Table>>("headers")? {
+          if let Some(headers) = lua_resp.get::<Option<Table>>("headers")? {
             for pair in headers.pairs::<String, LuaString>() {
               let (h, v) = pair?;
-              resp = resp.header(&h, v.as_bytes());
+              resp = resp.header(&h, &*v.as_bytes());
             }
           }
 
           // Set body
           let body = lua_resp
-            .get::<_, Option<LuaString>>("body")?
-            .map(|b| Full::new(Bytes::copy_from_slice(b.as_bytes())).boxed())
+            .get::<Option<LuaString>>("body")?
+            .map(|b| Full::new(Bytes::copy_from_slice(&b.as_bytes())).boxed())
             .unwrap_or_else(|| Empty::<Bytes>::new().boxed());
 
           Ok(resp.body(body).unwrap())

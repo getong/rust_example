@@ -5,13 +5,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.95"
-bytes = "1.9.0"
+anyhow = "1.0.104"
+bytes = "1.12.1"
 delay_timer = { version = "0.11.6", features = ["full"] }
-http-body-util = "0.1.2"
-hyper = { version = "1.5.2", features = ["full"] }
-hyper-util = { version = "0.1.10", features = ["full"] }
+http-body-util = "0.1.4"
+hyper = { version = "1.11.0", features = ["full"] }
+hyper-util = { version = "0.1.20", features = ["full"] }
 smol = "2.0.2"
-tokio = { version = "1.42.0", features = ["full"] }
-tracing = "0.1.41"
-tracing-subscriber = "0.3.19"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
