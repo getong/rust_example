@@ -7,4 +7,5 @@ members = [
   "bind_c_manual",
   "bind_cpp_macros",
   "bind_cpp_manual",
+  "sdl_safe_wrapper",
 ]
