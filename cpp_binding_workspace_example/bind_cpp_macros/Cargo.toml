@@ -1,0 +1,10 @@
+[package]
+name = "bind_cpp_macros"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cpp = "0.5.11"
+
+[build-dependencies]
+cpp_build = "0.5.11"
