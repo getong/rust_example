@@ -1,0 +1,3 @@
+copy from https://github.com/PacktPublishing/Rust-for-CPP-Developers
+
+and modified source code by claude
