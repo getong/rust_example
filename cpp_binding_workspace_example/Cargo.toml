@@ -4,4 +4,5 @@ resolver = "3"
 
 members = [
   "bind_c_bindgen",
+  "bind_c_manual",
 ]
