@@ -1,0 +1,13 @@
+[package]
+name = "axum_tracing_opentelemetry_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.9"
+axum-tracing-opentelemetry = "0.38.0"
+init-tracing-opentelemetry = { version = "0.38.1", features = ["tracing_subscriber_ext"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
+tracing = "0.1.44"
+tracing-opentelemetry-instrumentation-sdk = "0.38.1"
