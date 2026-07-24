@@ -9,4 +9,5 @@ members = [
   "bind_cpp_manual",
   "sdl_safe_wrapper",
   "vcpkg_example",
+  "pkg_config_example",
 ]
