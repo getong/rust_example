@@ -8,4 +8,5 @@ members = [
   "bind_cpp_macros",
   "bind_cpp_manual",
   "sdl_safe_wrapper",
+  "vcpkg_example",
 ]
