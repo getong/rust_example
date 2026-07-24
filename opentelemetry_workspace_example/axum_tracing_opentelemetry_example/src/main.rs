@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use axum::{BoxError, Router, extract::Path, response::IntoResponse, routing::get};
 use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use serde_json::json;
+use tower_http::cors::CorsLayer;
 use tracing_opentelemetry_instrumentation_sdk::find_current_trace_id;
 
 #[tokio::main]
@@ -33,6 +34,7 @@ fn app() -> Router {
     .layer(OtelInResponseLayer::default())
     // start OpenTelemetry trace on incoming request
     .layer(OtelAxumLayer::default())
+    .layer(CorsLayer::permissive())
     .route("/health", get(health)) // request processed without span / trace
 }
 
