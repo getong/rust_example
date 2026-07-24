@@ -5,5 +5,5 @@ resolver = "2"
 members = [
   "opentelemetry_otlp_example",
   "tracing_opentelemetry_example",
-  "opentelemetry_tracing_subscriber_example", "axum_tracing_opentelemetry_example",
+  "opentelemetry_tracing_subscriber_example", "axum_tracing_opentelemetry_example", "reqwest_tracing_example",
 ]
