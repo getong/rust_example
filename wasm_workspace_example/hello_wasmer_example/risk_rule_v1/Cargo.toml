@@ -1,5 +1,5 @@
 [package]
-name = "risk_rule_v1"
+name = "wasmer_risk_rule_v1"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,5 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 # Build with:
-#   cargo build --package risk_rule_v1 --release --target wasm32-unknown-unknown
+#   cargo build --package wasmer_risk_rule_v1 --release --target wasm32-unknown-unknown
 # (the host binary also builds this automatically on `cargo run`)

@@ -3,9 +3,6 @@ name = "hello_wasmer_example"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-members = ["risk_rule_v1", "risk_rule_v2"]
-
 [dependencies]
 anyhow = "1.0"
 wasmer = "7"

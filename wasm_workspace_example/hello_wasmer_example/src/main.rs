@@ -1,17 +1,17 @@
 //! Demonstration of running Rust-compiled WASM rules with the Wasmer runtime.
 //!
 //! Modeled after the `hot_upgrade` wasmtime example: two rule crates
-//! (`risk_rule_v1`, `risk_rule_v2`) are compiled to `wasm32-unknown-unknown`
-//! and the host loads them with Wasmer, hot-swapping from v1 to v2 while
-//! migrating the in-memory state.
+//! (`wasmer_risk_rule_v1`, `wasmer_risk_rule_v2`) are compiled to
+//! `wasm32-unknown-unknown` and the host loads them with Wasmer, hot-swapping
+//! from v1 to v2 while migrating the in-memory state.
 //!
 //! The guest modules are built automatically on `cargo run`; to build them
 //! manually:
 //!
 //! ```sh
 //! rustup target add wasm32-unknown-unknown
-//! cargo build --package risk_rule_v1 --release --target wasm32-unknown-unknown
-//! cargo build --package risk_rule_v2 --release --target wasm32-unknown-unknown
+//! cargo build --package wasmer_risk_rule_v1 --release --target wasm32-unknown-unknown
+//! cargo build --package wasmer_risk_rule_v2 --release --target wasm32-unknown-unknown
 //! ```
 
 mod types;
@@ -36,8 +36,10 @@ fn manifest_dir() -> PathBuf {
 /// path of the produced `.wasm` artifact.
 fn ensure_guest_wasm(package: &str) -> Result<PathBuf> {
   let manifest_dir = manifest_dir();
-  let wasm_path = manifest_dir
-    .join("target")
+  // The guest crates live in the surrounding workspace; pin --target-dir so
+  // the artifact location stays stable no matter where the workspace root is.
+  let target_dir = manifest_dir.join("target");
+  let wasm_path = target_dir
     .join(GUEST_TARGET)
     .join("release")
     .join(format!("{package}.wasm"));
@@ -52,6 +54,8 @@ fn ensure_guest_wasm(package: &str) -> Result<PathBuf> {
       "--target",
       GUEST_TARGET,
     ])
+    .arg("--target-dir")
+    .arg(&target_dir)
     .output()
     .context("failed to invoke cargo to build the guest wasm module")?;
 
@@ -105,8 +109,8 @@ fn upgrade(state: &mut State, wasm_path: &Path) -> Result<WasmHandler> {
 }
 
 fn main() -> Result<()> {
-  let v1_wasm = ensure_guest_wasm("risk_rule_v1")?;
-  let v2_wasm = ensure_guest_wasm("risk_rule_v2")?;
+  let v1_wasm = ensure_guest_wasm("wasmer_risk_rule_v1")?;
+  let v2_wasm = ensure_guest_wasm("wasmer_risk_rule_v2")?;
 
   // -------------------------------------------------------------------------
   // T0: Service starts – only the v1 wasm rule is active.
