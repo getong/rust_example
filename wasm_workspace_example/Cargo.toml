@@ -3,6 +3,7 @@
 resolver = "3"
 
 members = [
+  "hello_wasmer_example",
   "wasmi_example",
   "hot_upgrade",
   "hot_upgrade/risk_rule_v1",
