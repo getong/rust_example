@@ -2,7 +2,8 @@ use std::fmt::Debug;
 
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::{trace, Instrument};
+use tokio::time::{sleep, Duration};
+use tracing::{info, info_span, trace, Instrument};
 
 #[derive(Debug)]
 pub struct HttpClient {
@@ -87,6 +88,8 @@ async fn main() -> Result<(), HttpClientError> {
   // Initialize tracing
   tracing_subscriber::fmt::init();
 
+  good_propagation().await;
+
   let client = HttpClient::new();
 
   let request_data = ApiRequest {
@@ -99,5 +102,22 @@ async fn main() -> Result<(), HttpClientError> {
     .await?;
 
   println!("API Response: {:?}", response);
+
   Ok(())
 }
+
+async fn good_propagation() {
+  async {
+    sleep(Duration::from_millis(10)).await;
+    info!("correctly attributed to my_task span");
+  }
+  .instrument(info_span!("my_task"))
+  .await;
+}
+
+// async fn bad_propagation() {
+//   let span = info_span!("my_task");
+//   let _guard = span.enter();
+//   sleep(Duration::from_millis(10)).await; // 守卫被跨让出点持有
+//   info!("may log on a different thread with broken parent context");
+// }
