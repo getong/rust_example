@@ -8,5 +8,5 @@ edition = "2024"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.52", features = ["full"] }
-wasmtime = "46"
+tokio = { version = "1.53", features = ["full"] }
+wasmtime = "47"
