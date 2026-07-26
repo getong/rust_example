@@ -1,0 +1,7 @@
+package example:parallel;
+
+/// p2 组件世界: 导出一个纯计算函数, 由 host 侧多线程并行调用
+world parallel-sum {
+  /// 计算 sum(lo..=hi), 每一项经过 black-box 防止编译器折叠成闭式公式
+  export sum-range: func(lo: u64, hi: u64) -> u64;
+}

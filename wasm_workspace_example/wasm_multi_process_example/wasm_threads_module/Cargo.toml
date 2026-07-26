@@ -1,0 +1,13 @@
+[package]
+name = "wasm_threads_module"
+version = "0.1.0"
+edition = "2024"
+
+# guest 模块: 用 `cargo build -p wasm_threads_module --target wasm32-wasip1-threads --release` 编译
+# wasm32-wasip1-threads 目标自带 +atomics +bulk-memory, 并且:
+#   - 从 "env" 导入 shared memory
+#   - 导入 "wasi" 模块的 "thread-spawn"
+#   - 导出 "wasi_thread_start" 作为新线程入口
+# 所以 std::thread / Mutex / Atomic 在 wasm 里开箱即用
+
+[dependencies]

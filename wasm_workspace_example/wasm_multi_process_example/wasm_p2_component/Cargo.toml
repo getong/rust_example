@@ -1,0 +1,18 @@
+[package]
+name = "wasm_p2_component"
+version = "0.1.0"
+edition = "2024"
+
+# guest 组件: 用 `cargo build -p wasm_p2_component --target wasm32-wasip2 --release` 编译
+# wasm32-wasip2 目标直接产出一个 WASI 0.2 组件 (component), 而不是 core module。
+# 注意: p2 组件内部没有 std::thread (WASI 0.2 没有线程 API, 线程要等
+# shared-everything-threads + WASI p3), 所以并行由 host 侧完成:
+# 每个 OS 线程一个独立实例, 天然无数据竞争。
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = { version = "0.60.0", default-features = false, features = [
+  "macros",
+] }

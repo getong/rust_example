@@ -16,4 +16,7 @@ members = [
   "wit_bindgen_example",
   "wasmtime_actor",
   "wasmtime_wasip2_ability",
+  "wasm_multi_process_example",
+  "wasm_multi_process_example/wasm_threads_module",
+  "wasm_multi_process_example/wasm_p2_component",
 ]
