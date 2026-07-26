@@ -19,4 +19,5 @@ members = [
   "wasm_multi_process_example",
   "wasm_multi_process_example/wasm_threads_module",
   "wasm_multi_process_example/wasm_p2_component",
+  "wasmer_threads_example",
 ]

@@ -1,0 +1,12 @@
+[package]
+name = "wasmer_threads_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+# wasmer-wasix 内部用 tokio 调度线程/IO, host 需要提供 runtime 上下文
+tokio = { version = "1", features = ["rt-multi-thread"] }
+# wasmer-wasix 对 wasmer 是精确版本锁定 (7.2.0), 两边必须配对
+wasmer = "7.2.0"
+wasmer-wasix = "0.702.0"
