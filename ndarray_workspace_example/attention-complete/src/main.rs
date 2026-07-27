@@ -18,13 +18,13 @@ fn sinusoidal_positional_encoding(t_steps: i64, d_model: i64, device: Device) ->
 }
 
 // ------------------------- Multi-Head Self-Attention ------------------------------
-struct MHSA {
+pub struct MHSA {
   w_q: nn::Linear,
   w_k: nn::Linear,
   w_v: nn::Linear,
   w_o: nn::Linear,
   n_heads: i64,
-  d_model: i64,
+  pub d_model: i64,
   d_head: i64,
   dropout_p: f64,
 }
@@ -142,13 +142,13 @@ impl EncoderBlock {
 }
 
 // ------------------------- Tiny Encoder Model -------------------------------------
-struct SumModTransformer {
+pub struct SumModTransformer {
   embed: nn::Embedding,
   blocks: Vec<EncoderBlock>,
   ln_f: nn::LayerNorm,
   head: nn::Linear,
   d_model: i64,
-  max_t: i64,
+  pub max_t: i64,
   dropout_p: f64,
   device: Device,
 }
@@ -246,7 +246,7 @@ fn main() -> tch::Result<()> {
   let lr: f64 = 1e-3;
 
   // ---------------- Model & Optimizer --------------
-  let mut vs = nn::VarStore::new(device);
+  let vs = nn::VarStore::new(device);
   let root = &vs.root();
   let model = SumModTransformer::new(
     root, vocab, d_model, n_heads, d_ff, n_layers, n_classes, t_steps, dropout_p, device,

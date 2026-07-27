@@ -271,7 +271,7 @@ fn main() -> tch::Result<()> {
   let n = dataset.len() as i64;
 
   // Model
-  let mut vs = nn::VarStore::new(device);
+  let vs = nn::VarStore::new(device);
   let root = &vs.root();
   let model = TinyNlpTransformer::new(root, vocab.size(), d_model, n_heads, d_ff, device);
   let mut opt = nn::Adam::default().build(&vs, lr).unwrap();
