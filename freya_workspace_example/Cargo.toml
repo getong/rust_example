@@ -5,4 +5,5 @@ resolver = "3"
 members = [
   "freya_example",
   "freya_bloc_example",
+  "freya_clean_architecture_example",
 ]
