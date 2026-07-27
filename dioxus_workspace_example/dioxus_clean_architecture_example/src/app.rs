@@ -14,3 +14,47 @@ pub fn App() -> Element {
     Router::<TaskRoute> {}
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use std::sync::Arc;
+
+  use blitz::{
+    dom::DocumentConfig,
+    html::{HtmlDocument, HtmlProvider},
+    traits::shell::{ColorScheme, Viewport},
+  };
+
+  #[test]
+  fn stylesheet_resolves_with_blitz() {
+    let html = format!(
+      r#"<!doctype html>
+        <html>
+          <head><style>{}</style></head>
+          <body>
+            <main class="app-shell">
+              <article class="task-row"><p class="task-title">Task</p></article>
+            </main>
+          </body>
+        </html>"#,
+      include_str!("../assets/main.css")
+    );
+    let mut document = HtmlDocument::from_html(
+      &html,
+      DocumentConfig {
+        viewport: Some(Viewport::new(760, 900, 1.0, ColorScheme::Light)),
+        html_parser_provider: Some(Arc::new(HtmlProvider) as _),
+        ..DocumentConfig::default()
+      },
+    );
+
+    document.resolve(0.0);
+
+    assert!(
+      document
+        .query_selector(".task-row")
+        .expect("selector should be valid")
+        .is_some()
+    );
+  }
+}
