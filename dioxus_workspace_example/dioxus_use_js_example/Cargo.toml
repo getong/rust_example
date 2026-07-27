@@ -10,24 +10,12 @@ desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
 
 [dependencies]
-dioxus = "0.7.9"
+dioxus = "=0.8.0-alpha.0"
 dioxus-use-js = "0.4.8"
-serde_json = "1.0.150"
+serde_json = "1.0.151"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-dioxus-desktop = "0.7.9"
+dioxus-desktop = "=0.8.0-alpha.0"
 
 [build-dependencies]
 dioxus-use-js = { version = "0.4.8", features = ["build"] }
-
-[profile]
-
-[profile.wasm-dev]
-inherits = "dev"
-opt-level = 1
-
-[profile.server-dev]
-inherits = "dev"
-
-[profile.android-dev]
-inherits = "dev"

@@ -6,9 +6,9 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.103"
-dioxus = "0.7.9"
-dioxus-desktop = { version = "0.7.9", default-features = false, features = ["tokio_runtime"] }
+anyhow = "1.0.104"
+dioxus = "=0.8.0-alpha.0"
+dioxus-desktop = { version = "=0.8.0-alpha.0", default-features = false, features = ["tokio_runtime"] }
 log = "0.4.33"
 
 [features]

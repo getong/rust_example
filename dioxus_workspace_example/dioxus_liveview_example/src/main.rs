@@ -1,4 +1,4 @@
-use axum::{extract::WebSocketUpgrade, response::Html, routing::get, Router};
+use axum::{Router, extract::WebSocketUpgrade, response::Html, routing::get};
 use dioxus::prelude::*;
 
 #[tokio::main]
