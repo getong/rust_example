@@ -5,6 +5,10 @@ impl CounterId {
   pub(crate) const fn new(value: u64) -> Self {
     Self(value)
   }
+
+  pub(crate) const fn value(self) -> u64 {
+    self.0
+  }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -16,6 +20,10 @@ pub(crate) struct Counter {
 impl Counter {
   pub(crate) const fn new(id: CounterId, value: i32) -> Self {
     Self { id, value }
+  }
+
+  pub(crate) const fn id(self) -> CounterId {
+    self.id
   }
 
   pub(crate) const fn value(self) -> i32 {

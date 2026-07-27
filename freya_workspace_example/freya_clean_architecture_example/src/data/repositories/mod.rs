@@ -1,3 +1,3 @@
-mod in_memory_counter_repository;
+mod json_file_counter_repository;
 
-pub(crate) use in_memory_counter_repository::InMemoryCounterRepository;
+pub(crate) use json_file_counter_repository::JsonFileCounterRepository;

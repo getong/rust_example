@@ -1,9 +1,9 @@
 use freya::{
   components::Button,
-  elements::rect::rect,
+  elements::{label::label, rect::rect},
   prelude::{
-    ChildrenExt, Component, ContainerSizeExt, ContainerWithContentExt, FontWeight, IntoElement,
-    Size, StyleExt, TextStyleExt,
+    ChildrenExt, Component, ContainerExt, ContainerSizeExt, ContainerWithContentExt, Content,
+    FontWeight, IntoElement, Size, StyleExt, TextStyleExt,
   },
   radio::{RadioReducer, use_radio},
 };
@@ -11,28 +11,28 @@ use freya::{
 use crate::presentation::counter::bloc::{CounterChannel, CounterEvent, CounterState};
 
 #[derive(PartialEq)]
-pub(crate) struct CounterView;
+pub(crate) struct CounterTab;
 
-impl Component for CounterView {
+impl Component for CounterTab {
   fn render(&self) -> impl IntoElement {
     let mut counter = use_radio::<CounterState, CounterChannel>(CounterChannel::Count);
     let count = counter.read().count();
 
     let counter_display = rect()
       .width(Size::fill())
-      .height(Size::percent(50.))
+      .height(Size::flex(1.))
       .center()
       .color((255, 255, 255))
       .background((15, 163, 242))
+      .corner_radius(6.)
       .font_weight(FontWeight::BOLD)
       .font_size(75.)
-      .shadow((0., 4., 20., 4., (0, 0, 0, 80)))
       .child(count.to_string());
 
     let actions = rect()
       .horizontal()
       .width(Size::fill())
-      .height(Size::percent(50.))
+      .height(Size::px(60.))
       .center()
       .spacing(8.0)
       .child(
@@ -50,6 +50,18 @@ impl Component for CounterView {
           .child("Decrease"),
       );
 
-    rect().child(counter_display).child(actions)
+    rect()
+      .expanded()
+      .content(Content::flex())
+      .padding(24.)
+      .spacing(16.)
+      .child(
+        label()
+          .font_size(26.)
+          .font_weight(FontWeight::BOLD)
+          .text("Counter"),
+      )
+      .child(counter_display)
+      .child(actions)
   }
 }

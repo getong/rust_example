@@ -1,4 +1,7 @@
-use crate::domain::{entities::Counter, repositories::CounterRepository};
+use crate::domain::{
+  entities::Counter,
+  repositories::{CounterRepository, CounterRepositoryError},
+};
 
 pub(crate) struct LoadCounter<'repository, Repository: ?Sized> {
   repository: &'repository Repository,
@@ -12,7 +15,7 @@ where
     Self { repository }
   }
 
-  pub(crate) fn execute(&self) -> Counter {
+  pub(crate) fn execute(&self) -> Result<Option<Counter>, CounterRepositoryError> {
     self.repository.load()
   }
 }
@@ -27,8 +30,12 @@ mod tests {
   }
 
   impl CounterRepository for StubCounterRepository {
-    fn load(&self) -> Counter {
-      self.counter
+    fn load(&self) -> Result<Option<Counter>, CounterRepositoryError> {
+      Ok(Some(self.counter))
+    }
+
+    fn save(&self, _counter: &Counter) -> Result<(), CounterRepositoryError> {
+      Ok(())
     }
   }
 
@@ -38,7 +45,10 @@ mod tests {
       counter: Counter::new(CounterId::new(7), 12),
     };
 
-    let counter = LoadCounter::new(&repository).execute();
+    let counter = LoadCounter::new(&repository)
+      .execute()
+      .expect("stub repository should load successfully")
+      .expect("stub repository should contain a counter");
 
     assert_eq!(counter, Counter::new(CounterId::new(7), 0));
     assert_eq!(counter.value(), 12);
