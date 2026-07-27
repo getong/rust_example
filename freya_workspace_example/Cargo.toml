@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "freya_example",
+  "freya_bloc_example",
+]
