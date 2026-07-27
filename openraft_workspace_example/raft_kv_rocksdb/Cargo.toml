@@ -13,7 +13,7 @@ clap = { version = "4.6.4", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
 futures = "0.3.33"
 network-v2-http = { path = "../network-v2-http" }
-openraft = { version = "0.10.0-alpha.30", features = [
+openraft = { version = "0.10.0-alpha.31", features = [
   "serde",
   "type-alias",
   "serde_json",

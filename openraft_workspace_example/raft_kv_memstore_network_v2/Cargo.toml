@@ -12,7 +12,7 @@ all-features = true
 futures = "0.3.33"
 log-mem = { path = "../log-mem", features = [] }
 mem-log = { path = "../mem-log", features = [] }
-openraft = { version = "0.10.0-alpha.30", features = [
+openraft = { version = "0.10.0-alpha.31", features = [
   "serde",
   "type-alias",
 ] }
