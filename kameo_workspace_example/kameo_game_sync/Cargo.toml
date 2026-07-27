@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.6.1", features = ["derive"] }
-kameo = { version = "0.22.1", features = ["remote"] }
+clap = { version = "4.6.4", features = ["derive"] }
+kameo = { version = "0.22.2", features = ["remote"] }
 rand = { version = "0.10.2", features = ["std_rng"] }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }

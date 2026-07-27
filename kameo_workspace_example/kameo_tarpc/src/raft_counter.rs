@@ -226,6 +226,8 @@ impl std::fmt::Display for LoopbackError {
 impl std::error::Error for LoopbackError {}
 
 impl RaftNetworkV2<TypeConfig> for LoopbackNetwork {
+  type SnapshotData = std::io::Cursor<Vec<u8>>;
+
   async fn append_entries(
     &mut self,
     _rpc: openraft::raft::AppendEntriesRequest<TypeConfig>,
@@ -258,7 +260,7 @@ impl RaftNetworkV2<TypeConfig> for LoopbackNetwork {
   async fn full_snapshot(
     &mut self,
     _vote: openraft::type_config::alias::VoteOf<TypeConfig>,
-    _snapshot: openraft::type_config::alias::SnapshotOf<TypeConfig>,
+    _snapshot: openraft::type_config::alias::SnapshotOf<TypeConfig, Self::SnapshotData>,
     _cancel: impl std::future::Future<Output = ReplicationClosed> + openraft::OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<openraft::raft::SnapshotResponse<TypeConfig>, StreamingError<TypeConfig>> {

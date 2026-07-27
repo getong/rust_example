@@ -9,14 +9,14 @@ remote = ["kameo/remote"]
 metrics = ["kameo/metrics"]
 
 [dependencies]
-futures = "0.3.32"
-kameo = "0.22.1"
-kameo_actors = "0.8.0"
+futures = "0.3.33"
+kameo = "0.22.2"
+kameo_actors = "0.8.1"
 libp2p = { version = "0.56.0", features = ["serde"] }
 metrics-exporter-prometheus = "0.18"
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 subsecond = "0.7.9"
-tokio = { version = "1.52.3", features = ["full"] }
-tokio-stream = { version = "0.1.18", features = ["time"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-stream = { version = "0.1.19", features = ["time"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

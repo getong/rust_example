@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-kameo = { version = "0.22.1", features = ["console"] }
-tokio = { version = "1.52.3", features = ["full"] }
+kameo = { version = "0.22.2", features = ["console"] }
+tokio = { version = "1.53.1", features = ["full"] }
