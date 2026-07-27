@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::features::tasks::{TaskBloc, TaskRoute, default_database_path};
 
-const MAIN_CSS: Asset = asset!("/assets/main.css");
+pub(crate) const MAIN_CSS: &str = include_str!("../assets/main.css");
 
 #[component]
 pub fn App() -> Element {
@@ -10,7 +10,7 @@ pub fn App() -> Element {
 
   rsx! {
     document::Title { "Focus Board" }
-    document::Stylesheet { href: MAIN_CSS }
+    style { {MAIN_CSS} }
     Router::<TaskRoute> {}
   }
 }
@@ -37,7 +37,7 @@ mod tests {
             </main>
           </body>
         </html>"#,
-      include_str!("../assets/main.css")
+      super::MAIN_CSS
     );
     let mut document = HtmlDocument::from_html(
       &html,
