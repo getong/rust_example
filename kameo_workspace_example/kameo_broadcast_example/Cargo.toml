@@ -1,0 +1,12 @@
+[package]
+name = "kameo_broadcast_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.33"
+kameo = { version = "0.22.2", features = ["remote"] }
+kameo_actors = "0.8.1"
+libp2p = { version = "0.56.0", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["full"] }
