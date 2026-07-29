@@ -47,7 +47,7 @@ console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
 futures = "0.3.33"
 graphviz-rust = "0.9.8"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "1e9229ef3036e39962ddf0252065cd006f295c3e", features = [
+  libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "8b42b3bf45236a913aaf975f87dfd07c6e0dcf81", features = [
   "dns",
   "ed25519",
   "gossipsub",
