@@ -1,7 +1,7 @@
 // Constants
 pub use std::f64::{consts::PI, INFINITY};
 
-use rand::Rng;
+use rand::RngExt;
 
 // Utility functions
 
@@ -11,7 +11,7 @@ pub fn degrees_to_radians(degrees: f64) -> f64 {
 
 pub fn random_double() -> f64 {
   // Return a random real in [0.0, 1.0)
-  rand::thread_rng().gen()
+  rand::rng().random()
 }
 
 pub fn random_double_range(min: f64, max: f64) -> f64 {

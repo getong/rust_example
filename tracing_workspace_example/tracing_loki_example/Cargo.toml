@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
-tracing-loki = "0.2.6"
-tracing-subscriber = "0.3.22"
+tracing-loki = "0.2.7"
+tracing-subscriber = "0.3.23"
 url = "2.5.8"

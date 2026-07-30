@@ -1,8 +1,9 @@
 // copy from https://medium.com/@rasnaut/the-easiest-way-to-send-traces-from-the-rust-app-to-grafana-cloud-7a66baf2e45b
 use std::{error::Error, thread, time::Duration};
 
-use opentelemetry::{self, global::shutdown_tracer_provider};
+use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::{self, WithExportConfig};
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::{event, info_span, span, warn, Level};
 // use tracing_attributes::instrument;
 use tracing_opentelemetry;
@@ -10,15 +11,16 @@ use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
-  let otlp_exporter = opentelemetry_otlp::new_exporter()
-    .tonic()
-    .with_endpoint("http://0.0.0.0:4317");
+  let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+    .with_tonic()
+    .with_endpoint("http://0.0.0.0:4317")
+    .build()?;
 
-  let tracer = opentelemetry_otlp::new_pipeline()
-    .tracing()
-    .with_exporter(otlp_exporter)
-    .install_batch(opentelemetry_sdk::runtime::Tokio)
-    .expect("failed to install");
+  let provider = SdkTracerProvider::builder()
+    .with_batch_exporter(otlp_exporter)
+    .build();
+
+  let tracer = provider.tracer("tracing_opentelemetry_example");
 
   let opentelemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
@@ -38,6 +40,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
     warn!("About to exit!");
   }
 
-  shutdown_tracer_provider();
+  provider.shutdown()?;
   Ok(())
 }

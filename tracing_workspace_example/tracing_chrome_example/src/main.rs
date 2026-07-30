@@ -1,5 +1,5 @@
 use tracing_chrome::ChromeLayerBuilder;
-use tracing_subscriber::{prelude::*, registry::Registry};
+use tracing_subscriber::prelude::*;
 
 #[tokio::main]
 async fn main() {
