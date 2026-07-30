@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-http = "1.4.2"
+http = "1.5.0"
 reqwest = "0.13.4"
 reqwest-middleware = "0.5.2"
 reqwest-retry = "0.9.1"

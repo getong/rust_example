@@ -20,5 +20,5 @@ bevy = { version = "0.19.0", default-features = false, features = [
 bevy_quinnet = { version = "0.21.0", features = ["bincode-messages"] }
 rand = "0.10.2"
 # bevy_quinnet = { git = "https://github.com/Henauxg/bevy_quinnet" }
-serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["full"] }
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["full"] }

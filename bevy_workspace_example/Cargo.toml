@@ -28,11 +28,11 @@ bevy_animation_graph = "0.11"
 bevy_ecs = "0.19.0"
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 bevy_replicon = { version = "0.41.1", default-features = false }
-kameo = { version = "0.22.1", features = ["remote"] }
+kameo = { version = "0.22.2", features = ["remote"] }
 lightyear = { version = "0.28.0", default-features = false }
 prost = "0.14.4"
 prost-build = "0.14.4"
-redis = { version = "1.3.0", default-features = false, features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.5.0", default-features = false, features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
