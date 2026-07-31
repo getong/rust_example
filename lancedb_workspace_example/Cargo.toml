@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "lancedb_basic_example",
+  "lancedb_example",
+]
