@@ -20,11 +20,11 @@
 
 use std::{borrow::Cow, sync::Arc};
 
-use arrow_array::{
+use lancedb::arrow::arrow_array::{
   Array, FixedSizeListArray, Float32Array, Float64Array, Int32Array, RecordBatch, StringArray,
   types::Float32Type,
 };
-use arrow_schema::{DataType, Field, Schema};
+use lancedb::arrow::arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
 use lance_index::scalar::FullTextSearchQuery;
 use lancedb::{

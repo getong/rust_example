@@ -18,10 +18,10 @@
 
 use std::sync::Arc;
 
-use arrow_array::{
+use lancedb::arrow::arrow_array::{
   types::Float32Type, FixedSizeListArray, Float32Array, Int32Array, RecordBatch, StringArray,
 };
-use arrow_schema::{DataType, Field, Schema};
+use lancedb::arrow::arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt;
 use lance_index::scalar::FullTextSearchQuery;
 use lancedb::{

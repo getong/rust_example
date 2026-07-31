@@ -4,9 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# LanceDB 的数据交换格式是 Apache Arrow (零拷贝, 与 AI 生态无缝对接)
-arrow-array = "58"
-arrow-schema = "58"
+# Arrow 类型直接使用 lancedb 重导出的 lancedb::arrow::*, 保证版本永远一致
 futures = "0.3"
 # FullTextSearchQuery 类型定义在 lance-index 中 (版本需与 lancedb 锁定的 lance 一致)
 lance-index = "=9.0.0"
