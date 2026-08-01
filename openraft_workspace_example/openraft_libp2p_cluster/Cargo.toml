@@ -26,9 +26,9 @@ default = ["p1-compat"]
 # component binaries can drop this to shed the adapter tooling
 # (docs/first-wasm-optimization-review.md §8).
 p1-compat = [
-    "dep:wasi-preview1-component-adapter-provider",
-    "dep:wat",
-    "dep:wit-component",
+  "dep:wasi-preview1-component-adapter-provider",
+  "dep:wat",
+  "dep:wit-component",
 ]
 
 [dependencies]
@@ -47,7 +47,7 @@ console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
 futures = "0.3.33"
 graphviz-rust = "0.9.8"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "343f1491126c599b84ebcc17862bfa54c140b9f1", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3667c6c6521f13751d0a17577a124049ad64e50e", features = [
   "dns",
   "ed25519",
   "gossipsub",
@@ -68,7 +68,7 @@ libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "343f1491126c599
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 once_cell = "1.21.4"
-openraft = { version = "0.10.0-alpha.31", features = [
+openraft = { version = "0.10.0-alpha.32", features = [
   "serde",
   "type-alias",
   "tokio-rt",
@@ -76,7 +76,11 @@ openraft = { version = "0.10.0-alpha.31", features = [
 petgraph = "0.8.3"
 prost = "0.14.4"
 rayon = "1.12.0"
-redis = { version = "1.4.1", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.4.1", features = [
+  "aio",
+  "tokio-comp",
+  "connection-manager",
+] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 # Backoff delay strategies for task retries. Default `random` feature is off:
 # retry jitter must be deterministic (hashed), never sampled, so raft
@@ -87,16 +91,16 @@ serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11"
 sonic-rs = "0.5.8"
 sqlx = { version = "0.9", default-features = false, features = [
-    "chrono",
-    "json",
-    "macros",
-    "migrate",
-    "runtime-tokio",
-    "sqlite-bundled",
-    "time",
-    "tls-rustls",
-    "uuid",
-  ] }
+  "chrono",
+  "json",
+  "macros",
+  "migrate",
+  "runtime-tokio",
+  "sqlite-bundled",
+  "time",
+  "tls-rustls",
+  "uuid",
+] }
 tarpc = { version = "0.37", features = ["serde1", "tokio1"] }
 tokio = { version = "1.53", default-features = false, features = [
   "io-util",
