@@ -5,8 +5,8 @@ use influxdb3::InfluxDbClientBuilder;
 #[tokio::main]
 async fn main() {
   let influxdb_client = InfluxDbClientBuilder::new()
-    .with_server_endpoint("http://localhost:8181")
-    .with_token("apiv3_fVk554m9Nlx7uJ18t_n0n8xxgtbCP7Ud0RwaTmm5dPxWNf62HRuyvRo9cnL1uwrTDLeG22zxK7QdmZLFP-klPw")
+    .server_endpoint("http://localhost:8181")
+    .token("apiv3_fVk554m9Nlx7uJ18t_n0n8xxgtbCP7Ud0RwaTmm5dPxWNf62HRuyvRo9cnL1uwrTDLeG22zxK7QdmZLFP-klPw")
     .database("weather")
     .build()
     .unwrap();
