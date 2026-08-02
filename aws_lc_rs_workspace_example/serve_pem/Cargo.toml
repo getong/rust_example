@@ -9,7 +9,7 @@ argon2 = { version = "0.5", features = ["rand", "std"] }
 aws-lc-rs = { version = "1", features = ["alloc"] }
 axum = { version = "0.8", features = ["ws"] }
 axum-server = { version = "0.8", features = ["tls-rustls"] }
-base64 = "0.22"
+base64 = "0.23"
 dotenvy = "0.15"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 hex = "0.4"
