@@ -7,4 +7,4 @@ edition = "2024"
 csv = "1.4.0"
 reqwest = { version = "0.13.4", features = ["blocking"] }
 scraper = "0.27.0"
-tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }

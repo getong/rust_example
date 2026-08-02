@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 reqwest = "0.13.4"
 scraper = "0.27.0"
-thirtyfour = "0.37.1"
-tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
+thirtyfour = "0.37.4"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
