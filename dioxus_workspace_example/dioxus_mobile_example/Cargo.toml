@@ -7,8 +7,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-dioxus = "=0.8.0-alpha.0"
-dioxus-desktop = { version = "=0.8.0-alpha.0", default-features = false, features = ["tokio_runtime"] }
+dioxus = "=0.8.0-alpha.1"
+dioxus-desktop = { version = "=0.8.0-alpha.1", default-features = false, features = ["tokio_runtime"] }
 log = "0.4.33"
 
 [features]

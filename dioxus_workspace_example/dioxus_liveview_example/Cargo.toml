@@ -7,8 +7,8 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
-dioxus = "=0.8.0-alpha.0"
-dioxus-liveview = { version = "=0.8.0-alpha.0", features = ["axum"] }
+dioxus = "=0.8.0-alpha.1"
+dioxus-liveview = { version = "=0.8.0-alpha.1", features = ["axum"] }
 tokio = { version = "1.53.1", features = ["full"] }
 
 [features]
