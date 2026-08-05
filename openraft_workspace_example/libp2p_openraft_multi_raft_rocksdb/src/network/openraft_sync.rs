@@ -124,9 +124,9 @@ impl OpenRaftSnapshotPartial {
     let mut hasher = DefaultHasher::new();
     local_peer_id.hash(&mut hasher);
     payload.group_id.hash(&mut hasher);
-    payload.meta.snapshot_id.hash(&mut hasher);
     bytes.hash(&mut hasher);
     sequence.hash(&mut hasher);
+    let transfer_id = hasher.finish();
 
     let parts = if bytes.is_empty() {
       vec![Some(Vec::new())]
@@ -138,9 +138,9 @@ impl OpenRaftSnapshotPartial {
     };
 
     Ok(Some(Self {
-      group_id: hasher.finish().to_be_bytes().to_vec(),
+      group_id: transfer_id.to_be_bytes().to_vec(),
       raft_group_id: payload.group_id,
-      snapshot_id: payload.meta.snapshot_id,
+      snapshot_id: format!("{transfer_id:016x}"),
       snapshot_size: bytes.len() as u64,
       parts,
     }))

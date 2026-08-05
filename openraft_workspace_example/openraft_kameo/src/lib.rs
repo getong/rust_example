@@ -3,10 +3,7 @@ use std::{
   fmt,
   io::{self, Cursor},
   net::SocketAddr,
-  sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-  },
+  sync::Arc,
 };
 
 use axum::{
@@ -168,7 +165,6 @@ pub struct StoredSnapshot {
 struct RaftStateMachineInner {
   last_applied_log: Option<LogIdOf<TypeConfig>>,
   last_membership: StoredMembershipOf<TypeConfig>,
-  snapshot_idx: AtomicU64,
   current_snapshot: Option<StoredSnapshot>,
 }
 
@@ -177,15 +173,8 @@ impl Default for RaftStateMachineInner {
     Self {
       last_applied_log: None,
       last_membership: StoredMembershipOf::<TypeConfig>::default(),
-      snapshot_idx: AtomicU64::new(0),
       current_snapshot: None,
     }
-  }
-}
-
-impl RaftStateMachineInner {
-  fn next_snapshot_idx(&self) -> u64 {
-    self.snapshot_idx.fetch_add(1, Ordering::Relaxed) + 1
   }
 }
 
@@ -236,21 +225,9 @@ impl RaftSnapshotBuilder<TypeConfig> for RaftStateMachineStore {
       serde_json::to_vec(&state).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     let mut inner = self.inner.lock().await;
-    let snapshot_idx = inner.next_snapshot_idx();
-    let snapshot_id = match &inner.last_applied_log {
-      Some(last) => format!(
-        "{}-{}-{}",
-        last.committed_leader_id(),
-        last.index(),
-        snapshot_idx
-      ),
-      None => format!("--{}", snapshot_idx),
-    };
-
     let meta = SnapshotMetaOf::<TypeConfig> {
       last_log_id: inner.last_applied_log.clone(),
       last_membership: inner.last_membership.clone(),
-      snapshot_id,
     };
 
     inner.current_snapshot = Some(StoredSnapshot {
@@ -312,10 +289,6 @@ impl RaftStateMachine<TypeConfig> for RaftStateMachineStore {
     }
 
     Ok(())
-  }
-
-  async fn begin_receiving_snapshot(&mut self) -> Result<Cursor<Vec<u8>>, io::Error> {
-    Ok(Cursor::new(Vec::new()))
   }
 
   async fn install_snapshot(

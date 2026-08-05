@@ -5,7 +5,7 @@ readme = "README.md"
 edition = "2024"
 
 [dependencies]
-openraft = { version = "0.10.0-alpha.32", features = ["serde", "type-alias"] }
+openraft = { version = "0.10.0-alpha.33", features = ["serde", "type-alias"] }
 
 bytes = "1.12"
 http-body-util = "0.1"

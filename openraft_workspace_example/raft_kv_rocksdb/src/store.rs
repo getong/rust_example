@@ -23,12 +23,6 @@ pub struct StoredSnapshot {
 pub struct StateMachineStore {
   pub data: StateMachineData,
 
-  /// snapshot index is not persisted in this example.
-  ///
-  /// It is only used as a suffix of snapshot id, and should be globally unique.
-  /// In practice, using a timestamp in micro-second would be good enough.
-  snapshot_idx: u64,
-
   /// State machine stores snapshot in db.
   db: Arc<DB>,
 }
@@ -55,21 +49,9 @@ impl RaftSnapshotBuilder<TypeConfig> for StateMachineStore {
       serde_json::to_vec(&*kvs).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?
     };
 
-    let snapshot_id = if let Some(last) = last_applied_log {
-      format!(
-        "{}-{}-{}",
-        last.committed_leader_id(),
-        last.index(),
-        self.snapshot_idx
-      )
-    } else {
-      format!("--{}", self.snapshot_idx)
-    };
-
     let meta = SnapshotMeta {
       last_log_id: last_applied_log,
       last_membership,
-      snapshot_id,
     };
 
     let snapshot = StoredSnapshot {
@@ -94,7 +76,6 @@ impl StateMachineStore {
         last_membership: Default::default(),
         kvs: Arc::new(Mutex::new(BTreeMap::new())),
       },
-      snapshot_idx: 0,
       db,
     };
 
@@ -188,12 +169,7 @@ impl RaftStateMachine<TypeConfig> for StateMachineStore {
   }
 
   async fn get_snapshot_builder(&mut self) -> Self::SnapshotBuilder {
-    self.snapshot_idx += 1;
     self.clone()
-  }
-
-  async fn begin_receiving_snapshot(&mut self) -> Result<Cursor<Vec<u8>>, io::Error> {
-    Ok(Cursor::new(Vec::new()))
   }
 
   async fn install_snapshot(

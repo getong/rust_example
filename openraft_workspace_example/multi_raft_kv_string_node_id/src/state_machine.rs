@@ -1,14 +1,6 @@
 //! Provide `StateMachineStore`, an in-memory KV state machine implementation.
 
-use std::{
-  collections::BTreeMap,
-  io,
-  io::Cursor,
-  sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-  },
-};
+use std::{collections::BTreeMap, io, io::Cursor, sync::Arc};
 
 use futures::{Stream, TryStreamExt, lock::Mutex};
 use openraft::{
@@ -45,9 +37,6 @@ pub struct StateMachineStoreInner<C: RaftTypeConfig> {
   /// The Raft state machine.
   pub state_machine: StateMachineData,
 
-  /// Used in identifier for snapshot.
-  snapshot_idx: AtomicU64,
-
   /// The last received snapshot.
   pub current_snapshot: Option<StoredSnapshot<C>>,
 }
@@ -58,15 +47,8 @@ impl<C: RaftTypeConfig> Default for StateMachineStoreInner<C> {
       last_applied_log: None,
       last_membership: StoredMembershipOf::<C>::default(),
       state_machine: StateMachineData::default(),
-      snapshot_idx: AtomicU64::new(0),
       current_snapshot: None,
     }
-  }
-}
-
-impl<C: RaftTypeConfig> StateMachineStoreInner<C> {
-  fn next_snapshot_idx(&self) -> u64 {
-    self.snapshot_idx.fetch_add(1, Ordering::Relaxed) + 1
   }
 }
 
@@ -108,22 +90,9 @@ where
     let data = serde_json::to_vec(&inner.state_machine.data)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let snapshot_idx = inner.next_snapshot_idx();
-    let snapshot_id = if let Some(last) = inner.last_applied_log.clone() {
-      format!(
-        "{}-{}-{}",
-        last.committed_leader_id(),
-        last.index(),
-        snapshot_idx
-      )
-    } else {
-      format!("--{}", snapshot_idx)
-    };
-
     let meta = SnapshotMetaOf::<C> {
       last_log_id: inner.last_applied_log.clone(),
       last_membership: inner.last_membership.clone(),
-      snapshot_id,
     };
 
     let snapshot = StoredSnapshot {
@@ -190,11 +159,6 @@ where
       }
     }
     Ok(())
-  }
-
-  #[tracing::instrument(level = "trace", skip(self))]
-  async fn begin_receiving_snapshot(&mut self) -> Result<Self::SnapshotData, io::Error> {
-    Ok(Cursor::new(Vec::new()))
   }
 
   #[tracing::instrument(level = "trace", skip(self, snapshot))]

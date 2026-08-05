@@ -11,8 +11,8 @@ use tokio::sync::RwLock;
 use crate::{
   Raft, TypeConfig,
   typ::{
-    AppendEntriesRequest, AppendEntriesResponse, Snapshot, SnapshotMeta, SnapshotResponse, Vote,
-    VoteRequest, VoteResponse,
+    AppendEntriesRequest, AppendEntriesResponse, Snapshot, SnapshotResponse, Vote, VoteRequest,
+    VoteResponse,
   },
 };
 
@@ -110,14 +110,6 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     _option: RPCOption,
   ) -> Result<SnapshotResponse, StreamingError<TypeConfig>> {
     let target = self.router.get(self.target).await?;
-    let snapshot = Snapshot {
-      meta: SnapshotMeta {
-        last_log_id: snapshot.meta.last_log_id,
-        last_membership: snapshot.meta.last_membership,
-        snapshot_id: snapshot.meta.snapshot_id,
-      },
-      snapshot: snapshot.snapshot,
-    };
     target
       .install_full_snapshot(vote, snapshot)
       .await

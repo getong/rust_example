@@ -9,6 +9,7 @@ use openraft::{
   alias::LogIdOf,
   async_runtime::WatchReceiver,
   error::{Infallible, decompose::DecomposeResult},
+  raft::linearizable_read::ReadLogId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +19,7 @@ use crate::{NodeId, TypeConfig, app::App};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinearizerData {
   pub node_id: NodeId,
-  pub read_log_id: LogIdOf<TypeConfig>,
+  pub read_log_id: ReadLogId<TypeConfig>,
   pub applied: Option<LogIdOf<TypeConfig>>,
 }
 

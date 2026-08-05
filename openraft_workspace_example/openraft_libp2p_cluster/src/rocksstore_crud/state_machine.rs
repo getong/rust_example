@@ -36,7 +36,7 @@ const LAST_APPLIED_LOG_KEY: &str = "last_applied_log";
 const LAST_MEMBERSHIP_KEY: &str = "last_membership";
 const SNAPSHOT_TMP_SUFFIX: &str = ".tmp";
 /// Snapshot files carry a monotonically increasing epoch prefix
-/// (`epoch_0000000042-<snapshot_id>`), restored from the directory scan at
+/// (`epoch_0000000042-<file_id>`), restored from the directory scan at
 /// startup. The epoch makes creation order explicit in the file name — no
 /// need to open and deserialize each file to order them — and gives
 /// concurrent builders distinct target names.
@@ -288,8 +288,8 @@ mod tests {
       meta: SnapshotMetaOf::<TypeConfig> {
         last_log_id: Some(log_id(7)),
         last_membership: StoredMembershipOf::<TypeConfig>::default(),
-        snapshot_id: "compressed-snapshot".to_string(),
       },
+      file_id: "compressed-snapshot".to_string(),
       data: vec![(b"key".to_vec(), vec![b'x'; 32 * 1024])],
     };
     let raw_size = serialize_io(&snapshot)
@@ -305,19 +305,24 @@ mod tests {
 
     let restored = read_snapshot_file(&temp.path().join("snapshot")).expect("read snapshot");
     assert_eq!(restored.meta.last_log_id, snapshot.meta.last_log_id);
-    assert_eq!(restored.meta.snapshot_id, snapshot.meta.snapshot_id);
+    assert_eq!(restored.file_id, snapshot.file_id);
     assert_eq!(restored.data, snapshot.data);
   }
 
   #[test]
   fn legacy_uncompressed_snapshot_still_loads() {
+    #[derive(Serialize)]
+    struct LegacySnapshotFile {
+      meta: SnapshotMetaOf<TypeConfig>,
+      data: Vec<(Vec<u8>, Vec<u8>)>,
+    }
+
     let temp = tempfile::tempdir().expect("create temp dir");
     let path = temp.path().join("legacy-snapshot");
-    let snapshot = SnapshotFile {
+    let snapshot = LegacySnapshotFile {
       meta: SnapshotMetaOf::<TypeConfig> {
         last_log_id: Some(log_id(3)),
         last_membership: StoredMembershipOf::<TypeConfig>::default(),
-        snapshot_id: "legacy-snapshot".to_string(),
       },
       data: vec![(b"alpha".to_vec(), b"one".to_vec())],
     };
@@ -329,7 +334,7 @@ mod tests {
 
     let restored = read_snapshot_file(&path).expect("read legacy snapshot");
     assert_eq!(restored.meta.last_log_id, snapshot.meta.last_log_id);
-    assert_eq!(restored.meta.snapshot_id, snapshot.meta.snapshot_id);
+    assert_eq!(restored.file_id, "legacy-snapshot");
     assert_eq!(restored.data, snapshot.data);
   }
 }
@@ -399,6 +404,10 @@ fn apply_memory_changes(map: &mut BTreeMap<String, String>, changes: Vec<DataCha
 #[derive(Serialize, Deserialize)]
 struct SnapshotFile {
   meta: SnapshotMetaOf<TypeConfig>,
+  /// Local file-generation id. OpenRaft 0.10 keeps transfer ids out of
+  /// `SnapshotMeta`, so persistence owns the id it needs for file ordering.
+  #[serde(default)]
+  file_id: String,
   data: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
@@ -406,11 +415,11 @@ fn snapshot_is_newer(candidate: &SnapshotFile, current: &SnapshotFile) -> bool {
   match (&candidate.meta.last_log_id, &current.meta.last_log_id) {
     (Some(candidate_log), Some(current_log)) => {
       candidate_log > current_log
-        || (candidate_log == current_log && candidate.meta.snapshot_id > current.meta.snapshot_id)
+        || (candidate_log == current_log && candidate.file_id > current.file_id)
     }
     (Some(_), None) => true,
     (None, Some(_)) => false,
-    (None, None) => candidate.meta.snapshot_id > current.meta.snapshot_id,
+    (None, None) => candidate.file_id > current.file_id,
   }
 }
 
@@ -427,13 +436,25 @@ fn is_snapshot_candidate(path: &Path) -> bool {
 
 fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, io::Error> {
   let file_bytes = fs::read(path)?;
-  if file_bytes.starts_with(ZSTD_FRAME_MAGIC) {
+  let mut snapshot_file: SnapshotFile = if file_bytes.starts_with(ZSTD_FRAME_MAGIC) {
     let decoded = zstd::stream::decode_all(file_bytes.as_slice())?;
     deserialize_io(&decoded)
   } else {
     // Snapshots written before local compression was enabled are raw JSON.
     deserialize_io(&file_bytes)
+  }?;
+
+  // Files written before OpenRaft 0.10 kept their id inside SnapshotMeta.
+  // The compatibility deserializer now ignores that field, so recover a
+  // stable local id from the file name instead.
+  if snapshot_file.file_id.is_empty() {
+    snapshot_file.file_id = path
+      .file_name()
+      .map(|name| name.to_string_lossy().into_owned())
+      .unwrap_or_else(|| path.to_string_lossy().into_owned());
   }
+
+  Ok(snapshot_file)
 }
 
 fn read_latest_snapshot_file(snapshot_dir: &Path) -> Result<Option<SnapshotFile>, io::Error> {
@@ -488,10 +509,23 @@ fn sync_dir(path: &Path) -> Result<(), io::Error> {
 }
 
 /// File name for a snapshot: monotonically increasing epoch prefix plus the
-/// snapshot id, so creation order is visible in the name and two concurrent
+/// file-generation id, so creation order is visible in the name and two concurrent
 /// builds can never target the same path.
-fn snapshot_file_name(epoch: u64, snapshot_id: &str) -> String {
-  format!("{SNAPSHOT_EPOCH_PREFIX}{epoch:010}-{snapshot_id}")
+fn snapshot_file_name(epoch: u64, file_id: &str) -> String {
+  format!("{SNAPSHOT_EPOCH_PREFIX}{epoch:010}-{file_id}")
+}
+
+fn new_snapshot_file_id(meta: &SnapshotMetaOf<TypeConfig>) -> String {
+  let snapshot_uuid = uuid::Uuid::now_v7();
+  match &meta.last_log_id {
+    Some(last) => format!(
+      "{}-{}-{}",
+      last.committed_leader_id(),
+      last.index(),
+      snapshot_uuid
+    ),
+    None => format!("--{snapshot_uuid}"),
+  }
 }
 
 fn parse_snapshot_epoch(name: &str) -> Option<u64> {
@@ -518,7 +552,7 @@ fn next_snapshot_epoch(snapshot_dir: &Path) -> Result<u64, io::Error> {
 
 /// Delete all but the newest `keep` snapshot files, plus stale tmp files
 /// left behind by crashed writers. Newness is (epoch, file name): epochs are
-/// monotonic across process restarts and the snapshot id embeds a
+/// monotonic across process restarts and the file id embeds a
 /// time-ordered UUID v7, so lexicographic name order is creation order
 /// within an epoch. Legacy un-prefixed files sort as epoch 0 and age out
 /// first.
@@ -652,13 +686,13 @@ async fn recover_from_latest_snapshot_if_newer(
     return Ok(());
   }
 
-  let snapshot_id = snapshot_file.meta.snapshot_id.clone();
+  let snapshot_file_id = snapshot_file.file_id.clone();
   let snapshot_last_log_id = snapshot_file.meta.last_log_id.clone();
 
   TypeConfig::spawn_blocking(move || restore_snapshot_to_db(&db, &snapshot_file)).await??;
 
   tracing::info!(
-    snapshot_id,
+    snapshot_file_id,
     ?snapshot_last_log_id,
     ?current_last_applied,
     "restored rocksdb state machine from persisted snapshot"
@@ -677,26 +711,14 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let _timer = OperationTimer::start("rocksdb_snapshot_build_duration_seconds");
     let (last_applied_log, last_membership) = self.get_meta()?;
 
-    // UUID v7 is time-ordered, so the lexicographic snapshot_id tiebreaker in
-    // `snapshot_is_newer` follows creation order.
-    let snapshot_uuid = uuid::Uuid::now_v7();
-
-    let snapshot_id = if let Some(ref last) = last_applied_log {
-      format!(
-        "{}-{}-{}",
-        last.committed_leader_id(),
-        last.index(),
-        snapshot_uuid
-      )
-    } else {
-      format!("--{}", snapshot_uuid)
-    };
-
     let meta = SnapshotMetaOf::<TypeConfig> {
       last_log_id: last_applied_log,
       last_membership,
-      snapshot_id: snapshot_id.clone(),
     };
+
+    // UUID v7 is time-ordered, so the lexicographic file_id tiebreaker in
+    // `snapshot_is_newer` follows creation order.
+    let file_id = new_snapshot_file_id(&meta);
 
     // Use RocksDB snapshot for consistent point-in-time view. Collecting,
     // serializing, and persisting the snapshot are all CPU/IO heavy, so run
@@ -705,7 +727,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let snapshot_dir = self.snapshot_dir.clone();
     let meta_for_file = meta.clone();
     let epoch = self.snapshot_epoch.fetch_add(1, Ordering::SeqCst);
-    let file_name = snapshot_file_name(epoch, &snapshot_id);
+    let file_name = snapshot_file_name(epoch, &file_id);
 
     let (data_bytes, persisted_size) =
       TypeConfig::spawn_blocking(move || -> Result<(Vec<u8>, u64), io::Error> {
@@ -725,6 +747,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
         // Serialize both metadata and data together
         let snapshot_file = SnapshotFile {
           meta: meta_for_file,
+          file_id,
           data: snapshot_data,
         };
         let persisted_size = write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
@@ -909,6 +932,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let db = self.db.clone();
     let snapshot_dir = self.snapshot_dir.clone();
     let meta_for_file = meta.clone();
+    let file_id = new_snapshot_file_id(meta);
     let epoch = self.snapshot_epoch.fetch_add(1, Ordering::SeqCst);
 
     let data_map =
@@ -917,11 +941,12 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
         let data_map = snapshot_data_to_map(&snapshot_data)?;
         let snapshot_file = SnapshotFile {
           meta: meta_for_file,
+          file_id,
           data: snapshot_data,
         };
 
         restore_snapshot_to_db(&db, &snapshot_file)?;
-        let file_name = snapshot_file_name(epoch, &snapshot_file.meta.snapshot_id);
+        let file_name = snapshot_file_name(epoch, &snapshot_file.file_id);
         let persisted_size = write_snapshot_file(&snapshot_dir, &file_name, &snapshot_file)?;
         metrics::histogram!("rocksdb_snapshot_size_bytes", "kind" => "persisted")
           .record(persisted_size as f64);

@@ -130,11 +130,14 @@ impl OpenRaftSnapshotPartial {
         .collect()
     };
 
+    // OpenRaft 0.10 moved snapshot ids out of SnapshotMeta. This custom
+    // chunk protocol still needs a transfer id, so use the publication id
+    // for both its binary group key and textual metadata field.
+    let publication_id = uuid::Uuid::now_v7();
     Ok(Some(Self {
-      // Time-ordered unique id per published snapshot partial.
-      group_id: uuid::Uuid::now_v7().as_bytes().to_vec(),
+      group_id: publication_id.as_bytes().to_vec(),
       raft_group_id: payload.group_id,
-      snapshot_id: payload.meta.snapshot_id,
+      snapshot_id: publication_id.to_string(),
       snapshot_size: bytes.len() as u64,
       parts,
     }))

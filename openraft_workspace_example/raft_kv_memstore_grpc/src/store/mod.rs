@@ -30,26 +30,8 @@ pub struct StateMachineStore {
   /// The Raft state machine.
   pub state_machine: Mutex<pb::StateMachineData>,
 
-  snapshot_idx: StdMutex<u64>,
-
   /// The last received snapshot.
   current_snapshot: StdMutex<Option<StoredSnapshot>>,
-}
-
-impl StateMachineStore {
-  /// Generates a unique snapshot ID based on the last applied log and snapshot index.
-  fn generate_snapshot_id(last_applied: &Option<LogId>, snapshot_idx: u64) -> String {
-    if let Some(last) = last_applied {
-      format!(
-        "{}-{}-{}",
-        last.committed_leader_id(),
-        last.index(),
-        snapshot_idx
-      )
-    } else {
-      format!("--{}", snapshot_idx)
-    }
-  }
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
@@ -79,18 +61,9 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {
       data = prost::Message::encode_to_vec(&state_machine);
     }
 
-    let snapshot_idx = {
-      let mut l = self.snapshot_idx.lock().unwrap();
-      *l += 1;
-      *l
-    };
-
-    let snapshot_id = StateMachineStore::generate_snapshot_id(&last_applied, snapshot_idx);
-
     let meta = SnapshotMeta {
       last_log_id: last_applied,
       last_membership,
-      snapshot_id,
     };
 
     let stored = StoredSnapshot {
@@ -159,11 +132,6 @@ impl RaftStateMachine<TypeConfig> for Arc<StateMachineStore> {
       }
     }
     Ok(())
-  }
-
-  #[tracing::instrument(level = "trace", skip(self))]
-  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotData, io::Error> {
-    Ok(Default::default())
   }
 
   #[tracing::instrument(level = "trace", skip(self, snapshot))]

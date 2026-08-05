@@ -6,11 +6,11 @@ edition = "2024"
 [dependencies]
 futures = "0.3.33"
 log-mem = { path = "../log-mem", features = [] }
-openraft = { version = "0.10.0-alpha.32", default-features = false, features = [
+openraft = { version = "0.10.0-alpha.33", default-features = false, features = [
   "serde",
   "type-alias",
 ] }
-openraft-multi = { version = "0.10.0-alpha.32" }
+openraft-multi = { version = "0.10.0-alpha.33" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sm-mem = { path = "../sm-mem" }

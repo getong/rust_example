@@ -6,7 +6,6 @@ use std::{
   io::Cursor,
   path::PathBuf,
   sync::Arc,
-  time::{SystemTime, UNIX_EPOCH},
 };
 
 use futures::{Stream, TryStreamExt};
@@ -155,6 +154,14 @@ impl RocksStateMachine {
 
     Ok((last_applied_log, last_membership))
   }
+
+  /// Return a file name whose lexicographic order matches the covered log position.
+  fn snapshot_filename(meta: &SnapshotMetaOf<TypeConfig>) -> String {
+    match &meta.last_log_id {
+      Some(last) => format!("{:020}-{}", last.index(), last.committed_leader_id()),
+      None => "--".to_string(),
+    }
+  }
 }
 
 fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, StorageError<TypeConfig>> {
@@ -190,25 +197,9 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let pending = self.pending.clone();
     let scheduler_states = self.scheduler_states.clone();
 
-    let snapshot_idx: u64 = SystemTime::now()
-      .duration_since(UNIX_EPOCH)
-      .unwrap_or_default()
-      .as_micros() as u64;
-    let snapshot_id = if let Some(ref last) = last_applied_log {
-      format!(
-        "{}-{}-{}",
-        last.committed_leader_id(),
-        last.index(),
-        snapshot_idx
-      )
-    } else {
-      format!("--{}", snapshot_idx)
-    };
-
     let meta = SnapshotMetaOf::<TypeConfig> {
       last_log_id: last_applied_log,
       last_membership,
-      snapshot_id: snapshot_id.clone(),
     };
 
     let db = self.db.clone();
@@ -240,7 +231,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       )
     })?;
 
-    let snapshot_path = self.snapshot_dir.join(&snapshot_id);
+    let snapshot_path = self.snapshot_dir.join(Self::snapshot_filename(&meta));
     fs::write(&snapshot_path, &file_bytes).map_err(|e| {
       StorageError::<TypeConfig>::write_snapshot(
         Some(meta.signature()),
@@ -338,10 +329,6 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     self.clone()
   }
 
-  async fn begin_receiving_snapshot(&mut self) -> Result<Self::SnapshotData, io::Error> {
-    Ok(Cursor::new(Vec::new()))
-  }
-
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMetaOf<TypeConfig>,
@@ -401,7 +388,10 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     .await??;
 
     // Write the raw snapshot bytes to disk — no re-serialization needed.
-    fs::write(self.snapshot_dir.join(&meta.snapshot_id), &raw_bytes)?;
+    fs::write(
+      self.snapshot_dir.join(Self::snapshot_filename(meta)),
+      &raw_bytes,
+    )?;
 
     // Update in-memory pending state to match the installed snapshot.
     self.pending_ids = new_pending.iter().cloned().collect();
