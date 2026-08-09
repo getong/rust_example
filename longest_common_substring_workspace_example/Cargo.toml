@@ -3,8 +3,9 @@
 resolver = "2"
 
 members = [
-        "find_longest_matching_sub_sequence_example",
-        "longest_common_subsequence_example",
-        "lcs_suffix_array_example",
-        "alcs_example",
+    "alcs_example",
+    "find_longest_matching_sub_sequence_example",
+    "lcs_suffix_array_example",
+    "longest_common_subsequence_example",
+    "stringzilla_lcs_example",
 ]
