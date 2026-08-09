@@ -7,5 +7,6 @@ members = [
     "find_longest_matching_sub_sequence_example",
     "lcs_suffix_array_example",
     "longest_common_subsequence_example",
+    "similar_lcs_example",
     "stringzilla_lcs_example",
 ]
