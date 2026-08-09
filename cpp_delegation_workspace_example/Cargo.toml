@@ -1,0 +1,8 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "delegation_example",
+  "unreal_delegation",
+]
