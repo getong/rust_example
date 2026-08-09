@@ -1,7 +1,7 @@
 [package]
 name = "rusty_pool_example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 num_cpus = "1.16.0"

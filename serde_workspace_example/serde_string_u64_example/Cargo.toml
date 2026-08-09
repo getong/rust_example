@@ -1,7 +1,7 @@
 [package]
 name = "serde_string_u64_example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 serde = { version = "1.0.215", features = ["derive"] }

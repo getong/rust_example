@@ -1,7 +1,7 @@
 [package]
 name = "agones_sdk_example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 agones = "1.41.0"

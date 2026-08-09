@@ -1,7 +1,7 @@
 [package]
 name = "libp2p_secp256k1_secret_key_example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 ethers = "2.0.14"
