@@ -3,8 +3,9 @@
 resolver = "2"
 
 members = [
-        "kmp_algorithm_example",
-        "kmp_algorithm_example2",
-        "kmp_search_example",
-        "kmp_example3",
+    "kmp_algorithm_example",
+    "kmp_algorithm_example2",
+    "kmp_crate_example",
+    "kmp_example3",
+    "kmp_search_example",
 ]
