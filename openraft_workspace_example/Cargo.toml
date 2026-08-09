@@ -33,3 +33,8 @@ members = [
   "openraft_kameo",
   "openraft_task",
 ]
+
+# Keep workspace crates easy to debug while preventing large dependency graphs
+# from overflowing macOS's 16 MiB compact-unwind offset limit.
+[profile.dev.package."*"]
+opt-level = 1
