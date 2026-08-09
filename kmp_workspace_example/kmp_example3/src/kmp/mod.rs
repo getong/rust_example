@@ -6,7 +6,7 @@ pub struct KMP<'a> {
 }
 
 impl KMP<'_> {
-  pub fn new(pattern: &str) -> KMP {
+  pub fn new(pattern: &str) -> KMP<'_> {
     // let pattern: Vec<char> = pattern.chars().collect();
     let pattern_length = pattern.len();
     KMP {

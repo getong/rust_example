@@ -8,4 +8,6 @@ members = [
     "kmp_crate_example",
     "kmp_example3",
     "kmp_search_example",
+    "kmpm_example",
+    "kmpsearch_example",
 ]
