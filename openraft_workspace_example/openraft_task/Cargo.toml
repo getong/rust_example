@@ -8,7 +8,7 @@ anyhow = "1.0.104"
 apalis = { version = "1.0.0-rc.9", features = ["retry"] }
 apalis-core = "1.0.0-rc.9"
 byteorder = "1.5.0"
-clap = { version = "4.6.4", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 futures = "0.3.33"
 openraft = { version = "0.10.0-alpha.33", features = [
   "serde",

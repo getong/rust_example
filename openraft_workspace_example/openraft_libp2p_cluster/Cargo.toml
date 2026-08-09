@@ -34,7 +34,7 @@ p1-compat = [
 [dependencies]
 anyhow = "1.0.104"
 arc-swap = "1"
-async-trait = "0.1.91"
+async-trait = "0.1.92"
 axum = { version = "0.8.9", default-features = false, features = [
   "http1",
   "query",
@@ -42,7 +42,7 @@ axum = { version = "0.8.9", default-features = false, features = [
 ] }
 base64 = "0.23"
 bytes = "1"
-clap = { version = "4.6.4", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
 futures = "0.3.33"
@@ -76,7 +76,7 @@ openraft = { version = "0.10.0-alpha.33", features = [
 petgraph = "0.8.3"
 prost = "0.14.4"
 rayon = "1.12.0"
-redis = { version = "1.4.1", features = [
+redis = { version = "1.5.0", features = [
   "aio",
   "tokio-comp",
   "connection-manager",
@@ -115,19 +115,19 @@ tokio = { version = "1.53", default-features = false, features = [
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.24.0", features = ["v7"] }
-wasi-preview1-component-adapter-provider = { version = "47.0.2", optional = true }
+wasi-preview1-component-adapter-provider = { version = "47.0.3", optional = true }
 # Pre-validation of component binaries before compilation (the validator
 # wasmtime itself uses); precise diagnostics before cranelift time is spent.
-wasmparser = "0.254"
+wasmparser = "0.255"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
 # wasmtime_workspace_example). `component-model` is on by default in v46
 # but declared explicitly: the component::{Component, Linker} usage must
 # not break if a future version changes the default.
-wasmtime = { version = "47.0.2", features = ["component-model"] }
-wasmtime-wasi = "47.0.2"
-wat = { version = "1.254.0", optional = true }
-wit-component = { version = "0.254", optional = true }
+wasmtime = { version = "47.0.3", features = ["component-model"] }
+wasmtime-wasi = "47.0.3"
+wat = { version = "1.255.0", optional = true }
+wit-component = { version = "0.255", optional = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.

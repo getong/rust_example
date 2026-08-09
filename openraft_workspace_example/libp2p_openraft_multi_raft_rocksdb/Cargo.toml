@@ -19,14 +19,14 @@ path = "src/bin/status.rs"
 anyhow = "1.0.104"
 apalis = { version = "1.0.0-rc.9", features = ["retry"] }
 apalis-core = "1.0.0-rc.9"
-async-trait = "0.1.91"
+async-trait = "0.1.92"
 axum = { version = "0.8.9", default-features = false, features = [
   "http1",
   "query",
   "tokio",
 ] }
 byteorder = "1.5.0"
-clap = { version = "4.6.4", features = ["derive"] }
+clap = { version = "4.6.6", features = ["derive"] }
 console-subscriber = "0.5.0"
 futures = "0.3.33"
 graphviz-rust = "0.9.8"
@@ -56,7 +56,7 @@ openraft = { version = "0.10.0-alpha.33", features = [
 petgraph = "0.8.3"
 prost = "0.14.4"
 rand = "0.10"
-redis = { version = "1.4.1", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.5.0", features = ["aio", "tokio-comp", "connection-manager"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sonic-rs = "0.5.8"
