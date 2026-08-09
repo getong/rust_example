@@ -8,5 +8,5 @@ members = [
     "lcs_suffix_array_example",
     "longest_common_subsequence_example",
     "similar_lcs_example",
-    "stringzilla_lcs_example",
+    "stringzilla_lcs_example", "textdistance_lcs_example",
 ]
