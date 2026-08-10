@@ -1,6 +1,6 @@
 #pragma once
 
-#include "bind_cpp_cxx/include/toml.hpp"
+#include "toml.hpp"
 #include "rust/cxx.h"
 #include <memory>
 

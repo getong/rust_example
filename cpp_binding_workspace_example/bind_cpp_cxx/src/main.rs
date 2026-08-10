@@ -1,12 +1,12 @@
 use cxx::UniquePtr;
 
 // #[cxx::bridge] 是声明式的双向桥：这里写下的签名会由 cxx 在编译期
-// 与 include/api.h 里的 C++ 声明逐一核对，两侧不一致直接编译失败——
+// 与 cpp/api.h 里的 C++ 声明逐一核对，两侧不一致直接编译失败——
 // 这正是它优于手抄 extern "C" 声明的地方（抄错签名 = UB，而这里是编译错误）。
 #[cxx::bridge]
 mod ffi {
   unsafe extern "C++" {
-    include!("bind_cpp_cxx/include/api.h");
+    include!("api.h");
 
     /// 不透明的 C++ 类型：Rust 侧只能通过引用或 UniquePtr 使用它。
     type TomlTable;
