@@ -1,7 +1,7 @@
 #pragma once
 
-#include "toml.hpp"
 #include "rust/cxx.h"
+#include "toml.hpp"
 #include <memory>
 
 // cxx bridge 中声明的不透明类型 `type TomlTable`。
