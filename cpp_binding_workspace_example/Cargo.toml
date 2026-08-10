@@ -11,4 +11,5 @@ members = [
   "vcpkg_example",
   "pkg_config_example",
   "bind_cpp_cxx",
+  "tokio_call_asio",
 ]

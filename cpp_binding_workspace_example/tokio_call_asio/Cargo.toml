@@ -1,0 +1,16 @@
+[package]
+name = "tokio_call_asio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cxx = "1"
+tokio = { version = "1", features = [
+  "macros",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+
+[build-dependencies]
+cxx-build = "1"

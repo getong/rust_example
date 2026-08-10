@@ -1,0 +1,11 @@
+{
+  "name": "tokio-call-asio",
+  "version-semver": "0.1.0",
+  "dependencies": [
+    {
+      "name": "boost-asio",
+      "version>=": "1.91.0"
+    }
+  ],
+  "builtin-baseline": "4493042c759d3bdff26164695dbee500d1e696c8"
+}
