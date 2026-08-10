@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 
 [build-dependencies]
-cc = "1.3.0"
+cc = "1.4.2"
