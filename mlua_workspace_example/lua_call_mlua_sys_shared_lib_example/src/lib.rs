@@ -1,6 +1,6 @@
 use std::ffi::CStr;
 
-use mlua_sys::lua54::{
+use mlua_sys::lua55::{
   lua_Integer, lua_State, lua_gettop, lua_pushcfunction, lua_pushinteger, lua_settop, lua_type,
   lua_typename,
 };
@@ -35,7 +35,7 @@ extern "C-unwind" fn _c_l_testfunc(lua_state: *mut lua_State) -> i32 {
 /// # Safety
 ///
 /// This function should be called by lua script
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn luaopen_funct(lua_state: *mut lua_State) -> i32 {
   unsafe {
     lua_pushcfunction(lua_state, _c_l_testfunc);

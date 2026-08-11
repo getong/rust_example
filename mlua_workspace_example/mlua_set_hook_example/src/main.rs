@@ -1,14 +1,14 @@
 use std::time::Duration;
 
-use mlua::{prelude::LuaError, HookTriggers, Lua, Result as LuaResult};
+use mlua::{HookTriggers, Lua, Result as LuaResult, VmState, prelude::LuaError};
 
 fn set_hook_example() -> LuaResult<()> {
   let lua = Lua::new();
   lua.set_hook(HookTriggers::EVERY_LINE, |_lua, debug| {
     // println!("line {}", debug.curr_line());
     println!("stack number: {}", debug.stack().num_params);
-    Ok(())
-  });
+    Ok(VmState::Continue)
+  })?;
 
   _ = lua
     .load(
@@ -34,8 +34,8 @@ fn inpect_stack_example() -> LuaResult<()> {
   let build = lua.load("for k,v in pairs(map_table) do print(k,v) end");
 
   _ = build.exec();
-  match lua.inspect_stack(0) {
-    Some(debug) => println!("current stack number: {}", debug.stack().num_params),
+  match lua.inspect_stack(0, |debug| debug.stack().num_params) {
+    Some(num_params) => println!("current stack number: {num_params}"),
     None => println!("the current stack is none"),
   }
   Ok(())
@@ -50,7 +50,10 @@ async fn inspect_stack_example2() -> LuaResult<()> {
   // Create a synchronous function to get the source of the Lua code at a specific stack depth
   let get_source_fn = lua.create_function(move |lua, _: ()| {
     // Inspect the Lua stack at depth 2
-    match lua.inspect_stack(0) {
+    match lua.inspect_stack(0, |info| {
+      println!("info: {:?}", info.stack().num_params);
+      info.source().source.map(|source| source.into_owned())
+    }) {
       None => {
         println!("not info found");
         // If stack inspection fails, return a LuaError
@@ -58,10 +61,9 @@ async fn inspect_stack_example2() -> LuaResult<()> {
           "Failed to get stack info for require source",
         ))
       }
-      Some(info) => {
-        println!("info: {:?}", info.stack().num_params);
+      Some(source) => {
         // If stack inspection succeeds, get the source of the Lua code
-        match info.source().source {
+        match source {
           None => {
             // If the source is not available, return a LuaError
             Err(LuaError::runtime(
@@ -79,7 +81,7 @@ async fn inspect_stack_example2() -> LuaResult<()> {
 
   _ = lua.globals().set("sleep", require_fn);
   _ = lua.globals().set("inspect", get_source_fn);
-  _ = lua.load("sleep(2);inspect()").call_async(100).await?;
+  lua.load("sleep(2);inspect()").call_async::<()>(100).await?;
   Ok(())
 }
 
@@ -94,7 +96,7 @@ async fn main() -> LuaResult<()> {
 }
 
 // Assume require is a custom function implemented elsewhere in your Rust code
-async fn sleep(_lua: &Lua, n: u64) -> LuaResult<&'static str> {
+async fn sleep(_lua: Lua, n: u64) -> LuaResult<&'static str> {
   tokio::time::sleep(Duration::from_millis(n)).await;
   Ok("done")
 }

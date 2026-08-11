@@ -6,4 +6,4 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-mlua = { version = "0.12.0", features = ["lua54", "vendored", "macros"] }
+mlua = { version = "0.12.0", features = ["lua55", "vendored", "macros"] }
