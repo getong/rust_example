@@ -1,13 +1,13 @@
 [workspace]
 
-resolver = "2"
+resolver = "3"
 
 members = [
-        "mlua_example",
-        "mlua_lib_example",
-        "mlua_exec_lua_script_example",
-        "mlua_check_lua_type_example",
-        "mlua_set_hook_example",
-        "mlua_sys_gettop_example",
-        "lua_call_mlua_sys_shared_lib_example",
+    "lua_call_mlua_sys_shared_lib_example",
+    "mlua_check_lua_type_example",
+    "mlua_example",
+    "mlua_exec_lua_script_example",
+    "mlua_lib_example",
+    "mlua_set_hook_example",
+    "mlua_sys_gettop_example",
 ]
