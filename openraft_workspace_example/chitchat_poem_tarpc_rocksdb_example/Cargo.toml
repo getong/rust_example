@@ -25,7 +25,7 @@ reqwest = { version = "0.13", features = ["json"] }
 rocksdb = "0.24.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tarpc = { version = "0.37.0", features = ["full"] }
+tarpc = { version = "0.38.0", features = ["full"] }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"

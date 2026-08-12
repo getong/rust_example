@@ -8,5 +8,5 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 futures = "0.3.32"
-tarpc = { version = "0.37.0", features = ["full"] }
+tarpc = { version = "0.38.0", features = ["full"] }
 tokio = { version = "1.52.3", features = ["full"] }
