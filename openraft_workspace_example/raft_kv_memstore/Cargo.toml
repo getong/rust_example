@@ -14,7 +14,7 @@ futures = "0.3.33"
 log-mem = { path = "../log-mem" }
 mem-log = { path = "../mem-log" }
 network-v2-http = { path = "../network-v2-http" }
-openraft = { version = "0.10.0-alpha.33", features = [
+openraft = { version = "0.10.0-alpha.34", features = [
   "serde",
   "type-alias",
 ] }

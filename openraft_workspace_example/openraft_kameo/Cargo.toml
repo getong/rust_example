@@ -10,7 +10,7 @@ futures = "0.3.33"
 kameo = "0.22.2"
 mem-log = { path = "../mem-log" }
 network-v2-http = { path = "../network-v2-http" }
-openraft = { version = "0.10.0-alpha.33", features = ["serde", "type-alias"] }
+openraft = { version = "0.10.0-alpha.34", features = ["serde", "type-alias"] }
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

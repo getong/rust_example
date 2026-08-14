@@ -30,7 +30,7 @@ libp2p = { version = "0.56", features = [
   "websocket",
   "yamux",
 ] }
-openraft = { version = "0.10.0-alpha.33", features = [
+openraft = { version = "0.10.0-alpha.34", features = [
   "serde",
   "type-alias",
 ] }

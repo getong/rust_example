@@ -68,7 +68,7 @@ libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3667c6c6521f137
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 once_cell = "1.21.4"
-openraft = { version = "0.10.0-alpha.33", features = [
+openraft = { version = "0.10.0-alpha.34", features = [
   "serde",
   "type-alias",
   "tokio-rt",
