@@ -6,5 +6,5 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-trait = "0.1.89"
-tokio = { version = "1.52.3", features = ["full"] }
+async-trait = "0.1.92"
+tokio = { version = "1.53.1", features = ["full"] }

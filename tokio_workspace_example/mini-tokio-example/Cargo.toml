@@ -7,5 +7,5 @@ edition = "2024"
 
 [dependencies]
 crossbeam = "0.8.4"
-futures = "0.3.32"
-tokio = { version = "1.52.3", features = ["full"] }
+futures = "0.3.34"
+tokio = { version = "1.53.1", features = ["full"] }

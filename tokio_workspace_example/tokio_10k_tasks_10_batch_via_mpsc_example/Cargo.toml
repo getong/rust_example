@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 parking_lot = "0.12.5"
-rand = "0.10.1"
-tokio = { version = "1.52.3", features = ["full"] }
+rand = "0.10.2"
+tokio = { version = "1.53.1", features = ["full"] }

@@ -7,8 +7,8 @@ edition = "2024"
 
 [dependencies]
 argh = "0.1.19"
-rustls = "0.23.40"
+rustls = "0.23.43"
 rustls-pemfile = "2.2.0"
-rustls-pki-types = "1.14.1"
-tokio = { version = "1.52.3", features = ["full"] }
+rustls-pki-types = "1.15.1"
+tokio = { version = "1.53.1", features = ["full"] }
 tokio-rustls = "0.26.4"

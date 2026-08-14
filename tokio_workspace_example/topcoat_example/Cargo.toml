@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1.53.1", features = ["full"] }
-topcoat = "0.3.1"
+topcoat = "0.5.0"
