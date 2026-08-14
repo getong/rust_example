@@ -6,10 +6,10 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
-bytes = "1.11.1"
-prost = "0.14.3"
-tokio = { version = "1.52.3", features = ["full"] }
-tower-http = "0.6.11"
+bytes = "1.12.1"
+prost = "0.14.4"
+tokio = { version = "1.53.1", features = ["full"] }
+tower-http = "0.7.0"
 
 [build-dependencies]
-prost-build = "0.14.3"
+prost-build = "0.14.4"

@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
-axum-streams = { version = "0.25.0", features = ["json", "protobuf", "csv", "arrow", "text"] }
-futures = "0.3.32"
-serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["full"] }
-tokio-stream = { version = "0.1.18", features = ["full"] }
+axum-streams = { version = "0.26.0", features = ["json", "protobuf", "csv", "arrow", "text"] }
+futures = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-stream = { version = "0.1.19", features = ["full"] }

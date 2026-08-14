@@ -5,16 +5,16 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.102"
-async-trait = "0.1.89"
+anyhow = "1.0.104"
+async-trait = "0.1.92"
 axum = "0.8.9"
 axum-macros = "0.5.1"
-axum_session = { version = "0.20.1" }
-axum_session_auth = { version = "0.20.0" }
-axum_session_surreal = "0.8"
-http = "1.4.1"
-serde = { version = "1.0.228", features = ["derive"] }
+axum_session = { version = "0.21.0" }
+axum_session_auth = { version = "0.21.0" }
+axum_session_surreal = { git = "https://github.com/AscendingCreations/AxumSession", rev = "dcc89b8b2a07d6570ea398b91e580d380307648a" }
+http = "1.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
 sqlx = "0.9.0"
-surrealdb = { version = "3.1", features = ["kv-mem"] }
-tokio = { version = "1.52.3", features = ["full"] }
+surrealdb = { version = "3.2", features = ["kv-mem"] }
+tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"

@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
-http = "1.4.1"
-tokio = { version = "1.52.3", features = ["full"] }
+http = "1.5.0"
+tokio = { version = "1.53.1", features = ["full"] }
 tower = "0.5.3"
-tower-http = { version = "0.6.11", features = ["fs"] }
+tower-http = { version = "0.7.0", features = ["fs"] }

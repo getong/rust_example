@@ -73,3 +73,6 @@ members = [
 exclude = [
   "axum_serve_wasm_example/wasm-project",
 ]
+
+[patch.crates-io]
+axum_session = { git = "https://github.com/AscendingCreations/AxumSession", rev = "dcc89b8b2a07d6570ea398b91e580d380307648a" }
