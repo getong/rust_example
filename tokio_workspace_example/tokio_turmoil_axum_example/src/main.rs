@@ -8,7 +8,10 @@ use turmoil::{net, Builder};
 
 fn main() {
   if std::env::var("RUST_LOG").is_err() {
-    std::env::set_var("RUST_LOG", "info");
+    // SAFETY: This runs before tracing, turmoil, or any application threads are initialized.
+    unsafe {
+      std::env::set_var("RUST_LOG", "info");
+    }
   }
 
   tracing_subscriber::fmt::init();
