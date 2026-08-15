@@ -1,0 +1,10 @@
+[package]
+name = "translate_api_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+reqwest = { version = "0.13", features = ["blocking", "form", "json", "system-proxy"] }
+serde_json = "1"
+translators = { version = "0.2.0", features = ["google"] }
