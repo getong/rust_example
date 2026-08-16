@@ -203,5 +203,5 @@ members = [
   "tokio_struct_future_example",
   "tokio_vsock_test_server_example",
   "duplexstream_example",
-  "topcoat_example",
+
 ]
