@@ -111,7 +111,7 @@ fn check_probe(
       eprintln!(
         "disconnected from {}: {}",
         state.server_addr,
-        disconnected.reason.as_deref().unwrap_or("unknown reason")
+        disconnected.reason
       );
       state.complete = true;
       app_exit.write(AppExit::from_code(1));

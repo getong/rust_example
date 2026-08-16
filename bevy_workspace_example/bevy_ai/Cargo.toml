@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 avian3d = "0.7.0"
 bevior_tree = { version = "0.11.0", default-features = false }
-bevy = "0.19.0"
-bevy_ecs = "0.19.0"
-bevy_state = "0.19.0"
+bevy = "0.19.1"
+bevy_ecs = "0.19.1"
+bevy_state = "0.19.1"
 bevy_voxel_world = "0.17.0"
 landmass = "0.9.2"
 oxidized_navigation = "0.12.0"

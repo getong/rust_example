@@ -110,12 +110,10 @@ pub(crate) fn drain_network_events(
     }
   } else if network.connected {
     network.connected = false;
-    world.status = disconnected
-      .and_then(|state| state.reason.as_ref())
-      .map_or_else(
-        || "disconnected".to_string(),
-        |reason| format!("disconnected: {reason}"),
-      );
+    world.status = disconnected.map_or_else(
+      || "disconnected".to_string(),
+      |state| format!("disconnected: {}", state.reason),
+    );
   }
 
   if !network.connected {
