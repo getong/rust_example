@@ -1,8 +1,9 @@
+
 [package]
 name = "agones_sdk_example"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-agones = "1.41.0"
-tokio = { version = "1.38.0", features = ["full"] }
+agones = "1.60.0"
+tokio = { version = "1.53.1", features = ["full"] }
