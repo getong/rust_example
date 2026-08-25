@@ -10,7 +10,7 @@ axum = "0.8"
 clap = { version = "4.6.6", features = ["derive", "env"] }
 client-http = { path = "../client-http" }
 env_logger = "0.11.11"
-futures = "0.3.33"
+futures = "0.3.34"
 log-mem = { path = "../log-mem" }
 mem-log = { path = "../mem-log" }
 network-v2-http = { path = "../network-v2-http" }

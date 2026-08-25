@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-futures = "0.3.33"
+futures = "0.3.34"
 openraft = { version = "0.10.0-alpha.34", default-features = false, features = [
   "serde",
   "tokio-rt",

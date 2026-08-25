@@ -45,9 +45,9 @@ bytes = "1"
 clap = { version = "4.6.6", features = ["derive"] }
 console-subscriber = "0.5.0"
 dotenvy = "0.15.7"
-futures = "0.3.33"
+futures = "0.3.34"
 graphviz-rust = "0.9.8"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "3667c6c6521f13751d0a17577a124049ad64e50e", features = [
+libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "ee8bf12e6d94d48518ea67773abb11625b2c4f41", features = [
   "dns",
   "ed25519",
   "gossipsub",
@@ -76,7 +76,7 @@ openraft = { version = "0.10.0-alpha.34", features = [
 petgraph = "0.8.3"
 prost = "0.14.4"
 rayon = "1.12.0"
-redis = { version = "1.5.0", features = [
+redis = { version = "1.6.0", features = [
   "aio",
   "tokio-comp",
   "connection-manager",
@@ -86,7 +86,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json"] }
 # retry jitter must be deterministic (hashed), never sampled, so raft
 # re-proposals stay idempotent.
 retry = { version = "2.2.0", default-features = false }
-rocksdb = "0.24.0"
+rocksdb = "0.25.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11"
 sonic-rs = "0.5.8"
@@ -114,20 +114,20 @@ tokio = { version = "1.53", default-features = false, features = [
 ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.24.0", features = ["v7"] }
-wasi-preview1-component-adapter-provider = { version = "47.0.3", optional = true }
+uuid = { version = "1.25.0", features = ["v7"] }
+wasi-preview1-component-adapter-provider = { version = "48.0.1", optional = true }
 # Pre-validation of component binaries before compilation (the validator
 # wasmtime itself uses); precise diagnostics before cranelift time is spent.
-wasmparser = "0.255"
+wasmparser = "0.258"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
 # wasmtime_workspace_example). `component-model` is on by default in v46
 # but declared explicitly: the component::{Component, Linker} usage must
 # not break if a future version changes the default.
-wasmtime = { version = "47.0.3", features = ["component-model"] }
-wasmtime-wasi = "47.0.3"
-wat = { version = "1.255.0", optional = true }
-wit-component = { version = "0.255", optional = true }
+wasmtime = { version = "48.0.1", features = ["component-model"] }
+wasmtime-wasi = "48.0.1"
+wat = { version = "1.258.0", optional = true }
+wit-component = { version = "0.258", optional = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.

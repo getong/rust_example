@@ -9,13 +9,13 @@ apalis = { version = "1.0.0-rc.9", features = ["retry"] }
 apalis-core = "1.0.0-rc.9"
 byteorder = "1.5.0"
 clap = { version = "4.6.6", features = ["derive"] }
-futures = "0.3.33"
+futures = "0.3.34"
 openraft = { version = "0.10.0-alpha.34", features = [
   "serde",
   "type-alias",
 ] }
 rand = "0.10"
-rocksdb = "0.24.0"
+rocksdb = "0.25.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sonic-rs = "0.5.8"
 tokio = { version = "1.53", default-features = false, features = [
