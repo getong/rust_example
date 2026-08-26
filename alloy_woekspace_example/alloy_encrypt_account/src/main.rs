@@ -138,9 +138,10 @@ fn encrypt_secret(secret: &str, password: &str) -> Result<String> {
 
   let key = derive_key(password.as_bytes(), &salt);
   let cipher = Aes256Gcm::new_from_slice(&key).wrap_err("Failed to initialize AES-256-GCM")?;
-  let nonce = Nonce::from_slice(&nonce_bytes);
+  let nonce =
+    Nonce::try_from(nonce_bytes.as_slice()).wrap_err("Generated nonce has an invalid length")?;
   let ciphertext = cipher
-    .encrypt(nonce, secret.as_bytes())
+    .encrypt(&nonce, secret.as_bytes())
     .map_err(|_| eyre!("Failed to encrypt private key"))?;
 
   let mut payload = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext.len());
@@ -172,9 +173,10 @@ fn decrypt_secret(encrypted_secret: &str, password: &str) -> Result<String> {
 
   let key = derive_key(password.as_bytes(), salt);
   let cipher = Aes256Gcm::new_from_slice(&key).wrap_err("Failed to initialize AES-256-GCM")?;
-  let nonce = Nonce::from_slice(nonce_bytes);
+  let nonce =
+    Nonce::try_from(nonce_bytes).wrap_err("Encrypted value contains an invalid nonce length")?;
   let plaintext = cipher
-    .decrypt(nonce, ciphertext)
+    .decrypt(&nonce, ciphertext)
     .map_err(|_| eyre!("Failed to decrypt private key. Password may be wrong."))?;
 
   String::from_utf8(plaintext).wrap_err("Decrypted private key is not valid UTF-8")
