@@ -1,0 +1,60 @@
+* SQLx + rust_decimal + PostgreSQL NUMERIC 大数比较示例
+
+这个用例演示：数据库需要保存并比较超过 =rust_decimal::Decimal= 表示范围的精确数字。
+
+例如，链上资产总量、超大整数计数器或高精度财务中间值可能超过
+=Decimal::MAX=（=79228162514264337593543950335=），但仍然需要在 SQL 的
+=WHERE= 和 =ORDER BY= 中进行数值比较，而不能进行字符串比较。
+
+** 实现要点
+
+- 数据库列使用不声明 =precision/scale= 的 PostgreSQL =NUMERIC=，避免把列限制为
+  =NUMERIC(29, ...)= 这类只适合 =rust_decimal= 的范围。
+- 超过 =Decimal= 范围的数值由 Rust 以十进制字符串传入，并在 SQL 中通过
+  =CAST($2::TEXT AS NUMERIC)= 转为数据库数值。数据库保存的仍然是 =NUMERIC=，
+  不是 =TEXT=。
+- 大数阈值比较由 PostgreSQL 执行：
+
+#+begin_src sql
+SELECT label, amount::TEXT
+FROM financial_data
+WHERE amount > CAST($1::TEXT AS NUMERIC)
+ORDER BY amount;
+#+end_src
+
+  因此比较和排序是精确的数值语义，且 =amount= 上的 B-tree 索引可以用于范围查询。
+- 查询结果使用 =amount::TEXT= 返回 Rust。原因是这些样例已经超过
+  =rust_decimal::Decimal= 的范围，直接解码到 =Decimal= 会失败。
+- 示例还把 =Decimal::MAX= 直接绑定为 SQL 参数，展示范围内的 Rust Decimal
+  仍可通过 SQLx 的 =rust_decimal= feature 与 =NUMERIC= 比较。
+
+** running postgresql docker
+
+#+begin_src shell
+docker run \
+  --name my_postgres \
+  -e POSTGRES_PASSWORD=PgSuper2026! \
+  -d \
+  -p 5432:5432 \
+  postgres:18.3
+#+end_src
+
+** run sqlx
+
+#+begin_src shell
+sqlx database create
+#+end_src
+
+程序会通过 =sqlx::migrate!()= 自动执行 migrations，然后幂等写入三个大数样例：
+
+#+begin_src shell
+cargo run
+#+end_src
+
+预期只有 =above_sql_threshold= 大于 SQL 阈值；三个样例都大于 =Decimal::MAX=。
+
+清理数据库：
+
+#+begin_src shell
+sqlx database drop
+#+end_src

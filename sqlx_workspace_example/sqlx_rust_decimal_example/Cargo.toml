@@ -1,0 +1,17 @@
+[package]
+name = "sqlx_rust_decimal_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+dotenv = "0.15.0"
+rust_decimal = "1.42.1"
+sqlx = { version = "0.9.0", default-features = false, features = [
+  "macros",
+  "migrate",
+  "postgres",
+  "runtime-tokio",
+  "rust_decimal",
+] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }

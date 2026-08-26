@@ -3,7 +3,7 @@ use std::{env, str::FromStr};
 use bigdecimal::BigDecimal;
 use dotenv::dotenv;
 use ethereum_types::U256;
-use sqlx::{postgres::PgPoolOptions, query, query_as, FromRow};
+use sqlx::{FromRow, postgres::PgPoolOptions, query, query_as};
 
 #[derive(Debug, FromRow)]
 pub struct MyData {

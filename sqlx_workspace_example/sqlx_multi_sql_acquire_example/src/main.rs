@@ -2,8 +2,8 @@ use std::env;
 
 use chrono::{NaiveDateTime, Utc};
 use dotenv::dotenv;
-use rand::{distr::Alphanumeric, RngExt};
-use sqlx::{postgres::PgPoolOptions, query_as, FromRow, PgConnection};
+use rand::{RngExt, distr::Alphanumeric};
+use sqlx::{FromRow, PgConnection, postgres::PgPoolOptions, query_as};
 
 #[derive(Debug, FromRow)]
 pub struct DailyData {

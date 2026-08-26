@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use bigdecimal::{num_traits::Pow, BigDecimal, RoundingMode};
+use bigdecimal::{BigDecimal, RoundingMode, num_traits::Pow};
 
 fn main() {
   let input1 = "0.8";

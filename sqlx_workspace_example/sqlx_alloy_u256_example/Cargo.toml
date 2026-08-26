@@ -1,0 +1,17 @@
+[package]
+name = "sqlx_alloy_u256_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy-primitives = { version = "1.7.1", features = ["sqlx"] }
+anyhow = "1.0.104"
+dotenv = "0.15.0"
+sqlx = { version = "=0.8", default-features = false, features = [
+  "macros",
+  "migrate",
+  "postgres",
+  "runtime-tokio",
+  "tls-none",
+] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
