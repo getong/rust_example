@@ -1,28 +1,22 @@
 use std::env;
 
 use alloy_primitives::U256;
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Context, Result, anyhow};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 
-const SAMPLE_AMOUNTS: [(&str, &str); 5] = [
-  ("zero", "0"),
-  ("below_threshold", "340282366920938463463374607431768211455"),
-  (
-    "equal_to_threshold",
-    "340282366920938463463374607431768211456",
-  ),
-  ("above_threshold", "340282366920938463463374607431768211457"),
-  (
-    "u256_max",
-    "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-  ),
+const SAMPLE_AMOUNTS: [&str; 5] = [
+  "0",
+  "340282366920938463463374607431768211455",
+  "340282366920938463463374607431768211456",
+  "340282366920938463463374607431768211457",
+  "115792089237316195423570985008687907853269984665640564039457584007913129639935",
 ];
 
 const SQL_THRESHOLD: &str = "340282366920938463463374607431768211456";
 
 #[derive(Debug, PartialEq, Eq)]
 struct StoredAmount {
-  label: String,
+  id: i32,
   amount: U256,
 }
 
@@ -31,43 +25,60 @@ fn parse_u256(value: &str) -> Result<U256> {
     .map_err(|error| anyhow!("failed to parse U256 value {value}: {error}"))
 }
 
-async fn upsert_amount(pool: &PgPool, label: &str, amount: U256) -> Result<()> {
+async fn insert_amount(pool: &PgPool, amount: U256) -> Result<()> {
+  let decimal_text = amount.to_string();
+
   sqlx::query(
     r#"
-      INSERT INTO u256_values (label, amount)
-      VALUES ($1, $2)
-      ON CONFLICT (label) DO UPDATE SET amount = EXCLUDED.amount
+      INSERT INTO financial_data (amount)
+      VALUES ($1::TEXT::NUMERIC)
     "#,
   )
-  .bind(label)
-  .bind(amount)
+  .bind(&decimal_text)
   .execute(pool)
   .await
-  .with_context(|| format!("failed to store U256 amount for {label}"))?;
+  .with_context(|| format!("failed to store U256 amount {decimal_text} as NUMERIC"))?;
 
   Ok(())
 }
 
 async fn amounts_greater_than(pool: &PgPool, threshold: U256) -> Result<Vec<StoredAmount>> {
-  let rows = sqlx::query_as::<_, (String, U256)>(
+  let threshold_text = threshold.to_string();
+  let rows = sqlx::query_as::<_, (i32, String)>(
     r#"
-      SELECT label, amount
-      FROM u256_values
-      WHERE amount > $1
-      ORDER BY amount
+      SELECT financial_data.id, financial_data.amount::TEXT AS amount_text
+      FROM financial_data
+      WHERE financial_data.amount > $1::TEXT::NUMERIC
+      ORDER BY financial_data.amount
     "#,
   )
-  .bind(threshold)
+  .bind(&threshold_text)
   .fetch_all(pool)
   .await
-  .context("failed to compare U256 byte arrays in PostgreSQL")?;
+  .context("failed to compare U256 NUMERIC values in PostgreSQL")?;
 
-  Ok(
-    rows
-      .into_iter()
-      .map(|(label, amount)| StoredAmount { label, amount })
-      .collect(),
+  rows
+    .into_iter()
+    .map(|(id, amount)| {
+      Ok(StoredAmount {
+        id,
+        amount: parse_u256(&amount)
+          .with_context(|| format!("failed to decode NUMERIC amount for row {id}"))?,
+      })
+    })
+    .collect()
+}
+
+async fn total_amount(pool: &PgPool) -> Result<String> {
+  sqlx::query_scalar(
+    r#"
+      SELECT COALESCE(SUM(amount), 0)::TEXT
+      FROM financial_data
+    "#,
   )
+  .fetch_one(pool)
+  .await
+  .context("failed to sum U256 NUMERIC values in PostgreSQL")
 }
 
 #[tokio::main]
@@ -86,24 +97,20 @@ async fn main() -> Result<()> {
     .await
     .context("failed to run database migrations")?;
 
-  for (label, amount) in SAMPLE_AMOUNTS {
-    upsert_amount(&pool, label, parse_u256(amount)?).await?;
+  for amount in SAMPLE_AMOUNTS {
+    insert_amount(&pool, parse_u256(amount)?).await?;
   }
 
   let threshold = parse_u256(SQL_THRESHOLD)?;
   let matches = amounts_greater_than(&pool, threshold).await?;
-
-  ensure!(
-    matches.len() == 2,
-    "expected two values greater than the threshold, got {}",
-    matches.len()
-  );
+  let total = total_amount(&pool).await?;
 
   println!("SQL threshold: {threshold}");
   println!("Values greater than the threshold (compared by PostgreSQL):");
   for record in matches {
-    println!("  {} = {}", record.label, record.amount);
+    println!("  id {} = {}", record.id, record.amount);
   }
+  println!("SQL SUM(amount): {total}");
 
   Ok(())
 }
@@ -113,18 +120,10 @@ mod tests {
   use super::*;
 
   #[test]
-  fn fixed_width_big_endian_order_matches_u256_order() -> Result<()> {
-    let values = SAMPLE_AMOUNTS
-      .into_iter()
-      .map(|(_, amount)| parse_u256(amount))
-      .collect::<Result<Vec<_>>>()?;
-
-    for pair in values.windows(2) {
-      let left = pair[0];
-      let right = pair[1];
-
-      assert!(left < right);
-      assert!(left.to_be_bytes::<32>() < right.to_be_bytes::<32>());
+  fn decimal_text_round_trips_all_sample_u256_values() -> Result<()> {
+    for amount in SAMPLE_AMOUNTS {
+      let parsed = parse_u256(amount)?;
+      assert_eq!(parse_u256(&parsed.to_string())?, parsed);
     }
 
     Ok(())

@@ -1,41 +1,67 @@
-* SQLx + Alloy U256 + PostgreSQL BYTEA 大数比较示例
+* SQLx + Alloy U256 + PostgreSQL NUMERIC 示例
 
-这个用例演示：直接使用 =alloy_primitives::U256= 和它的 =sqlx= feature，
-把完整的 Ethereum =uint256= 存入 PostgreSQL，并在 SQL 的 =WHERE= 和
-=ORDER BY= 中比较数值大小。
+这个用例把完整的 =alloy_primitives::U256= 存入 PostgreSQL =NUMERIC=，并直接在
+SQL 中进行数值比较、排序和累加。
 
-** 为什么使用 BYTEA
+** 数据库类型
 
-=alloy-primitives= 的 =sqlx= feature 复用了 =ruint= 的 SQLx 实现：
-
-- =U256= 固定编码为 32 字节；
-- 编码采用大端序，最高有效字节在前；
-- SQLx 将它映射到 PostgreSQL =BYTEA=；
-- 迁移通过 =octet_length(amount) = 32= 强制所有值等长。
-
-对于等长的大端序无符号整数，字节字典序与整数大小顺序一致。因此下面的 SQL
-虽然比较的是 =BYTEA=，结果与比较 =U256= 的数值大小相同：
+=financial_data.amount= 使用不限定精度的 =NUMERIC=：
 
 #+begin_src sql
-SELECT label, amount
-FROM u256_values
-WHERE amount > $1
-ORDER BY amount;
+CREATE TABLE IF NOT EXISTS financial_data (
+  id SERIAL PRIMARY KEY,
+  amount NUMERIC NOT NULL
+);
 #+end_src
 
-=amount= 上建立了 B-tree 索引，可以支持等值、范围和排序查询。
+实际 migration 还增加了 U256 约束：
 
-这种方案适合存取、比较和排序，但 =BYTEA= 不是 PostgreSQL 数值类型，不能直接执行
-=amount + 1=、=SUM(amount)= 等数值运算。如果需要在 SQL 中进行算术，应改用
-=NUMERIC(78, 0)=，并在 Rust/SQL 边界转换 =U256=。
+- =scale(amount) = 0=，拒绝小数；
+- =amount >= 0=，拒绝负数；
+- =amount <= U256::MAX=，拒绝超出 256 位无符号整数范围的值；
+- =amount= 上的 B-tree 索引支持等值、范围和排序查询。
 
-** SQLx 版本说明
+没有使用 =NUMERIC(78, 0)=，因为 PostgreSQL 会先把带小数的输入舍入到 scale 0；
+使用不限定精度的 =NUMERIC= 配合 =CHECK= 可以直接拒绝小数输入。
 
-当前 =alloy-primitives 1.7.1= 的 =sqlx= feature 依赖 SQLx 0.8，因此本示例固定使用
-=sqlx 0.8.6=。如果同时使用 SQLx 0.9，两个版本的 =Type=/=Encode=/=Decode=
-trait 不相同，=U256= 不能直接绑定到 SQLx 0.9 查询。
+** SQL 数值运算
 
-** running postgresql docker
+数据库现在把 =amount= 当作真正的数值，可以直接执行：
+
+#+begin_src sql
+-- 比较和排序
+SELECT id, amount
+FROM financial_data
+WHERE amount > 100
+ORDER BY amount;
+
+-- 累加
+SELECT SUM(amount)
+FROM financial_data;
+
+-- 原子加法
+UPDATE financial_data
+SET amount = amount + 100
+WHERE id = 1;
+#+end_src
+
+** Rust 与 SQLx 的类型边界
+
+=alloy-primitives= 的 SQLx 实现把 =U256= 映射为 =BYTEA=，不能直接绑定到
+=NUMERIC=。本例在边界处把 =U256= 转成十进制文本，并在 SQL 内显式转换：
+
+#+begin_src sql
+INSERT INTO financial_data (amount)
+VALUES ($1::TEXT::NUMERIC);
+#+end_src
+
+读取时使用 =amount::TEXT=，再由 =U256::from_str_radix(..., 10)= 恢复成
+Rust 的 =U256=。转换是十进制整数文本，不经过 =f32=/=f64=，因此不会损失精度。
+
+SQL 的 =SUM(amount)= 可能超过单个 U256 的最大值，所以示例把总和作为十进制文本
+返回，而不强制转换回 =U256=。
+
+** 运行
 
 #+begin_src shell
 docker run \
@@ -44,32 +70,19 @@ docker run \
   -d \
   -p 5432:5432 \
   postgres:18.3
-#+end_src
 
-配置数据库连接：
-
-#+begin_src shell
 export DATABASE_URL='postgres://postgres:PgSuper2026!@localhost:5432/sqlx_alloy_u256_example'
 sqlx database create
-#+end_src
-
-程序会通过 =sqlx::migrate!()= 自动执行 migrations，然后幂等写入五个 U256 样例：
-
-#+begin_src shell
 cargo run -p sqlx_alloy_u256_example
 #+end_src
 
-阈值是 =2^128=。预期 SQL 查询只返回 =above_threshold= 和 =u256_max=：
+程序每次运行都会追加五条示例数据，然后由 PostgreSQL 执行阈值比较和
+=SUM(amount)=。如果需要重新得到空表，请重建示例数据库。
 
-#+begin_example
-SQL threshold: 340282366920938463463374607431768211456
-Values greater than the threshold (compared by PostgreSQL):
-  above_threshold = 340282366920938463463374607431768211457
-  u256_max = 115792089237316195423570985008687907853269984665640564039457584007913129639935
-#+end_example
-
-清理数据库：
+这次已经重写 migration 历史。如果旧数据库执行过原来的 =u256_values= migration，
+需要先重建数据库：
 
 #+begin_src shell
 sqlx database drop
+sqlx database create
 #+end_src
