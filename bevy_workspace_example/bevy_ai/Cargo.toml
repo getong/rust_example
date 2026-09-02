@@ -11,5 +11,5 @@ bevy_ecs = "0.19.1"
 bevy_state = "0.19.1"
 bevy_voxel_world = "0.17.0"
 landmass = "0.9.2"
-oxidized_navigation = "0.12.0"
+# oxidized_navigation = "0.12.0"
 seldom_state = { git = "https://github.com/getong/seldom_state", branch = "bevy-0.19", default-features = false }

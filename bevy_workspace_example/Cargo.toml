@@ -27,7 +27,7 @@ bevy = { version = "0.19.1", default-features = false }
 bevy_animation_graph = "0.11"
 bevy_ecs = "0.19.1"
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
-bevy_replicon = { version = "0.42.3", default-features = false }
+bevy_replicon = { version = "0.44.0", default-features = false }
 kameo = { version = "0.22.2", features = ["remote"] }
 lightyear = { version = "0.29.0", default-features = false }
 prost = "0.14.4"
