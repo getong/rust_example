@@ -1,0 +1,135 @@
+#+title: translate_srt
+#+language: zh-CN
+
+* 简介
+
+=translate_srt= 是一个批量处理中英双语字幕的命令行工具。它会递归扫描指定目录中的 =.srt= 文件，将英文字幕逐行发送到兼容 LibreTranslate 的 HTTP 接口，并把中文译文写到对应英文行之后。
+
+程序会直接修改源 SRT 文件。首次处理重要字幕前，建议先备份文件或将文件纳入版本控制。
+
+* 功能
+
+- 使用 Clap 解析目录和运行参数。
+- 使用 WalkDir 递归查找 =.srt= 文件，扩展名不区分大小写。
+- 保留字幕序号、时间轴、空行及原有换行风格。
+- 忽略 HTML 和 ASS 格式标签，仅识别可见英文文本。
+- 同一字幕时间轴块中已有中文时跳过该块，避免重复翻译。
+- 使用 Tokio 并发读取和处理文件。
+- 全局只发送一个在途翻译请求，避免本地翻译服务被并发请求压垮。
+- 请求失败时最多尝试 3 次，并使用 250ms、500ms 的退避等待。
+- 单个文件只有在全部待翻译行成功后才会写回。
+
+* 运行要求
+
+- Rust 工具链，建议 Rust 1.95 或更高版本。
+- 一个运行中的兼容翻译服务，默认地址为：
+
+#+begin_example
+http://0.0.0.0:5050/translate
+#+end_example
+
+请求格式如下：
+
+#+begin_src json
+{
+  "q": "hello",
+  "source": "en",
+  "target": "zh-Hans",
+  "format": "text",
+  "api_key": ""
+}
+#+end_src
+
+响应需要包含 =translatedText= 字段：
+
+#+begin_src json
+{
+  "translatedText": "你好"
+}
+#+end_src
+
+* 构建
+
+#+begin_src shell
+cargo build --release -p translate_srt
+#+end_src
+
+* 使用
+
+处理指定目录：
+
+#+begin_src shell
+cargo run --release -p translate_srt -- /path/to/subtitles
+#+end_src
+
+不提供目录时，程序使用当前工作目录：
+
+#+begin_src shell
+cargo run --release -p translate_srt --
+#+end_src
+
+已经构建二进制时也可以直接运行：
+
+#+begin_src shell
+translate_srt /path/to/subtitles
+#+end_src
+
+** 命令行参数
+
+| 参数 | 默认值 | 说明 |
+|------+--------+------|
+| =[DIRECTORY]= | 当前工作目录 | 递归扫描的字幕目录 |
+| =-j, --jobs <JOBS>= | =max(2, 可用 CPU 数 / 2)= | 同时处理的最大文件数 |
+| =--endpoint <ENDPOINT>= | =http://0.0.0.0:5050/translate= | 翻译接口地址 |
+| =--request-delay-ms <MILLISECONDS>= | =0= | 每个翻译请求完成后的额外等待时间 |
+| =-h, --help= | - | 显示帮助 |
+| =-V, --version= | - | 显示版本 |
+
+例如，翻译服务仍然繁忙时，可以增加请求间隔：
+
+#+begin_src shell
+translate_srt /path/to/subtitles --request-delay-ms 250
+#+end_src
+
+指定其他翻译接口和文件并发数：
+
+#+begin_src shell
+translate_srt /path/to/subtitles \
+  --endpoint http://127.0.0.1:5050/translate \
+  --jobs 4
+#+end_src
+
+* 输出示例
+
+原字幕：
+
+#+begin_example
+1
+00:00:01,000 --> 00:00:03,000
+Why do we use agents?
+#+end_example
+
+处理后：
+
+#+begin_example
+1
+00:00:01,000 --> 00:00:03,000
+Why do we use agents?
+我们为什么使用智能体？
+#+end_example
+
+再次运行时，该字幕块已有中文，因此不会重复追加译文。
+
+* 测试
+
+#+begin_src shell
+cargo test -p translate_srt
+cargo clippy -p translate_srt --all-targets -- -D warnings
+cargo fmt --package translate_srt -- --check
+#+end_src
+
+* 限制
+
+- SRT 文件必须使用 UTF-8 编码。
+- 中文检测以字幕块中的常用 CJK 字符为依据。如果一个字幕块同时包含尚未翻译的英文和已有中文，程序会保守地跳过整个字幕块。
+- 文件处理并发数不等于 HTTP 请求并发数；为保护本地翻译服务，HTTP 请求会全局串行发送。

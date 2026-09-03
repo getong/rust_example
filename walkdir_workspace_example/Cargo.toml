@@ -10,4 +10,5 @@ members = [
   "walkdir_skip_current_dir_example",
   "walkdir_remove_empty_dir_example",
   "walkdir_mv_example",
+  "translate_srt",
 ]
