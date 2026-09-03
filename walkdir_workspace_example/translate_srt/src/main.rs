@@ -16,6 +16,7 @@ use walkdir::WalkDir;
 
 const DEFAULT_ENDPOINT: &str = "http://0.0.0.0:5050/translate";
 const DEFAULT_REQUEST_DELAY_MS: u64 = 0;
+const DEFAULT_BATCH_SIZE: usize = 20;
 const MAX_TRANSLATION_ATTEMPTS: usize = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 250;
 
@@ -40,6 +41,10 @@ struct Args {
   /// Delay after each translation request, in milliseconds.
   #[arg(long, default_value_t = DEFAULT_REQUEST_DELAY_MS, value_name = "MILLISECONDS")]
   request_delay_ms: u64,
+
+  /// Maximum subtitle lines combined into a single translation request; defaults to 20.
+  #[arg(long, value_name = "LINES")]
+  batch_size: Option<NonZeroUsize>,
 }
 
 #[derive(Debug)]
@@ -106,6 +111,9 @@ async fn main() {
 async fn run() -> Result<()> {
   let args = Args::parse();
   let jobs = args.jobs.map_or_else(default_job_count, NonZeroUsize::get);
+  let batch_size = args
+    .batch_size
+    .map_or(DEFAULT_BATCH_SIZE, NonZeroUsize::get);
   let request_delay = Duration::from_millis(args.request_delay_ms);
   let directory = match args.directory {
     Some(directory) => directory,
@@ -128,13 +136,13 @@ async fn run() -> Result<()> {
   }
 
   println!(
-    "找到 {} 个 SRT 文件，并发处理数: {jobs}，请求间隔: {}ms",
+    "找到 {} 个 SRT 文件，并发处理数: {jobs}，请求间隔: {}ms，批量翻译行数: {batch_size}",
     files.len(),
     args.request_delay_ms
   );
 
   let client = Client::builder()
-    .timeout(Duration::from_secs(60))
+    .timeout(Duration::from_secs(120))
     .build()
     .context("无法创建 HTTP 客户端")?;
   let endpoint: Arc<str> = Arc::from(args.endpoint);
@@ -148,6 +156,7 @@ async fn run() -> Result<()> {
       client.clone(),
       Arc::clone(&endpoint),
       Arc::clone(&request_limiter),
+      batch_size,
       path,
     );
   }
@@ -181,6 +190,7 @@ async fn run() -> Result<()> {
         client.clone(),
         Arc::clone(&endpoint),
         Arc::clone(&request_limiter),
+        batch_size,
         path,
       );
     }
@@ -227,15 +237,19 @@ fn spawn_file_task(
   client: Client,
   endpoint: Arc<str>,
   request_limiter: Arc<RequestLimiter>,
+  batch_size: usize,
   path: PathBuf,
 ) {
-  tasks.spawn(async move { translate_file(&client, &endpoint, &request_limiter, path).await });
+  tasks.spawn(async move {
+    translate_file(&client, &endpoint, &request_limiter, batch_size, path).await
+  });
 }
 
 async fn translate_file(
   client: &Client,
   endpoint: &str,
   request_limiter: &RequestLimiter,
+  batch_size: usize,
   path: PathBuf,
 ) -> Result<FileOutcome> {
   let contents = fs::read_to_string(&path)
@@ -252,11 +266,14 @@ async fn translate_file(
   }
 
   let mut translations: Vec<Option<String>> = (0 .. lines.len()).map(|_| None).collect();
-  for index in targets.iter().copied() {
-    let translated = translate_line(client, endpoint, request_limiter, lines[index])
+  for chunk in targets.chunks(batch_size) {
+    let texts: Vec<&str> = chunk.iter().map(|&index| lines[index]).collect();
+    let translated = translate_batch(client, endpoint, request_limiter, &texts)
       .await
-      .with_context(|| format!("翻译 {} 第 {} 行失败", path.display(), index + 1))?;
-    translations[index] = Some(translated);
+      .with_context(|| format!("翻译 {} 第 {} 行失败", path.display(), chunk[0] + 1))?;
+    for (&index, text) in chunk.iter().zip(translated) {
+      translations[index] = Some(text);
+    }
   }
 
   let newline = if contents.contains("\r\n") {
@@ -276,6 +293,67 @@ async fn translate_file(
   })
 }
 
+/// Translates a batch of subtitle lines with as few HTTP requests as possible.
+///
+/// The local translation service has fixed per-request overhead (~0.5s) on top of the
+/// per-line translation cost, so joining several lines into one request with `\n`
+/// separators and splitting the response back apart is substantially faster than one
+/// request per line. Falls back to one-request-per-line if the response's line count
+/// doesn't match, since some inputs can cause the engine to merge or split lines.
+async fn translate_batch(
+  client: &Client,
+  endpoint: &str,
+  request_limiter: &RequestLimiter,
+  texts: &[&str],
+) -> Result<Vec<String>> {
+  if texts.len() < 2 {
+    let mut translated = Vec::with_capacity(texts.len());
+    for text in texts {
+      translated.push(translate_line(client, endpoint, request_limiter, text).await?);
+    }
+    return Ok(translated);
+  }
+
+  let joined = texts.join("\n");
+  let mut retry_delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
+
+  for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
+    let result = request_limiter
+      .run(send_translation_request(client, endpoint, &joined))
+      .await?;
+
+    match result {
+      Ok(translated) => {
+        let lines: Vec<&str> = translated.split('\n').map(str::trim).collect();
+        if lines.len() == texts.len() && lines.iter().all(|line| !line.is_empty()) {
+          return Ok(lines.into_iter().map(str::to_owned).collect());
+        }
+        eprintln!(
+          "批量翻译返回的行数与请求不一致（期望 {}，实际 {}），改为逐行翻译",
+          texts.len(),
+          lines.len()
+        );
+        let mut translated = Vec::with_capacity(texts.len());
+        for text in texts {
+          translated.push(translate_line(client, endpoint, request_limiter, text).await?);
+        }
+        return Ok(translated);
+      }
+      Err(error) if attempt < MAX_TRANSLATION_ATTEMPTS => {
+        eprintln!(
+          "批量翻译请求失败（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试: {error:#}",
+          retry_delay.as_millis()
+        );
+        sleep(retry_delay).await;
+        retry_delay = retry_delay.saturating_mul(2);
+      }
+      Err(error) => return Err(error),
+    }
+  }
+
+  bail!("翻译请求未执行")
+}
+
 async fn translate_line(
   client: &Client,
   endpoint: &str,
@@ -290,7 +368,7 @@ async fn translate_line(
       .await?;
 
     match result {
-      Ok(translated) => return Ok(translated),
+      Ok(translated) => return Ok(translated.replace('\n', " ").trim().to_owned()),
       Err(error) if attempt < MAX_TRANSLATION_ATTEMPTS => {
         eprintln!(
           "翻译请求失败（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试: {error:#}",
@@ -335,8 +413,10 @@ async fn send_translation_request(client: &Client, endpoint: &str, text: &str) -
   let translated = payload
     .translated_text
     .context("翻译响应缺少 translatedText 字段")?
+    .replace("\r\n", "\n")
+    .replace('\r', "\n")
     .trim()
-    .replace(['\r', '\n'], " ");
+    .to_owned();
   ensure!(!translated.is_empty(), "翻译服务返回了空文本");
 
   Ok(translated)
@@ -459,6 +539,7 @@ mod tests {
 
     assert_eq!(default_args.jobs, None);
     assert_eq!(default_args.request_delay_ms, DEFAULT_REQUEST_DELAY_MS);
+    assert_eq!(default_args.batch_size, None);
     assert_eq!(explicit_args.jobs.map(NonZeroUsize::get), Some(7));
   }
 
