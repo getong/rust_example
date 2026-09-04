@@ -8,17 +8,19 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
-use clap::Parser;
+use clap::{ArgAction, Parser};
+use futures_util::{StreamExt, stream};
 use many_cpus::SystemHardware;
-use reqwest::Client;
+mod local_llm;
+use local_llm::LocalTranslator;
 use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
 use tokio::{fs, sync::Semaphore, task::JoinSet, time::sleep};
 use walkdir::WalkDir;
 
-const DEFAULT_ENDPOINT: &str = "http://0.0.0.0:5050/translate";
 const DEFAULT_REQUEST_DELAY_MS: u64 = 0;
 const DEFAULT_BATCH_SIZE: usize = 20;
+const LIBRETRANSLATE_MAX_CHARS: usize = 5_000;
+const LOCAL_MODEL_CONCURRENCY: usize = 1;
 const MAX_TRANSLATION_ATTEMPTS: usize = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 250;
 
@@ -36,9 +38,17 @@ struct Args {
   #[arg(short, long)]
   jobs: Option<NonZeroUsize>,
 
-  /// LibreTranslate-compatible HTTP endpoint.
-  #[arg(long, default_value = DEFAULT_ENDPOINT)]
-  endpoint: String,
+  /// Path to the local GGUF translation model.
+  #[arg(long, value_name = "FILE")]
+  model_file: PathBuf,
+
+  /// Force CPU inference even when GPU features are enabled.
+  #[arg(long, action = ArgAction::SetTrue)]
+  cpu: bool,
+
+  /// Print verbose llama.cpp logs.
+  #[arg(short, long, action = ArgAction::SetTrue)]
+  verbose: bool,
 
   /// Delay after each translation request, in milliseconds.
   #[arg(long, default_value_t = DEFAULT_REQUEST_DELAY_MS, value_name = "MILLISECONDS")]
@@ -57,16 +67,22 @@ struct FileOutcome {
 
 #[derive(Debug)]
 struct RequestLimiter {
-  single_request: Semaphore,
+  requests: Semaphore,
+  concurrency: usize,
   delay: Duration,
 }
 
 impl RequestLimiter {
-  fn new(delay: Duration) -> Self {
+  fn new(concurrency: NonZeroUsize, delay: Duration) -> Self {
     Self {
-      single_request: Semaphore::new(1),
+      requests: Semaphore::new(concurrency.get()),
+      concurrency: concurrency.get(),
       delay,
     }
+  }
+
+  fn concurrency(&self) -> usize {
+    self.concurrency
   }
 
   async fn run<F, T>(&self, request: F) -> Result<T>
@@ -74,7 +90,7 @@ impl RequestLimiter {
     F: Future<Output = T>,
   {
     let _permit = self
-      .single_request
+      .requests
       .acquire()
       .await
       .context("翻译请求限流器已关闭")?;
@@ -86,27 +102,10 @@ impl RequestLimiter {
   }
 }
 
-#[derive(Serialize)]
-struct TranslationRequest<'a> {
-  q: &'a str,
-  source: &'static str,
-  target: &'static str,
-  format: TranslationFormat,
-  api_key: &'static str,
-}
-
-#[derive(Clone, Copy, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug)]
 enum TranslationFormat {
   Text,
   Html,
-}
-
-#[derive(Deserialize)]
-struct TranslationResponse {
-  #[serde(rename = "translatedText")]
-  translated_text: Option<String>,
-  error: Option<String>,
 }
 
 #[tokio::main]
@@ -124,6 +123,18 @@ async fn run() -> Result<()> {
     .batch_size
     .map_or(DEFAULT_BATCH_SIZE, NonZeroUsize::get);
   let request_delay = Duration::from_millis(args.request_delay_ms);
+  ensure!(
+    args
+      .model_file
+      .extension()
+      .and_then(|extension| extension.to_str())
+      .is_some_and(|extension| extension.eq_ignore_ascii_case("gguf")),
+    "模型文件必须是 .gguf: {}",
+    args.model_file.display()
+  );
+  let model_file = fs::canonicalize(&args.model_file)
+    .await
+    .with_context(|| format!("无法访问模型文件 {}", args.model_file.display()))?;
   let directory = match args.directory {
     Some(directory) => directory,
     None => std::env::current_dir().context("无法获取当前工作目录")?,
@@ -145,25 +156,30 @@ async fn run() -> Result<()> {
   }
 
   println!(
-    "找到 {} 个 SRT 文件，并发处理数: {jobs}，请求间隔: {}ms，批量翻译行数: {batch_size}",
+    "找到 {} 个 SRT 文件，文件并发数: {jobs}，GGUF 模型: {}，推理设备: {}，请求间隔: \
+     {}ms，批量翻译行数: {batch_size}",
     files.len(),
+    model_file.display(),
+    if args.cpu {
+      "CPU"
+    } else {
+      "自动选择 GPU/CPU"
+    },
     args.request_delay_ms
   );
 
-  let client = Client::builder()
-    .timeout(Duration::from_secs(120))
-    .build()
-    .context("无法创建 HTTP 客户端")?;
-  let endpoint: Arc<str> = Arc::from(args.endpoint);
-  let request_limiter = Arc::new(RequestLimiter::new(request_delay));
+  let client = Arc::new(LocalTranslator::new(model_file, args.cpu, args.verbose)?);
+  let request_limiter = Arc::new(RequestLimiter::new(
+    NonZeroUsize::new(LOCAL_MODEL_CONCURRENCY).expect("constant is non-zero"),
+    request_delay,
+  ));
   let mut paths = files.into_iter();
   let mut tasks = JoinSet::new();
 
   for path in paths.by_ref().take(jobs) {
     spawn_file_task(
       &mut tasks,
-      client.clone(),
-      Arc::clone(&endpoint),
+      Arc::clone(&client),
       Arc::clone(&request_limiter),
       batch_size,
       path,
@@ -196,8 +212,7 @@ async fn run() -> Result<()> {
     if let Some(path) = paths.next() {
       spawn_file_task(
         &mut tasks,
-        client.clone(),
-        Arc::clone(&endpoint),
+        Arc::clone(&client),
         Arc::clone(&request_limiter),
         batch_size,
         path,
@@ -243,20 +258,16 @@ fn find_srt_files(root: &Path) -> Result<Vec<PathBuf>> {
 
 fn spawn_file_task(
   tasks: &mut JoinSet<Result<FileOutcome>>,
-  client: Client,
-  endpoint: Arc<str>,
+  client: Arc<LocalTranslator>,
   request_limiter: Arc<RequestLimiter>,
   batch_size: usize,
   path: PathBuf,
 ) {
-  tasks.spawn(async move {
-    translate_file(&client, &endpoint, &request_limiter, batch_size, path).await
-  });
+  tasks.spawn(async move { translate_file(&client, &request_limiter, batch_size, path).await });
 }
 
 async fn translate_file(
-  client: &Client,
-  endpoint: &str,
+  client: &LocalTranslator,
   request_limiter: &RequestLimiter,
   batch_size: usize,
   path: PathBuf,
@@ -276,11 +287,24 @@ async fn translate_file(
 
   let mut translations: Vec<Option<String>> = (0 .. lines.len()).map(|_| None).collect();
   let mut skipped_lines = 0usize;
-  for chunk in targets.chunks(batch_size) {
-    let texts: Vec<&str> = chunk.iter().map(|&index| lines[index]).collect();
-    let translated = translate_batch(client, endpoint, request_limiter, &texts)
-      .await
-      .with_context(|| format!("翻译 {} 第 {} 行失败", path.display(), chunk[0] + 1))?;
+  let chunks = targets.chunks(batch_size).map(<[usize]>::to_vec);
+  let chunk_results = stream::iter(chunks)
+    .map(|chunk| {
+      let texts = chunk.iter().map(|&index| lines[index]).collect::<Vec<_>>();
+      async move {
+        (
+          chunk,
+          translate_batch(client, request_limiter, &texts).await,
+        )
+      }
+    })
+    .buffer_unordered(request_limiter.concurrency())
+    .collect::<Vec<_>>()
+    .await;
+
+  for (chunk, translated) in chunk_results {
+    let translated =
+      translated.with_context(|| format!("翻译 {} 第 {} 行失败", path.display(), chunk[0] + 1))?;
     for (&index, translation) in chunk.iter().zip(translated) {
       match translation {
         Some(text) => translations[index] = Some(text),
@@ -318,8 +342,7 @@ async fn translate_file(
 /// Batch responses use numbered HTML paragraphs. Missing or ambiguously duplicated entries
 /// are retried, while a wholly unusable response is split into smaller batches.
 async fn translate_batch(
-  client: &Client,
-  endpoint: &str,
+  client: &LocalTranslator,
   request_limiter: &RequestLimiter,
   texts: &[&str],
 ) -> Result<Vec<Option<String>>> {
@@ -335,7 +358,7 @@ async fn translate_batch(
     if is_standalone_sentence(text) {
       batchable.push(index);
     } else {
-      match translate_line(client, endpoint, request_limiter, text).await? {
+      match translate_line(client, request_limiter, text).await? {
         Some(translated) => translations[index] = Some(translated),
         None => skipped[index] = true,
       }
@@ -352,7 +375,7 @@ async fn translate_batch(
   while let Some(mut group) = pending_groups.pop() {
     if group.len() == 1 {
       let index = group[0];
-      match translate_line(client, endpoint, request_limiter, texts[index]).await? {
+      match translate_line(client, request_limiter, texts[index]).await? {
         Some(translated) => translations[index] = Some(translated),
         None => skipped[index] = true,
       }
@@ -361,9 +384,20 @@ async fn translate_batch(
 
     let group_texts = group.iter().map(|&index| texts[index]).collect::<Vec<_>>();
     let request_html = build_batch_html(&group_texts);
+    if request_html.chars().count() >= LIBRETRANSLATE_MAX_CHARS {
+      let middle = group.len() / 2;
+      let right = group.split_off(middle);
+      eprintln!(
+        "批量翻译请求超过 LibreTranslate 的字符限制（共 {} 行），拆分为 {middle} 行和 {} 行",
+        group.len() + right.len(),
+        right.len()
+      );
+      pending_groups.push(right);
+      pending_groups.push(group);
+      continue;
+    }
     let response_html = send_translation_request_with_retry(
       client,
-      endpoint,
       request_limiter,
       &request_html,
       TranslationFormat::Html,
@@ -457,8 +491,7 @@ fn finish_batch_translations(
 /// a Chinese translation (e.g. non-speech markers like "[BLANK_AUDIO]" that come back unchanged)
 /// so the caller can skip that line instead of failing the whole file.
 async fn translate_line(
-  client: &Client,
-  endpoint: &str,
+  client: &LocalTranslator,
   request_limiter: &RequestLimiter,
   text: &str,
 ) -> Result<Option<String>> {
@@ -467,7 +500,6 @@ async fn translate_line(
   for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
     let translated = send_translation_request_with_retry(
       client,
-      endpoint,
       request_limiter,
       text,
       TranslationFormat::Text,
@@ -506,8 +538,7 @@ async fn translate_line(
 }
 
 async fn send_translation_request_with_retry(
-  client: &Client,
-  endpoint: &str,
+  client: &LocalTranslator,
   request_limiter: &RequestLimiter,
   text: &str,
   format: TranslationFormat,
@@ -517,7 +548,7 @@ async fn send_translation_request_with_retry(
 
   for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
     let result = request_limiter
-      .run(send_translation_request(client, endpoint, text, format))
+      .run(send_translation_request(client, text, format))
       .await?;
 
     match result {
@@ -539,46 +570,79 @@ async fn send_translation_request_with_retry(
 }
 
 async fn send_translation_request(
-  client: &Client,
-  endpoint: &str,
+  client: &LocalTranslator,
   text: &str,
   format: TranslationFormat,
 ) -> Result<String> {
-  let request = TranslationRequest {
-    q: text,
-    source: "en",
-    target: "zh-Hans",
-    format,
-    api_key: "",
-  };
-  let response = client
-    .post(endpoint)
-    .json(&request)
-    .send()
+  ensure!(
+    text.chars().count() < LIBRETRANSLATE_MAX_CHARS,
+    "单次翻译内容超过字符限制（{} 字符）",
+    LIBRETRANSLATE_MAX_CHARS
+  );
+  let translated = client
+    .translate(text, format)
     .await
-    .context("无法连接翻译服务")?;
-  let status = response.status();
-
-  if !status.is_success() {
-    let body = response.text().await.context("无法读取翻译服务错误响应")?;
-    bail!("翻译服务返回 HTTP {status}: {}", body.trim());
-  }
-
-  let payload: TranslationResponse = response.json().await.context("翻译服务返回了无效的 JSON")?;
-  if let Some(error) = payload.error {
-    bail!("翻译服务报错: {error}");
-  }
-
-  let translated = payload
-    .translated_text
-    .context("翻译响应缺少 translatedText 字段")?
+    .context("本地 GGUF 翻译失败")?
     .replace("\r\n", "\n")
     .replace('\r', "\n")
     .trim()
     .to_owned();
   ensure!(!translated.is_empty(), "翻译服务返回了空文本");
 
-  Ok(translated)
+  if matches!(format, TranslationFormat::Text) {
+    Ok(improve_formatting(text, &translated))
+  } else {
+    Ok(translated)
+  }
+}
+
+fn improve_formatting(source: &str, translation: &str) -> String {
+  let mut result = translation.trim().to_owned();
+  if source.is_empty() || result.is_empty() {
+    return result;
+  }
+
+  let source_last = source.chars().next_back();
+  let result_last = result.chars().next_back();
+  const PUNCTUATION: [char; 6] = ['!', '?', '.', ',', ';', '。'];
+
+  match (source_last, result_last) {
+    (Some(source_last), Some(result_last)) if PUNCTUATION.contains(&source_last) => {
+      if source_last != result_last {
+        if PUNCTUATION.contains(&result_last) {
+          result.pop();
+        }
+        result.push(source_last);
+      }
+    }
+    (_, Some(result_last)) if PUNCTUATION.contains(&result_last) => {
+      result.pop();
+    }
+    _ => {}
+  }
+
+  if source.chars().all(|character| character.is_lowercase()) {
+    result = result.to_lowercase();
+  }
+  if source.chars().all(|character| character.is_uppercase()) {
+    result = result.to_uppercase();
+  }
+
+  if let (Some(source_first), Some(result_first)) = (source.chars().next(), result.chars().next()) {
+    if source_first.is_lowercase() && result_first.is_uppercase() {
+      result.replace_range(
+        0 .. result_first.len_utf8(),
+        &result_first.to_lowercase().to_string(),
+      );
+    } else if source_first.is_uppercase() && result_first.is_lowercase() {
+      result.replace_range(
+        0 .. result_first.len_utf8(),
+        &result_first.to_uppercase().to_string(),
+      );
+    }
+  }
+
+  result.trim().to_owned()
 }
 
 fn build_batch_html(texts: &[&str]) -> String {
@@ -681,12 +745,30 @@ fn discard_ambiguous_duplicate_translations(
 }
 
 fn normalize_translation(text: &str) -> String {
-  text
+  let mut normalized = text
     .lines()
     .map(str::trim)
     .filter(|line| !line.is_empty())
     .collect::<Vec<_>>()
-    .join(" ")
+    .join(" ");
+
+  let redundant_ascii_punctuation = match normalized.chars().last() {
+    Some('.') => Some('。'),
+    Some('!') => Some('！'),
+    Some('?') => Some('？'),
+    _ => None,
+  };
+  if redundant_ascii_punctuation.is_some_and(|full_width| {
+    normalized
+      .chars()
+      .rev()
+      .nth(1)
+      .is_some_and(|previous| previous == full_width)
+  }) {
+    normalized.pop();
+  }
+
+  normalized
 }
 
 fn is_usable_translation(text: &str) -> bool {
@@ -833,27 +915,98 @@ mod tests {
 
   #[test]
   fn jobs_cli_argument_is_optional_and_accepts_an_explicit_value() {
-    let default_args = Args::try_parse_from(["translate_srt"])
+    let default_args = Args::try_parse_from(["translate_srt", "--model-file", "model.gguf"])
       .expect("parsing arguments without --jobs should succeed");
-    let explicit_args = Args::try_parse_from(["translate_srt", "--jobs", "7"])
-      .expect("parsing an explicit --jobs value should succeed");
+    let explicit_args = Args::try_parse_from([
+      "translate_srt",
+      "--model-file",
+      "model.gguf",
+      "--jobs",
+      "7",
+      "--cpu",
+      "--verbose",
+      "--request-delay-ms",
+      "25",
+      "--batch-size",
+      "30",
+    ])
+    .expect("parsing explicit local model options should succeed");
 
     assert_eq!(default_args.jobs, None);
+    assert_eq!(default_args.model_file, PathBuf::from("model.gguf"));
+    assert!(!default_args.cpu);
+    assert!(!default_args.verbose);
     assert_eq!(default_args.request_delay_ms, DEFAULT_REQUEST_DELAY_MS);
     assert_eq!(default_args.batch_size, None);
     assert_eq!(explicit_args.jobs.map(NonZeroUsize::get), Some(7));
+    assert!(explicit_args.cpu);
+    assert!(explicit_args.verbose);
+    assert_eq!(explicit_args.request_delay_ms, 25);
+    assert_eq!(explicit_args.batch_size.map(NonZeroUsize::get), Some(30));
+  }
+
+  #[test]
+  fn model_file_cli_argument_is_required() {
+    let error = Args::try_parse_from(["translate_srt"])
+      .expect_err("running without --model-file should be rejected");
+
+    assert_eq!(
+      error.kind(),
+      clap::error::ErrorKind::MissingRequiredArgument
+    );
   }
 
   #[tokio::test]
-  async fn request_limiter_serializes_requests_and_waits_after_each_one() {
-    let limiter = RequestLimiter::new(Duration::from_millis(20));
+  async fn request_limiter_allows_only_the_configured_parallelism() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    async fn observe_parallelism(active: &AtomicUsize, maximum: &AtomicUsize) {
+      let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+      maximum.fetch_max(current, Ordering::SeqCst);
+      sleep(Duration::from_millis(20)).await;
+      active.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    let limiter = RequestLimiter::new(NonZeroUsize::new(2).unwrap(), Duration::ZERO);
+    let active = AtomicUsize::new(0);
+    let maximum = AtomicUsize::new(0);
+
+    let (first, second, third) = tokio::join!(
+      limiter.run(observe_parallelism(&active, &maximum)),
+      limiter.run(observe_parallelism(&active, &maximum)),
+      limiter.run(observe_parallelism(&active, &maximum)),
+    );
+
+    assert!(first.is_ok());
+    assert!(second.is_ok());
+    assert!(third.is_ok());
+    assert_eq!(maximum.load(Ordering::SeqCst), 2);
+  }
+
+  #[tokio::test]
+  async fn request_limiter_waits_after_parallel_requests() {
+    let limiter = RequestLimiter::new(NonZeroUsize::new(2).unwrap(), Duration::from_millis(20));
     let started_at = tokio::time::Instant::now();
 
     let (first, second) = tokio::join!(limiter.run(async {}), limiter.run(async {}));
 
     assert!(first.is_ok());
     assert!(second.is_ok());
-    assert!(started_at.elapsed() >= Duration::from_millis(40));
+    assert!(started_at.elapsed() >= Duration::from_millis(20));
+  }
+
+  #[test]
+  fn model_file_validation_requires_runtime_check() {
+    let args = Args::try_parse_from(["translate_srt", "--model-file", "model.bin"])
+      .expect("CLI parsing should defer file validation to runtime");
+
+    assert_eq!(args.model_file, PathBuf::from("model.bin"));
+  }
+
+  #[test]
+  fn improve_formatting_keeps_source_punctuation_style() {
+    assert_eq!(improve_formatting("Hello!", "你好。"), "你好!");
+    assert_eq!(improve_formatting("hello", "你好"), "你好");
   }
 
   #[test]
@@ -907,6 +1060,14 @@ mod tests {
     assert!(!is_translatable_line("<font color=\"red\">你好</font>"));
     assert!(!is_translatable_line("{\\an8}你好"));
     assert!(is_translatable_line("<i>Hello</i>"));
+  }
+
+  #[test]
+  fn normalization_removes_only_equivalent_trailing_ascii_punctuation() {
+    assert_eq!(normalize_translation("你好吗？?"), "你好吗？");
+    assert_eq!(normalize_translation("完成！!"), "完成！");
+    assert_eq!(normalize_translation("结束。."), "结束。");
+    assert_eq!(normalize_translation("真的吗?!"), "真的吗?!");
   }
 
   #[test]

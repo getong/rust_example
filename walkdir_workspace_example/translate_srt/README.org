@@ -3,7 +3,7 @@
 
 * 简介
 
-=translate_srt= 是一个批量处理中英双语字幕的命令行工具。它会递归扫描指定目录中的 =.srt= 文件，将英文字幕逐行发送到兼容 LibreTranslate 的 HTTP 接口，并把中文译文写到对应英文行之后。
+=translate_srt= 是一个批量处理中英双语字幕的命令行工具。它会递归扫描指定目录中的 =.srt= 文件，使用本地 GGUF 大模型直接在进程内完成翻译，并把中文译文写到对应英文行之后。
 
 程序会直接修改源 SRT 文件。首次处理重要字幕前，建议先备份文件或将文件纳入版本控制。
 
@@ -14,8 +14,9 @@
 - 保留字幕序号、时间轴、空行及原有换行风格。
 - 忽略 HTML 和 ASS 格式标签，仅识别可见英文文本。
 - 同一字幕时间轴块中已有中文时跳过该块，避免重复翻译。
-- 使用 Tokio 并发读取和处理文件。
-- 全局只发送一个在途翻译请求，避免本地翻译服务被并发请求压垮。
+- 使用内嵌的 llama.cpp 推理后端直接加载 =.gguf= 模型，不再依赖 HTTP 翻译服务。
+- 使用 Tokio 多线程运行时并发读取和处理文件；单个大文件的翻译批次也会并发执行。
+- 整个进程共享一个 GGUF 模型实例；为规避 llama.cpp 并行推理稳定性问题，模型推理当前串行执行，文件扫描与读写仍然保持并发。
 - 首尾完整的独立句会按批（默认最多 20 行）封装成带编号的 HTML 段落；跨时间轴的续句片段使用单行请求，防止翻译服务把相邻字幕内容合并或重复写入。若批量响应缺失段落或不同原文得到相同译文，会保留可信译文并只重试可疑行；完全无法还原时才二分子批次。
 - 空译文、纯标点等不含中文的结果不会写入文件，而是按缺失译文重试。
 - 请求失败时最多尝试 3 次，并使用 250ms、500ms 的退避等待。
@@ -24,31 +25,8 @@
 * 运行要求
 
 - Rust 工具链，建议 Rust 1.95 或更高版本。
-- 一个运行中的兼容翻译服务，默认地址为：
-
-#+begin_example
-http://0.0.0.0:5050/translate
-#+end_example
-
-请求格式如下：
-
-#+begin_src json
-{
-  "q": "hello",
-  "source": "en",
-  "target": "zh-Hans",
-  "format": "text",
-  "api_key": ""
-}
-#+end_src
-
-响应需要包含 =translatedText= 字段：
-
-#+begin_src json
-{
-  "translatedText": "你好"
-}
-#+end_src
+- 一个可直接加载的 =.gguf= 模型文件，例如 =gemma-3-4b-it-q4_0.gguf=。
+- 若希望在 macOS 上使用 GPU 加速，构建时需要启用 =metal= feature。
 
 * 构建
 
@@ -56,24 +34,39 @@ http://0.0.0.0:5050/translate
 cargo build --release -p translate_srt
 #+end_src
 
+在 macOS 上启用 Metal：
+
+#+begin_src shell
+cargo build --release -p translate_srt --features metal
+#+end_src
+
 * 使用
+
+当前命令行形式：
+
+#+begin_example
+translate_srt [OPTIONS] --model-file <FILE> [DIRECTORY]
+#+end_example
 
 处理指定目录：
 
 #+begin_src shell
-cargo run --release -p translate_srt -- /path/to/subtitles
+cargo run --release -p translate_srt --features metal -- \
+  --model-file ~/backup-20251212/gemma-3-4b-it-q4_0.gguf \
+  /path/to/subtitles
 #+end_src
 
 不提供目录时，程序使用当前工作目录：
 
 #+begin_src shell
-cargo run --release -p translate_srt --
+cargo run --release -p translate_srt --features metal -- \
+  --model-file ~/backup-20251212/gemma-3-4b-it-q4_0.gguf
 #+end_src
 
 已经构建二进制时也可以直接运行：
 
 #+begin_src shell
-translate_srt /path/to/subtitles
+translate_srt --model-file ~/backup-20251212/gemma-3-4b-it-q4_0.gguf /path/to/subtitles
 #+end_src
 
 ** 命令行参数
@@ -82,24 +75,29 @@ translate_srt /path/to/subtitles
 |------+--------+------|
 | =[DIRECTORY]= | 当前工作目录 | 递归扫描的字幕目录 |
 | =-j, --jobs <JOBS>= | =max(2, 可用 CPU 数 / 2)= | 同时处理的最大文件数 |
-| =--endpoint <ENDPOINT>= | =http://0.0.0.0:5050/translate= | 翻译接口地址 |
+| =--model-file <FILE>= | 无 | 本地 GGUF 模型文件路径 |
+| =--cpu= | =false= | 强制使用 CPU 推理 |
+| =-v, --verbose= | =false= | 输出更详细的 llama.cpp 日志 |
 | =--request-delay-ms <MILLISECONDS>= | =0= | 每个翻译请求完成后的额外等待时间 |
 | =--batch-size <LINES>= | =20= | 单次翻译请求合并的最大字幕行数 |
 | =-h, --help= | - | 显示帮助 |
 | =-V, --version= | - | 显示版本 |
 
-例如，翻译服务仍然繁忙时，可以增加请求间隔：
+例如，模型推理负载较高时，可以增加请求间隔：
 
 #+begin_src shell
-translate_srt /path/to/subtitles --request-delay-ms 250
+translate_srt --model-file ~/backup-20251212/gemma-3-4b-it-q4_0.gguf \
+  /path/to/subtitles \
+  --request-delay-ms 250
 #+end_src
 
-指定其他翻译接口和文件并发数：
+指定模型文件并限制到 CPU：
 
 #+begin_src shell
 translate_srt /path/to/subtitles \
-  --endpoint http://127.0.0.1:5050/translate \
-  --jobs 4
+  --model-file ~/backup-20251212/gemma-3-4b-it-q4_0.gguf \
+  --jobs 4 \
+  --cpu
 #+end_src
 
 * 输出示例
@@ -135,4 +133,8 @@ cargo fmt --package translate_srt -- --check
 
 - SRT 文件必须使用 UTF-8 编码。
 - 中文检测以字幕块中的常用 CJK 字符为依据。如果一个字幕块同时包含尚未翻译的英文和已有中文，程序会保守地跳过整个字幕块。
-- 文件处理并发数不等于 HTTP 请求并发数；为保护本地翻译服务，HTTP 请求会全局串行发送。
+- 当前版本不再通过 HTTP 调用外部翻译服务；所有翻译都依赖本地 GGUF 模型质量与机器算力。
+- 为保证稳定性，GGUF 推理当前按单请求串行执行，字幕文件的扫描与读写仍可并发。
+
+
+copy source code from https://github.com/LibreTranslate/LTEngine

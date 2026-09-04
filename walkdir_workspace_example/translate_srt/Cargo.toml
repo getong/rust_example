@@ -3,12 +3,20 @@ name = "translate_srt"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+cuda = ["llama-cpp-2/cuda"]
+metal = ["llama-cpp-2/metal"]
+vulkan = ["llama-cpp-2/vulkan"]
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
+encoding_rs = "0.8.35"
+futures-util = "0.3"
+llama-cpp-2 = { version = "0.1.156" }
 many_cpus = "2.4.17"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+parking_lot = "0.12.5"
 scraper = "0.27"
-serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
 tokio = { version = "1.53", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
 walkdir = "2.5"
