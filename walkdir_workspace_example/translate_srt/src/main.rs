@@ -275,14 +275,25 @@ async fn translate_file(
   }
 
   let mut translations: Vec<Option<String>> = (0 .. lines.len()).map(|_| None).collect();
+  let mut skipped_lines = 0usize;
   for chunk in targets.chunks(batch_size) {
     let texts: Vec<&str> = chunk.iter().map(|&index| lines[index]).collect();
     let translated = translate_batch(client, endpoint, request_limiter, &texts)
       .await
       .with_context(|| format!("翻译 {} 第 {} 行失败", path.display(), chunk[0] + 1))?;
-    for (&index, text) in chunk.iter().zip(translated) {
-      translations[index] = Some(text);
+    for (&index, translation) in chunk.iter().zip(translated) {
+      match translation {
+        Some(text) => translations[index] = Some(text),
+        None => skipped_lines += 1,
+      }
     }
+  }
+
+  if skipped_lines > 0 {
+    eprintln!(
+      "{} 跳过了 {skipped_lines} 行无法翻译为中文的内容，已保留原文并继续处理其余行",
+      path.display()
+    );
   }
 
   let newline = if contents.contains("\r\n") {
@@ -298,7 +309,7 @@ async fn translate_file(
 
   Ok(FileOutcome {
     path,
-    translated_lines: targets.len(),
+    translated_lines: targets.len() - skipped_lines,
   })
 }
 
@@ -311,30 +322,28 @@ async fn translate_batch(
   endpoint: &str,
   request_limiter: &RequestLimiter,
   texts: &[&str],
-) -> Result<Vec<String>> {
+) -> Result<Vec<Option<String>>> {
   if texts.is_empty() {
     return Ok(Vec::new());
   }
 
   let mut translations: Vec<Option<String>> = (0 .. texts.len()).map(|_| None).collect();
+  let mut skipped = vec![false; texts.len()];
   let mut batchable = Vec::with_capacity(texts.len());
 
   for (index, text) in texts.iter().enumerate() {
     if is_standalone_sentence(text) {
       batchable.push(index);
     } else {
-      translations[index] = Some(translate_line(client, endpoint, request_limiter, text).await?);
+      match translate_line(client, endpoint, request_limiter, text).await? {
+        Some(translated) => translations[index] = Some(translated),
+        None => skipped[index] = true,
+      }
     }
   }
 
   if batchable.is_empty() {
-    return translations
-      .into_iter()
-      .enumerate()
-      .map(|(index, translation)| {
-        translation.with_context(|| format!("批量翻译缺少第 {} 行", index + 1))
-      })
-      .collect();
+    return finish_batch_translations(translations, &skipped);
   }
 
   let mut pending_groups = Vec::with_capacity(1);
@@ -343,8 +352,10 @@ async fn translate_batch(
   while let Some(mut group) = pending_groups.pop() {
     if group.len() == 1 {
       let index = group[0];
-      translations[index] =
-        Some(translate_line(client, endpoint, request_limiter, texts[index]).await?);
+      match translate_line(client, endpoint, request_limiter, texts[index]).await? {
+        Some(translated) => translations[index] = Some(translated),
+        None => skipped[index] = true,
+      }
       continue;
     }
 
@@ -415,21 +426,42 @@ async fn translate_batch(
     }
   }
 
+  finish_batch_translations(translations, &skipped)
+}
+
+/// Converts collected batch results into the caller's expected shape.
+///
+/// Lines marked `skipped` are deliberately given up on (e.g. the translation service keeps
+/// echoing the original text back) and resolve to `None` rather than an error, so the rest of
+/// the batch — and the file it belongs to — is still written out.
+fn finish_batch_translations(
+  translations: Vec<Option<String>>,
+  skipped: &[bool],
+) -> Result<Vec<Option<String>>> {
   translations
     .into_iter()
     .enumerate()
     .map(|(index, translation)| {
-      translation.with_context(|| format!("批量翻译缺少第 {} 行", index + 1))
+      if skipped[index] {
+        Ok(None)
+      } else {
+        translation
+          .map(Some)
+          .with_context(|| format!("批量翻译缺少第 {} 行", index + 1))
+      }
     })
     .collect()
 }
 
+/// Translates a single line, returning `Ok(None)` when the service demonstrably cannot produce
+/// a Chinese translation (e.g. non-speech markers like "[BLANK_AUDIO]" that come back unchanged)
+/// so the caller can skip that line instead of failing the whole file.
 async fn translate_line(
   client: &Client,
   endpoint: &str,
   request_limiter: &RequestLimiter,
   text: &str,
-) -> Result<String> {
+) -> Result<Option<String>> {
   let mut retry_delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
 
   for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
@@ -445,8 +477,14 @@ async fn translate_line(
     let translated = normalize_translation(&translated);
 
     if is_usable_translation(&translated) {
-      return Ok(translated);
+      return Ok(Some(translated));
     }
+
+    if translated == text.trim() {
+      eprintln!("翻译服务原样返回了原文，跳过该行且保留原文: {text:?}");
+      return Ok(None);
+    }
+
     if attempt < MAX_TRANSLATION_ATTEMPTS {
       eprintln!(
         "单行翻译结果不含中文（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试",
@@ -457,7 +495,11 @@ async fn translate_line(
       continue;
     }
 
-    bail!("翻译服务连续 {MAX_TRANSLATION_ATTEMPTS} 次返回不含中文的结果: {translated:?}");
+    eprintln!(
+      "翻译服务连续 {MAX_TRANSLATION_ATTEMPTS} 次返回不含中文的结果，跳过该行且保留原文: {text:?} \
+       -> {translated:?}"
+    );
+    return Ok(None);
   }
 
   bail!("翻译请求未执行")
@@ -923,6 +965,21 @@ mod tests {
     .expect("unusable paragraphs should remain available for targeted retries");
 
     assert_eq!(translations, [None, None, Some("有效译文".to_owned())]);
+  }
+
+  #[test]
+  fn finish_batch_translations_turns_skipped_lines_into_none_instead_of_an_error() {
+    let translations = vec![Some("已译文".to_owned()), None, None];
+    let skipped = [false, true, false];
+
+    let error = finish_batch_translations(translations.clone(), &skipped)
+      .expect_err("an unskipped missing translation must still be reported as an error");
+    assert!(error.to_string().contains("第 3 行"));
+
+    let skipped_all_missing = [false, true, true];
+    let resolved = finish_batch_translations(translations, &skipped_all_missing)
+      .expect("skipped lines should resolve to None rather than failing the batch");
+    assert_eq!(resolved, [Some("已译文".to_owned()), None, None]);
   }
 
   #[test]
