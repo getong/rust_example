@@ -1,4 +1,5 @@
 use std::{
+  fmt::Write as _,
   future::Future,
   num::NonZeroUsize,
   path::{Path, PathBuf},
@@ -10,6 +11,7 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use many_cpus::SystemHardware;
 use reqwest::Client;
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, sync::Semaphore, task::JoinSet, time::sleep};
 use walkdir::WalkDir;
@@ -89,8 +91,15 @@ struct TranslationRequest<'a> {
   q: &'a str,
   source: &'static str,
   target: &'static str,
-  format: &'static str,
+  format: TranslationFormat,
   api_key: &'static str,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum TranslationFormat {
+  Text,
+  Html,
 }
 
 #[derive(Deserialize)]
@@ -293,65 +302,126 @@ async fn translate_file(
   })
 }
 
-/// Translates a batch of subtitle lines with as few HTTP requests as possible.
+/// Translates fragments individually and batches only lines that look like standalone sentences.
 ///
-/// The local translation service has fixed per-request overhead (~0.5s) on top of the
-/// per-line translation cost, so joining several lines into one request with `\n`
-/// separators and splitting the response back apart is substantially faster than one
-/// request per line. Falls back to one-request-per-line if the response's line count
-/// doesn't match, since some inputs can cause the engine to merge or split lines.
+/// Batch responses use numbered HTML paragraphs. Missing or ambiguously duplicated entries
+/// are retried, while a wholly unusable response is split into smaller batches.
 async fn translate_batch(
   client: &Client,
   endpoint: &str,
   request_limiter: &RequestLimiter,
   texts: &[&str],
 ) -> Result<Vec<String>> {
-  if texts.len() < 2 {
-    let mut translated = Vec::with_capacity(texts.len());
-    for text in texts {
-      translated.push(translate_line(client, endpoint, request_limiter, text).await?);
-    }
-    return Ok(translated);
+  if texts.is_empty() {
+    return Ok(Vec::new());
   }
 
-  let joined = texts.join("\n");
-  let mut retry_delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
+  let mut translations: Vec<Option<String>> = (0 .. texts.len()).map(|_| None).collect();
+  let mut batchable = Vec::with_capacity(texts.len());
 
-  for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
-    let result = request_limiter
-      .run(send_translation_request(client, endpoint, &joined))
-      .await?;
-
-    match result {
-      Ok(translated) => {
-        let lines: Vec<&str> = translated.split('\n').map(str::trim).collect();
-        if lines.len() == texts.len() && lines.iter().all(|line| !line.is_empty()) {
-          return Ok(lines.into_iter().map(str::to_owned).collect());
-        }
-        eprintln!(
-          "批量翻译返回的行数与请求不一致（期望 {}，实际 {}），改为逐行翻译",
-          texts.len(),
-          lines.len()
-        );
-        let mut translated = Vec::with_capacity(texts.len());
-        for text in texts {
-          translated.push(translate_line(client, endpoint, request_limiter, text).await?);
-        }
-        return Ok(translated);
-      }
-      Err(error) if attempt < MAX_TRANSLATION_ATTEMPTS => {
-        eprintln!(
-          "批量翻译请求失败（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试: {error:#}",
-          retry_delay.as_millis()
-        );
-        sleep(retry_delay).await;
-        retry_delay = retry_delay.saturating_mul(2);
-      }
-      Err(error) => return Err(error),
+  for (index, text) in texts.iter().enumerate() {
+    if is_standalone_sentence(text) {
+      batchable.push(index);
+    } else {
+      translations[index] = Some(translate_line(client, endpoint, request_limiter, text).await?);
     }
   }
 
-  bail!("翻译请求未执行")
+  if batchable.is_empty() {
+    return translations
+      .into_iter()
+      .enumerate()
+      .map(|(index, translation)| {
+        translation.with_context(|| format!("批量翻译缺少第 {} 行", index + 1))
+      })
+      .collect();
+  }
+
+  let mut pending_groups = Vec::with_capacity(1);
+  pending_groups.push(batchable);
+
+  while let Some(mut group) = pending_groups.pop() {
+    if group.len() == 1 {
+      let index = group[0];
+      translations[index] =
+        Some(translate_line(client, endpoint, request_limiter, texts[index]).await?);
+      continue;
+    }
+
+    let group_texts = group.iter().map(|&index| texts[index]).collect::<Vec<_>>();
+    let request_html = build_batch_html(&group_texts);
+    let response_html = send_translation_request_with_retry(
+      client,
+      endpoint,
+      request_limiter,
+      &request_html,
+      TranslationFormat::Html,
+      "批量翻译请求",
+    )
+    .await?;
+
+    match parse_batch_html(&response_html, group.len()) {
+      Ok(mut batch) => {
+        let duplicate_count = discard_ambiguous_duplicate_translations(&group_texts, &mut batch);
+        if duplicate_count > 0 {
+          eprintln!("批量翻译检测到 {duplicate_count} 行不同原文共享相同译文，仅重试这些行");
+        }
+
+        let mut missing = Vec::new();
+        for (local_index, translation) in batch.into_iter().enumerate() {
+          let source_index = group[local_index];
+          match translation {
+            Some(text) => translations[source_index] = Some(text),
+            None => missing.push(source_index),
+          }
+        }
+
+        if missing.is_empty() {
+          continue;
+        }
+
+        let translated_count = group.len() - missing.len();
+        if translated_count > 0 {
+          eprintln!(
+            "批量翻译已还原 {translated_count}/{} 行，仅重试缺失的 {} 行",
+            group.len(),
+            missing.len()
+          );
+          pending_groups.push(missing);
+          continue;
+        }
+
+        let middle = missing.len() / 2;
+        let right = missing.split_off(middle);
+        eprintln!(
+          "批量翻译未还原任何段落（共 {} 行），拆分为 {middle} 行和 {} 行重试",
+          group.len(),
+          right.len()
+        );
+        pending_groups.push(right);
+        pending_groups.push(missing);
+      }
+      Err(error) => {
+        let middle = group.len() / 2;
+        let right = group.split_off(middle);
+        eprintln!(
+          "批量翻译响应格式无效（共 {} 行）：{error:#}；拆分为 {middle} 行和 {} 行重试",
+          group.len() + right.len(),
+          right.len()
+        );
+        pending_groups.push(right);
+        pending_groups.push(group);
+      }
+    }
+  }
+
+  translations
+    .into_iter()
+    .enumerate()
+    .map(|(index, translation)| {
+      translation.with_context(|| format!("批量翻译缺少第 {} 行", index + 1))
+    })
+    .collect()
 }
 
 async fn translate_line(
@@ -363,15 +433,57 @@ async fn translate_line(
   let mut retry_delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
 
   for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
+    let translated = send_translation_request_with_retry(
+      client,
+      endpoint,
+      request_limiter,
+      text,
+      TranslationFormat::Text,
+      "翻译请求",
+    )
+    .await?;
+    let translated = normalize_translation(&translated);
+
+    if is_usable_translation(&translated) {
+      return Ok(translated);
+    }
+    if attempt < MAX_TRANSLATION_ATTEMPTS {
+      eprintln!(
+        "单行翻译结果不含中文（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试",
+        retry_delay.as_millis()
+      );
+      sleep(retry_delay).await;
+      retry_delay = retry_delay.saturating_mul(2);
+      continue;
+    }
+
+    bail!("翻译服务连续 {MAX_TRANSLATION_ATTEMPTS} 次返回不含中文的结果: {translated:?}");
+  }
+
+  bail!("翻译请求未执行")
+}
+
+async fn send_translation_request_with_retry(
+  client: &Client,
+  endpoint: &str,
+  request_limiter: &RequestLimiter,
+  text: &str,
+  format: TranslationFormat,
+  request_name: &str,
+) -> Result<String> {
+  let mut retry_delay = Duration::from_millis(INITIAL_RETRY_DELAY_MS);
+
+  for attempt in 1 ..= MAX_TRANSLATION_ATTEMPTS {
     let result = request_limiter
-      .run(send_translation_request(client, endpoint, text))
+      .run(send_translation_request(client, endpoint, text, format))
       .await?;
 
     match result {
-      Ok(translated) => return Ok(translated.replace('\n', " ").trim().to_owned()),
+      Ok(translated) => return Ok(translated),
       Err(error) if attempt < MAX_TRANSLATION_ATTEMPTS => {
         eprintln!(
-          "翻译请求失败（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试: {error:#}",
+          "{request_name}失败（第 {attempt}/{MAX_TRANSLATION_ATTEMPTS} 次），{}ms 后重试: \
+           {error:#}",
           retry_delay.as_millis()
         );
         sleep(retry_delay).await;
@@ -384,12 +496,17 @@ async fn translate_line(
   bail!("翻译请求未执行")
 }
 
-async fn send_translation_request(client: &Client, endpoint: &str, text: &str) -> Result<String> {
+async fn send_translation_request(
+  client: &Client,
+  endpoint: &str,
+  text: &str,
+  format: TranslationFormat,
+) -> Result<String> {
   let request = TranslationRequest {
     q: text,
     source: "en",
     target: "zh-Hans",
-    format: "text",
+    format,
     api_key: "",
   };
   let response = client
@@ -420,6 +537,148 @@ async fn send_translation_request(client: &Client, endpoint: &str, text: &str) -
   ensure!(!translated.is_empty(), "翻译服务返回了空文本");
 
   Ok(translated)
+}
+
+fn build_batch_html(texts: &[&str]) -> String {
+  let text_bytes = texts.iter().map(|text| text.len()).sum::<usize>();
+  let mut html = String::with_capacity(text_bytes + texts.len() * 32 + 28);
+  html.push_str("<div id=\"srt-batch\">");
+
+  for (index, text) in texts.iter().enumerate() {
+    write!(html, "<p id=\"srt-{index}\">").expect("writing to a String must succeed");
+    push_escaped_html_text(&mut html, text);
+    html.push_str("</p>");
+  }
+
+  html.push_str("</div>");
+  html
+}
+
+fn push_escaped_html_text(output: &mut String, text: &str) {
+  let mut unescaped_start = 0usize;
+
+  for (index, character) in text.char_indices() {
+    let entity = match character {
+      '&' => "&amp;",
+      '<' => "&lt;",
+      '>' => "&gt;",
+      _ => continue,
+    };
+    output.push_str(&text[unescaped_start .. index]);
+    output.push_str(entity);
+    unescaped_start = index + character.len_utf8();
+  }
+
+  output.push_str(&text[unescaped_start ..]);
+}
+
+fn parse_batch_html(html: &str, expected_lines: usize) -> Result<Vec<Option<String>>> {
+  let document = Html::parse_fragment(html);
+  let paragraph_selector =
+    Selector::parse("p[id]").expect("the constant paragraph selector must be valid");
+  let mut translations: Vec<Option<String>> = (0 .. expected_lines).map(|_| None).collect();
+
+  for paragraph in document.select(&paragraph_selector) {
+    let Some(index_text) = paragraph
+      .value()
+      .attr("id")
+      .and_then(|id| id.strip_prefix("srt-"))
+    else {
+      continue;
+    };
+    let index = index_text
+      .parse::<usize>()
+      .with_context(|| format!("批量翻译返回了无效的段落编号 {index_text:?}"))?;
+    ensure!(
+      index < expected_lines,
+      "批量翻译返回了越界的段落编号 {index}（期望 0-{}）",
+      expected_lines.saturating_sub(1)
+    );
+    ensure!(
+      translations[index].is_none(),
+      "批量翻译重复返回了第 {index} 段"
+    );
+
+    let translated = normalize_translation(&paragraph.text().collect::<String>());
+    if is_usable_translation(&translated) {
+      translations[index] = Some(translated);
+    }
+  }
+
+  Ok(translations)
+}
+
+fn discard_ambiguous_duplicate_translations(
+  source_texts: &[&str],
+  translations: &mut [Option<String>],
+) -> usize {
+  debug_assert_eq!(source_texts.len(), translations.len());
+
+  let mut ambiguous = vec![false; translations.len()];
+  for left in 0 .. translations.len() {
+    for right in left + 1 .. translations.len() {
+      if source_texts[left].trim() != source_texts[right].trim()
+        && translations[left].is_some()
+        && translations[left] == translations[right]
+      {
+        ambiguous[left] = true;
+        ambiguous[right] = true;
+      }
+    }
+  }
+
+  let mut discarded = 0usize;
+  for (translation, is_ambiguous) in translations.iter_mut().zip(ambiguous) {
+    if is_ambiguous {
+      *translation = None;
+      discarded += 1;
+    }
+  }
+
+  discarded
+}
+
+fn normalize_translation(text: &str) -> String {
+  text
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn is_usable_translation(text: &str) -> bool {
+  contains_visible_cjk(text)
+}
+
+fn is_standalone_sentence(text: &str) -> bool {
+  let mut first_ascii_letter = None;
+  let mut ends_with_terminal_punctuation = false;
+  let mut inside_angle_tag = false;
+  let mut brace_depth = 0usize;
+
+  for character in text.chars() {
+    match character {
+      '<' if brace_depth == 0 => inside_angle_tag = true,
+      '>' if inside_angle_tag => inside_angle_tag = false,
+      '{' if !inside_angle_tag => brace_depth += 1,
+      '}' if brace_depth > 0 => brace_depth -= 1,
+      _ if inside_angle_tag || brace_depth > 0 || character.is_whitespace() => {}
+      _ => {
+        if first_ascii_letter.is_none() && character.is_ascii_alphabetic() {
+          first_ascii_letter = Some(character);
+        }
+        match character {
+          '.' | '!' | '?' => ends_with_terminal_punctuation = true,
+          '\'' | '"' | ')' | ']' if ends_with_terminal_punctuation => {}
+          _ => ends_with_terminal_punctuation = false,
+        }
+      }
+    }
+  }
+
+  first_ascii_letter.is_some_and(|character| character.is_ascii_uppercase())
+    && ends_with_terminal_punctuation
 }
 
 fn translation_targets(lines: &[&str]) -> Vec<usize> {
@@ -619,5 +878,86 @@ mod tests {
       output,
       "1\r\n00:00:01,000 --> 00:00:02,000\r\nHello\r\n你好\r\n"
     );
+  }
+
+  #[test]
+  fn batch_html_escapes_text_and_assigns_stable_paragraph_ids() {
+    let html = build_batch_html(&["<i>Hello & welcome</i>", "Use x > 1"]);
+
+    assert_eq!(
+      html,
+      "<div id=\"srt-batch\"><p id=\"srt-0\">&lt;i&gt;Hello &amp; welcome&lt;/i&gt;</p><p \
+       id=\"srt-1\">Use x &gt; 1</p></div>"
+    );
+  }
+
+  #[test]
+  fn batch_html_parser_recovers_compact_out_of_order_paragraphs() {
+    let html = concat!(
+      "<div id=\"srt-batch\"><p id=\"srt-1\">第二 <i>行</i></p>",
+      "<p id=\"srt-0\">第一 &amp; 一半</p></div>"
+    );
+
+    let translations = parse_batch_html(html, 2).expect("valid batch HTML should parse");
+
+    assert_eq!(
+      translations,
+      [Some("第一 & 一半".to_owned()), Some("第二 行".to_owned())]
+    );
+  }
+
+  #[test]
+  fn batch_html_parser_preserves_valid_paragraphs_when_some_are_missing() {
+    let translations = parse_batch_html("<p id=\"srt-0\">第一行</p><p id=\"srt-1\"></p>", 3)
+      .expect("missing paragraphs should remain available for targeted retries");
+
+    assert_eq!(translations, [Some("第一行".to_owned()), None, None]);
+  }
+
+  #[test]
+  fn batch_html_parser_retries_empty_and_punctuation_only_translations() {
+    let translations = parse_batch_html(
+      "<p id=\"srt-0\"></p><p id=\"srt-1\">。</p><p id=\"srt-2\">有效译文</p>",
+      3,
+    )
+    .expect("unusable paragraphs should remain available for targeted retries");
+
+    assert_eq!(translations, [None, None, Some("有效译文".to_owned())]);
+  }
+
+  #[test]
+  fn only_standalone_sentences_are_safe_to_batch() {
+    assert!(is_standalone_sentence("What makes an agent?"));
+    assert!(is_standalone_sentence("<i>Agents can act.</i>"));
+    assert!(is_standalone_sentence("{\\an8}\"Agents can act!\""));
+    assert!(!is_standalone_sentence(" and tasks."));
+    assert!(!is_standalone_sentence("Agents can act across"));
+  }
+
+  #[test]
+  fn duplicate_translations_for_different_sources_are_discarded() {
+    let sources = ["First source.", "Second source.", "Repeated source."];
+    let duplicate = "错误地合并了其他字幕。".to_owned();
+    let mut translations = [
+      Some(duplicate.clone()),
+      Some("独立译文。".to_owned()),
+      Some(duplicate),
+    ];
+
+    let discarded = discard_ambiguous_duplicate_translations(&sources, &mut translations);
+
+    assert_eq!(discarded, 2);
+    assert_eq!(translations, [None, Some("独立译文。".to_owned()), None]);
+  }
+
+  #[test]
+  fn duplicate_translations_for_repeated_sources_are_allowed() {
+    let sources = ["Okay.", "Okay."];
+    let mut translations = [Some("好的。".to_owned()), Some("好的。".to_owned())];
+
+    let discarded = discard_ambiguous_duplicate_translations(&sources, &mut translations);
+
+    assert_eq!(discarded, 0);
+    assert!(translations.iter().all(Option::is_some));
   }
 }

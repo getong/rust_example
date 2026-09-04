@@ -8,6 +8,7 @@ anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
 many_cpus = "2.4.17"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+scraper = "0.27"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.53", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
 walkdir = "2.5"
