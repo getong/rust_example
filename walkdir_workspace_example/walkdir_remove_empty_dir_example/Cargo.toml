@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 async-recursion = "1.1.1"
-futures = "0.3.34"
+# futures = "0.3.34"
 tokio = { version = "1.53.1", features = ["full"] }
 walkdir = "2.5.0"
