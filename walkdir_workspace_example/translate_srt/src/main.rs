@@ -20,7 +20,11 @@ use walkdir::WalkDir;
 const DEFAULT_REQUEST_DELAY_MS: u64 = 0;
 const DEFAULT_BATCH_SIZE: usize = 20;
 const LIBRETRANSLATE_MAX_CHARS: usize = 5_000;
-const LOCAL_MODEL_CONCURRENCY: usize = 1;
+/// In-flight requests per inference slot.
+///
+/// Keeping more requests queued than the engine can decode at once means a slot never idles while
+/// the next chunk of subtitles is being prepared.
+const REQUESTS_PER_SLOT: usize = 2;
 const MAX_TRANSLATION_ATTEMPTS: usize = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 250;
 
@@ -57,6 +61,11 @@ struct Args {
   /// Maximum subtitle lines combined into a single translation request; defaults to 20.
   #[arg(long, value_name = "LINES")]
   batch_size: Option<NonZeroUsize>,
+
+  /// Translation requests decoded in parallel by the model; defaults to a value picked from the
+  /// inference device.
+  #[arg(long, value_name = "SLOTS")]
+  slots: Option<NonZeroUsize>,
 }
 
 #[derive(Debug)]
@@ -168,11 +177,15 @@ async fn run() -> Result<()> {
     args.request_delay_ms
   );
 
-  let client = Arc::new(LocalTranslator::new(model_file, args.cpu, args.verbose)?);
-  let request_limiter = Arc::new(RequestLimiter::new(
-    NonZeroUsize::new(LOCAL_MODEL_CONCURRENCY).expect("constant is non-zero"),
-    request_delay,
-  ));
+  let client = Arc::new(LocalTranslator::new(
+    model_file,
+    args.cpu,
+    args.verbose,
+    args.slots.map(NonZeroUsize::get),
+  )?);
+  let request_concurrency =
+    NonZeroUsize::new(client.slots() * REQUESTS_PER_SLOT).context("推理引擎报告了 0 路并发")?;
+  let request_limiter = Arc::new(RequestLimiter::new(request_concurrency, request_delay));
   let mut paths = files.into_iter();
   let mut tasks = JoinSet::new();
 
@@ -353,15 +366,33 @@ async fn translate_batch(
   let mut translations: Vec<Option<String>> = (0 .. texts.len()).map(|_| None).collect();
   let mut skipped = vec![false; texts.len()];
   let mut batchable = Vec::with_capacity(texts.len());
+  let mut fragments = Vec::new();
 
   for (index, text) in texts.iter().enumerate() {
     if is_standalone_sentence(text) {
       batchable.push(index);
     } else {
-      match translate_line(client, request_limiter, text).await? {
-        Some(translated) => translations[index] = Some(translated),
-        None => skipped[index] = true,
-      }
+      fragments.push(index);
+    }
+  }
+
+  // Fragments cannot share a request with their neighbours, so run them concurrently instead;
+  // otherwise a file with mostly continuation lines would only ever keep one slot busy.
+  let fragment_results = stream::iter(fragments)
+    .map(|index| async move {
+      (
+        index,
+        translate_line(client, request_limiter, texts[index]).await,
+      )
+    })
+    .buffer_unordered(request_limiter.concurrency())
+    .collect::<Vec<_>>()
+    .await;
+
+  for (index, translated) in fragment_results {
+    match translated? {
+      Some(translated) => translations[index] = Some(translated),
+      None => skipped[index] = true,
     }
   }
 

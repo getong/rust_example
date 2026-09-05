@@ -15,7 +15,6 @@ encoding_rs = "0.8.35"
 futures-util = "0.3"
 llama-cpp-2 = { version = "0.1.156" }
 many_cpus = "2.4.17"
-parking_lot = "0.12.5"
 scraper = "0.27"
 thiserror = "2.0"
 tokio = { version = "1.53", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
