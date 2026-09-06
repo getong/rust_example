@@ -7,4 +7,4 @@ edition = "2024"
 axum = "0.8.9"
 http = "1.5.0"
 tokio = { version = "1.53.1", features = ["full"] }
-tower-http = { version = "0.7.0", features = ["cors"] }
+tower-http = { version = "0.7.1", features = ["cors"] }

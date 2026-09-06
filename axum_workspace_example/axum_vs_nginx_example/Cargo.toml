@@ -19,4 +19,4 @@ rustls-acme = { version = "0.15.4", features = ["axum"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.19"
 tower = "0.5.3"
-tower-http = { version = "0.7.0", features = ["auth", "fs"] }
+tower-http = { version = "0.7.1", features = ["auth", "fs"] }
