@@ -6,6 +6,6 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ftlog = "0.2.0"
-time = { version = "0.3.34", features = ["local-offset", "formatting"] }
-tokio = { version = "1.22.0", features = ["full"] }
+ftlog = "0.2.18"
+time = { version = "0.3.55", features = ["local-offset", "formatting"] }
+tokio = { version = "1.53.1", features = ["full"] }
