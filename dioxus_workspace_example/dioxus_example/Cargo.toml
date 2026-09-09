@@ -6,9 +6,9 @@ edition = "2024"
 
 [dependencies]
 dioxus = { version = "=0.8.0-alpha.1", features = ["fullstack"] }
-reqwest = "0.13.4"
+reqwest = "0.13.5"
 serde = "1.0.229"
-web-sys = { version = "0.3.103", features = ["console"] }
+web-sys = { version = "0.3.105", features = ["console"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dioxus-desktop = "=0.8.0-alpha.1"

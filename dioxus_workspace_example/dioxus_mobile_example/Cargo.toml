@@ -9,7 +9,7 @@ edition = "2024"
 anyhow = "1.0.104"
 dioxus = "=0.8.0-alpha.1"
 dioxus-desktop = { version = "=0.8.0-alpha.1", default-features = false, features = ["tokio_runtime"] }
-log = "0.4.33"
+log = "0.4.34"
 
 [features]
 default = []

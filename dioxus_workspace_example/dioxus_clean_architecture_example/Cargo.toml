@@ -7,12 +7,12 @@ edition = "2024"
 blitz = "=0.3.0-beta.1"
 blitz-dom = { version = "=0.3.0-beta.1", default-features = false, features = ["complex-scripts"] }
 dioxus = { version = "=0.8.0-alpha.1", features = ["desktop", "router"] }
-dirs = "6.0.0"
-rocksdb = { version = "0.24.0", default-features = false, features = ["bindgen-runtime"] }
+dirs = "7.0.0"
+rocksdb = { version = "0.25.0", default-features = false, features = ["bindgen-runtime"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-thiserror = "2.0.19"
-uuid = { version = "1.24.0", features = ["serde", "v4"] }
+thiserror = "2.0.20"
+uuid = { version = "1.26.0", features = ["serde", "v4"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
