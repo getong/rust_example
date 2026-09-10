@@ -76,7 +76,7 @@ openraft = { version = "0.10.0-alpha.34", features = [
 petgraph = "0.8.3"
 prost = "0.14.4"
 rayon = "1.12.0"
-redis = { version = "1.6.0", features = [
+redis = { version = "1.7.0", features = [
   "aio",
   "tokio-comp",
   "connection-manager",
@@ -114,7 +114,7 @@ tokio = { version = "1.53", default-features = false, features = [
 ] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-uuid = { version = "1.26.0", features = ["v7"] }
+uuid = { version = "1.26.1", features = ["v7"] }
 wasi-preview1-component-adapter-provider = { version = "48.0.1", optional = true }
 # Pre-validation of component binaries before compilation (the validator
 # wasmtime itself uses); precise diagnostics before cranelift time is spent.
@@ -131,7 +131,7 @@ wit-component = { version = "0.258", optional = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.
-zstd = "0.13"
+zstd = "0.14"
 
 [build-dependencies]
 prost-build = "0.14.4"
