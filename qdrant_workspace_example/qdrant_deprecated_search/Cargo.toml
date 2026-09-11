@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.102"
-qdrant-client = "1.18.0"
-serde_json = "1.0.150"
-tokio = { version = "1.52.3", features = ["full"] }
+anyhow = "1.0.104"
+qdrant-client = "1.19.0"
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
