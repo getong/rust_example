@@ -8,7 +8,7 @@ edition = "2024"
 async-stream = "0.3.6"
 axum = "0.8.9"
 http-body-util = "0.1.5"
-hyper = { version = "1.11.0", features = ["full"] }
+hyper = { version = "1.11.1", features = ["full"] }
 hyper-util = { version = "0.1.20", features = ["full"] }
 pin-project-lite = "0.2.17"
 tokio = { version = "1.53.1", features = ["full"] }

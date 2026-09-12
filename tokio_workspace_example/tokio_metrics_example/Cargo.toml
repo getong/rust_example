@@ -7,4 +7,4 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1.53.1", features = ["full"] }
-tokio-metrics = "0.5.1"
+tokio-metrics = "0.5.2"
