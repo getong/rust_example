@@ -209,6 +209,7 @@ impl NoopNetwork {
 }
 
 impl RaftNetworkV2<TypeConfig> for NoopNetwork {
+  type SnapshotData = std::io::Cursor<Vec<u8>>;
   async fn append_entries(
     &mut self,
     _rpc: openraft::raft::AppendEntriesRequest<TypeConfig>,
@@ -235,7 +236,7 @@ impl RaftNetworkV2<TypeConfig> for NoopNetwork {
   async fn full_snapshot(
     &mut self,
     _vote: <TypeConfig as openraft::RaftTypeConfig>::Vote,
-    _snapshot: openraft::alias::SnapshotOf<TypeConfig>,
+    _snapshot: openraft::alias::SnapshotOf<TypeConfig, std::io::Cursor<Vec<u8>>>,
     _cancel: impl Future<Output = openraft::error::ReplicationClosed> + openraft::OptionalSend + 'static,
     _option: RPCOption,
   ) -> Result<

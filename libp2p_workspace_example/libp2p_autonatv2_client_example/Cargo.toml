@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 cfg-if = "1.0.4"
 clap = { version = "4.5.53", features = ["derive"] }
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
+libp2p = { version = "0.57.0", features = [
   "full",
 ] }
 opentelemetry = { version = "0.31.0", optional = true }

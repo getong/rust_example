@@ -10,7 +10,7 @@ use libp2p::{
   StreamProtocol, Transport,
 };
 use libp2p_webrtc as webrtc;
-use rand::thread_rng;
+use rand::rng;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
       Ok(
         webrtc::tokio::Transport::new(
           id_keys.clone(),
-          webrtc::tokio::Certificate::generate(&mut thread_rng())?,
+          webrtc::tokio::Certificate::generate(&mut rng())?,
         )
         .map(|(peer_id, conn), _| (peer_id, StreamMuxerBox::new(conn))),
       )

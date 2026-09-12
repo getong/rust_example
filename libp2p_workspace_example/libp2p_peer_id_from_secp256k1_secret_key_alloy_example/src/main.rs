@@ -58,7 +58,7 @@ fn main() -> Result<(), Box<dyn Error>> {
   let private_key = SecretKey::from_byte_array(private_key_array)
     .map_err(|_| "Invalid private key provided. Ensure it is a valid secp256k1 key.")?;
 
-  let public_key = PublicKey::from_secret_key(&secp, &private_key);
+  let public_key = PublicKey::from_secret_key(&private_key);
 
   // Example usage of get_eth_addr_from_peer
   let eth_address = pub_key_to_eth_address(&public_key)?;

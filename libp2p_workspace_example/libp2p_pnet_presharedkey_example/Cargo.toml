@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-base64 = "0.22"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
+base64 = "0.23"
+libp2p = { version = "0.57.0", features = [
   "full",
 ] }
-tokio = { version = "1.52", features = ["full"] }
+tokio = { version = "1.53", features = ["full"] }

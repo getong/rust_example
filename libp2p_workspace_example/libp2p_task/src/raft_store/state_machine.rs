@@ -10,7 +10,7 @@ use openraft::{
   storage::{EntryResponder, RaftStateMachine},
   type_config::TypeConfigExt,
 };
-use rand::RngExt;
+use rand::Rng;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 
@@ -110,12 +110,13 @@ struct SnapshotFile {
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
+  type SnapshotData = Cursor<Vec<u8>>;
   #[tracing::instrument(level = "trace", skip(self))]
-  async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
+  async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig, Cursor<Vec<u8>>>, io::Error> {
     let (last_applied_log, last_membership) = self.get_meta()?;
 
     // Generate a random snapshot index.
-    let snapshot_idx: u64 = rand::rng().random_range(0 .. 1000);
+    let snapshot_idx: u64 = rand::thread_rng().gen_range(0..1000);
 
     let snapshot_id = if let Some(ref last) = last_applied_log {
       format!(
@@ -131,7 +132,6 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
     let meta = SnapshotMetaOf::<TypeConfig> {
       last_log_id: last_applied_log,
       last_membership,
-      snapshot_id: snapshot_id.clone(),
     };
 
     // Use RocksDB snapshot for consistent point-in-time view
@@ -185,7 +185,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
       )
     })?;
 
-    Ok(SnapshotOf::<TypeConfig> {
+    Ok(SnapshotOf::<TypeConfig, Cursor<Vec<u8>>> {
       meta,
       snapshot: Cursor::new(data_bytes),
     })
@@ -193,6 +193,7 @@ impl RaftSnapshotBuilder<TypeConfig> for RocksStateMachine {
 }
 
 impl RaftStateMachine<TypeConfig> for RocksStateMachine {
+  type SnapshotData = Cursor<Vec<u8>>;
   type SnapshotBuilder = Self;
 
   async fn applied_state(
@@ -268,14 +269,10 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     self.clone()
   }
 
-  async fn begin_receiving_snapshot(&mut self) -> Result<SnapshotDataOf<TypeConfig>, io::Error> {
-    Ok(Cursor::new(Vec::new()))
-  }
-
   async fn install_snapshot(
     &mut self,
     meta: &SnapshotMetaOf<TypeConfig>,
-    snapshot: SnapshotDataOf<TypeConfig>,
+    snapshot: SnapshotDataOf<TypeConfig, Self>,
   ) -> Result<(), io::Error> {
     tracing::info!(
       { snapshot_size = snapshot.get_ref().len() },
@@ -349,13 +346,26 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let file_bytes = serialize(&snapshot_file)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    let snapshot_path = self.snapshot_dir.join(&meta.snapshot_id);
+    // `SnapshotMeta` carries no id, so derive a filename the same way `build_snapshot` does
+    // to keep `get_current_snapshot`'s lexicographic "latest wins" ordering meaningful.
+    let snapshot_idx: u64 = rand::thread_rng().gen_range(0..1000);
+    let snapshot_id = match meta.last_log_id.as_ref() {
+      Some(last) => format!(
+        "{}-{}-{}",
+        last.committed_leader_id(),
+        last.index(),
+        snapshot_idx
+      ),
+      None => format!("--{}", snapshot_idx),
+    };
+
+    let snapshot_path = self.snapshot_dir.join(&snapshot_id);
     fs::write(&snapshot_path, &file_bytes)?;
 
     Ok(())
   }
 
-  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig>>, io::Error> {
+  async fn get_current_snapshot(&mut self) -> Result<Option<SnapshotOf<TypeConfig, Cursor<Vec<u8>>>>, io::Error> {
     // Find the latest snapshot file by comparing filenames lexicographically
     let mut latest_snapshot_id: Option<String> = None;
 
@@ -395,7 +405,7 @@ impl RaftStateMachine<TypeConfig> for RocksStateMachine {
     let data_bytes = serialize(&snapshot_file.data)
       .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    Ok(Some(SnapshotOf::<TypeConfig> {
+    Ok(Some(SnapshotOf::<TypeConfig, Cursor<Vec<u8>>> {
       meta: snapshot_file.meta,
       snapshot: Cursor::new(data_bytes),
     }))

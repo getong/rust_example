@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
 use libp2p::{identity, multiaddr::Protocol, Multiaddr, PeerId, Stream, StreamProtocol};
 use libp2p_stream as stream;
-use rand::Rng;
+use rand::{Rng, RngCore};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -143,10 +143,10 @@ async fn echo(mut stream: Stream) -> io::Result<usize> {
 }
 
 async fn send(mut stream: Stream) -> io::Result<()> {
-  let num_bytes = rand::random_range(0 .. 1000usize);
+  let num_bytes = rand::thread_rng().gen_range(0..1000usize);
 
   let mut bytes = vec![0; num_bytes];
-  rand::rng().fill_bytes(&mut bytes);
+  rand::thread_rng().fill_bytes(&mut bytes);
 
   stream.write_all(&bytes).await?;
 

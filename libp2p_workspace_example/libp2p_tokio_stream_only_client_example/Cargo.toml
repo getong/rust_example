@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.103"
-futures = "0.3.32"
+anyhow = "1.0.104"
+futures = "0.3.34"
 hex = "0.4.3"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
+libp2p = { version = "0.57.0", features = [
   "full",
 ] }
-libp2p-stream = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2" }
-rand = "0.10.1"
-tokio = { version = "1.52.3", features = ["full"] }
+libp2p-stream = "0.5.0-alpha"
+rand = "0.8"
+tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

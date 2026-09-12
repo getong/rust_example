@@ -1,4 +1,4 @@
-use k256::{ecdsa::SigningKey, elliptic_curve::rand_core::OsRng};
+use k256::ecdsa::SigningKey;
 use libp2p::{
   PeerId,
   identity::{self, Keypair},
@@ -7,7 +7,7 @@ use libp2p::{
 // Function to generate a secp256k1 private key and return the trimmed private key as a hex string
 fn generate_secp256k1_key() -> Result<String, Box<dyn std::error::Error>> {
   // Generate a new signing key using the secp256k1 curve
-  let signing_key = SigningKey::random(&mut OsRng);
+  let signing_key = SigningKey::random(&mut rand::rng());
 
   // Get the raw bytes of the private key
   let private_key_bytes = signing_key.to_bytes();

@@ -6,13 +6,12 @@ edition = "2024"
 [dependencies]
 ethers = "2.0.14"
 hex = "0.4.3"
-libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "891bf049c63f65a1b9500b00c6d0a39afae175a2", features = [
+libp2p = { version = "0.57.0", features = [
   "full",
 ] }
-secp256k1 = { version = "0.31.1", features = [
+secp256k1 = { version = "0.33.1", features = [
   "alloc",
   "std",
-  "hashes",
   "rand",
   "serde",
 ] }

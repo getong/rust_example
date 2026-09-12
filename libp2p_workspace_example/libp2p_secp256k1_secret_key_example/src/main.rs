@@ -58,7 +58,7 @@ impl Identity {
     let private_key = SecretKey::from_byte_array(private_key_array)
       .map_err(|_| "Invalid private key provided. Ensure it is a valid secp256k1 key.")?;
 
-    let public_key = PublicKey::from_secret_key(&secp, &private_key);
+    let public_key = PublicKey::from_secret_key(&private_key);
 
     // Create a libp2p Keypair from the secp256k1 private key
     let secret_key = identity::secp256k1::SecretKey::try_from_bytes(private_key_bytes)?;
