@@ -12,7 +12,7 @@ metrics = ["kameo/metrics"]
 futures = "0.3.33"
 kameo = "0.22.2"
 kameo_actors = "0.8.1"
-libp2p = { version = "0.56.0", features = ["serde"] }
+libp2p = { version = "0.57.0", features = ["serde"] }
 metrics-exporter-prometheus = "0.18"
 serde = { version = "1.0.229", features = ["derive"] }
 subsecond = "0.7.9"

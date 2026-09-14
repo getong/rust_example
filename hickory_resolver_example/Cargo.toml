@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.96"
 hickory-resolver = { version = "0.24.4", features = ["tokio-runtime"] }
-libp2p = { version = "0.55.0", features = ["full"] }
+libp2p = { version = "0.57.0", features = ["full"] }
 tokio = { version = "1.43.0", features = ["full"] }

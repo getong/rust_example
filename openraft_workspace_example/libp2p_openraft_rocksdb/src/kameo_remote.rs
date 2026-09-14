@@ -13,7 +13,9 @@ use kameo::{
   message::{Context as KameoContext, Message},
   remote, remote_message,
 };
-use libp2p::{
+// kameo links against libp2p 0.56, so this module talks to the aliased 0.56
+// dependency rather than the crate-wide libp2p 0.57 used by the raft network.
+use libp2p_kameo::{
   PeerId, SwarmBuilder, mdns, noise,
   swarm::{NetworkBehaviour, SwarmEvent},
   tcp, yamux,

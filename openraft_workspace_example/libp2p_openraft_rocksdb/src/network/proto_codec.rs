@@ -1,6 +1,5 @@
 use std::{io, marker::PhantomData};
 
-use async_trait::async_trait;
 use futures::prelude::*;
 use libp2p::StreamProtocol;
 use prost::Message;
@@ -44,50 +43,63 @@ struct ProtoEnvelope {
   payload: Vec<u8>,
 }
 
-#[async_trait]
 impl libp2p::request_response::Codec for ProtoCodec {
   type Protocol = StreamProtocol;
   type Request = RaftRpcRequest;
   type Response = RaftRpcResponse;
 
-  async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+  fn read_request<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Request>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    let payload = read_envelope(io, self.request_size_maximum).await?;
-    decode_payload(&payload)
+    let limit = self.request_size_maximum;
+    async move {
+      let payload = read_envelope(io, limit).await?;
+      decode_payload(&payload)
+    }
   }
 
-  async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
+  fn read_response<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Response>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    let payload = read_envelope(io, self.response_size_maximum).await?;
-    decode_payload(&payload)
+    let limit = self.response_size_maximum;
+    async move {
+      let payload = read_envelope(io, limit).await?;
+      decode_payload(&payload)
+    }
   }
 
-  async fn write_request<T>(
+  fn write_request<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     req: Self::Request,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_envelope(io, &req).await
+    async move { write_envelope(io, &req).await }
   }
 
-  async fn write_response<T>(
+  fn write_response<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     resp: Self::Response,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_envelope(io, &resp).await
+    async move { write_envelope(io, &resp).await }
   }
 }
 
@@ -151,7 +163,6 @@ impl<Req, Resp> ProstCodec<Req, Resp> {
   }
 }
 
-#[async_trait]
 impl<Req, Resp> libp2p::request_response::Codec for ProstCodec<Req, Resp>
 where
   Req: Message + Default + Send,
@@ -161,42 +172,52 @@ where
   type Request = Req;
   type Response = Resp;
 
-  async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+  fn read_request<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Request>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    read_message(io, self.request_size_maximum).await
+    let limit = self.request_size_maximum;
+    async move { read_message(io, limit).await }
   }
 
-  async fn read_response<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Response>
+  fn read_response<T>(
+    &mut self,
+    _: &Self::Protocol,
+    io: &mut T,
+  ) -> impl Future<Output = io::Result<Self::Response>> + Send
   where
     T: AsyncRead + Unpin + Send,
   {
-    read_message(io, self.response_size_maximum).await
+    let limit = self.response_size_maximum;
+    async move { read_message(io, limit).await }
   }
 
-  async fn write_request<T>(
+  fn write_request<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     req: Self::Request,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_message(io, &req).await
+    async move { write_message(io, &req).await }
   }
 
-  async fn write_response<T>(
+  fn write_response<T>(
     &mut self,
     _: &Self::Protocol,
     io: &mut T,
     resp: Self::Response,
-  ) -> io::Result<()>
+  ) -> impl Future<Output = io::Result<()>> + Send
   where
     T: AsyncWrite + Unpin + Send,
   {
-    write_message(io, &resp).await
+    async move { write_message(io, &resp).await }
   }
 }
 

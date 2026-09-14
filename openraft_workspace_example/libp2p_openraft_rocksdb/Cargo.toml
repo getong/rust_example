@@ -10,7 +10,7 @@ axum = { version = "0.8.9", features = ["json"] }
 clap = { version = "4.6.6", features = ["derive"] }
 futures = "0.3.34"
 kameo = { version = "0.22.2", features = ["remote"] }
-libp2p = { version = "0.56", features = [
+libp2p = { version = "0.57.0", features = [
   "cbor",
   "dns",
   "gossipsub",
@@ -28,6 +28,18 @@ libp2p = { version = "0.56", features = [
   "tls",
   "tokio",
   "websocket",
+  "yamux",
+] }
+# kameo 0.22.2 is still built against libp2p 0.56, so its `remote::Behaviour`
+# only composes with 0.56 swarm types. The kameo demo in `kameo_remote` gets its
+# own aliased 0.56 dependency; everything else stays on libp2p 0.57.
+libp2p-kameo = { package = "libp2p", version = "0.56.0", features = [
+  "macros",
+  "mdns",
+  "noise",
+  "quic",
+  "tcp",
+  "tokio",
   "yamux",
 ] }
 openraft = { version = "0.10.0-alpha.34", features = [
