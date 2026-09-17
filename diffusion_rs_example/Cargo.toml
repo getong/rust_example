@@ -1,0 +1,19 @@
+[package]
+name = "diffusion_rs_example"
+version = "0.1.0"
+edition = "2024"
+description = "A command-line image generation example using diffusion-rs"
+
+[features]
+default = []
+metal = ["diffusion-rs/metal"]
+cuda = ["diffusion-rs/cuda"]
+vulkan = ["diffusion-rs/vulkan"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+diffusion-rs = "0.1.20"
+
+[dev-dependencies]
+tempfile = "3"
