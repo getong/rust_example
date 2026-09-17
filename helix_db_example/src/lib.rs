@@ -32,16 +32,16 @@ pub fn active_users_query() -> ReadBatch {
     .returning(["active_users"])
 }
 
-pub fn local_user_count() -> DynamicQueryRequest {
-  DynamicQueryRequest::read(
+pub fn local_user_count() -> QueryRequest {
+  QueryRequest::read(
     read_batch()
       .var_as("user_count", g().n_with_label("User").count())
       .returning(["user_count"]),
   )
 }
 
-pub fn create_user_query(external_id: &str, name: &str, status: &str) -> DynamicQueryRequest {
-  DynamicQueryRequest::write(
+pub fn create_user_query(external_id: &str, name: &str, status: &str) -> QueryRequest {
+  QueryRequest::write(
     write_batch()
       .var_as(
         "created_user",
@@ -60,8 +60,8 @@ pub fn create_user_query(external_id: &str, name: &str, status: &str) -> Dynamic
   )
 }
 
-pub fn read_user_query(external_id: &str) -> DynamicQueryRequest {
-  DynamicQueryRequest::read(
+pub fn read_user_query(external_id: &str) -> QueryRequest {
+  QueryRequest::read(
     read_batch()
       .var_as(
         "user",
@@ -74,8 +74,8 @@ pub fn read_user_query(external_id: &str) -> DynamicQueryRequest {
   )
 }
 
-pub fn update_user_query(external_id: &str, name: &str, status: &str) -> DynamicQueryRequest {
-  DynamicQueryRequest::write(
+pub fn update_user_query(external_id: &str, name: &str, status: &str) -> QueryRequest {
+  QueryRequest::write(
     write_batch()
       .var_as(
         "updated_user",
@@ -90,8 +90,8 @@ pub fn update_user_query(external_id: &str, name: &str, status: &str) -> Dynamic
   )
 }
 
-pub fn delete_user_query(external_id: &str) -> DynamicQueryRequest {
-  DynamicQueryRequest::write(
+pub fn delete_user_query(external_id: &str) -> QueryRequest {
+  QueryRequest::write(
     write_batch()
       .var_as(
         "user_to_delete",
@@ -200,7 +200,6 @@ pub fn remote_client(url: &str, api_key: &str) -> Result<Client, helix_db::Helix
   }
 }
 
-#[register]
 pub fn add_user(name: String) -> WriteBatch {
   write_batch()
     .var_as("user_id", g().add_n("user", vec![("name", name)]))
@@ -209,7 +208,7 @@ pub fn add_user(name: String) -> WriteBatch {
 
 #[derive(Debug, Deserialize)]
 pub struct AddUserResponse {
-  pub user_id: u64,
+  pub user_id: Vec<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,30 +223,26 @@ pub async fn run_dynamic_add_user(
   client: &Client,
   name: String,
 ) -> Result<AddUserResponse, helix_db::HelixError> {
-  let request = add_user(name);
-  client.query().dynamic(request).send().await
+  let request = QueryRequest::write(add_user(name));
+  client.query(request).send().await
 }
 
 pub async fn run_dynamic_query<R>(
   client: &Client,
-  request: DynamicQueryRequest,
+  request: QueryRequest,
 ) -> Result<R, helix_db::HelixError>
 where
   R: for<'de> Deserialize<'de>,
 {
-  client.query().dynamic(request).send().await
+  client.query(request).send().await
 }
 
 pub async fn run_stored_add_user(
   client: &Client,
   payload: &StoredAddUserPayload,
 ) -> Result<AddUserResponse, helix_db::HelixError> {
-  client
-    .query()
-    .body(payload)?
-    .stored("add_user".to_string())
-    .send()
-    .await
+  // SDK v3 sends query bodies directly; stored routes are no longer supported.
+  run_dynamic_add_user(client, payload.name.clone()).await
 }
 
 pub fn sample_batches() -> (Vec<ReadBatch>, Vec<WriteBatch>) {
