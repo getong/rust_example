@@ -5,17 +5,17 @@ use std::{
   path::{Path, PathBuf},
 };
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
   println!("Hello, world!");
 
   // create file
-  File::create("./stats.txt");
+  _ = File::create("./stats.txt");
 
   // open file
   File::open("stats1.txt").expect("File not found");
 
   // open file
-  OpenOptions::new()
+  _ = OpenOptions::new()
     .write(true)
     .create(true)
     .open("stats2.txt");
@@ -111,4 +111,5 @@ fn main() {
   fsunix::symlink("stats.txt", "sym_stats.txt").expect("Cannot create symbolic link");
   let sym_path = fs::read_link("sym_stats.txt").expect("Cannot read link");
   println!("Link is {:?}", sym_path);
+  Ok(())
 }
