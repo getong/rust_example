@@ -5,4 +5,5 @@ resolver = "2"
 members = [
   "qdrant_search",
   "qdrant_deprecated_search",
+  "qdrant_load_hf_file",
 ]
