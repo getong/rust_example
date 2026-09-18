@@ -1,9 +1,10 @@
 [workspace]
 
-resolver = "2"
+resolver = "3"
 
 members = [
   "qdrant_search",
   "qdrant_deprecated_search",
   "qdrant_load_hf_file",
+  "qdrant_search_ue_example",
 ]
