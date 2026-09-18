@@ -3,6 +3,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
+use aho_corasick::AhoCorasick;
 use walkdir::WalkDir;
 
 const INCREMENT_DIR_DEFAULT: &str = "~/abc";
@@ -38,7 +39,7 @@ fn main() -> io::Result<()> {
     return Ok(());
   }
 
-  let matches = grep_dir(&target_dir, &patterns);
+  let matches = grep_dir(&target_dir, &patterns)?;
   let mut matched_patterns = 0;
 
   for (pattern, pattern_matches) in patterns.iter().zip(&matches) {
@@ -124,12 +125,11 @@ impl Pattern {
 
 fn search_title(name: &str) -> &str {
   let mut title = name;
-  if let Some((stem, extension)) = title.rsplit_once('.') {
-    if !stem.is_empty()
-      && (extension.eq_ignore_ascii_case("pdf") || extension.eq_ignore_ascii_case("epub"))
-    {
-      title = stem;
-    }
+  if let Some((stem, extension)) = title.rsplit_once('.')
+    && !stem.is_empty()
+    && (extension.eq_ignore_ascii_case("pdf") || extension.eq_ignore_ascii_case("epub"))
+  {
+    title = stem;
   }
 
   while let Some((prefix, suffix)) = title.rsplit_once('.') {
@@ -156,10 +156,16 @@ fn is_digits(value: &str) -> bool {
   !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn grep_dir(dir: impl AsRef<Path>, patterns: &[Pattern]) -> Vec<Vec<Match>> {
+fn grep_dir(dir: impl AsRef<Path>, patterns: &[Pattern]) -> io::Result<Vec<Vec<Match>>> {
   let mut matches = (0 .. patterns.len())
     .map(|_| Vec::new())
     .collect::<Vec<_>>();
+  if patterns.is_empty() {
+    return Ok(matches);
+  }
+  // Build once and reuse for every file; keep the existing Unicode lowercasing.
+  let matcher = AhoCorasick::new(patterns.iter().map(|pattern| &pattern.lowercase_name))
+    .map_err(io::Error::other)?;
 
   for entry in WalkDir::new(dir.as_ref()).sort_by_file_name() {
     let entry = match entry {
@@ -178,10 +184,10 @@ fn grep_dir(dir: impl AsRef<Path>, patterns: &[Pattern]) -> Vec<Vec<Match>> {
       continue;
     };
 
-    collect_file_matches(entry.path(), &content, patterns, &mut matches);
+    collect_file_matches(entry.path(), &content, &matcher, &mut matches);
   }
 
-  matches
+  Ok(matches)
 }
 
 fn read_text_file(path: &Path) -> Option<String> {
@@ -197,20 +203,25 @@ fn read_text_file(path: &Path) -> Option<String> {
 fn collect_file_matches(
   path: &Path,
   content: &str,
-  patterns: &[Pattern],
+  matcher: &AhoCorasick,
   matches: &mut [Vec<Match>],
 ) {
+  let mut last_matched_line = vec![0; matches.len()];
   for (line_index, text) in content.lines().enumerate() {
     let lowercase_text = text.to_lowercase();
+    let line_number = line_index + 1;
 
-    for (index, pattern) in patterns.iter().enumerate() {
-      if !lowercase_text.contains(&pattern.lowercase_name) {
+    // Overlapping matches preserve titles that are substrings of other titles.
+    for found in matcher.find_overlapping_iter(&lowercase_text) {
+      let index = found.pattern().as_usize();
+      if last_matched_line[index] == line_number {
         continue;
       }
+      last_matched_line[index] = line_number;
 
       matches[index].push(Match {
         path: path.to_path_buf(),
-        line_number: line_index + 1,
+        line_number,
         text: text.to_owned(),
       });
     }
@@ -297,7 +308,7 @@ mod tests {
       Pattern::new("Learn.to.Code.with.Rust.2026.pdf".to_owned()),
       Pattern::new("missing.pdf".to_owned()),
     ];
-    let matches = grep_dir(&dir.path, &patterns);
+    let matches = grep_dir(&dir.path, &patterns).unwrap();
 
     assert_eq!(matches[0].len(), 1);
     assert_eq!(matches[0][0].path, list);
@@ -315,7 +326,7 @@ mod tests {
     );
 
     let patterns = vec![Pattern::new("Learn.to.Code.with.Rust.2026.pdf".to_owned())];
-    let matches = grep_dir(&dir.path, &patterns);
+    let matches = grep_dir(&dir.path, &patterns).unwrap();
 
     assert_eq!(matches[0].len(), 1);
     assert_eq!(matches[0][0].line_number, 1);
@@ -363,7 +374,7 @@ mod tests {
     );
 
     let patterns = read_patterns(&increment.path).unwrap();
-    let matches = grep_dir(&target.path, &patterns);
+    let matches = grep_dir(&target.path, &patterns).unwrap();
 
     assert_eq!(patterns[0].name, name);
     assert_eq!(matches[0].len(), 1);
@@ -381,9 +392,44 @@ mod tests {
     let patterns = vec![Pattern::new(
       "Building.Data-Driven.Applications.with.LlamaIndex.2nd.2026.pdf".to_owned(),
     )];
-    let matches = grep_dir(&dir.path, &patterns);
+    let matches = grep_dir(&dir.path, &patterns).unwrap();
     assert_eq!(matches[0].len(), 1);
     assert_eq!(matches[0][0].line_number, 1);
+  }
+
+  #[test]
+  fn multi_pattern_search_matches_naive_search() {
+    let dir = TestDir::new("multi_pattern");
+    let content = "RUST.Book rust.book RUST\nÄPFEL 中文书\ncc++.a ccxxza\nRust.Book\nnone\n";
+    dir.write("list.txt", content);
+    let patterns = [
+      "Rust",
+      "Rust.Book",
+      "Rust.2026.pdf",
+      "äpfel",
+      "中文书",
+      "CC++.a",
+      "missing",
+    ]
+    .into_iter()
+    .map(|name| Pattern::new(name.to_owned()))
+    .collect::<Vec<_>>();
+    let matches = grep_dir(&dir.path, &patterns).unwrap();
+
+    for (pattern, found) in patterns.iter().zip(&matches) {
+      let expected = content
+        .lines()
+        .enumerate()
+        .filter(|(_, text)| text.to_lowercase().contains(&pattern.lowercase_name))
+        .map(|(index, text)| (index + 1, text))
+        .collect::<Vec<_>>();
+      let actual = found
+        .iter()
+        .map(|item| (item.line_number, item.text.as_str()))
+        .collect::<Vec<_>>();
+      assert_eq!(actual, expected, "{}", pattern.name);
+    }
+    assert!(grep_dir(&dir.path, &[]).unwrap().is_empty());
   }
 
   #[test]
