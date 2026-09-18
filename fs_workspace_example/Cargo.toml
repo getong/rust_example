@@ -10,4 +10,5 @@ members = [
   "fs_mv_example",
   "fs_call_unrar_example",
   "find_diff",
+  "grep_all_files",
 ]
