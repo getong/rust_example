@@ -2,7 +2,8 @@ use rmcp::{
   ServerHandler, ServiceExt,
   handler::server::{router::tool::ToolRouter, wrapper::Parameters},
   model::{
-    CallToolRequestParams, ClientInfo, Content, Implementation, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, ClientConfig, ContentBlock, Implementation, ServerCapabilities,
+    ServerConfig,
   },
   schemars, tool, tool_handler, tool_router,
   transport::stdio,
@@ -78,11 +79,11 @@ impl RmcpDemoServer {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for RmcpDemoServer {
-  fn get_info(&self) -> ServerInfo {
+  fn get_info(&self) -> ServerConfig {
     let mut implementation = Implementation::new("rmcp-example-server", env!("CARGO_PKG_VERSION"));
     implementation.title = Some("rmcp 功能演示".to_string());
 
-    ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
       .with_server_info(implementation)
       .with_instructions("演示 rmcp 如何把 Rust 函数发布成 MCP tools，供 AI client 发现和调用。")
   }
@@ -134,7 +135,7 @@ async fn run_in_process_demo() -> Result<(), Box<dyn std::error::Error>> {
     }
   });
 
-  let client = ClientInfo::default().serve(client_transport).await?;
+  let client = ClientConfig::default().serve(client_transport).await?;
 
   let tools = client.peer().list_all_tools().await?;
   println!("discovered tools:");
@@ -171,7 +172,7 @@ async fn run_in_process_demo() -> Result<(), Box<dyn std::error::Error>> {
   Ok(())
 }
 
-fn print_tool_text(content: &[Content]) {
+fn print_tool_text(content: &[ContentBlock]) {
   for item in content {
     if let Some(text) = item.as_text() {
       println!("{}", text.text);
