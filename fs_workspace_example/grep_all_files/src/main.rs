@@ -12,7 +12,7 @@ const TARGET_DIR_DEFAULT: &str = "~/cde/";
 #[derive(Debug)]
 struct Pattern {
   name: String,
-  lowercase_name: String,
+  normalized_name: String,
 }
 
 #[derive(Debug)]
@@ -117,10 +117,36 @@ fn read_patterns(dir: impl AsRef<Path>) -> io::Result<Vec<Pattern>> {
 impl Pattern {
   fn new(name: String) -> Self {
     Self {
-      lowercase_name: search_title(&name).to_lowercase(),
+      normalized_name: normalize_for_search(search_title(&name)),
       name,
     }
   }
+}
+
+fn normalize_for_search(text: &str) -> String {
+  let mut normalized = text.to_lowercase();
+  // Parentheses around a subtitle do not change its identity.
+  normalized.retain(|ch| !matches!(ch, '(' | ')' | '（' | '）'));
+  if normalized.is_empty() {
+    return text.to_lowercase();
+  }
+  if !normalized.contains("cplusplus") {
+    return normalized;
+  }
+
+  let mut result = String::with_capacity(normalized.len());
+  let is_separator = |ch: char| !ch.is_alphanumeric() && ch != '_';
+  for part in normalized.split_inclusive(is_separator) {
+    if let Some(suffix) = part.strip_prefix("cplusplus")
+      && suffix.chars().all(is_separator)
+    {
+      result.push_str("c++");
+      result.push_str(suffix);
+    } else {
+      result.push_str(part);
+    }
+  }
+  result
 }
 
 fn search_title(name: &str) -> &str {
@@ -163,8 +189,8 @@ fn grep_dir(dir: impl AsRef<Path>, patterns: &[Pattern]) -> io::Result<Vec<Vec<M
   if patterns.is_empty() {
     return Ok(matches);
   }
-  // Build once and reuse for every file; keep the existing Unicode lowercasing.
-  let matcher = AhoCorasick::new(patterns.iter().map(|pattern| &pattern.lowercase_name))
+  // Build once and apply the same normalization to titles and target lines.
+  let matcher = AhoCorasick::new(patterns.iter().map(|pattern| &pattern.normalized_name))
     .map_err(io::Error::other)?;
 
   for entry in WalkDir::new(dir.as_ref()).sort_by_file_name() {
@@ -208,11 +234,11 @@ fn collect_file_matches(
 ) {
   let mut last_matched_line = vec![0; matches.len()];
   for (line_index, text) in content.lines().enumerate() {
-    let lowercase_text = text.to_lowercase();
+    let normalized_text = normalize_for_search(text);
     let line_number = line_index + 1;
 
     // Overlapping matches preserve titles that are substrings of other titles.
-    for found in matcher.find_overlapping_iter(&lowercase_text) {
+    for found in matcher.find_overlapping_iter(&normalized_text) {
       let index = found.pattern().as_usize();
       if last_matched_line[index] == line_number {
         continue;
@@ -420,7 +446,7 @@ mod tests {
       let expected = content
         .lines()
         .enumerate()
-        .filter(|(_, text)| text.to_lowercase().contains(&pattern.lowercase_name))
+        .filter(|(_, text)| normalize_for_search(text).contains(&pattern.normalized_name))
         .map(|(index, text)| (index + 1, text))
         .collect::<Vec<_>>();
       let actual = found
@@ -430,6 +456,40 @@ mod tests {
       assert_eq!(actual, expected, "{}", pattern.name);
     }
     assert!(grep_dir(&dir.path, &[]).unwrap().is_empty());
+  }
+
+  #[test]
+  fn matches_cplusplus_alias_and_parenthesized_subtitle() {
+    let increment = TestDir::new("cplusplus_increment");
+    let name = "High-Frequency.Trading.Mastery.100.Labs.Cplusplus.and.Rust.2026-8";
+    fs::create_dir(increment.path.join(name)).unwrap();
+    let target = TestDir::new("cplusplus_target");
+    let expected = "High-Frequency.Trading.Mastery.100.Labs.(C++.and.Rust)";
+    target.write(
+      "english.txt",
+      format!(
+        "{expected}\nHigh-Frequency.Trading.Mastery.100.Labs.(Python.and.Rust)\nHigh-Frequency.\
+         Trading.Mastery.200.Labs.(C++.and.Rust)\n"
+      ),
+    );
+    let patterns = read_patterns(&increment.path).unwrap();
+    let matches = grep_dir(&target.path, &patterns).unwrap();
+    assert_eq!(matches[0].len(), 1);
+    assert_eq!(matches[0][0].line_number, 1);
+    assert_eq!(matches[0][0].text, expected);
+    assert_eq!(patterns[0].name, name);
+  }
+
+  #[test]
+  fn normalizes_aliases_in_both_directions_without_changing_other_words() {
+    assert_eq!(normalize_for_search("(CPLUSPLUS.and.Rust)"), "c++.and.rust");
+    assert_eq!(normalize_for_search("（C++.and.Rust）"), "c++.and.rust");
+    assert_eq!(normalize_for_search("Cplusplus"), "c++");
+    assert_eq!(
+      normalize_for_search("MyCplusplus.CplusplusGuide"),
+      "mycplusplus.cplusplusguide"
+    );
+    assert_eq!(normalize_for_search("()"), "()");
   }
 
   #[test]
