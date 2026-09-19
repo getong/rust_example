@@ -6,15 +6,24 @@ use burn::{
   module::Module,
   nn::{Linear, LinearConfig, LinearLayout},
   store::{ModuleSnapshot, SafetensorsStore},
-  tensor::{Device, Int, Tensor},
+  tensor::{
+    Int, Tensor,
+    backend::{Backend, BackendTypes},
+  },
 };
 use tokenizers::Tokenizer;
+
+#[cfg(target_os = "macos")]
+type ComputeBackend = burn::backend::Wgpu;
+
+#[cfg(not(target_os = "macos"))]
+type ComputeBackend = burn::backend::Flex;
 
 // 1. 定义一个简单的模型结构（此处以大模型的最核心投影层为例）
 // 实际运行 MAI-UI-8B 的完整架构时，你需要在这里还原整个 Transformer 层的定义
 #[derive(Module, Debug)]
-pub struct SimpleLanguageModel {
-  lm_head: Linear, // 大模型的输出映射层
+pub struct SimpleLanguageModel<B: Backend> {
+  lm_head: Linear<B>, // 大模型的输出映射层
 }
 
 // 2. 为模型定义对应的 Configuration
@@ -31,7 +40,7 @@ pub struct TextConfig {
 
 fn main() -> Result<()> {
   // 3. 初始化推理后端；macOS 构建使用 Cargo 配置的 Metal 后端
-  let device = Device::default();
+  let device = <ComputeBackend as BackendTypes>::Device::default();
   println!("Using Burn default backend on: {:?}", device);
 
   // 4. 指定 Hugging Face 下载的本地文件路径
@@ -54,7 +63,7 @@ fn main() -> Result<()> {
   )
   .with_bias(false)
   .with_layout(LinearLayout::Col);
-  let mut model = SimpleLanguageModel {
+  let mut model = SimpleLanguageModel::<ComputeBackend> {
     lm_head: lm_head_config.init(&device),
   };
 
@@ -76,12 +85,12 @@ fn main() -> Result<()> {
   let token_ids: Vec<i64> = encoding.get_ids().iter().map(|&x| x as i64).collect();
 
   // 转换成 Burn 的有秩张量（此处构造一个 1D Tensor 代表输入序列，并扩展为 2D 批次输入）
-  let input_tensor = Tensor::<1, Int>::from_ints(token_ids.as_slice(), &device);
+  let input_tensor = Tensor::<ComputeBackend, 1, Int>::from_ints(token_ids.as_slice(), &device);
   let _input_batch = input_tensor.unsqueeze::<2>(); // [1, sequence_length]
 
   // 9. 伪代码前向过程：这里需要真实的隐藏层输出，假设经过隐层转换为了 hidden_states 矩阵
   // 我们将其直接送入刚刚从 HF 载入的 lm_head 层
-  let dummy_hidden_states = Tensor::<3>::zeros(
+  let dummy_hidden_states = Tensor::<ComputeBackend, 3>::zeros(
     [1, token_ids.len(), model_config.text_config.hidden_size],
     &device,
   );

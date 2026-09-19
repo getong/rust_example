@@ -11,7 +11,7 @@ tokenizers = "0.23"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Use Burn's MSL-backed WGPU runtime on macOS for Metal acceleration.
-burn = { version = "0.22.0-pre.3", default-features = false, features = ["metal", "safetensors", "std"] }
+burn = { version = "0.21", default-features = false, features = ["metal", "store", "std"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-burn = { version = "0.22.0-pre.3", default-features = false, features = ["flex", "safetensors", "std"] }
+burn = { version = "0.21", default-features = false, features = ["flex", "store", "std"] }
