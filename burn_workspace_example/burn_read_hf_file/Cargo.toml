@@ -1,0 +1,17 @@
+[package]
+name = "burn_read_hf_file"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokenizers = "0.23"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Use Burn's MSL-backed WGPU runtime on macOS for Metal acceleration.
+burn = { version = "0.22.0-pre.3", default-features = false, features = ["metal", "safetensors", "std"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+burn = { version = "0.22.0-pre.3", default-features = false, features = ["flex", "safetensors", "std"] }
