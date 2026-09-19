@@ -1,0 +1,9 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "rmcp_example",
+  "rmpc_qdrant_server_example",
+  "rmpc_qdrant_client_example",
+]
