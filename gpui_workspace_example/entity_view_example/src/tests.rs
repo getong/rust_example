@@ -13,6 +13,96 @@ struct Probe {
 }
 
 #[gpui_kit::test]
+fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestAppContext) {
+  use gpui_kit::{
+    Styled,
+    component::{ActiveTheme, WindowExt},
+  };
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(2usize, cx);
+    for (index, button) in [
+      "toast-success",
+      "toast-info",
+      "toast-warning",
+      "toast-error",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+      window.click(button, cx);
+      assert_eq!(window.notifications(cx).len(), index + 1);
+      for note in window.notifications(cx).iter() {
+        note.update(cx, |note, cx| {
+          let foreground = note.text_style().color.expect("explicit toast text color");
+          assert_eq!(foreground, cx.theme().popover_foreground);
+          assert_ne!(foreground, cx.theme().popover);
+        });
+      }
+    }
+    window.within("counter-tabs").click(0usize, cx);
+    assert_eq!(window.notifications(cx).len(), 4);
+    window.click("increment-a", cx);
+    window.within("counter-tabs").click(2usize, cx);
+    window.click("close-tab", cx);
+    window.clear_notifications(cx);
+  })
+  .unwrap();
+  // 清除先播放退出动画，推进测试时钟后才真正移除通知。
+  cx.background_executor
+    .advance_clock(std::time::Duration::from_secs(1));
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.notifications(cx).is_empty());
+    window.click("new-toast-tab", cx);
+    window.click("toast-success", cx);
+    assert_eq!(window.notifications(cx).len(), 1);
+    let close = window.find("dismiss-toast");
+    assert_eq!(close.label(), Some("Close"));
+    assert!(close.visible());
+    window.click("dismiss-toast", cx);
+  })
+  .unwrap();
+  cx.run_until_parked();
+  cx.background_executor
+    .advance_clock(std::time::Duration::from_secs(1));
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.notifications(cx).is_empty());
+    window.click("toast-info", cx);
+    window.hover("toast-info", cx);
+  })
+  .unwrap();
+  // 逐秒推进，覆盖进入、5 秒超时和退出；无需点击清除按钮。
+  for _ in 0 .. 7 {
+    cx.run_until_parked();
+    cx.background_executor
+      .advance_clock(std::time::Duration::from_secs(1));
+  }
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.notifications(cx).is_empty());
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, _| {
+    assert_eq!(panel.active_tab, 2);
+    assert!(matches!(panel.tabs[2], crate::PanelTab::Toast(_)));
+  });
+  model.read_with(cx, |model, _| assert_eq!(model.total(), 1));
+}
+
+#[gpui_kit::test]
 fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestAppContext) {
   cx.update(|cx| {
     gpui_kit::init(cx);
@@ -25,7 +115,14 @@ fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestA
     |window, cx| crate::Root::new(panel.clone(), window, cx),
   );
   cx.run_until_parked();
-  let second = panel.read_with(cx, |panel, _| panel.tabs[1].clone());
+  // Toast 标签单独测试，这里保留原有两个计数标签的生命周期场景。
+  panel.update(cx, |panel, cx| {
+    panel.active_tab = 2;
+    panel.close_active_tab(cx);
+    panel.active_tab = 0;
+    cx.notify();
+  });
+  let second = panel.read_with(cx, |panel, _| panel.tabs[1].counter().clone());
   let summary = second.read_with(cx, |tab, _| tab.summary.clone());
   let probe = cx.new(|cx| Probe {
     changes: [0; 4],
@@ -59,11 +156,11 @@ fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestA
   panel.read_with(cx, |panel, cx| {
     assert_eq!(panel.tabs.len(), 3);
     assert_eq!(panel.active_tab, 2);
-    let tab = panel.tabs[2].read(cx);
+    let tab = panel.tabs[2].counter().read(cx);
     assert_eq!(tab.local_clicks, 0);
     assert_eq!(tab.summary.read(cx).model.read(cx).total(), 6);
   });
-  let closed = panel.read_with(cx, |panel, _| panel.tabs[2].downgrade());
+  let closed = panel.read_with(cx, |panel, _| panel.tabs[2].counter().downgrade());
   cx.update_window(window.into(), |_, window, cx| window.click("close-tab", cx))
     .unwrap();
   cx.run_until_parked();
@@ -88,9 +185,10 @@ fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestA
   .unwrap();
   panel.read_with(cx, |panel, cx| {
     assert_eq!(panel.active_tab, 0);
-    assert_eq!(panel.tabs[0].read(cx).tab_number, 4);
+    assert_eq!(panel.tabs[0].counter().read(cx).tab_number, 4);
     assert_eq!(
       panel.tabs[0]
+        .counter()
         .read(cx)
         .summary
         .read(cx)

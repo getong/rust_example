@@ -1,6 +1,7 @@
 mod state;
 #[cfg(test)]
 mod tests;
+mod toast_tab;
 
 use gpui_kit::{
   base::Disableable,
@@ -12,6 +13,7 @@ use gpui_kit::{
   *,
 };
 use state::{AppSettings, CounterId, CounterState};
+use toast_tab::ToastTab;
 
 // Global 持有应用级模型；关闭标签不会丢失计数。内部模型仍通过 observe 订阅。
 struct AppServices {
@@ -189,19 +191,49 @@ impl Render for CounterTab {
   }
 }
 
+enum PanelTab {
+  Counter(Entity<CounterTab>),
+  Toast(Entity<ToastTab>),
+}
+
+impl PanelTab {
+  fn label(&self, cx: &App) -> String {
+    match self {
+      Self::Counter(tab) => format!("Tab {}", tab.read(cx).tab_number),
+      Self::Toast(_) => "Toast".into(),
+    }
+  }
+
+  fn view(&self) -> AnyElement {
+    match self {
+      Self::Counter(tab) => tab.clone().into_any_element(),
+      Self::Toast(tab) => tab.clone().into_any_element(),
+    }
+  }
+
+  #[cfg(test)]
+  fn counter(&self) -> &Entity<CounterTab> {
+    match self {
+      Self::Counter(tab) => tab,
+      Self::Toast(_) => panic!("expected a counter tab"),
+    }
+  }
+}
+
 // 同一个 panel 持有所有标签实体，切换只改变 active_tab，不重建标签。
 struct TabbedPanel {
   model: Entity<CounterState>,
-  tabs: Vec<Entity<CounterTab>>,
+  tabs: Vec<PanelTab>,
   active_tab: usize,
   next_tab: usize,
 }
 
 impl TabbedPanel {
   fn new(model: Entity<CounterState>, cx: &mut Context<Self>) -> Self {
-    let tabs = (1 ..= 2)
-      .map(|number| cx.new(|cx| CounterTab::new(number, model.clone(), cx)))
+    let mut tabs: Vec<_> = (1 ..= 2)
+      .map(|number| PanelTab::Counter(cx.new(|cx| CounterTab::new(number, model.clone(), cx))))
       .collect();
+    tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
     Self {
       model,
       tabs,
@@ -213,9 +245,15 @@ impl TabbedPanel {
   fn add_tab(&mut self, cx: &mut Context<Self>) {
     let number = self.next_tab;
     self.next_tab += 1;
-    self
-      .tabs
-      .push(cx.new(|cx| CounterTab::new(number, self.model.clone(), cx)));
+    self.tabs.push(PanelTab::Counter(
+      cx.new(|cx| CounterTab::new(number, self.model.clone(), cx)),
+    ));
+    self.active_tab = self.tabs.len() - 1;
+    cx.notify();
+  }
+
+  fn add_toast_tab(&mut self, cx: &mut Context<Self>) {
+    self.tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
     self.active_tab = self.tabs.len() - 1;
     cx.notify();
   }
@@ -232,8 +270,10 @@ impl TabbedPanel {
 }
 
 impl Render for TabbedPanel {
-  fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    let notifications = Root::render_notification_layer(window, cx);
     div()
+      .relative()
       .flex()
       .flex_col()
       .size_full()
@@ -249,6 +289,11 @@ impl Render for TabbedPanel {
             Button::new("new-tab")
               .label("New tab")
               .on_click(cx.listener(|panel, _, _, cx| panel.add_tab(cx))),
+          )
+          .child(
+            Button::new("new-toast-tab")
+              .label("New toast tab")
+              .on_click(cx.listener(|panel, _, _, cx| panel.add_toast_tab(cx))),
           )
           .child(
             Button::new("close-tab")
@@ -267,25 +312,21 @@ impl Render for TabbedPanel {
               cx.notify();
             }
           }))
-          .children(
-            self
-              .tabs
-              .iter()
-              .map(|tab| Tab::new().label(format!("Tab {}", tab.read(cx).tab_number))),
-          ),
+          .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label(cx)))),
       )
       .child(
         div()
           .flex_1()
           .min_h_0()
           .child(match self.tabs.get(self.active_tab) {
-            Some(tab) => tab.clone().into_any_element(),
+            Some(tab) => tab.view(),
             None => div()
               .p_4()
               .child("No tabs. Click New tab to resume the shared counters.")
               .into_any_element(),
           }),
       )
+      .children(notifications)
   }
 }
 

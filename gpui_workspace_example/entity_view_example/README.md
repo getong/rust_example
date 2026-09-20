@@ -1,7 +1,14 @@
 # 同一 Panel 内的多 Tab 状态同步 Demo
 
 仅依赖 `gpui-kit`，使用一个原生窗口、一个 `Root` 和一个 `TabbedPanel`。
-面板默认包含两个标签页，每个标签页拥有独立视图，共享同一个计数模型与步长配置。
+面板默认包含两个计数标签页和一个 `Toast` 标签页。计数标签拥有独立视图，共享同一个计数模型与步长配置。
+
+点击 `Toast` 标签，再点击 `Success`、`Info`、`Warning` 或 `Error` 显示对应弹窗。
+弹窗在 5 秒后自动消失，悬停暂停计时，也可点击常驻的 `Close` 按钮立即关闭。
+点击 `New toast tab` 可新增并选中 Toast 标签。
+通知属于当前窗口，切换或关闭标签不会立即清除已有弹窗。
+实现参考 gpui-kit 的 `notification_story.rs`，通过 `WindowExt::push_notification` 发送，
+在面板顶层挂载 `Root::render_notification_layer`（Notification 内部使用 Base Toast）。
 
 ## 运行
 
@@ -15,7 +22,7 @@ cargo run -p entity_view_example
 4. 点击 `New tab`：在同一面板新增并选中新标签，立即显示共享计数。
 5. 点击 `Close current tab`：关闭当前标签；其余标签继续共享状态。
 6. 任意标签重置：所有标签的共享计数归零，步长与局部次数不变。
-7. 可以关闭全部标签，再点 `New tab`，共享计数仍保留。
+7. 可以关闭全部标签（包括 Toast），再点 `New tab`，共享计数仍保留。
 
 ## 实现
 
