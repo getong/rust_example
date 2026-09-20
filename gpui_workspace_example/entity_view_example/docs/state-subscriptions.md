@@ -28,7 +28,7 @@
 | 共享领域 Model | `Entity<CounterState>` | A/B 两个计数、最近操作说明 |
 | 计数器 A/B | 两个 `Entity<CounterPanel>` | 各自的 CounterId、共享 Model 句柄、订阅句柄 |
 | 汇总面板 | `Entity<SummaryPanel>` | 共享 Model 句柄、订阅句柄；从 Model 计算总数 |
-| 父视图 | `Entity<CounterApp>` | 三个子视图 Entity、全局配置订阅 |
+| 父视图 | `Entity<CounterTab>` | 三个子视图 Entity、全局配置订阅 |
 | 应用配置 | `AppSettings: Global` | 递增步长：1 或 5 |
 
 Model 只是普通 Rust 结构体，不需要实现 `Render` 或额外的 Model trait。
@@ -184,7 +184,7 @@ let subscription = cx.observe_global::<AppSettings>(|_, cx| {
 ```
 
 保存 Subscription 的要求与 Entity 观察相同。
-当前两个 CounterPanel 和 CounterApp 都保存了这个订阅；SummaryPanel 没有订阅配置。
+当前两个 CounterPanel 和 CounterTab 都保存了这个订阅；SummaryPanel 没有订阅配置。
 
 切换配置：
 
@@ -298,7 +298,9 @@ cargo test -p entity_view_example
 
 测试在检查通知前调用 `cx.run_until_parked()`，让 GPUI 处理待执行工作。
 实体释放测试在 App 更新周期中丢弃父视图，让清理流程执行。
-这些是无窗口状态与通知测试，不等于验证了实际屏幕上的渲染效果。
+前三项是无窗口状态与通知测试，不等于验证了实际屏幕上的渲染效果。
+Tab 版本还增加了单个测试窗口内的多标签交互测试，见[Tab 状态同步](tab-panel.md)。
+实际运行时 AppServices 额外强引用模型，因此关闭标签不会释放应用级模型；第三项测试特意不设置 AppServices，以单独验证视图和订阅的生命周期。
 
 ## 9. 排查不更新的问题
 

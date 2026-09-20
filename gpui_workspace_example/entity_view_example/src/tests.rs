@@ -1,7 +1,9 @@
-use gpui_kit::{AppContext, BorrowAppContext, Entity, Subscription, TestAppContext};
+use gpui_kit::{
+  AppContext, BorrowAppContext, Entity, Subscription, TestAppContext, test::TestWindowExt,
+};
 
 use crate::{
-  CounterApp,
+  CounterTab,
   state::{AppSettings, CounterId, CounterState},
 };
 
@@ -10,9 +12,100 @@ struct Probe {
   _subscriptions: Vec<Subscription>,
 }
 
-fn fixture(cx: &mut TestAppContext) -> (Entity<CounterApp>, Entity<CounterState>, Entity<Probe>) {
+#[gpui_kit::test]
+fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestAppContext) {
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  let second = panel.read_with(cx, |panel, _| panel.tabs[1].clone());
+  let summary = second.read_with(cx, |tab, _| tab.summary.clone());
+  let probe = cx.new(|cx| Probe {
+    changes: [0; 4],
+    _subscriptions: vec![cx.observe(&summary, |probe: &mut Probe, _, _| probe.changes[0] += 1)],
+  });
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("increment-a", cx);
+    window.click("local-click", cx);
+  })
+  .unwrap();
+  cx.run_until_parked();
+  // 隐藏标签也收到了模型通知；标签切换没有重建任何视图。
+  probe.read_with(cx, |probe, _| assert!(probe.changes[0] > 0));
+  second.read_with(cx, |tab, cx| {
+    assert_eq!(tab.summary.read(cx).model.read(cx).total(), 1)
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(1usize, cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 0"));
+    window.click("toggle-step", cx);
+    window.click("increment-b", cx);
+    window.within("counter-tabs").click(0usize, cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 1"));
+    assert_eq!(window.find("increment-a").label(), Some("+5"));
+  })
+  .unwrap();
+  model.read_with(cx, |model, _| assert_eq!(model.total(), 6));
+  cx.update_window(window.into(), |_, window, cx| window.click("new-tab", cx))
+    .unwrap();
+  panel.read_with(cx, |panel, cx| {
+    assert_eq!(panel.tabs.len(), 3);
+    assert_eq!(panel.active_tab, 2);
+    let tab = panel.tabs[2].read(cx);
+    assert_eq!(tab.local_clicks, 0);
+    assert_eq!(tab.summary.read(cx).model.read(cx).total(), 6);
+  });
+  let closed = panel.read_with(cx, |panel, _| panel.tabs[2].downgrade());
+  cx.update_window(window.into(), |_, window, cx| window.click("close-tab", cx))
+    .unwrap();
+  cx.run_until_parked();
+  assert!(closed.upgrade().is_none());
+  panel.read_with(cx, |panel, _| assert_eq!(panel.active_tab, 1));
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("reset-all", cx);
+    window.within("counter-tabs").click(0usize, cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 1"));
+    window.click("increment-a", cx);
+    // 关闭非末尾标签，再关闭最后一个标签；进入空面板。
+    window.click("close-tab", cx);
+    window.click("close-tab", cx);
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, _| assert!(panel.tabs.is_empty()));
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("new-tab", cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 0"));
+    assert_eq!(window.find("increment-a").label(), Some("+5"));
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, cx| {
+    assert_eq!(panel.active_tab, 0);
+    assert_eq!(panel.tabs[0].read(cx).tab_number, 4);
+    assert_eq!(
+      panel.tabs[0]
+        .read(cx)
+        .summary
+        .read(cx)
+        .model
+        .read(cx)
+        .total(),
+      5
+    );
+  });
+}
+
+fn fixture(cx: &mut TestAppContext) -> (Entity<CounterTab>, Entity<CounterState>, Entity<Probe>) {
   cx.update(|cx| cx.set_global(AppSettings::default()));
-  let app = cx.new(CounterApp::new);
+  let shared = cx.new(|_| CounterState::default());
+  let app = cx.new(|cx| CounterTab::new(1, shared, cx));
   cx.run_until_parked();
   let (a, b, summary, model) = app.read_with(cx, |app, cx| {
     (
