@@ -3,9 +3,31 @@ name = "entity_view_example"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+tree-sitter = ["gpui-kit/tree-sitter-languages"]
+
 [dependencies]
+anyhow = "1"
+async-channel = "2.5.0"
+autocorrect = "2.14.2"
+chrono = "0.4"
+csv = "1.4"
+dirs = "7.0.0"
+fake = { version = "5.1.0", features = ["dummy"] }
 gpui-kit = "0.6.4"
-matchit = "0.8.6"
+itertools = "0.15.0"
+matchit = "0.9.2"
+rand = "0.10"
+regex = "1"
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.5" }
+rust-i18n = "4.2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+unindent = "0.2.4"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
 
 [dev-dependencies]
 gpui-kit = { version = "0.6.4", features = ["test-support"] }

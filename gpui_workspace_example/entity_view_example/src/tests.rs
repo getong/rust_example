@@ -846,3 +846,130 @@ fn semantic_controls_support_keyboard_and_empty_state_recovery(cx: &mut TestAppC
   })
   .unwrap();
 }
+
+#[test]
+fn component_catalog_opens_every_demo_and_reopens_closed_tabs() {
+  // The upstream gallery deliberately builds large debug element trees.
+  // Keep its larger stack local to this smoke test, not every app/test thread.
+  std::thread::Builder::new()
+    .name("component-gallery".into())
+    .stack_size(8 * 1024 * 1024)
+    .spawn(|| {
+      gpui_kit::run_test(
+        1,
+        &[0],
+        0,
+        &mut |dispatcher, _| {
+          let mut cx = TestAppContext::build(dispatcher.clone(), Some("component-gallery"));
+          let _refs = cx.app.borrow().ref_counts_drop_handle();
+          check_component_catalog(&mut cx);
+          cx.run_until_parked();
+          cx.update(|cx| {
+            cx.background_executor().forbid_parking();
+            cx.quit();
+          });
+          cx.run_until_parked();
+          drop(cx);
+          dispatcher.drain_tasks();
+        },
+        None,
+      )
+    })
+    .unwrap()
+    .join()
+    .unwrap();
+}
+
+fn check_component_catalog(cx: &mut TestAppContext) {
+  use std::collections::HashSet;
+
+  use crate::tabs::catalog::DEMOS;
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    crate::tabs::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  assert_eq!(DEMOS.len(), 75);
+  let mut slugs = HashSet::new();
+  for demo in DEMOS {
+    assert!(slugs.insert(demo.slug), "duplicate demo {}", demo.slug);
+  }
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  panel.update(cx, |panel, cx| panel.add_component_gallery(cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(1200.), gpui_kit::px(860.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.update_window(window.into(), |_, window, cx| {
+    window.render_frame(cx);
+    assert_eq!(panel.read(cx).tabs.len(), 80);
+    for (index, demo) in DEMOS.iter().enumerate() {
+      eprintln!("Render component: {}", demo.title);
+      panel.update(cx, |panel, cx| panel.open_component(Some(index), cx));
+      window.render_frame(cx);
+      let route = format!("/component/{}", demo.slug);
+      assert_eq!(
+        panel.read(cx).router.read(cx).pathname(),
+        Some(route.as_str())
+      );
+    }
+    // Closing and reopening a component restores its catalog entry without duplicates.
+    panel.update(cx, |panel, cx| panel.close_active_tab(cx));
+    panel.update(cx, |panel, cx| {
+      panel.open_component(Some(DEMOS.len() - 1), cx)
+    });
+    panel.update(cx, |panel, cx| {
+      panel.open_component(Some(DEMOS.len() - 1), cx)
+    });
+    assert_eq!(panel.read(cx).tabs.len(), 80);
+    panel.update(cx, |panel, cx| panel.open_component(None, cx));
+    window.render_frame(cx);
+    assert!(window.find(("open-component", 0usize)).visible());
+  })
+  .unwrap();
+}
+
+#[gpui_kit::test]
+fn notification_layer_uses_popover_text_color_on_dark_app_canvas(cx: &mut TestAppContext) {
+  use std::{cell::Cell, rc::Rc};
+
+  use gpui_kit::{
+    IntoElement,
+    component::{ActiveTheme, WindowExt, notification::Notification},
+  };
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel, window, cx),
+  );
+  let observed = Rc::new(Cell::new(None));
+  cx.update_window(window.into(), |_, window, cx| {
+    let captured_color = observed.clone();
+    // Direct library API, without show_toast's per-notification color override.
+    window.push_notification(
+      Notification::info("This is a notification.")
+        .title("Visible title")
+        .autohide(false)
+        .content(move |_, window, _| {
+          captured_color.set(Some(window.text_style().color));
+          "Visible custom content".into_any_element()
+        }),
+      cx,
+    );
+    window.render_frame(cx);
+    assert_eq!(observed.get(), Some(cx.theme().popover_foreground));
+    assert_ne!(
+      observed.get(),
+      Some(crate::palette::AppPalette::default().foreground)
+    );
+  })
+  .unwrap();
+}

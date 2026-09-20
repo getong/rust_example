@@ -1,3 +1,6 @@
+mod component_tab;
+mod tabs;
+rust_i18n::i18n!("locales/component_gallery", fallback = "en");
 mod palette;
 mod raised_button;
 mod router;
@@ -9,10 +12,11 @@ mod tab_directory;
 mod tests;
 mod toast_tab;
 
+use component_tab::ComponentTab;
 use gpui_kit::{
   base::{Disableable, NavStack},
   component::{
-    Root,
+    ActiveTheme, Root,
     button::Button,
     empty::{Empty as EmptyState, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle},
     group_box::{GroupBox, GroupBoxVariants},
@@ -219,6 +223,7 @@ impl Render for CounterTab {
 }
 
 enum PanelTab {
+  Component(Entity<ComponentTab>),
   Counter(Entity<CounterTab>),
   Toast(Entity<ToastTab>),
   Scrollbar(Entity<ScrollbarTab>),
@@ -228,6 +233,7 @@ enum PanelTab {
 impl PanelTab {
   fn path(&self, cx: &App) -> SharedString {
     match self {
+      Self::Component(tab) => format!("/component/{}", tab.read(cx).slug()),
       Self::Counter(tab) => format!("/counter/{}", tab.read(cx).tab_number),
       Self::Toast(tab) => format!("/toast/{}", tab.entity_id()),
       Self::Scrollbar(tab) => format!("/scrollbar/{}", tab.entity_id()),
@@ -238,6 +244,7 @@ impl PanelTab {
 
   fn label(&self, cx: &App) -> String {
     match self {
+      Self::Component(tab) => tab.read(cx).title().into(),
       Self::Counter(tab) => format!("Tab {}", tab.read(cx).tab_number),
       Self::Toast(_) => "Toast".into(),
       Self::Scrollbar(_) => "Scrollbar".into(),
@@ -247,6 +254,7 @@ impl PanelTab {
 
   fn view(&self) -> AnyView {
     match self {
+      Self::Component(tab) => tab.clone().into(),
       Self::Counter(tab) => tab.clone().into(),
       Self::Toast(tab) => tab.clone().into(),
       Self::Scrollbar(tab) => tab.clone().into(),
@@ -258,7 +266,9 @@ impl PanelTab {
   fn counter(&self) -> &Entity<CounterTab> {
     match self {
       Self::Counter(tab) => tab,
-      Self::Toast(_) | Self::Scrollbar(_) | Self::Directory(_) => panic!("expected a counter tab"),
+      Self::Component(_) | Self::Toast(_) | Self::Scrollbar(_) | Self::Directory(_) => {
+        panic!("expected a counter tab")
+      }
     }
   }
 }
@@ -270,6 +280,7 @@ struct TabbedPanel {
   router: Entity<TabRouter>,
   _router_subscription: Subscription,
   next_tab: usize,
+  tab_scroll: ScrollHandle,
 }
 
 impl TabbedPanel {
@@ -286,6 +297,7 @@ impl TabbedPanel {
         "/toast/{id}",
         "/scrollbar/{id}",
         "/tabs/{id}",
+        "/component/{id}",
       ] {
         router
           .register_route(pattern)
@@ -307,6 +319,7 @@ impl TabbedPanel {
       router,
       _router_subscription: subscription,
       next_tab: 3,
+      tab_scroll: ScrollHandle::new(),
     }
   }
 
@@ -320,6 +333,7 @@ impl TabbedPanel {
 
   fn select_tab(&self, index: usize, cx: &mut Context<Self>) {
     if let Some(tab) = self.tabs.get(index) {
+      self.tab_scroll.scroll_to_item(index);
       let path = tab.path(cx);
       self.router.update(cx, |router, cx| {
         router.navigate(&path, cx).expect("open tab is registered");
@@ -370,6 +384,28 @@ impl TabbedPanel {
     self.open_tab(PanelTab::Directory(tab), cx);
   }
 
+  fn open_component(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
+    if let Some(position) = self
+      .tabs
+      .iter()
+      .position(|tab| matches!(tab, PanelTab::Component(view) if view.read(cx).index == index))
+    {
+      self.select_tab(position, cx);
+      return;
+    }
+    let panel = cx.entity().downgrade();
+    let view = cx.new(|_| ComponentTab::new(index, panel));
+    self.open_tab(PanelTab::Component(view), cx);
+  }
+
+  fn add_component_gallery(&mut self, cx: &mut Context<Self>) {
+    self.open_component(None, cx);
+    for index in 0 .. crate::tabs::catalog::DEMOS.len() {
+      self.open_component(Some(index), cx);
+    }
+    self.open_component(None, cx);
+  }
+
   fn close_active_tab(&mut self, cx: &mut Context<Self>) {
     let Some(index) = self.active_tab(cx) else {
       return;
@@ -391,6 +427,8 @@ impl TabbedPanel {
 impl Render for TabbedPanel {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let notifications = Root::render_notification_layer(window, cx);
+    let dialogs = Root::render_dialog_layer(window, cx);
+    let sheets = Root::render_sheet_layer(window, cx);
     let active_tab = self.active_tab(cx);
     let router = self.router.read(cx);
     let pathname = router.pathname().unwrap_or("/").to_owned();
@@ -423,6 +461,11 @@ impl Render for TabbedPanel {
               .on_click(cx.listener(|panel, _, _, cx| panel.add_scrollbar_tab(cx))),
           )
           .child(
+            Button::new("open-components")
+              .label("Components")
+              .on_click(cx.listener(|panel, _, _, cx| panel.open_component(None, cx))),
+          )
+          .child(
             Button::new("open-tab-directory")
               .label("Tab directory")
               .on_click(cx.listener(|panel, _, _, cx| panel.open_directory(cx))),
@@ -437,6 +480,8 @@ impl Render for TabbedPanel {
       .child(
         TabBar::new("counter-tabs")
           .w_full()
+          .menu(true)
+          .track_scroll(&self.tab_scroll)
           .when_some(active_tab, |bar, index| bar.selected_index(index))
           .on_click(cx.listener(|panel, index: &usize, _, cx| {
             panel.select_tab(*index, cx);
@@ -476,44 +521,58 @@ impl Render for TabbedPanel {
           .left(format!("Route: {pathname}"))
           .right(format!("id: {}", router.param("id").unwrap_or("—"))),
       )
-      .children(notifications)
+      .children(sheets)
+      .children(dialogs)
+      // 通知背景由组件主题决定，文字不能继承深色应用画布的白色。
+      .child(
+        v_flex()
+          .absolute()
+          .inset_0()
+          .text_color(cx.theme().popover_foreground)
+          .children(notifications),
+      )
   }
 }
 
 fn main() {
-  gpui_kit::application().run(|cx| {
-    gpui_kit::init(cx);
-    // 关闭最后一个窗口时退出应用，避免留下无窗口的后台进程。
-    cx.on_window_closed(|cx, _| {
-      if cx.windows().is_empty() {
-        cx.quit();
-      }
-    })
-    .detach();
-    cx.set_global(AppSettings::default());
-    let counters = cx.new(|_| CounterState::default());
-    cx.set_global(AppServices { counters });
-    cx.activate(true);
-    cx.spawn(async move |cx| {
-      let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds {
-          origin: point(px(60.), px(60.)),
-          size: size(px(760.), px(700.)),
-        })),
-        window_min_size: Some(size(px(640.), px(640.))),
-        ..Default::default()
-      };
-      if let Err(error) = cx.open_window(options, |window, cx| {
-        window.activate_window();
-        window.set_window_title("Shared counters - Tab panel");
-        let model = cx.global::<AppServices>().counters.clone();
-        let panel = cx.new(|cx| TabbedPanel::new(model, cx));
-        cx.new(|cx| Root::new(panel, window, cx))
-      }) {
-        eprintln!("Failed to open tab demo: {error}");
-        cx.update(|cx| cx.quit());
-      }
-    })
-    .detach();
-  });
+  gpui_kit::application()
+    .with_assets(gpui_kit::assets::Assets)
+    .run(|cx| {
+      gpui_kit::init(cx);
+      crate::tabs::init(cx);
+      crate::tabs::init_http(cx);
+      // 关闭最后一个窗口时退出应用，避免留下无窗口的后台进程。
+      cx.on_window_closed(|cx, _| {
+        if cx.windows().is_empty() {
+          cx.quit();
+        }
+      })
+      .detach();
+      cx.set_global(AppSettings::default());
+      let counters = cx.new(|_| CounterState::default());
+      cx.set_global(AppServices { counters });
+      cx.activate(true);
+      cx.spawn(async move |cx| {
+        let options = WindowOptions {
+          window_bounds: Some(WindowBounds::Windowed(Bounds {
+            origin: point(px(60.), px(60.)),
+            size: size(px(1200.), px(860.)),
+          })),
+          window_min_size: Some(size(px(640.), px(640.))),
+          ..Default::default()
+        };
+        if let Err(error) = cx.open_window(options, |window, cx| {
+          window.activate_window();
+          window.set_window_title("Shared counters - Tab panel");
+          let model = cx.global::<AppServices>().counters.clone();
+          let panel = cx.new(|cx| TabbedPanel::new(model, cx));
+          panel.update(cx, |panel, cx| panel.add_component_gallery(cx));
+          cx.new(|cx| Root::new(panel, window, cx))
+        }) {
+          eprintln!("Failed to open tab demo: {error}");
+          cx.update(|cx| cx.quit());
+        }
+      })
+      .detach();
+    });
 }
