@@ -1,20 +1,25 @@
+mod router;
 mod scrollbar_tab;
 mod state;
+mod tab_directory;
 #[cfg(test)]
 mod tests;
 mod toast_tab;
 
 use gpui_kit::{
-  base::Disableable,
+  base::{Disableable, NavStack},
   component::{
     Root,
     button::{Button, ButtonVariants},
     tab::{Tab, TabBar},
   },
+  prelude::FluentBuilder as _,
   *,
 };
+use router::TabRouter;
 use scrollbar_tab::ScrollbarTab;
 use state::{AppSettings, CounterId, CounterState};
+use tab_directory::TabDirectory;
 use toast_tab::ToastTab;
 
 // Global 持有应用级模型；关闭标签不会丢失计数。内部模型仍通过 observe 订阅。
@@ -197,22 +202,35 @@ enum PanelTab {
   Counter(Entity<CounterTab>),
   Toast(Entity<ToastTab>),
   Scrollbar(Entity<ScrollbarTab>),
+  Directory(Entity<TabDirectory>),
 }
 
 impl PanelTab {
+  fn path(&self, cx: &App) -> SharedString {
+    match self {
+      Self::Counter(tab) => format!("/counter/{}", tab.read(cx).tab_number),
+      Self::Toast(tab) => format!("/toast/{}", tab.entity_id()),
+      Self::Scrollbar(tab) => format!("/scrollbar/{}", tab.entity_id()),
+      Self::Directory(tab) => format!("/tabs/{}", tab.entity_id()),
+    }
+    .into()
+  }
+
   fn label(&self, cx: &App) -> String {
     match self {
       Self::Counter(tab) => format!("Tab {}", tab.read(cx).tab_number),
       Self::Toast(_) => "Toast".into(),
       Self::Scrollbar(_) => "Scrollbar".into(),
+      Self::Directory(_) => "Tab directory".into(),
     }
   }
 
-  fn view(&self) -> AnyElement {
+  fn view(&self) -> AnyView {
     match self {
-      Self::Counter(tab) => tab.clone().into_any_element(),
-      Self::Toast(tab) => tab.clone().into_any_element(),
-      Self::Scrollbar(tab) => tab.clone().into_any_element(),
+      Self::Counter(tab) => tab.clone().into(),
+      Self::Toast(tab) => tab.clone().into(),
+      Self::Scrollbar(tab) => tab.clone().into(),
+      Self::Directory(tab) => tab.clone().into(),
     }
   }
 
@@ -220,16 +238,17 @@ impl PanelTab {
   fn counter(&self) -> &Entity<CounterTab> {
     match self {
       Self::Counter(tab) => tab,
-      Self::Toast(_) | Self::Scrollbar(_) => panic!("expected a counter tab"),
+      Self::Toast(_) | Self::Scrollbar(_) | Self::Directory(_) => panic!("expected a counter tab"),
     }
   }
 }
 
-// 同一个 panel 持有所有标签实体，切换只改变 active_tab，不重建标签。
+// 路由是选中状态的唯一来源；panel 保留标签 Entity 及其局部状态。
 struct TabbedPanel {
   model: Entity<CounterState>,
   tabs: Vec<PanelTab>,
-  active_tab: usize,
+  router: Entity<TabRouter>,
+  _router_subscription: Subscription,
   next_tab: usize,
 }
 
@@ -240,52 +259,122 @@ impl TabbedPanel {
       .collect();
     tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
     tabs.push(PanelTab::Scrollbar(cx.new(|_| ScrollbarTab::default())));
+    let router = cx.new(TabRouter::new);
+    router.update(cx, |router, cx| {
+      for pattern in [
+        "/counter/{id}",
+        "/toast/{id}",
+        "/scrollbar/{id}",
+        "/tabs/{id}",
+      ] {
+        router
+          .register_route(pattern)
+          .expect("valid tab route templates");
+      }
+      for tab in &tabs {
+        router
+          .register(&tab.path(cx), tab.view())
+          .expect("tab paths are unique and match their route templates");
+      }
+      router
+        .navigate(&tabs[0].path(cx), cx)
+        .expect("initial tab is registered");
+    });
+    let subscription = cx.observe(&router, |_, _, cx| cx.notify());
     Self {
       model,
       tabs,
-      active_tab: 0,
+      router,
+      _router_subscription: subscription,
       next_tab: 3,
     }
+  }
+
+  fn active_tab(&self, cx: &App) -> Option<usize> {
+    let pathname = self.router.read(cx).pathname()?;
+    self
+      .tabs
+      .iter()
+      .position(|tab| tab.path(cx).as_ref() == pathname)
+  }
+
+  fn select_tab(&self, index: usize, cx: &mut Context<Self>) {
+    if let Some(tab) = self.tabs.get(index) {
+      let path = tab.path(cx);
+      self.router.update(cx, |router, cx| {
+        router.navigate(&path, cx).expect("open tab is registered");
+      });
+      cx.notify();
+    }
+  }
+
+  fn open_tab(&mut self, tab: PanelTab, cx: &mut Context<Self>) {
+    let path = tab.path(cx);
+    self.router.update(cx, |router, _| {
+      router
+        .register(&path, tab.view())
+        .expect("new tab has a unique path");
+    });
+    self.tabs.push(tab);
+    self.select_tab(self.tabs.len() - 1, cx);
   }
 
   fn add_tab(&mut self, cx: &mut Context<Self>) {
     let number = self.next_tab;
     self.next_tab += 1;
-    self.tabs.push(PanelTab::Counter(
-      cx.new(|cx| CounterTab::new(number, self.model.clone(), cx)),
-    ));
-    self.active_tab = self.tabs.len() - 1;
-    cx.notify();
+    let tab = cx.new(|cx| CounterTab::new(number, self.model.clone(), cx));
+    self.open_tab(PanelTab::Counter(tab), cx);
   }
 
   fn add_toast_tab(&mut self, cx: &mut Context<Self>) {
-    self.tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
-    self.active_tab = self.tabs.len() - 1;
-    cx.notify();
+    let tab = cx.new(|_| ToastTab);
+    self.open_tab(PanelTab::Toast(tab), cx);
   }
 
   fn add_scrollbar_tab(&mut self, cx: &mut Context<Self>) {
-    self
+    let tab = cx.new(|_| ScrollbarTab::default());
+    self.open_tab(PanelTab::Scrollbar(tab), cx);
+  }
+
+  fn open_directory(&mut self, cx: &mut Context<Self>) {
+    if let Some(index) = self
       .tabs
-      .push(PanelTab::Scrollbar(cx.new(|_| ScrollbarTab::default())));
-    self.active_tab = self.tabs.len() - 1;
-    cx.notify();
+      .iter()
+      .position(|tab| matches!(tab, PanelTab::Directory(_)))
+    {
+      self.select_tab(index, cx);
+      return;
+    }
+    let panel = cx.entity();
+    let tab = cx.new(|cx| TabDirectory::new(&panel, cx));
+    self.open_tab(PanelTab::Directory(tab), cx);
   }
 
   fn close_active_tab(&mut self, cx: &mut Context<Self>) {
-    if self.tabs.is_empty() {
+    let Some(index) = self.active_tab(cx) else {
       return;
-    }
+    };
     // 释放此标签的 Entity 和 Subscription；共享模型由 panel / Global 保活。
-    self.tabs.remove(self.active_tab);
-    self.active_tab = self.active_tab.min(self.tabs.len().saturating_sub(1));
-    cx.notify();
+    let path = self.tabs[index].path(cx);
+    self
+      .router
+      .update(cx, |router, cx| router.unregister(&path, cx));
+    self.tabs.remove(index);
+    if self.tabs.is_empty() {
+      cx.notify();
+    } else {
+      self.select_tab(index.min(self.tabs.len() - 1), cx);
+    }
   }
 }
 
 impl Render for TabbedPanel {
   fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let notifications = Root::render_notification_layer(window, cx);
+    let active_tab = self.active_tab(cx);
+    let router = self.router.read(cx);
+    let pathname = router.pathname().unwrap_or("/").to_owned();
+    let stack = router.stack().clone();
     div()
       .relative()
       .flex()
@@ -317,36 +406,39 @@ impl Render for TabbedPanel {
               .on_click(cx.listener(|panel, _, _, cx| panel.add_scrollbar_tab(cx))),
           )
           .child(
+            Button::new("open-tab-directory")
+              .label("Tab directory")
+              .on_click(cx.listener(|panel, _, _, cx| panel.open_directory(cx))),
+          )
+          .child(
             Button::new("close-tab")
               .label("Close current tab")
-              .disabled(self.tabs.is_empty())
+              .disabled(active_tab.is_none())
               .on_click(cx.listener(|panel, _, _, cx| panel.close_active_tab(cx))),
           ),
       )
       .child(
         TabBar::new("counter-tabs")
           .w_full()
-          .selected_index(self.active_tab)
+          .when_some(active_tab, |bar, index| bar.selected_index(index))
           .on_click(cx.listener(|panel, index: &usize, _, cx| {
-            if *index < panel.tabs.len() {
-              panel.active_tab = *index;
-              cx.notify();
-            }
+            panel.select_tab(*index, cx);
           }))
           .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label(cx)))),
       )
-      .child(
+      .child(div().px_2().text_sm().child(format!(
+        "Route: {} | id: {}",
+        pathname,
+        router.param("id").unwrap_or("—")
+      )))
+      .child(div().flex_1().min_h_0().child(if active_tab.is_some() {
+        NavStack::new(&stack).size_full().into_any_element()
+      } else {
         div()
-          .flex_1()
-          .min_h_0()
-          .child(match self.tabs.get(self.active_tab) {
-            Some(tab) => tab.view(),
-            None => div()
-              .p_4()
-              .child("No tabs. Click New tab to resume the shared counters.")
-              .into_any_element(),
-          }),
-      )
+          .p_4()
+          .child("No tabs. Click New tab to resume the shared counters.")
+          .into_any_element()
+      }))
       .children(notifications)
   }
 }
