@@ -13,6 +13,108 @@ struct Probe {
 }
 
 #[gpui_kit::test]
+fn scrollbar_rows_show_toasts_and_restore_remembered_position(cx: &mut TestAppContext) {
+  use gpui_kit::{ScrollDelta, component::WindowExt, point, px};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(gpui_kit::size(px(760.), px(700.)), |window, cx| {
+    crate::Root::new(panel.clone(), window, cx)
+  });
+  cx.run_until_parked();
+  let scroll = panel.read_with(cx, |panel, cx| match &panel.tabs[3] {
+    crate::PanelTab::Scrollbar(tab) => tab.read(cx).scroll_handle.clone(),
+    _ => panic!("expected scrollbar tab"),
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(3usize, cx);
+    window.click(("scroll-row", 1usize), cx);
+    assert_eq!(
+      window.find(("scroll-row", 1usize)).label(),
+      Some("Row 01 — Selected")
+    );
+    assert_eq!(window.notifications(cx).len(), 1);
+    window.scroll(
+      ("scroll-row", 1usize),
+      ScrollDelta::Pixels(point(px(0.), px(-300.))),
+      cx,
+    );
+    let remembered = scroll.offset();
+    assert!(remembered.y < px(0.));
+    window.click("scroll-save", cx);
+    window.click("scroll-top", cx);
+    assert_eq!(scroll.offset().y, px(0.));
+    window.click("scroll-restore", cx);
+    assert_eq!(scroll.offset(), remembered);
+    window.within("counter-tabs").click(0usize, cx);
+    window.within("counter-tabs").click(3usize, cx);
+    assert_eq!(scroll.offset(), remembered);
+    window.click("scroll-top", cx);
+    assert_eq!(
+      window.find(("scroll-row", 1usize)).label(),
+      Some("Row 01 — Selected")
+    );
+    // 保存的位置不会被回到顶部或标签切换覆盖。
+    window.click("scroll-restore", cx);
+    assert_eq!(scroll.offset(), remembered);
+  })
+  .unwrap();
+}
+
+#[gpui_kit::test]
+fn scrollbar_tab_scrolls_preserves_position_and_resets(cx: &mut TestAppContext) {
+  use gpui_kit::{InputEvent, ScrollDelta, ScrollWheelEvent, point, px};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(gpui_kit::size(px(640.), px(640.)), |window, cx| {
+    crate::Root::new(panel.clone(), window, cx)
+  });
+  cx.run_until_parked();
+  let scroll = panel.read_with(cx, |panel, cx| match &panel.tabs[3] {
+    crate::PanelTab::Scrollbar(tab) => tab.read(cx).scroll_handle.clone(),
+    _ => panic!("expected scrollbar tab"),
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(3usize, cx);
+    window.dispatch_event(
+      ScrollWheelEvent {
+        position: scroll.bounds().center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-300.))),
+        ..Default::default()
+      }
+      .to_platform_input(),
+      cx,
+    );
+    window.render_frame(cx);
+    let offset = scroll.offset();
+    assert!(offset.y < px(0.));
+    window.within("counter-tabs").click(0usize, cx);
+    window.within("counter-tabs").click(3usize, cx);
+    assert_eq!(scroll.offset(), offset);
+    window.click("scroll-top", cx);
+    assert_eq!(scroll.offset().y, px(0.));
+    window.click("close-tab", cx);
+    window.click("new-scrollbar-tab", cx);
+    assert!(window.find("scroll-top").visible());
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, _| {
+    assert_eq!(panel.tabs.len(), 4);
+    assert_eq!(panel.active_tab, 3);
+    assert!(matches!(panel.tabs[3], crate::PanelTab::Scrollbar(_)));
+  });
+}
+
+#[gpui_kit::test]
 fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestAppContext) {
   use gpui_kit::{
     Styled,
@@ -55,7 +157,6 @@ fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestApp
     assert_eq!(window.notifications(cx).len(), 4);
     window.click("increment-a", cx);
     window.within("counter-tabs").click(2usize, cx);
-    window.click("close-tab", cx);
     window.clear_notifications(cx);
   })
   .unwrap();
@@ -65,6 +166,8 @@ fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestApp
   cx.run_until_parked();
   cx.update_window(window.into(), |_, window, cx| {
     assert!(window.notifications(cx).is_empty());
+    // 通知浮层退出后再点击工具栏，避免被浮层遮挡。
+    window.click("close-tab", cx);
     window.click("new-toast-tab", cx);
     window.click("toast-success", cx);
     assert_eq!(window.notifications(cx).len(), 1);
@@ -96,8 +199,8 @@ fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestApp
   })
   .unwrap();
   panel.read_with(cx, |panel, _| {
-    assert_eq!(panel.active_tab, 2);
-    assert!(matches!(panel.tabs[2], crate::PanelTab::Toast(_)));
+    assert_eq!(panel.active_tab, 3);
+    assert!(matches!(panel.tabs[3], crate::PanelTab::Toast(_)));
   });
   model.read_with(cx, |model, _| assert_eq!(model.total(), 1));
 }
@@ -115,8 +218,10 @@ fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestA
     |window, cx| crate::Root::new(panel.clone(), window, cx),
   );
   cx.run_until_parked();
-  // Toast 标签单独测试，这里保留原有两个计数标签的生命周期场景。
+  // Toast 和 Scrollbar 标签单独测试，这里保留原有两个计数标签的生命周期场景。
   panel.update(cx, |panel, cx| {
+    panel.active_tab = 3;
+    panel.close_active_tab(cx);
     panel.active_tab = 2;
     panel.close_active_tab(cx);
     panel.active_tab = 0;

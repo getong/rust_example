@@ -1,3 +1,4 @@
+mod scrollbar_tab;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -12,6 +13,7 @@ use gpui_kit::{
   },
   *,
 };
+use scrollbar_tab::ScrollbarTab;
 use state::{AppSettings, CounterId, CounterState};
 use toast_tab::ToastTab;
 
@@ -194,6 +196,7 @@ impl Render for CounterTab {
 enum PanelTab {
   Counter(Entity<CounterTab>),
   Toast(Entity<ToastTab>),
+  Scrollbar(Entity<ScrollbarTab>),
 }
 
 impl PanelTab {
@@ -201,6 +204,7 @@ impl PanelTab {
     match self {
       Self::Counter(tab) => format!("Tab {}", tab.read(cx).tab_number),
       Self::Toast(_) => "Toast".into(),
+      Self::Scrollbar(_) => "Scrollbar".into(),
     }
   }
 
@@ -208,6 +212,7 @@ impl PanelTab {
     match self {
       Self::Counter(tab) => tab.clone().into_any_element(),
       Self::Toast(tab) => tab.clone().into_any_element(),
+      Self::Scrollbar(tab) => tab.clone().into_any_element(),
     }
   }
 
@@ -215,7 +220,7 @@ impl PanelTab {
   fn counter(&self) -> &Entity<CounterTab> {
     match self {
       Self::Counter(tab) => tab,
-      Self::Toast(_) => panic!("expected a counter tab"),
+      Self::Toast(_) | Self::Scrollbar(_) => panic!("expected a counter tab"),
     }
   }
 }
@@ -234,6 +239,7 @@ impl TabbedPanel {
       .map(|number| PanelTab::Counter(cx.new(|cx| CounterTab::new(number, model.clone(), cx))))
       .collect();
     tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
+    tabs.push(PanelTab::Scrollbar(cx.new(|_| ScrollbarTab::default())));
     Self {
       model,
       tabs,
@@ -254,6 +260,14 @@ impl TabbedPanel {
 
   fn add_toast_tab(&mut self, cx: &mut Context<Self>) {
     self.tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
+    self.active_tab = self.tabs.len() - 1;
+    cx.notify();
+  }
+
+  fn add_scrollbar_tab(&mut self, cx: &mut Context<Self>) {
+    self
+      .tabs
+      .push(PanelTab::Scrollbar(cx.new(|_| ScrollbarTab::default())));
     self.active_tab = self.tabs.len() - 1;
     cx.notify();
   }
@@ -282,6 +296,8 @@ impl Render for TabbedPanel {
       .child(
         div()
           .flex()
+          .flex_wrap()
+          .flex_shrink_0()
           .items_center()
           .gap_2()
           .p_2()
@@ -294,6 +310,11 @@ impl Render for TabbedPanel {
             Button::new("new-toast-tab")
               .label("New toast tab")
               .on_click(cx.listener(|panel, _, _, cx| panel.add_toast_tab(cx))),
+          )
+          .child(
+            Button::new("new-scrollbar-tab")
+              .label("New scroll tab")
+              .on_click(cx.listener(|panel, _, _, cx| panel.add_scrollbar_tab(cx))),
           )
           .child(
             Button::new("close-tab")

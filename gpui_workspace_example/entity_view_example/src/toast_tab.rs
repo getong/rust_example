@@ -10,7 +10,7 @@ use gpui_kit::{
 pub(crate) struct ToastTab;
 
 // Notification 继承文字颜色；这里使用与弹窗背景配对的主题前景色。
-fn show_toast(note: Notification, window: &mut Window, cx: &mut App) {
+pub(crate) fn show_toast(note: Notification, window: &mut Window, cx: &mut App) {
   window.push_notification(
     note
       .text_color(cx.theme().popover_foreground)
