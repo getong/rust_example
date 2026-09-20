@@ -1,3 +1,6 @@
+// Turso's nested async query/transaction futures require deeper Send evaluation.
+#![recursion_limit = "256"]
+
 mod baidu_cache;
 mod baidu_tab;
 mod component_tab;
