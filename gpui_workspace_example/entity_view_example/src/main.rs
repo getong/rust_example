@@ -1,3 +1,4 @@
+mod raised_button;
 mod router;
 mod scrollbar_tab;
 mod state;
@@ -10,12 +11,13 @@ use gpui_kit::{
   base::{Disableable, NavStack},
   component::{
     Root,
-    button::{Button, ButtonVariants},
+    button::Button,
     tab::{Tab, TabBar},
   },
   prelude::FluentBuilder as _,
   *,
 };
+use raised_button::raised_button;
 use router::TabRouter;
 use scrollbar_tab::ScrollbarTab;
 use state::{AppSettings, CounterId, CounterState};
@@ -64,21 +66,19 @@ impl Render for CounterPanel {
           .text_xl()
           .child(format!("Counter {}: {}", self.id.name(), count)),
       )
-      .child(
-        Button::new(match self.id {
+      .child(raised_button(
+        match self.id {
           CounterId::A => "increment-a",
           CounterId::B => "increment-b",
-        })
-        .primary()
-        .label(format!("+{step}"))
-        .on_click(cx.listener(|view, _, _, cx| {
-          // 外层 cx 属于 CounterPanel，update 闭包的 cx 属于 CounterState。
-          // update 同步修改 Model；notify 的观察回调由 GPUI 随后调度。
+        },
+        format!("+{step}"),
+        cx,
+        cx.listener(|view: &mut Self, _, _, cx| {
           view
             .model
             .update(cx, |model, cx| model.increment(view.id, cx));
-        })),
-      )
+        }),
+      ))
   }
 }
 
