@@ -7,3 +7,7 @@ members = [
   "gpui_kit_agent",
   "entity_view_example",
 ]
+
+# Reduce debug unwind-table size while retaining symbols and panic unwinding.
+[profile.dev.package.entity_view_example]
+opt-level = 1
