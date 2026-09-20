@@ -446,6 +446,13 @@ impl Render for TabbedPanel {
 fn main() {
   gpui_kit::application().run(|cx| {
     gpui_kit::init(cx);
+    // 关闭最后一个窗口时退出应用，避免留下无窗口的后台进程。
+    cx.on_window_closed(|cx, _| {
+      if cx.windows().is_empty() {
+        cx.quit();
+      }
+    })
+    .detach();
     cx.set_global(AppSettings::default());
     let counters = cx.new(|_| CounterState::default());
     cx.set_global(AppServices { counters });
