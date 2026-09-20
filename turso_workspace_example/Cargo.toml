@@ -10,5 +10,5 @@ members = [
 edition = "2024"
 
 [workspace.dependencies]
-tokio = { version = "1.0", features = ["full"] }
-turso = "=0.7.0-pre.5"
+tokio = { version = "1.53", features = ["full"] }
+turso = "0.8.0-pre.11"
