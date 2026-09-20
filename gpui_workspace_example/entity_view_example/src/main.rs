@@ -1,3 +1,4 @@
+mod baidu_tab;
 mod component_tab;
 mod tabs;
 rust_i18n::i18n!("locales/component_gallery", fallback = "en");
@@ -12,6 +13,7 @@ mod tab_directory;
 mod tests;
 mod toast_tab;
 
+use baidu_tab::BaiduTab;
 use component_tab::ComponentTab;
 use gpui_kit::{
   base::{Disableable, NavStack},
@@ -223,6 +225,7 @@ impl Render for CounterTab {
 }
 
 enum PanelTab {
+  Baidu(Entity<BaiduTab>),
   Component(Entity<ComponentTab>),
   Counter(Entity<CounterTab>),
   Toast(Entity<ToastTab>),
@@ -233,6 +236,7 @@ enum PanelTab {
 impl PanelTab {
   fn path(&self, cx: &App) -> SharedString {
     match self {
+      Self::Baidu(_) => "/baidu/top".to_string(),
       Self::Component(tab) => format!("/component/{}", tab.read(cx).slug()),
       Self::Counter(tab) => format!("/counter/{}", tab.read(cx).tab_number),
       Self::Toast(tab) => format!("/toast/{}", tab.entity_id()),
@@ -244,6 +248,7 @@ impl PanelTab {
 
   fn label(&self, cx: &App) -> String {
     match self {
+      Self::Baidu(_) => "百度热榜".into(),
       Self::Component(tab) => tab.read(cx).title().into(),
       Self::Counter(tab) => format!("Tab {}", tab.read(cx).tab_number),
       Self::Toast(_) => "Toast".into(),
@@ -254,6 +259,7 @@ impl PanelTab {
 
   fn view(&self) -> AnyView {
     match self {
+      Self::Baidu(tab) => tab.clone().into(),
       Self::Component(tab) => tab.clone().into(),
       Self::Counter(tab) => tab.clone().into(),
       Self::Toast(tab) => tab.clone().into(),
@@ -266,7 +272,11 @@ impl PanelTab {
   fn counter(&self) -> &Entity<CounterTab> {
     match self {
       Self::Counter(tab) => tab,
-      Self::Component(_) | Self::Toast(_) | Self::Scrollbar(_) | Self::Directory(_) => {
+      Self::Baidu(_)
+      | Self::Component(_)
+      | Self::Toast(_)
+      | Self::Scrollbar(_)
+      | Self::Directory(_) => {
         panic!("expected a counter tab")
       }
     }
@@ -298,6 +308,7 @@ impl TabbedPanel {
         "/scrollbar/{id}",
         "/tabs/{id}",
         "/component/{id}",
+        "/baidu/{id}",
       ] {
         router
           .register_route(pattern)
@@ -384,6 +395,19 @@ impl TabbedPanel {
     self.open_tab(PanelTab::Directory(tab), cx);
   }
 
+  fn open_baidu(&mut self, cx: &mut Context<Self>) {
+    if let Some(index) = self
+      .tabs
+      .iter()
+      .position(|tab| matches!(tab, PanelTab::Baidu(_)))
+    {
+      self.select_tab(index, cx);
+      return;
+    }
+    let tab = cx.new(BaiduTab::new);
+    self.open_tab(PanelTab::Baidu(tab), cx);
+  }
+
   fn open_component(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
     if let Some(position) = self
       .tabs
@@ -459,6 +483,11 @@ impl Render for TabbedPanel {
             Button::new("new-scrollbar-tab")
               .label("New scroll tab")
               .on_click(cx.listener(|panel, _, _, cx| panel.add_scrollbar_tab(cx))),
+          )
+          .child(
+            Button::new("open-baidu")
+              .label("百度热榜")
+              .on_click(cx.listener(|panel, _, _, cx| panel.open_baidu(cx))),
           )
           .child(
             Button::new("open-components")
@@ -566,7 +595,10 @@ fn main() {
           window.set_window_title("Shared counters - Tab panel");
           let model = cx.global::<AppServices>().counters.clone();
           let panel = cx.new(|cx| TabbedPanel::new(model, cx));
-          panel.update(cx, |panel, cx| panel.add_component_gallery(cx));
+          panel.update(cx, |panel, cx| {
+            panel.add_component_gallery(cx);
+            panel.open_baidu(cx);
+          });
           cx.new(|cx| Root::new(panel, window, cx))
         }) {
           eprintln!("Failed to open tab demo: {error}");

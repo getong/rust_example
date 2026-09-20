@@ -13,6 +13,7 @@ autocorrect = "2.14.2"
 chrono = "0.4"
 csv = "1.4"
 dirs = "7.0.0"
+futures = "0.3"
 fake = { version = "5.1.0", features = ["dummy"] }
 gpui-kit = "0.6.4"
 itertools = "0.15.0"
