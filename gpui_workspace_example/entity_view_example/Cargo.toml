@@ -1,0 +1,10 @@
+[package]
+name = "entity_view_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui-kit = "0.6.4"
+
+[dev-dependencies]
+gpui-kit = { version = "0.6.4", features = ["test-support"] }
