@@ -2,6 +2,8 @@
 
 仅依赖 `gpui-kit`，使用它导出的 GPUI 原生 API。
 
+详细说明：[GPUI 的订阅、通知与状态更新](docs/state-subscriptions.md)。
+
 ## 状态划分
 
 - **领域 Model**：`Entity<CounterState>` 存放两个计数值和操作说明，不实现 Render。
