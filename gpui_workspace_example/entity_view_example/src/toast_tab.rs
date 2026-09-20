@@ -2,10 +2,15 @@ use gpui_kit::{
   component::{
     ActiveTheme, WindowExt,
     button::{Button, ButtonVariants},
+    h_flex,
+    label::Label,
     notification::Notification,
+    v_flex,
   },
   *,
 };
+
+use crate::palette::AppPalette;
 
 pub(crate) struct ToastTab;
 
@@ -30,18 +35,19 @@ pub(crate) fn show_toast(note: Notification, window: &mut Window, cx: &mut App) 
 
 impl Render for ToastTab {
   fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-    div()
+    v_flex()
       .size_full()
-      .flex()
-      .flex_col()
       .items_center()
       .justify_center()
       .gap_4()
-      .child(div().text_2xl().child("Toast playground"))
+      .child(
+        Label::new("Toast playground")
+          .text_2xl()
+          .text_color(AppPalette::default().foreground),
+      )
       .child("Click a button to show a toast in this window.")
       .child(
-        div()
-          .flex()
+        h_flex()
           .gap_2()
           .child(
             Button::new("toast-success")

@@ -1,5 +1,7 @@
+mod palette;
 mod raised_button;
 mod router;
+mod scroll_panel;
 mod scrollbar_tab;
 mod state;
 mod tab_directory;
@@ -12,12 +14,19 @@ use gpui_kit::{
   component::{
     Root,
     button::Button,
+    empty::{Empty as EmptyState, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle},
+    group_box::{GroupBox, GroupBoxVariants},
+    h_flex,
+    label::Label,
+    status_bar::StatusBar,
     tab::{Tab, TabBar},
+    v_flex,
   },
   prelude::FluentBuilder as _,
   *,
 };
-use raised_button::raised_button;
+use palette::AppPalette;
+use raised_button::RaisedButton;
 use router::TabRouter;
 use scrollbar_tab::ScrollbarTab;
 use state::{AppSettings, CounterId, CounterState};
@@ -55,30 +64,34 @@ impl Render for CounterPanel {
     // read 是只读借用；clone Entity 只复制强句柄，不复制 Model。
     let count = self.model.read(cx).count(self.id);
     let step = cx.global::<AppSettings>().step();
-    div()
-      .flex()
-      .flex_col()
-      .items_center()
-      .gap_3()
-      .p_4()
-      .child(
-        div()
-          .text_xl()
-          .child(format!("Counter {}: {}", self.id.name(), count)),
+    GroupBox::new()
+      .outline()
+      .title(format!("Counter {}", self.id.name()))
+      .title_style(StyleRefinement::default().text_color(AppPalette::default().foreground))
+      .content_style(
+        StyleRefinement::default()
+          .items_center()
+          .gap_3()
+          .bg(AppPalette::default().background)
+          .text_color(AppPalette::default().foreground),
       )
-      .child(raised_button(
-        match self.id {
+      .child(
+        Label::new(format!("Counter {}: {}", self.id.name(), count))
+          .text_xl()
+          .text_color(AppPalette::default().foreground),
+      )
+      .child(
+        RaisedButton::new(match self.id {
           CounterId::A => "increment-a",
           CounterId::B => "increment-b",
-        },
-        format!("+{step}"),
-        cx,
-        cx.listener(|view: &mut Self, _, _, cx| {
+        })
+        .label(format!("+{step}"))
+        .on_click(cx.listener(|view: &mut Self, _, _, cx| {
           view
             .model
             .update(cx, |model, cx| model.increment(view.id, cx));
-        }),
-      ))
+        })),
+      )
   }
 }
 
@@ -100,13 +113,23 @@ impl SummaryPanel {
 impl Render for SummaryPanel {
   fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let model = self.model.read(cx);
-    div()
-      .flex()
-      .flex_col()
-      .items_center()
-      .gap_2()
+    GroupBox::new()
+      .fill()
+      .title("Summary")
+      .title_style(StyleRefinement::default().text_color(AppPalette::default().foreground))
+      .content_style(
+        StyleRefinement::default()
+          .items_center()
+          .gap_2()
+          .bg(AppPalette::default().background)
+          .text_color(AppPalette::default().foreground),
+      )
       // 汇总直接从 Model 派生，不维护第二份状态。
-      .child(div().text_xl().child(format!("Total: {}", model.total())))
+      .child(
+        Label::new(format!("Total: {}", model.total()))
+          .text_xl()
+          .text_color(AppPalette::default().foreground),
+      )
       .child(format!(
         "A = {}, B = {}",
         model.count(CounterId::A),
@@ -153,19 +176,17 @@ impl CounterTab {
 impl Render for CounterTab {
   fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let step = cx.global::<AppSettings>().step();
-    div()
-      .flex()
-      .flex_col()
+    v_flex()
       .items_center()
       .justify_center()
       .gap_4()
       .size_full()
-      .bg(rgb(0x1e1e1e))
-      .text_color(rgb(0xffffff))
+      .bg(AppPalette::default().background)
+      .text_color(AppPalette::default().foreground)
       .child(
-        div()
+        Label::new(format!("Shared counters - Tab {}", self.tab_number))
           .text_2xl()
-          .child(format!("Shared counters - Tab {}", self.tab_number)),
+          .text_color(AppPalette::default().foreground),
       )
       .child("Change a counter, then switch tabs to see the shared values.")
       .child(format!("Increment step: {step}"))
@@ -179,8 +200,7 @@ impl Render for CounterTab {
           }),
       )
       .child(
-        div()
-          .flex()
+        h_flex()
           .gap_4()
           .child(self.counters[0].clone())
           .child(self.counters[1].clone()),
@@ -375,16 +395,13 @@ impl Render for TabbedPanel {
     let router = self.router.read(cx);
     let pathname = router.pathname().unwrap_or("/").to_owned();
     let stack = router.stack().clone();
-    div()
+    v_flex()
       .relative()
-      .flex()
-      .flex_col()
       .size_full()
-      .bg(rgb(0x1e1e1e))
-      .text_color(rgb(0xffffff))
+      .bg(AppPalette::default().background)
+      .text_color(AppPalette::default().foreground)
       .child(
-        div()
-          .flex()
+        h_flex()
           .flex_wrap()
           .flex_shrink_0()
           .items_center()
@@ -426,19 +443,39 @@ impl Render for TabbedPanel {
           }))
           .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label(cx)))),
       )
-      .child(div().px_2().text_sm().child(format!(
-        "Route: {} | id: {}",
-        pathname,
-        router.param("id").unwrap_or("—")
-      )))
-      .child(div().flex_1().min_h_0().child(if active_tab.is_some() {
+      .child(v_flex().flex_1().min_h_0().child(if active_tab.is_some() {
         NavStack::new(&stack).size_full().into_any_element()
       } else {
-        div()
-          .p_4()
-          .child("No tabs. Click New tab to resume the shared counters.")
+        EmptyState::new()
+          .header(
+            EmptyHeader::new()
+              .title(
+                EmptyTitle::new()
+                  .text_color(AppPalette::default().foreground)
+                  .child("No tabs"),
+              )
+              .description(
+                EmptyDescription::new()
+                  .text_color(AppPalette::default().foreground)
+                  .child("Click New tab to resume the shared counters."),
+              ),
+          )
+          .content(
+            EmptyContent::new().child(
+              Button::new("empty-new-tab")
+                .label("New tab")
+                .on_click(cx.listener(|panel, _, _, cx| panel.add_tab(cx))),
+            ),
+          )
           .into_any_element()
       }))
+      .child(
+        StatusBar::new()
+          .bg(AppPalette::default().background)
+          .text_color(AppPalette::default().foreground)
+          .left(format!("Route: {pathname}"))
+          .right(format!("id: {}", router.param("id").unwrap_or("—"))),
+      )
       .children(notifications)
   }
 }

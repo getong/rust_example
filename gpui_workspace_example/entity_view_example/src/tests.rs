@@ -782,3 +782,67 @@ fn views_own_model_and_subscriptions_do_not_keep_it_alive(cx: &mut TestAppContex
   cx.update(|cx| cx.update_global::<AppSettings, _>(|settings, _| settings.toggle_step()));
   cx.run_until_parked();
 }
+
+#[gpui_kit::test]
+fn semantic_controls_support_keyboard_and_empty_state_recovery(cx: &mut TestAppContext) {
+  use gpui_kit::{InputEvent, KeyDownEvent, KeyUpEvent, Keystroke};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("increment-a", cx);
+    assert!(window.focused(cx).is_some());
+    for key in ["enter", "space"] {
+      let keystroke = Keystroke::parse(key).unwrap();
+      window.dispatch_event(
+        KeyDownEvent {
+          keystroke: keystroke.clone(),
+          is_held: false,
+          prefer_character_input: false,
+        }
+        .to_platform_input(),
+        cx,
+      );
+      window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
+      window.render_frame(cx);
+    }
+    assert_eq!(model.read(cx).count(CounterId::A), 3);
+
+    window.within("counter-tabs").click(3usize, cx);
+    window.click(("scroll-row", 1usize), cx);
+    let keystroke = Keystroke::parse("enter").unwrap();
+    window.dispatch_event(
+      KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+      }
+      .to_platform_input(),
+      cx,
+    );
+    window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
+    window.render_frame(cx);
+    assert_eq!(
+      window.find(("scroll-row", 1usize)).label(),
+      Some("Row 01 — Selected")
+    );
+
+    for _ in 0 .. 4 {
+      window.click("close-tab", cx);
+    }
+    assert!(window.find("empty-new-tab").visible());
+    window.click("empty-new-tab", cx);
+    assert!(window.find("increment-a").visible());
+    assert_eq!(model.read(cx).count(CounterId::A), 3);
+  })
+  .unwrap();
+}

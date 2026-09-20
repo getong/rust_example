@@ -1,15 +1,12 @@
 use gpui_kit::{
   base::Disableable,
   component::{
-    ActiveTheme,
-    button::Button,
-    notification::Notification,
-    scroll::{Scrollbar, ScrollbarMode},
+    button::Button, h_flex, label::Label, list::ListItem, notification::Notification, v_flex,
   },
   *,
 };
 
-use crate::toast_tab::show_toast;
+use crate::{palette::AppPalette, scroll_panel::ScrollPanel, toast_tab::show_toast};
 
 #[derive(Default)]
 pub(crate) struct ScrollbarTab {
@@ -20,18 +17,19 @@ pub(crate) struct ScrollbarTab {
 }
 
 impl Render for ScrollbarTab {
-  fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    div()
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    v_flex()
       .size_full()
-      .flex()
-      .flex_col()
       .gap_3()
       .p_4()
-      .child(div().text_2xl().child("Scrollbar playground"))
+      .child(
+        Label::new("Scrollbar playground")
+          .text_2xl()
+          .text_color(AppPalette::default().foreground),
+      )
       .child("Scroll with the mouse wheel / trackpad, or drag the scrollbar.")
       .child(
-        div()
-          .flex()
+        h_flex()
           .flex_wrap()
           .gap_2()
           .child(
@@ -73,58 +71,36 @@ impl Render for ScrollbarTab {
           ),
       )
       .child(
-        div()
-          .relative()
-          .flex_1()
-          .min_h_0()
-          .overflow_hidden()
-          .bg(cx.theme().background)
-          .text_color(cx.theme().foreground)
-          .border_1()
-          .border_color(cx.theme().border)
-          .rounded_lg()
-          .child(
-            div()
-              .id("scroll-content")
-              .size_full()
-              .overflow_y_scroll()
-              .track_scroll(&self.scroll_handle)
-              .pr_4()
-              .children((1 ..= 80).map(|number| {
-                div()
-                  .h(px(52.))
-                  .px_4()
-                  .flex()
-                  .items_center()
-                  .border_b_1()
-                  .border_color(cx.theme().border)
-                  .bg(if self.selected_row == Some(number) {
-                    cx.theme().secondary
-                  } else {
-                    cx.theme().background
-                  })
-                  .child(
-                    Button::new(("scroll-row", number))
-                      .w_full()
-                      .label(if self.selected_row == Some(number) {
-                        format!("Row {number:02} — Selected")
-                      } else {
-                        format!("Row {number:02} — Click to select")
-                      })
-                      .on_click(cx.listener(move |view, _, window, cx| {
-                        view.selected_row = Some(number);
-                        show_toast(
-                          Notification::success(format!("You selected row {number:02}."))
-                            .title("Row selected"),
-                          window,
-                          cx,
-                        );
-                        cx.notify();
-                      })),
-                  )
-              })),
-          )
-          .child(Scrollbar::vertical(&self.scroll_handle).mode(ScrollbarMode::Always)),
+        ScrollPanel::new("scroll-content", &self.scroll_handle).children((1 ..= 80).map(
+          |number| {
+            let focus = window
+              .use_keyed_state(("scroll-row", number), cx, |_, cx| cx.focus_handle())
+              .read(cx)
+              .clone();
+            let text = if self.selected_row == Some(number) {
+              format!("Row {number:02} — Selected")
+            } else {
+              format!("Row {number:02} — Click to select")
+            };
+            ListItem::new(("scroll-row", number))
+              .h(rems(3.25))
+              .selected(self.selected_row == Some(number))
+              .role(accesskit::Role::Button)
+              .aria_label(text.clone())
+              .track_focus(&focus)
+              .child(Label::new(text))
+              .on_click(cx.listener(move |view, _, window, cx| {
+                view.selected_row = Some(number);
+                show_toast(
+                  Notification::success(format!("You selected row {number:02}."))
+                    .title("Row selected"),
+                  window,
+                  cx,
+                );
+                cx.notify();
+              }))
+          },
+        )),
       )
       .child(match self.selected_row {
         Some(number) => format!("Selected: Row {number:02} · 80 clickable rows"),
