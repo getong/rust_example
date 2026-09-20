@@ -136,7 +136,7 @@ fn directory_scrolls_and_does_not_keep_panel_alive(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn dynamic_route_templates_keep_page_instances_separate(cx: &mut TestAppContext) {
-  use crate::router::{RegisterError, TabRouter};
+  use crate::router::{RouterError, TabRouter};
 
   cx.update(|cx| cx.set_global(AppSettings::default()));
   let model = cx.new(|_| CounterState::default());
@@ -149,17 +149,26 @@ fn dynamic_route_templates_keep_page_instances_separate(cx: &mut TestAppContext)
     router.navigate("/counter/1", cx).unwrap();
     assert_eq!(router.param("id"), Some("1"));
     assert_eq!(router.param("missing"), None);
+    assert_eq!(
+      router.navigate("/unknown/1", cx),
+      Err(RouterError::UnknownPath)
+    );
+    assert_eq!(router.pathname(), Some("/counter/1"));
+    assert_eq!(router.param("id"), Some("1"));
     // 模板匹配成功，但不存在的页面不能跳转。
-    assert!(router.navigate("/counter/2", cx).is_err());
+    assert_eq!(
+      router.navigate("/counter/2", cx),
+      Err(crate::router::RouterError::ClosedPath)
+    );
     assert_eq!(router.pathname(), Some("/counter/1"));
     assert_eq!(router.param("id"), Some("1"));
     assert_eq!(
       router.register("/counter/1", second.clone().into()),
-      Err(RegisterError::DuplicatePath)
+      Err(RouterError::DuplicatePath)
     );
     assert_eq!(
       router.register("/unknown/2", second.clone().into()),
-      Err(RegisterError::UnknownRoute)
+      Err(RouterError::UnknownPath)
     );
     // 运行中加入同模板的新页面，注册本身不切换页面。
     router
@@ -171,7 +180,10 @@ fn dynamic_route_templates_keep_page_instances_separate(cx: &mut TestAppContext)
     router.unregister("/counter/1", cx);
     assert_eq!(router.pathname(), Some("/counter/2"));
     assert!(!router.stack().read(cx).is_empty());
-    assert!(router.navigate("/counter/1", cx).is_err());
+    assert_eq!(
+      router.navigate("/counter/1", cx),
+      Err(RouterError::ClosedPath)
+    );
     router.unregister("/counter/2", cx);
     assert_eq!(router.pathname(), None);
     assert_eq!(router.param("id"), None);
@@ -185,7 +197,7 @@ fn dynamic_route_templates_keep_page_instances_separate(cx: &mut TestAppContext)
 
 #[gpui_kit::test]
 fn route_templates_can_be_added_at_runtime(cx: &mut TestAppContext) {
-  use crate::router::TabRouter;
+  use crate::router::{RouterError, TabRouter};
 
   let page = cx.new(|_| crate::ToastTab);
   let router = cx.new(TabRouter::new);
@@ -196,12 +208,24 @@ fn route_templates_can_be_added_at_runtime(cx: &mut TestAppContext) {
     router
       .register_route("/projects/{project}/files/{*file}")
       .unwrap();
-    assert!(
-      router
-        .register_route("/projects/{project}/files/{*file}")
-        .is_err()
+    assert_eq!(
+      router.register_route("/projects/{project}/files/{*file}"),
+      Err(RouterError::ConflictingPattern {
+        with: "/projects/{project}/files/{*file}".into(),
+      })
     );
-    assert!(router.register_route("/broken/{").is_err());
+    assert_eq!(
+      router.register_route("/projects/{name}/files/{*rest}"),
+      Err(RouterError::ConflictingPattern {
+        with: "/projects/{project}/files/{*file}".into(),
+      })
+    );
+    for pattern in ["/broken/{", "/broken/{a}{b}", "/broken/{*rest}/tail"] {
+      assert!(matches!(
+        router.register_route(pattern),
+        Err(RouterError::InvalidPattern { reason }) if !reason.is_empty()
+      ));
+    }
     assert_eq!(router.pathname(), Some("/home"));
     assert_eq!(router.param("project"), None);
     let path = "/projects/demo/files/src/main.rs";
@@ -210,7 +234,7 @@ fn route_templates_can_be_added_at_runtime(cx: &mut TestAppContext) {
     assert_eq!(router.param("project"), Some("demo"));
     assert_eq!(router.param("file"), Some("src/main.rs"));
     router.unregister(path, cx);
-    assert!(router.navigate(path, cx).is_err());
+    assert_eq!(router.navigate(path, cx), Err(RouterError::ClosedPath));
     router.navigate("/home", cx).unwrap();
     assert_eq!(router.param("file"), None);
   });
@@ -299,7 +323,10 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
     assert_eq!(router.pathname(), Some("/counter/1"))
   });
   router.update(cx, |router, cx| {
-    assert!(router.navigate("/missing", cx).is_err());
+    assert_eq!(
+      router.navigate("/missing", cx),
+      Err(crate::router::RouterError::UnknownPath)
+    );
     assert_eq!(router.pathname(), Some("/counter/1"));
     router.navigate("/counter/2", cx).unwrap();
   });
@@ -311,7 +338,10 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
   .unwrap();
   router.update(cx, |router, cx| {
     let current = router.pathname().unwrap().to_owned();
-    assert!(router.navigate("/counter/2", cx).is_err());
+    assert_eq!(
+      router.navigate("/counter/2", cx),
+      Err(crate::router::RouterError::ClosedPath)
+    );
     assert_eq!(router.pathname(), Some(current.as_str()));
   });
   // 同类新增标签也有独立路径；关闭前面的标签不改变其他标签路径。

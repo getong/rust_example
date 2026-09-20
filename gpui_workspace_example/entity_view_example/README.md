@@ -1,6 +1,7 @@
 # 同一 Panel 内的多 Tab 状态同步 Demo
 
-仅依赖 `gpui-kit`，使用一个原生窗口、一个 `Root` 和一个 `TabbedPanel`。
+使用 `gpui-kit` 与 `matchit`，一个原生窗口、一个 `Root` 和一个 `TabbedPanel`。
+`matchit::Router` 将路径解析为标签视图，Kit 的 `NavStack` 承载当前页面。
 面板默认包含两个计数标签页、一个 `Toast` 标签页和一个 `Scrollbar` 标签页。
 计数标签拥有独立视图，共享同一个计数模型与步长配置。
 
@@ -10,6 +11,11 @@
 `Remember position` 记录当前位置，`Restore position` 返回记录的位置，方便回到顶部后继续浏览。
 这些状态独立保存在每个打开的标签中；关闭标签或退出应用后不保留。
 点击 `New scroll tab` 新增独立的滚动标签，也可以关闭后重新添加。
+
+点击工具栏 `Tab directory` 打开标签目录页。目录使用常驻垂直滚动条，列出当前面板
+所有可跳转的标签（包含目录自身），每项显示名称和路径；点击条目即可切换标签。
+新增或关闭标签时列表自动增减，切换页面会保留目录的滚动位置。
+再次点击入口会返回已有目录；关闭目录后可以重新打开，各面板的目录互不影响。
 
 点击 `Toast` 标签，再点击 `Success`、`Info`、`Warning` 或 `Error` 显示对应弹窗。
 弹窗在 5 秒后自动消失，悬停暂停计时，也可点击常驻的 `Close` 按钮立即关闭。
@@ -36,8 +42,10 @@ cargo run -p entity_view_example
 
 - `AppSettings: Global`：应用级步长配置。
 - `AppServices: Global`：持有唯一的 `Entity<CounterState>`。
-- `TabbedPanel`：持有标签实体列表、选中索引和下一个标签编号。
+- `TabbedPanel`：持有标签实体列表和面板独立的 `Entity<TabRouter>`；选中标签从路由派生。
+- `TabRouter`：`matchit` 匹配动态路径模板，按具体路径保存页面实例，`NavStackState` 切换视图。
 - `CounterTab`：每个标签的局部次数、计数视图和汇总视图。
+- `TabDirectory`：观察面板变化，从实时标签列表派生可点击的滚动目录；弱引用面板以避免循环持有。
 - `CounterState`：共享的 A、B 计数；汇总直接派生。
 
 ```text
@@ -64,4 +72,64 @@ cargo clippy -p entity_view_example --all-targets --no-deps -- -D warnings
 ```
 
 测试覆盖模型通知、Global 通知、生命周期，以及同一测试窗口内点击标签、跨标签修改、
-局部状态保留、新增与关闭标签、空面板重新添加标签。
+局部状态保留、新增与关闭标签、空面板重新添加标签，以及目录增删同步、点击跳转、滚动位置与释放。
+
+## 路由跳转
+
+点击标签、创建标签、关闭当前标签都会更新路由。计数标签使用 `/counter/1`、
+`/counter/2` 等路径；Toast 和 Scrollbar 使用 `/toast/<entity-id>`、
+`/scrollbar/<entity-id>`，允许多个同类标签并存。界面显示当前路径。
+
+业务代码也可以直接调用面板的 router，观察者会同步更新 TabBar 和页面：
+
+```rust
+panel.router.update(cx, |router, cx| {
+  router.navigate("/counter/2", cx)
+})?;
+```
+
+路由只访问已打开的标签；`register_route`、`register`、`navigate` 统一返回自定义
+`RouterError`，公共错误类型不依赖 `matchit`。导航失败时当前页面和参数不变：
+
+- `UnknownPath`：路径未匹配任何已注册模板。
+- `ClosedPath`：路径匹配模板，但对应页面尚未注册或已经关闭。
+
+关闭标签注销页面实例并释放对应视图；关闭全部标签清空导航栈。各面板的路由独立，
+共享计数仍通过同一个模型同步。路径只在本次运行有效，不是 OS 深链接或持久化地址。
+
+### 动态路由与动态页面
+
+面板注册 `/counter/{id}`、`/toast/{id}`、`/scrollbar/{id}`、`/tabs/{id}` 四个 matchit 模板。
+点击新增按钮时，将新 Entity 注册到具体路径，然后导航；同一模板下的不同 ID
+各自持有页面状态。`router.param("id")` 可读取当前路径中的 ID。
+
+路由模板也支持在运行时添加，顺序为定义模板、注册实例、导航：
+
+```rust
+router.register_route("/projects/{project}/files/{*file}")?;
+router.register("/projects/demo/files/src/main.rs", view)?;
+router.navigate("/projects/demo/files/src/main.rs", cx)?;
+assert_eq!(router.param("project"), Some("demo"));
+assert_eq!(router.param("file"), Some("src/main.rs"));
+```
+
+`register_route` 支持静态路径、命名参数和 catch-all；非法或冲突模板返回
+`RouterError::InvalidPattern { reason }` 或 `RouterError::ConflictingPattern { with }`。
+`reason` 保留底层诊断文本，仅用于展示；`with` 指明冲突的已有模板（重复注册也属于冲突）。
+`register` 对未匹配模板的路径返回 `RouterError::UnknownPath`，对重复页面返回
+`RouterError::DuplicatePath`，不覆盖原实例。
+模板匹配成功也必须存在对应页面才能导航，不会自动创建任意 ID 的页面。
+`unregister` 接收具体路径，只释放该实例，模板继续供其他实例和后续新增页面使用。
+上述 API 操作路由和页面承载；新增 TabBar 标签仍通过面板的 `open_tab` 同步维护标签列表。
+
+### 库选择（2026-09-20 核对 GitHub）
+
+| 方案 | 当前依赖/适用性 |
+| --- | --- |
+| [gpui-router](https://github.com/justjavac/gpui-router/blob/main/Cargo.toml) | `gpui 0.2.1`，与 Kit 的 `gpui-pre` 类型不统一 |
+| [gpui-navigator](https://github.com/vanyastaff/gpui-navigator/blob/main/Cargo.toml) | `gpui 0.2`，同样需要适配 |
+| [gpui-navi](https://github.com/elcoosp/gpui-navi/blob/main/Cargo.toml) | 直接依赖 Zed Git GPUI，未对齐当前 Kit |
+| [matchit](https://github.com/ibraheemdev/matchit) + [Kit NavStack](https://github.com/longbridge/gpui-kit/blob/main/crates/base/src/nav_stack.rs) | 本项目采用：路径匹配独立于 UI，页面导航使用 Kit 原生类型 |
+
+这是 `matchit` 路由库加少量应用适配代码，并非现成的 GPUI 声明式路由框架。
+不需要引入另一套 GPUI，也无需 vendor/fork。当前平级标签使用 `replace`，不累积浏览历史。
