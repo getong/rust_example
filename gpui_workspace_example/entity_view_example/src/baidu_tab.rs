@@ -18,9 +18,12 @@ use gpui_kit::{
   http_client::{AsyncBody, HttpClient, HttpRequestExt, RedirectPolicy, Request},
   *,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::scroll_panel::ScrollPanel;
+use crate::{
+  baidu_cache::{BaiduCache, CachedBoard},
+  scroll_panel::ScrollPanel,
+};
 
 pub(crate) const BOARD_URL: &str = "https://top.baidu.com/board?platform=pc&sa=pcindex_entry";
 const REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -36,13 +39,13 @@ struct BoardData {
   cards: Vec<Board>,
 }
 
-#[derive(Debug, Deserialize)]
-struct Board {
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct Board {
   text: String,
   content: Vec<Entry>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Entry {
   word: String,
@@ -141,6 +144,8 @@ impl Paging {
 
 pub(crate) struct BaiduTab {
   boards: Vec<Board>,
+  cache: BaiduCache,
+  cached: bool,
   paging: Paging,
   size_input: Option<Entity<InputState>>,
   size_subscription: Option<Subscription>,
@@ -154,8 +159,14 @@ pub(crate) struct BaiduTab {
 
 impl BaiduTab {
   pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+    Self::with_cache(BaiduCache::default(), cx)
+  }
+
+  fn with_cache(cache: BaiduCache, cx: &mut Context<Self>) -> Self {
     let mut view = Self {
       boards: Vec::new(),
+      cache,
+      cached: false,
       paging: Paging::default(),
       size_input: None,
       size_subscription: None,
@@ -166,17 +177,72 @@ impl BaiduTab {
       request: None,
       timer: None,
     };
-    view.refresh(cx);
-    // Context::spawn 提供 WeakEntity；任务不会保活已关闭的标签。
-    view.timer = Some(cx.spawn(async move |view, cx| {
+    view.load_cache(cx);
+    view
+  }
+
+  fn start_timer(&mut self, delay: Duration, cx: &mut Context<Self>) {
+    // WeakEntity and owned Task handles keep the timer scoped to the tab lifetime.
+    self.timer = Some(cx.spawn(async move |view, cx| {
+      cx.background_executor().timer(delay).await;
       loop {
-        cx.background_executor().timer(REFRESH_INTERVAL).await;
         if view.update(cx, |view, cx| view.refresh(cx)).is_err() {
           break;
         }
+        cx.background_executor().timer(REFRESH_INTERVAL).await;
       }
     }));
-    view
+  }
+
+  fn apply_cache(&mut self, snapshot: CachedBoard, cached: bool) {
+    self.boards = snapshot.boards;
+    self.cached = cached;
+    let old_page = self.paging.page;
+    self.paging.clamp(self.total_items());
+    if self.paging.page != old_page {
+      self.scroll.set_offset(point(px(0.), px(0.)));
+    }
+    self.updated = chrono::DateTime::from_timestamp(snapshot.fetched_at, 0).map(|time| {
+      time
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+    });
+  }
+
+  fn load_cache(&mut self, cx: &mut Context<Self>) {
+    self.loading = true;
+    let cache = self.cache.clone();
+    let executor = cx.background_executor().clone();
+    self.request = Some(cx.spawn(async move |view, cx| {
+      let result = executor.spawn(async move { cache.load().await }).await;
+      let mut refresh = false;
+      let _ = view.update(cx, |view, cx| {
+        view.loading = false;
+        let mut delay = REFRESH_INTERVAL;
+        match result {
+          Ok(Some(snapshot)) => {
+            let now = chrono::Utc::now().timestamp();
+            refresh = !snapshot.fresh_at(now);
+            if !refresh {
+              delay = Duration::from_secs((300 - (now - snapshot.fetched_at)) as u64);
+            }
+            view.apply_cache(snapshot, true);
+          }
+          Ok(None) => refresh = true,
+          Err(error) => {
+            view.error = Some(format!("{error:#}"));
+            refresh = true;
+          }
+        }
+        view.start_timer(delay, cx);
+        cx.notify();
+      });
+      // Cached content is applied before starting a stale-cache network refresh.
+      if refresh {
+        let _ = view.update(cx, |view, cx| view.refresh(cx));
+      }
+    }));
   }
 
   fn total_items(&self) -> usize {
@@ -221,6 +287,7 @@ impl BaiduTab {
     self.loading = true;
     self.error = None;
     let client = cx.http_client();
+    let cache = self.cache.clone();
     let executor = cx.background_executor().clone();
     self.request = Some(cx.spawn(async move |view, cx| {
       let job = executor.clone().spawn(async move {
@@ -230,7 +297,12 @@ impl BaiduTab {
         )
         .await
         {
-          Either::Left((result, _)) => result,
+          Either::Left((result, _)) => {
+            let boards = result?;
+            cache
+              .save_and_load(&boards, chrono::Utc::now().timestamp())
+              .await
+          }
           Either::Right(_) => bail!("请求超时，请稍后重试"),
         }
       });
@@ -238,15 +310,7 @@ impl BaiduTab {
       let _ = view.update(cx, |view, cx| {
         view.loading = false;
         match result {
-          Ok(boards) => {
-            view.boards = boards;
-            let old_page = view.paging.page;
-            view.paging.clamp(view.total_items());
-            if view.paging.page != old_page {
-              view.scroll.set_offset(point(px(0.), px(0.)));
-            }
-            view.updated = Some(chrono::Local::now().format("%H:%M:%S").to_string());
-          }
+          Ok(snapshot) => view.apply_cache(snapshot, false),
           Err(error) => view.error = Some(format!("{error:#}")),
         }
         cx.notify();
@@ -254,7 +318,6 @@ impl BaiduTab {
     }));
     cx.notify();
   }
-
 }
 
 impl Render for BaiduTab {
@@ -285,7 +348,14 @@ impl Render for BaiduTab {
           ),
       )
       .child(Label::new(format!(
-        "每 5 分钟自动刷新 · {}",
+        "每 5 分钟自动刷新 · {} · {}",
+        if self.updated.is_none() {
+          "尚无本地缓存"
+        } else if self.cached {
+          "本地缓存"
+        } else {
+          "已同步到本地数据库"
+        },
         self
           .updated
           .as_ref()
@@ -502,6 +572,15 @@ mod tests {
     let boards = futures::executor::block_on(super::fetch_board(Arc::new(client))).unwrap();
     assert!(boards.iter().any(|board| board.text.contains("热搜")));
     assert!(boards.iter().all(|board| !board.content.is_empty()));
+    let cache = crate::baidu_cache::BaiduCache::default();
+    let stored =
+      futures::executor::block_on(cache.save_and_load(&boards, chrono::Utc::now().timestamp()))
+        .unwrap();
+    let restored = futures::executor::block_on(cache.load()).unwrap().unwrap();
+    assert_eq!(
+      serde_json::to_value(stored.boards).unwrap(),
+      serde_json::to_value(restored.boards).unwrap()
+    );
     eprintln!(
       "Decoded {} boards, {} entries",
       boards.len(),
@@ -590,5 +669,51 @@ mod tests {
       assert_eq!(tab.paging.page, 1);
       assert_eq!(tab.paging.size, 7);
     });
+  }
+  #[gpui_kit::test]
+  fn fresh_disk_cache_skips_network_and_stale_cache_survives_failure(cx: &mut TestAppContext) {
+    let cache = crate::baidu_cache::BaiduCache::default();
+    futures::executor::block_on(
+      cache.save_and_load(&decode_board(JSON).unwrap(), chrono::Utc::now().timestamp()),
+    )
+    .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    cx.update(|cx| {
+      cx.set_http_client(FakeHttpClient::create(move |_| {
+        count.fetch_add(1, Ordering::SeqCst);
+        async {
+          Ok(
+            Response::builder()
+              .status(503)
+              .body(AsyncBody::empty())
+              .unwrap(),
+          )
+        }
+      }))
+    });
+    let tab = cx.new(|cx| BaiduTab::with_cache(cache.clone(), cx));
+    cx.run_until_parked();
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    tab.read_with(cx, |tab, _| {
+      assert_eq!(tab.boards.len(), 2);
+      assert!(tab.cached);
+      assert!(!tab.loading);
+    });
+    drop(tab);
+    cx.run_until_parked();
+    futures::executor::block_on(cache.save_and_load(
+      &decode_board(JSON).unwrap(),
+      chrono::Utc::now().timestamp() - 301,
+    ))
+    .unwrap();
+    let tab = cx.new(|cx| BaiduTab::with_cache(cache.clone(), cx));
+    cx.run_until_parked();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    tab.read_with(cx, |tab, _| {
+      assert_eq!(tab.boards.len(), 2);
+      assert!(tab.error.as_ref().unwrap().contains("503"));
+    });
+    assert!(futures::executor::block_on(cache.load()).unwrap().is_some());
   }
 }

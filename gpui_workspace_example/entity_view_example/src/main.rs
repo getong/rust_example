@@ -1,3 +1,4 @@
+mod baidu_cache;
 mod baidu_tab;
 mod component_tab;
 mod tabs;
