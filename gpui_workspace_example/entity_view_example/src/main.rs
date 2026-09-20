@@ -456,6 +456,7 @@ fn main() {
     cx.set_global(AppSettings::default());
     let counters = cx.new(|_| CounterState::default());
     cx.set_global(AppServices { counters });
+    cx.activate(true);
     cx.spawn(async move |cx| {
       let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -466,6 +467,7 @@ fn main() {
         ..Default::default()
       };
       if let Err(error) = cx.open_window(options, |window, cx| {
+        window.activate_window();
         window.set_window_title("Shared counters - Tab panel");
         let model = cx.global::<AppServices>().counters.clone();
         let panel = cx.new(|cx| TabbedPanel::new(model, cx));
