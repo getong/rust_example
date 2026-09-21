@@ -133,3 +133,12 @@ assert_eq!(router.param("file"), Some("src/main.rs"));
 
 这是 `matchit` 路由库加少量应用适配代码，并非现成的 GPUI 声明式路由框架。
 不需要引入另一套 GPUI，也无需 vendor/fork。当前平级标签使用 `replace`，不累积浏览历史。
+
+### GPUI 基础教学页
+
+启动时会随画廊打开两个独立标签，关闭后可从 **All components** 重新打开：
+
+- **GPUI 元素**（`/component/gpui-elements`）：介绍文本、`svg/img`、`canvas`、虚拟列表、锚点浮层和自定义视图，附 Zed examples 对应文件与 API 示例。
+- **div() 实验室**（`/component/div-lab`）：切换矩形/胶囊/圆形、1×/1.5×/2×，比较只改变盒子尺寸与同步放大文字/间距；点击 div 按钮推进计数与进度，切换 div 开关改变卡片状态。切换标签保留状态，重置恢复初始值。
+
+参考目录：`/Users/gerald/test/rust/zed/crates/gpui/examples`。这些教学页面使用当前项目的 `gpui-kit` API，不依赖该绝对路径加载资源。

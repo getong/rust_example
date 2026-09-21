@@ -9,6 +9,10 @@ mod alert_tab;
 mod attachment_tab;
 mod avatar_tab;
 mod badge_tab;
+mod div_lab_tab;
+mod gpui_elements_tab;
+pub use div_lab_tab::DivLabTab;
+pub use gpui_elements_tab::GpuiElementsTab;
 
 mod bubble_tab;
 mod button_tab;

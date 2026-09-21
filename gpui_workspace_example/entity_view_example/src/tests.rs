@@ -890,7 +890,7 @@ fn check_component_catalog(cx: &mut TestAppContext) {
     crate::tabs::init(cx);
     cx.set_global(AppSettings::default());
   });
-  assert_eq!(DEMOS.len(), 75);
+  assert_eq!(DEMOS.len(), 77);
   let mut slugs = HashSet::new();
   for demo in DEMOS {
     assert!(slugs.insert(demo.slug), "duplicate demo {}", demo.slug);
@@ -904,7 +904,7 @@ fn check_component_catalog(cx: &mut TestAppContext) {
   );
   cx.update_window(window.into(), |_, window, cx| {
     window.render_frame(cx);
-    assert_eq!(panel.read(cx).tabs.len(), 80);
+    assert_eq!(panel.read(cx).tabs.len(), DEMOS.len() + 5);
     for (index, demo) in DEMOS.iter().enumerate() {
       eprintln!("Render component: {}", demo.title);
       panel.update(cx, |panel, cx| panel.open_component(Some(index), cx));
@@ -923,7 +923,7 @@ fn check_component_catalog(cx: &mut TestAppContext) {
     panel.update(cx, |panel, cx| {
       panel.open_component(Some(DEMOS.len() - 1), cx)
     });
-    assert_eq!(panel.read(cx).tabs.len(), 80);
+    assert_eq!(panel.read(cx).tabs.len(), DEMOS.len() + 5);
     panel.update(cx, |panel, cx| panel.open_component(None, cx));
     window.render_frame(cx);
     assert!(window.find(("open-component", 0usize)).visible());

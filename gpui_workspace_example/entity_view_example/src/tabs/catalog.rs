@@ -12,6 +12,18 @@ fn build<S: ComponentPage>(window: &mut Window, cx: &mut App) -> AnyView {
 }
 pub const DEMOS: &[Demo] = &[
   Demo {
+    slug: "gpui-elements",
+    title: "GPUI 元素",
+    description: "参考 Zed GPUI examples：认识 div 之外的原生元素、用途与组合方式。",
+    build: build::<GpuiElementsTab>,
+  },
+  Demo {
+    slug: "div-lab",
+    title: "div() 实验室",
+    description: "从方块到控件：交互演示 div 的样式、变形、放大和组合。",
+    build: build::<DivLabTab>,
+  },
+  Demo {
     slug: "accordion",
     title: "Accordion",
     description: "内部基于 collapse 实现的可折叠面板组件。",
