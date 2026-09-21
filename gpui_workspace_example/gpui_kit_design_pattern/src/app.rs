@@ -2,7 +2,9 @@
 use gpui_kit::{component::ActiveTheme, *};
 
 use crate::{
+  async_bridge::AsyncBridgeDemo,
   composition::Counter,
+  controller::ControllerDemo,
   events::EventDemo,
   global_state::GlobalDemo,
   observe::ObserveDemo,
@@ -15,6 +17,8 @@ pub(crate) struct PatternGallery {
   global: Entity<GlobalDemo>,
   slots: Entity<SlotContainer>,
   observe: Entity<ObserveDemo>,
+  controller: Entity<ControllerDemo>,
+  async_bridge: Entity<AsyncBridgeDemo>,
 }
 
 impl PatternGallery {
@@ -29,6 +33,8 @@ impl PatternGallery {
       global: cx.new(GlobalDemo::new),
       slots,
       observe: cx.new(ObserveDemo::new),
+      controller: cx.new(ControllerDemo::new),
+      async_bridge: cx.new(AsyncBridgeDemo::new),
     }
   }
 }
@@ -89,6 +95,16 @@ impl Render for PatternGallery {
             "4. Observe",
             "Source notify triggers the derived view to read and redraw.",
             self.observe.clone(),
+          ))
+          .child(section(
+            "5. Centralized Controller",
+            "Two views send commands; a non-visual controller handles its own signals.",
+            self.controller.clone(),
+          ))
+          .child(section(
+            "6. Async Bridge",
+            "A simulated background download returns a signal to the model on the UI thread.",
+            self.async_bridge.clone(),
           )),
       )
   }

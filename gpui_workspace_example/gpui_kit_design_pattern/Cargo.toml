@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 gpui-kit = "0.6.6"
+
+[dev-dependencies]
+gpui-kit = { version = "0.6.6", features = ["test-support"] }

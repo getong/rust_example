@@ -10,6 +10,8 @@ impl Render for Counter {
   fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     div()
       .flex()
+      .flex_col() // 子元素从上到下排列。
+      .items_start()
       .gap_3()
       .p_4()
       .child(format!("count:{}", self.count))
