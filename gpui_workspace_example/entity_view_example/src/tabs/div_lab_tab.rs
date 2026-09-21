@@ -1,11 +1,38 @@
 use gpui_kit::{
   App, AppContext, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-  StatefulInteractiveElement, Styled, TestSupportExt as _, Window,
+  ScrollHandle, StatefulInteractiveElement, Styled, TestSupportExt as _, Window,
   component::{ActiveTheme, Selectable, button::Button},
   div, px, relative, rgb,
 };
 
-use super::{ComponentPage, gpui_elements_tab::lesson};
+use super::ComponentPage;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ExtensionDemo {
+  #[default]
+  Layout,
+  Scroll,
+  Layers,
+  Animation,
+}
+
+impl ExtensionDemo {
+  const ALL: [(Self, &'static str); 4] = [
+    (Self::Layout, "布局"),
+    (Self::Scroll, "滚动列表"),
+    (Self::Layers, "阴影与透明度"),
+    (Self::Animation, "动画"),
+  ];
+
+  fn source(self) -> &'static str {
+    match self {
+      Self::Layout => include_str!("div_lab_tab/extension.rs"),
+      Self::Scroll => include_str!("div_lab_tab/extension_scroll.rs"),
+      Self::Layers => include_str!("div_lab_tab/extension_layers.rs"),
+      Self::Animation => include_str!("div_lab_tab/extension_animation.rs"),
+    }
+  }
+}
 
 #[derive(Default)]
 pub struct DivLabTab {
@@ -14,6 +41,9 @@ pub struct DivLabTab {
   scale_content: bool,
   enabled: bool,
   clicks: usize,
+  animation_runs: usize,
+  extension_demo: ExtensionDemo,
+  source_scrolls: [ScrollHandle; 5],
 }
 
 impl ComponentPage for DivLabTab {
@@ -28,8 +58,67 @@ impl ComponentPage for DivLabTab {
   }
 }
 
-impl Render for DivLabTab {
-  fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+fn demo_lesson(
+  id: &'static str,
+  title: &str,
+  explanation: &str,
+  code: String,
+  scroll: &ScrollHandle,
+  cx: &App,
+) -> gpui_kit::Div {
+  div()
+    .flex()
+    .flex_col()
+    .gap_3()
+    .p_4()
+    .flex_shrink_0()
+    .w_full()
+    .min_w_0()
+    .border_1()
+    .border_color(cx.theme().border)
+    .rounded_lg()
+    .child(
+      div()
+        .text_lg()
+        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+        .child(title.to_owned()),
+    )
+    .child(div().text_sm().child(explanation.to_owned()))
+    .child(
+      div()
+        .id((gpui_kit::ElementId::from(id), "viewport"))
+        // The inner native scroll handler runs first during bubbling. Stop here
+        // so the same wheel gesture cannot also scroll the enclosing tab.
+        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+        .test_support()
+        .flex()
+        .h(px(160.))
+        .w_full()
+        .flex_shrink_0()
+        .child(
+          crate::scroll_panel::ScrollPanel::new(id, scroll).child(
+            div()
+              .p_3()
+              .bg(cx.theme().muted)
+              .text_sm()
+              .font_family("monospace")
+              .child(code),
+          ),
+        ),
+    )
+}
+
+impl DivLabTab {
+  fn render_extension(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    match self.extension_demo {
+      ExtensionDemo::Layout => include!("div_lab_tab/extension.rs").into_any_element(),
+      ExtensionDemo::Scroll => include!("div_lab_tab/extension_scroll.rs").into_any_element(),
+      ExtensionDemo::Layers => include!("div_lab_tab/extension_layers.rs").into_any_element(),
+      ExtensionDemo::Animation => include!("div_lab_tab/extension_animation.rs").into_any_element(),
+    }
+  }
+
+  fn shape_metrics(&self) -> [f32; 5] {
     let scale = [1., 1.5, 2.][self.scale_index];
     let content_scale = if self.scale_content { scale } else { 1. };
     let (width, height, radius) = match self.shape {
@@ -37,9 +126,89 @@ impl Render for DivLabTab {
       2 => (72., 72., 36.),
       _ => (120., 64., 8.),
     };
+    [
+      width * scale,
+      height * scale,
+      radius * scale,
+      8. * content_scale,
+      14. * content_scale,
+    ]
+  }
+
+  // Resolve the shared preview source into the code for the current frame.
+  // Event handlers stay intact so the displayed code still demonstrates interaction.
+  fn demo_codes(&self) -> [String; 5] {
+    let [width, height, radius, padding, font_size] = self.shape_metrics();
+    let shape = include_str!("div_lab_tab/shape.rs")
+      .replace("px(width)", &format!("px({width:.1})"))
+      .replace("px(height)", &format!("px({height:.1})"))
+      .replace("px(radius)", &format!("px({radius:.1})"))
+      .replace("px(padding)", &format!("px({padding:.1})"))
+      .replace("px(font_size)", &format!("px({font_size:.1})"));
+    let button =
+      include_str!("div_lab_tab/button.rs").replace("self.clicks", &self.clicks.to_string());
+    let switch = include_str!("div_lab_tab/switch.rs")
+      .replace(
+        "if self.enabled { 28. } else { 4. }",
+        if self.enabled { "28.0" } else { "4.0" },
+      )
+      .replace("self.enabled", if self.enabled { "true" } else { "false" });
+    let card = include_str!("div_lab_tab/card.rs")
+      .replace(
+        "(self.clicks % 11) as f32 / 10.",
+        &format!("{:.1}", (self.clicks % 11) as f32 / 10.),
+      )
+      .replace(
+        "self.clicks % 11 * 10",
+        &(self.clicks % 11 * 10).to_string(),
+      )
+      .replace("self.enabled", if self.enabled { "true" } else { "false" });
+    [
+      format!(
+        "// 当前尺寸 {width:.1} × {height:.1}，圆角 {radius:.1}，字号 {font_size:.1}，内边距 \
+         {padding:.1}\nlet primary = cx.theme().primary;\nlet foreground = \
+         cx.theme().primary_foreground;\nlet muted = cx.theme().muted;\n\n{shape}"
+      ),
+      format!(
+        "// 当前点击次数：{}\nlet primary = cx.theme().primary;\nlet foreground = \
+         cx.theme().primary_foreground;\n\n{button}",
+        self.clicks
+      ),
+      format!(
+        "// 当前开关：{}\nlet primary = cx.theme().primary;\n\n{switch}",
+        if self.enabled { "开启" } else { "关闭" }
+      ),
+      format!(
+        "// 当前进度：{}%，状态：{}\nlet primary = cx.theme().primary;\nlet muted = \
+         cx.theme().muted;\n\n{card}",
+        self.clicks % 11 * 10,
+        if self.enabled {
+          "运行中"
+        } else {
+          "待开始"
+        }
+      ),
+      self
+        .extension_demo
+        .source()
+        .replace("self.animation_runs", &self.animation_runs.to_string()),
+    ]
+  }
+}
+
+impl Render for DivLabTab {
+  fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    let [width, height, radius, padding, font_size] = self.shape_metrics();
     let primary = cx.theme().primary;
     let foreground = cx.theme().primary_foreground;
     let muted = cx.theme().muted;
+    let [
+      shape_code,
+      button_code,
+      switch_code,
+      card_code,
+      extension_code,
+    ] = self.demo_codes();
     div()
       .flex()
       .flex_col()
@@ -48,21 +217,19 @@ impl Render for DivLabTab {
       .min_w_0()
       .child(
         "div() 本身只是容器。尺寸决定布局，圆角与颜色决定外观，事件更新 Entity 状态，再通过 \
-         cx.notify() 触发重绘。这里的“变形和放大”使用真实布局尺寸，不是把截图拉伸。",
+         cx.notify() \
+         触发重绘。这里的“变形和放大”使用真实布局尺寸，不是把截图拉伸。每段代码下方是对应效果；\
+         代码框右侧的滚动条可上下拖动，代码中的尺寸、位置、计数与进度均显示当前值，随操作更新；\
+         回调保留原始交互逻辑。",
       )
       .child(
-        lesson(
+        demo_lesson(
+          "div-source-shape",
           "01 · 形状与缩放实验",
           "切换矩形、胶囊、圆形并放大。仅放大盒子时字体不变；\
            同步放大时文字与内部间距也按比例变化。w/h 会重新参与布局；圆形要求宽高相等。",
-          format!(
-            "div().w(px({:.0})).h(px({:.0})).rounded(px({:.0})).text_size(px({:.0})).px(px({:.0}))",
-            width * scale,
-            height * scale,
-            radius * scale,
-            14. * content_scale,
-            8. * content_scale
-          ),
+          shape_code,
+          &self.source_scrolls[0],
           cx,
         )
         .child(
@@ -122,175 +289,76 @@ impl Render for DivLabTab {
               },
             ))),
         )
-        .child(
-          div()
-            .flex()
-            .items_center()
-            .justify_center()
-            .h(px(184.))
-            .w_full()
-            .bg(muted)
-            .rounded_lg()
-            .child(
-              div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .flex_shrink_0()
-                .w(px(width * scale))
-                .h(px(height * scale))
-                .rounded(px(radius * scale))
-                .px(px(8. * content_scale))
-                .text_size(px(14. * content_scale))
-                .bg(primary)
-                .text_color(foreground)
-                .child("div()"),
-            ),
-        ),
+        .child(include!("div_lab_tab/shape.rs")),
       )
       .child(
-        lesson(
+        demo_lesson(
+          "div-source-button",
           "02 · 外观 + 事件 → 按钮",
-          "悬停改变颜色，按下改变透明度，点击更新计数。id 提供稳定的交互标识，on_click \
+          "悬停与按下分别改变透明度，点击更新计数。id 提供稳定的交互标识，on_click \
            更新页面状态。本例演示鼠标交互；生产控件还应补齐键盘操作、焦点与无障碍语义，或使用现成 \
            Button。",
-          "div().id(id).rounded_lg().bg(color).hover(...).active(...).on_click(cx.listener(...))",
+          button_code,
+          &self.source_scrolls[1],
           cx,
         )
-        .child(
-          div()
-            .id("div-counter")
-            .test_support()
-            .cursor_pointer()
-            .px_4()
-            .py_3()
-            .rounded_lg()
-            .bg(primary)
-            .text_color(foreground)
-            .hover(|style| style.opacity(0.85))
-            .active(|style| style.opacity(0.65))
-            .on_click(cx.listener(|this, _, _, cx| {
-              this.clicks += 1;
-              cx.notify();
-            }))
-            .child(format!("点击这个 div · 已点击 {} 次", self.clicks)),
-        ),
+        .child(include!("div_lab_tab/button.rs")),
       )
       .child(
-        lesson(
+        demo_lesson(
+          "div-source-switch",
           "03 · 嵌套 + 定位 + 状态 → 开关",
           "外层是胶囊轨道，内层是白色圆点；relative + absolute 定位，状态决定圆点的 left \
            和轨道颜色。点击切换。这里仍然只用了 div。",
-          "div().relative().w(px(56.)).h(px(32.)).rounded_full().child(div().absolute().\
-           left(px(if enabled { 28. } else { 4. })).size(px(24.)))",
+          switch_code,
+          &self.source_scrolls[2],
           cx,
         )
-        .child(
-          div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(
-              div()
-                .id("div-switch")
-                .test_support()
-                .cursor_pointer()
-                .relative()
-                .w(px(56.))
-                .h(px(32.))
-                .rounded_full()
-                .bg(if self.enabled {
-                  primary
-                } else {
-                  cx.theme().border
-                })
-                .on_click(cx.listener(|this, _, _, cx| {
-                  this.enabled = !this.enabled;
-                  cx.notify();
-                }))
-                .child(
-                  div()
-                    .absolute()
-                    .top(px(4.))
-                    .left(px(if self.enabled { 28. } else { 4. }))
-                    .size(px(24.))
-                    .rounded_full()
-                    .bg(rgb(0xffffff)),
-                ),
-            )
-            .child(if self.enabled {
-              "已开启"
-            } else {
-              "已关闭"
-            }),
-        ),
+        .child(include!("div_lab_tab/switch.rs")),
       )
       .child(
-        lesson(
+        demo_lesson(
+          "div-source-card",
           "04 · 容器组合 → 状态卡片与进度条",
           "卡片用 border、padding、flex_col；徽章用 rounded_full；进度条用轨道 div 嵌套填充 \
-           div。点击上方按钮推进进度，每 10 次循环；开关同步改变状态徽章。",
-          "div().flex().flex_col().gap_3().p_4().border_1() … div().w(relative(progress)).h_full()",
+           div。点击上方按钮推进进度，第 10 次到 100%，第 11 次回到 0%；开关同步改变状态徽章。",
+          card_code,
+          &self.source_scrolls[3],
+          cx,
+        )
+        .child(include!("div_lab_tab/card.rs")),
+      )
+      .child(
+        demo_lesson(
+          "div-source-extension",
+          "05 · 继续扩展：布局、滚动、层次与动画",
+          "点击按钮切换布局、滚动列表、阴影与透明度、动画。代码和下方效果同步切换，\
+           代码滚动位置回到顶部；动画示例可重播。",
+          extension_code,
+          &self.source_scrolls[4],
           cx,
         )
         .child(
-          div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .rounded_lg()
-            .border_1()
-            .border_color(cx.theme().border)
-            .child(
-              div()
-                .flex()
-                .flex_wrap()
-                .gap_3()
-                .items_center()
-                .justify_between()
-                .child("由 div 组合的任务卡片")
-                .child(
-                  div()
-                    .px_3()
-                    .py_1()
-                    .rounded_full()
-                    .bg(muted)
-                    .child(if self.enabled {
-                      "运行中"
-                    } else {
-                      "待开始"
-                    }),
-                ),
-            )
-            .child(format!(
-              "进度 {}% · 来自按钮的点击状态",
-              self.clicks % 11 * 10
-            ))
-            .child(
-              div()
-                .h(px(12.))
-                .w_full()
-                .rounded_full()
-                .overflow_hidden()
-                .bg(muted)
-                .child(
-                  div()
-                    .h_full()
-                    .w(relative((self.clicks % 11) as f32 / 10.))
-                    .bg(primary),
-                ),
-            ),
-        ),
+          div().flex().flex_wrap().gap_2().children(
+            ExtensionDemo::ALL
+              .into_iter()
+              .enumerate()
+              .map(|(index, (demo, label))| {
+                Button::new(("div-extension-mode", index))
+                  .label(label)
+                  .selected(self.extension_demo == demo)
+                  .on_click(cx.listener(move |this, _, _, cx| {
+                    if this.extension_demo != demo {
+                      this.extension_demo = demo;
+                      this.source_scrolls[4].set_offset(gpui_kit::point(px(0.), px(0.)));
+                      cx.notify();
+                    }
+                  }))
+              }),
+          ),
+        )
+        .child(self.render_extension(cx)),
       )
-      .child(lesson(
-        "05 · 继续扩展",
-        "flex / flex_col / gap 组织布局；overflow_y_scroll \
-         配合有限高度形成滚动区；shadow、border、opacity 表达层级；with_animation \
-         可逐帧改变尺寸与样式。放大父 div 不会自动放大所有后代，固定 px 值需要同步调整。",
-        "参考：hello_world.rs · shadow.rs · opacity.rs · scrollable.rs · animation.rs · anchor.rs",
-        cx,
-      ))
   }
 }
 
@@ -307,13 +375,23 @@ mod tests {
       scale_content: true,
       ..Default::default()
     });
-    let window = cx.open_window(size(px(1000.), px(1800.)), |window, cx| {
+    let window = cx.open_window(size(px(1000.), px(3200.)), |window, cx| {
       Root::new(view.clone(), window, cx)
     });
     cx.update_window(window.into(), |_, window, cx| {
       window.render_frame(cx);
+      let initial_code = view.read(cx).demo_codes();
+      assert!(initial_code[0].contains(".w(px(120.0))"));
+      window.click(("div-shape", 1usize), cx);
+      assert!(view.read(cx).demo_codes()[0].contains(".h(px(48.0))"));
       window.click(("div-shape", 2usize), cx);
+      assert!(view.read(cx).demo_codes()[0].contains(".w(px(72.0))"));
+      window.click(("div-scale", 1usize), cx);
+      assert!(view.read(cx).demo_codes()[0].contains(".w(px(108.0))"));
       window.click(("div-scale", 2usize), cx);
+      let scaled = view.read(cx).demo_codes();
+      assert!(scaled[0].contains(".w(px(144.0))"));
+      assert!(scaled[0].contains(".text_size(px(28.0))"));
       window.click("div-scale-content", cx);
       window.click("div-counter", cx);
       window.click("div-switch", cx);
@@ -321,11 +399,136 @@ mod tests {
       assert_eq!((state.shape, state.scale_index, state.clicks), (2, 2, 1));
       assert!(!state.scale_content);
       assert!(state.enabled);
+      let codes = state.demo_codes();
+      assert!(codes[0].contains(".text_size(px(14.0))"));
+      assert!(codes[0].contains(".px(px(8.0))"));
+      assert!(codes[1].contains("点击这个 div · 已点击 {} 次\", 1"));
+      assert!(codes[1].contains("this.clicks += 1"));
+      assert!(codes[2].contains(".left(px(28.0))"));
+      assert!(codes[2].contains("if true"));
+      assert!(codes[2].contains("this.enabled = !this.enabled"));
+      assert!(codes[3].contains(".w(relative(0.1))"));
+      for _ in 0 .. 9 {
+        window.click("div-counter", cx);
+      }
+      assert!(view.read(cx).demo_codes()[3].contains(".w(relative(1.0))"));
+      window.click("div-counter", cx);
+      assert!(view.read(cx).demo_codes()[3].contains(".w(relative(0.0))"));
+      assert!(window.find("div-extension-layout").visible());
+      for (index, preview_id) in [
+        (1usize, "div-extension-list"),
+        (2, "div-extension-layers"),
+        (3, "div-extension-animation-preview"),
+      ] {
+        let previous_code = view.read(cx).demo_codes()[4].clone();
+        window.click(("div-extension-mode", index), cx);
+        assert!(window.find(preview_id).visible());
+        assert!(window.try_find("div-extension-layout").is_none());
+        assert_ne!(view.read(cx).demo_codes()[4], previous_code);
+        assert!(view.read(cx).demo_codes()[4].contains(preview_id));
+      }
+      window.click("div-replay-animation", cx);
+      assert_eq!(view.read(cx).animation_runs, 1);
+      assert_ne!(view.read(cx).demo_codes()[4], initial_code[4]);
+      window.scroll(
+        (
+          gpui_kit::ElementId::from("div-source-extension"),
+          "viewport",
+        ),
+        gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-80.))),
+        cx,
+      );
+      assert!(view.read(cx).source_scrolls[4].offset().y < px(0.));
+      window.click(("div-extension-mode", 0usize), cx);
+      assert_eq!(view.read(cx).source_scrolls[4].offset().y, px(0.));
+      assert!(window.find("div-extension-layout").visible());
+      assert!(window.try_find("div-replay-animation").is_none());
+      assert_eq!(view.read(cx).demo_codes()[4], initial_code[4]);
       window.click("div-reset", cx);
       let state = view.read(cx);
       assert_eq!((state.shape, state.scale_index, state.clicks), (0, 0, 0));
       assert!(state.scale_content);
       assert!(!state.enabled);
+      assert_eq!(state.demo_codes(), initial_code);
+    })
+    .unwrap();
+  }
+
+  #[gpui_kit::test]
+  fn code_wheel_scroll_does_not_move_parent(cx: &mut TestAppContext) {
+    use gpui_kit::{
+      Context, ElementId, Entity, InteractiveElement, IntoElement, ParentElement, Render,
+      ScrollDelta, ScrollHandle, StatefulInteractiveElement, Styled, TestSupportExt, Window, div,
+      point,
+    };
+
+    struct NestedPage {
+      lab: Entity<DivLabTab>,
+      outer: ScrollHandle,
+    }
+    impl Render for NestedPage {
+      fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+          .id("outer-scroll")
+          .size_full()
+          .overflow_y_scroll()
+          .track_scroll(&self.outer)
+          .child(
+            div()
+              .id("outside-code")
+              .test_support()
+              .h(px(50.))
+              .child("Tab 内容"),
+          )
+          .child(self.lab.clone())
+      }
+    }
+
+    cx.update(gpui_kit::init);
+    let lab = cx.new(|_| DivLabTab {
+      scale_content: true,
+      ..Default::default()
+    });
+    let outer = ScrollHandle::new();
+    let page = cx.new(|_| NestedPage {
+      lab: lab.clone(),
+      outer: outer.clone(),
+    });
+    let window = cx.open_window(size(px(1000.), px(800.)), |window, cx| {
+      Root::new(page, window, cx)
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+      window.render_frame(cx);
+      let code = lab.read(cx).source_scrolls[0].clone();
+      let code_id = (ElementId::from("div-source-shape"), "viewport");
+      window.scroll(
+        code_id.clone(),
+        ScrollDelta::Pixels(point(px(0.), px(-80.))),
+        cx,
+      );
+      assert!(code.offset().y < px(0.), "code must scroll first");
+      assert_eq!(outer.offset().y, px(0.), "parent must stay still over code");
+      // Even at the code boundary, keep wheel events inside its viewport.
+      for _ in 0 .. 2 {
+        window.scroll(
+          code_id.clone(),
+          ScrollDelta::Pixels(point(px(0.), px(-10000.))),
+          cx,
+        );
+      }
+      assert_eq!(outer.offset().y, px(0.));
+      let bottom = code.offset().y;
+      window.scroll(code_id, ScrollDelta::Pixels(point(px(0.), px(40.))), cx);
+      assert!(code.offset().y > bottom);
+      window.scroll(
+        "outside-code",
+        ScrollDelta::Pixels(point(px(0.), px(-80.))),
+        cx,
+      );
+      assert!(
+        outer.offset().y < px(0.),
+        "outside code the tab must scroll"
+      );
     })
     .unwrap();
   }
