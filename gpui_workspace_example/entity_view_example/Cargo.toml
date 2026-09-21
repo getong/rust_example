@@ -15,12 +15,12 @@ csv = "1.4"
 dirs = "7.0.0"
 fake = { version = "5.1.0", features = ["dummy"] }
 futures = "0.3"
-gpui-kit = "0.6.4"
+gpui-kit = "0.6.6"
 itertools = "0.15.0"
 matchit = "0.9.2"
 rand = "0.10"
 regex = "1"
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.5" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.6" }
 rust-i18n = "4.2.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,7 +32,7 @@ unindent = "0.2.4"
 syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
 
 [dev-dependencies]
-gpui-kit = { version = "0.6.4", features = ["test-support"] }
+gpui-kit = { version = "0.6.6", features = ["test-support"] }
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]

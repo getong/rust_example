@@ -142,3 +142,10 @@ assert_eq!(router.param("file"), Some("src/main.rs"));
 - **div() 实验室**（`/component/div-lab`）：切换矩形/胶囊/圆形、1×/1.5×/2×，比较只改变盒子尺寸与同步放大文字/间距；点击 div 按钮推进计数与进度，切换 div 开关改变卡片状态。切换标签保留状态，重置恢复初始值。
 
 参考目录：`/Users/gerald/test/rust/zed/crates/gpui/examples`。这些教学页面使用当前项目的 `gpui-kit` API，不依赖该绝对路径加载资源。
+
+
+GPUI 元素页现有 19 个可切换示例（包含新建独立 Window），源码位于 `src/tabs/gpui_elements_tab/`。
+每个源码模块同时用于编译和界面展示，包含 imports 与 `render(window, cx)` 入口；
+图片示例使用仓库内置的 `assets/gpui-elements-grid.png`，无需联网。
+`Surface` 示例提供 macOS 原生缓冲接入函数，运行画面需由调用方提供 `CVPixelBuffer`；
+`Drawable` 示例使用公开的 `AnyElement` 绘制生命周期 API。
