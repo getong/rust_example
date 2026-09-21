@@ -6,6 +6,7 @@ members = [
   "gpui-kit-example",
   "gpui_kit_agent",
   "entity_view_example",
+  "gpui_kit_design_pattern",
 ]
 
 # Reduce debug unwind-table size while retaining symbols and panic unwinding.
