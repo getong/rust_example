@@ -12,6 +12,12 @@ fn build<S: ComponentPage>(window: &mut Window, cx: &mut App) -> AnyView {
 }
 pub const DEMOS: &[Demo] = &[
   Demo {
+    slug: "gpui-util",
+    title: "gpui-toolkit-gpui-util",
+    description: "基础工具：借用与共享、错误日志、作用域清理、计时及类型注册表。",
+    build: build::<GpuiUtilTab>,
+  },
+  Demo {
     slug: "gpui-form",
     title: "gpui-form",
     description: "从 Rust 模型生成表单：字段状态、数据绑定、回填与提交转换。",

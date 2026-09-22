@@ -72,6 +72,13 @@ Global 和面板继续持有模型，因此关闭全部标签也不会清空共�
 点击「回填示例」，修改名称与端口后提交；输入 `abc`、`0` 或 `70000` 可观察转换错误。
 页面实时显示编辑草稿，支持重置；提交仅在本地构造业务模型，不发送网络请求。
 
+## gpui-toolkit-gpui-util 工具案例
+
+在 **All components → gpui-toolkit-gpui-util** 打开交互页（`/component/gpui-util`），
+演示 ArcCow 借用与共享、Result/Future 错误处理、defer 清理、measure 计时和辅助工具。
+点击页面中的「运行案例」查看结果；defer 支持「运行并取消清理」进行对照。
+功能、适用场景和限制见 [gpui-util 说明](docs/gpui-util.md)。Rust 导入名是 `gpui_util`。
+
 ## 验证
 
 ```sh
