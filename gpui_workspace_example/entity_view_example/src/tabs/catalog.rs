@@ -12,6 +12,12 @@ fn build<S: ComponentPage>(window: &mut Window, cx: &mut App) -> AnyView {
 }
 pub const DEMOS: &[Demo] = &[
   Demo {
+    slug: "render-once",
+    title: "RenderOnce · 链式调用",
+    description: "自定义 RenderOnce 卡片：链式配置、所有权传递与父 Tab 状态更新。",
+    build: build::<RenderOnceTab>,
+  },
+  Demo {
     slug: "gpui-util",
     title: "gpui-toolkit-gpui-util",
     description: "基础工具：借用与共享、错误日志、作用域清理、计时及类型注册表。",
