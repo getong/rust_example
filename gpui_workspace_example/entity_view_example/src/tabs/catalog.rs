@@ -12,6 +12,12 @@ fn build<S: ComponentPage>(window: &mut Window, cx: &mut App) -> AnyView {
 }
 pub const DEMOS: &[Demo] = &[
   Demo {
+    slug: "gpui-form",
+    title: "gpui-form",
+    description: "从 Rust 模型生成表单：字段状态、数据绑定、回填与提交转换。",
+    build: build::<GpuiFormTab>,
+  },
+  Demo {
     slug: "gpui-elements",
     title: "GPUI 元素",
     description: "参考 Zed GPUI examples：认识 div 之外的原生元素、用途与组合方式。",

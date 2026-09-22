@@ -64,6 +64,14 @@ Global 和面板继续持有模型，因此关闭全部标签也不会清空共�
 详细说明：[Tab 通讯与演示步骤](docs/tab-panel.md)。
 基础机制：[GPUI 的订阅、通知与状态更新](docs/state-subscriptions.md)。
 
+## gpui-form 表单生成示例
+
+在 **All components → gpui-form** 打开演示页（`/component/gpui-form`）。
+源码：`src/tabs/gpui_form_tab.rs`；详细说明：[gpui-form 的功能与作用](docs/gpui-form.md)。
+
+点击「回填示例」，修改名称与端口后提交；输入 `abc`、`0` 或 `70000` 可观察转换错误。
+页面实时显示编辑草稿，支持重置；提交仅在本地构造业务模型，不发送网络请求。
+
 ## 验证
 
 ```sh

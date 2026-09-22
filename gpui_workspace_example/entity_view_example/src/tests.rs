@@ -890,7 +890,7 @@ fn check_component_catalog(cx: &mut TestAppContext) {
     crate::tabs::init(cx);
     cx.set_global(AppSettings::default());
   });
-  assert_eq!(DEMOS.len(), 77);
+  assert_eq!(DEMOS.len(), 78);
   let mut slugs = HashSet::new();
   for demo in DEMOS {
     assert!(slugs.insert(demo.slug), "duplicate demo {}", demo.slug);
