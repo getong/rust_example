@@ -14,9 +14,8 @@ App
 ```
 
 应用只调用一次 `open_window`。标签由 Kit 的 `TabBar` / `Tab` 显示，
-`TabbedPanel` 持有 `Vec<PanelTab>` 和 `Entity<TabRouter>`。
-`matchit::Router<()>` 匹配路径模板，`HashMap<String, AnyView>` 保存已打开的页面实例，
-`NavStack` 显示具体路径对应的标签视图。
+`TabbedPanel` 持有 `Vec<PanelTab>` 并观察全局 `gpui_router::RouterState`。
+`Routes` / `Route` 为已打开标签声明具体路径，渲染对应的已有 Entity。
 这是一组同面板标签页，不包含浮动窗口、拖拽拆分或 Dock 布局。
 
 模型在 `main` 初始化时创建一次。标签构造函数接收模型句柄，不创建自己的计数模型。
@@ -30,7 +29,7 @@ App
 4. 当前标签重新渲染；切换至隐藏标签时，从同一模型读取最新值。
 
 隐藏只表示没有把标签加入当前内容区域，不代表销毁 Entity；因此订阅持续有效。
-标签切换调用 `TabRouter::navigate`；TabBar 的选中索引从当前路径派生，局部计数不会因切换归零。
+标签切换调用 `TabbedPanel::navigate`；TabBar 的选中索引从当前路径派生，局部计数不会因切换归零。
 无需在切换时从 Tab 1 复制数据到 Tab 2，也不需要标签互相引用。
 
 步长走 `update_global<AppSettings>` → `observe_global<AppSettings>` → 各视图刷新。
@@ -64,11 +63,9 @@ cargo run -p entity_view_example
 切换到其他标签不会释放原标签。面板和 AppServices 持有模型，因此空面板仍保留共享状态。
 应用退出后内存状态消失，本例不做持久化。
 
-面板定义 `/counter/{id}`、`/toast/{id}`、`/scrollbar/{id}`、`/tabs/{id}` 模板，新增标签时动态注册具体路径。
-模板和页面分开：匹配模板但尚未打开或已经关闭的路径返回 `RouterError::ClosedPath`，不会复用其他 ID 的视图。
-关闭标签会注销具体页面并清理当前导航视图，避免路由表继续持有已关闭 Entity；
-共享模板继续存在，因此关闭一个页面不会影响同类页面，关闭全部页面后也可重新添加。
-未匹配模板的路径返回 `RouterError::UnknownPath`；导航失败不改变当前页面和参数。每个面板独立持有路由，不使用全局 RouterState。
+新增标签时动态声明具体路径；导航前检查目标标签是否存在，不存在则返回 `false`，保留当前路径。
+关闭标签会移除对应路由和 Entity；全部关闭后导航到 `/`，仍可重新添加标签。
+路由采用 gpui-router 的全局 RouterState，当前应用只有一个窗口和一个面板，不支持多面板独立导航。
 关闭当前标签后跳转到同位置的下一个标签；若已是末尾则选中前一个。空面板禁用关闭按钮。
 新标签始终被选中。标签过多时使用 Kit TabBar 的滚动行为。
 
@@ -82,5 +79,5 @@ cargo run -p entity_view_example
 `src/tests.rs` 在单个 GPUI 测试窗口中点击真实标签和按钮，验证隐藏标签接收通知、
 跨标签配置与计数同步、切换后局部次数保留、新增标签读取最新值、关闭标签释放实体、
 关闭全部标签后重新创建，以及重置行为。
-其余测试覆盖基础模型通知和订阅生命周期，以及运行时添加模板、参数提取、catch-all、
-重复注册拒绝、未打开 ID 导航拒绝和动态页面关闭释放。测试窗口不等同于原生桌面外观验证。
+其余测试覆盖基础模型通知和订阅生命周期，以及通过 gpui-router hook 直接导航后的标签同步、
+无效目标拒绝和动态页面关闭释放。测试窗口不等同于原生桌面外观验证。

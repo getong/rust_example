@@ -135,112 +135,6 @@ fn directory_scrolls_and_does_not_keep_panel_alive(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn dynamic_route_templates_keep_page_instances_separate(cx: &mut TestAppContext) {
-  use crate::router::{RouterError, TabRouter};
-
-  cx.update(|cx| cx.set_global(AppSettings::default()));
-  let model = cx.new(|_| CounterState::default());
-  let first = cx.new(|cx| CounterTab::new(1, model.clone(), cx));
-  let second = cx.new(|cx| CounterTab::new(2, model, cx));
-  let router = cx.new(TabRouter::new);
-  router.update(cx, |router, cx| {
-    router.register_route("/counter/{id}").unwrap();
-    router.register("/counter/1", first.clone().into()).unwrap();
-    router.navigate("/counter/1", cx).unwrap();
-    assert_eq!(router.param("id"), Some("1"));
-    assert_eq!(router.param("missing"), None);
-    assert_eq!(
-      router.navigate("/unknown/1", cx),
-      Err(RouterError::UnknownPath)
-    );
-    assert_eq!(router.pathname(), Some("/counter/1"));
-    assert_eq!(router.param("id"), Some("1"));
-    // 模板匹配成功，但不存在的页面不能跳转。
-    assert_eq!(
-      router.navigate("/counter/2", cx),
-      Err(crate::router::RouterError::ClosedPath)
-    );
-    assert_eq!(router.pathname(), Some("/counter/1"));
-    assert_eq!(router.param("id"), Some("1"));
-    assert_eq!(
-      router.register("/counter/1", second.clone().into()),
-      Err(RouterError::DuplicatePath)
-    );
-    assert_eq!(
-      router.register("/unknown/2", second.clone().into()),
-      Err(RouterError::UnknownPath)
-    );
-    // 运行中加入同模板的新页面，注册本身不切换页面。
-    router
-      .register("/counter/2", second.clone().into())
-      .unwrap();
-    assert_eq!(router.pathname(), Some("/counter/1"));
-    router.navigate("/counter/2", cx).unwrap();
-    assert_eq!(router.param("id"), Some("2"));
-    router.unregister("/counter/1", cx);
-    assert_eq!(router.pathname(), Some("/counter/2"));
-    assert!(!router.stack().read(cx).is_empty());
-    assert_eq!(
-      router.navigate("/counter/1", cx),
-      Err(RouterError::ClosedPath)
-    );
-    router.unregister("/counter/2", cx);
-    assert_eq!(router.pathname(), None);
-    assert_eq!(router.param("id"), None);
-    assert!(router.stack().read(cx).is_empty());
-    // 最后一个实例关闭后，模板仍可接收新页面。
-    router.register("/counter/3", first.clone().into()).unwrap();
-    router.navigate("/counter/3", cx).unwrap();
-    assert_eq!(router.param("id"), Some("3"));
-  });
-}
-
-#[gpui_kit::test]
-fn route_templates_can_be_added_at_runtime(cx: &mut TestAppContext) {
-  use crate::router::{RouterError, TabRouter};
-
-  let page = cx.new(|_| crate::ToastTab);
-  let router = cx.new(TabRouter::new);
-  router.update(cx, |router, cx| {
-    router.register_route("/home").unwrap();
-    router.register("/home", page.clone().into()).unwrap();
-    router.navigate("/home", cx).unwrap();
-    router
-      .register_route("/projects/{project}/files/{*file}")
-      .unwrap();
-    assert_eq!(
-      router.register_route("/projects/{project}/files/{*file}"),
-      Err(RouterError::ConflictingPattern {
-        with: "/projects/{project}/files/{*file}".into(),
-      })
-    );
-    assert_eq!(
-      router.register_route("/projects/{name}/files/{*rest}"),
-      Err(RouterError::ConflictingPattern {
-        with: "/projects/{project}/files/{*file}".into(),
-      })
-    );
-    for pattern in ["/broken/{", "/broken/{a}{b}", "/broken/{*rest}/tail"] {
-      assert!(matches!(
-        router.register_route(pattern),
-        Err(RouterError::InvalidPattern { reason }) if !reason.is_empty()
-      ));
-    }
-    assert_eq!(router.pathname(), Some("/home"));
-    assert_eq!(router.param("project"), None);
-    let path = "/projects/demo/files/src/main.rs";
-    router.register(path, page.clone().into()).unwrap();
-    router.navigate(path, cx).unwrap();
-    assert_eq!(router.param("project"), Some("demo"));
-    assert_eq!(router.param("file"), Some("src/main.rs"));
-    router.unregister(path, cx);
-    assert_eq!(router.navigate(path, cx), Err(RouterError::ClosedPath));
-    router.navigate("/home", cx).unwrap();
-    assert_eq!(router.param("file"), None);
-  });
-}
-
-#[gpui_kit::test]
 fn dynamically_added_tabs_navigate_preserve_state_and_release_pages(cx: &mut TestAppContext) {
   cx.update(|cx| {
     gpui_kit::init(cx);
@@ -248,7 +142,6 @@ fn dynamically_added_tabs_navigate_preserve_state_and_release_pages(cx: &mut Tes
   });
   let model = cx.new(|_| CounterState::default());
   let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
-  let router = panel.read_with(cx, |panel, _| panel.router.clone());
   let window = cx.open_window(
     gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
     |window, cx| crate::Root::new(panel.clone(), window, cx),
@@ -269,7 +162,7 @@ fn dynamically_added_tabs_navigate_preserve_state_and_release_pages(cx: &mut Tes
   });
   let closed = panel.read_with(cx, |panel, _| panel.tabs[4].counter().downgrade());
   for (index, path) in paths.iter().enumerate() {
-    router.update(cx, |router, cx| router.navigate(path, cx).unwrap());
+    panel.update(cx, |panel, cx| assert!(panel.navigate(path, cx)));
     cx.run_until_parked();
     panel.read_with(cx, |panel, cx| {
       assert_eq!(panel.active_tab(cx), Some(4 + index))
@@ -283,15 +176,15 @@ fn dynamically_added_tabs_navigate_preserve_state_and_release_pages(cx: &mut Tes
     })
     .unwrap();
   }
-  router.update(cx, |router, cx| router.navigate(&paths[0], cx).unwrap());
+  panel.update(cx, |panel, cx| assert!(panel.navigate(&paths[0], cx)));
   panel.update(cx, |panel, cx| panel.close_active_tab(cx));
   cx.run_until_parked();
   assert!(closed.upgrade().is_none());
-  router.update(cx, |router, cx| {
-    assert!(router.navigate(&paths[0], cx).is_err());
-    router.navigate("/counter/1", cx).unwrap();
-    router.navigate(&paths[1], cx).unwrap();
-    router.navigate(&paths[2], cx).unwrap();
+  panel.update(cx, |panel, cx| {
+    assert!(!panel.navigate(&paths[0], cx));
+    assert!(panel.navigate("/counter/1", cx));
+    assert!(panel.navigate(&paths[1], cx));
+    assert!(panel.navigate(&paths[2], cx));
   });
 }
 
@@ -303,14 +196,13 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
   });
   let model = cx.new(|_| CounterState::default());
   let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
-  let router = panel.read_with(cx, |panel, _| panel.router.clone());
   let window = cx.open_window(
     gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
     |window, cx| crate::Root::new(panel.clone(), window, cx),
   );
   cx.run_until_parked();
   // 绕过 TabBar，直接操作 router；页面与选中状态也必须同步。
-  router.update(cx, |router, cx| router.navigate("/counter/2", cx).unwrap());
+  cx.update(|cx| gpui_router::use_navigate(cx)("/counter/2".into()));
   cx.run_until_parked();
   panel.read_with(cx, |panel, cx| assert_eq!(panel.active_tab(cx), Some(1)));
   cx.update_window(window.into(), |_, window, cx| {
@@ -319,16 +211,11 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
     window.within("counter-tabs").click(0usize, cx);
   })
   .unwrap();
-  router.read_with(cx, |router, _| {
-    assert_eq!(router.pathname(), Some("/counter/1"))
-  });
-  router.update(cx, |router, cx| {
-    assert_eq!(
-      router.navigate("/missing", cx),
-      Err(crate::router::RouterError::UnknownPath)
-    );
-    assert_eq!(router.pathname(), Some("/counter/1"));
-    router.navigate("/counter/2", cx).unwrap();
+  cx.update(|cx| assert_eq!(gpui_router::use_location(cx).pathname, "/counter/1"));
+  panel.update(cx, |panel, cx| {
+    assert!(!panel.navigate("/missing", cx));
+    assert_eq!(gpui_router::use_location(cx).pathname, "/counter/1");
+    assert!(panel.navigate("/counter/2", cx));
   });
   cx.run_until_parked();
   cx.update_window(window.into(), |_, window, cx| {
@@ -336,20 +223,17 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
     window.click("close-tab", cx);
   })
   .unwrap();
-  router.update(cx, |router, cx| {
-    let current = router.pathname().unwrap().to_owned();
-    assert_eq!(
-      router.navigate("/counter/2", cx),
-      Err(crate::router::RouterError::ClosedPath)
-    );
-    assert_eq!(router.pathname(), Some(current.as_str()));
+  panel.update(cx, |panel, cx| {
+    let current = gpui_router::use_location(cx).pathname.clone();
+    assert!(!panel.navigate("/counter/2", cx));
+    assert_eq!(gpui_router::use_location(cx).pathname, current);
   });
   // 同类新增标签也有独立路径；关闭前面的标签不改变其他标签路径。
   let original = panel.read_with(cx, |panel, cx| panel.tabs[1].path(cx));
   panel.update(cx, |panel, cx| panel.add_toast_tab(cx));
-  let added = router.read_with(cx, |router, _| router.pathname().unwrap().to_owned());
-  assert_ne!(original.as_ref(), added);
-  router.update(cx, |router, cx| router.navigate(&original, cx).unwrap());
+  let added = cx.update(|cx| gpui_router::use_location(cx).pathname.clone());
+  assert_ne!(original, added);
+  panel.update(cx, |panel, cx| assert!(panel.navigate(&original, cx)));
   cx.run_until_parked();
   cx.update_window(window.into(), |_, window, _| {
     assert!(window.find("toast-success").visible());
@@ -358,42 +242,27 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
 }
 
 #[gpui_kit::test]
-fn panel_routers_are_independent_and_empty_panels_release_routes(cx: &mut TestAppContext) {
+fn empty_panel_releases_routes_and_can_open_new_tabs(cx: &mut TestAppContext) {
   cx.update(|cx| cx.set_global(AppSettings::default()));
   let model = cx.new(|_| CounterState::default());
-  let first = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
-  let second = cx.new(|cx| crate::TabbedPanel::new(model, cx));
-  let first_router = first.read_with(cx, |panel, _| panel.router.clone());
-  let second_router = second.read_with(cx, |panel, _| panel.router.clone());
-  first_router.update(cx, |router, cx| router.navigate("/counter/2", cx).unwrap());
-  second_router.read_with(cx, |router, _| {
-    assert_eq!(router.pathname(), Some("/counter/1"))
-  });
-  let paths = first.read_with(cx, |panel, cx| {
-    panel
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  panel.update(cx, |panel, cx| {
+    let paths = panel
       .tabs
       .iter()
       .map(|tab| tab.path(cx))
-      .collect::<Vec<_>>()
-  });
-  first.update(cx, |panel, cx| {
+      .collect::<Vec<_>>();
     while !panel.tabs.is_empty() {
       panel.close_active_tab(cx);
     }
-  });
-  first_router.update(cx, |router, cx| {
-    assert_eq!(router.pathname(), None);
-    assert!(router.stack().read(cx).is_empty());
+    assert_eq!(gpui_router::use_location(cx).pathname, "/");
+    assert_eq!(panel.active_tab(cx), None);
     for path in paths {
-      assert!(router.navigate(&path, cx).is_err());
+      assert!(!panel.navigate(&path, cx));
     }
-  });
-  first.update(cx, |panel, cx| panel.add_tab(cx));
-  first_router.read_with(cx, |router, _| {
-    assert_eq!(router.pathname(), Some("/counter/3"))
-  });
-  second_router.read_with(cx, |router, _| {
-    assert_eq!(router.pathname(), Some("/counter/1"))
+    panel.add_tab(cx);
+    assert_eq!(gpui_router::use_location(cx).pathname, "/counter/3");
+    assert_eq!(panel.active_tab(cx), Some(0));
   });
 }
 
@@ -911,7 +780,7 @@ fn check_component_catalog(cx: &mut TestAppContext) {
       window.render_frame(cx);
       let route = format!("/component/{}", demo.slug);
       assert_eq!(
-        panel.read(cx).router.read(cx).pathname(),
+        Some(gpui_router::use_location(cx).pathname.as_ref()),
         Some(route.as_str())
       );
     }

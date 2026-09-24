@@ -8,7 +8,6 @@ mod tabs;
 rust_i18n::i18n!("locales/component_gallery", fallback = "en");
 mod palette;
 mod raised_button;
-mod router;
 mod scroll_panel;
 mod scrollbar_tab;
 mod state;
@@ -20,7 +19,7 @@ mod toast_tab;
 use baidu_tab::BaiduTab;
 use component_tab::ComponentTab;
 use gpui_kit::{
-  base::{Disableable, NavStack},
+  base::Disableable,
   component::{
     ActiveTheme, Root,
     button::Button,
@@ -35,9 +34,9 @@ use gpui_kit::{
   prelude::FluentBuilder as _,
   *,
 };
+use gpui_router::{Route, RouterState, Routes, use_location, use_navigate};
 use palette::AppPalette;
 use raised_button::RaisedButton;
-use router::TabRouter;
 use scrollbar_tab::ScrollbarTab;
 use state::{AppSettings, CounterId, CounterState};
 use tab_directory::TabDirectory;
@@ -291,7 +290,6 @@ impl PanelTab {
 struct TabbedPanel {
   model: Entity<CounterState>,
   tabs: Vec<PanelTab>,
-  router: Entity<TabRouter>,
   _router_subscription: Subscription,
   next_tab: usize,
   tab_scroll: ScrollHandle,
@@ -304,34 +302,23 @@ impl TabbedPanel {
       .collect();
     tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
     tabs.push(PanelTab::Scrollbar(cx.new(|_| ScrollbarTab::default())));
-    let router = cx.new(TabRouter::new);
-    router.update(cx, |router, cx| {
-      for pattern in [
-        "/counter/{id}",
-        "/toast/{id}",
-        "/scrollbar/{id}",
-        "/tabs/{id}",
-        "/component/{id}",
-        "/baidu/{id}",
-      ] {
-        router
-          .register_route(pattern)
-          .expect("valid tab route templates");
+    if !cx.has_global::<RouterState>() {
+      gpui_router::init(cx);
+    }
+    let initial_path = tabs[0].path(cx);
+    use_navigate(cx)(initial_path.clone());
+    let mut previous_path = initial_path;
+    let subscription = cx.observe_global::<RouterState>(move |_, cx| {
+      let pathname = &use_location(cx).pathname;
+      // Routes also updates match metadata during render; only navigation needs a redraw.
+      if *pathname != previous_path {
+        previous_path = pathname.clone();
+        cx.notify();
       }
-      for tab in &tabs {
-        router
-          .register(&tab.path(cx), tab.view())
-          .expect("tab paths are unique and match their route templates");
-      }
-      router
-        .navigate(&tabs[0].path(cx), cx)
-        .expect("initial tab is registered");
     });
-    let subscription = cx.observe(&router, |_, _, cx| cx.notify());
     Self {
       model,
       tabs,
-      router,
       _router_subscription: subscription,
       next_tab: 3,
       tab_scroll: ScrollHandle::new(),
@@ -339,31 +326,32 @@ impl TabbedPanel {
   }
 
   fn active_tab(&self, cx: &App) -> Option<usize> {
-    let pathname = self.router.read(cx).pathname()?;
+    let pathname = use_location(cx).pathname.as_ref();
     self
       .tabs
       .iter()
       .position(|tab| tab.path(cx).as_ref() == pathname)
   }
 
+  /// Only open tabs are navigable; rejected paths leave the current page intact.
+  fn navigate(&self, path: &str, cx: &mut Context<Self>) -> bool {
+    if !self.tabs.iter().any(|tab| tab.path(cx).as_ref() == path) {
+      return false;
+    }
+    use_navigate(cx)(path.to_owned().into());
+    cx.notify();
+    true
+  }
+
   fn select_tab(&self, index: usize, cx: &mut Context<Self>) {
     if let Some(tab) = self.tabs.get(index) {
       self.tab_scroll.scroll_to_item(index);
       let path = tab.path(cx);
-      self.router.update(cx, |router, cx| {
-        router.navigate(&path, cx).expect("open tab is registered");
-      });
-      cx.notify();
+      self.navigate(&path, cx);
     }
   }
 
   fn open_tab(&mut self, tab: PanelTab, cx: &mut Context<Self>) {
-    let path = tab.path(cx);
-    self.router.update(cx, |router, _| {
-      router
-        .register(&path, tab.view())
-        .expect("new tab has a unique path");
-    });
     self.tabs.push(tab);
     self.select_tab(self.tabs.len() - 1, cx);
   }
@@ -439,12 +427,9 @@ impl TabbedPanel {
       return;
     };
     // 释放此标签的 Entity 和 Subscription；共享模型由 panel / Global 保活。
-    let path = self.tabs[index].path(cx);
-    self
-      .router
-      .update(cx, |router, cx| router.unregister(&path, cx));
     self.tabs.remove(index);
     if self.tabs.is_empty() {
+      use_navigate(cx)("/".into());
       cx.notify();
     } else {
       self.select_tab(index.min(self.tabs.len() - 1), cx);
@@ -458,9 +443,13 @@ impl Render for TabbedPanel {
     let dialogs = Root::render_dialog_layer(window, cx);
     let sheets = Root::render_sheet_layer(window, cx);
     let active_tab = self.active_tab(cx);
-    let router = self.router.read(cx);
-    let pathname = router.pathname().unwrap_or("/").to_owned();
-    let stack = router.stack().clone();
+    let pathname = use_location(cx).pathname.clone();
+    let routes = Routes::new().children(self.tabs.iter().map(|tab| {
+      let view = tab.view();
+      Route::new()
+        .path(tab.path(cx).trim_start_matches('/').to_owned())
+        .element(move |_, _| view.clone())
+    }));
     v_flex()
       .relative()
       .size_full()
@@ -522,7 +511,7 @@ impl Render for TabbedPanel {
           .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label(cx)))),
       )
       .child(v_flex().flex_1().min_h_0().child(if active_tab.is_some() {
-        NavStack::new(&stack).size_full().into_any_element()
+        routes.into_any_element()
       } else {
         EmptyState::new()
           .header(
@@ -552,7 +541,14 @@ impl Render for TabbedPanel {
           .bg(AppPalette::default().background)
           .text_color(AppPalette::default().foreground)
           .left(format!("Route: {pathname}"))
-          .right(format!("id: {}", router.param("id").unwrap_or("—"))),
+          .right(format!(
+            "id: {}",
+            pathname
+              .rsplit_once('/')
+              .map(|(_, id)| id)
+              .filter(|id| !id.is_empty())
+              .unwrap_or("—")
+          )),
       )
       .children(sheets)
       .children(dialogs)

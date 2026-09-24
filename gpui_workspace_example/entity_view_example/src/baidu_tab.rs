@@ -480,7 +480,7 @@ mod tests {
   };
 
   use gpui_kit::{
-    AppContext, BorrowAppContext, TestAppContext,
+    AppContext, TestAppContext,
     http_client::{AsyncBody, FakeHttpClient, Response},
   };
 
