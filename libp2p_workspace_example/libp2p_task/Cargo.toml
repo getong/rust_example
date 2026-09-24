@@ -13,7 +13,7 @@ futures = "0.3.34"
 libp2p = { version = "0.57.0", features = [
     "full",
 ] }
-openraft = { version = "0.10.0-alpha.34", features = ["serde", "type-alias"] }
+openraft = { version = "0.10.0-alpha.35", features = ["serde", "type-alias"] }
 rand = "0.8"
 rocksdb = "0.25.0"
 serde = { version = "1.0.229", features = ["derive"] }

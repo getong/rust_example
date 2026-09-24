@@ -5,7 +5,9 @@ use std::{collections::BTreeMap, io, io::Cursor, sync::Arc};
 use futures::{Stream, TryStreamExt, lock::Mutex};
 use openraft::{
   EntryPayload, OptionalSend, RaftSnapshotBuilder, RaftTypeConfig,
-  alias::{DefaultEntryOf, LogIdOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf},
+  alias::{
+    DefaultEntryOf, EntryPayloadOf, LogIdOf, SnapshotMetaOf, SnapshotOf, StoredMembershipOf,
+  },
   storage::{EntryResponder, RaftStateMachine},
 };
 use serde::{Deserialize, Serialize};
@@ -77,7 +79,12 @@ impl<C: RaftTypeConfig> StateMachineStore<C> {
 
 impl<C> RaftSnapshotBuilder<C> for StateMachineStore<C>
 where
-  C: RaftTypeConfig<D = types_kv::Request, R = types_kv::Response, Entry = DefaultEntryOf<C>>,
+  C: RaftTypeConfig<
+      D = types_kv::Request,
+      R = types_kv::Response,
+      Entry = DefaultEntryOf<C>,
+      Payload = EntryPayloadOf<C>,
+    >,
 {
   type SnapshotData = Cursor<Vec<u8>>;
 
@@ -109,7 +116,12 @@ where
 
 impl<C> RaftStateMachine<C> for StateMachineStore<C>
 where
-  C: RaftTypeConfig<D = types_kv::Request, R = types_kv::Response, Entry = DefaultEntryOf<C>>,
+  C: RaftTypeConfig<
+      D = types_kv::Request,
+      R = types_kv::Response,
+      Entry = DefaultEntryOf<C>,
+      Payload = EntryPayloadOf<C>,
+    >,
 {
   type SnapshotData = Cursor<Vec<u8>>;
 

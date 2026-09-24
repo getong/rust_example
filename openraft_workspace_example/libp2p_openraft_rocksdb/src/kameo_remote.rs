@@ -52,6 +52,7 @@ impl Message<Inc> for MyActor {
 }
 
 #[derive(NetworkBehaviour)]
+#[behaviour(prelude = "libp2p_kameo::swarm::derive_prelude")]
 struct MyBehaviour {
   kameo: remote::Behaviour,
   mdns: mdns::tokio::Behaviour,

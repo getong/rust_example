@@ -5,13 +5,13 @@ edition = "2024"
 
 [dependencies]
 futures = "0.3.34"
-openraft = { version = "0.10.0-alpha.34", default-features = false, features = [
+openraft = { version = "0.10.0-alpha.35", default-features = false, features = [
   "serde",
   "tokio-rt",
   "type-alias",
 ] }
-openraft-multi = { version = "0.10.0-alpha.34" }
-rand = "0.10.2"
+openraft-multi = { version = "0.10.0-alpha.35" }
+rand = "0.10.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tracing = "0.1.44"
