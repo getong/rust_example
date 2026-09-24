@@ -7,40 +7,32 @@ mod component_tab;
 mod tabs;
 rust_i18n::i18n!("locales/component_gallery", fallback = "en");
 mod palette;
+mod panel_tab;
 mod raised_button;
 mod scroll_panel;
 mod scrollbar_tab;
 mod state;
 mod tab_directory;
+mod tabbed_panel;
+use tabbed_panel::TabbedPanel;
 #[cfg(test)]
 mod tests;
 mod toast_tab;
 
-use baidu_tab::BaiduTab;
-use component_tab::ComponentTab;
 use gpui_kit::{
-  base::Disableable,
   component::{
-    ActiveTheme, Root,
+    Root,
     button::Button,
-    empty::{Empty as EmptyState, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
     label::Label,
-    status_bar::StatusBar,
-    tab::{Tab, TabBar},
     v_flex,
   },
-  prelude::FluentBuilder as _,
   *,
 };
-use gpui_router::{Route, RouterState, Routes, use_location, use_navigate};
 use palette::AppPalette;
 use raised_button::RaisedButton;
-use scrollbar_tab::ScrollbarTab;
 use state::{AppSettings, CounterId, CounterState};
-use tab_directory::TabDirectory;
-use toast_tab::ToastTab;
 
 // Global 持有应用级模型；关闭标签不会丢失计数。内部模型仍通过 observe 订阅。
 struct AppServices {
@@ -224,342 +216,6 @@ impl Render for CounterTab {
           })),
       )
       .child("The button above is local; counters and step are shared.")
-  }
-}
-
-enum PanelTab {
-  Baidu(Entity<BaiduTab>),
-  Component(Entity<ComponentTab>),
-  Counter(Entity<CounterTab>),
-  Toast(Entity<ToastTab>),
-  Scrollbar(Entity<ScrollbarTab>),
-  Directory(Entity<TabDirectory>),
-}
-
-impl PanelTab {
-  fn path(&self, cx: &App) -> SharedString {
-    match self {
-      Self::Baidu(_) => "/baidu/top".to_string(),
-      Self::Component(tab) => format!("/component/{}", tab.read(cx).slug()),
-      Self::Counter(tab) => format!("/counter/{}", tab.read(cx).tab_number),
-      Self::Toast(tab) => format!("/toast/{}", tab.entity_id()),
-      Self::Scrollbar(tab) => format!("/scrollbar/{}", tab.entity_id()),
-      Self::Directory(tab) => format!("/tabs/{}", tab.entity_id()),
-    }
-    .into()
-  }
-
-  fn label(&self, cx: &App) -> String {
-    match self {
-      Self::Baidu(_) => "百度热榜".into(),
-      Self::Component(tab) => tab.read(cx).title().into(),
-      Self::Counter(tab) => format!("Tab {}", tab.read(cx).tab_number),
-      Self::Toast(_) => "Toast".into(),
-      Self::Scrollbar(_) => "Scrollbar".into(),
-      Self::Directory(_) => "Tab directory".into(),
-    }
-  }
-
-  fn view(&self) -> AnyView {
-    match self {
-      Self::Baidu(tab) => tab.clone().into(),
-      Self::Component(tab) => tab.clone().into(),
-      Self::Counter(tab) => tab.clone().into(),
-      Self::Toast(tab) => tab.clone().into(),
-      Self::Scrollbar(tab) => tab.clone().into(),
-      Self::Directory(tab) => tab.clone().into(),
-    }
-  }
-
-  #[cfg(test)]
-  fn counter(&self) -> &Entity<CounterTab> {
-    match self {
-      Self::Counter(tab) => tab,
-      Self::Baidu(_)
-      | Self::Component(_)
-      | Self::Toast(_)
-      | Self::Scrollbar(_)
-      | Self::Directory(_) => {
-        panic!("expected a counter tab")
-      }
-    }
-  }
-}
-
-// 路由是选中状态的唯一来源；panel 保留标签 Entity 及其局部状态。
-struct TabbedPanel {
-  model: Entity<CounterState>,
-  tabs: Vec<PanelTab>,
-  _router_subscription: Subscription,
-  next_tab: usize,
-  tab_scroll: ScrollHandle,
-}
-
-impl TabbedPanel {
-  fn new(model: Entity<CounterState>, cx: &mut Context<Self>) -> Self {
-    let mut tabs: Vec<_> = (1 ..= 2)
-      .map(|number| PanelTab::Counter(cx.new(|cx| CounterTab::new(number, model.clone(), cx))))
-      .collect();
-    tabs.push(PanelTab::Toast(cx.new(|_| ToastTab)));
-    tabs.push(PanelTab::Scrollbar(cx.new(|_| ScrollbarTab::default())));
-    if !cx.has_global::<RouterState>() {
-      gpui_router::init(cx);
-    }
-    let initial_path = tabs[0].path(cx);
-    use_navigate(cx)(initial_path.clone());
-    let mut previous_path = initial_path;
-    let subscription = cx.observe_global::<RouterState>(move |_, cx| {
-      let pathname = &use_location(cx).pathname;
-      // Routes also updates match metadata during render; only navigation needs a redraw.
-      if *pathname != previous_path {
-        previous_path = pathname.clone();
-        cx.notify();
-      }
-    });
-    Self {
-      model,
-      tabs,
-      _router_subscription: subscription,
-      next_tab: 3,
-      tab_scroll: ScrollHandle::new(),
-    }
-  }
-
-  fn active_tab(&self, cx: &App) -> Option<usize> {
-    let pathname = use_location(cx).pathname.as_ref();
-    self
-      .tabs
-      .iter()
-      .position(|tab| tab.path(cx).as_ref() == pathname)
-  }
-
-  /// Only open tabs are navigable; rejected paths leave the current page intact.
-  fn navigate(&self, path: &str, cx: &mut Context<Self>) -> bool {
-    if !self.tabs.iter().any(|tab| tab.path(cx).as_ref() == path) {
-      return false;
-    }
-    use_navigate(cx)(path.to_owned().into());
-    cx.notify();
-    true
-  }
-
-  fn select_tab(&self, index: usize, cx: &mut Context<Self>) {
-    if let Some(tab) = self.tabs.get(index) {
-      self.tab_scroll.scroll_to_item(index);
-      let path = tab.path(cx);
-      self.navigate(&path, cx);
-    }
-  }
-
-  fn open_tab(&mut self, tab: PanelTab, cx: &mut Context<Self>) {
-    self.tabs.push(tab);
-    self.select_tab(self.tabs.len() - 1, cx);
-  }
-
-  fn add_tab(&mut self, cx: &mut Context<Self>) {
-    let number = self.next_tab;
-    self.next_tab += 1;
-    let tab = cx.new(|cx| CounterTab::new(number, self.model.clone(), cx));
-    self.open_tab(PanelTab::Counter(tab), cx);
-  }
-
-  fn add_toast_tab(&mut self, cx: &mut Context<Self>) {
-    let tab = cx.new(|_| ToastTab);
-    self.open_tab(PanelTab::Toast(tab), cx);
-  }
-
-  fn add_scrollbar_tab(&mut self, cx: &mut Context<Self>) {
-    let tab = cx.new(|_| ScrollbarTab::default());
-    self.open_tab(PanelTab::Scrollbar(tab), cx);
-  }
-
-  fn open_directory(&mut self, cx: &mut Context<Self>) {
-    if let Some(index) = self
-      .tabs
-      .iter()
-      .position(|tab| matches!(tab, PanelTab::Directory(_)))
-    {
-      self.select_tab(index, cx);
-      return;
-    }
-    let panel = cx.entity();
-    let tab = cx.new(|cx| TabDirectory::new(&panel, cx));
-    self.open_tab(PanelTab::Directory(tab), cx);
-  }
-
-  fn open_baidu(&mut self, cx: &mut Context<Self>) {
-    if let Some(index) = self
-      .tabs
-      .iter()
-      .position(|tab| matches!(tab, PanelTab::Baidu(_)))
-    {
-      self.select_tab(index, cx);
-      return;
-    }
-    let tab = cx.new(BaiduTab::new);
-    self.open_tab(PanelTab::Baidu(tab), cx);
-  }
-
-  fn open_component(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
-    if let Some(position) = self
-      .tabs
-      .iter()
-      .position(|tab| matches!(tab, PanelTab::Component(view) if view.read(cx).index == index))
-    {
-      self.select_tab(position, cx);
-      return;
-    }
-    let panel = cx.entity().downgrade();
-    let view = cx.new(|_| ComponentTab::new(index, panel));
-    self.open_tab(PanelTab::Component(view), cx);
-  }
-
-  fn add_component_gallery(&mut self, cx: &mut Context<Self>) {
-    self.open_component(None, cx);
-    for index in 0 .. crate::tabs::catalog::DEMOS.len() {
-      self.open_component(Some(index), cx);
-    }
-    self.open_component(None, cx);
-  }
-
-  fn close_active_tab(&mut self, cx: &mut Context<Self>) {
-    let Some(index) = self.active_tab(cx) else {
-      return;
-    };
-    // 释放此标签的 Entity 和 Subscription；共享模型由 panel / Global 保活。
-    self.tabs.remove(index);
-    if self.tabs.is_empty() {
-      use_navigate(cx)("/".into());
-      cx.notify();
-    } else {
-      self.select_tab(index.min(self.tabs.len() - 1), cx);
-    }
-  }
-}
-
-impl Render for TabbedPanel {
-  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let notifications = Root::render_notification_layer(window, cx);
-    let dialogs = Root::render_dialog_layer(window, cx);
-    let sheets = Root::render_sheet_layer(window, cx);
-    let active_tab = self.active_tab(cx);
-    let pathname = use_location(cx).pathname.clone();
-    let routes = Routes::new().children(self.tabs.iter().map(|tab| {
-      let view = tab.view();
-      Route::new()
-        .path(tab.path(cx).trim_start_matches('/').to_owned())
-        .element(move |_, _| view.clone())
-    }));
-    v_flex()
-      .relative()
-      .size_full()
-      .bg(AppPalette::default().background)
-      .text_color(AppPalette::default().foreground)
-      .child(
-        h_flex()
-          .flex_wrap()
-          .flex_shrink_0()
-          .items_center()
-          .gap_2()
-          .p_2()
-          .child(
-            Button::new("new-tab")
-              .label("New tab")
-              .on_click(cx.listener(|panel, _, _, cx| panel.add_tab(cx))),
-          )
-          .child(
-            Button::new("new-toast-tab")
-              .label("New toast tab")
-              .on_click(cx.listener(|panel, _, _, cx| panel.add_toast_tab(cx))),
-          )
-          .child(
-            Button::new("new-scrollbar-tab")
-              .label("New scroll tab")
-              .on_click(cx.listener(|panel, _, _, cx| panel.add_scrollbar_tab(cx))),
-          )
-          .child(
-            Button::new("open-baidu")
-              .label("百度热榜")
-              .on_click(cx.listener(|panel, _, _, cx| panel.open_baidu(cx))),
-          )
-          .child(
-            Button::new("open-components")
-              .label("Components")
-              .on_click(cx.listener(|panel, _, _, cx| panel.open_component(None, cx))),
-          )
-          .child(
-            Button::new("open-tab-directory")
-              .label("Tab directory")
-              .on_click(cx.listener(|panel, _, _, cx| panel.open_directory(cx))),
-          )
-          .child(
-            Button::new("close-tab")
-              .label("Close current tab")
-              .disabled(active_tab.is_none())
-              .on_click(cx.listener(|panel, _, _, cx| panel.close_active_tab(cx))),
-          ),
-      )
-      .child(
-        TabBar::new("counter-tabs")
-          .w_full()
-          .menu(true)
-          .track_scroll(&self.tab_scroll)
-          .when_some(active_tab, |bar, index| bar.selected_index(index))
-          .on_click(cx.listener(|panel, index: &usize, _, cx| {
-            panel.select_tab(*index, cx);
-          }))
-          .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label(cx)))),
-      )
-      .child(v_flex().flex_1().min_h_0().child(if active_tab.is_some() {
-        routes.into_any_element()
-      } else {
-        EmptyState::new()
-          .header(
-            EmptyHeader::new()
-              .title(
-                EmptyTitle::new()
-                  .text_color(AppPalette::default().foreground)
-                  .child("No tabs"),
-              )
-              .description(
-                EmptyDescription::new()
-                  .text_color(AppPalette::default().foreground)
-                  .child("Click New tab to resume the shared counters."),
-              ),
-          )
-          .content(
-            EmptyContent::new().child(
-              Button::new("empty-new-tab")
-                .label("New tab")
-                .on_click(cx.listener(|panel, _, _, cx| panel.add_tab(cx))),
-            ),
-          )
-          .into_any_element()
-      }))
-      .child(
-        StatusBar::new()
-          .bg(AppPalette::default().background)
-          .text_color(AppPalette::default().foreground)
-          .left(format!("Route: {pathname}"))
-          .right(format!(
-            "id: {}",
-            pathname
-              .rsplit_once('/')
-              .map(|(_, id)| id)
-              .filter(|id| !id.is_empty())
-              .unwrap_or("—")
-          )),
-      )
-      .children(sheets)
-      .children(dialogs)
-      // 通知背景由组件主题决定，文字不能继承深色应用画布的白色。
-      .child(
-        v_flex()
-          .absolute()
-          .inset_0()
-          .text_color(cx.theme().popover_foreground)
-          .children(notifications),
-      )
   }
 }
 

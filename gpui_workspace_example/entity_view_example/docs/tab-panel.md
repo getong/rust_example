@@ -15,7 +15,9 @@ App
 
 应用只调用一次 `open_window`。标签由 Kit 的 `TabBar` / `Tab` 显示，
 `TabbedPanel` 持有 `Vec<PanelTab>` 并观察全局 `gpui_router::RouterState`。
-`Routes` / `Route` 为已打开标签声明具体路径，渲染对应的已有 Entity。
+`PanelTab` 保存 `TabId`、创建时确定的路径和标题、持有页面 Entity 的 `AnyView`。
+`PanelTab::route` 统一声明 `Route`，`Routes` 渲染对应的已有 Entity。
+标签逻辑位于 `src/tabbed_panel.rs`，路由记录位于 `src/panel_tab.rs`。
 这是一组同面板标签页，不包含浮动窗口、拖拽拆分或 Dock 布局。
 
 模型在 `main` 初始化时创建一次。标签构造函数接收模型句柄，不创建自己的计数模型。
@@ -71,7 +73,7 @@ cargo run -p entity_view_example
 
 工具栏 `Tab directory` 打开单个目录标签，使用 `Scrollbar` 展示当前面板的全部标签。
 目录通过 `observe` 订阅面板通知，渲染时读取最新标签名称与路径；新增、关闭后无需手工维护条目。
-点击条目按稳定路径查找目标，再调用面板的标签选择逻辑，避免列表索引变化导致跳错页面。
+点击条目调用面板的 `navigate`，按稳定路径查找目标，避免列表索引变化导致跳错页面。
 目录只弱引用面板，列表条目只保存文字，不持有目标页面 Entity；关闭目标或目录都能正常释放。
 
 ## 自动验证

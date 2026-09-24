@@ -42,7 +42,8 @@ cargo run -p entity_view_example
 
 - `AppSettings: Global`：应用级步长配置。
 - `AppServices: Global`：持有唯一的 `Entity<CounterState>`。
-- `TabbedPanel`：持有标签实体列表；观察 `RouterState`，从当前路径派生选中标签。
+- `TabbedPanel`（`src/tabbed_panel.rs`）：管理标签的打开、复用、关闭；观察 `RouterState`，从当前路径派生选中标签。
+- `TabId` / `PanelTab`（`src/panel_tab.rs`）：类型化标签标识与统一页面记录；创建时保存路径、标题和 `AnyView`，无需在渲染中读取页面状态来拼接路径。
 - `Routes` / `Route`：为已打开标签声明具体路径，渲染已有 Entity，切换时不重建页面。
 - `CounterTab`：每个标签的局部次数、计数视图和汇总视图。
 - `TabDirectory`：观察面板变化，从实时标签列表派生可点击的滚动目录；弱引用面板以避免循环持有。
@@ -106,7 +107,18 @@ panel.navigate("/counter/2", cx);
 访问不存在的路径会显示空页面。应用使用一个全局路由状态，适用于当前单窗口、单面板结构，
 不提供多面板独立导航。
 
-新增标签时保存 Entity，并在 `Routes` 中声明其具体路径；关闭时移除 Entity 和路由。
+新增标签时用 `PanelTab::new(id, label, entity)` 保存页面，`PanelTab::route()` 统一转换成
+`gpui-router::Route`。`Routes` 的声明只需一行：
+
+```rust
+Routes::new().children(self.tabs.iter().map(PanelTab::route))
+```
+
+`TabId` 决定稳定路径，`AnyView` 保留原始 Entity 的所有权；增加页面类型无需再维护
+路径、标题、视图三组 `match`。组件与百度页按逻辑标识复用，多实例页按 Entity ID 区分。
+路径变化由同一个观察器触发重绘并滚动到选中标签，目录也调用 `navigate`；
+观察器忽略 `Routes` 在渲染时写入的匹配元数据，避免反复重绘。
+标签列表增删单独发出面板通知，确保目录及时更新。关闭时移除页面记录及其路由。
 所有标签关闭后导航到 `/`，可重新新增标签，共享模型保持不变。
 状态栏的 ID 是标签路径末段。路径只在本次运行有效，不是 OS 深链接或持久化地址。
 

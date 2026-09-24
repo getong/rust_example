@@ -30,12 +30,12 @@ fn directory_lists_live_tabs_and_clicks_navigate(cx: &mut TestAppContext) {
     window.click("open-tab-directory", cx);
   })
   .unwrap();
-  let entries = panel.read_with(cx, |panel, cx| {
+  let entries = panel.read_with(cx, |panel, _| {
     assert_eq!(panel.tabs.len(), 5); // 重复打开只选中已有目录。
     panel
       .tabs
       .iter()
-      .map(|tab| (tab.path(cx), tab.label(cx)))
+      .map(|tab| (tab.path(), tab.label()))
       .collect::<Vec<_>>()
   });
   cx.update_window(window.into(), |_, window, cx| {
@@ -71,9 +71,10 @@ fn directory_lists_live_tabs_and_clicks_navigate(cx: &mut TestAppContext) {
     window.click("open-tab-directory", cx);
   })
   .unwrap();
-  let directory = panel.read_with(cx, |panel, _| match &panel.tabs[4] {
-    crate::PanelTab::Directory(tab) => tab.downgrade(),
-    _ => panic!("expected directory"),
+  let directory = panel.read_with(cx, |panel, _| {
+    panel.tabs[4]
+      .entity::<crate::tab_directory::TabDirectory>()
+      .downgrade()
   });
   cx.update_window(window.into(), |_, window, cx| window.click("close-tab", cx))
     .unwrap();
@@ -103,9 +104,15 @@ fn directory_scrolls_and_does_not_keep_panel_alive(cx: &mut TestAppContext) {
     }
     panel.open_directory(cx);
   });
-  let scroll = panel.read_with(cx, |panel, cx| match panel.tabs.last().unwrap() {
-    crate::PanelTab::Directory(tab) => tab.read(cx).scroll_handle.clone(),
-    _ => panic!("expected directory"),
+  let scroll = panel.read_with(cx, |panel, cx| {
+    panel
+      .tabs
+      .last()
+      .unwrap()
+      .entity::<crate::tab_directory::TabDirectory>()
+      .read(cx)
+      .scroll_handle
+      .clone()
   });
   let window = cx.open_window(gpui_kit::size(px(760.), px(700.)), |window, cx| {
     crate::Root::new(panel.clone(), window, cx)
@@ -154,10 +161,10 @@ fn dynamically_added_tabs_navigate_preserve_state_and_release_pages(cx: &mut Tes
     window.click("new-scrollbar-tab", cx);
   })
   .unwrap();
-  let paths = panel.read_with(cx, |panel, cx| {
+  let paths = panel.read_with(cx, |panel, _| {
     panel.tabs[4 ..]
       .iter()
-      .map(|tab| tab.path(cx))
+      .map(|tab| tab.path())
       .collect::<Vec<_>>()
   });
   let closed = panel.read_with(cx, |panel, _| panel.tabs[4].counter().downgrade());
@@ -229,7 +236,7 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
     assert_eq!(gpui_router::use_location(cx).pathname, current);
   });
   // 同类新增标签也有独立路径；关闭前面的标签不改变其他标签路径。
-  let original = panel.read_with(cx, |panel, cx| panel.tabs[1].path(cx));
+  let original = panel.read_with(cx, |panel, _| panel.tabs[1].path());
   panel.update(cx, |panel, cx| panel.add_toast_tab(cx));
   let added = cx.update(|cx| gpui_router::use_location(cx).pathname.clone());
   assert_ne!(original, added);
@@ -247,11 +254,7 @@ fn empty_panel_releases_routes_and_can_open_new_tabs(cx: &mut TestAppContext) {
   let model = cx.new(|_| CounterState::default());
   let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
   panel.update(cx, |panel, cx| {
-    let paths = panel
-      .tabs
-      .iter()
-      .map(|tab| tab.path(cx))
-      .collect::<Vec<_>>();
+    let paths = panel.tabs.iter().map(|tab| tab.path()).collect::<Vec<_>>();
     while !panel.tabs.is_empty() {
       panel.close_active_tab(cx);
     }
@@ -280,9 +283,12 @@ fn scrollbar_rows_show_toasts_and_restore_remembered_position(cx: &mut TestAppCo
     crate::Root::new(panel.clone(), window, cx)
   });
   cx.run_until_parked();
-  let scroll = panel.read_with(cx, |panel, cx| match &panel.tabs[3] {
-    crate::PanelTab::Scrollbar(tab) => tab.read(cx).scroll_handle.clone(),
-    _ => panic!("expected scrollbar tab"),
+  let scroll = panel.read_with(cx, |panel, cx| {
+    panel.tabs[3]
+      .entity::<crate::scrollbar_tab::ScrollbarTab>()
+      .read(cx)
+      .scroll_handle
+      .clone()
   });
   cx.update_window(window.into(), |_, window, cx| {
     window.within("counter-tabs").click(3usize, cx);
@@ -333,9 +339,12 @@ fn scrollbar_tab_scrolls_preserves_position_and_resets(cx: &mut TestAppContext) 
     crate::Root::new(panel.clone(), window, cx)
   });
   cx.run_until_parked();
-  let scroll = panel.read_with(cx, |panel, cx| match &panel.tabs[3] {
-    crate::PanelTab::Scrollbar(tab) => tab.read(cx).scroll_handle.clone(),
-    _ => panic!("expected scrollbar tab"),
+  let scroll = panel.read_with(cx, |panel, cx| {
+    panel.tabs[3]
+      .entity::<crate::scrollbar_tab::ScrollbarTab>()
+      .read(cx)
+      .scroll_handle
+      .clone()
   });
   cx.update_window(window.into(), |_, window, cx| {
     window.within("counter-tabs").click(3usize, cx);
@@ -364,7 +373,10 @@ fn scrollbar_tab_scrolls_preserves_position_and_resets(cx: &mut TestAppContext) 
   panel.read_with(cx, |panel, cx| {
     assert_eq!(panel.tabs.len(), 4);
     assert_eq!(panel.active_tab(cx), Some(3));
-    assert!(matches!(panel.tabs[3], crate::PanelTab::Scrollbar(_)));
+    assert!(matches!(
+      panel.tabs[3].id,
+      crate::panel_tab::TabId::Scrollbar(_)
+    ));
   });
 }
 
@@ -454,7 +466,10 @@ fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestApp
   .unwrap();
   panel.read_with(cx, |panel, cx| {
     assert_eq!(panel.active_tab(cx), Some(3));
-    assert!(matches!(panel.tabs[3], crate::PanelTab::Toast(_)));
+    assert!(matches!(
+      panel.tabs[3].id,
+      crate::panel_tab::TabId::Toast(_)
+    ));
   });
   model.read_with(cx, |model, _| assert_eq!(model.total(), 1));
 }
@@ -515,7 +530,8 @@ fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestA
   panel.read_with(cx, |panel, cx| {
     assert_eq!(panel.tabs.len(), 3);
     assert_eq!(panel.active_tab(cx), Some(2));
-    let tab = panel.tabs[2].counter().read(cx);
+    let entity = panel.tabs[2].counter();
+    let tab = entity.read(cx);
     assert_eq!(tab.local_clicks, 0);
     assert_eq!(tab.summary.read(cx).model.read(cx).total(), 6);
   });

@@ -29,7 +29,7 @@ impl Render for TabDirectory {
         .read(cx)
         .tabs
         .iter()
-        .map(|tab| (tab.path(cx), tab.label(cx)))
+        .map(|tab| (tab.path(), tab.label()))
         .collect::<Vec<_>>()
     });
     v_flex()
@@ -63,9 +63,7 @@ impl Render for TabDirectory {
                 if let Some(panel) = view.panel.upgrade() {
                   panel.update(cx, |panel, cx| {
                     // 稳定路径不会因列表插入或删除而指向其他标签。
-                    if let Some(index) = panel.tabs.iter().position(|tab| tab.path(cx) == path) {
-                      panel.select_tab(index, cx);
-                    }
+                    panel.navigate(&path, cx);
                   });
                 }
               }))

@@ -20,9 +20,6 @@ impl ComponentTab {
       content: None,
     }
   }
-  pub(crate) fn slug(&self) -> &'static str {
-    self.index.map_or("components", |i| DEMOS[i].slug)
-  }
   pub(crate) fn title(&self) -> &'static str {
     self.index.map_or("Components", |i| DEMOS[i].title)
   }
