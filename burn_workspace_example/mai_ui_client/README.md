@@ -1,4 +1,31 @@
-# MAI-UI Rust 截图定位客户端
+# MAI-UI Rust 客户端：App 设计实验与截图定位
+
+## App 界面设计实验（默认模式）
+
+MAI-UI 的官方定位是 GUI 操作智能体，主要用于理解已有界面、控件定位及导航，不是专门的 UI 设计生成模型。参见 [官方说明](https://github.com/Tongyi-MAI/MAI-UI/blob/main/MAI-UI/README.md)。此前手机桌面效果来自输入的 `official-screen.png`，不是模型生成的设计。
+
+现在默认使用独立的文本到 HTML 设计任务，不读取手机截图、不解析坐标。新提示词在 `src/design.rs`，要求输出具体 App 内部页面的完整 HTML/CSS，包括中文文案、清晰层级、主操作和导航。默认主题是旅行规划 App「远行」，390 × 844 的移动端界面。
+
+```sh
+cargo run -p mai_ui_client -- --mode design
+cargo run -p mai_ui_client -- --mode design --brief "设计一个中文任务管理 App 首页，包含今日任务、进度和新建任务按钮"
+```
+
+输出位于 `design-output/request.json`、`response.json`、`result.html`。网页是模型实际返回的 HTML/CSS；Rust 只校验完整性并注入静态预览的内容安全策略，不用预制界面替换模型结果。设计模式属于能力实验，模型可能输出无效格式或较差设计；遇到错误会保留响应并报告失败。HTML 中的按钮仅为视觉原型。
+
+本地实测（2026-09-25）：默认旅行 App 设计请求在 1800 秒后超时，未收到响应，未生成 `result.html` 或效果图。请求已保存至 `design-output/request.json`。这次仅验证了代码与请求提交，未验证设计生成成功。客户端超时不代表服务端推理已停止，重试前应检查服务状态。
+
+查看 `result.html`，或用 Chrome 截取效果图（路径替换为当前项目的绝对路径）：
+
+```sh
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless \
+  --screenshot=/absolute/path/design-output/preview.png --window-size=390,844 \
+  --hide-scrollbars --force-device-scale-factor=1 file:///absolute/path/design-output/result.html
+```
+
+复用设计响应：`cargo run -p mai_ui_client -- --mode design --response design-output/response.json`。
+
+## 原始截图定位模式
 
 参考 `huggingface-files/examples/demo_grounding.py` 实现的纯 Rust CLI。读取 PNG，将截图以 base64 发送到 MAI-UI-8B 的 Chat Completions 接口，解析目标中心坐标，生成可离线打开的红圈标注网页。只定位，不执行点击；模型由独立的 API 服务运行。
 
@@ -9,27 +36,27 @@
 在本项目目录调用真实 API（默认 `http://localhost:30000/v1/chat/completions`）：
 
 ```sh
-cargo run -p mai_ui_client -- --image examples/official-screen.png \
+cargo run -p mai_ui_client -- --mode grounding --image examples/official-screen.png \
   --target "找到 Chrome 浏览器图标，返回图标中心的坐标。"
 ```
 
 无需启动模型，复用随项目附带的原始示例响应：
 
 ```sh
-cargo run -p mai_ui_client -- --response examples/response.json
+cargo run -p mai_ui_client -- --mode grounding --response examples/response.json
 ```
 
 自定义服务、截图和输出目录：
 
 ```sh
-cargo run -p mai_ui_client -- --url http://localhost:30000/v1/chat/completions \
+cargo run -p mai_ui_client -- --mode grounding --url http://localhost:30000/v1/chat/completions \
   --image /path/to/screenshot.png --target "找到设置按钮" --output demo-output
 cargo run -p mai_ui_client -- --help
 ```
 
 输出文件：`request.json`（含截图）、`response.json`（完整 API 响应）、`result.html`（内嵌截图及标注，可直接用浏览器打开）。默认路径相对于运行时的当前目录。
 
-与 Python 示例一致：固定模型 `MAI-UI-8B`、`temperature=0`、`max_tokens=128`、禁用流式输出、绕过代理、600 秒超时；接受正常结束标签和重复的 `<answer>`。坐标必须是 0 到 999 的两个整数，使用原示例的像素换算与边缘裁剪。目标不存在、输出截断、坐标无效或请求失败时返回非零退出码；预测校验失败前会保存 JSON 响应，不生成新网页。重复使用输出目录时，失败不会更新以前的 `result.html`，请以本次终端结果为准。
+定位模式沿用 Python 示例的模型和生成参数：`MAI-UI-8B`、`temperature=0`、`max_tokens=128`、禁用流式输出、绕过代理；客户端超时延长为 1800 秒。接受正常结束标签和重复的 `<answer>`。坐标必须是 0 到 999 的两个整数，使用原示例的像素换算与边缘裁剪。目标不存在、输出截断、坐标无效或请求失败时返回非零退出码；预测校验失败前会保存 JSON 响应，不生成新网页。重复使用输出目录时，失败不会更新以前的 `result.html`，请以本次终端结果为准。
 
 `examples/official-screen.png` 和 `examples/response.json` 复制自用户提供的示例目录，离线响应仅对应此截图和默认目标。
 
