@@ -4,6 +4,7 @@ resolver = "3"
 
 members = [
   # "custom-csv-dataset",
-  "burn_read_hf_file", "mai_ui_client",
+  "burn_read_hf_file",
+  "mai_ui_client",
+  "mai_ui_unreal",
 ]
-
