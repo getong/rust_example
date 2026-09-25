@@ -13,9 +13,9 @@ Use only HTML and CSS. No scripts, external resources, images, fonts, network re
 Use CSS shapes or gradients if visual decoration is helpful. Keep the entire document under 1000 tokens.
 Return the HTML artifact only, not instructions for making it."#;
 
-pub(crate) fn request(brief: &str) -> Value {
+pub(crate) fn request(model: &str, brief: &str) -> Value {
   json!({
-    "model": "MAI-UI-8B",
+    "model": model,
     "messages": [
       {"role": "system", "content": DESIGN_PROMPT},
       {"role": "user", "content": brief}

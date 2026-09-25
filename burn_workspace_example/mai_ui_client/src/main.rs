@@ -34,9 +34,12 @@ struct Args {
   /// 要定位的界面元素
   #[arg(long, default_value = "找到 Chrome 浏览器图标，返回图标中心的坐标。")]
   target: String,
-  /// Chat Completions 接口地址
-  #[arg(long, default_value = "http://localhost:30000/v1/chat/completions")]
+  /// Ollama / OpenAI 兼容的 Chat Completions 完整接口地址
+  #[arg(long, default_value = "http://localhost:11434/v1/chat/completions")]
   url: String,
+  /// 服务端模型名称（必须与 ollama list 中的名称一致）
+  #[arg(long, default_value = "Maternion/mai-ui:8b")]
+  model: String,
   /// 输出目录
   #[arg(long)]
   output: Option<PathBuf>,
@@ -79,10 +82,10 @@ fn run(args: Args) -> Result<()> {
     }
   };
   let payload = if let Some((_, data_url)) = &screenshot {
-    grounding::request(&args.target, data_url)
+    grounding::request(&args.model, &args.target, data_url)
   } else {
     println!("App 界面设计实验：{}", args.brief);
-    design::request(&args.brief)
+    design::request(&args.model, &args.brief)
   };
   fs::create_dir_all(&output_dir)
     .with_context(|| format!("无法创建输出目录 {}", output_dir.display()))?;
@@ -94,7 +97,10 @@ fn run(args: Args) -> Result<()> {
       "复用已保存的响应，未再次调用 API".into(),
     )
   } else {
-    println!("正在请求 {}，CPU 推理可能需要数分钟……", args.url);
+    println!(
+      "正在请求 {}，模型 {}，推理可能需要数分钟……",
+      args.url, args.model
+    );
     io::stdout().flush()?;
     let start = Instant::now();
     // Match the Python demo: bypass all proxy environment variables.
@@ -147,4 +153,36 @@ fn run(args: Args) -> Result<()> {
   fs::write(&output, html).with_context(|| format!("无法写入 {}", output.display()))?;
   println!("可视化结果：{}", output.canonicalize()?.display());
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn ollama_defaults_and_custom_model_reach_both_requests() {
+    let defaults = Args::try_parse_from(["mai_ui_client"]).unwrap();
+    assert_eq!(defaults.url, "http://localhost:11434/v1/chat/completions");
+    assert_eq!(defaults.model, "Maternion/mai-ui:8b");
+    let custom = Args::try_parse_from([
+      "mai_ui_client",
+      "--model",
+      "custom:latest",
+      "--url",
+      "http://localhost:30000/v1/chat/completions",
+    ])
+    .unwrap();
+    assert_eq!(custom.url, "http://localhost:30000/v1/chat/completions");
+    let image = "data:image/png;base64,AA==";
+    let grounding = grounding::request(&custom.model, &custom.target, image);
+    let design = design::request(&custom.model, &custom.brief);
+    for request in [&grounding, &design] {
+      assert_eq!(request["model"], "custom:latest");
+      assert_eq!(request["stream"], false);
+    }
+    assert_eq!(
+      grounding["messages"][1]["content"][1]["image_url"]["url"],
+      image
+    );
+  }
 }

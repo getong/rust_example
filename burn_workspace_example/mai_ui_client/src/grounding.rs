@@ -36,9 +36,9 @@ pub(crate) fn png_size(bytes: &[u8]) -> Result<(u32, u32)> {
   Ok((width, height))
 }
 
-pub(crate) fn request(target: &str, data_url: &str) -> Value {
+pub(crate) fn request(model: &str, target: &str, data_url: &str) -> Value {
   json!({
-      "model": "MAI-UI-8B",
+      "model": model,
       "messages": [
           {"role": "system", "content": GROUNDING_PROMPT},
           {"role": "user", "content": [
@@ -180,8 +180,13 @@ mod tests {
   }
   #[test]
   fn reads_screenshot_and_maps_coordinates() {
-    let image = include_bytes!("../examples/official-screen.png");
-    let size = png_size(image).unwrap();
+    // Only the PNG header is parsed here; keep this test independent of local screenshots.
+    let mut image = [0_u8; 33];
+    image[.. 16].copy_from_slice(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR");
+    image[16 .. 20].copy_from_slice(&450_u32.to_be_bytes());
+    image[20 .. 24].copy_from_slice(&1000_u32.to_be_bytes());
+    let size = png_size(&image).unwrap();
+    assert_eq!(size, (450, 1000));
     assert_eq!(pixel_position([0, 0], size), (0, 0));
     assert_eq!(pixel_position([999, 999], size), (size.0 - 1, size.1 - 1));
     assert_eq!(pixel_position([500, 500], (1, 1)), (0, 0));
