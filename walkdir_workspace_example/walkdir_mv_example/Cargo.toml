@@ -3,5 +3,8 @@ name = "walkdir_mv_example"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-walkdir = "2.5.0"
+[target.'cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+
+[dev-dependencies]
+tempfile = "3"

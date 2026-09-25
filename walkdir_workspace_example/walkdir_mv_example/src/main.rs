@@ -1,10 +1,8 @@
 use std::{
-  ffi::OsStr,
+  ffi::{OsStr, OsString},
   fs, io,
   path::{Path, PathBuf},
 };
-
-use walkdir::WalkDir;
 
 fn main() {
   let target = match resolve_target_dir() {
@@ -14,7 +12,7 @@ fn main() {
       std::process::exit(2);
     }
   };
-  let root = Path::new(&target);
+  let root = &target;
 
   if let Err(err) = process_all_dirs(root) {
     eprintln!("Processing failed: {err}");
@@ -22,48 +20,58 @@ fn main() {
   }
 }
 
-fn resolve_target_dir() -> Result<String, String> {
-  let mut args = std::env::args().skip(1);
+fn resolve_target_dir() -> Result<PathBuf, String> {
+  parse_target_dir(
+    std::env::args_os().skip(1),
+    std::env::var_os("WALKDIR_DELETE_TARGET_DIR"),
+  )
+}
+
+fn parse_target_dir(
+  args: impl IntoIterator<Item = OsString>,
+  env_dir: Option<OsString>,
+) -> Result<PathBuf, String> {
+  let mut args = args.into_iter();
+  let mut target = None;
   while let Some(arg) = args.next() {
-    if let Some(value) = arg.strip_prefix("--dir=") {
-      if value.trim().is_empty() {
-        return Err("Invalid `--dir=` value: directory cannot be empty".to_string());
+    let value = if arg == "--dir" {
+      let value = args.next().ok_or("Missing value: use `--dir <path>`")?;
+      if value.as_encoded_bytes().starts_with(b"--") {
+        return Err("Missing directory value; use `--dir=./--name` for such paths".into());
       }
-      return Ok(value.to_string());
+      value
+    } else if let Some(value) = arg.to_str().and_then(|arg| arg.strip_prefix("--dir=")) {
+      OsString::from(value)
+    } else {
+      return Err(format!("Unknown argument: {}", arg.to_string_lossy()));
+    };
+    if value.to_string_lossy().trim().is_empty() {
+      return Err("Directory cannot be empty".into());
     }
-
-    if arg == "--dir" {
-      let value = args
-        .next()
-        .ok_or_else(|| "Missing value: use `--dir <path>`".to_string())?;
-      if value.trim().is_empty() {
-        return Err("Invalid `--dir` value: directory cannot be empty".to_string());
-      }
-      return Ok(value);
+    if target.replace(PathBuf::from(value)).is_some() {
+      return Err("Specify --dir only once".into());
     }
   }
-
-  if let Ok(dir) = std::env::var("WALKDIR_DELETE_TARGET_DIR") {
-    if !dir.trim().is_empty() {
-      return Ok(dir);
+  if target.is_none()
+    && let Some(value) = env_dir
+  {
+    if value.to_string_lossy().trim().is_empty() {
+      return Err("WALKDIR_DELETE_TARGET_DIR cannot be empty".into());
     }
+    target = Some(PathBuf::from(value));
   }
-
-  Ok(".".to_string())
+  target.ok_or_else(|| "Missing target: use `--dir <path>`".into())
 }
 
 fn process_all_dirs(root: &Path) -> io::Result<()> {
-  let deleted_ds_store = delete_ds_store_files(root)?;
-
-  let child_dirs: Vec<PathBuf> = WalkDir::new(root)
-    .min_depth(1)
-    .max_depth(1)
-    .follow_links(false)
-    .into_iter()
-    .filter_map(Result::ok)
-    .filter(|e| e.file_type().is_dir())
-    .map(|e| e.path().to_path_buf())
-    .collect();
+  // Only inspect direct children. Do not recursively clean unrelated files or directories.
+  let entries = fs::read_dir(root)?.collect::<io::Result<Vec<_>>>()?;
+  let mut child_dirs = Vec::new();
+  for entry in entries {
+    if entry.file_type()?.is_dir() && !is_hidden_name(&entry.file_name()) {
+      child_dirs.push(entry.path());
+    }
+  }
 
   let mut changed = 0usize;
   for dir in child_dirs {
@@ -71,61 +79,31 @@ fn process_all_dirs(root: &Path) -> io::Result<()> {
       changed += 1;
     }
   }
-
-  let deleted_empty_dirs = delete_empty_dirs(root)?;
-
   println!(
-    "Done. Removed {deleted_ds_store} .DS_Store files, updated {changed} directories (checked \
-     only direct children of {}), deleted {deleted_empty_dirs} empty directories",
-    root.display(),
+    "Done. Updated {changed} directories (checked only direct children of {})",
+    root.display()
   );
   Ok(())
 }
 
-fn delete_ds_store_files(root: &Path) -> io::Result<usize> {
-  let ds_store_paths: Vec<PathBuf> = WalkDir::new(root)
-    .follow_links(false)
-    .into_iter()
-    .filter_map(Result::ok)
-    .filter(|entry| entry.file_type().is_file() && entry.file_name() == OsStr::new(".DS_Store"))
-    .map(|entry| entry.into_path())
-    .collect();
-
-  let mut deleted = 0usize;
-  for path in ds_store_paths {
-    fs::remove_file(&path)?;
-    deleted += 1;
-    println!("Deleted .DS_Store: {}", path.display());
-  }
-
-  Ok(deleted)
+// Fail closed on unsupported platforms/filesystems; never fall back to an overwriting rename.
+#[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+fn move_no_replace(src: &Path, dst: &Path) -> io::Result<()> {
+  use rustix::fs::{CWD, RenameFlags, renameat_with};
+  renameat_with(CWD, src, CWD, dst, RenameFlags::NOREPLACE)?;
+  Ok(())
 }
 
-fn delete_empty_dirs(root: &Path) -> io::Result<usize> {
-  let dirs: Vec<PathBuf> = WalkDir::new(root)
-    .min_depth(1)
-    .contents_first(true)
-    .follow_links(false)
-    .into_iter()
-    .filter_map(Result::ok)
-    .filter(|entry| entry.file_type().is_dir())
-    .map(|entry| entry.into_path())
-    .collect();
-
-  let mut deleted = 0usize;
-  for dir in dirs {
-    if fs::read_dir(&dir)?.next().is_none() {
-      fs::remove_dir(&dir)?;
-      deleted += 1;
-      println!("Deleted empty directory: {}", dir.display());
-    }
-  }
-
-  Ok(deleted)
+#[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+fn move_no_replace(_src: &Path, _dst: &Path) -> io::Result<()> {
+  Err(io::Error::new(
+    io::ErrorKind::Unsupported,
+    "Non-overwriting moves are unsupported on this platform",
+  ))
 }
 
 fn flatten_if_single_child_dir(dir: &Path) -> io::Result<bool> {
-  if !dir.is_dir() {
+  if !fs::symlink_metadata(dir)?.file_type().is_dir() {
     return Ok(false);
   }
 
@@ -163,26 +141,30 @@ fn flatten_if_single_child_dir(dir: &Path) -> io::Result<bool> {
     let src = item.path();
     let dst = dir.join(item.file_name());
 
-    if dst.exists() {
-      eprintln!(
-        "Skipped (destination exists): {} -> {}",
-        src.display(),
-        dst.display()
-      );
-      continue;
+    match move_no_replace(&src, &dst) {
+      Ok(()) => {}
+      Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+        eprintln!(
+          "Skipped (destination exists): {} -> {}",
+          src.display(),
+          dst.display()
+        );
+        continue;
+      }
+      Err(err) => {
+        return Err(io::Error::new(
+          err.kind(),
+          format!("Cannot move {} -> {}: {err}", src.display(), dst.display()),
+        ));
+      }
     }
-
-    fs::rename(&src, &dst)?;
     touched = true;
     moved_any_entry = true;
     println!("Moved: {} -> {}", src.display(), dst.display());
   }
 
   if !moved_any_entry {
-    println!(
-      "Skip deletion (only child directory is empty): {}",
-      child_dir.display()
-    );
+    println!("Skip deletion (no entries moved): {}", child_dir.display());
     return Ok(touched);
   }
 
