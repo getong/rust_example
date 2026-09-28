@@ -5,7 +5,7 @@ resolver = "3"
 members = [
   "gpui-kit-example",
   "gpui_kit_agent",
-  "entity_view_example",
+ # "entity_view_example",
   "gpui_kit_design_pattern",
   "mai_ui_demo",
 ]
