@@ -15,28 +15,28 @@ csv = "1.4"
 dirs = "7.0.0"
 fake = { version = "5.1.0", features = ["dummy"] }
 futures = "0.3"
-gpui-form = "0.7.0"
-gpui-form-collection = "0.7.0"
-gpui-kit = "0.6.6"
+gpui-form = "0.7.1"
+gpui-form-collection = "0.7.1"
+gpui-kit = "0.7.0"
 gpui-router = { version = "0.5.0", default-features = false, features = ["gpui-pre"] }
 gpui-toolkit-gpui-util = "0.1.0"
 itertools = "0.15.0"
 rand = "0.10"
 regex = "1"
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.6" }
-rust-i18n = "4.2.2"
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.7" }
+rust-i18n = "4.2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 # The cache uses ordinary SQL; disable the unused FTS backend.
-turso = { version = "0.8.0-pre.12", default-features = false, features = ["mimalloc"] }
+turso = { version = "0.8.0-pre.14", default-features = false, features = ["mimalloc"] }
 unindent = "0.2.4"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
 
 [dev-dependencies]
-gpui-kit = { version = "0.6.6", features = ["test-support"] }
+gpui-kit = { version = "0.7.0", features = ["test-support"] }
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
