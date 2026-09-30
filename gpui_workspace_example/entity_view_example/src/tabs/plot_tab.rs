@@ -36,8 +36,8 @@ impl Render for PlotTab {
         canvas(
           |_, _, _| (),
           move |bounds, _, window, _| {
-            let x = ScaleLinear::new(vec![0., 5.], vec![0., f32::from(bounds.size.width)]);
-            let y = ScaleLinear::new(vec![0., 100.], vec![f32::from(bounds.size.height), 0.]);
+            let x = ScaleLinear::new(vec![0., 5.], [0., f32::from(bounds.size.width)]);
+            let y = ScaleLinear::new(vec![0., 100.], [f32::from(bounds.size.height), 0.]);
             Line::new()
               .data(values.iter().enumerate().map(|(i, v)| (i as f64, *v)))
               .x(move |p| x.tick(&p.0))

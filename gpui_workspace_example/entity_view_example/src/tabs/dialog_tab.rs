@@ -383,7 +383,7 @@ impl DialogTab {
                 .overlay(dialog_overlay)
                 .overlay_closable(overlay_closable)
                 .title("Dialog with scrollbar")
-                .child(markdown(include_str!("../../docs/gpui-kit-upstream.md")))
+                .child(markdown(include_str!("../../docs/tab-panel.md")))
                 .footer(
                   DialogFooter::new()
                     .gap_2()

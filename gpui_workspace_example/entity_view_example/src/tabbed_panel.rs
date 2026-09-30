@@ -1,7 +1,6 @@
 use gpui_kit::{
   base::Disableable,
   component::{
-    ActiveTheme, Root,
     button::Button,
     empty::{Empty as EmptyState, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle},
     h_flex,
@@ -207,10 +206,8 @@ impl TabbedPanel {
 }
 
 impl Render for TabbedPanel {
-  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let notifications = Root::render_notification_layer(window, cx);
-    let dialogs = Root::render_dialog_layer(window, cx);
-    let sheets = Root::render_sheet_layer(window, cx);
+  fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    // Root renders the component plugin overlays above this panel.
     let active_tab = self.active_tab(cx);
     let pathname = use_location(cx).pathname.clone();
     let routes = Routes::new().children(self.tabs.iter().map(PanelTab::route));
@@ -313,16 +310,6 @@ impl Render for TabbedPanel {
               .filter(|id| !id.is_empty())
               .unwrap_or("—")
           )),
-      )
-      .children(sheets)
-      .children(dialogs)
-      // 通知背景由组件主题决定，文字不能继承深色应用画布的白色。
-      .child(
-        v_flex()
-          .absolute()
-          .inset_0()
-          .text_color(cx.theme().popover_foreground)
-          .children(notifications),
       )
   }
 }
