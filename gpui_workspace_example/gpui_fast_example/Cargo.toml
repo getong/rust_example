@@ -1,0 +1,8 @@
+[package]
+name = "gpui_fast_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = { git = "https://github.com/longbridge/gpui-fast" }
+gpui_platform = { git = "https://github.com/longbridge/gpui-fast", features = ["font-kit", "wayland", "x11"] }

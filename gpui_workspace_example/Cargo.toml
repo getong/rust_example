@@ -3,7 +3,7 @@
 resolver = "3"
 
 members = [
-  "gpui-kit-example",
+  "gpui-kit-example", "gpui_fast_example",
   "gpui_kit_agent",
  # "entity_view_example",
   "gpui_kit_design_pattern",
