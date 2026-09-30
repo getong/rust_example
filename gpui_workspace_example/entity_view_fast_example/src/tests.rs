@@ -1,0 +1,860 @@
+use gpui_kit::{
+  AppContext, BorrowAppContext, Entity, Subscription, TestAppContext, test::TestWindowExt,
+};
+
+use crate::{
+  CounterTab,
+  state::{AppSettings, CounterId, CounterState},
+};
+
+struct Probe {
+  changes: [usize; 4],
+  _subscriptions: Vec<Subscription>,
+}
+
+#[gpui_kit::test]
+fn directory_lists_live_tabs_and_clicks_navigate(cx: &mut TestAppContext) {
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("open-tab-directory", cx);
+    window.click("open-tab-directory", cx);
+  })
+  .unwrap();
+  let entries = panel.read_with(cx, |panel, _| {
+    assert_eq!(panel.tabs.len(), 5); // 重复打开只选中已有目录。
+    panel
+      .tabs
+      .iter()
+      .map(|tab| (tab.path(), tab.label()))
+      .collect::<Vec<_>>()
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    for (path, label) in &entries {
+      assert_eq!(
+        window.find(path.clone()).label(),
+        Some(format!("{label} · {path}").as_str())
+      );
+    }
+    window.click(entries[4].0.clone(), cx); // 目录自身也可跳转。
+    window.click(entries[0].0.clone(), cx);
+    assert!(window.find("local-click").visible());
+    window.click("new-tab", cx);
+    window.click("open-tab-directory", cx);
+    assert!(
+      window
+        .find(gpui_kit::SharedString::from("/counter/3"))
+        .visible()
+    );
+    window.click(gpui_kit::SharedString::from("/counter/3"), cx);
+    window.click("close-tab", cx);
+    window.click("open-tab-directory", cx);
+    assert!(
+      window
+        .try_find(gpui_kit::SharedString::from("/counter/3"))
+        .is_none()
+    );
+    window.click(entries[2].0.clone(), cx);
+    assert!(window.find("toast-success").visible());
+    window.click("open-tab-directory", cx);
+    window.click(entries[3].0.clone(), cx);
+    assert!(window.find("scroll-top").visible());
+    window.click("open-tab-directory", cx);
+  })
+  .unwrap();
+  let directory = panel.read_with(cx, |panel, _| {
+    panel.tabs[4]
+      .entity::<crate::tab_directory::TabDirectory>()
+      .downgrade()
+  });
+  cx.update_window(window.into(), |_, window, cx| window.click("close-tab", cx))
+    .unwrap();
+  cx.run_until_parked();
+  assert!(directory.upgrade().is_none());
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("open-tab-directory", cx);
+    assert!(window.try_find(entries[4].0.clone()).is_none());
+    assert!(window.find(entries[0].0.clone()).visible());
+  })
+  .unwrap();
+}
+
+#[gpui_kit::test]
+fn directory_scrolls_and_does_not_keep_panel_alive(cx: &mut TestAppContext) {
+  use gpui_kit::{ScrollDelta, point, px};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  panel.update(cx, |panel, cx| {
+    for _ in 0 .. 20 {
+      panel.add_tab(cx);
+    }
+    panel.open_directory(cx);
+  });
+  let scroll = panel.read_with(cx, |panel, cx| {
+    panel
+      .tabs
+      .last()
+      .unwrap()
+      .entity::<crate::tab_directory::TabDirectory>()
+      .read(cx)
+      .scroll_handle
+      .clone()
+  });
+  let window = cx.open_window(gpui_kit::size(px(760.), px(700.)), |window, cx| {
+    crate::Root::new(panel.clone(), window, cx)
+  });
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.scroll(
+      gpui_kit::SharedString::from("/counter/1"),
+      ScrollDelta::Pixels(point(px(0.), px(-400.))),
+      cx,
+    );
+    let offset = scroll.offset();
+    assert!(offset.y < px(0.));
+    panel.update(cx, |panel, cx| panel.select_tab(0, cx));
+    window.click("open-tab-directory", cx);
+    assert_eq!(scroll.offset(), offset);
+  })
+  .unwrap();
+  // 无窗口持有的面板也不会因为目录订阅或反向引用而泄漏。
+  let model = cx.new(|_| CounterState::default());
+  let standalone = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  standalone.update(cx, |panel, cx| panel.open_directory(cx));
+  let weak = standalone.downgrade();
+  cx.update(|_| drop(standalone));
+  cx.run_until_parked();
+  assert!(weak.upgrade().is_none());
+}
+
+#[gpui_kit::test]
+fn dynamically_added_tabs_navigate_preserve_state_and_release_pages(cx: &mut TestAppContext) {
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("new-tab", cx);
+    window.click("local-click", cx);
+    window.click("new-toast-tab", cx);
+    window.click("new-scrollbar-tab", cx);
+  })
+  .unwrap();
+  let paths = panel.read_with(cx, |panel, _| {
+    panel.tabs[4 ..]
+      .iter()
+      .map(|tab| tab.path())
+      .collect::<Vec<_>>()
+  });
+  let closed = panel.read_with(cx, |panel, _| panel.tabs[4].counter().downgrade());
+  for (index, path) in paths.iter().enumerate() {
+    panel.update(cx, |panel, cx| assert!(panel.navigate(path, cx)));
+    cx.run_until_parked();
+    panel.read_with(cx, |panel, cx| {
+      assert_eq!(panel.active_tab(cx), Some(4 + index))
+    });
+    cx.update_window(window.into(), |_, window, _| {
+      let control = ["local-click", "toast-success", "scroll-top"][index];
+      assert!(window.find(control).visible());
+      if index == 0 {
+        assert_eq!(window.find(control).label(), Some("Only this tab: 1"));
+      }
+    })
+    .unwrap();
+  }
+  panel.update(cx, |panel, cx| assert!(panel.navigate(&paths[0], cx)));
+  panel.update(cx, |panel, cx| panel.close_active_tab(cx));
+  cx.run_until_parked();
+  assert!(closed.upgrade().is_none());
+  panel.update(cx, |panel, cx| {
+    assert!(!panel.navigate(&paths[0], cx));
+    assert!(panel.navigate("/counter/1", cx));
+    assert!(panel.navigate(&paths[1], cx));
+    assert!(panel.navigate(&paths[2], cx));
+  });
+}
+
+#[gpui_kit::test]
+fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContext) {
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  // 绕过 TabBar，直接操作 router；页面与选中状态也必须同步。
+  cx.update(|cx| gpui_router::use_navigate(cx)("/counter/2".into()));
+  cx.run_until_parked();
+  panel.read_with(cx, |panel, cx| assert_eq!(panel.active_tab(cx), Some(1)));
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.find("local-click").visible());
+    window.click("local-click", cx);
+    window.within("counter-tabs").click(0usize, cx);
+  })
+  .unwrap();
+  cx.update(|cx| assert_eq!(gpui_router::use_location(cx).pathname, "/counter/1"));
+  panel.update(cx, |panel, cx| {
+    assert!(!panel.navigate("/missing", cx));
+    assert_eq!(gpui_router::use_location(cx).pathname, "/counter/1");
+    assert!(panel.navigate("/counter/2", cx));
+  });
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 1"));
+    window.click("close-tab", cx);
+  })
+  .unwrap();
+  panel.update(cx, |panel, cx| {
+    let current = gpui_router::use_location(cx).pathname.clone();
+    assert!(!panel.navigate("/counter/2", cx));
+    assert_eq!(gpui_router::use_location(cx).pathname, current);
+  });
+  // 同类新增标签也有独立路径；关闭前面的标签不改变其他标签路径。
+  let original = panel.read_with(cx, |panel, _| panel.tabs[1].path());
+  panel.update(cx, |panel, cx| panel.add_toast_tab(cx));
+  let added = cx.update(|cx| gpui_router::use_location(cx).pathname.clone());
+  assert_ne!(original, added);
+  panel.update(cx, |panel, cx| assert!(panel.navigate(&original, cx)));
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, _| {
+    assert!(window.find("toast-success").visible());
+  })
+  .unwrap();
+}
+
+#[gpui_kit::test]
+fn empty_panel_releases_routes_and_can_open_new_tabs(cx: &mut TestAppContext) {
+  cx.update(|cx| cx.set_global(AppSettings::default()));
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  panel.update(cx, |panel, cx| {
+    let paths = panel.tabs.iter().map(|tab| tab.path()).collect::<Vec<_>>();
+    while !panel.tabs.is_empty() {
+      panel.close_active_tab(cx);
+    }
+    assert_eq!(gpui_router::use_location(cx).pathname, "/");
+    assert_eq!(panel.active_tab(cx), None);
+    for path in paths {
+      assert!(!panel.navigate(&path, cx));
+    }
+    panel.add_tab(cx);
+    assert_eq!(gpui_router::use_location(cx).pathname, "/counter/3");
+    assert_eq!(panel.active_tab(cx), Some(0));
+  });
+}
+
+#[gpui_kit::test]
+fn scrollbar_rows_show_toasts_and_restore_remembered_position(cx: &mut TestAppContext) {
+  use gpui_kit::{ScrollDelta, component::WindowExt, point, px};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(gpui_kit::size(px(760.), px(700.)), |window, cx| {
+    crate::Root::new(panel.clone(), window, cx)
+  });
+  cx.run_until_parked();
+  let scroll = panel.read_with(cx, |panel, cx| {
+    panel.tabs[3]
+      .entity::<crate::scrollbar_tab::ScrollbarTab>()
+      .read(cx)
+      .scroll_handle
+      .clone()
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(3usize, cx);
+    window.click(("scroll-row", 1usize), cx);
+    assert_eq!(
+      window.find(("scroll-row", 1usize)).label(),
+      Some("Row 01 — Selected")
+    );
+    assert_eq!(window.notifications(cx).len(), 1);
+    window.scroll(
+      ("scroll-row", 1usize),
+      ScrollDelta::Pixels(point(px(0.), px(-300.))),
+      cx,
+    );
+    let remembered = scroll.offset();
+    assert!(remembered.y < px(0.));
+    window.click("scroll-save", cx);
+    window.click("scroll-top", cx);
+    assert_eq!(scroll.offset().y, px(0.));
+    window.click("scroll-restore", cx);
+    assert_eq!(scroll.offset(), remembered);
+    window.within("counter-tabs").click(0usize, cx);
+    window.within("counter-tabs").click(3usize, cx);
+    assert_eq!(scroll.offset(), remembered);
+    window.click("scroll-top", cx);
+    assert_eq!(
+      window.find(("scroll-row", 1usize)).label(),
+      Some("Row 01 — Selected")
+    );
+    // 保存的位置不会被回到顶部或标签切换覆盖。
+    window.click("scroll-restore", cx);
+    assert_eq!(scroll.offset(), remembered);
+  })
+  .unwrap();
+}
+
+#[gpui_kit::test]
+fn scrollbar_tab_scrolls_preserves_position_and_resets(cx: &mut TestAppContext) {
+  use gpui_kit::{InputEvent, ScrollDelta, ScrollWheelEvent, point, px};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(gpui_kit::size(px(640.), px(640.)), |window, cx| {
+    crate::Root::new(panel.clone(), window, cx)
+  });
+  cx.run_until_parked();
+  let scroll = panel.read_with(cx, |panel, cx| {
+    panel.tabs[3]
+      .entity::<crate::scrollbar_tab::ScrollbarTab>()
+      .read(cx)
+      .scroll_handle
+      .clone()
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(3usize, cx);
+    window.dispatch_event(
+      ScrollWheelEvent {
+        position: scroll.bounds().center(),
+        delta: ScrollDelta::Pixels(point(px(0.), px(-300.))),
+        ..Default::default()
+      }
+      .to_platform_input(),
+      cx,
+    );
+    window.render_frame(cx);
+    let offset = scroll.offset();
+    assert!(offset.y < px(0.));
+    window.within("counter-tabs").click(0usize, cx);
+    window.within("counter-tabs").click(3usize, cx);
+    assert_eq!(scroll.offset(), offset);
+    window.click("scroll-top", cx);
+    assert_eq!(scroll.offset().y, px(0.));
+    window.click("close-tab", cx);
+    window.click("new-scrollbar-tab", cx);
+    assert!(window.find("scroll-top").visible());
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, cx| {
+    assert_eq!(panel.tabs.len(), 4);
+    assert_eq!(panel.active_tab(cx), Some(3));
+    assert!(matches!(
+      panel.tabs[3].id,
+      crate::panel_tab::TabId::Scrollbar(_)
+    ));
+  });
+}
+
+#[gpui_kit::test]
+fn toast_tab_shows_notifications_and_can_be_closed_and_reopened(cx: &mut TestAppContext) {
+  use gpui_kit::{
+    Styled,
+    component::{ActiveTheme, WindowExt},
+  };
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(2usize, cx);
+    for (index, button) in [
+      "toast-success",
+      "toast-info",
+      "toast-warning",
+      "toast-error",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+      window.click(button, cx);
+      assert_eq!(window.notifications(cx).len(), index + 1);
+      for note in window.notifications(cx).iter() {
+        note.update(cx, |note, cx| {
+          let foreground = note.text_style().color.expect("explicit toast text color");
+          assert_eq!(foreground, cx.theme().popover_foreground);
+          assert_ne!(foreground, cx.theme().popover);
+        });
+      }
+    }
+    window.within("counter-tabs").click(0usize, cx);
+    assert_eq!(window.notifications(cx).len(), 4);
+    window.click("increment-a", cx);
+    window.within("counter-tabs").click(2usize, cx);
+    window.clear_notifications(cx);
+  })
+  .unwrap();
+  // 清除先播放退出动画，推进测试时钟后才真正移除通知。
+  cx.background_executor
+    .advance_clock(std::time::Duration::from_secs(1));
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.notifications(cx).is_empty());
+    // 通知浮层退出后再点击工具栏，避免被浮层遮挡。
+    window.click("close-tab", cx);
+    window.click("new-toast-tab", cx);
+    window.click("toast-success", cx);
+    assert_eq!(window.notifications(cx).len(), 1);
+    let close = window.find("dismiss-toast");
+    assert_eq!(close.label(), Some("Close"));
+    assert!(close.visible());
+    window.click("dismiss-toast", cx);
+  })
+  .unwrap();
+  cx.run_until_parked();
+  cx.background_executor
+    .advance_clock(std::time::Duration::from_secs(1));
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.notifications(cx).is_empty());
+    window.click("toast-info", cx);
+    window.hover("toast-info", cx);
+  })
+  .unwrap();
+  // 逐秒推进，覆盖进入、5 秒超时和退出；无需点击清除按钮。
+  for _ in 0 .. 7 {
+    cx.run_until_parked();
+    cx.background_executor
+      .advance_clock(std::time::Duration::from_secs(1));
+  }
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    assert!(window.notifications(cx).is_empty());
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, cx| {
+    assert_eq!(panel.active_tab(cx), Some(3));
+    assert!(matches!(
+      panel.tabs[3].id,
+      crate::panel_tab::TabId::Toast(_)
+    ));
+  });
+  model.read_with(cx, |model, _| assert_eq!(model.total(), 1));
+}
+
+#[gpui_kit::test]
+fn tabs_share_state_preserve_local_state_and_release_closed_views(cx: &mut TestAppContext) {
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  // Toast 和 Scrollbar 标签单独测试，这里保留原有两个计数标签的生命周期场景。
+  panel.update(cx, |panel, cx| {
+    panel.select_tab(3, cx);
+    panel.close_active_tab(cx);
+    panel.select_tab(2, cx);
+    panel.close_active_tab(cx);
+    panel.select_tab(0, cx);
+    cx.notify();
+  });
+  let second = panel.read_with(cx, |panel, _| panel.tabs[1].counter().clone());
+  let summary = second.read_with(cx, |tab, _| tab.summary.clone());
+  let probe = cx.new(|cx| Probe {
+    changes: [0; 4],
+    _subscriptions: vec![cx.observe(&summary, |probe: &mut Probe, _, _| probe.changes[0] += 1)],
+  });
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("increment-a", cx);
+    window.click("local-click", cx);
+  })
+  .unwrap();
+  cx.run_until_parked();
+  // 隐藏标签也收到了模型通知；标签切换没有重建任何视图。
+  probe.read_with(cx, |probe, _| assert!(probe.changes[0] > 0));
+  second.read_with(cx, |tab, cx| {
+    assert_eq!(tab.summary.read(cx).model.read(cx).total(), 1)
+  });
+  cx.update_window(window.into(), |_, window, cx| {
+    window.within("counter-tabs").click(1usize, cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 0"));
+    window.click("toggle-step", cx);
+    window.click("increment-b", cx);
+    window.within("counter-tabs").click(0usize, cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 1"));
+    assert_eq!(window.find("increment-a").label(), Some("+5"));
+  })
+  .unwrap();
+  model.read_with(cx, |model, _| assert_eq!(model.total(), 6));
+  cx.update_window(window.into(), |_, window, cx| window.click("new-tab", cx))
+    .unwrap();
+  panel.read_with(cx, |panel, cx| {
+    assert_eq!(panel.tabs.len(), 3);
+    assert_eq!(panel.active_tab(cx), Some(2));
+    let entity = panel.tabs[2].counter();
+    let tab = entity.read(cx);
+    assert_eq!(tab.local_clicks, 0);
+    assert_eq!(tab.summary.read(cx).model.read(cx).total(), 6);
+  });
+  let closed = panel.read_with(cx, |panel, _| panel.tabs[2].counter().downgrade());
+  cx.update_window(window.into(), |_, window, cx| window.click("close-tab", cx))
+    .unwrap();
+  cx.run_until_parked();
+  assert!(closed.upgrade().is_none());
+  panel.read_with(cx, |panel, cx| assert_eq!(panel.active_tab(cx), Some(1)));
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("reset-all", cx);
+    window.within("counter-tabs").click(0usize, cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 1"));
+    window.click("increment-a", cx);
+    // 关闭非末尾标签，再关闭最后一个标签；进入空面板。
+    window.click("close-tab", cx);
+    window.click("close-tab", cx);
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, _| assert!(panel.tabs.is_empty()));
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("new-tab", cx);
+    assert_eq!(window.find("local-click").label(), Some("Only this tab: 0"));
+    assert_eq!(window.find("increment-a").label(), Some("+5"));
+  })
+  .unwrap();
+  panel.read_with(cx, |panel, cx| {
+    assert_eq!(panel.active_tab(cx), Some(0));
+    assert_eq!(panel.tabs[0].counter().read(cx).tab_number, 4);
+    assert_eq!(
+      panel.tabs[0]
+        .counter()
+        .read(cx)
+        .summary
+        .read(cx)
+        .model
+        .read(cx)
+        .total(),
+      5
+    );
+  });
+}
+
+fn fixture(cx: &mut TestAppContext) -> (Entity<CounterTab>, Entity<CounterState>, Entity<Probe>) {
+  cx.update(|cx| cx.set_global(AppSettings::default()));
+  let shared = cx.new(|_| CounterState::default());
+  let app = cx.new(|cx| CounterTab::new(1, shared, cx));
+  cx.run_until_parked();
+  let (a, b, summary, model) = app.read_with(cx, |app, cx| {
+    (
+      app.counters[0].clone(),
+      app.counters[1].clone(),
+      app.summary.clone(),
+      app.summary.read(cx).model.clone(),
+    )
+  });
+  let probe = cx.new(|cx| Probe {
+    changes: [0; 4],
+    _subscriptions: vec![
+      cx.observe(&a, |probe: &mut Probe, _, _| probe.changes[0] += 1),
+      cx.observe(&b, |probe: &mut Probe, _, _| probe.changes[1] += 1),
+      cx.observe(&summary, |probe: &mut Probe, _, _| probe.changes[2] += 1),
+      cx.observe(&app, |probe: &mut Probe, _, _| probe.changes[3] += 1),
+    ],
+  });
+  cx.run_until_parked();
+  (app, model, probe)
+}
+
+#[gpui_kit::test]
+fn shared_model_notifies_views_and_resets_both_counts(cx: &mut TestAppContext) {
+  let (_app, model, probe) = fixture(cx);
+  model.update(cx, |model, cx| {
+    model.increment(CounterId::A, cx);
+    model.increment(CounterId::B, cx);
+    model.increment(CounterId::A, cx);
+  });
+  // update 同步完成，无需等待事件队列才能读到新状态。
+  model.read_with(cx, |model, _| {
+    assert_eq!(model.count(CounterId::A), 2);
+    assert_eq!(model.count(CounterId::B), 1);
+    assert_eq!(model.total(), 3);
+    assert_eq!(model.last_change(), "Counter A changed to 2");
+  });
+  cx.run_until_parked();
+  probe.read_with(cx, |probe, _| {
+    assert!(probe.changes[.. 3].iter().all(|&n| n > 0));
+    assert_eq!(probe.changes[3], 0);
+  });
+  probe.update(cx, |probe, _| probe.changes = [0; 4]);
+  model.update(cx, CounterState::reset);
+  cx.run_until_parked();
+  model.read_with(cx, |model, _| {
+    assert_eq!(model.count(CounterId::A), 0);
+    assert_eq!(model.count(CounterId::B), 0);
+    assert_eq!(model.total(), 0);
+  });
+  probe.read_with(cx, |probe, _| {
+    assert!(probe.changes[.. 3].iter().all(|&n| n > 0))
+  });
+}
+
+#[gpui_kit::test]
+fn global_settings_notify_consumers_without_changing_counts(cx: &mut TestAppContext) {
+  let (_app, model, probe) = fixture(cx);
+  cx.update(|cx| cx.update_global::<AppSettings, _>(|settings, _| settings.toggle_step()));
+  cx.run_until_parked();
+  probe.read_with(cx, |probe, _| {
+    assert!(probe.changes[0] > 0 && probe.changes[1] > 0 && probe.changes[3] > 0);
+    assert_eq!(probe.changes[2], 0); // Summary 不观察 Global。
+  });
+  model.read_with(cx, |model, _| assert_eq!(model.total(), 0));
+  model.update(cx, |model, cx| model.increment(CounterId::B, cx));
+  model.read_with(cx, |model, _| assert_eq!(model.count(CounterId::B), 5));
+  model.update(cx, CounterState::reset);
+  cx.update(|cx| assert_eq!(cx.global::<AppSettings>().step(), 5));
+  cx.update(|cx| cx.update_global::<AppSettings, _>(|settings, _| settings.toggle_step()));
+  model.update(cx, |model, cx| model.increment(CounterId::A, cx));
+  model.read_with(cx, |model, _| assert_eq!(model.count(CounterId::A), 1));
+}
+
+#[gpui_kit::test]
+fn views_own_model_and_subscriptions_do_not_keep_it_alive(cx: &mut TestAppContext) {
+  let (app, model, _probe) = fixture(cx);
+  let weak_model = model.downgrade();
+  drop(model);
+  assert!(weak_model.upgrade().is_some());
+  // 在 App 更新周期中释放，让 GPUI 执行实体清理及级联释放。
+  cx.update(|_| drop(app));
+  cx.run_until_parked();
+  assert!(weak_model.upgrade().is_none());
+  // 视图已销毁，更新 Global 不会调用失效视图。
+  cx.update(|cx| cx.update_global::<AppSettings, _>(|settings, _| settings.toggle_step()));
+  cx.run_until_parked();
+}
+
+#[gpui_kit::test]
+fn semantic_controls_support_keyboard_and_empty_state_recovery(cx: &mut TestAppContext) {
+  use gpui_kit::{InputEvent, KeyDownEvent, KeyUpEvent, Keystroke};
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model.clone(), cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.run_until_parked();
+  cx.update_window(window.into(), |_, window, cx| {
+    window.click("increment-a", cx);
+    assert!(window.focused(cx).is_some());
+    for key in ["enter", "space"] {
+      let keystroke = Keystroke::parse(key).unwrap();
+      window.dispatch_event(
+        KeyDownEvent {
+          keystroke: keystroke.clone(),
+          is_held: false,
+          prefer_character_input: false,
+        }
+        .to_platform_input(),
+        cx,
+      );
+      window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
+      window.render_frame(cx);
+    }
+    assert_eq!(model.read(cx).count(CounterId::A), 3);
+
+    window.within("counter-tabs").click(3usize, cx);
+    window.click(("scroll-row", 1usize), cx);
+    let keystroke = Keystroke::parse("enter").unwrap();
+    window.dispatch_event(
+      KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+      }
+      .to_platform_input(),
+      cx,
+    );
+    window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
+    window.render_frame(cx);
+    assert_eq!(
+      window.find(("scroll-row", 1usize)).label(),
+      Some("Row 01 — Selected")
+    );
+
+    for _ in 0 .. 4 {
+      window.click("close-tab", cx);
+    }
+    assert!(window.find("empty-new-tab").visible());
+    window.click("empty-new-tab", cx);
+    assert!(window.find("increment-a").visible());
+    assert_eq!(model.read(cx).count(CounterId::A), 3);
+  })
+  .unwrap();
+}
+
+#[test]
+fn component_catalog_opens_every_demo_and_reopens_closed_tabs() {
+  // The upstream gallery deliberately builds large debug element trees.
+  // Keep its larger stack local to this smoke test, not every app/test thread.
+  std::thread::Builder::new()
+    .name("component-gallery".into())
+    .stack_size(8 * 1024 * 1024)
+    .spawn(|| {
+      gpui_kit::run_test(
+        1,
+        &[0],
+        0,
+        &mut |dispatcher, _| {
+          let mut cx = TestAppContext::build(dispatcher.clone(), Some("component-gallery"));
+          let _refs = cx.app.borrow().ref_counts_drop_handle();
+          check_component_catalog(&mut cx);
+          cx.run_until_parked();
+          cx.update(|cx| {
+            cx.background_executor().forbid_parking();
+            cx.quit();
+          });
+          cx.run_until_parked();
+          drop(cx);
+          dispatcher.drain_tasks();
+        },
+        None,
+      )
+    })
+    .unwrap()
+    .join()
+    .unwrap();
+}
+
+fn check_component_catalog(cx: &mut TestAppContext) {
+  use std::collections::HashSet;
+
+  use crate::tabs::catalog::DEMOS;
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    crate::tabs::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  assert_eq!(DEMOS.len(), 80);
+  let mut slugs = HashSet::new();
+  for demo in DEMOS {
+    assert!(slugs.insert(demo.slug), "duplicate demo {}", demo.slug);
+  }
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  panel.update(cx, |panel, cx| panel.add_component_gallery(cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(1200.), gpui_kit::px(860.)),
+    |window, cx| crate::Root::new(panel.clone(), window, cx),
+  );
+  cx.update_window(window.into(), |_, window, cx| {
+    window.render_frame(cx);
+    assert_eq!(panel.read(cx).tabs.len(), DEMOS.len() + 5);
+    for (index, demo) in DEMOS.iter().enumerate() {
+      eprintln!("Render component: {}", demo.title);
+      panel.update(cx, |panel, cx| panel.open_component(Some(index), cx));
+      window.render_frame(cx);
+      let route = format!("/component/{}", demo.slug);
+      assert_eq!(
+        Some(gpui_router::use_location(cx).pathname.as_ref()),
+        Some(route.as_str())
+      );
+    }
+    // Closing and reopening a component restores its catalog entry without duplicates.
+    panel.update(cx, |panel, cx| panel.close_active_tab(cx));
+    panel.update(cx, |panel, cx| {
+      panel.open_component(Some(DEMOS.len() - 1), cx)
+    });
+    panel.update(cx, |panel, cx| {
+      panel.open_component(Some(DEMOS.len() - 1), cx)
+    });
+    assert_eq!(panel.read(cx).tabs.len(), DEMOS.len() + 5);
+    panel.update(cx, |panel, cx| panel.open_component(None, cx));
+    window.render_frame(cx);
+    assert!(window.find(("open-component", 0usize)).visible());
+  })
+  .unwrap();
+}
+
+#[gpui_kit::test]
+fn notification_layer_uses_popover_text_color_on_dark_app_canvas(cx: &mut TestAppContext) {
+  use std::{cell::Cell, rc::Rc};
+
+  use gpui_kit::{
+    IntoElement,
+    component::{ActiveTheme, WindowExt, notification::Notification},
+  };
+
+  cx.update(|cx| {
+    gpui_kit::init(cx);
+    cx.set_global(AppSettings::default());
+  });
+  let model = cx.new(|_| CounterState::default());
+  let panel = cx.new(|cx| crate::TabbedPanel::new(model, cx));
+  let window = cx.open_window(
+    gpui_kit::size(gpui_kit::px(760.), gpui_kit::px(700.)),
+    |window, cx| crate::Root::new(panel, window, cx),
+  );
+  let observed = Rc::new(Cell::new(None));
+  cx.update_window(window.into(), |_, window, cx| {
+    let captured_color = observed.clone();
+    // Direct library API, without show_toast's per-notification color override.
+    window.push_notification(
+      Notification::info("This is a notification.")
+        .title("Visible title")
+        .autohide(false)
+        .content(move |_, window, _| {
+          captured_color.set(Some(window.text_style().color));
+          "Visible custom content".into_any_element()
+        }),
+      cx,
+    );
+    window.render_frame(cx);
+    assert_eq!(observed.get(), Some(cx.theme().popover_foreground));
+    assert_ne!(
+      observed.get(),
+      Some(crate::palette::AppPalette::default().foreground)
+    );
+  })
+  .unwrap();
+}

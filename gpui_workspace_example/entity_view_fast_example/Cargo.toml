@@ -1,0 +1,56 @@
+[package]
+name = "entity_view_fast_example"
+version = "0.1.0"
+edition = "2024"
+
+[patch.crates-io]
+gpui-pre = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+gpui-pre-macros = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+gpui-pre-platform = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+gpui-pre-reqwest-client = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+gpui-pre-sum-tree = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+gpui-pre-web = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+
+[features]
+tree-sitter = ["gpui-kit/tree-sitter-languages"]
+
+[dependencies]
+anyhow = "1"
+async-channel = "2.5.0"
+autocorrect = "2.14.2"
+chrono = "0.4"
+component-shape-gpui = "0.3.3"
+csv = "1.4"
+dirs = "7.0.0"
+fake = { version = "5.1.0", features = ["dummy"] }
+futures = "0.3"
+gpui-form = "0.7.3"
+gpui-kit = "0.7.0"
+gpui-router = { version = "0.5.0", default-features = false, features = ["gpui-pre"] }
+gpui-toolkit-gpui-util = "0.1.0"
+gpui_fast = { package = "gpui", git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
+gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281", features = ["font-kit", "wayland", "x11"] }
+itertools = "0.15.0"
+rand = "0.10"
+regex = "1"
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.7" }
+rust-i18n = "4.2.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+# The cache uses ordinary SQL; disable the unused FTS backend.
+turso = { version = "0.8.0-pre.14", default-features = false, features = ["mimalloc"] }
+unindent = "0.2.4"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+
+[dev-dependencies]
+gpui-kit = { version = "0.7.0", features = ["test-support"] }
+tempfile = "3"
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+block = "0.1.6"
+
+[profile.dev.package.entity_view_fast_example]
+opt-level = 1
