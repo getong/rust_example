@@ -10,6 +10,9 @@
 | --- | --- |
 | embedded-database.mdx | docs/database/helix-db/start-here/local-development/embedded-database.mdx |
 | rust-project-setup.mdx | docs/database/helix-db/start-here/sdk-setup/rust-project-setup.mdx |
+| traversals.mdx | docs/database/helix-db/query-guides/traversals.mdx |
+| writing-data.mdx | docs/database/helix-db/query-guides/writing-data.mdx |
+| advanced.mdx | docs/database/helix-db/query-guides/advanced.mdx |
 | LICENSE | LICENSE |
 
 MDX 原文完整保留（包括多语言代码），需要 Mintlify 组件才能完整渲染，也可直接以文本阅读。原文代码没有被改写；本项目的中文 README 和 `src/main.rs` 是新增的说明与可运行改编，补充了路径、查询、关闭句柄及行为校验。

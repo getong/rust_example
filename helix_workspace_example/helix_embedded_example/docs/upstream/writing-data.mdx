@@ -1,0 +1,174 @@
+---
+title: "Writing data"
+description: "Create, update, connect, and remove entities in one typed write batch"
+sidebarTitle: "Writing data"
+pageType: "Guide"
+---
+
+<div className="flex flex-wrap gap-2"><Badge color="blue" size="sm">Guide</Badge></div>
+
+Mutations require a write batch. The SDK type prevents a mutating traversal from being
+placed in a read batch.
+
+## Create two nodes and an edge
+
+<CodeGroup>
+
+```rust Rust
+write_batch()
+    .var_as("alice", g().add_n("User", vec![("name", "Alice")]))
+    .var_as("bob", g().add_n("User", vec![("name", "Bob")]))
+    .var_as(
+        "linked",
+        g()
+            .n(NodeRef::var("alice"))
+            .add_e(
+                "FOLLOWS",
+                NodeRef::var("bob"),
+                vec![("since", "2026-07-24")],
+            )
+            .count(),
+    )
+    .returning(["alice", "bob", "linked"]);
+```
+
+```ts TypeScript
+writeBatch()
+  .varAs("alice", g().addN("User", { name: "Alice" }))
+  .varAs("bob", g().addN("User", { name: "Bob" }))
+  .varAs(
+    "linked",
+    g()
+      .n(NodeRef.var("alice"))
+      .addE("FOLLOWS", NodeRef.var("bob"), { since: "2026-07-24" })
+      .count(),
+  )
+  .returning(["alice", "bob", "linked"]);
+```
+
+```go Go
+helix.WriteQuery("connect_users").
+	VarAs("alice", helix.G().AddN("User", helix.Props{helix.Prop("name", "Alice")})).
+	VarAs("bob", helix.G().AddN("User", helix.Props{helix.Prop("name", "Bob")})).
+	VarAs(
+		"linked",
+		helix.G().
+			N(helix.NodeVar("alice")).
+			AddE(
+				"FOLLOWS",
+				helix.NodeVar("bob"),
+				helix.Props{helix.Prop("since", "2026-07-24")},
+			).
+			Count(),
+	).
+	Returning("alice", "bob", "linked")
+```
+
+```python Python
+(
+    write_batch()
+    .var_as("alice", g().add_n("User", {"name": "Alice"}))
+    .var_as("bob", g().add_n("User", {"name": "Bob"}))
+    .var_as(
+        "linked",
+        g()
+        .n(NodeRef.var("alice"))
+        .add_e("FOLLOWS", NodeRef.var("bob"), {"since": "2026-07-24"})
+        .count(),
+    )
+    .returning(["alice", "bob", "linked"])
+)
+```
+
+```json JSON
+{
+  "request_type": "write",
+  "query_name": "connect_users",
+  "query": {
+    "write": {
+      "entries": [
+        {
+          "query": {
+            "name": "alice",
+            "root": {
+              "add_n": {
+                "label": "User",
+                "properties": [
+                  ["name", { "value": { "string": "Alice" } }]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "query": {
+            "name": "bob",
+            "root": {
+              "add_n": {
+                "label": "User",
+                "properties": [
+                  ["name", { "value": { "string": "Bob" } }]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "query": {
+            "name": "linked",
+            "root": {
+              "count": {
+                "input": {
+                  "add_e": {
+                    "input": {
+                      "nodes": {
+                        "reference": { "var": "alice" }
+                      }
+                    },
+                    "label": "FOLLOWS",
+                    "to": { "var": "bob" },
+                    "properties": [
+                      ["since", { "value": { "string": "2026-07-24" } }]
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "returns": ["alice", "bob", "linked"]
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+## Other mutations
+
+| Intent | Operation |
+| --- | --- |
+| Replace or add a property | `setProperty` / `set_property` |
+| Remove a property | `removeProperty` / `remove_property` |
+| Remove current nodes or edges | `drop` |
+| Remove a specific edge | `dropEdge`, `dropEdgeLabeled`, `dropEdgeById` |
+| Create an index | `createIndexIfNotExists` |
+| Drop an index | `dropIndex` |
+
+## Transaction behavior
+
+All entries in the write batch commit or roll back together. Reads inside the batch can
+refer to earlier mutations through named variables. Do not retry a write automatically
+unless the full request is safe to replay.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Typed parameters" icon="sliders" href="/database/helix-db/query-guides/parameters">
+    Pass request-specific values without changing the AST shape.
+  </Card>
+  <Card title="Secondary indexes" icon="list" href="/database/helix-db/query-guides/secondary-indexes">
+    Accelerate equality, uniqueness, and range lookups.
+  </Card>
+</CardGroup>

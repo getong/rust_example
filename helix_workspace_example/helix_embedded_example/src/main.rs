@@ -5,6 +5,8 @@ use helix_db::{Client, HelixDbSource, HelixError, dsl::prelude::*};
 use serde::Deserialize;
 use serde_json::Value;
 
+mod graph_examples;
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn disk_source(root: PathBuf) -> HelixDbSource {
@@ -132,11 +134,17 @@ async fn main() -> Result<()> {
     "memory" => memory_demo().await,
     "disk" => disk_demo(root).await,
     "reader" => reader_demo(root).await,
+    "social" | "recommendation" | "knowledge" | "dependencies" | "graph-all" => {
+      graph_examples::run(&mode).await
+    }
     "-h" | "--help" => {
       println!("cargo run -p helix_embedded_example -- [memory|disk|reader] [数据根目录]");
       println!("默认 memory；reader 需要先运行 disk。disk 每次新增一个示例节点。");
+      println!(
+        "图案例：social、recommendation、knowledge、dependencies；graph-all 运行全部图案例。"
+      );
       Ok(())
     }
-    _ => Err(format!("未知案例 {mode:?}；可选 memory、disk、reader").into()),
+    _ => Err(format!("未知案例 {mode:?}；使用 --help 查看所有案例").into()),
   }
 }

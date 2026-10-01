@@ -1,0 +1,308 @@
+---
+title: "Traverse relationships"
+description: "Follow edges, retain row-local bindings, and control duplicate paths"
+sidebarTitle: "Traversals"
+pageType: "Guide"
+---
+
+<div className="flex flex-wrap gap-2"><Badge color="blue" size="sm">Guide</Badge></div>
+
+Traversal operations consume the current stream and produce the next stream.
+
+| Operation | Result |
+| --- | --- |
+| `out(label)` | Destination nodes of outgoing edges |
+| `in(label)` | Source nodes of incoming edges |
+| `both(label)` | Adjacent nodes in either direction |
+| `outE(label)` / `inE(label)` | The edges themselves |
+| `outN()` / `inN()` | Move from an edge to its endpoint |
+| `dedup()` | Remove duplicate results |
+
+## Follow a named result
+
+<CodeGroup>
+
+```rust Rust
+read_batch()
+    .var_as(
+        "user",
+        g().n_where(SourcePredicate::eq("username", "alice")),
+    )
+    .var_as(
+        "friends",
+        g()
+            .n(NodeRef::var("user"))
+            .out(Some("FOLLOWS"))
+            .dedup()
+            .limit(25)
+            .value_map(Some(vec!["$id", "username"])),
+    )
+    .returning(["friends"]);
+```
+
+```ts TypeScript
+readBatch()
+  .varAs("user", g().nWhere(SourcePredicate.eq("username", "alice")))
+  .varAs(
+    "friends",
+    g()
+      .n(NodeRef.var("user"))
+      .out("FOLLOWS")
+      .dedup()
+      .limit(25)
+      .valueMap(["$id", "username"]),
+  )
+  .returning(["friends"]);
+```
+
+```go Go
+helix.ReadQuery("friends").
+	VarAs("user", helix.G().NWhere(helix.SourceEq("username", "alice"))).
+	VarAs(
+		"friends",
+		helix.G().
+			N(helix.NodeVar("user")).
+			Out("FOLLOWS").
+			Dedup().
+			Limit(25).
+			ValueMap("$id", "username"),
+	).
+	Returning("friends")
+```
+
+```python Python
+(
+    read_batch()
+    .var_as("user", g().n_where(SourcePredicate.eq("username", "alice")))
+    .var_as(
+        "friends",
+        g()
+        .n(NodeRef.var("user"))
+        .out("FOLLOWS")
+        .dedup()
+        .limit(25)
+        .value_map(["$id", "username"]),
+    )
+    .returning(["friends"])
+)
+```
+
+```json JSON
+{
+  "request_type": "read",
+  "query_name": "friends",
+  "query": {
+    "read": {
+      "entries": [
+        {
+          "query": {
+            "name": "user",
+            "root": {
+              "nodes_where": {
+                "predicate": {
+                  "eq": {
+                    "left": { "property": "username" },
+                    "right": { "constant": { "string": "alice" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": {
+            "name": "friends",
+            "root": {
+              "value_map": {
+                "input": {
+                  "limit": {
+                    "input": {
+                      "dedup": {
+                        "input": {
+                          "out": {
+                            "input": {
+                              "nodes": {
+                                "reference": { "var": "user" }
+                              }
+                            },
+                            "label": "FOLLOWS"
+                          }
+                        }
+                      }
+                    },
+                    "count": { "literal": 25 }
+                  }
+                },
+                "properties": ["$id", "username"]
+              }
+            }
+          }
+        }
+      ],
+      "returns": ["friends"]
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+## Preserve correlated values
+
+A traversal normally forgets where it has been: after `out(...)`, each row holds only
+the node it reached. Use `bind` to name a point in the traversal so each result row
+keeps a value from it. This request returns one row per service and the workload it
+routes to:
+
+<CodeGroup>
+
+```rust Rust
+read_batch()
+    .var_as(
+        "routes",
+        g()
+            .n_with_label("Service")
+            .bind("service")
+            .out(Some("ROUTES_TO"))
+            .project_bindings(vec![
+                BindingProjection::binding("service", "name", "service"),
+                BindingProjection::current("name", "workload"),
+            ]),
+    )
+    .returning(["routes"]);
+```
+
+```ts TypeScript
+readBatch()
+  .varAs(
+    "routes",
+    g()
+      .nWithLabel("Service")
+      .bind("service")
+      .out("ROUTES_TO")
+      .projectBindings([
+        BindingProjection.binding("service", "name", "service"),
+        BindingProjection.current("name", "workload"),
+      ]),
+  )
+  .returning(["routes"]);
+```
+
+```go Go
+helix.ReadQuery("service_routes").
+	VarAs(
+		"routes",
+		helix.G().
+			NWithLabel("Service").
+			Bind("service").
+			Out("ROUTES_TO").
+			ProjectBindings(
+				helix.ProjectNamedBinding("service", "name", "service"),
+				helix.ProjectCurrentBinding("name", "workload"),
+			),
+	).
+	Returning("routes")
+```
+
+```python Python
+(
+    read_batch()
+    .var_as(
+        "routes",
+        g()
+        .n_with_label("Service")
+        .bind("service")
+        .out("ROUTES_TO")
+        .project_bindings(
+            [
+                BindingProjection.binding("service", "name", "service"),
+                BindingProjection.current("name", "workload"),
+            ]
+        ),
+    )
+    .returning(["routes"])
+)
+```
+
+```json JSON
+{
+  "request_type": "read",
+  "query_name": "service_routes",
+  "query": {
+    "read": {
+      "entries": [{
+        "query": {
+          "name": "routes",
+          "root": {
+            "project_bindings": {
+              "input": {
+                "out": {
+                  "input": {
+                    "bind": {
+                      "input": {
+                        "nodes_where": {
+                          "predicate": {
+                            "eq": {
+                              "left": { "property": "$label" },
+                              "right": { "constant": { "string": "Service" } }
+                            }
+                          }
+                        }
+                      },
+                      "name": "service"
+                    }
+                  },
+                  "label": "ROUTES_TO"
+                }
+              },
+              "projections": [
+                {
+                  "property": {
+                    "target": { "binding": "service" },
+                    "source": "name",
+                    "alias": "service"
+                  }
+                },
+                {
+                  "property": {
+                    "target": "current",
+                    "source": "name",
+                    "alias": "workload"
+                  }
+                }
+              ],
+              "distinct": false
+            }
+          }
+        }
+      }],
+      "returns": ["routes"]
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+Bindings are row-local, so each row pairs a workload with the service that reached it
+rather than joining unrelated paths. Branches can bind optional values and coalesce
+them during projection; see [Project correlated bindings](/database/helix-db/query-guides/projections#project-correlated-bindings).
+
+## Avoid accidental path growth
+
+- Filter as close to the source as possible.
+- Use a label on relationship steps when the schema provides one.
+- Add `dedup()` when multiple paths can reach the same entity.
+- Bound recursive traversal with a maximum depth.
+- Project only the fields needed by the caller.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Project response rows" icon="table-columns" href="/database/helix-db/query-guides/projections">
+    Shape current values and named bindings.
+  </Card>
+  <Card title="Branch and repeat" icon="code-branch" href="/database/helix-db/query-guides/advanced">
+    Compose optional, union, choose, and repeat operations.
+  </Card>
+</CardGroup>

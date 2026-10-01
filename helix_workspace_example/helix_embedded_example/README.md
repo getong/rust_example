@@ -29,6 +29,16 @@ cargo run -p helix_embedded_example -- --help
 
 所有案例均显式调用 `client.close().await`，查询失败时也会尝试关闭。示例按顺序运行，不要同时对同一数据库运行多个 writer。
 
+## 图数据库案例
+
+新增四个独立内存案例：社交二跳发现、共同购买推荐、知识溯源、服务依赖影响分析。每个案例自动建图并校验结果。
+
+```bash
+cargo run -p helix_embedded_example -- graph-all
+```
+
+也可分别选择 `social`、`recommendation`、`knowledge`、`dependencies`。详见 [图数据库案例说明](docs/graph-examples.md)，包含关系图、预期结果和适用场景。代码位于 `src/graph_examples.rs`。
+
 ## 文件
 
 - `src/main.rs`：可执行 Rust 案例，使用 `QueryRequest::write/read`、`write_batch/read_batch`、节点创建和计数查询。
