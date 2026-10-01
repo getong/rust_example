@@ -1,0 +1,238 @@
+---
+title: "Embedded database"
+description: "Open HelixDB directly inside your process with explicit storage and cache settings"
+sidebarTitle: "Embedded database"
+pageType: "Guide"
+---
+
+<div className="flex flex-wrap gap-2"><Badge color="blue" size="sm">Guide</Badge></div>
+
+Embedded clients execute operation-tree requests without HTTP. The process opens a
+writer or read-only handle against memory, disk, or S3-compatible object storage.
+
+## Install
+
+Install the SDK and its embedded runtime package.
+
+{/* package-install: no JSON representation */}
+<CodeGroup>
+
+```bash Rust
+cargo add helix-db --features embedded
+```
+
+```bash TypeScript
+npm install @helix-db/helix-db @helix-db/helix-db-embedded
+```
+
+```bash Go
+go get github.com/helixdb/helix-db/sdks/go
+```
+
+```bash Python
+python -m pip install helix-db helix-db-embedded
+```
+
+</CodeGroup>
+
+## Open a writer
+
+{/* client-setup: no JSON representation */}
+<CodeGroup>
+
+```rust Rust
+use helix_db::{Client, HelixDbSource};
+
+let client = Client::open(HelixDbSource::Disk {
+    root: "/data/helix".into(),
+    database: "app".to_string(),
+})
+.await?;
+```
+
+```ts TypeScript
+const client = await Client.embedded({
+  kind: "disk",
+  root: "/data/helix",
+  database: "app",
+});
+```
+
+```go Go
+client, err := helix.NewEmbeddedClient(
+	helix.DiskSource{Root: "/data/helix", Database: "app"},
+)
+if err != nil {
+	return err
+}
+```
+
+```python Python
+from helixdb import Client, Disk
+
+client = Client.embedded(Disk("/data/helix", "app"))
+```
+
+</CodeGroup>
+
+## Choose a storage source
+
+| Source | Persistence | Use |
+| --- | --- | --- |
+| In-memory | Process-local | Tests, scratch data, and short-lived tools |
+| Disk | Filesystem path | Persistent single-host applications |
+| Object storage | Bucket and logical database path | Durable shared storage with an S3-compatible service |
+
+{/* single-sdk-examples: TypeScript */}
+<CodeGroup>
+
+```ts In-memory
+const client = await Client.embedded({
+  kind: "inMemory",
+  database: "app",
+});
+```
+
+```ts Disk
+const client = await Client.embedded({
+  kind: "disk",
+  root: "/data/helix",
+  database: "app",
+});
+```
+
+```ts Object storage
+const client = await Client.embedded({
+  kind: "objectStorage",
+  database: "app",
+  bucket: "helix-production",
+  region: "eu-west-2",
+});
+```
+
+</CodeGroup>
+
+## Configure caches
+
+Cache configuration is optional and fixed when the handle opens. Local defaults are
+bounded and demand-filled so a small embedded database does not reserve server-sized
+caches:
+
+| Setting | In-memory | Disk | Object storage |
+| --- | --- | --- | --- |
+| Durable-write flush interval | 1 ms | 3 ms | 100 ms |
+| Vector memory | 64 MiB | 64 MiB | 256 MiB |
+| SlateDB block / metadata | 16 MiB / 8 MiB | 48 MiB / 16 MiB | 512 MiB / 128 MiB |
+| Full-text search | 16 MiB | 16 MiB | 64 MiB |
+| SlateDB / FTS startup warming | Off | Off | Background |
+| Disk cache | Disabled | Disabled | Disabled |
+
+The local profiles also use a 16 MiB L0 target and a 64 MiB unflushed-data ceiling.
+The flush interval is the batching delay before storage I/O; filesystem and device
+latency still apply.
+
+Pass an explicit cache configuration to change the vector-memory budget or enable
+bounded disk caches:
+
+| Profile | Behavior |
+| --- | --- |
+| Memory | Uses in-memory database caches |
+| Hybrid | Adds bounded disk caches with explicit paths and byte budgets |
+
+{/* single-sdk-examples: TypeScript */}
+<CodeGroup>
+
+```ts Memory
+const client = await Client.embedded(
+  { kind: "disk", root: "/data/helix", database: "app" },
+  {
+    vectorMemoryBytes: 512 * 1024 * 1024,
+    mode: { kind: "memory" },
+  },
+);
+```
+
+```ts Hybrid
+const client = await Client.embedded(
+  { kind: "disk", root: "/data/helix", database: "app" },
+  {
+    vectorMemoryBytes: 512 * 1024 * 1024,
+    mode: {
+      kind: "hybrid",
+      slateMemoryBytes: 256 * 1024 * 1024,
+      slateDiskPath: "/var/cache/helix/slate",
+      slateDiskBytes: 4 * 1024 * 1024 * 1024,
+      objectStoreDiskPath: "/var/cache/helix/objects",
+      objectStoreDiskBytes: 8 * 1024 * 1024 * 1024,
+    },
+  },
+);
+```
+
+</CodeGroup>
+
+Cache byte budgets bound those caches. They are not a hard cap on total process RSS;
+requests and index work can allocate transient memory.
+
+## Open a read-only database
+
+Use a read-only handle for processes that must never mutate the database. It opens an
+existing disk or object-storage database, executes read requests, and rejects writes.
+
+{/* client-setup: no JSON representation */}
+<CodeGroup>
+
+```rust Rust
+use helix_db::{Client, HelixDbSource};
+
+let reader = Client::open_reader(HelixDbSource::Disk {
+    root: "/data/helix".into(),
+    database: "app".to_string(),
+})
+.await?;
+```
+
+```ts TypeScript
+const reader = await Client.embeddedReader({
+  kind: "disk",
+  root: "/data/helix",
+  database: "app",
+});
+```
+
+```go Go
+reader, err := helix.NewEmbeddedReaderClient(
+	helix.DiskSource{Root: "/data/helix", Database: "app"},
+)
+if err != nil {
+	return err
+}
+```
+
+```python Python
+from helixdb import Client, Disk
+
+reader = Client.embedded_reader(Disk("/data/helix", "app"))
+```
+
+</CodeGroup>
+
+## Embedded request rules
+
+- Use the same `QueryRequest` and response contract as server mode.
+- Writer handles can execute read and write requests.
+- Server routing options such as writer-only, warm-only, API headers, and durability
+  headers are rejected because there is no gateway.
+- Reopen the same disk or object-storage source to retain canonical data across process
+  lifetimes.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Local server" icon="computer" href="/database/helix-db/start-here/local-development/local-server">
+    Run the production-shaped HTTP interface on your machine.
+  </Card>
+  <Card title="Deployment options" icon="server" href="/database/helix-db/start-here/run-modes">
+    Compare local server, embedded, and Cloud execution.
+  </Card>
+</CardGroup>
