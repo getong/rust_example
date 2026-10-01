@@ -5,11 +5,11 @@ edition = "2024"
 
 [dependencies]
 aes-gcm = "0.11.1"
-alloy = { version = "2.4.1", features = ["full"] }
+alloy = { version = "2.5.0", features = ["full"] }
 base64 = "0.23.1"
 dotenv = "0.15.0"
 eyre = "0.6.14"
 pbkdf2 = "0.13.0"
-rand = "0.10.2"
+rand = "0.10.3"
 rpassword = "7.5.4"
 sha2 = "0.11.0"
