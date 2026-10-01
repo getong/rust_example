@@ -6,4 +6,4 @@ edition = "2024"
 
 [dependencies]
 libp2p-identity = { version = "0.3.0", features = ["ed25519", "rand"] }
-rand = "0.8"
+rand = "0.10"

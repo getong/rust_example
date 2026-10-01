@@ -9,5 +9,5 @@ k256 = "0.14.0"
 libp2p = { version = "0.57.0", features = [
   "full",
 ] }
-rand = "0.10.2"
+rand = "0.10.3"
 tokio = { version = "1.53.1", features = ["full"] }
