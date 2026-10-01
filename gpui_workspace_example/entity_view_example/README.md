@@ -26,6 +26,13 @@
 
 ## 运行
 
+动画示例入口：在组件目录打开 **GPUI 元素**，选择 **AnimationElement** 查看错峰入场、
+缓动对比、轨道运动和脉冲节奏，可重播、半速或循环；选择 **SpringAnimationElement**
+对比三种阻尼并体验弹性展开卡片，连续点击可中途反向。
+**div() 实验室 → 继续扩展 → 动画** 提供卡片错峰入场与进度填充示例，源码和效果同步展示。
+实现参考本地 `gpui-kit/crates/base/src/animation.rs` 的组合过渡思路，使用当前依赖的原生
+`Animation` / `SpringAnimation`，自动遵循系统减少动态效果设置。
+
 ```sh
 cargo run -p entity_view_example
 ```

@@ -177,8 +177,8 @@ const EXAMPLES: &[Example] = &[
   Example {
     name: "AnimationElement",
     constructor: "element.with_animation(...)",
-    description: "使用 Animation、持续时间和 easing \
-                  将时间进度映射到样式；点击重播。当前版本会遵循系统减少动态效果设置。",
+    description: "组合位移、透明度和相位，展示错峰入场、缓动对比、轨道运动与脉冲。支持重播、\
+                  半速与循环，并遵循系统减少动态效果设置。",
     reference: "animation.rs / elements/animation.rs",
     source: include_str!("gpui_elements_tab/animation.rs"),
     render: example_animation::render,
@@ -186,8 +186,8 @@ const EXAMPLES: &[Example] = &[
   Example {
     name: "SpringAnimationElement",
     constructor: "element.with_spring(...)",
-    description: "用 SpringAnimation 驱动物理弹簧。稳定 ID \
-                  保留位置和速度，切换目标时自然过渡；不同于固定时长的 Animation。",
+    description: "对比低阻尼、临界阻尼与高阻尼弹簧，并用高度、进度和透明度组合展开卡片。稳定 ID \
+                  保留位置与速度，支持运动中反向。",
     reference: "animation.rs / spring.rs",
     source: include_str!("gpui_elements_tab/spring.rs"),
     render: example_spring::render,
@@ -399,6 +399,17 @@ mod tests {
         };
         if let Some(id) = action {
           window.click(id, cx);
+        }
+        if index == 14 {
+          assert_eq!(
+            window.find("element-spring-toggle").label(),
+            Some("收回 · 再次点击可中途反向")
+          );
+          window.click("element-spring-toggle", cx);
+          assert_eq!(
+            window.find("element-spring-toggle").label(),
+            Some("展开 · 比较三种弹簧")
+          );
         }
       }
     })
