@@ -1,0 +1,15 @@
+[package]
+name = "encrypt_file"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aws-lc-rs = "1.18.1"
+
+[[bin]]
+name = "encrypt"
+path = "src/encrypt.rs"
+
+[[bin]]
+name = "decrypt"
+path = "src/decrypt.rs"

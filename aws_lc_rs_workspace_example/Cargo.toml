@@ -7,4 +7,5 @@ members = [
   "generate_pem",
   "oaep_example",
   "serve_pem",
+  "encrypt_file",
 ]
