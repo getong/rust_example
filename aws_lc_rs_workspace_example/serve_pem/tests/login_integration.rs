@@ -1,7 +1,7 @@
-use argon2::password_hash::rand_core::{OsRng, RngCore};
 use aws_lc_rs::{
   aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey},
   encoding::{AsDer, PublicKeyX509Der},
+  rand::fill,
   rsa::{
     KeySize, OAEP_SHA256_MGF1SHA256, OaepPublicEncryptingKey, PrivateDecryptingKey,
     PublicEncryptingKey,
@@ -45,7 +45,7 @@ async fn local_test_db_pool() -> PgPool {
 
 fn unique_test_client_public_key() -> String {
   let mut random_bytes = [0u8; 16];
-  OsRng.fill_bytes(&mut random_bytes);
+  fill(&mut random_bytes).unwrap();
   format!("integration-client-{}", hex::encode(random_bytes))
 }
 
@@ -99,9 +99,9 @@ fn encrypt_registration_payload(
   let public_key = PublicEncryptingKey::from_der(&public_key_der).unwrap();
   let rsa_encrypting_key = OaepPublicEncryptingKey::new(public_key).unwrap();
   let mut content_key = [0u8; CONTENT_ENCRYPTION_KEY_BYTES];
-  OsRng.fill_bytes(&mut content_key);
+  fill(&mut content_key).unwrap();
   let mut nonce = [0u8; NONCE_LEN];
-  OsRng.fill_bytes(&mut nonce);
+  fill(&mut nonce).unwrap();
 
   let unbound_key = UnboundKey::new(&AES_256_GCM, &content_key).unwrap();
   let aead_key = LessSafeKey::new(unbound_key);

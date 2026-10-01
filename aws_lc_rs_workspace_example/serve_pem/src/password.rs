@@ -2,7 +2,7 @@ use std::{env, sync::Arc};
 
 use argon2::{
   Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version,
-  password_hash::{PasswordHash, SaltString, rand_core::OsRng},
+  password_hash::phc::PasswordHash,
 };
 use zeroize::Zeroize;
 
@@ -56,11 +56,10 @@ fn argon2_hasher(password_pepper: Option<&[u8]>) -> Result<Argon2<'_>, ApiError>
 }
 
 pub fn hash_password(password: &str, password_pepper: Option<&[u8]>) -> Result<String, ApiError> {
-  let salt = SaltString::generate(&mut OsRng);
   let argon2 = argon2_hasher(password_pepper)?;
 
   argon2
-    .hash_password(password.as_bytes(), &salt)
+    .hash_password(password.as_bytes())
     .map(|password_hash| password_hash.to_string())
     .map_err(|_| ApiError::internal("password_hash_failed", "failed to hash password"))
 }

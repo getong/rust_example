@@ -5,7 +5,7 @@ edition = "2024"
 default-run = "serve_pem"
 
 [dependencies]
-argon2 = { version = "0.5", features = ["rand", "std"] }
+argon2 = "0.6"
 aws-lc-rs = { version = "1", features = ["alloc"] }
 axum = { version = "0.8", features = ["ws"] }
 axum-server = { version = "0.8", features = ["tls-rustls"] }
