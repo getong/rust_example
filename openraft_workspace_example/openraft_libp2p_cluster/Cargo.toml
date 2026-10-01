@@ -121,7 +121,7 @@ uuid = { version = "1.26.1", features = ["v7"] }
 wasi-preview1-component-adapter-provider = { version = "49.0.1", optional = true }
 # Pre-validation of component binaries before compilation (the validator
 # wasmtime itself uses); precise diagnostics before cranelift time is spent.
-wasmparser = "0.259"
+wasmparser = "0.260"
 # The "handler as data" execution substrate: wasm modules carried in task
 # payloads run under wasmtime + WASI with a fuel budget (versions follow
 # wasmtime_workspace_example). `component-model` is on by default in v46
@@ -129,8 +129,8 @@ wasmparser = "0.259"
 # not break if a future version changes the default.
 wasmtime = { version = "49.0.1", features = ["component-model"] }
 wasmtime-wasi = "49.0.1"
-wat = { version = "1.259.0", optional = true }
-wit-component = { version = "0.259", optional = true }
+wat = { version = "1.260.0", optional = true }
+wit-component = { version = "0.260", optional = true }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Snapshot wire-frame compression: ratio matters more than speed for
 # multi-megabyte state machine snapshots.
