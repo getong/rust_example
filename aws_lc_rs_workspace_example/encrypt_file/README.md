@@ -57,13 +57,29 @@ cargo test -p encrypt_file
 
 不提供发送方签名、多接收方封装或自动密钥轮换。Windows 权限代码需要在 Windows 主机验证；当前 macOS 测试不能证明 Windows ACL 行为。
 
-
 ## 性能测量
 
-macOS 下运行 `python3 tools/benchmark.py`，分别构建 debug/release，在临时目录对带密码和无密码的密钥生成、4 B / 1 MiB / 64 MiB 文件加解密各测量 3 次，并校验解密结果。不会读取或覆盖现有密钥及文件。原始耗时、CPU 时间、峰值 RSS 和分阶段计时保存为 `benchmarks/results.json`。编译时间与运行时间分开；密码由管道输入，不包含手工输入等待。测试包含磁盘同步和敏感缓冲区擦除。
+使用原生 Rust benchmark，无需 Python 或其他基准测试依赖：
 
-可使用 `--runs 5 --sizes 4 1048576 --profiles release --output /tmp/results.json` 调整样本。`--skip-build` 要求目标二进制已经带 `perf-trace` feature 构建。首次运行需要编译依赖；debug 的密码派生和大缓冲区擦除较慢，完整测量需要数分钟。
+```sh
+# 默认使用优化构建，运行全部 14 个场景
+cargo bench
 
-`perf-trace` 默认关闭。需要诊断单次命令时，可运行 `cargo run --release --features perf-trace --bin encrypt -- <公钥> <输入> <新输出>`，stderr 输出 `BENCH`、阶段名和纳秒数，不记录密码或密钥内容。父阶段包含子阶段，不能将所有行直接相加；同名阶段在一次命令中可能出现多次（例如 keygen 有两次密码派生）。手动运行时 `password.input` 会包含输入等待，自动 benchmark 则不会。
+# 细分 Argon2、工作内存分配/擦除、ML-KEM、AES、文件读写及同步
+cargo bench --features perf-trace
 
-本机测量结果及解释见 [benchmarks/REPORT.md](benchmarks/REPORT.md)。
+# 按名称筛选，调整采样次数
+cargo bench --bench cli -- protected/encrypt/4B --samples 5
+cargo bench --features perf-trace --bench cli -- keygen
+
+# 对比未优化构建（耗时明显更长）
+cargo bench --profile dev --bench cli -- protected/encrypt/4B
+```
+
+基准入口为 `benches/cli.rs`，通过 Cargo 的 `harness = false` 使用自定义 Rust 测量程序。它运行实际的 encrypt/decrypt 二进制，比较无密码（plain）和带密码（protected）的密钥生成，以及 4 B / 1 MiB / 64 MiB 文件加解密。每个场景先预热一次，默认采样 3 次，输出中位数、最小值、最大值。`--samples` 必须大于零，筛选器按场景名子串匹配；没有匹配时会报错。
+
+所有输入和密钥均在独立临时目录创建，结束时清理，不读取或覆盖用户文件。密码由管道输入，不包含人工输入等待或 inquire 的终端渲染。测量包含进程启动、磁盘同步、敏感缓冲区擦除；不包含编译、测试数据准备、结果校验和测试文件删除。每次加解密均检查往返内容一致。测试顺序执行，不清空系统文件缓存；本工具测量墙钟耗时，不采集 CPU 时间或峰值内存。
+
+`perf-trace` 默认关闭。启用后在每个场景下输出阶段耗时：同名阶段在一次命令内累加，再取样本中位数；父阶段包含子阶段，不能直接相加。keygen 有两次密码派生，加密、解密各一次。ML-KEM 为每个新进程的首次调用，可能包含后端初始化；计时输出本身也有少量开销。
+
+正常使用可给三个 CLI 命令加 `--release`，明显减少 debug 下密码派生及内存擦除的开销。首次 release 编译时间不属于程序运行时间。

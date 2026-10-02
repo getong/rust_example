@@ -6,6 +6,13 @@ edition = "2024"
 [features]
 perf-trace = []
 
+[lib]
+bench = false
+
+[[bench]]
+name = "cli"
+harness = false
+
 [dependencies]
 argon2 = { version = "0.6", features = ["zeroize"] }
 aws-lc-rs = "1.18.1"
@@ -15,10 +22,12 @@ zeroize = "1.9.0"
 [[bin]]
 name = "encrypt"
 path = "src/encrypt.rs"
+bench = false
 
 [[bin]]
 name = "decrypt"
 path = "src/decrypt.rs"
+bench = false
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem"] }
