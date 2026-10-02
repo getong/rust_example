@@ -7,7 +7,7 @@ use aws_lc_rs::{
   kem::{EncapsulationKey, ML_KEM_1024},
   rand::{SecureRandom, SystemRandom},
 };
-use common::{HEADER_LEN, KEM_END, PREFIX, Result, SALT_END, derive_key, write_new};
+use common::{HEADER_LEN, KEM_END, PREFIX, Result, SALT_END, derive_key, read_key, write_new};
 
 fn main() -> Result<()> {
   let args: Vec<_> = env::args_os().skip(1).collect();
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
 }
 
 fn encrypt_file(public_key_path: &Path, input: &Path, output: &Path) -> Result<()> {
-  let public_key = EncapsulationKey::new(&ML_KEM_1024, &fs::read(public_key_path)?)?;
+  let public_key = EncapsulationKey::new(&ML_KEM_1024, &read_key(public_key_path, false)?)?;
   let (kem_ciphertext, shared_secret) = public_key.encapsulate()?;
   let mut plaintext = fs::read(input)?;
 

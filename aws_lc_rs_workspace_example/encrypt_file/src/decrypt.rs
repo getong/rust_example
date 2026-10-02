@@ -6,7 +6,10 @@ use aws_lc_rs::{
   aead::{AES_256_GCM, Aad, NONCE_LEN, Nonce},
   kem::{Ciphertext, DecapsulationKey, ML_KEM_1024},
 };
-use common::{HEADER_LEN, KEM_END, PREFIX, Result, SALT_END, derive_key, write_new};
+use common::{
+  HEADER_LEN, KEM_END, PREFIX, Result, SALT_END, derive_key, protect_key, read_key, read_password,
+  write_new,
+};
 
 const USAGE: &str =
   "用法：decrypt <私钥文件> <加密文件> <输出文件>\n      decrypt --keygen <公钥文件> <私钥文件>";
@@ -38,12 +41,15 @@ fn generate_keys(public_path: &Path, private_path: &Path) -> Result<()> {
   if public_path == private_path || public_path.try_exists()? || private_path.try_exists()? {
     return Err("公私钥必须使用不同的新文件路径；不会覆盖已有文件".into());
   }
+  let password = read_password("请设置密钥密码（直接按 Enter 则不设密码）：")?;
   let private_key = DecapsulationKey::generate(&ML_KEM_1024)?;
   let public_bytes = private_key.encapsulation_key()?.key_bytes()?;
   let private_bytes = private_key.key_bytes()?;
+  let protected_private = protect_key(private_bytes.as_ref(), true, &password)?;
+  let protected_public = protect_key(public_bytes.as_ref(), false, &password)?;
   // 先保存私钥，即使公钥写入失败，也不丢失已生成的私钥。
-  write_new(private_path, private_bytes.as_ref())?;
-  write_new(public_path, public_bytes.as_ref())
+  write_new(private_path, &protected_private)?;
+  write_new(public_path, &protected_public)
 }
 
 fn decrypt_file(private_key_path: &Path, input: &Path, output: &Path) -> Result<()> {
@@ -51,7 +57,7 @@ fn decrypt_file(private_key_path: &Path, input: &Path, output: &Path) -> Result<
   if encrypted.len() < HEADER_LEN + AES_256_GCM.tag_len() || !encrypted.starts_with(PREFIX) {
     return Err("加密文件损坏，或文件版本/算法不受支持".into());
   }
-  let private_key = DecapsulationKey::new(&ML_KEM_1024, &fs::read(private_key_path)?)?;
+  let private_key = DecapsulationKey::new(&ML_KEM_1024, &read_key(private_key_path, true)?)?;
   let (header, ciphertext) = encrypted.split_at_mut(HEADER_LEN);
   let shared_secret = private_key.decapsulate(Ciphertext::from(&header[SALT_END .. KEM_END]))?;
   let key = derive_key(shared_secret.as_ref(), &header[PREFIX.len() .. SALT_END])?;

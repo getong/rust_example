@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 aws-lc-rs = "1.18.1"
+crossterm = "0.29.0"
 
 [[bin]]
 name = "encrypt"

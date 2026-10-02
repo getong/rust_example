@@ -1,4 +1,10 @@
-use std::{fs, path::PathBuf, process::Command, time::SystemTime};
+use std::{
+  fs,
+  io::Write,
+  path::PathBuf,
+  process::{Command, Output, Stdio},
+  time::SystemTime,
+};
 
 struct DemoDir(PathBuf);
 
@@ -10,21 +16,44 @@ impl Drop for DemoDir {
 
 impl DemoDir {
   fn run(&self, bin: &str, args: &[&str], success: bool) {
+    let stdin = if args.first() == Some(&"--keygen") {
+      "\n"
+    } else {
+      ""
+    };
+    let output = self.run_stdin(bin, args, success, stdin);
+    if stdin.is_empty() {
+      assert!(!String::from_utf8_lossy(&output.stderr).contains("请输入密钥密码"));
+    }
+  }
+
+  fn run_stdin(&self, bin: &str, args: &[&str], success: bool, stdin: &str) -> Output {
     let executable = match bin {
       "encrypt" => env!("CARGO_BIN_EXE_encrypt"),
       _ => env!("CARGO_BIN_EXE_decrypt"),
     };
-    let output = Command::new(executable)
+    let mut child = Command::new(executable)
       .args(args)
       .current_dir(&self.0)
-      .output()
+      .stdin(Stdio::piped())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped())
+      .spawn()
       .unwrap();
+    child
+      .stdin
+      .take()
+      .unwrap()
+      .write_all(stdin.as_bytes())
+      .unwrap();
+    let output = child.wait_with_output().unwrap();
     assert_eq!(
       output.status.success(),
       success,
       "{args:?}: {}",
       String::from_utf8_lossy(&output.stderr)
     );
+    output
   }
 }
 
@@ -116,4 +145,76 @@ fn cli_roundtrip_and_reject_invalid_files() {
     false,
   );
   assert!(!dir.0.join("rejected").exists());
+}
+
+#[test]
+fn password_protected_keys_require_passwords() {
+  let unique = SystemTime::now()
+    .duration_since(SystemTime::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let dir =
+    DemoDir(std::env::temp_dir().join(format!("mlkem-password-{}-{unique}", std::process::id())));
+  fs::create_dir(&dir.0).unwrap();
+  dir.run_stdin("decrypt", &["--keygen", "public", "private"], false, "");
+  assert!(!dir.0.join("public").exists());
+  assert!(!dir.0.join("private").exists());
+  // Preserve spaces and Unicode; accept Windows CRLF as well as LF.
+  let password = " 密码 with spaces ";
+  dir.run_stdin(
+    "decrypt",
+    &["--keygen", "public", "private"],
+    true,
+    &format!("{password}\r\n"),
+  );
+  fs::write(dir.0.join("input"), b"secret content").unwrap();
+  for input in ["wrong\n", "\n", ""] {
+    let output = dir.run_stdin("encrypt", &["public", "input", "encrypted"], false, input);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("请输入密钥密码"));
+    assert!(!dir.0.join("encrypted").exists());
+  }
+  dir.run_stdin(
+    "encrypt",
+    &["public", "input", "encrypted"],
+    true,
+    &format!("{password}\n"),
+  );
+  for input in ["wrong\n", "\n", ""] {
+    let output = dir.run_stdin(
+      "decrypt",
+      &["private", "encrypted", "recovered"],
+      false,
+      input,
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("请输入密钥密码"));
+    assert!(!dir.0.join("recovered").exists());
+  }
+  dir.run_stdin(
+    "decrypt",
+    &["private", "encrypted", "recovered"],
+    true,
+    &format!("{password}\n"),
+  );
+  assert_eq!(
+    fs::read(dir.0.join("recovered")).unwrap(),
+    b"secret content"
+  );
+  for (key, bin, input) in [
+    ("public", "encrypt", "input"),
+    ("private", "decrypt", "encrypted"),
+  ] {
+    let valid = fs::read(dir.0.join(key)).unwrap();
+    for index in [0, 8, 9, 10, 11, 43, 55, valid.len() - 1] {
+      let mut bad = valid.clone();
+      bad[index] ^= 1;
+      fs::write(dir.0.join("bad-key"), bad).unwrap();
+      dir.run_stdin(
+        bin,
+        &["bad-key", input, "rejected"],
+        false,
+        &format!("{password}\n"),
+      );
+      assert!(!dir.0.join("rejected").exists());
+    }
+  }
 }
