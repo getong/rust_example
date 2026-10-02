@@ -159,26 +159,25 @@ fn password_protected_keys_require_passwords() {
   dir.run_stdin("decrypt", &["--keygen", "public", "private"], false, "");
   assert!(!dir.0.join("public").exists());
   assert!(!dir.0.join("private").exists());
+  for input in ["first\nsecond\n", "first\n"] {
+    dir.run_stdin("decrypt", &["--keygen", "public", "private"], false, input);
+    assert!(!dir.0.join("private").exists());
+    assert!(!dir.0.join("public").exists());
+  }
   // Preserve spaces and Unicode; accept Windows CRLF as well as LF.
   let password = " 密码 with spaces ";
   dir.run_stdin(
     "decrypt",
     &["--keygen", "public", "private"],
     true,
-    &format!("{password}\r\n"),
+    &format!("{password}\r\n{password}\n"),
   );
   fs::write(dir.0.join("input"), b"secret content").unwrap();
-  for input in ["wrong\n", "\n", ""] {
-    let output = dir.run_stdin("encrypt", &["public", "input", "encrypted"], false, input);
-    assert!(String::from_utf8_lossy(&output.stderr).contains("请输入密钥密码"));
-    assert!(!dir.0.join("encrypted").exists());
-  }
-  dir.run_stdin(
-    "encrypt",
-    &["public", "input", "encrypted"],
-    true,
-    &format!("{password}\n"),
+  assert_eq!(
+    fs::metadata(dir.0.join("public")).unwrap().len(),
+    encrypt_file::PUBLIC_KEY_LEN as u64
   );
+  dir.run("encrypt", &["public", "input", "encrypted"], true);
   for input in ["wrong\n", "\n", ""] {
     let output = dir.run_stdin(
       "decrypt",
@@ -199,12 +198,9 @@ fn password_protected_keys_require_passwords() {
     fs::read(dir.0.join("recovered")).unwrap(),
     b"secret content"
   );
-  for (key, bin, input) in [
-    ("public", "encrypt", "input"),
-    ("private", "decrypt", "encrypted"),
-  ] {
+  for (key, bin, input) in [("private", "decrypt", "encrypted")] {
     let valid = fs::read(dir.0.join(key)).unwrap();
-    for index in [0, 8, 9, 10, 11, 43, 55, valid.len() - 1] {
+    for index in [0, 8, 9, 10, 11, 15, 19, 23, 55, 67, valid.len() - 1] {
       let mut bad = valid.clone();
       bad[index] ^= 1;
       fs::write(dir.0.join("bad-key"), bad).unwrap();
@@ -217,4 +213,67 @@ fn password_protected_keys_require_passwords() {
       assert!(!dir.0.join("rejected").exists());
     }
   }
+}
+
+#[test]
+fn rejects_oversized_files_and_reads_legacy_private_key() {
+  use std::num::NonZeroU32;
+
+  use aws_lc_rs::{
+    aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey},
+    pbkdf2,
+  };
+  let unique = SystemTime::now()
+    .duration_since(SystemTime::UNIX_EPOCH)
+    .unwrap()
+    .as_nanos();
+  let dir =
+    DemoDir(std::env::temp_dir().join(format!("mlkem-legacy-{}-{unique}", std::process::id())));
+  fs::create_dir(&dir.0).unwrap();
+  dir.run("decrypt", &["--keygen", "public", "private"], true);
+  let file = fs::File::create(dir.0.join("large")).unwrap();
+  file.set_len(encrypt_file::MAX_PLAINTEXT_LEN + 1).unwrap();
+  dir.run("encrypt", &["public", "large", "rejected"], false);
+  file
+    .set_len(encrypt_file::MAX_PLAINTEXT_LEN + encrypt_file::HEADER_LEN as u64 + 17)
+    .unwrap();
+  dir.run("decrypt", &["private", "large", "rejected"], false);
+  assert!(!dir.0.join("rejected").exists());
+  let mut header = b"ALCFKEY\0\x01\x01\x01".to_vec();
+  header.extend_from_slice(&[7; 32]);
+  header.extend_from_slice(&[8; 12]);
+  let mut key = [0; 32];
+  pbkdf2::derive(
+    pbkdf2::PBKDF2_HMAC_SHA256,
+    NonZeroU32::new(600_000).unwrap(),
+    &[7; 32],
+    b"legacy",
+    &mut key,
+  );
+  let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &key).unwrap());
+  let mut private = fs::read(dir.0.join("private")).unwrap();
+  key
+    .seal_in_place_append_tag(
+      Nonce::assume_unique_for_key([8; 12]),
+      Aad::from(&header),
+      &mut private,
+    )
+    .unwrap();
+  header.extend_from_slice(&private);
+  fs::write(dir.0.join("legacy"), &header).unwrap();
+  fs::write(dir.0.join("input"), b"legacy roundtrip").unwrap();
+  dir.run("encrypt", &["public", "input", "encrypted"], true);
+  dir.run_stdin(
+    "decrypt",
+    &["legacy", "encrypted", "recovered"],
+    true,
+    "legacy\n",
+  );
+  assert_eq!(
+    fs::read(dir.0.join("recovered")).unwrap(),
+    b"legacy roundtrip"
+  );
+  header[10] = 0;
+  fs::write(dir.0.join("legacy-public"), header).unwrap();
+  dir.run("encrypt", &["legacy-public", "input", "rejected"], false);
 }

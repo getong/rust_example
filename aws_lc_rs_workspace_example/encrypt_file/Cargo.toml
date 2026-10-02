@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+argon2 = { version = "0.6", features = ["zeroize"] }
 aws-lc-rs = "1.18.1"
 crossterm = "0.29.0"
+zeroize = "1.9.0"
 
 [[bin]]
 name = "encrypt"
@@ -14,3 +16,6 @@ path = "src/encrypt.rs"
 [[bin]]
 name = "decrypt"
 path = "src/decrypt.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security_Authorization", "Win32_Storage_FileSystem"] }
