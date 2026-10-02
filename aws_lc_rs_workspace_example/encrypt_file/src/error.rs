@@ -20,6 +20,8 @@ pub enum Error {
   KeyUnlockFailed,
   #[error("解密认证失败：密钥不匹配或密文被修改")]
   AuthenticationFailed,
+  #[error("密文的接收方指纹与所用私钥不匹配")]
+  RecipientMismatch,
   #[error("发送方签名无效或验签公钥不匹配")]
   SignatureInvalid,
   #[error("需要发送方签名与可信验签公钥；旧无签名文件须显式使用 --allow-unsigned-legacy")]

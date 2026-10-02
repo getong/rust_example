@@ -8,7 +8,7 @@ use std::{
 
 use zeroize::Zeroizing;
 
-use crate::{Error, Result};
+use crate::{Error, Result, format::TAG_LEN};
 
 /// Bound actual reads as well as metadata, including files growing during the read.
 pub fn read_bounded(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>> {
@@ -21,7 +21,7 @@ pub fn read_bounded(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>> {
   // Reserve tag and sentinel room so in-place encryption does not copy plaintext on growth.
   let capacity = usize::try_from(metadata.len())
     .ok()
-    .and_then(|len| len.checked_add(17))
+    .and_then(|len| len.checked_add(TAG_LEN + 1))
     .ok_or(Error::InputLimit)?;
   let mut bytes = Zeroizing::new(Vec::new());
   bytes

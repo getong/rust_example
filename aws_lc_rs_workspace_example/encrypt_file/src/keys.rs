@@ -2,7 +2,7 @@ use std::path::Path;
 
 use aws_lc_rs::{
   aead::{Aad, Nonce},
-  digest::{SHA256, digest},
+  digest::{SHA3_256, SHA256, digest},
   encoding::AsRawBytes,
   kem::{DecapsulationKey, ML_KEM_1024},
   rand::{SecureRandom, SystemRandom},
@@ -14,7 +14,7 @@ use crate::{
   Error, Result,
   file::{read_bounded, write_new},
   format::*,
-  kdf::{ArgonParams, password_key},
+  kdf::{ArgonParams, KdfWorkspace, password_key},
   password::{PasswordSource, validate_password},
 };
 
@@ -61,13 +61,13 @@ pub fn parse_key(bytes: &[u8], kind: KeyKind) -> Result<KeyEnvelope<'_>> {
       params: None,
     });
   }
-  if bytes.len() < 11 || &bytes[.. 8] != b"ALCFKEY\0" {
+  if bytes.len() < KEY_PARAMS_START || &bytes[.. 8] != b"ALCFKEY\0" {
     return Err(Error::Corrupt);
   }
   if bytes[9] != 1 {
     return Err(Error::UnsupportedSuite(bytes[9]));
   }
-  if bytes[10] != kind as u8 {
+  if bytes[KEY_TYPE_OFFSET] != kind as u8 {
     return Err(Error::Corrupt);
   }
   let (header_len, params) = match bytes[8] {
@@ -78,15 +78,15 @@ pub fn parse_key(bytes: &[u8], kind: KeyKind) -> Result<KeyEnvelope<'_>> {
       }
       let read = |offset| -> Result<u32> {
         Ok(u32::from_le_bytes(
-          bytes[offset .. offset + 4]
+          bytes[offset .. offset + KEY_PARAM_LEN]
             .try_into()
             .map_err(|_| Error::Corrupt)?,
         ))
       };
       let params = ArgonParams {
-        memory: read(11)?,
-        time: read(15)?,
-        lanes: read(19)?,
+        memory: read(KEY_PARAMS_START)?,
+        time: read(KEY_PARAMS_START + KEY_PARAM_LEN)?,
+        lanes: read(KEY_PARAMS_START + 2 * KEY_PARAM_LEN)?,
       }
       .validate()?;
       (KEY_HEADER_LEN, Some(params))
@@ -110,6 +110,15 @@ pub fn protect_key(
   kind: KeyKind,
   protection: Protection<'_>,
 ) -> Result<Zeroizing<Vec<u8>>> {
+  protect_key_with_workspace(bytes, kind, protection, &mut KdfWorkspace::default())
+}
+
+fn protect_key_with_workspace(
+  bytes: &[u8],
+  kind: KeyKind,
+  protection: Protection<'_>,
+  workspace: &mut KdfWorkspace,
+) -> Result<Zeroizing<Vec<u8>>> {
   let _span = crate::perf::span("key.protect");
   if bytes.len() != kind.raw_len() {
     return Err(Error::Corrupt);
@@ -119,15 +128,28 @@ pub fn protect_key(
   };
   validate_password(password)?;
   let mut header = [0u8; KEY_HEADER_LEN];
-  header[.. 10].copy_from_slice(KEY_PREFIX);
-  header[10] = kind as u8;
-  let p = ArgonParams::DEFAULT;
-  for (offset, value) in [(11, p.memory), (15, p.time), (19, p.lanes)] {
-    header[offset .. offset + 4].copy_from_slice(&value.to_le_bytes());
+  header[.. KEY_PREFIX.len()].copy_from_slice(KEY_PREFIX);
+  header[KEY_TYPE_OFFSET] = kind as u8;
+  let p = ArgonParams::for_new_key();
+  for (offset, value) in [
+    (KEY_PARAMS_START, p.memory),
+    (KEY_PARAMS_START + KEY_PARAM_LEN, p.time),
+    (KEY_PARAMS_START + 2 * KEY_PARAM_LEN, p.lanes),
+  ] {
+    header[offset .. offset + KEY_PARAM_LEN].copy_from_slice(&value.to_le_bytes());
   }
-  SystemRandom::new().fill(&mut header[23 ..])?;
-  let key = password_key(password, &header[23 .. 55], Some(p))?;
-  let nonce = Nonce::assume_unique_for_key(header[55 ..].try_into().map_err(|_| Error::Corrupt)?);
+  SystemRandom::new().fill(&mut header[KEY_SALT_START ..])?;
+  let key = password_key(
+    password,
+    &header[KEY_SALT_START .. KEY_NONCE_START],
+    Some(p),
+    workspace,
+  )?;
+  let nonce = Nonce::assume_unique_for_key(
+    header[KEY_NONCE_START ..]
+      .try_into()
+      .map_err(|_| Error::Corrupt)?,
+  );
   let mut body = Zeroizing::new(Vec::with_capacity(bytes.len() + TAG_LEN));
   body.extend_from_slice(bytes);
   measure!(
@@ -140,7 +162,7 @@ pub fn protect_key(
 }
 
 pub fn unlock_key(
-  mut bytes: Zeroizing<Vec<u8>>,
+  bytes: Zeroizing<Vec<u8>>,
   kind: KeyKind,
   password: &str,
 ) -> Result<Zeroizing<Vec<u8>>> {
@@ -148,16 +170,34 @@ pub fn unlock_key(
   if parsed.raw {
     return Ok(bytes);
   }
+  let (header_len, params) = (parsed.header.len(), parsed.params);
+  unlock_parsed(
+    bytes,
+    header_len,
+    params,
+    password,
+    &mut KdfWorkspace::default(),
+  )
+}
+
+// Only callers that have already validated the complete key envelope can enter here.
+fn unlock_parsed(
+  mut bytes: Zeroizing<Vec<u8>>,
+  header_len: usize,
+  params: Option<ArgonParams>,
+  password: &str,
+  workspace: &mut KdfWorkspace,
+) -> Result<Zeroizing<Vec<u8>>> {
   validate_password(password)?;
-  let header_len = parsed.header.len();
-  let nonce_start = header_len - 12;
+  let nonce_start = header_len - NONCE_LEN;
   let key = password_key(
     password,
-    &parsed.header[nonce_start - 32 .. nonce_start],
-    parsed.params,
+    &bytes[nonce_start - SALT_LEN .. nonce_start],
+    params,
+    workspace,
   )?;
   let nonce = Nonce::assume_unique_for_key(
-    parsed.header[nonce_start ..]
+    bytes[nonce_start .. header_len]
       .try_into()
       .map_err(|_| Error::Corrupt)?,
   );
@@ -175,13 +215,40 @@ pub fn read_key(
   kind: KeyKind,
   passwords: &mut dyn PasswordSource,
 ) -> Result<Zeroizing<Vec<u8>>> {
+  read_key_with_workspace(path, kind, passwords, &mut KdfWorkspace::default())
+}
+
+pub(crate) fn read_key_with_workspace(
+  path: &Path,
+  kind: KeyKind,
+  passwords: &mut dyn PasswordSource,
+  workspace: &mut KdfWorkspace,
+) -> Result<Zeroizing<Vec<u8>>> {
   let _span = crate::perf::span("key.read_unlock");
   let bytes = read_bounded(path, (KEY_HEADER_LEN + kind.raw_len() + TAG_LEN) as u64)?;
-  if parse_key(&bytes, kind)?.raw {
+  let parsed = parse_key(&bytes, kind)?;
+  if parsed.raw {
     return Ok(bytes);
   }
+  let (header_len, params) = (parsed.header.len(), parsed.params);
   let password = passwords.password(path, kind)?;
-  unlock_key(bytes, kind, &password)
+  unlock_parsed(bytes, header_len, params, &password, workspace)
+}
+
+/// Extract the embedded public key from FIPS 203's expanded ML-KEM-1024 private key.
+/// AWS-LC's encapsulation_key() cannot export it from an imported DecapsulationKey.
+/// Validate H(ek) using SHA3-256, distinct from our displayed SHA-256 fingerprint.
+pub fn kem_public_from_private(private: &[u8]) -> Result<&[u8]> {
+  if private.len() != PRIVATE_KEY_LEN {
+    return Err(Error::Corrupt);
+  }
+  let public = &private[KEM_EMBEDDED_PUBLIC_START .. KEM_EMBEDDED_PUBLIC_END];
+  if digest(&SHA3_256, public).as_ref()
+    != &private[KEM_EMBEDDED_PUBLIC_END .. KEM_EMBEDDED_HASH_END]
+  {
+    return Err(Error::Corrupt);
+  }
+  Ok(public)
 }
 
 /// SHA-256 fingerprint of canonical raw public key bytes, never the encrypted wrapper.
@@ -221,8 +288,14 @@ pub fn generate_keys(
   )?;
   let public_bytes = key.encapsulation_key()?.key_bytes()?;
   let private_bytes = key.key_bytes()?;
-  let encrypted_private = protect_key(private_bytes.as_ref(), KeyKind::KemPrivate, protection)?;
-  let encrypted_public = protect_key(
+  let mut workspace = KdfWorkspace::default();
+  let encrypted_private = protect_key_with_workspace(
+    private_bytes.as_ref(),
+    KeyKind::KemPrivate,
+    protection,
+    &mut workspace,
+  )?;
+  let encrypted_public = protect_key_with_workspace(
     public_bytes.as_ref(),
     KeyKind::KemPublic,
     if protect_public {
@@ -230,7 +303,9 @@ pub fn generate_keys(
     } else {
       Protection::Unprotected
     },
+    &mut workspace,
   )?;
+  drop(workspace);
   write_new(private, &encrypted_private)?;
   write_new(public, &encrypted_public)?;
   Ok(fingerprint_hex(public_bytes.as_ref()))

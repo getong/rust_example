@@ -6,3 +6,10 @@ recipient.public
 # Local benchmark artifacts and scripts
 /benchmarks/
 /tools/
+
+# Generated CLI outputs and local review/editor files
+/*.bin
+/recovered*.txt
+/*.public
+*.bak
+/docs/

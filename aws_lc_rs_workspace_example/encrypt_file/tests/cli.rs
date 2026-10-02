@@ -72,7 +72,12 @@ impl Drop for DemoDir {
 fn explicit_password_policy_and_signed_cli_roundtrip() {
   let dir = DemoDir::new();
   for input in ["", "\n", "first\nsecond\n", "first\n"] {
-    dir.run("decrypt", &["--keygen", "public", "private"], input, false);
+    dir.run(
+      "decrypt",
+      &["--keygen", "--protect-public", "public", "private"],
+      input,
+      false,
+    );
     assert!(!dir.0.join("private").exists());
     assert!(!dir.0.join("public").exists());
   }
@@ -80,7 +85,7 @@ fn explicit_password_policy_and_signed_cli_roundtrip() {
   let confirm = format!("{password}\r\n{password}\n");
   dir.run(
     "decrypt",
-    &["--keygen", "public", "private"],
+    &["--keygen", "--protect-public", "public", "private"],
     &confirm,
     true,
   );
@@ -337,4 +342,45 @@ fn password_byte_limit_and_crlf_are_consistent() {
       .len(),
     PUBLIC_KEY_LEN
   );
+}
+
+#[test]
+fn default_public_key_is_unprotected_and_opt_in_requires_password() {
+  let dir = DemoDir::new();
+  dir.run(
+    "decrypt",
+    &["--keygen", "public", "private"],
+    "default-password\ndefault-password\n",
+    true,
+  );
+  assert_eq!(
+    fs::metadata(dir.0.join("public")).unwrap().len(),
+    PUBLIC_KEY_LEN as u64
+  );
+  let wrapped = fs::read(dir.0.join("private")).unwrap();
+  let params = encrypt_file::keys::parse_key(&wrapped, KeyKind::KemPrivate)
+    .unwrap()
+    .params
+    .unwrap();
+  assert_eq!(
+    params.lanes,
+    encrypt_file::kdf::ArgonParams::for_new_key().lanes
+  );
+  assert_eq!(params.memory, 65536);
+  let mut provider = FixedPassword(zeroize::Zeroizing::new("default-password".to_owned()));
+  read_key(&dir.0.join("private"), KeyKind::KemPrivate, &mut provider).unwrap();
+  read_key(&dir.0.join("public"), KeyKind::KemPublic, &mut NoPassword).unwrap();
+  dir.run(
+    "decrypt",
+    &[
+      "--keygen",
+      "--protect-public",
+      "--no-password",
+      "invalid-public",
+      "invalid-private",
+    ],
+    "",
+    false,
+  );
+  assert!(!dir.0.join("invalid-private").exists());
 }

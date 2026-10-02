@@ -12,8 +12,8 @@ use crate::{
   Error, Result,
   file::{read_bounded, write_new, write_new_parts},
   format::*,
-  kdf::derive_key,
-  keys::{KeyKind, fingerprint, read_key},
+  kdf::{KdfWorkspace, derive_key},
+  keys::{KeyKind, fingerprint, kem_public_from_private, read_key, read_key_with_workspace},
   password::PasswordSource,
   signing::{self, Verification, verify_envelope},
 };
@@ -45,8 +45,8 @@ pub fn encrypt_bytes(
   let public_key = EncapsulationKey::new(&ML_KEM_1024, public)?;
   let (kem, shared) = measure!("crypto.kem_encapsulate", public_key.encapsulate())?;
   let mut header = [0; HEADER_LEN];
-  header[.. 10].copy_from_slice(PREFIX);
-  SystemRandom::new().fill(&mut header[10 .. SALT_END])?;
+  header[.. PREFIX.len()].copy_from_slice(PREFIX);
+  SystemRandom::new().fill(&mut header[PREFIX.len() .. SALT_END])?;
   header[SALT_END .. KEM_END].copy_from_slice(kem.as_ref());
   SystemRandom::new().fill(&mut header[KEM_END .. LEGACY_HEADER_LEN])?;
   header[LEGACY_HEADER_LEN .. SENDER_END].copy_from_slice(&signing::sender_fingerprint(signer));
@@ -83,6 +83,13 @@ pub fn decrypt_bytes(
 
 fn decrypt_verified(bytes: &mut Vec<u8>, private: &DecapsulationKey) -> Result<()> {
   let envelope = parse_envelope(bytes)?;
+  if envelope.version == FileVersion::Signed {
+    let private_bytes = private.key_bytes()?;
+    let public = kem_public_from_private(private_bytes.as_ref())?;
+    if envelope.header[SENDER_END .. RECIPIENT_END] != fingerprint(public) {
+      return Err(Error::RecipientMismatch);
+    }
+  }
   let shared = measure!(
     "crypto.kem_decapsulate",
     private.decapsulate(Ciphertext::from(&envelope.header[SALT_END .. KEM_END]))
@@ -116,8 +123,14 @@ pub fn encrypt_file(
   passwords: &mut dyn PasswordSource,
 ) -> Result<()> {
   let _span = crate::perf::span("command.encrypt");
-  let public = read_key(public_path, KeyKind::KemPublic, passwords)?;
-  let signing_private = read_key(signer_path, KeyKind::SignPrivate, passwords)?;
+  let (public, signing_private) = {
+    let mut workspace = KdfWorkspace::default();
+    let public =
+      read_key_with_workspace(public_path, KeyKind::KemPublic, passwords, &mut workspace)?;
+    let signing_private =
+      read_key_with_workspace(signer_path, KeyKind::SignPrivate, passwords, &mut workspace)?;
+    (public, signing_private)
+  }; // Wipe and release KDF memory before allocating the file buffer.
   let signer = PqdsaKeyPair::from_raw_private_key(&ML_DSA_87_SIGNING, &signing_private)?;
   let plaintext = read_bounded(input, MAX_PLAINTEXT_LEN)?;
   let sealed = encrypt_bytes(plaintext, &public, &signer)?;

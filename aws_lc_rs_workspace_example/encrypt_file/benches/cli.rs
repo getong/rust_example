@@ -130,7 +130,10 @@ fn main() -> Result<()> {
       }
       "--help" | "-h" => {
         println!("cargo bench --bench cli -- [FILTER] [--samples N]");
-        println!("Filters: protected, plain, keygen, encrypt, decrypt, 4B, 1MiB, 64MiB");
+        println!(
+          "Filters: protected, private-only, plain, keygen, encrypt, decrypt, 4B, 1MiB, 32MiB, \
+           64MiB"
+        );
         println!("Add --features perf-trace before -- for per-stage timing.");
         return Ok(());
       }
@@ -153,9 +156,18 @@ fn main() -> Result<()> {
   #[cfg(not(feature = "perf-trace"))]
   println!("For stage details: cargo bench --features perf-trace");
 
+  let params = encrypt_file::kdf::ArgonParams::for_new_key();
+  println!(
+    "New key Argon2id: memory={} KiB, time={}, lanes={}",
+    params.memory, params.time, params.lanes
+  );
   let dir = TempDir::new()?;
   let mut measured = 0;
-  for (mode, password) in [("plain", &b""[..]), ("protected", PASSWORD)] {
+  for (mode, password) in [
+    ("plain", &b""[..]),
+    ("private-only", PASSWORD),
+    ("protected", PASSWORD),
+  ] {
     let public = dir.0.join(format!("{mode}.public"));
     let private = dir.0.join(format!("{mode}.private"));
     let keygen_input = password.repeat(2);
@@ -163,13 +175,21 @@ fn main() -> Result<()> {
     if password.is_empty() {
       keygen_args.push(Path::new("--no-password"));
     }
+    if mode == "protected" {
+      keygen_args.push(Path::new("--protect-public"));
+    }
     keygen_args.extend([public.as_path(), private.as_path()]);
     let keygen_name = format!("{mode}/keygen");
     measured += measure(&keygen_name, &filter, samples, || {
       let sample = run(DECRYPT, &keygen_args, &keygen_input)?;
       // Validate and remove fixtures outside the measured interval.
-      let overhead = if password.is_empty() { 0 } else { 67 + 16 };
-      if fs::metadata(&public)?.len() != (encrypt_file::PUBLIC_KEY_LEN + overhead) as u64
+      let overhead = if password.is_empty() {
+        0
+      } else {
+        encrypt_file::KEY_HEADER_LEN + encrypt_file::TAG_LEN
+      };
+      if fs::metadata(&public)?.len()
+        != (encrypt_file::PUBLIC_KEY_LEN + if mode == "protected" { overhead } else { 0 }) as u64
         || fs::metadata(&private)?.len() != (encrypt_file::PRIVATE_KEY_LEN + overhead) as u64
       {
         return Err("generated key size mismatch".into());
@@ -182,6 +202,7 @@ fn main() -> Result<()> {
     let cases: Vec<_> = [
       ("4B", 4),
       ("1MiB", 1024 * 1024),
+      ("32MiB", 32 * 1024 * 1024),
       ("64MiB", 64 * 1024 * 1024),
     ]
     .into_iter()
@@ -202,7 +223,11 @@ fn main() -> Result<()> {
     }
     signgen_args.extend([sender.as_path(), signer.as_path()]);
     run(DECRYPT, &signgen_args, &keygen_input)?;
-    let encryption_passwords = password.repeat(2);
+    let encryption_passwords = if mode == "protected" {
+      password.repeat(2)
+    } else {
+      password.to_vec()
+    };
     for (label, size) in cases {
       let content: Vec<_> = (0 .. size).map(|n| n as u8).collect();
       let source = dir.0.join("input");

@@ -116,7 +116,7 @@ fn replacement_wrong_recipient_and_downgrade_are_rejected() {
   .to_bytes();
   assert!(matches!(
     decrypt_bytes(Zeroizing::new(good.clone()), &unrelated, trusted_verifier),
-    Err(Error::AuthenticationFailed)
+    Err(Error::RecipientMismatch)
   ));
   // A signature copied from another file cannot authenticate an otherwise valid ciphertext.
   let mut replaced = replacement;
@@ -309,5 +309,105 @@ fn valid_signature_does_not_bypass_aead_authentication() {
   assert!(matches!(
     decrypt_bytes(Zeroizing::new(bytes), &private, verification),
     Err(Error::AuthenticationFailed)
+  ));
+}
+
+#[test]
+fn old_lanes1_keys_and_embedded_public_key_remain_compatible() {
+  use encrypt_file::keys::{fingerprint, kem_public_from_private};
+  let protected_public = include_bytes!("fixtures/argon-lanes1.public");
+  let protected_private = include_bytes!("fixtures/argon-lanes1.private");
+  for (bytes, kind) in [
+    (&protected_public[..], KeyKind::KemPublic),
+    (&protected_private[..], KeyKind::KemPrivate),
+  ] {
+    assert_eq!(parse_key(bytes, kind).unwrap().params.unwrap().lanes, 1);
+  }
+  let public = unlock_key(
+    Zeroizing::new(protected_public.to_vec()),
+    KeyKind::KemPublic,
+    "fixture-lanes-one",
+  )
+  .unwrap();
+  let private = unlock_key(
+    Zeroizing::new(protected_private.to_vec()),
+    KeyKind::KemPrivate,
+    "fixture-lanes-one",
+  )
+  .unwrap();
+  assert_eq!(
+    kem_public_from_private(&private).unwrap(),
+    public.as_slice()
+  );
+  assert_eq!(
+    fingerprint(kem_public_from_private(&private).unwrap()),
+    fingerprint(&public)
+  );
+  // Imported keys cannot use encapsulation_key(); extracting the FIPS encoding works.
+  let imported = DecapsulationKey::new(&ML_KEM_1024, &private).unwrap();
+  assert_eq!(
+    kem_public_from_private(imported.key_bytes().unwrap().as_ref()).unwrap(),
+    public.as_slice()
+  );
+  let signing = signer();
+  let sealed = encrypt_bytes(
+    Zeroizing::new(b"old key, new binary".to_vec()),
+    &public,
+    &signing,
+  )
+  .unwrap();
+  assert_eq!(
+    decrypt_bytes(
+      Zeroizing::new(sealed.to_bytes()),
+      &imported,
+      Verification::Trusted(signing.public_key().as_ref())
+    )
+    .unwrap()
+    .as_slice(),
+    b"old key, new binary"
+  );
+  let mut corrupt = private;
+  corrupt[KEM_EMBEDDED_PUBLIC_END] ^= 1;
+  assert!(matches!(
+    kem_public_from_private(&corrupt),
+    Err(Error::Corrupt)
+  ));
+  for (dk, ek) in [
+    (
+      &include_bytes!("fixtures/acvp-valid.dk")[..],
+      &include_bytes!("fixtures/acvp-valid.ek")[..],
+    ),
+    (
+      &include_bytes!("fixtures/acvp-reject.dk")[..],
+      &include_bytes!("fixtures/acvp-reject.ek")[..],
+    ),
+  ] {
+    assert_eq!(kem_public_from_private(dk).unwrap(), ek);
+  }
+}
+
+#[test]
+fn signed_wrong_recipient_fingerprint_is_rejected_before_aead() {
+  use aws_lc_rs::digest::{SHA512, digest};
+  let private = receiver();
+  let signing = signer();
+  let public = private.encapsulation_key().unwrap().key_bytes().unwrap();
+  let mut sealed = encrypt_bytes(
+    Zeroizing::new(b"recipient metadata".to_vec()),
+    public.as_ref(),
+    &signing,
+  )
+  .unwrap();
+  sealed.header[SENDER_END] ^= 1;
+  let mut transcript = b"encrypt_file/v2/signature/ML-DSA-87/SHA-512\0".to_vec();
+  transcript.extend_from_slice(&sealed.header);
+  transcript.extend_from_slice(digest(&SHA512, &sealed.ciphertext).as_ref());
+  signing.sign(&transcript, &mut sealed.signature).unwrap();
+  let bytes = sealed.to_bytes();
+  let verification = Verification::Trusted(signing.public_key().as_ref());
+  verify_envelope(&bytes, verification).unwrap();
+  assert!(matches!(
+    decrypt_bytes(Zeroizing::new(bytes), &private, verification),
+    Err(Error::RecipientMismatch)
   ));
 }
