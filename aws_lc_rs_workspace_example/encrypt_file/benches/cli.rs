@@ -7,7 +7,7 @@ use std::{
   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use encrypt_file::Result;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const PASSWORD: &[u8] = b"benchmark-only-password\n";
 const ENCRYPT: &str = env!("CARGO_BIN_EXE_encrypt");
@@ -158,18 +158,15 @@ fn main() -> Result<()> {
   for (mode, password) in [("plain", &b""[..]), ("protected", PASSWORD)] {
     let public = dir.0.join(format!("{mode}.public"));
     let private = dir.0.join(format!("{mode}.private"));
-    let keygen_input = if password.is_empty() {
-      b"\n".to_vec()
-    } else {
-      password.repeat(2)
-    };
+    let keygen_input = password.repeat(2);
+    let mut keygen_args = vec![Path::new("--keygen")];
+    if password.is_empty() {
+      keygen_args.push(Path::new("--no-password"));
+    }
+    keygen_args.extend([public.as_path(), private.as_path()]);
     let keygen_name = format!("{mode}/keygen");
     measured += measure(&keygen_name, &filter, samples, || {
-      let sample = run(
-        DECRYPT,
-        &[Path::new("--keygen"), &public, &private],
-        &keygen_input,
-      )?;
+      let sample = run(DECRYPT, &keygen_args, &keygen_input)?;
       // Validate and remove fixtures outside the measured interval.
       let overhead = if password.is_empty() { 0 } else { 67 + 16 };
       if fs::metadata(&public)?.len() != (encrypt_file::PUBLIC_KEY_LEN + overhead) as u64
@@ -196,11 +193,16 @@ fn main() -> Result<()> {
     if cases.is_empty() {
       continue;
     }
-    run(
-      DECRYPT,
-      &[Path::new("--keygen"), &public, &private],
-      &keygen_input,
-    )?;
+    run(DECRYPT, &keygen_args, &keygen_input)?;
+    let sender = dir.0.join(format!("{mode}.sender"));
+    let signer = dir.0.join(format!("{mode}.signer"));
+    let mut signgen_args = vec![Path::new("--sign-keygen")];
+    if password.is_empty() {
+      signgen_args.push(Path::new("--no-password"));
+    }
+    signgen_args.extend([sender.as_path(), signer.as_path()]);
+    run(DECRYPT, &signgen_args, &keygen_input)?;
+    let encryption_passwords = password.repeat(2);
     for (label, size) in cases {
       let content: Vec<_> = (0 .. size).map(|n| n as u8).collect();
       let source = dir.0.join("input");
@@ -208,8 +210,28 @@ fn main() -> Result<()> {
       let recovered = dir.0.join("recovered");
       fs::write(&source, &content)?;
       measured += measure(&format!("{mode}/encrypt/{label}"), &filter, samples, || {
-        let sample = run(ENCRYPT, &[&public, &source, &encrypted], password)?;
-        run(DECRYPT, &[&private, &encrypted, &recovered], password)?;
+        let sample = run(
+          ENCRYPT,
+          &[
+            Path::new("--sign-key"),
+            &signer,
+            &public,
+            &source,
+            &encrypted,
+          ],
+          &encryption_passwords,
+        )?;
+        run(
+          DECRYPT,
+          &[
+            Path::new("--verify-key"),
+            &sender,
+            &private,
+            &encrypted,
+            &recovered,
+          ],
+          password,
+        )?;
         if fs::read(&recovered)? != content {
           return Err("encryption round-trip mismatch".into());
         }
@@ -218,9 +240,29 @@ fn main() -> Result<()> {
         Ok(sample)
       })?;
       if format!("{mode}/decrypt/{label}").contains(&filter) {
-        run(ENCRYPT, &[&public, &source, &encrypted], password)?;
+        run(
+          ENCRYPT,
+          &[
+            Path::new("--sign-key"),
+            &signer,
+            &public,
+            &source,
+            &encrypted,
+          ],
+          &encryption_passwords,
+        )?;
         measured += measure(&format!("{mode}/decrypt/{label}"), &filter, samples, || {
-          let sample = run(DECRYPT, &[&private, &encrypted, &recovered], password)?;
+          let sample = run(
+            DECRYPT,
+            &[
+              Path::new("--verify-key"),
+              &sender,
+              &private,
+              &encrypted,
+              &recovered,
+            ],
+            password,
+          )?;
           if fs::read(&recovered)? != content {
             return Err("decryption round-trip mismatch".into());
           }
