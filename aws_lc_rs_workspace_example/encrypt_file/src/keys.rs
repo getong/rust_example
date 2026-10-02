@@ -218,6 +218,40 @@ pub fn read_key(
   read_key_with_workspace(path, kind, passwords, &mut KdfWorkspace::default())
 }
 
+/// Read keys in request order, reusing Argon2 memory within this batch.
+///
+/// The workspace is wiped before returning (including errors and panic unwinding).
+/// An error aborts the batch and drops/zeroizes all keys already read; no partial
+/// result is returned. Different key passwords can be supplied by a custom source.
+///
+/// ```no_run
+/// use std::path::Path;
+///
+/// use encrypt_file::{FixedPassword, KeyKind, read_keys};
+/// use zeroize::Zeroizing;
+/// # fn example() -> encrypt_file::Result<()> {
+/// let mut passwords = FixedPassword(Zeroizing::new("example-password".to_owned()));
+/// let keys = read_keys(
+///   &[
+///     (Path::new("recipient.private"), KeyKind::KemPrivate),
+///     (Path::new("sender.private"), KeyKind::SignPrivate),
+///   ],
+///   &mut passwords,
+/// )?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn read_keys(
+  requests: &[(&Path, KeyKind)],
+  passwords: &mut dyn PasswordSource,
+) -> Result<Vec<Zeroizing<Vec<u8>>>> {
+  let mut workspace = KdfWorkspace::default();
+  requests
+    .iter()
+    .map(|&(path, kind)| read_key_with_workspace(path, kind, passwords, &mut workspace))
+    .collect()
+}
+
 pub(crate) fn read_key_with_workspace(
   path: &Path,
   kind: KeyKind,
@@ -264,11 +298,75 @@ pub fn fingerprint_hex(bytes: &[u8]) -> String {
     .collect()
 }
 
-fn new_paths(public: &Path, private: &Path) -> Result<()> {
-  if public == private || public.try_exists()? || private.try_exists()? {
-    return Err(Error::OutputExists);
+/// Preflight a pair of output paths before asking for a password.
+///
+/// This does not reserve paths. The final writes still use exclusive creation,
+/// so files created after this check will never be overwritten.
+#[must_use]
+pub struct KeyOutputPaths<'a> {
+  public: &'a Path,
+  private: &'a Path,
+}
+
+impl<'a> KeyOutputPaths<'a> {
+  pub fn new(public: &'a Path, private: &'a Path) -> Result<Self> {
+    if public == private || public.try_exists()? || private.try_exists()? {
+      return Err(Error::OutputExists);
+    }
+    Ok(Self { public, private })
   }
-  Ok(())
+
+  pub fn generate_keys(self, protection: Protection<'_>, protect_public: bool) -> Result<String> {
+    let Self { public, private } = self;
+    let _span = crate::perf::span("command.keygen");
+    if let Protection::Password(p) = protection {
+      validate_password(p)?;
+    }
+    let key = measure!(
+      "crypto.kem_keygen",
+      DecapsulationKey::generate(&ML_KEM_1024)
+    )?;
+    let public_bytes = key.encapsulation_key()?.key_bytes()?;
+    let private_bytes = key.key_bytes()?;
+    let mut workspace = KdfWorkspace::default();
+    let encrypted_private = protect_key_with_workspace(
+      private_bytes.as_ref(),
+      KeyKind::KemPrivate,
+      protection,
+      &mut workspace,
+    )?;
+    let encrypted_public = protect_key_with_workspace(
+      public_bytes.as_ref(),
+      KeyKind::KemPublic,
+      if protect_public {
+        protection
+      } else {
+        Protection::Unprotected
+      },
+      &mut workspace,
+    )?;
+    drop(workspace);
+    write_new(private, &encrypted_private)?;
+    write_new(public, &encrypted_public)?;
+    Ok(fingerprint_hex(public_bytes.as_ref()))
+  }
+
+  pub fn generate_signing_keys(self, protection: Protection<'_>) -> Result<String> {
+    let Self { public, private } = self;
+    let _span = crate::perf::span("command.sign_keygen");
+    if let Protection::Password(p) = protection {
+      validate_password(p)?;
+    }
+    let key = measure!(
+      "crypto.sign_keygen",
+      PqdsaKeyPair::generate(&ML_DSA_87_SIGNING)
+    )?;
+    let private_bytes = key.private_key().as_raw_bytes()?;
+    let encrypted = protect_key(private_bytes.as_ref(), KeyKind::SignPrivate, protection)?;
+    write_new(private, &encrypted)?;
+    write_new(public, key.public_key().as_ref())?;
+    Ok(fingerprint_hex(key.public_key().as_ref()))
+  }
 }
 
 pub fn generate_keys(
@@ -277,38 +375,7 @@ pub fn generate_keys(
   protection: Protection<'_>,
   protect_public: bool,
 ) -> Result<String> {
-  let _span = crate::perf::span("command.keygen");
-  new_paths(public, private)?;
-  if let Protection::Password(p) = protection {
-    validate_password(p)?;
-  }
-  let key = measure!(
-    "crypto.kem_keygen",
-    DecapsulationKey::generate(&ML_KEM_1024)
-  )?;
-  let public_bytes = key.encapsulation_key()?.key_bytes()?;
-  let private_bytes = key.key_bytes()?;
-  let mut workspace = KdfWorkspace::default();
-  let encrypted_private = protect_key_with_workspace(
-    private_bytes.as_ref(),
-    KeyKind::KemPrivate,
-    protection,
-    &mut workspace,
-  )?;
-  let encrypted_public = protect_key_with_workspace(
-    public_bytes.as_ref(),
-    KeyKind::KemPublic,
-    if protect_public {
-      protection
-    } else {
-      Protection::Unprotected
-    },
-    &mut workspace,
-  )?;
-  drop(workspace);
-  write_new(private, &encrypted_private)?;
-  write_new(public, &encrypted_public)?;
-  Ok(fingerprint_hex(public_bytes.as_ref()))
+  KeyOutputPaths::new(public, private)?.generate_keys(protection, protect_public)
 }
 
 pub fn generate_signing_keys(
@@ -316,18 +383,5 @@ pub fn generate_signing_keys(
   private: &Path,
   protection: Protection<'_>,
 ) -> Result<String> {
-  let _span = crate::perf::span("command.sign_keygen");
-  new_paths(public, private)?;
-  if let Protection::Password(p) = protection {
-    validate_password(p)?;
-  }
-  let key = measure!(
-    "crypto.sign_keygen",
-    PqdsaKeyPair::generate(&ML_DSA_87_SIGNING)
-  )?;
-  let private_bytes = key.private_key().as_raw_bytes()?;
-  let encrypted = protect_key(private_bytes.as_ref(), KeyKind::SignPrivate, protection)?;
-  write_new(private, &encrypted)?;
-  write_new(public, key.public_key().as_ref())?;
-  Ok(fingerprint_hex(key.public_key().as_ref()))
+  KeyOutputPaths::new(public, private)?.generate_signing_keys(protection)
 }

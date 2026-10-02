@@ -102,13 +102,15 @@ cargo run --release --bin decrypt -- --allow-unsigned-legacy recipient.private e
 - `keys`：密钥容器和指纹；`signing`：签名及显式信任策略；`crypto`：加解密流程。
 - `file`：有界读取、排他写入及同步；`platform`：Windows ACL；`src/cli`：终端密码输入。
 - `PasswordSource` 由调用方提供，支持 `FixedPassword`、`NoPassword` 或自定义实现。库没有 stdin/TTY/inquire 调用。
+- 连续读取多个密钥可用公开的 `read_keys(&[(path, kind), ...], &mut passwords)`，按请求顺序返回 `Vec<Zeroizing<Vec<u8>>>`。同一批次共享 KDF 工作区，返回前统一擦除；任意一项失败则返回错误，并擦除已读取的中间密钥，不返回部分结果。单独 `read_key` 的调用方式保持不变。
+- 需要在询问密码前预检输出路径时，调用 `KeyOutputPaths::new(public, private)?`，然后用该对象的 `generate_keys` / `generate_signing_keys` 完成生成。CLI 使用此流程，避免重复预检；原有同名自由函数仍可使用。预检不预留路径，最终排他创建仍负责防止竞态覆盖。
 - `Error` 为结构化枚举，可匹配 `KeyUnlockFailed`、`SignatureInvalid`、`RecipientMismatch`、`AuthenticationFailed`、`UnsupportedVersion`、`KdfParameters` 等；密码错误与密钥被篡改统一报 `KeyUnlockFailed`，不承诺区分这两种情况。
 
 文件读取上限为 64 MiB 明文，拒绝非普通文件以及读取时长度变化；同长度并发改写不能仅通过长度检测发现。密码、私钥、派生字节、明文和 Argon2 工作内存用 `Zeroizing` 或 `Zeroize` 擦除；不覆盖 inquire 内部缓冲、交换区、崩溃转储和调用方自己保留的副本，也不提供 mlock。
 
 Unix 新文件权限为 0600，并同步文件及父目录；Windows 使用仅 Owner Rights 可访问且禁止继承的 DACL，需要支持 ACL 的文件系统。签名验证后，按 FIPS 203 的展开私钥结构提取内嵌公钥，检查其 SHA3-256 哈希，再用 SHA-256 指纹比对头部接收方；不匹配返回 `RecipientMismatch`。此过程不依赖后端对导入私钥不支持的 `encapsulation_key()`。签名、接收方和 AEAD 均验证成功后才创建明文输出；格式与 64 MiB 上限不变，未引入流式 AEAD。
 
-KDF 工作区只在一次操作内复用：同一批公钥/签名私钥解锁或公私钥保护共用一块缓冲；加密路径在加载明文前擦除并释放这块缓冲。单独 `read_key`/`unlock_key` 仍在返回时擦除。缓冲扩容前先擦除旧数据，正常退出、错误返回和 panic 展开均走 Drop；不使用不保证析构的进程全局缓存。复用会把第一次 KDF 中间状态的最长保留时间延长到批次结束（可能包含第二次密码输入等待）。密钥头部每次读取只解析一次。
+KDF 工作区只在一次操作内复用：公开 `read_keys` 批量读钥、同一批公钥/签名私钥解锁或公私钥保护共用一块缓冲；加密路径在加载明文前擦除并释放这块缓冲。单独 `read_key`/`unlock_key` 仍在返回时擦除。缓冲扩容前先擦除旧数据，正常退出、错误返回和 panic 展开均走 Drop；不使用不保证析构的进程全局缓存。复用会把第一次 KDF 中间状态的最长保留时间延长到批次结束（可能包含第二次密码输入等待）。密钥头部每次读取只解析一次。
 
 ## 测试与性能
 

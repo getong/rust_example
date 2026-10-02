@@ -384,3 +384,93 @@ fn default_public_key_is_unprotected_and_opt_in_requires_password() {
   );
   assert!(!dir.0.join("invalid-private").exists());
 }
+
+#[test]
+fn public_batch_reader_preserves_order_and_aborts_on_password_error() {
+  use std::path::Path;
+
+  use zeroize::Zeroizing;
+  struct Passwords {
+    calls: usize,
+    fail_second: bool,
+  }
+  impl PasswordSource for Passwords {
+    fn password(&mut self, _: &Path, _: KeyKind) -> Result<Zeroizing<String>> {
+      self.calls += 1;
+      Ok(Zeroizing::new(
+        if self.fail_second && self.calls == 2 {
+          "wrong"
+        } else {
+          "fixture-lanes-one"
+        }
+        .to_owned(),
+      ))
+    }
+  }
+  let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+  let private = fixtures.join("argon-lanes1.private");
+  let public = fixtures.join("argon-lanes1.public");
+  let requests = [
+    (private.as_path(), KeyKind::KemPrivate),
+    (public.as_path(), KeyKind::KemPublic),
+  ];
+  let mut passwords = Passwords {
+    calls: 0,
+    fail_second: false,
+  };
+  let keys = read_keys(&requests, &mut passwords).unwrap();
+  assert_eq!(passwords.calls, 2);
+  assert_eq!(keys.len(), 2);
+  assert_eq!(keys[0].len(), PRIVATE_KEY_LEN);
+  assert_eq!(keys[1].len(), PUBLIC_KEY_LEN);
+  assert_eq!(
+    encrypt_file::keys::kem_public_from_private(&keys[0]).unwrap(),
+    keys[1].as_slice()
+  );
+  let mut failed = Passwords {
+    calls: 0,
+    fail_second: true,
+  };
+  assert!(matches!(
+    read_keys(&requests, &mut failed),
+    Err(Error::KeyUnlockFailed)
+  ));
+  assert_eq!(failed.calls, 2);
+  assert!(read_keys(&[], &mut NoPassword).unwrap().is_empty());
+  // A later batch has no poisoned state from the failed batch.
+  let mut retry = FixedPassword(Zeroizing::new("fixture-lanes-one".to_owned()));
+  assert_eq!(read_keys(&requests, &mut retry).unwrap(), keys);
+}
+
+#[test]
+fn preflighted_key_paths_preserve_exclusive_creation() {
+  let dir = DemoDir::new();
+  let public = dir.0.join("public");
+  let private = dir.0.join("private");
+  assert!(matches!(
+    KeyOutputPaths::new(&public, &public),
+    Err(Error::OutputExists)
+  ));
+  let outputs = KeyOutputPaths::new(&public, &private).unwrap();
+  // Another writer wins after preflight: generation must not overwrite it.
+  fs::write(&private, b"other writer").unwrap();
+  assert!(
+    matches!(outputs.generate_keys(Protection::Unprotected,false),Err(Error::Io(e)) if e.kind()==std::io::ErrorKind::AlreadyExists)
+  );
+  assert_eq!(fs::read(&private).unwrap(), b"other writer");
+  assert!(!public.exists());
+  assert!(matches!(
+    KeyOutputPaths::new(&public, &private),
+    Err(Error::OutputExists)
+  ));
+
+  let sender = dir.0.join("sender");
+  let signer = dir.0.join("signer");
+  let outputs = KeyOutputPaths::new(&sender, &signer).unwrap();
+  fs::write(&signer, b"other signing key").unwrap();
+  assert!(
+    matches!(outputs.generate_signing_keys(Protection::Unprotected),Err(Error::Io(e)) if e.kind()==std::io::ErrorKind::AlreadyExists)
+  );
+  assert_eq!(fs::read(&signer).unwrap(), b"other signing key");
+  assert!(!sender.exists());
+}

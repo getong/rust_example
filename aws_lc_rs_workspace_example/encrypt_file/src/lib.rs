@@ -20,6 +20,8 @@ pub mod signing;
 pub use crypto::{EncryptedFile, decrypt_bytes, decrypt_file, encrypt_bytes, encrypt_file};
 pub use error::{Error, Result};
 pub use format::*;
-pub use keys::{KeyKind, Protection, generate_keys, generate_signing_keys, read_key};
+pub use keys::{
+  KeyKind, KeyOutputPaths, Protection, generate_keys, generate_signing_keys, read_key, read_keys,
+};
 pub use password::{FixedPassword, NoPassword, PasswordSource};
 pub use signing::Verification;

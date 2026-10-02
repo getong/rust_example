@@ -55,19 +55,29 @@ pub struct Envelope<'a> {
 
 /// Structural validation only. No allocation, password prompt, KDF, or authentication.
 pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope<'_>> {
-  if bytes.len() < PREFIX.len()
-    || bytes.len() as u64 > MAX_ENCRYPTED_LEN
-    || &bytes[.. 8] != b"ALCFENC\0"
-  {
+  if bytes.len() < PREFIX.len() || bytes.len() as u64 > MAX_ENCRYPTED_LEN {
     return Err(Error::Corrupt);
   }
-  let version = match bytes[8] {
-    1 => FileVersion::Legacy,
-    2 => FileVersion::Signed,
-    3 => FileVersion::SignedTree,
-    n => return Err(Error::UnsupportedVersion(n)),
-  };
-  if bytes[9] != 1 {
+  let prefixes = [
+    (LEGACY_PREFIX, FileVersion::Legacy),
+    (V2_PREFIX, FileVersion::Signed),
+    (PREFIX, FileVersion::SignedTree),
+  ];
+  let (expected, version) = prefixes
+    .iter()
+    .copied()
+    .find(|(prefix, _)| bytes[.. 9] == prefix[.. 9])
+    .ok_or_else(|| {
+      if prefixes
+        .iter()
+        .any(|(prefix, _)| bytes[.. 8] == prefix[.. 8])
+      {
+        Error::UnsupportedVersion(bytes[8])
+      } else {
+        Error::Corrupt
+      }
+    })?;
+  if !bytes.starts_with(expected) {
     return Err(Error::UnsupportedSuite(bytes[9]));
   }
   let (header_len, signature_len) = match version {
@@ -97,4 +107,39 @@ pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope<'_>> {
     ciphertext: &bytes[header_len .. bytes.len() - signature_len],
     signature: &bytes[bytes.len() - signature_len ..],
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn known_prefixes_and_unknown_format_errors_are_consistent() {
+    for (prefix, version, header_len, signature_len) in [
+      (LEGACY_PREFIX, FileVersion::Legacy, LEGACY_HEADER_LEN, 0),
+      (V2_PREFIX, FileVersion::Signed, HEADER_LEN, SIGNATURE_LEN),
+      (PREFIX, FileVersion::SignedTree, HEADER_LEN, SIGNATURE_LEN),
+    ] {
+      // A structurally valid empty-plaintext envelope; authentication is a separate step.
+      let mut bytes = vec![0; header_len + TAG_LEN + signature_len];
+      bytes[.. prefix.len()].copy_from_slice(prefix);
+      assert_eq!(parse_envelope(&bytes).unwrap().version, version);
+      bytes[9] = 0xff;
+      assert!(matches!(
+        parse_envelope(&bytes),
+        Err(Error::UnsupportedSuite(0xff))
+      ));
+      bytes[8] = 0xff;
+      assert!(matches!(
+        parse_envelope(&bytes),
+        Err(Error::UnsupportedVersion(0xff))
+      ));
+      bytes[0] ^= 1;
+      assert!(matches!(parse_envelope(&bytes), Err(Error::Corrupt)));
+      assert!(matches!(
+        parse_envelope(&prefix[.. prefix.len() - 1]),
+        Err(Error::Corrupt)
+      ));
+    }
+  }
 }

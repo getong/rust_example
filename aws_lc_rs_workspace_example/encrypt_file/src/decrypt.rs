@@ -1,8 +1,8 @@
 use std::{env, path::Path, process::ExitCode};
 
 use encrypt_file::{
-  Error, KeyKind, Protection, Result, Verification, decrypt_file, generate_keys,
-  generate_signing_keys, keys::fingerprint_hex, read_key,
+  Error, KeyKind, KeyOutputPaths, Protection, Result, Verification, decrypt_file,
+  keys::fingerprint_hex, read_key,
 };
 mod cli;
 const USAGE: &str =
@@ -49,9 +49,7 @@ fn run() -> Result<()> {
     }
     let public = Path::new(&args[index]);
     let private = Path::new(&args[index + 1]);
-    if public == private || public.try_exists()? || private.try_exists()? {
-      return Err(Error::OutputExists);
-    }
+    let outputs = KeyOutputPaths::new(public, private)?;
     let password;
     let protection = if no_password {
       eprintln!("警告：--no-password 将以未加密形式保存私钥。");
@@ -61,9 +59,9 @@ fn run() -> Result<()> {
       Protection::Password(&password)
     };
     let fingerprint = if signing {
-      generate_signing_keys(public, private, protection)?
+      outputs.generate_signing_keys(protection)?
     } else {
-      generate_keys(public, private, protection, protect_public)?
+      outputs.generate_keys(protection, protect_public)?
     };
     println!("密钥已生成。公钥 SHA-256 指纹：{fingerprint}");
   } else if command == "--fingerprint" && args.len() == 3 {

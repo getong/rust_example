@@ -12,8 +12,8 @@ use crate::{
   Error, Result,
   file::{read_bounded, write_new, write_new_parts},
   format::*,
-  kdf::{KdfWorkspace, derive_key},
-  keys::{KeyKind, fingerprint, kem_public_from_private, read_key, read_key_with_workspace},
+  kdf::derive_key,
+  keys::{KeyKind, fingerprint, kem_public_from_private, read_key, read_keys},
   password::PasswordSource,
   signing::{self, Verification, verify_envelope},
 };
@@ -123,14 +123,16 @@ pub fn encrypt_file(
   passwords: &mut dyn PasswordSource,
 ) -> Result<()> {
   let _span = crate::perf::span("command.encrypt");
-  let (public, signing_private) = {
-    let mut workspace = KdfWorkspace::default();
-    let public =
-      read_key_with_workspace(public_path, KeyKind::KemPublic, passwords, &mut workspace)?;
-    let signing_private =
-      read_key_with_workspace(signer_path, KeyKind::SignPrivate, passwords, &mut workspace)?;
-    (public, signing_private)
-  }; // Wipe and release KDF memory before allocating the file buffer.
+  // The batch releases its shared KDF workspace before the file buffer is allocated.
+  let [public, signing_private]: [Zeroizing<Vec<u8>>; 2] = read_keys(
+    &[
+      (public_path, KeyKind::KemPublic),
+      (signer_path, KeyKind::SignPrivate),
+    ],
+    passwords,
+  )?
+  .try_into()
+  .map_err(|_| Error::Corrupt)?;
   let signer = PqdsaKeyPair::from_raw_private_key(&ML_DSA_87_SIGNING, &signing_private)?;
   let plaintext = read_bounded(input, MAX_PLAINTEXT_LEN)?;
   let sealed = encrypt_bytes(plaintext, &public, &signer)?;

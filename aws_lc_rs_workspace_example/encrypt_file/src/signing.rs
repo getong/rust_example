@@ -32,6 +32,7 @@ fn leaf_digest(index: usize, chunk: &[u8]) -> [u8; 64] {
 }
 
 fn tree_digest(ciphertext: &[u8]) -> [u8; 64] {
+  debug_assert!(!ciphertext.is_empty(), "ciphertext includes a GCM tag");
   // Indexed parallel iteration preserves leaf order. Read the original slices directly;
   // at the 64 MiB limit the only extra data is 65 * 64 bytes of leaf hashes.
   let leaves = if ciphertext.len() <= SIGNING_CHUNK_LEN {
