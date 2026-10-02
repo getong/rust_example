@@ -2,7 +2,7 @@
 use std::fs::OpenOptions;
 use std::{
   fs,
-  io::{self, BufRead, IsTerminal, Read, Write},
+  io::{BufRead, IsTerminal, Read, Write, stderr, stdin},
   num::NonZeroU32,
   path::Path,
 };
@@ -15,6 +15,7 @@ use aws_lc_rs::{
   pbkdf2,
   rand::{SecureRandom, SystemRandom},
 };
+use inquire::{Password, PasswordDisplayMode};
 use zeroize::Zeroizing;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -43,13 +44,23 @@ const ARGON_TIME: u32 = 3;
 const ARGON_LANES: u32 = 1;
 
 pub fn read_password(prompt: &str) -> Result<Zeroizing<String>> {
-  if io::stdin().is_terminal() {
-    return read_masked_password(prompt);
+  if stdin().is_terminal() {
+    let password = Zeroizing::new(
+      Password::new(prompt)
+        .with_display_mode(PasswordDisplayMode::Masked)
+        .without_confirmation()
+        .prompt()?,
+    );
+    if password.len() > 1024 {
+      return Err("密码最多 1024 字节".into());
+    }
+    return Ok(password);
   }
-  write!(io::stderr(), "{prompt}")?;
-  io::stderr().flush()?;
+  let mut stderr = stderr().lock();
+  write!(stderr, "{prompt}")?;
+  stderr.flush()?;
   let mut password = Zeroizing::new(String::with_capacity(1025));
-  if io::stdin().lock().take(1025).read_line(&mut password)? == 0 {
+  if stdin().lock().take(1025).read_line(&mut password)? == 0 {
     return Err("未从 stdin 读到密码；不设置密码请直接按 Enter".into());
   }
   if password.len() > 1024 {
@@ -62,64 +73,6 @@ pub fn read_password(prompt: &str) -> Result<Zeroizing<String>> {
     }
   }
   Ok(password)
-}
-
-fn read_masked_password(prompt: &str) -> Result<Zeroizing<String>> {
-  use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
-  };
-
-  // Restore echo and normal terminal input even on errors or cancellation.
-  struct RawModeGuard;
-  impl Drop for RawModeGuard {
-    fn drop(&mut self) {
-      let _ = disable_raw_mode();
-    }
-  }
-  enable_raw_mode()?;
-  let _guard = RawModeGuard;
-  let mut stderr = io::stderr().lock();
-  write!(stderr, "{prompt}")?;
-  stderr.flush()?;
-  let mut password = Zeroizing::new(String::with_capacity(1025));
-  loop {
-    let Event::Key(key) = event::read()? else {
-      continue;
-    };
-    if key.kind == KeyEventKind::Release {
-      continue;
-    }
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-      if matches!(key.code, KeyCode::Char('c' | 'd')) {
-        write!(stderr, "\r\n")?;
-        stderr.flush()?;
-        return Err("密码输入已取消".into());
-      }
-      continue;
-    }
-    match key.code {
-      KeyCode::Enter => {
-        write!(stderr, "\r\n")?;
-        stderr.flush()?;
-        return Ok(password);
-      }
-      KeyCode::Backspace => {
-        if password.pop().is_some() {
-          write!(stderr, "\x08 \x08")?;
-        }
-      }
-      KeyCode::Char(c) if !c.is_control() && !key.modifiers.contains(KeyModifiers::ALT) => {
-        if password.len() + c.len_utf8() > 1024 {
-          return Err("密码最多 1024 字节".into());
-        }
-        password.push(c);
-        write!(stderr, "*")?;
-      }
-      _ => {}
-    }
-    stderr.flush()?;
-  }
 }
 
 fn password_key(
@@ -305,7 +258,10 @@ pub fn write_new_parts(path: &Path, parts: &[&[u8]]) -> Result<()> {
 
 #[cfg(windows)]
 fn windows_create_new(path: &Path) -> Result<fs::File> {
-  use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
+  use std::{
+    io,
+    os::windows::{ffi::OsStrExt, io::FromRawHandle},
+  };
 
   use windows_sys::Win32::{
     Foundation::{GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree},

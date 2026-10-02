@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 argon2 = { version = "0.6", features = ["zeroize"] }
 aws-lc-rs = "1.18.1"
-crossterm = "0.29.0"
+inquire = "0.9.4"
 zeroize = "1.9.0"
 
 [[bin]]
