@@ -3,6 +3,9 @@ name = "encrypt_file"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+perf-trace = []
+
 [dependencies]
 argon2 = { version = "0.6", features = ["zeroize"] }
 aws-lc-rs = "1.18.1"

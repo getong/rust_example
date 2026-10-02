@@ -18,6 +18,15 @@ use aws_lc_rs::{
 use inquire::{Password, PasswordDisplayMode};
 use zeroize::Zeroizing;
 
+mod perf;
+
+macro_rules! measure {
+  ($name:literal, $expr:expr) => {{
+    let _span = perf::span($name);
+    $expr
+  }};
+}
+
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 // v1 / suite 1: ML-KEM-1024 + HKDF-SHA256 + AES-256-GCM。
@@ -44,6 +53,7 @@ const ARGON_TIME: u32 = 3;
 const ARGON_LANES: u32 = 1;
 
 pub fn read_password(prompt: &str) -> Result<Zeroizing<String>> {
+  let _span = perf::span("password.input");
   if stdin().is_terminal() {
     let password = Zeroizing::new(
       Password::new(prompt)
@@ -80,13 +90,21 @@ fn password_key(
   salt: &[u8],
   params: Option<(u32, u32, u32)>,
 ) -> Result<LessSafeKey> {
+  let _span = perf::span("kdf.total");
   let mut bytes = Zeroizing::new([0u8; 32]);
   if let Some((memory, time, lanes)) = params {
     let params = Params::new(memory, time, lanes, Some(32))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     // Explicitly erase the memory-hard workspace too, including on failure.
-    let mut blocks = Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
-    argon.hash_password_into_with_memory(password.as_bytes(), salt, &mut *bytes, &mut *blocks)?;
+    let mut blocks = measure!(
+      "kdf.allocate",
+      Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()])
+    );
+    measure!(
+      "kdf.argon2id",
+      argon.hash_password_into_with_memory(password.as_bytes(), salt, &mut *bytes, &mut *blocks)
+    )?;
+    measure!("kdf.zeroize", drop(blocks));
   } else {
     pbkdf2::derive(
       pbkdf2::PBKDF2_HMAC_SHA256,
@@ -100,15 +118,25 @@ fn password_key(
 }
 
 pub fn protect_private_key(bytes: &[u8], password: &str) -> Result<Zeroizing<Vec<u8>>> {
-  if bytes.len() != PRIVATE_KEY_LEN {
-    return Err("私钥长度错误".into());
+  protect_key(bytes, password, true)
+}
+
+fn protect_key(bytes: &[u8], password: &str, private: bool) -> Result<Zeroizing<Vec<u8>>> {
+  let _span = perf::span("key.protect");
+  let raw_len = if private {
+    PRIVATE_KEY_LEN
+  } else {
+    PUBLIC_KEY_LEN
+  };
+  if bytes.len() != raw_len {
+    return Err("密钥长度错误".into());
   }
   if password.is_empty() {
     return Ok(Zeroizing::new(bytes.to_vec()));
   }
   let mut header = [0u8; KEY_HEADER_LEN];
   header[.. KEY_PREFIX.len()].copy_from_slice(KEY_PREFIX);
-  header[10] = 1;
+  header[10] = u8::from(private);
   for (field, value) in
     header[11 .. 23]
       .as_chunks_mut::<4>()
@@ -129,10 +157,13 @@ pub fn protect_private_key(bytes: &[u8], password: &str) -> Result<Zeroizing<Vec
   let nonce = header[nonce_start ..].try_into()?;
   let mut ciphertext = Zeroizing::new(Vec::with_capacity(bytes.len() + AES_256_GCM.tag_len()));
   ciphertext.extend_from_slice(bytes);
-  key.seal_in_place_append_tag(
-    Nonce::assume_unique_for_key(nonce),
-    Aad::from(&header),
-    &mut *ciphertext,
+  measure!(
+    "crypto.key_encrypt",
+    key.seal_in_place_append_tag(
+      Nonce::assume_unique_for_key(nonce),
+      Aad::from(&header),
+      &mut *ciphertext,
+    )
   )?;
   let mut result = Zeroizing::new(header.to_vec());
   result.extend_from_slice(&ciphertext);
@@ -140,6 +171,7 @@ pub fn protect_private_key(bytes: &[u8], password: &str) -> Result<Zeroizing<Vec
 }
 
 pub fn read_key(path: &Path, private: bool) -> Result<Zeroizing<Vec<u8>>> {
+  let _span = perf::span("key.read_unlock");
   let mut bytes = read_bounded(
     path,
     (KEY_HEADER_LEN + PRIVATE_KEY_LEN + AES_256_GCM.tag_len()) as u64,
@@ -152,9 +184,6 @@ pub fn read_key(path: &Path, private: bool) -> Result<Zeroizing<Vec<u8>>> {
   if bytes.len() == raw_len {
     return Ok(bytes);
   }
-  if !private {
-    return Err("公钥必须使用裸格式；旧加密公钥请从对应私钥重新导出".into());
-  }
   let (header_len, params) = if bytes.starts_with(KEY_PREFIX) && bytes.len() >= KEY_HEADER_LEN {
     let read = |offset| u32::from_le_bytes(bytes[offset .. offset + 4].try_into().unwrap());
     let (memory, time, lanes) = (read(11), read(15), read(19));
@@ -166,12 +195,12 @@ pub fn read_key(path: &Path, private: bool) -> Result<Zeroizing<Vec<u8>>> {
       return Err("Argon2id 参数超出支持范围".into());
     }
     (KEY_HEADER_LEN, Some((memory, time, lanes)))
-  } else if bytes.starts_with(LEGACY_KEY_PREFIX) {
+  } else if private && bytes.starts_with(LEGACY_KEY_PREFIX) {
     (LEGACY_HEADER_LEN, None)
   } else {
     return Err("密钥文件损坏，或密钥类型/版本不受支持".into());
   };
-  if bytes.len() != header_len + raw_len + AES_256_GCM.tag_len() || bytes[10] != 1 {
+  if bytes.len() != header_len + raw_len + AES_256_GCM.tag_len() || bytes[10] != u8::from(private) {
     return Err("密钥文件损坏，或密钥类型/版本不受支持".into());
   }
   let password = read_password("请输入密钥密码：")?;
@@ -183,18 +212,22 @@ pub fn read_key(path: &Path, private: bool) -> Result<Zeroizing<Vec<u8>>> {
   let salt_start = nonce_start - SALT_LEN;
   let key = password_key(&password, &header[salt_start .. nonce_start], params)?;
   let nonce = header[nonce_start ..].try_into()?;
-  let plaintext = key
-    .open_in_place(
-      Nonce::assume_unique_for_key(nonce),
-      Aad::from(&*header),
-      ciphertext,
-    )
-    .map_err(|_| "密钥密码错误或密钥文件被修改")?;
+  let plaintext = measure!(
+    "crypto.key_decrypt",
+    key
+      .open_in_place(
+        Nonce::assume_unique_for_key(nonce),
+        Aad::from(&*header),
+        ciphertext,
+      )
+      .map_err(|_| "密钥密码错误或密钥文件被修改")
+  )?;
   Ok(Zeroizing::new(plaintext.to_vec()))
 }
 
 /// Bound actual reads as well as metadata, including files growing during the read.
 pub fn read_bounded(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>> {
+  let _span = perf::span("io.read");
   let file = fs::File::open(path)?;
   let metadata = file.metadata()?;
   if !metadata.is_file() || metadata.len() > limit {
@@ -210,6 +243,7 @@ pub fn read_bounded(path: &Path, limit: u64) -> Result<Zeroizing<Vec<u8>>> {
 }
 
 pub fn derive_key(shared_secret: &[u8], salt: &[u8]) -> Result<LessSafeKey> {
+  let _span = perf::span("crypto.hkdf");
   let salt = Salt::new(HKDF_SHA256, salt);
   let prk = salt.extract(shared_secret);
   // Map the on-disk version/suite to its exact legacy domain separation string.
@@ -228,6 +262,7 @@ pub fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 pub fn write_new_parts(path: &Path, parts: &[&[u8]]) -> Result<()> {
+  let _span = perf::span("io.write_total");
   #[cfg(not(windows))]
   let mut options = OpenOptions::new();
   #[cfg(not(windows))]
@@ -242,17 +277,20 @@ pub fn write_new_parts(path: &Path, parts: &[&[u8]]) -> Result<()> {
   #[cfg(windows)]
   let mut file = windows_create_new(path)?;
   for part in parts {
-    file.write_all(part)?;
+    measure!("io.write", file.write_all(part))?;
   }
-  file.sync_all()?;
+  measure!("io.fsync_file", file.sync_all())?;
   #[cfg(unix)]
-  fs::File::open(
-    path
-      .parent()
-      .filter(|p| !p.as_os_str().is_empty())
-      .unwrap_or(Path::new(".")),
-  )?
-  .sync_all()?;
+  measure!(
+    "io.fsync_dir",
+    fs::File::open(
+      path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new(".")),
+    )?
+    .sync_all()
+  )?;
   Ok(())
 }
 
@@ -311,8 +349,10 @@ fn windows_create_new(path: &Path) -> Result<fs::File> {
 }
 
 pub fn encrypt_file(public_key_path: &Path, input: &Path, output: &Path) -> Result<()> {
+  let _span = perf::span("command.encrypt");
   let public_key = EncapsulationKey::new(&ML_KEM_1024, &read_key(public_key_path, false)?)?;
-  let (kem_ciphertext, shared_secret) = public_key.encapsulate()?;
+  let (kem_ciphertext, shared_secret) =
+    measure!("crypto.kem_encapsulate", public_key.encapsulate())?;
   let mut plaintext = read_bounded(input, MAX_PLAINTEXT_LEN)?;
 
   let mut header = [0u8; HEADER_LEN];
@@ -325,16 +365,22 @@ pub fn encrypt_file(public_key_path: &Path, input: &Path, output: &Path) -> Resu
   header[KEM_END ..].copy_from_slice(&nonce_bytes);
 
   let key = derive_key(shared_secret.as_ref(), &header[PREFIX.len() .. SALT_END])?;
-  key.seal_in_place_append_tag(
-    Nonce::assume_unique_for_key(nonce_bytes),
-    Aad::from(&header),
-    &mut *plaintext,
+  measure!(
+    "crypto.file_encrypt",
+    key.seal_in_place_append_tag(
+      Nonce::assume_unique_for_key(nonce_bytes),
+      Aad::from(&header),
+      &mut *plaintext,
+    )
   )?;
 
-  write_new_parts(output, &[&header, &plaintext])
+  let result = write_new_parts(output, &[&header, &plaintext]);
+  measure!("memory.zeroize_file", drop(plaintext));
+  result
 }
 
 pub fn generate_keys(public_path: &Path, private_path: &Path) -> Result<()> {
+  let _span = perf::span("command.keygen");
   if public_path == private_path || public_path.try_exists()? || private_path.try_exists()? {
     return Err("公私钥必须使用不同的新文件路径；不会覆盖已有文件".into());
   }
@@ -345,16 +391,21 @@ pub fn generate_keys(public_path: &Path, private_path: &Path) -> Result<()> {
       return Err("两次密码不一致，未生成密钥".into());
     }
   }
-  let private_key = DecapsulationKey::generate(&ML_KEM_1024)?;
+  let private_key = measure!(
+    "crypto.kem_keygen",
+    DecapsulationKey::generate(&ML_KEM_1024)
+  )?;
   let public_bytes = private_key.encapsulation_key()?.key_bytes()?;
   let private_bytes = private_key.key_bytes()?;
   let protected_private = protect_private_key(private_bytes.as_ref(), &password)?;
+  let protected_public = protect_key(public_bytes.as_ref(), &password, false)?;
   // 先保存私钥，即使公钥写入失败，也不丢失已生成的私钥。
   write_new(private_path, &protected_private)?;
-  write_new(public_path, public_bytes.as_ref())
+  write_new(public_path, &protected_public)
 }
 
 pub fn decrypt_file(private_key_path: &Path, input: &Path, output: &Path) -> Result<()> {
+  let _span = perf::span("command.decrypt");
   let mut encrypted = read_bounded(
     input,
     MAX_PLAINTEXT_LEN + HEADER_LEN as u64 + AES_256_GCM.tag_len() as u64,
@@ -364,18 +415,26 @@ pub fn decrypt_file(private_key_path: &Path, input: &Path, output: &Path) -> Res
   }
   let private_key = DecapsulationKey::new(&ML_KEM_1024, &read_key(private_key_path, true)?)?;
   let (header, ciphertext) = encrypted.split_at_mut(HEADER_LEN);
-  let shared_secret = private_key.decapsulate(Ciphertext::from(&header[SALT_END .. KEM_END]))?;
+  let shared_secret = measure!(
+    "crypto.kem_decapsulate",
+    private_key.decapsulate(Ciphertext::from(&header[SALT_END .. KEM_END]))
+  )?;
   let key = derive_key(shared_secret.as_ref(), &header[PREFIX.len() .. SALT_END])?;
   let nonce_bytes: [u8; NONCE_LEN] = header[KEM_END ..].try_into()?;
-  let plaintext = key
-    .open_in_place(
-      Nonce::assume_unique_for_key(nonce_bytes),
-      Aad::from(&*header),
-      ciphertext,
-    )
-    .map_err(|_| "解密认证失败：私钥不匹配或文件被修改")?;
+  let plaintext = measure!(
+    "crypto.file_decrypt",
+    key
+      .open_in_place(
+        Nonce::assume_unique_for_key(nonce_bytes),
+        Aad::from(&*header),
+        ciphertext,
+      )
+      .map_err(|_| "解密认证失败：私钥不匹配或文件被修改")
+  )?;
   // 认证通过后才创建输出，不把未认证的明文写入磁盘。
-  write_new(output, plaintext)
+  let result = write_new(output, plaintext);
+  measure!("memory.zeroize_file", drop(encrypted));
+  result
 }
 
 #[cfg(test)]

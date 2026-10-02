@@ -175,9 +175,24 @@ fn password_protected_keys_require_passwords() {
   fs::write(dir.0.join("input"), b"secret content").unwrap();
   assert_eq!(
     fs::metadata(dir.0.join("public")).unwrap().len(),
-    encrypt_file::PUBLIC_KEY_LEN as u64
+    (encrypt_file::PUBLIC_KEY_LEN + 67 + 16) as u64
   );
-  dir.run("encrypt", &["public", "input", "encrypted"], true);
+  for input in ["wrong\n", "\n", ""] {
+    let output = dir.run_stdin("encrypt", &["public", "input", "encrypted"], false, input);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("请输入密钥密码"));
+    assert!(!dir.0.join("encrypted").exists());
+  }
+  let output = dir.run_stdin(
+    "encrypt",
+    &["public", "input", "encrypted"],
+    true,
+    &format!("{password}\n"),
+  );
+  assert!(String::from_utf8_lossy(&output.stderr).contains("请输入密钥密码"));
+  // 密钥类型不可互换。
+  dir.run_stdin("encrypt", &["private", "input", "rejected"], false, "");
+  dir.run_stdin("decrypt", &["public", "encrypted", "rejected"], false, "");
+  assert!(!dir.0.join("rejected").exists());
   for input in ["wrong\n", "\n", ""] {
     let output = dir.run_stdin(
       "decrypt",
@@ -198,7 +213,10 @@ fn password_protected_keys_require_passwords() {
     fs::read(dir.0.join("recovered")).unwrap(),
     b"secret content"
   );
-  for (key, bin, input) in [("private", "decrypt", "encrypted")] {
+  for (key, bin, input) in [
+    ("private", "decrypt", "encrypted"),
+    ("public", "encrypt", "input"),
+  ] {
     let valid = fs::read(dir.0.join(key)).unwrap();
     for index in [0, 8, 9, 10, 11, 15, 19, 23, 55, 67, valid.len() - 1] {
       let mut bad = valid.clone();

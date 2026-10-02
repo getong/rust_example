@@ -1,3 +1,7 @@
 encrypted.bin
 recipient.private
 recipient.public
+
+# Local benchmark artifacts and scripts
+/benchmarks/
+/tools/
