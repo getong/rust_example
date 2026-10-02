@@ -124,8 +124,11 @@ pub(crate) fn derive_key(
   let domain: &[u8] = match version {
     FileVersion::Legacy => b"encrypt_file/v1/ML-KEM-1024/HKDF-SHA256/AES-256-GCM",
     FileVersion::Signed => b"encrypt_file/v2/ML-KEM-1024/HKDF-SHA256/AES-256-GCM/ML-DSA-87",
+    FileVersion::SignedTree => {
+      b"encrypt_file/v3/ML-KEM-1024/HKDF-SHA256/AES-256-GCM/ML-DSA-87/SHA-512-TREE-1M"
+    }
   };
-  // v1 info is immutable; v2 binds the entire header, including the KEM ciphertext.
+  // v1/v2 domains are immutable; both signed versions bind the complete header.
   let legacy = [domain];
   let signed = [domain, header];
   let info = if version == FileVersion::Legacy {

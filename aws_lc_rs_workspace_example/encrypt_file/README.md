@@ -1,6 +1,6 @@
 # ML-KEM 文件加密示例
 
-使用 ML-KEM-1024、HKDF-SHA256、AES-256-GCM 加密文件，并用 ML-DSA-87 验证发送方身份。默认写入带签名的文件格式 v2；旧 v1 文件只能显式选择兼容模式读取。这是自定义格式的学习示例，不是独立审计或经过 FIPS 认证的产品。
+使用 ML-KEM-1024、HKDF-SHA256、AES-256-GCM 加密文件，并用 ML-DSA-87 验证发送方身份。默认写入带签名的文件格式 v3，继续读取旧签名格式 v2；旧 v1 文件只能显式选择兼容模式读取。这是自定义格式的学习示例，不是独立审计或经过 FIPS 认证的产品。
 
 ## 使用
 
@@ -12,10 +12,10 @@ cargo run --release --bin decrypt -- --keygen recipient-v2.public recipient-v2.p
 cargo run --release --bin decrypt -- --sign-keygen sender.public sender.private
 
 # 加密：输入发送方签名私钥密码（旧受保护公钥会先要求其密码）
-cargo run --release --bin encrypt -- --sign-key sender.private recipient-v2.public input.txt encrypted-v2.bin
+cargo run --release --bin encrypt -- --sign-key sender.private recipient-v2.public input.txt encrypted-v3.bin
 
 # 解密：先验证可信发送方的签名，再输入接收方私钥密码
-cargo run --release --bin decrypt -- --verify-key sender.public recipient-v2.private encrypted-v2.bin recovered-v2.txt
+cargo run --release --bin decrypt -- --verify-key sender.public recipient-v2.private encrypted-v3.bin recovered-v3.txt
 ```
 
 `sender.public` 必须预先经可信渠道交付并核对指纹，不能直接信任与密文一起从可被替换的 URL 下载的公钥。签名私钥由发送方独立保存，接收方私钥由接收方独立保存；两者不能混用，签名私钥及其密码不应随接收方公钥分发。
@@ -41,17 +41,17 @@ cargo run --release --bin decrypt -- --fingerprint sign sender.public
 
 仅有公钥加密时，拿到公钥的人可以生成一份全新的合法密文；AES-GCM 的完整性校验不能证明是谁发的。这也是旧 v1 文件的限制。
 
-v2 的头部记录发送方和接收方公钥指纹、原文长度；整头作为 AES-GCM AAD，并绑定进 HKDF info。ML-DSA-87 签名覆盖协议专用域、整个头部，以及密文（包含 GCM tag）的 SHA-512 摘要。签名附在文件末尾，由外部可信发送方公钥验证，通过后才解锁接收方私钥、执行 KEM/AEAD 并创建输出。
+v2/v3 的头部记录发送方和接收方公钥指纹、原文长度；整头作为 AES-GCM AAD，并绑定进 HKDF info。ML-DSA-87 签名覆盖协议专用域、整个头部，以及完整密文（包含 GCM tag）的摘要：v2 使用原始 SHA-512，v3 使用并行分块 SHA-512 根摘要。签名附在文件末尾，由外部可信发送方公钥验证，通过后才解锁接收方私钥、执行 KEM/AEAD 并创建输出。
 
 签名不阻止可信发送方自己重发旧文件，也不防重放、回滚、拒绝服务或签名私钥泄漏。需要防回滚时，必须在应用层验证预期版本/时间/文件身份。任意拿到发送方私钥的人仍可伪造来源。
 
 ## 格式、长度泄漏与兼容性
 
-文件 v2 的完整头部为 1694 字节：
+文件 v3 的完整头部仍为 1694 字节，与 v2 的字段布局相同，仅版本字节改为 3：
 
 | 字段 | 字节数 |
 |---|---:|
-| 魔数 `ALCFENC\0`、版本 `2`、套件 `1` | 10 |
+| 魔数 `ALCFENC\0`、版本 `3`、套件 `1` | 10 |
 | HKDF 随机盐 | 32 |
 | ML-KEM-1024 封装密文 | 1568 |
 | GCM nonce | 12 |
@@ -62,10 +62,27 @@ v2 的头部记录发送方和接收方公钥指纹、原文长度；整头作�
 随后为 AES-GCM 密文、16 字节 GCM tag、4627 字节 ML-DSA-87 签名。总长度为明文长度 + **6337**，精确暴露明文长度，并公开双方的指纹；本实现不填充、不隐藏元数据。ML-DSA 签的是自定义 transcript，不宣称是 HashML-DSA 模式：
 
 ```text
-"encrypt_file/v2/signature/ML-DSA-87/SHA-512\0" || header || SHA512(ciphertext || GCM_tag)
+C = ciphertext || GCM_tag
+B = 1048576                          # 固定 1 MiB；C 至少有 16 字节 tag
+n = ceil(len(C) / B)
+leaf[i] = SHA512("encrypt_file/v3/SHA-512-TREE-1M/leaf\0"
+                 || LE64(i) || LE64(len(chunk[i])) || chunk[i])
+root = SHA512("encrypt_file/v3/SHA-512-TREE-1M/root\0"
+              || LE64(len(C)) || LE64(B) || LE64(n)
+              || leaf[0] || ... || leaf[n-1])
+message = "encrypt_file/v3/signature/ML-DSA-87/SHA-512-TREE-1M\0"
+          || header || root
 ```
 
-v2 的 HKDF info 为 `encrypt_file/v2/ML-KEM-1024/HKDF-SHA256/AES-256-GCM/ML-DSA-87` 后连接整个头部，包含 KEM 密文。每次加密重新封装，并生成随机盐和 nonce；不声称数学上绝无随机碰撞。不增加额外 HMAC，也不作整个组合达到某一 NIST 类别的合规承诺。
+叶子按顺序覆盖 C 的全部字节，叶子可由 Rayon 并行计算；小于等于 1 MiB 时直接串行，避免调度开销。分块大小、索引、长度、顺序与域分隔都是固定格式定义，不根据机器线程数改变。摘要数组最多 65×64 字节，不复制整份密文；整体仍做 O(n) 哈希工作，并行化减少墙钟耗时，不代表 CPU 总工作量消失。这是两层摘要计算，不是流式 AEAD，64 MiB 上限不变。
+
+v3 HKDF info 为 `encrypt_file/v3/ML-KEM-1024/HKDF-SHA256/AES-256-GCM/ML-DSA-87/SHA-512-TREE-1M` 后连接整个头部。旧 v2 仍使用原来的 info `encrypt_file/v2/ML-KEM-1024/HKDF-SHA256/AES-256-GCM/ML-DSA-87` 与签名 message `"encrypt_file/v2/signature/ML-DSA-87/SHA-512\0" || header || SHA512(C)`；不会拿 v3 的摘要算法处理 v2。升级不需要重新生成接收方或签名密钥；旧程序不认识 v3，新程序继续验证和解密 v2。
+
+每次加密重新封装，并生成随机盐和 nonce；不声称数学上绝无随机碰撞。不增加额外 HMAC，也不作整个组合达到某一 NIST 类别的合规承诺。
+
+### 为什么不改成签名 header 与 GCM tag
+
+GCM 是共享密钥认证。合法接收方知道 AES 密钥，也就能计算 GHASH 的 H；修改两个相邻密文块可以保持相同 tag。此时 `header || tag` 的签名不变，GCM 也会接受，但明文已变，接收方能伪造发送方内容。因此 tag 不能代替对密文的抗碰撞绑定。依据是 [NIST SP 800-38D 的 GHASH 定义](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf)，可执行反例在 `tests/tag_binding.rs`。v3 保留完整密文绑定，并保留“有效签名也不能绕过 AEAD”的回归测试。
 
 旧文件 v1 的头部保持 1622 字节，总长度为明文长度 + 1638；旧 HKDF info `encrypt_file/v1/ML-KEM-1024/HKDF-SHA256/AES-256-GCM` 完全不变。读取必须明确选择无签名兼容模式：
 
@@ -73,7 +90,7 @@ v2 的 HKDF info 为 `encrypt_file/v2/ML-KEM-1024/HKDF-SHA256/AES-256-GCM/ML-DSA
 cargo run --release --bin decrypt -- --allow-unsigned-legacy recipient.private encrypted.bin recovered-legacy.txt
 ```
 
-可信验签模式拒绝 v1，兼容模式拒绝 v2；不会遇到签名错误就降级。旧裸密钥、Argon2id v2 密钥、PBKDF2 v1 私钥仍可读取。旧裸公钥不含密码信息，不会因程序升级自动受到密码保护；旧密钥可直接参与新的签名文件流程。只有新建签名密钥是新流程必须补充的步骤。
+可信验签模式拒绝 v1，兼容模式拒绝 v2/v3；不会遇到签名错误就降级。旧裸密钥、Argon2id v2 密钥、PBKDF2 v1 私钥仍可读取。旧裸公钥不含密码信息，不会因程序升级自动受到密码保护；旧密钥可直接参与新的签名文件流程。只有新建签名密钥是新流程必须补充的步骤。
 
 密码保护密钥容器仍为 `ALCFKEY\0`、版本 `2`、套件 `1`、类型 u8，然后是三个小端 u32 Argon2 参数、32 字节盐、12 字节 nonce，共 67 字节头部。类型：0=KEM 公钥、1=KEM 私钥、2=签名公钥、3=签名私钥。原始长度分别为 1568、3168、2592、4896 字节；非空密码时整个头部作为 AAD。签名公钥写出时不加密码。旧 v1 私钥的 600,000 次 PBKDF2-HMAC-SHA256 迭代保持不变。
 
@@ -100,22 +117,29 @@ cargo fmt -p encrypt_file -- --check
 cargo clippy -p encrypt_file --all-targets --all-features -- -D warnings
 cargo test -p encrypt_file --release --lib --tests
 cargo bench
+cargo bench --bench kem_startup
 cargo bench --features perf-trace
 cargo bench --bench cli -- protected/encrypt/32MiB --samples 5
 cargo bench --bench cli -- private-only/encrypt/32MiB --samples 5
 ```
 
-基准为原生 Rust，27 个场景：plain（无密码）、private-only（新默认：公钥裸存、两种私钥受保护）、protected（接收方公私钥均受保护）；每种包含 keygen 和 4 B / 1 MiB / 32 MiB / 64 MiB 加解密。各预热一次，默认采样三次，输出中位数/min/max。签名密钥生成作为不计时的准备阶段。计时包含进程启动、磁盘同步和擦除，排除输入等待、准备、校验、清理；临时数据不影响用户文件，不采集 CPU 时间/峰值 RSS。
+CLI 基准为原生 Rust，27 个场景：plain（无密码）、private-only（新默认：公钥裸存、两种私钥受保护）、protected（接收方公私钥均受保护）；每种包含 keygen 和 4 B / 1 MiB / 32 MiB / 64 MiB 加解密。各预热一次，默认采样三次，输出中位数/min/max。签名密钥生成作为不计时的准备阶段。计时包含进程启动、磁盘同步和擦除，排除输入等待、准备、校验、清理；临时数据不影响用户文件，不采集 CPU 时间/峰值 RSS。
 
 `perf-trace` 父子阶段有包含关系，不能直接相加。工作区擦除现在发生在 KDF 批次结束，`kdf.total` 不再包含这次集中擦除；完整耗时应看 `command.*` 或 CLI 总耗时。对比优化应注明文件大小、保护策略和 KDF 参数；不能把减少一次 KDF 当作同参数并行加速。
 
-`tests/fixtures` 含固定旧 v1 文件和 NIST 官方 ACVP ML-KEM-1024 已知答案，包含隐式拒绝测试，来源与哈希见其中 README。它们的私钥是公开测试材料，不能用于实际数据。此类回归测试不等于算法或产品认证。
+### 首次 ML-KEM 调用的固定成本
+
+`cargo bench --bench kem_startup` 在三个全新进程内，分别测第一次 ML-KEM-1024 keygen，以及随后 100 次 keygen 的平均值，再对进程结果取中位数。本次实测首次调用 51.415 ms，后续每次平均 0.035 ms（3 个进程取中位数）。首次路径包含后端初始化等开销，这个测量不进一步区分后端自检、随机源初始化等内部步骤。
+
+CLI benchmark 每个样本都创建新进程，因此每次 keygen/encapsulate 都可能包含该成本；“预热一次”不会使之后的新进程继承后端状态。不要拿进程冷启动耗时与进程内热循环耗时直接比较，也不要在计时外预热后声称真实 CLI 节省了这 51 ms。crate 层把初始化挪到更早的位置只是在移动成本。此项与文件大小无关，应与真正的算法回归分开判断。
+
+`tests/fixtures` 含固定旧 v1/v2 文件和 NIST 官方 ACVP ML-KEM-1024 已知答案，包含隐式拒绝测试，来源与哈希见其中 README。它们的私钥是公开测试材料，不能用于实际数据。此类回归测试不等于算法或产品认证。
 
 fuzz 目标和运行方法见 [fuzz/README.md](fuzz/README.md)。仓库根 `.github/workflows/encrypt-file.yml` 配置 macOS/Windows 的 fmt、Clippy、回归测试；只编译 benchmark，不在 CI 执行基准。Windows 测试包含 DACL 检查，本地 macOS 成功不能代替 Windows runner 的结果。
 
 本地评审笔记、编辑器备份与 CLI 生成文件由 `.gitignore` 排除；测试用公开密钥和已知答案仍纳入版本控制。
 
-### 本次优化实测（32 MiB，release）
+### 前次 Argon2 优化实测（v2，32 MiB，release）
 
 本机 i9-9980HK，每场景预热一次、采样 3 次取中位数，包含进程启动、签名、文件同步及擦除，不含编译和人工输入。旧基线为串行 lanes=1；新密钥为 parallel + lanes=4。m=64 MiB、t=3 不变，下面的变快不代表旧密钥会自动变成 lanes=4。
 
@@ -126,3 +150,16 @@ fuzz 目标和运行方法见 [fuzz/README.md](fuzz/README.md)。仓库根 `.git
 | 优化后，新默认裸公钥 | 328.3 ms | 43.1 ms（1 次） | 38.3 ms（1 次） | 7.5 ms（1 次） |
 
 新工作区按 Block 擦除所有曾使用的区域，再释放 Vec，不重复擦除同一缓冲；没有跳过敏感内存清除。旧密钥按照保存的 lanes 读取，若需要新的并行参数，应使用新文件名新建密钥，不自动覆盖旧密钥。
+
+### v3 并行摘要实测（32 MiB，release）
+
+同一台 i9-9980HK，private-only 模式（公钥裸存、签名私钥和接收方私钥均受密码保护），各场景预热一次、采样 3 次取中位数；Argon2 m=64 MiB/t=3/p=4 保持相同。
+
+| 项目 | v2 原始 SHA-512 | v3 并行 SHA-512 摘要 |
+|---|---:|---:|
+| 加密 CLI 总耗时 | 329.7 ms | 260.5 ms |
+| 解密 CLI 总耗时 | 290.9 ms | 223.7 ms |
+| crypto.sign（含摘要） | 78.8 ms | 12.4 ms |
+| crypto.verify（含摘要） | 78.8 ms | 12.9 ms |
+
+`crypto.signature_hash` 单独报告摘要/transcript 构造耗时，本次加密约 11.8 ms、解密约 12.7 ms；它包含在 sign/verify 内，不能重复相加。收益来自多核并行处理密文摘要；仍保留全部密文绑定和独立 AEAD 认证。旧 v2 文件继续执行原始 SHA-512，不会自动享受 v3 摘要加速。小样本结果仅用于本机诊断。

@@ -1,11 +1,12 @@
 #![no_main]
+use std::sync::LazyLock;
+
 use aws_lc_rs::{
   kem::{DecapsulationKey, ML_KEM_1024},
   signature::{KeyPair, ML_DSA_87_SIGNING, PqdsaKeyPair},
 };
 use encrypt_file::{format::parse_envelope, keys::parse_key, *};
 use libfuzzer_sys::fuzz_target;
-use std::sync::LazyLock;
 use zeroize::Zeroizing;
 
 static PRIVATE: LazyLock<DecapsulationKey> = LazyLock::new(|| {
@@ -32,10 +33,15 @@ fuzz_target!(|data: &[u8]| {
   ] {
     let _ = parse_key(data, kind);
   }
+  let verifier: &[u8] = if data.get(8) == Some(&2) {
+    include_bytes!("../../tests/fixtures/v2.sender-public")
+  } else {
+    SIGNER.public_key().as_ref()
+  };
   let _ = decrypt_bytes(
     Zeroizing::new(data.to_vec()),
     &PRIVATE,
-    Verification::Trusted(SIGNER.public_key().as_ref()),
+    Verification::Trusted(verifier),
   );
   let _ = decrypt_bytes(
     Zeroizing::new(data.to_vec()),

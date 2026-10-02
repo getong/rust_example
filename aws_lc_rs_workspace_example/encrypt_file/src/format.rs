@@ -1,7 +1,8 @@
 use crate::{Error, Result};
 
 pub const LEGACY_PREFIX: &[u8; 10] = b"ALCFENC\0\x01\x01";
-pub const PREFIX: &[u8; 10] = b"ALCFENC\0\x02\x01";
+pub const V2_PREFIX: &[u8; 10] = b"ALCFENC\0\x02\x01";
+pub const PREFIX: &[u8; 10] = b"ALCFENC\0\x03\x01";
 pub const SALT_LEN: usize = 32;
 pub const FINGERPRINT_LEN: usize = 32;
 pub const NONCE_LEN: usize = aws_lc_rs::aead::NONCE_LEN;
@@ -38,7 +39,10 @@ pub(crate) const LEGACY_KEY_HEADER_LEN: usize = KEY_PARAMS_START + SALT_LEN + NO
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileVersion {
   Legacy,
+  /// v2: signature over a flat SHA-512 digest.
   Signed,
+  /// v3: signature over the domain-separated parallel SHA-512 tree root.
+  SignedTree,
 }
 
 #[derive(Debug)]
@@ -60,6 +64,7 @@ pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope<'_>> {
   let version = match bytes[8] {
     1 => FileVersion::Legacy,
     2 => FileVersion::Signed,
+    3 => FileVersion::SignedTree,
     n => return Err(Error::UnsupportedVersion(n)),
   };
   if bytes[9] != 1 {
@@ -67,7 +72,7 @@ pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope<'_>> {
   }
   let (header_len, signature_len) = match version {
     FileVersion::Legacy => (LEGACY_HEADER_LEN, 0),
-    FileVersion::Signed => (HEADER_LEN, SIGNATURE_LEN),
+    FileVersion::Signed | FileVersion::SignedTree => (HEADER_LEN, SIGNATURE_LEN),
   };
   if bytes.len() < header_len + TAG_LEN + signature_len {
     return Err(Error::Corrupt);
@@ -76,7 +81,7 @@ pub fn parse_envelope(bytes: &[u8]) -> Result<Envelope<'_>> {
   if plain_len as u64 > MAX_PLAINTEXT_LEN {
     return Err(Error::InputLimit);
   }
-  if version == FileVersion::Signed {
+  if version != FileVersion::Legacy {
     let encoded = u64::from_le_bytes(
       bytes[RECIPIENT_END .. HEADER_LEN]
         .try_into()

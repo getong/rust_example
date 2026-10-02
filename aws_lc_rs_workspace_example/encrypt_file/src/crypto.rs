@@ -52,7 +52,7 @@ pub fn encrypt_bytes(
   header[LEGACY_HEADER_LEN .. SENDER_END].copy_from_slice(&signing::sender_fingerprint(signer));
   header[SENDER_END .. RECIPIENT_END].copy_from_slice(&fingerprint(public));
   header[RECIPIENT_END .. HEADER_LEN].copy_from_slice(&(plaintext.len() as u64).to_le_bytes());
-  let key = derive_key(shared.as_ref(), &header, FileVersion::Signed)?;
+  let key = derive_key(shared.as_ref(), &header, FileVersion::SignedTree)?;
   let nonce = Nonce::assume_unique_for_key(
     header[KEM_END .. LEGACY_HEADER_LEN]
       .try_into()
@@ -83,7 +83,7 @@ pub fn decrypt_bytes(
 
 fn decrypt_verified(bytes: &mut Vec<u8>, private: &DecapsulationKey) -> Result<()> {
   let envelope = parse_envelope(bytes)?;
-  if envelope.version == FileVersion::Signed {
+  if envelope.version != FileVersion::Legacy {
     let private_bytes = private.key_bytes()?;
     let public = kem_public_from_private(private_bytes.as_ref())?;
     if envelope.header[SENDER_END .. RECIPIENT_END] != fingerprint(public) {

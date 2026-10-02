@@ -8,6 +8,7 @@ use encrypt_file::{
   *,
 };
 use zeroize::Zeroizing;
+mod common;
 
 fn signer() -> PqdsaKeyPair {
   PqdsaKeyPair::generate(&ML_DSA_87_SIGNING).unwrap()
@@ -287,7 +288,6 @@ fn nist_fips203_known_answers() {
 
 #[test]
 fn valid_signature_does_not_bypass_aead_authentication() {
-  use aws_lc_rs::digest::{SHA512, digest};
   let private = receiver();
   let signer = signer();
   let public = private.encapsulation_key().unwrap().key_bytes().unwrap();
@@ -299,9 +299,7 @@ fn valid_signature_does_not_bypass_aead_authentication() {
   .unwrap();
   sealed.ciphertext[0] ^= 1;
   // Build the documented transcript independently: valid signer, invalid AEAD ciphertext.
-  let mut transcript = b"encrypt_file/v2/signature/ML-DSA-87/SHA-512\0".to_vec();
-  transcript.extend_from_slice(&sealed.header);
-  transcript.extend_from_slice(digest(&SHA512, &sealed.ciphertext).as_ref());
+  let transcript = common::v3_transcript(&sealed.header, &sealed.ciphertext);
   signer.sign(&transcript, &mut sealed.signature).unwrap();
   let bytes = sealed.to_bytes();
   let verification = Verification::Trusted(signer.public_key().as_ref());
@@ -388,7 +386,6 @@ fn old_lanes1_keys_and_embedded_public_key_remain_compatible() {
 
 #[test]
 fn signed_wrong_recipient_fingerprint_is_rejected_before_aead() {
-  use aws_lc_rs::digest::{SHA512, digest};
   let private = receiver();
   let signing = signer();
   let public = private.encapsulation_key().unwrap().key_bytes().unwrap();
@@ -399,9 +396,7 @@ fn signed_wrong_recipient_fingerprint_is_rejected_before_aead() {
   )
   .unwrap();
   sealed.header[SENDER_END] ^= 1;
-  let mut transcript = b"encrypt_file/v2/signature/ML-DSA-87/SHA-512\0".to_vec();
-  transcript.extend_from_slice(&sealed.header);
-  transcript.extend_from_slice(digest(&SHA512, &sealed.ciphertext).as_ref());
+  let transcript = common::v3_transcript(&sealed.header, &sealed.ciphertext);
   signing.sign(&transcript, &mut sealed.signature).unwrap();
   let bytes = sealed.to_bytes();
   let verification = Verification::Trusted(signing.public_key().as_ref());
@@ -410,4 +405,96 @@ fn signed_wrong_recipient_fingerprint_is_rejected_before_aead() {
     decrypt_bytes(Zeroizing::new(bytes), &private, verification),
     Err(Error::RecipientMismatch)
   ));
+}
+
+#[test]
+fn fixed_v2_signed_fixture_still_uses_the_original_flat_digest() {
+  let private = DecapsulationKey::new(&ML_KEM_1024, include_bytes!("fixtures/v1.private")).unwrap();
+  let bytes = include_bytes!("fixtures/v2.encrypted");
+  let verifier = Verification::Trusted(include_bytes!("fixtures/v2.sender-public"));
+  assert_eq!(
+    format::parse_envelope(bytes).unwrap().version,
+    FileVersion::Signed
+  );
+  assert_eq!(
+    decrypt_bytes(Zeroizing::new(bytes.to_vec()), &private, verifier)
+      .unwrap()
+      .as_slice(),
+    include_bytes!("fixtures/v1.plaintext")
+  );
+  let mut tampered = bytes.to_vec();
+  tampered[HEADER_LEN] ^= 1;
+  assert!(matches!(
+    verify_envelope(&tampered, verifier),
+    Err(Error::SignatureInvalid)
+  ));
+  let mut relabeled = bytes.to_vec();
+  relabeled[8] = 3;
+  assert!(matches!(
+    verify_envelope(&relabeled, verifier),
+    Err(Error::SignatureInvalid)
+  ));
+  assert!(matches!(
+    verify_envelope(bytes, Verification::AllowUnsignedLegacy),
+    Err(Error::SignatureRequired)
+  ));
+}
+
+#[test]
+fn v3_tree_matches_independent_serial_encoding_at_chunk_boundaries() {
+  use aws_lc_rs::signature::{ML_DSA_87, UnparsedPublicKey};
+  let private = receiver();
+  let signing = signer();
+  let public = private.encapsulation_key().unwrap().key_bytes().unwrap();
+  const CHUNK: usize = 1024 * 1024;
+  for len in [
+    0,
+    CHUNK - TAG_LEN - 1,
+    CHUNK - TAG_LEN,
+    CHUNK - TAG_LEN + 1,
+    2 * CHUNK + 7,
+  ] {
+    let plain: Vec<_> = (0 .. len).map(|i| (i % 251) as u8).collect();
+    let sealed = encrypt_bytes(Zeroizing::new(plain.clone()), public.as_ref(), &signing).unwrap();
+    let bytes = sealed.to_bytes();
+    assert_eq!(
+      format::parse_envelope(&bytes).unwrap().version,
+      FileVersion::SignedTree
+    );
+    UnparsedPublicKey::new(&ML_DSA_87, signing.public_key())
+      .verify(
+        &common::v3_transcript(&sealed.header, &sealed.ciphertext),
+        &sealed.signature,
+      )
+      .unwrap();
+    assert_eq!(
+      *decrypt_bytes(
+        Zeroizing::new(bytes.clone()),
+        &private,
+        Verification::Trusted(signing.public_key().as_ref())
+      )
+      .unwrap(),
+      plain
+    );
+    for index in [0, sealed.ciphertext.len() / 2, sealed.ciphertext.len() - 1] {
+      let mut tampered = bytes.clone();
+      tampered[HEADER_LEN + index] ^= 1;
+      assert!(matches!(
+        verify_envelope(
+          &tampered,
+          Verification::Trusted(signing.public_key().as_ref())
+        ),
+        Err(Error::SignatureInvalid)
+      ));
+    }
+    let mut relabeled = bytes;
+    relabeled[8] = 2;
+    assert!(matches!(
+      verify_envelope(
+        &relabeled,
+        Verification::Trusted(signing.public_key().as_ref())
+      ),
+      Err(Error::SignatureInvalid)
+    ));
+  }
 }
