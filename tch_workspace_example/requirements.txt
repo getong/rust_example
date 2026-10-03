@@ -1,1 +1,3 @@
-torch==2.11.0
+# Matches tch 0.26.0 (torch-sys expects PyTorch 2.13.0).
+# Official wheels do not support Intel macOS; see README.org.
+torch==2.13.0

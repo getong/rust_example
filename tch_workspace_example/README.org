@@ -13,6 +13,48 @@
 - uv (Python 包管理器)
 - 项目根目录 =.venv=
 
+* 版本与平台支持
+
+本项目使用 =tch 0.26.0= 和 =torch 2.13.0=，相对原来的 torch 2.11.0 升级。
+版本对应关系来自 torch-sys 0.26.0 的构建检查；不要直接换成 2.14.1 或跳过版本检查。
+
+Intel macOS（x86_64）没有 torch 2.13.0 的官方 wheel。下方 =uv pip install=
+步骤仅适用于存在对应 Python / 平台 wheel 的环境；更换 Python 版本不能解决
+Intel macOS 缺少新版 wheel 的问题。
+
+要在 Intel Mac 使用此版本，需要从 PyTorch =v2.13.0= 源码编译并验证兼容性；
+也可以在受支持的 Linux x86_64 环境中安装和构建整个 Rust 项目。
+本项目不自动回退到 torch 2.2.2。
+
+** Intel Mac 源码安装
+
+已安装 Xcode、uv、CMake 和 Ninja 的 Intel Mac 可以执行：
+
+#+BEGIN_SRC bash
+bash build_torch_macos.sh
+./build_and_run.sh
+#+END_SRC
+
+脚本下载官方 v2.13.0 源码和子模块，在当前 =.venv= 中安装编译依赖，
+使用 Apple Clang、Accelerate 和默认 6 个并行任务编译 CPU 版本。
+可通过 =MAX_JOBS= 调整并发数，网络代理使用标准 =https_proxy= / =http_proxy= 环境变量。
+若已安装 Intel Homebrew 的 =libomp=，脚本自动设置其路径。
+同时优先链接 LLVM =libomp=，避免误用 GCC 的 =libgomp= 导致链接失败。
+脚本同时调整 Homebrew 头文件的搜索优先级，避免系统 Protobuf 覆盖源码自带版本。
+为减少本机编译兼容问题，关闭 CUDA、MPS、分布式、NNPACK 和上游测试程序。
+保留张量运算、自动求导和 Rust tch 所需的 libtorch。
+
+源码采用 editable 安装，安装后请保留 =.build/pytorch-v2.13.0=；
+该目录已从 Git 提交中排除。重新运行脚本会复用源码和编译缓存。
+修改编译配置后，使用 =CMAKE_FRESH=1 bash build_torch_macos.sh= 重新配置。
+源码安装成功后，=uv pip install -r requirements.txt= 可识别本地安装的 2.13.0。
+
+本机已验证 Python 3.14 + torch 2.13.0 的矩阵乘法、自动求导和 NumPy 互操作；
+OpenMP 与 oneDNN 可用。=./build_and_run.sh= 的 release 构建和四个 Rust 示例也已通过。
+此构建仅启用 CPU 后端。
+
+参考：[[https://discuss.pytorch.org/t/why-no-macosx-x86-64-build-after-torch-2-2-2-cp39-none-macosx-10-9-x86-64-whl/204546][PyTorch 官方论坛的 Intel macOS 支持说明]]。
+
 * 编译步骤
 
 ** 1. 创建虚拟环境并安装 Python 依赖
@@ -40,7 +82,7 @@ python -W ignore -c "import torch; print(torch.__version__.split('+')[0])"
 预期输出：
 
 #+BEGIN_EXAMPLE
-2.11.0
+2.13.0
 #+END_EXAMPLE
 
 ** 2. 设置编译环境变量
@@ -135,7 +177,7 @@ chmod +x build_and_run.sh
 
 ** 错误：PyTorch 版本不匹配
 
-*原因*：=tch 0.24.0= 需要 PyTorch =2.11.0=。
+*原因*：=tch 0.26.0= 需要 PyTorch =2.13.0=。
 
 *解决方案*：
 - 使用 =requirements.txt= 中锁定的版本：=uv pip install -r requirements.txt=

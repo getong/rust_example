@@ -1,9 +1,11 @@
 #!/bin/sh
+set -e
+cd "$(dirname "$0")"
 
 VENV_DIR="$PWD/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 
-source "$VENV_DIR/bin/activate"
+. "$VENV_DIR/bin/activate"
 export PATH="$VENV_DIR/bin:$PATH"
 
 TORCH_LIB=$("$VENV_PYTHON" -W ignore -c "import torch; import os; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))" 2>/dev/null)
