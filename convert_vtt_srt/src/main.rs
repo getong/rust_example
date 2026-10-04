@@ -9,7 +9,7 @@ use std::{
   sync::atomic::{AtomicU64, Ordering},
 };
 
-const HELP: &str = "递归将 WebVTT 转换为同目录的 SRT（保留原文件）
+const HELP: &str = "递归将 WebVTT 转换为同目录的 SRT（成功后原文件追加 .bak 后缀）
 
 用法: convert_vtt_srt [选项] [文件或目录 ...]
 
@@ -159,7 +159,20 @@ fn convert(input: &Path, output: &Path, options: &Options) -> Result<(), String>
     // created by another process while ffmpeg is running.
     fs::hard_link(&temporary.0, output)
   }
-  .map_err(|error| format!("无法保存 SRT: {error}"))
+  .map_err(|error| format!("无法保存 SRT: {error}"))?;
+
+  let mut backup = input.as_os_str().to_os_string();
+  backup.push(".bak");
+  let backup = PathBuf::from(backup);
+  // Link then unlink to rename without overwriting an existing backup,
+  // including one created concurrently by another process.
+  fs::hard_link(input, &backup).map_err(|error| {
+    format!(
+      "SRT 已保存，但无法备份为 {}（原 VTT 保留）: {error}",
+      backup.display()
+    )
+  })?;
+  fs::remove_file(input).map_err(|error| format!("SRT 和备份已保存，但无法移除原 VTT: {error}"))
 }
 
 fn run(options: Options) -> ExitCode {
