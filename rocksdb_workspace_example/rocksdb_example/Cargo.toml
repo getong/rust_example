@@ -6,4 +6,4 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rocksdb = "0.24.0"
+rocksdb = "0.25.0"
