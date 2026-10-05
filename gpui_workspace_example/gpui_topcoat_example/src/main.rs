@@ -1,6 +1,7 @@
 mod counter;
 mod demo_page;
 mod tabs;
+mod studio;
 
 use gpui_kit::{component::Root, *};
 use topcoat_gpui_protocol::DEFAULT_SERVER_URL;

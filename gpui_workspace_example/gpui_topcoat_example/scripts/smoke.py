@@ -36,7 +36,7 @@ with subprocess.Popen([str(backend)], env=env) as server:
             assert 'Topcoat × GPUI-kit' in html and 'id="value"' in html
         with http.open(url + '/app.js', timeout=5) as response:
             assert 'javascript' in response.headers['Content-Type']
-            assert b"fetch('/api/counter'" in response.read()
+            assert b"/api/counter" in response.read()
         for path in ['/todos', '/echo', '/profile']:
             with http.open(url + path, timeout=5) as response:
                 assert 'id="editor"' in response.read().decode()

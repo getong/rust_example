@@ -1,0 +1,19 @@
+{
+  "name": "topcoat-gpui-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && tsx scripts/build.ts",
+    "test": "npm run typecheck && tsx --test tests/*.test.ts",
+    "start": "cargo run -p topcoat_gpui_example",
+    "test:e2e": "npm run typecheck && playwright test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "@playwright/test": "^1.56.0",
+    "tsx": "^4.20.0",
+    "@types/node": "^22.0.0"
+  }
+}

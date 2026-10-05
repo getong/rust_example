@@ -75,3 +75,22 @@ python3 gpui_topcoat_example/scripts/smoke.py
 联调脚本启动临时端口服务，模拟浏览器发送 JSON 和表单，然后由桌面实际使用的 Rust HTTP 客户端读取并修改，再从网页接口确认结果；同时检查四个网页、脚本资源和断线错误。结束后自动停止测试服务，不影响已有实例。
 
 人工验收：两端分别增加待办、切换完成状态、删除；分别提交 JSON 和表单；桌面输入草稿后切换 Tab 再返回；停止/重启服务，检查断线提示和自动恢复。
+
+## 独立配色实验室
+
+新增桌面路由 `/studio` 和「配色实验室」Tab，默认进入该页。配套网页也是 `/studio`；双端仅通过新接口 `GET /api/studio`、`POST /api/studio` 共享配色，不复用原有业务接口。
+
+在网页项目先 `npm ci`，再 `cargo run -p topcoat_gpui_example`；Cargo 自动编译 TypeScript，生成的 JS 只存放在构建目录。桌面运行 `cargo run -p gpui_topcoat_example`。
+
+网页用 TypeScript 实时预览主题和强度，点击「发布到两端」后桌面约两秒同步。桌面支持三个主题、强度 ±10、本地预览、发布、读取最新发布及打开对应网页。本地草稿不会被轮询覆盖，失败保留上次数据并提示错误。原生桌面仍由 Rust 渲染。
+
+共享协议新增 `StudioTheme`、`StudioSnapshot`、`StudioCommand`；`studio_request` 是桌面和独立 `studio-smoke` 联调程序共用的客户端。
+
+```sh
+cargo test -p gpui_topcoat_example --bin gpui_topcoat_example
+cargo build -p gpui_topcoat_example --bins
+# 在网页项目目录：
+npm run test:e2e
+```
+
+E2E 先由真实 TypeScript 网页发布落日橙/35，再由 `studio-smoke` 确认数据并发布森林绿/80，最后验证网页自动更新。测试不调用旧业务 API。

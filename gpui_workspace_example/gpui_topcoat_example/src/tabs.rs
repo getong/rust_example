@@ -12,6 +12,7 @@ use gpui_router::{Route, RouterState, Routes, use_location, use_navigate};
 use crate::{
   counter::CounterView,
   demo_page::{DemoPage, PageKind},
+  studio::StudioPage,
 };
 
 struct PageTab {
@@ -49,7 +50,12 @@ impl Workspace {
           .into(),
       });
     }
-    use_navigate(cx)("/counter".into());
+    tabs.push(PageTab {
+      path: "/studio",
+      label: "配色实验室",
+      view: cx.new(|cx| StudioPage::new(server.clone(), cx)).into(),
+    });
+    use_navigate(cx)("/studio".into());
     let mut previous = use_location(cx).pathname.clone();
     let subscription = cx.observe_global::<RouterState>(move |_, cx| {
       let current = use_location(cx).pathname.clone();
@@ -136,6 +142,7 @@ mod tests {
       for (index, path) in [
         (2, "/echo"),
         (3, "/profile"),
+        (4, "/studio"),
         (0, "/counter"),
         (1, "/todos"),
       ] {

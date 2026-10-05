@@ -56,3 +56,49 @@ pub struct DemoSnapshot {
   pub echoes: Vec<serde_json::Value>,
   pub profiles: Vec<Profile>,
 }
+
+pub const STUDIO_PATH: &str = "/api/studio";
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioTheme {
+  #[default]
+  Ocean,
+  Sunset,
+  Forest,
+}
+impl StudioTheme {
+  pub fn label(self) -> &'static str {
+    match self {
+      Self::Ocean => "海洋蓝",
+      Self::Sunset => "落日橙",
+      Self::Forest => "森林绿",
+    }
+  }
+  pub fn color(self) -> u32 {
+    match self {
+      Self::Ocean => 0x2563eb,
+      Self::Sunset => 0xea580c,
+      Self::Forest => 0x16a34a,
+    }
+  }
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct StudioSnapshot {
+  pub theme: StudioTheme,
+  pub intensity: u8,
+  pub revision: u32,
+}
+impl Default for StudioSnapshot {
+  fn default() -> Self {
+    Self {
+      theme: StudioTheme::Ocean,
+      intensity: 70,
+      revision: 0,
+    }
+  }
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum StudioCommand {
+  Apply { theme: StudioTheme, intensity: u8 },
+}

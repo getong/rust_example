@@ -63,3 +63,34 @@ pub fn demo_request(base_url: &str, command: DemoCommand) -> Result<DemoSnapshot
   }
   response.json().map_err(|e| e.to_string())
 }
+
+/// Independent palette endpoint used by the native studio and its smoke test.
+pub fn studio_request(
+  base_url: &str,
+  command: Option<topcoat_gpui_protocol::StudioCommand>,
+) -> Result<topcoat_gpui_protocol::StudioSnapshot, String> {
+  let client = reqwest::blocking::Client::builder()
+    .connect_timeout(Duration::from_secs(2))
+    .timeout(Duration::from_secs(5))
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+    .map_err(|e| e.to_string())?;
+  let url = format!(
+    "{}{}",
+    base_url.trim_end_matches('/'),
+    topcoat_gpui_protocol::STUDIO_PATH
+  );
+  let request = match command {
+    Some(command) => client.post(url).json(&command),
+    None => client.get(url),
+  };
+  let response = request.send().map_err(|e| e.to_string())?;
+  if !response.status().is_success() {
+    return Err(format!(
+      "HTTP {}: {}",
+      response.status(),
+      response.text().unwrap_or_default()
+    ));
+  }
+  response.json().map_err(|e| e.to_string())
+}

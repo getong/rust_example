@@ -129,7 +129,7 @@ fn shell<'a>(cx: &'a Cx, kind: &'static str) -> impl View + 'a {
       </head>
       <body data-page=(kind) style="max-width:900px;margin:48px auto;padding:24px;font:18px system-ui;background:#f4f6fb;color:#182030">
           <h1>"Topcoat × GPUI-kit"</h1>
-          <nav><a href="/">"计数器"</a>" · "<a href="/todos">"待办事项"</a>" · "<a href="/echo">"JSON 回显"</a>" · "<a href="/profile">"表单提交"</a></nav>
+          <nav><a href="/">"计数器"</a>" · "<a href="/todos">"待办事项"</a>" · "<a href="/echo">"JSON 回显"</a>" · "<a href="/profile">"表单提交"</a>" · "<a href="/studio">"配色实验室"</a></nav>
           <p>"与桌面 Tab 共享数据，每两秒同步；服务重启后清空。"</p>
           if kind == "todos" {
               <h2>"待办事项"</h2>

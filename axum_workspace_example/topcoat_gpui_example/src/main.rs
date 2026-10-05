@@ -1,4 +1,5 @@
 mod demos;
+mod studio;
 
 use tokio::sync::Mutex;
 use topcoat::{
@@ -17,7 +18,7 @@ use topcoat_gpui_protocol::{CounterAction, CounterSnapshot, UpdateCounter};
 struct Counter(Mutex<CounterSnapshot>);
 
 fn router() -> Router {
-  demos::register(Router::builder())
+  studio::register(demos::register(Router::builder()))
     .app_context(Counter::default())
     .page(home)
     .route(script)
@@ -75,7 +76,7 @@ async fn home(cx: &Cx) -> Result<impl View> {
           </head>
           <body style="max-width:720px;margin:64px auto;padding:24px;font:20px system-ui;background:#f4f6fb;color:#182030">
               <h1>"Topcoat × GPUI-kit"</h1>
-              <nav><a href="/">"计数器"</a>" · "<a href="/todos">"待办事项"</a>" · "<a href="/echo">"JSON 回显"</a>" · "<a href="/profile">"表单提交"</a></nav>
+              <nav><a href="/">"计数器"</a>" · "<a href="/todos">"待办事项"</a>" · "<a href="/echo">"JSON 回显"</a>" · "<a href="/profile">"表单提交"</a>" · "<a href="/studio">"配色实验室"</a></nav>
               <p>"网页与桌面共享同一个计数器，每两秒同步一次。"</p>
               <h2>"计数："<span id="value">(snapshot.value)</span></h2>
               <p>"版本："<span id="revision">(snapshot.revision)</span></p>
@@ -91,7 +92,7 @@ async fn home(cx: &Cx) -> Result<impl View> {
 
 #[route(GET "/app.js")]
 async fn script() -> Result<Js<&'static str>> {
-  Ok(Js(include_str!("app.js")))
+  Ok(Js(include_str!(concat!(env!("OUT_DIR"), "/app.js"))))
 }
 
 #[cfg(test)]
@@ -143,6 +144,27 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn compiled_browser_scripts_are_served() {
+    let router = router();
+    for (path, endpoint) in [("/app.js", "/api/counter"), ("/demos.js", "/api/demos"), ("/assets/studio", "/api/studio")] {
+      let response = router
+        .handle(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await;
+      assert_eq!(response.status().as_u16(), 200);
+      assert!(
+        response.headers()["content-type"]
+          .to_str()
+          .unwrap()
+          .contains("javascript")
+      );
+      let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+      let bundle = std::str::from_utf8(&bytes).unwrap();
+      assert!(bundle.contains(endpoint));
+      assert!(bundle.contains("Generated from TypeScript"));
+    }
+  }
+
+  #[tokio::test]
   async fn concurrent_updates_are_not_lost() {
     let router = std::sync::Arc::new(router());
     let mut tasks = tokio::task::JoinSet::new();
@@ -171,5 +193,5 @@ mod tests {
 
 #[route(GET "/demos.js")]
 async fn demos_script() -> Result<Js<&'static str>> {
-  Ok(Js(include_str!("demos.js")))
+  Ok(Js(include_str!(concat!(env!("OUT_DIR"), "/demos.js"))))
 }

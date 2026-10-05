@@ -1,0 +1,26 @@
+# Dependencies and build output
+node_modules/
+target/
+dist/
+*.tsbuildinfo
+
+# Test reports and coverage
+test-results/
+playwright-report/
+playwright/.cache/
+coverage/
+.nyc_output/
+
+# Local caches and logs
+.cache/
+.npm/
+*.log
+
+# Local environment settings (keep shareable templates)
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Keep the npm lockfile despite the repository-wide ignore rule
+!package-lock.json
