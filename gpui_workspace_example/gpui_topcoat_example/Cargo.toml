@@ -1,0 +1,26 @@
+[package]
+name = "gpui_topcoat_example"
+version = "0.1.0"
+edition = "2024"
+default-run = "gpui_topcoat_example"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:gpui-kit", "dep:gpui-router"]
+
+[[bin]]
+name = "gpui_topcoat_example"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[dependencies]
+gpui-kit = { version = "0.7.1", optional = true }
+gpui-router = { version = "0.5.0", default-features = false, features = ["gpui-pre"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+topcoat_gpui_protocol = { path = "protocol" }
+
+[dev-dependencies]
+gpui-kit = { version = "0.7.1", features = ["test-support"] }

@@ -1,0 +1,11 @@
+[package]
+name = "topcoat_gpui_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
+topcoat = { version = "0.10.0", default-features = false, features = ["router", "view", "serve"] }
+topcoat_gpui_protocol = { path = "../../gpui_workspace_example/gpui_topcoat_example/protocol" }

@@ -12,6 +12,8 @@ members = [
   "gpui_kit_design_pattern",
   "mai_ui_demo",
   "gpui_fast_example",
+  "gpui_topcoat_example",
+  "gpui_topcoat_example/protocol",
 ]
 
 # Reduce debug unwind-table size while retaining symbols and panic unwinding.
