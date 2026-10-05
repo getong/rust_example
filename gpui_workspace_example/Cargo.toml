@@ -6,7 +6,7 @@ resolver = "3"
 exclude = ["entity_view_fast_example"]
 
 members = [
-  "gpui-kit-example", 
+  "gpui-kit-example",
   "gpui_kit_agent",
   "entity_view_example",
   "gpui_kit_design_pattern",

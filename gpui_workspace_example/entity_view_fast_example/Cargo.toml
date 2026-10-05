@@ -26,10 +26,16 @@ fake = { version = "5.1.0", features = ["dummy"] }
 futures = "0.3"
 gpui-form = "0.7.3"
 gpui-kit = "0.7.0"
-gpui-router = { version = "0.5.0", default-features = false, features = ["gpui-pre"] }
+gpui-router = { version = "0.5.0", default-features = false, features = [
+  "gpui-pre",
+] }
 gpui-toolkit-gpui-util = "0.1.0"
 gpui_fast = { package = "gpui", git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281" }
-gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281", features = ["font-kit", "wayland", "x11"] }
+gpui_platform = { git = "https://github.com/longbridge/gpui-fast", rev = "1b381adb68a6e5a4550f73b0cd29a231ce6c7281", features = [
+  "font-kit",
+  "wayland",
+  "x11",
+] }
 itertools = "0.15.0"
 rand = "0.10"
 regex = "1"
@@ -43,7 +49,11 @@ turso = { version = "0.8.1", default-features = false, features = ["mimalloc"] }
 unindent = "0.2.4"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-syntect = { version = "5.3.0", default-features = false, features = ["parsing", "default-syntaxes", "regex-fancy"] }
+syntect = { version = "5.3.0", default-features = false, features = [
+  "parsing",
+  "default-syntaxes",
+  "regex-fancy",
+] }
 
 [dev-dependencies]
 gpui-kit = { version = "0.7.0", features = ["test-support"] }
