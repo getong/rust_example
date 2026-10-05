@@ -8,5 +8,5 @@ async-trait = "0.1.92"
 axum = { version = "0.8.9", features = ["macros"] }
 handlebars = "6.4.4"
 serde = { version = "1.0.229", features = ["derive"] }
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
-uuid = { version = "1.26.0", features = ["v4", "serde"] }
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1.27.0", features = ["v4", "serde"] }

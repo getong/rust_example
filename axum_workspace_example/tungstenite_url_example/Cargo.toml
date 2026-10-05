@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 futures-util = "0.3.34"
-rustls = "0.23.43"
+rustls = "0.23.45"
 serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 tokio-tungstenite = { version = "0.30.0", features = ["url", "native-tls"] }
 tracing-subscriber = "0.3.23"
 url = "2.5.8"

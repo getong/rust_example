@@ -11,7 +11,7 @@ opentelemetry = "0.32.0"
 opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic"] }
 opentelemetry_sdk = "0.32.1"
 pin-project = "1.1.13"
-tokio = { version = "1.53.1", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1.53.2", features = ["macros", "rt", "rt-multi-thread"] }
 tower = "0.5.3"
 tower-otel = { version = "0.10.0", features = ["axum"] }
 tracing = "0.1.44"

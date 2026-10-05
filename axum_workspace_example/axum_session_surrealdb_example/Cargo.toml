@@ -8,5 +8,5 @@ async-trait = "0.1.92"
 axum = "0.8.9"
 axum_session = { version = "0.21.0" }
 axum_session_surreal = { git = "https://github.com/AscendingCreations/AxumSession", rev = "dcc89b8b2a07d6570ea398b91e580d380307648a" }
-surrealdb = { version = "3.2", features = ["kv-mem"] }
-tokio = { version = "1.53.1", features = ["full"] }
+surrealdb = { version = "3.3", features = ["kv-mem"] }
+tokio = { version = "1.53.2", features = ["full"] }

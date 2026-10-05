@@ -10,11 +10,11 @@ axum-extra = { version = "0.12.6", features = ["typed-header"] }
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
 futures = "0.3.34"
 futures-util = { version = "0.3.34", features = ["sink", "std"] }
-headers = "0.4.1"
-rustls = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+headers = "0.4.2"
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
