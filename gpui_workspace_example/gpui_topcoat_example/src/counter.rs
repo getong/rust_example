@@ -43,9 +43,9 @@ impl CounterView {
     }
     self.loading = true;
     let server = self.server.clone();
-    let work = cx
-      .background_executor()
-      .spawn(async move { gpui_topcoat_example::request(&server, action) });
+    let work = gpui_topcoat_example::runtime::spawn(async move {
+      gpui_topcoat_example::request(&server, action).await
+    });
     self.request = Some(cx.spawn(async move |view, cx| {
       let result = work.await;
       let _ = view.update(cx, |view, cx| {

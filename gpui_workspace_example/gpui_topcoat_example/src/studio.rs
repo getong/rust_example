@@ -1,9 +1,10 @@
+use std::time::Duration;
+
 use gpui_kit::{
   component::{button::*, *},
   *,
 };
 use gpui_topcoat_example::studio_request;
-use std::time::Duration;
 use topcoat_gpui_protocol::{StudioCommand, StudioSnapshot, StudioTheme};
 
 pub(crate) struct StudioPage {
@@ -51,9 +52,8 @@ impl StudioPage {
       theme: self.theme,
       intensity: self.intensity,
     });
-    let work = cx
-      .background_executor()
-      .spawn(async move { studio_request(&server, command) });
+    let work =
+      gpui_topcoat_example::runtime::spawn(async move { studio_request(&server, command).await });
     self._request = Some(cx.spawn(async move |view, cx| {
       let result = work.await;
       let _ = view.update(cx, |view, cx| {
@@ -187,9 +187,10 @@ impl Render for StudioPage {
 
 #[cfg(test)]
 mod tests {
-  use super::StudioPage;
   use gpui_kit::{AppContext, TestAppContext, component::Root, px, size, test::TestWindowExt};
   use topcoat_gpui_protocol::StudioTheme;
+
+  use super::StudioPage;
   #[gpui_kit::test]
   fn palette_controls_change_only_local_preview(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);

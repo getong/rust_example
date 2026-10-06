@@ -2,6 +2,14 @@
 
 网页和桌面通过 HTTP 操作同一份服务端内存数据。桌面使用 `gpui-router` + `TabBar`，路由决定当前 Tab，页面 Entity 缓存保留未提交的输入。每个页面两秒同步一次，网络请求在后台运行；失败保留旧值并提示错误，修改操作不会自动重试。
 
+## 异步执行
+
+桌面主线程运行 GPUI 事件循环，`runtime::init()` 初始化进程共享的 Tokio 多线程运行时。计数器、待办、回显、表单及配色请求均使用异步 `reqwest::Client`，发送请求、读取响应体和解析 JSON 通过 `.await` 完成，不再使用阻塞 HTTP 客户端。
+
+页面通过 `runtime::spawn` 在 Tokio 中执行请求，再由 GPUI 的 `cx.spawn` 等待结果，通过 `view.update` 更新状态并通知重绘。请求等待期间界面仍可响应；页面销毁时取消其请求任务。取消不能撤销服务端已提交的修改，失败后应先刷新再决定是否重试。轮询继续使用 GPUI 异步定时器，每个页面最多有一个请求在执行。
+
+库中的 `request`、`demo_request`、`studio_request` 现在是异步函数，调用方需要 `.await` 并提供 Tokio 运行时。两个 smoke 程序使用 `#[tokio::main]`，仍支持 `--no-default-features` 运行。
+
 ## 页面与复用来源
 
 | 桌面路由 / Tab | Topcoat 网页 | 功能 | 复用来源 |
@@ -63,8 +71,8 @@ TOPCOAT_URL=http://127.0.0.1:3010 cargo run -p gpui_topcoat_example
 # Axum 工作区
 cargo test -p topcoat_gpui_example
 
-# GPUI 工作区：实际点击 Tab，验证路由与草稿保留
-cargo test -p gpui_topcoat_example --bin gpui_topcoat_example
+# GPUI 工作区：验证异步 HTTP、任务取消、Tab 路由与草稿保留
+cargo test -p gpui_topcoat_example --all-targets
 
 # GPUI 工作区：构建并进行跨端 HTTP 联调
 cargo build --manifest-path ../axum_workspace_example/Cargo.toml -p topcoat_gpui_example

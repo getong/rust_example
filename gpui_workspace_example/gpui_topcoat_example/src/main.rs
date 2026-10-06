@@ -1,12 +1,13 @@
 mod counter;
 mod demo_page;
-mod tabs;
 mod studio;
+mod tabs;
 
 use gpui_kit::{component::Root, *};
 use topcoat_gpui_protocol::DEFAULT_SERVER_URL;
 
 fn main() {
+  gpui_topcoat_example::runtime::init();
   let server = std::env::var("TOPCOAT_URL").unwrap_or_else(|_| DEFAULT_SERVER_URL.into());
   gpui_kit::application().run(move |cx| {
     gpui_kit::init(cx);

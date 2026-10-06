@@ -102,9 +102,8 @@ impl DemoPage {
     }
     self.loading = true;
     let server = self.server.clone();
-    let work = cx
-      .background_executor()
-      .spawn(async move { demo_request(&server, command) });
+    let work =
+      gpui_topcoat_example::runtime::spawn(async move { demo_request(&server, command).await });
     self._request = Some(cx.spawn(async move |view, cx| {
       let result = work.await;
       let _ = view.update(cx, |view, cx| {

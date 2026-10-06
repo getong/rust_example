@@ -16,10 +16,10 @@ required-features = ["desktop"]
 [dependencies]
 gpui-kit = { version = "0.7.1", optional = true }
 gpui-router = { version = "0.5.0", default-features = false, features = ["gpui-pre"], optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
 topcoat_gpui_protocol = { path = "protocol" }
 
 [dev-dependencies]
