@@ -1,24 +1,34 @@
-use std::{env, process::Command};
+use std::{env, path::Path, process::Command};
+
+fn run_bun(root: &Path, args: &[&str]) {
+  let status = Command::new("bun")
+    .args(args)
+    .current_dir(root)
+    // Frontend build tools are devDependencies, including in release builds.
+    .env("NODE_ENV", "development")
+    .status()
+    .unwrap_or_else(|error| {
+      panic!("Could not run bun: {error}. Install Bun and make sure it is on PATH.")
+    });
+  assert!(status.success(), "bun {} failed ({status})", args.join(" "));
+}
 
 fn main() {
   for input in [
     "frontend",
     "scripts/build.ts",
     "package.json",
-    "package-lock.json",
+    "bun.lock",
     "tsconfig.json",
     "tests",
     "playwright.config.ts",
   ] {
     println!("cargo:rerun-if-changed={input}");
   }
+  println!("cargo:rerun-if-env-changed=PATH");
+  let root = env::var("CARGO_MANIFEST_DIR").expect("Cargo CARGO_MANIFEST_DIR");
+  let root = Path::new(&root);
   let out = env::var("OUT_DIR").expect("Cargo OUT_DIR");
-  let status = Command::new("npm")
-    .args(["run", "build", "--", "--outdir", &out])
-    .status()
-    .expect("TypeScript build requires Node.js and npm. Run npm ci in topcoat_gpui_example first.");
-  assert!(
-    status.success(),
-    "TypeScript build failed. Run npm ci and npm run typecheck in topcoat_gpui_example."
-  );
+  run_bun(root, &["install", "--frozen-lockfile"]);
+  run_bun(root, &["run", "build", "--outdir", &out]);
 }

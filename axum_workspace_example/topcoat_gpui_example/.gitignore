@@ -22,5 +22,5 @@ coverage/
 !.env.example
 !.env.sample
 
-# Keep the npm lockfile despite the repository-wide ignore rule
-!package-lock.json
+# Keep the Bun lockfile despite the repository-wide ignore rule
+!bun.lock

@@ -146,7 +146,11 @@ mod tests {
   #[tokio::test]
   async fn compiled_browser_scripts_are_served() {
     let router = router();
-    for (path, endpoint) in [("/app.js", "/api/counter"), ("/demos.js", "/api/demos"), ("/assets/studio", "/api/studio")] {
+    for (path, endpoint) in [
+      ("/app.js", "/api/counter"),
+      ("/demos.js", "/api/demos"),
+      ("/assets/studio", "/api/studio"),
+    ] {
       let response = router
         .handle(Request::builder().uri(path).body(Body::empty()).unwrap())
         .await;

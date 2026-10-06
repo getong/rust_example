@@ -31,7 +31,9 @@ cargo run -p topcoat_gpui_example
 
 ## TypeScript 配色实验室
 
-所有手写前端、构建、测试和配置文件均为 `.ts`，不保存 `.js` / `.mjs` 源文件。首次构建先在本目录执行 `npm ci`，之后运行 `npm start` 或 `cargo run -p topcoat_gpui_example`。Cargo 的 `build.rs` 自动执行严格类型检查和 esbuild，将浏览器可执行的 JavaScript 生成到 Cargo `OUT_DIR` 并嵌入二进制。运行服务无需 Node，编译服务需要 Node/npm 和已安装的依赖；修改 TS 后重新编译、启动服务。
+所有手写前端、构建、测试和配置文件均为 `.ts`，不保存 `.js` / `.mjs` 源文件。编译前安装 Bun 1.2.19 或更新版本并确保 `bun` 在 `PATH` 中，然后直接执行 `cargo build` 或 `cargo run -p topcoat_gpui_example`，无需手动安装前端依赖。Cargo 的 `build.rs` 自动执行 `bun install --frozen-lockfile`、严格类型检查和 Bun 打包，将浏览器可执行的 JavaScript 生成到 Cargo `OUT_DIR` 并嵌入二进制。首次安装依赖需要网络，运行服务无需 Bun 或 Node；修改 TS 后重新编译、启动服务。
+
+前端依赖由 `bun.lock` 锁定。修改 `package.json` 后执行 `bun install` 更新锁文件并一同提交；可用 `bun run build` 单独构建前端到 `target/frontend`。
 
 网页路由 `/studio`，独立 API `GET /api/studio`、`POST /api/studio`，资源路由 `/assets/studio`。该页面不会访问计数器、待办、回显或表单 API。状态独立保存在服务端内存中，重启后恢复默认。
 
@@ -50,11 +52,11 @@ cargo run -p topcoat_gpui_example
 失败时保留上次配色，发布不会自动重试。GPUI 保持 Rust 原生渲染，网页使用 TypeScript，通过独立协议协作。
 
 ```sh
-npm test                         # 严格检查 + 协议边界测试
+bun run test                     # 严格检查 + 协议边界测试
 cargo test -p topcoat_gpui_example
 cargo build --manifest-path ../../gpui_workspace_example/Cargo.toml -p gpui_topcoat_example --bins
-npx playwright install chromium
-npm run test:e2e                  # 独立 3198 端口，结束后自动停止
+bun --bun playwright install chromium
+bun run test:e2e                  # 独立 3198 端口，结束后自动停止
 ```
 
 E2E 运行真实浏览器中的编译产物，检查预览不发布、发布后原生客户端读取、原生客户端修改后网页同步、草稿保留、无效响应恢复，并断言新页面只访问 `/api/studio`。桌面点击测试在 GPUI 工作区运行 `cargo test -p gpui_topcoat_example --bin gpui_topcoat_example`。
