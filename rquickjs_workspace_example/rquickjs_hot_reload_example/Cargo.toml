@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-notify = "6.1.1"
-rquickjs = { version = "0.6.1", default-features = false, features = ["futures", "rust-alloc", "loader", "dyn-load"] }
-tokio = { version = "1.37.0", features = ["full"] }
+notify = "8.2.0"
+rquickjs = { version = "0.14.0", default-features = false, features = ["futures", "rust-alloc", "loader", "dyn-load"] }
+tokio = { version = "1.53.2", features = ["full"] }
