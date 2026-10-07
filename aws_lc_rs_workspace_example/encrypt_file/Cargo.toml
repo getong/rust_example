@@ -21,7 +21,7 @@ harness = false
 argon2 = { version = "0.6", features = ["zeroize", "parallel"] }
 aws-lc-rs = "1.18.1"
 inquire = "0.9.4"
-zeroize = "1.9.0"
+zeroize = "1.9.1"
 thiserror = "2.0.21"
 rayon = "1.12.0"
 
