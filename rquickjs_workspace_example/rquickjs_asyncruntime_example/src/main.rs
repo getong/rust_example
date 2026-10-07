@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use rquickjs::{async_with, AsyncContext, AsyncRuntime, Error, Exception};
+use rquickjs::{AsyncContext, AsyncRuntime, Error, Exception};
 use tokio::{fs::metadata, select, time::sleep};
 
 const FILE_NAME: &str = "script_module.js";
@@ -11,8 +11,8 @@ async fn main() {
   let rt = AsyncRuntime::new().unwrap();
   let ctx = AsyncContext::full(&rt).await.unwrap();
 
-  // Call the async_with! macro to execute the asynchronous block
-  async_with!(&ctx => |ctx| {
+  // Execute an async closure within the JavaScript context
+  ctx.async_with(async |ctx| {
     let result = ctx.eval::<(), &str>("console.log(\"hello world\")");
     match result {
       Ok(res) => println!("Result: {:?}", res),

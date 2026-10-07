@@ -2,7 +2,6 @@ use std::{path::Path, time::Duration};
 
 use notify::{RecursiveMode, Result, Watcher};
 use rquickjs::{
-  async_with,
   loader::{FileResolver, ScriptLoader},
   AsyncContext, AsyncRuntime, Function,
 };
@@ -38,7 +37,7 @@ async fn main() -> Result<()> {
   rt.set_loader(resolver, loader).await;
 
   let ctx = AsyncContext::full(&rt).await.unwrap();
-  async_with!(&ctx => |ctx| {
+  ctx.async_with(async |ctx| {
     let global = ctx.globals();
     global
       .set(
