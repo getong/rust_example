@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.104"
 hound = "3.5.1"
 many_cpus = "=2.4.9"
 tempfile = "3.27.0"
