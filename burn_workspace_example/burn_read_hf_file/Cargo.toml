@@ -8,10 +8,19 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokenizers = "0.23"
+branches = { version = "0.4", default-features = false, features = ["std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Use Burn's MSL-backed WGPU runtime on macOS for Metal acceleration.
-burn = { version = "0.21", default-features = false, features = ["metal", "store", "std"] }
+burn = { version = "0.22", default-features = false, features = [
+  "metal",
+  "store",
+  "std",
+] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-burn = { version = "0.21", default-features = false, features = ["flex", "store", "std"] }
+burn = { version = "0.22", default-features = false, features = [
+  "flex",
+  "store",
+  "std",
+] }
