@@ -1,3 +1,4 @@
+import { encryptedRequest } from './secure';
 import type { CounterAction, CounterSnapshot, DemoSnapshot, JsonValue, Profile, TodoCommand } from './types';
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -38,14 +39,7 @@ export function demoSnapshot(value: unknown): DemoSnapshot {
   return { todos, profiles, echoes: value.echoes };
 }
 export async function request<T>(path: string, decode: (data: unknown) => T, body?: string, form = false): Promise<T> {
-  const options: RequestInit = { method: body === undefined ? 'GET' : 'POST', cache: 'no-store', signal: AbortSignal.timeout(5000) };
-  if (body !== undefined) {
-    options.body = body;
-    options.headers = { 'Content-Type': form ? 'application/x-www-form-urlencoded' : 'application/json' };
-  }
-  const response = await fetch(path, options);
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-  const data: unknown = await response.json();
+  const data: unknown = await encryptedRequest({ method: body === undefined ? 'GET' : 'POST', path, body: body ?? '', form });
   return decode(data);
 }
 export const api = {
@@ -53,7 +47,7 @@ export const api = {
   demos: () => request('/api/demos', demoSnapshot),
   todo: (command: TodoCommand) => request('/api/todos', demoSnapshot, JSON.stringify(command)),
   echo: (value: JsonValue) => request('/api/echo', demoSnapshot, JSON.stringify(value)),
-  profile: (profile: Profile) => request('/api/profile', demoSnapshot, new URLSearchParams({ username: profile.username, age: String(profile.age) }).toString(), true),
+  profile: (profile: Profile) => request('/api/profile', demoSnapshot, JSON.stringify(profile)),
 };
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

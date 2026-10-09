@@ -5,7 +5,7 @@ use topcoat::{
   context::{Cx, app_context},
   router::{
     RouterBuilder,
-    content::{Form, Json},
+    content::Json,
     error::{bad_request, not_found},
     page, route,
   },
@@ -94,7 +94,7 @@ async fn echo(cx: &Cx, Json(value): Json<serde_json::Value>) -> Result<Json<Demo
 }
 
 #[route(POST "/api/profile")]
-async fn profile(cx: &Cx, Form(mut input): Form<Profile>) -> Result<Json<DemoSnapshot>> {
+async fn profile(cx: &Cx, Json(mut input): Json<Profile>) -> Result<Json<DemoSnapshot>> {
   input.username = input.username.trim().to_owned();
   if input.username.is_empty() || input.username.chars().count() > 80 || input.age > 150 {
     return Err(bad_request("Username must contain 1–80 characters; age must be 0–150").into());
@@ -150,8 +150,9 @@ fn shell<'a>(cx: &'a Cx, kind: &'static str) -> impl View + 'a {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use topcoat::router::{Body, Router, request::Request, to_bytes};
+
+  use super::*;
 
   async fn call(router: &Router, path: &str, body: Option<&str>, form: bool) -> (u16, Vec<u8>) {
     let response = router
@@ -238,7 +239,7 @@ mod tests {
   #[tokio::test]
   async fn echo_and_form_are_shared_validated_and_bounded() {
     let router = crate::router();
-    for n in 0..25 {
+    for n in 0 .. 25 {
       assert_eq!(
         call(
           &router,
@@ -254,8 +255,8 @@ mod tests {
         call(
           &router,
           "/api/profile",
-          Some(&format!("username=Person{n}&age=20")),
-          true
+          Some(&format!(r#"{{"username":"Person{n}","age":20}}"#)),
+          false
         )
         .await
         .0,
@@ -267,15 +268,25 @@ mod tests {
       400
     );
     assert_eq!(
-      call(&router, "/api/profile", Some("username=&age=20"), true)
-        .await
-        .0,
+      call(
+        &router,
+        "/api/profile",
+        Some(r#"{"username":"","age":20}"#),
+        false
+      )
+      .await
+      .0,
       400
     );
     assert_eq!(
-      call(&router, "/api/profile", Some("username=Test&age=151"), true)
-        .await
-        .0,
+      call(
+        &router,
+        "/api/profile",
+        Some(r#"{"username":"Test","age":151}"#),
+        false
+      )
+      .await
+      .0,
       400
     );
     let (_, bytes) = call(&router, "/api/demos", None, false).await;

@@ -1,62 +1,59 @@
-# Topcoat 多页面协作服务
+# Topcoat × GPUI 抗量子加密协作
 
-配合相邻 `gpui_workspace_example/gpui_topcoat_example` 桌面项目使用。
+浏览器 TypeScript 与原生 GPUI 客户端共享计数器、待办、JSON 回显、资料表单、配色实验室。服务端业务逻辑由 Topcoat 实现，桌面项目为 `../../gpui_workspace_example/gpui_topcoat_example`，双方共用其 `protocol` crate。
+
+所有业务请求/响应经 ML-KEM-1024 + ML-DSA-87 + HKDF-SHA256 + AES-256-GCM 加密。Rust 使用 `aws-lc-rs`，浏览器使用固定版本 noble-post-quantum 和 WebCrypto。参考 `aws_lc_rs_workspace_example/encrypt_file` 的算法选型。
+
+## 启动
+
+需要 Rust、Bun；Cargo 构建时自动执行冻结锁文件安装、TypeScript 类型检查和网页打包。
+
+无需 keygen、公钥文件或密钥环境变量。每次应用握手自动生成客户端 ML-KEM 密钥和服务端 ML-DSA 密钥，公钥在握手消息中动态交换，私钥仅留在内存。
 
 ```sh
 # Axum 工作区
 cargo run -p topcoat_gpui_example
+# GPUI 工作区
+cargo run -p gpui_topcoat_example
 ```
 
-访问 <http://127.0.0.1:3000>，顶部导航提供五个页面：
+浏览器访问 <http://127.0.0.1:3000>，可切换 `/todos`、`/echo`、`/profile`、`/studio`。默认 `HOST=127.0.0.1 PORT=3000`，桌面可用 `TOPCOAT_URL` 指定根地址。远程浏览器必须 HTTPS；仅本机开发允许 localhost HTTP。
 
-- `/`：共享计数器。
-- `/todos`：待办新建、完成/恢复、删除。
-- `/echo`：JSON 回显与共享历史。
-- `/profile`：表单提交与共享历史。
-- `/studio`：独立配色实验室，实时预览并同步到桌面。
+网页初始 HTML 不包含业务快照，加载后从加密通道同步；发布后两端每两秒检查最新状态。所有历史保存在服务端内存，重启清空。修改失败不会自动重试，需先刷新确认是否已执行。
 
-桌面工作区运行 `cargo run -p gpui_topcoat_example`，五个路由 Tab 与网页通过 HTTP 共享状态，每两秒同步。`HOST` / `PORT` 可覆盖默认 `127.0.0.1:3000`；桌面通过 `TOPCOAT_URL` 配置对应地址。
+## 网关
 
-`src/demos.rs` 改编自同一工作区的三个例子：
+| 外部路径 | 功能 |
+| --- | --- |
+| `POST /pq/handshake` | 临时 ML-KEM 公钥交换、返回本次新生成的 ML-DSA 公钥和签名 |
+| `POST /pq/exchange` | 一次性会话 AES-GCM 请求/响应 |
+| `/api/*` | 外部返回 403；只在通过解密验证后内部调用 |
 
-- `axum_todo_utoipa_swagger_ui_example/src/todo.rs` 的内存 TODO 操作；不包含 Swagger 与认证功能。
-- `axum_post_echo_json_example/src/main.rs` 的 JSON 提取/回显，扩展为共享历史。
-- `axum_form_request_example/src/main.rs` 的姓名年龄表单提取，增加校验与共享历史。
+业务 envelope 内仍使用 `/api/counter`、`/api/demos`、`/api/todos`、`/api/echo`、`/api/profile`、`/api/studio`。资料表单现在使用 JSON `{username, age}`。既有输入校验、互斥状态和业务错误保留；错误内容也加密。
 
-处理器使用 Topcoat 的 `Json` / `Form`，数据类型来自共享 `topcoat_gpui_protocol`。服务端内存状态重启后清空。
+单会话仅一个请求/响应，60 秒过期，最多 1024 个未使用会话，防止相同请求重复执行。握手公钥被篡改、握手签名错误、密文篡改均失败关闭，不降级成明文。
 
-`cargo test -p topcoat_gpui_example` 检查计数器、并发修改、TODO 增删改、非法输入、历史上限和页面路由。
+协议、安全边界及浏览器信任起点见 [客户端 SECURITY.md](../../gpui_workspace_example/gpui_topcoat_example/SECURITY.md)。动态签名公钥的信任来自 HTTPS，签名本身不证明服务器身份；服务端身份验证不等于用户登录；示例没有客户端授权、磁盘数据加密，也未做独立密码协议审计。网页首次加载依赖 HTTPS 的认证信任，不能宣称普通 HTTPS 引导就具有完全抗量子的身份保证。
 
-完整 API、双端启动与联调方式见 [桌面项目说明](../../gpui_workspace_example/gpui_topcoat_example/README.md)。
-
-## TypeScript 配色实验室
-
-所有手写前端、构建、测试和配置文件均为 `.ts`，不保存 `.js` / `.mjs` 源文件。编译前安装 Bun 1.2.19 或更新版本并确保 `bun` 在 `PATH` 中，然后直接执行 `cargo build` 或 `cargo run -p topcoat_gpui_example`，无需手动安装前端依赖。Cargo 的 `build.rs` 自动执行 `bun install --frozen-lockfile`、严格类型检查和 Bun 打包，将浏览器可执行的 JavaScript 生成到 Cargo `OUT_DIR` 并嵌入二进制。首次安装依赖需要网络，运行服务无需 Bun 或 Node；修改 TS 后重新编译、启动服务。
-
-前端依赖由 `bun.lock` 锁定。修改 `package.json` 后执行 `bun install` 更新锁文件并一同提交；可用 `bun run build` 单独构建前端到 `target/frontend`。
-
-网页路由 `/studio`，独立 API `GET /api/studio`、`POST /api/studio`，资源路由 `/assets/studio`。该页面不会访问计数器、待办、回显或表单 API。状态独立保存在服务端内存中，重启后恢复默认。
-
-```json
-{"action":"apply","theme":"sunset","intensity":35}
-```
-
-返回 `{theme, intensity, revision}`；主题为 `ocean | sunset | forest`，强度为 0–100 整数。每次发布增加版本；未知主题、无效强度、额外字段会被拒绝。
-
-1. 启动网页服务和桌面，桌面默认进入新 Tab「配色实验室」。
-2. 点击「打开配色网页」，或访问 http://127.0.0.1:3000/studio。
-3. 网页选择主题、拖动强度滑块，TypeScript 立即更新预览；此时尚未修改共享状态。
-4. 点击「发布到两端」，桌面约两秒后显示相同配色；桌面也可调整并发布，网页会自动同步。
-5. 未发布的本地草稿不会被轮询覆盖；「使用最新发布」放弃草稿并读取最新配色。
-
-失败时保留上次配色，发布不会自动重试。GPUI 保持 Rust 原生渲染，网页使用 TypeScript，通过独立协议协作。
+## 验证
 
 ```sh
-bun run test                     # 严格检查 + 协议边界测试
+# Axum 工作区
 cargo test -p topcoat_gpui_example
-cargo build --manifest-path ../../gpui_workspace_example/Cargo.toml -p gpui_topcoat_example --bins
-bun --bun playwright install chromium
-bun run test:e2e                  # 独立 3198 端口，结束后自动停止
+cargo build -p topcoat_gpui_example
+
+# 当前网页项目
+bun test tests/*.test.ts
+bun run build
+
+# GPUI 工作区
+cargo test -p topcoat_gpui_protocol
+cargo test -p gpui_topcoat_example --all-targets
+cargo build -p gpui_topcoat_example --no-default-features --bin topcoat-smoke --bin studio-smoke
+python3 gpui_topcoat_example/scripts/smoke.py
+
+# 当前网页项目：真实浏览器与 studio-smoke 交互
+bun run test:e2e
 ```
 
-E2E 运行真实浏览器中的编译产物，检查预览不发布、发布后原生客户端读取、原生客户端修改后网页同步、草稿保留、无效响应恢复，并断言新页面只访问 `/api/studio`。桌面点击测试在 GPUI 工作区运行 `cargo test -p gpui_topcoat_example --bin gpui_topcoat_example`。
+联调/E2E 无需生成或配置密钥文件。`scripts/pq-smoke.ts` 验证 noble/WebCrypto ↔ AWS-LC 的全部业务 API、动态公钥篡改、加密业务错误、明文拒绝。E2E 验证网页发布、原生桌面同步、本地草稿保留及被篡改响应后的恢复。

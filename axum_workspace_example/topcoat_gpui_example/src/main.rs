@@ -1,4 +1,5 @@
 mod demos;
+mod secure;
 mod studio;
 
 use tokio::sync::Mutex;
@@ -35,7 +36,7 @@ async fn main() -> std::io::Result<()> {
     std::env::var("HOST").unwrap_or("127.0.0.1".into()),
     std::env::var("PORT").unwrap_or("3000".into())
   );
-  topcoat::start(router()).await
+  topcoat::start(secure::wrap(router())).await
 }
 
 #[route(GET "/api/counter")]
@@ -64,7 +65,7 @@ async fn update_counter(
 
 #[page("/")]
 async fn home(cx: &Cx) -> Result<impl View> {
-  let snapshot = app_context::<Counter>(cx).0.lock().await.clone();
+  let _ = cx;
   Ok(view! {
       <!DOCTYPE html>
       <html lang="zh-CN">
@@ -78,8 +79,8 @@ async fn home(cx: &Cx) -> Result<impl View> {
               <h1>"Topcoat × GPUI-kit"</h1>
               <nav><a href="/">"计数器"</a>" · "<a href="/todos">"待办事项"</a>" · "<a href="/echo">"JSON 回显"</a>" · "<a href="/profile">"表单提交"</a>" · "<a href="/studio">"配色实验室"</a></nav>
               <p>"网页与桌面共享同一个计数器，每两秒同步一次。"</p>
-              <h2>"计数："<span id="value">(snapshot.value)</span></h2>
-              <p>"版本："<span id="revision">(snapshot.revision)</span></p>
+              <h2>"计数："<span id="value">"…"</span></h2>
+              <p>"版本："<span id="revision">"…"</span></p>
               <button id="increment" type="button">"+1"</button>
               <button id="reset" type="button">"重置"</button>
               <button id="refresh" type="button">"刷新"</button>
@@ -97,8 +98,9 @@ async fn script() -> Result<Js<&'static str>> {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use topcoat::router::{Body, request::Request, to_bytes};
+
+  use super::*;
 
   async fn send(router: &Router, method: &str, body: &str) -> (u16, Vec<u8>) {
     let response = router
@@ -172,7 +174,7 @@ mod tests {
   async fn concurrent_updates_are_not_lost() {
     let router = std::sync::Arc::new(router());
     let mut tasks = tokio::task::JoinSet::new();
-    for _ in 0..32 {
+    for _ in 0 .. 32 {
       let router = router.clone();
       tasks.spawn(async move {
         assert_eq!(

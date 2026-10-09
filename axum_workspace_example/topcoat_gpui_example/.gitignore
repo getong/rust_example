@@ -24,3 +24,6 @@ coverage/
 
 # Keep the Bun lockfile despite the repository-wide ignore rule
 !bun.lock
+
+*.pk8
+.pq-keys/

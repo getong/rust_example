@@ -43,6 +43,11 @@ impl StudioPage {
     view
   }
   fn sync(&mut self, save: bool, cx: &mut Context<Self>) {
+    // UI-only tests use an empty origin; real I/O has separate Tokio integration tests.
+    #[cfg(test)]
+    if self.server.is_empty() {
+      return;
+    }
     if self.busy {
       return;
     }
@@ -196,7 +201,7 @@ mod tests {
     cx.update(gpui_kit::init);
     let mut page = None;
     let window = cx.open_window(size(px(1000.), px(900.)), |window, cx| {
-      let view = cx.new(|cx| StudioPage::new("http://127.0.0.1:1".into(), cx));
+      let view = cx.new(|cx| StudioPage::new(String::new(), cx));
       page = Some(view.clone());
       Root::new(view, window, cx)
     });

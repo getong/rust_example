@@ -38,6 +38,11 @@ impl CounterView {
   }
 
   fn refresh(&mut self, action: Option<CounterAction>, cx: &mut Context<Self>) {
+    // UI-only tests use an empty origin; real I/O has separate Tokio integration tests.
+    #[cfg(test)]
+    if self.server.is_empty() {
+      return;
+    }
     if self.loading {
       return;
     }

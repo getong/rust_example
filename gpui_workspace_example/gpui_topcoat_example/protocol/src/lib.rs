@@ -102,3 +102,5 @@ impl Default for StudioSnapshot {
 pub enum StudioCommand {
   Apply { theme: StudioTheme, intensity: u8 },
 }
+
+pub mod crypto;

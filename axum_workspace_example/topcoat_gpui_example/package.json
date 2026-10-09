@@ -10,8 +10,11 @@
     "test:e2e": "bun run typecheck && bun --bun playwright test"
   },
   "devDependencies": {
-    "typescript": "^5.9.0",
     "@playwright/test": "^1.56.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@noble/post-quantum": "0.5.4"
   }
 }

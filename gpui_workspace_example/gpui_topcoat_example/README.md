@@ -1,6 +1,12 @@
 # Topcoat × GPUI-kit 多路由协作工作台
 
-网页和桌面通过 HTTP 操作同一份服务端内存数据。桌面使用 `gpui-router` + `TabBar`，路由决定当前 Tab，页面 Entity 缓存保留未提交的输入。每个页面两秒同步一次，网络请求在后台运行；失败保留旧值并提示错误，修改操作不会自动重试。
+网页和桌面通过抗量子加密 HTTP 通道操作同一份服务端内存数据。桌面使用 `gpui-router` + `TabBar`，路由决定当前 Tab，页面 Entity 缓存保留未提交的输入。每个页面两秒同步一次，网络请求在后台运行；失败保留旧值并提示错误，修改操作不会自动重试。
+
+## 抗量子加密
+
+所有业务请求和响应默认使用 ML-KEM-1024 + ML-DSA-87 + HKDF-SHA256 + AES-256-GCM。Rust 双端共用 `aws-lc-rs` 协议模块；浏览器通过 noble/WebCrypto 与服务端互通。每次操作使用全新临时密钥和一次性会话，验证失败无明文回退。
+
+桌面和网页的远程连接必须 HTTPS，本机允许 localhost HTTP；不再使用 `TOPCOAT_SERVER_PUBLIC_KEY` 或 `TOPCOAT_SIGNING_KEY`。完整协议、浏览器信任起点、安全边界和限制见 [SECURITY.md](SECURITY.md)。
 
 ## 异步执行
 
@@ -21,9 +27,11 @@
 
 路由与 Tab 实现改编自本工作区 `entity_view_example/src/tabbed_panel.rs` 和 `panel_tab.rs`：`Routes` 渲染缓存的 Entity，`RouterState` 变化同步选中项，点击 Tab 调用 `use_navigate`。不是只修改选中索引的静态页面。
 
-Axum 示例的业务逻辑改编为 Topcoat 路由、JSON/Form 提取器和共享应用状态；TODO 不包含原示例的 Swagger/OpenAPI 和 API key 功能。JSON 回显扩展为保存最近 20 条回显，方便跨端观察。
+Axum 示例的业务逻辑改编为 Topcoat 路由、JSON 提取器和共享应用状态；TODO 不包含原示例的 Swagger/OpenAPI 和 API key 功能。JSON 回显扩展为保存最近 20 条回显，方便跨端观察。
 
 ## 启动
+
+无需预先生成密钥或配置公钥文件。每次应用握手自动生成临时公私钥，服务端返回临时公钥；每次业务操作都建立新的加密会话。
 
 在 `axum_workspace_example` 终端执行：
 
@@ -52,6 +60,8 @@ TOPCOAT_URL=http://127.0.0.1:3010 cargo run -p gpui_topcoat_example
 
 ## API
 
+下表是加密 envelope 内部业务路由，外部直接访问 `/api/*` 返回 403；实际网络只使用 `/pq/handshake` 和 `/pq/exchange`。
+
 | 请求 | 请求体 | 返回 |
 | --- | --- | --- |
 | `GET /api/counter` | 无 | `{value, revision}` |
@@ -61,9 +71,9 @@ TOPCOAT_URL=http://127.0.0.1:3010 cargo run -p gpui_topcoat_example
 | `POST /api/todos` | `{"action":"set_done","id":1,"done":true}` | 同上 |
 | `POST /api/todos` | `{"action":"delete","id":1}` | 同上 |
 | `POST /api/echo` | 任意合法 JSON | 同上，`echoes[0]` 是此次回显 |
-| `POST /api/profile` | URL 编码表单 `username=Alice&age=28` | 同上 |
+| `POST /api/profile` | JSON `{"username":"Alice","age":28}` | 同上 |
 
-待办最多 200 条、标题 1–120 个字符；表单姓名 1–80 个字符、年龄 0–150；JSON 最大 64 KiB；回显和表单各保留最近 20 条。无效输入返回 400，不存在的待办返回 404。服务端互斥锁保证并发修改一致。此示例使用内存存储，没有认证与持久化。
+待办最多 200 条、标题 1–120 个字符；表单姓名 1–80 个字符、年龄 0–150；JSON 最大 64 KiB；回显和表单各保留最近 20 条。无效输入返回 400，不存在的待办返回 404。服务端互斥锁保证并发修改一致。此示例有依赖 HTTPS 的服务端身份验证，但没有用户登录、客户端身份认证与数据持久化。
 
 ## 验证
 
@@ -80,7 +90,7 @@ cargo build -p gpui_topcoat_example --no-default-features --bin topcoat-smoke
 python3 gpui_topcoat_example/scripts/smoke.py
 ```
 
-联调脚本启动临时端口服务，模拟浏览器发送 JSON 和表单，然后由桌面实际使用的 Rust HTTP 客户端读取并修改，再从网页接口确认结果；同时检查四个网页、脚本资源和断线错误。结束后自动停止测试服务，不影响已有实例。
+联调脚本启动无需密钥文件的临时端口服务，使用实际 TypeScript 加密客户端和桌面 Rust 客户端双向读写；同时检查网页、脚本、被篡改的握手公钥、明文 API 拒绝和断线错误。结束后自动停止测试服务，不影响已有实例。
 
 人工验收：两端分别增加待办、切换完成状态、删除；分别提交 JSON 和表单；桌面输入草稿后切换 Tab 再返回；停止/重启服务，检查断线提示和自动恢复。
 
@@ -88,7 +98,7 @@ python3 gpui_topcoat_example/scripts/smoke.py
 
 新增桌面路由 `/studio` 和「配色实验室」Tab，默认进入该页。配套网页也是 `/studio`；双端仅通过新接口 `GET /api/studio`、`POST /api/studio` 共享配色，不复用原有业务接口。
 
-在网页项目先 `npm ci`，再 `cargo run -p topcoat_gpui_example`；Cargo 自动编译 TypeScript，生成的 JS 只存放在构建目录。桌面运行 `cargo run -p gpui_topcoat_example`。
+在网页项目先 `bun install --frozen-lockfile`，再 `cargo run -p topcoat_gpui_example`；Cargo 自动编译 TypeScript，生成的 JS 只存放在构建目录。桌面运行 `cargo run -p gpui_topcoat_example`。
 
 网页用 TypeScript 实时预览主题和强度，点击「发布到两端」后桌面约两秒同步。桌面支持三个主题、强度 ±10、本地预览、发布、读取最新发布及打开对应网页。本地草稿不会被轮询覆盖，失败保留上次数据并提示错误。原生桌面仍由 Rust 渲染。
 

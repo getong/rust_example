@@ -123,7 +123,7 @@ mod tests {
     });
     let mut panel = None;
     let window = cx.open_window(size(px(1000.), px(800.)), |window, cx| {
-      let view = cx.new(|cx| Workspace::new("http://127.0.0.1:1".into(), window, cx));
+      let view = cx.new(|cx| Workspace::new(String::new(), window, cx));
       panel = Some(view.clone());
       Root::new(view, window, cx)
     });

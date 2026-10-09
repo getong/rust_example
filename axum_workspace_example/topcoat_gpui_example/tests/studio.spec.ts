@@ -3,12 +3,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 const exec = promisify(execFile);
-const client = fileURLToPath(new URL('../../../gpui_workspace_example/target/debug/studio-smoke', import.meta.url));
-test('new studio route: local TS preview, publish, native sync, draft preservation and recovery', async ({page, baseURL}) => {
+const client = process.env.TOPCOAT_STUDIO_SMOKE ?? fileURLToPath(new URL('../../../gpui_workspace_example/target/debug/studio-smoke', import.meta.url));
+test('new studio route: local TS preview, publish, native sync, draft preservation and recovery', async ({page, baseURL, context}) => {
   const errors: string[] = [];
   const endpoints: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) endpoints.push(new URL(request.url()).pathname); });
+  page.on('request', request => { if (/^\/(api|pq)\//.test(new URL(request.url()).pathname)) endpoints.push(new URL(request.url()).pathname); });
   await page.goto('/studio');
   await expect(page.locator('#status')).toContainText('已同步');
   await page.locator('#theme').selectOption('sunset');
@@ -24,16 +24,23 @@ test('new studio route: local TS preview, publish, native sync, draft preservati
   await page.locator('#intensity').fill('20');
   await expect(page.locator('#draft-status')).toContainText('本地预览');
   // A new remote publication must update shared state without destroying the local draft.
-  await page.request.post('/api/studio', {data: {action: 'apply', theme: 'ocean', intensity: 90}});
+  const remote = await context.newPage();
+  await remote.goto('/studio');
+  await expect(remote.locator('#status')).toContainText('已同步');
+  await remote.locator('#theme').selectOption('ocean');
+  await remote.locator('#intensity').fill('90');
+  await remote.getByRole('button', {name: '发布到两端'}).click();
+  await expect(remote.locator('#published')).toContainText('版本 3');
+  await remote.close();
   await expect(page.locator('#published')).toContainText('海洋蓝 · 强度 90% · 版本 3');
   await expect(page.locator('#intensity')).toHaveValue('20');
   await page.getByRole('button', {name: '使用最新发布'}).click();
   await expect(page.locator('#intensity')).toHaveValue('90');
-  await page.route('**/api/studio', route => route.fulfill({json: {theme: 'invalid', intensity: 0, revision: 4}}));
-  await expect(page.locator('#status')).toContainText('配色响应无效');
+  await page.route('**/pq/exchange', route => route.fulfill({json: {session: 'forged', ciphertext: '00'}}));
+  await expect(page.locator('#status')).toContainText('同步失败');
   await expect(page.locator('#published')).toContainText('版本 3');
-  await page.unroute('**/api/studio');
+  await page.unroute('**/pq/exchange');
   await expect(page.locator('#status')).toContainText('已同步');
-  expect([...new Set(endpoints)]).toEqual(['/api/studio']);
+  expect([...new Set(endpoints)]).toEqual(['/pq/handshake', '/pq/exchange']);
   expect(errors).toEqual([]);
 });

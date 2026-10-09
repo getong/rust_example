@@ -97,6 +97,11 @@ impl DemoPage {
   }
 
   fn send(&mut self, command: DemoCommand, cx: &mut Context<Self>) {
+    // UI-only tests use an empty origin; real I/O has separate Tokio integration tests.
+    #[cfg(test)]
+    if self.server.is_empty() {
+      return;
+    }
     if self.loading {
       return;
     }
