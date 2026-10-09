@@ -14,7 +14,7 @@ ecdysis = "1.1.1"
 env_logger = "0.11.11"
 futures = "0.3.34"
 http = "1.5.0"
-hyper = { version = "1.11.1", features = ["full"] }
+hyper = { version = "1.12.0", features = ["full"] }
 hyper-util = { version = "0.1.21", features = ["server", "http1", "http2", "tokio"] }
 log = "0.4.34"
 nix = { version = "0.31.3", features = ["process"] }
