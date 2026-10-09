@@ -1,23 +1,25 @@
 use log::LevelFilter;
 use log4rs::{
+  Config,
   append::{
     console::ConsoleAppender,
     rolling_file::{
-      policy::compound::{
-        roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger, CompoundPolicy,
-      },
       RollingFileAppender,
+      policy::compound::{
+        CompoundPolicy, roll::fixed_window::FixedWindowRoller, trigger::size::SizeTrigger,
+      },
     },
   },
   config::{Appender, Logger, Root},
   encode::pattern::PatternEncoder,
-  Config,
 };
 
 fn main() {
   // let log_line_pattern = "{d(%Y-%m-%d %H:%M:%S)} | {({l}):5.5} | {f}:{L} — {m}{n}";
 
-  let trigger_size = byte_unit::n_mb_bytes!(30) as u64;
+  let trigger_size = byte_unit::Byte::from_u64_with_unit(30, byte_unit::Unit::MB)
+    .expect("30 MB is a valid byte size")
+    .as_u64();
   let trigger = Box::new(SizeTrigger::new(trigger_size));
 
   let roller_pattern = "logs/step/step_{}.gz";
@@ -38,7 +40,6 @@ fn main() {
     .build("logs/step/step.log", compound_policy)
     .unwrap();
 
-  let trigger_size = byte_unit::n_mb_bytes!(30) as u64;
   let trigger = Box::new(SizeTrigger::new(trigger_size));
   let roller = Box::new(
     FixedWindowRoller::builder()
