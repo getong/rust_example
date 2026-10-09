@@ -2,6 +2,7 @@
 #[cfg(feature = "desktop")]
 pub mod runtime;
 pub mod secure;
+pub mod axum_api;
 use secure::SecureClient;
 use topcoat_gpui_protocol::{crypto::ApiRequest, *};
 

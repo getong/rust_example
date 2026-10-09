@@ -12,38 +12,10 @@ pub struct SecureClient {
 }
 impl SecureClient {
   pub fn new(base: &str) -> Result<Self, String> {
-    let url = reqwest::Url::parse(base).map_err(|e| e.to_string())?;
-    if !matches!(url.scheme(), "http" | "https")
-      || url.host_str().is_none()
-      || !url.username().is_empty()
-      || url.password().is_some()
-      || url.query().is_some()
-      || url.fragment().is_some()
-      || url.path() != "/"
-    {
-      return Err(
-        "TOPCOAT_URL must be an http(s) origin without credentials, path or query".into(),
-      );
-    }
-    if url.scheme() == "http"
-      && !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
-    {
-      return Err(
-        "Dynamic public keys require HTTPS for remote servers; HTTP is only allowed on localhost"
-          .into(),
-      );
-    }
-    let http = reqwest::Client::builder()
-      .connect_timeout(Duration::from_secs(2))
-      .timeout(Duration::from_secs(10))
-      .redirect(reqwest::redirect::Policy::none())
-      .build()
-      .map_err(|e| e.to_string())?;
-    Ok(Self {
-      http,
-      base: base.trim_end_matches('/').into(),
-    })
+    let (http, base) = transport(base)?;
+    Ok(Self { http, base })
   }
+
   async fn post<T: serde::Serialize, R: DeserializeOwned>(
     &self,
     path: &str,
@@ -82,7 +54,7 @@ impl SecureClient {
         .await?;
       let plaintext = reader.open(&response).map_err(|e| e.to_string())?;
       let reply: ApiResponse = serde_json::from_slice(&plaintext).map_err(|e| e.to_string())?;
-      if !(200 .. 300).contains(&reply.status) {
+      if !(200..300).contains(&reply.status) {
         return Err(format!("HTTP {}: {}", reply.status, reply.body));
       }
       serde_json::from_str(&reply.body).map_err(|e| e.to_string())
@@ -90,4 +62,33 @@ impl SecureClient {
     .await;
     result.map_err(|e| format!("{e}. Refresh to check server state before retrying a change."))
   }
+}
+
+// Shared origin validation, timeouts and redirect policy for both HTTP clients.
+pub(crate) fn transport(base: &str) -> Result<(reqwest::Client, String), String> {
+  let url = reqwest::Url::parse(base).map_err(|e| e.to_string())?;
+  if !matches!(url.scheme(), "http" | "https")
+    || url.host_str().is_none()
+    || !url.username().is_empty()
+    || url.password().is_some()
+    || url.query().is_some()
+    || url.fragment().is_some()
+    || url.path() != "/"
+  {
+    return Err("TOPCOAT_URL must be an http(s) origin without credentials, path or query".into());
+  }
+  if url.scheme() == "http" && !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+  {
+    return Err(
+      "Dynamic public keys require HTTPS for remote servers; HTTP is only allowed on localhost"
+        .into(),
+    );
+  }
+  let http = reqwest::Client::builder()
+    .connect_timeout(Duration::from_secs(2))
+    .timeout(Duration::from_secs(10))
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+    .map_err(|e| e.to_string())?;
+  Ok((http, base.trim_end_matches('/').into()))
 }

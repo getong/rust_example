@@ -1,6 +1,47 @@
-# Topcoat × GPUI 抗量子加密协作
+# Axum × Topcoat × GPUI 抗量子加密协作
 
-浏览器 TypeScript 与原生 GPUI 客户端共享计数器、待办、JSON 回显、资料表单、配色实验室。服务端业务逻辑由 Topcoat 实现，桌面项目为 `../../gpui_workspace_example/gpui_topcoat_example`，双方共用其 `protocol` crate。
+浏览器 TypeScript 与原生 GPUI 客户端共享计数器、待办、JSON 回显、资料表单、配色实验室。Axum 承接 HTTP 连接，Topcoat 实现页面和业务逻辑，桌面项目为 `../../gpui_workspace_example/gpui_topcoat_example`，双方共用其 `protocol` crate。
+
+## Axum 和 Topcoat 如何协作
+
+[Tony Bai 的博文](https://tonybai.com/2026/07/24/tokio-topcoat-rust-fullstack-framework/)讨论了二者的互补关系；[Tokio 官方原文的 What about Axum](https://tokio.rs/blog/2026-07-22-announcing-topcoat#what-about-axum)也明确区分了 HTTP API 路由与全栈页面框架。本项目用 Topcoat 0.10 的 `tower` feature 和官方 `topcoat::router::tower::TowerService` 实际组合它们。
+
+```text
+浏览器 / GPUI 原生客户端
+          │ 同一地址 http://127.0.0.1:3000
+          ▼
+Axum：axum::serve + Router + common_headers 中间件
+          ├── GET /healthz → Axum Json 健康检查
+          └── fallback_service(TowerService)
+                    ▼
+             Topcoat 公共加密网关 secure::wrap
+                    ├── 页面 / JS → Topcoat #[page] / view! / #[route]
+                    ├── 明文 /api/* → 403
+                    └── /pq/handshake、/pq/exchange
+                              ▼ 解密、校验、内部派发
+                       Topcoat 业务路由 /api/*
+                              ▼
+                       共享 app_context / Mutex 状态
+```
+
+关键实现见 [src/web.rs](src/web.rs) 与 [src/main.rs](src/main.rs)：
+
+```rust
+let topcoat = TowerService::new(secure::wrap(router()));
+let app = axum::Router::new()
+    .route("/healthz", axum::routing::get(health))
+    .fallback_service(topcoat)
+    .layer(axum::middleware::from_fn(common_headers));
+axum::serve(listener, app).await
+```
+
+- **Axum 管入口**：监听 `HOST` / `PORT`，直接处理 `/healthz`；统一中间件为 Axum 与 Topcoat 响应添加 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`。健康检查仅返回 `{"status":"ok"}`，表示进程可响应，不读取业务数据。
+- **TowerService 做适配**：将 Axum 请求体转成 Topcoat 请求体，并把 Topcoat 响应交回 Axum。同一进程、同一端口，内部没有第二次 HTTP 请求。根级 `fallback_service` 保留完整路径，页面中的 `/app.js`、`/assets/studio`、`/pq/*` 地址无需改写。
+- **Topcoat 管页面与业务**：现有 `#[page]`、`view!`、JSON 路由和加密校验照常执行。适配器必须包裹 `secure::wrap(router())`，不能直接暴露内部 `router()`，否则会绕过加密边界。Axum 的显式路由先于 fallback，因此新增业务接口时也必须考虑这条边界。
+- **GPUI 管原生界面**：它通过共享 `protocol` 的 HTTP 加密协议访问同一个服务，无需链接 Axum 或 Topcoat 页面代码，也无需修改 `TOPCOAT_URL`。浏览器仍使用 TypeScript 加密客户端；本次协作不依赖 `$(...)` 或 shard。
+- **共享状态只创建一次**：`web::app()` 构造一个 Topcoat 网关和业务路由；`TowerService` 的克隆共享同一组会话、计数器、待办和配色状态。不能在每个请求里重新调用 `router()`，否则双端无法共享数据。
+
+启动后可用 `curl http://127.0.0.1:3000/healthz` 检查 Axum，再打开首页查看 Topcoat 页面；双端修改计数器或配色验证共享业务链路。
 
 所有业务请求/响应经 ML-KEM-1024 + ML-DSA-87 + HKDF-SHA256 + AES-256-GCM 加密。Rust 使用 `aws-lc-rs`，浏览器使用固定版本 noble-post-quantum 和 WebCrypto。参考 `aws_lc_rs_workspace_example/encrypt_file` 的算法选型。
 

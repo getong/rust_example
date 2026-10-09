@@ -150,7 +150,7 @@ mod tests {
       search(SuggestionKind::Profile, " ALI ", &state).items[0].value,
       "Alice"
     );
-    for id in 0 .. 12 {
+    for id in 0..12 {
       state.todos.push(Todo {
         id,
         title: format!("学习共享任务 {id}"),

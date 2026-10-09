@@ -120,3 +120,24 @@ E2E 先由真实 TypeScript 网页发布落日橙/35，再由 `studio-smoke` 确
 使用 ↑↓ 选择、Enter 填入、Esc 关闭，也可以鼠标点击；填入不会自动提交，原有输入可自由编辑。中文输入法组字期间暂停补全，失焦或清空时关闭。请求采用防抖、取消和版本校验，迟到的旧结果不会覆盖新输入。网络失败只影响建议，不清空草稿。
 
 新增内部只读业务接口 `POST /api/suggestions`，JSON `{ "kind": "todo", "query": "学" }`（kind 也可为 `profile`），返回 `{query, items:[{value,detail,source}]}`。它通过既有动态公钥加密通道发送，外部明文调用仍返回 403。没有额外 WebSocket 服务或配置。任一端新建的待办/联系人，会参与另一端下一次输入查询。
+
+## 直接调用 Axum API
+
+`src/axum_api.rs` 的 `health(base_url).await` 使用异步 reqwest 直接请求
+`GET /healthz`，解析 `Health { status }` 并要求状态为 `ok`。此路径由服务端
+`src/web.rs` 的 Axum handler 返回，不进入 Topcoat fallback 或加密网关。
+
+工作台创建时自动检查一次；底栏显示最近一次结果，点击“检查连接”可重新请求。
+请求通过 Tokio / GPUI 异步桥执行，检查期间按钮禁用，超时、HTTP 错误、无效响应
+显示为检查失败。健康检查只表示 HTTP 服务存活，不代表业务同步或用户认证成功。
+
+两类调用共用 `TOPCOAT_URL`，远程 HTTPS 校验、超时和禁止重定向策略保持一致：
+
+```text
+GPUI axum_api::health → GET /healthz → Axum Json
+GPUI request/demo_request/studio_request → /pq/* → Axum fallback
+    → Topcoat 加密网关 → 共享业务状态
+```
+
+健康检查没有业务数据，不使用 PQ envelope；业务请求仍全部加密。
+`topcoat-smoke` 现在首先调用 Axum 健康 API，然后验证 Topcoat 业务数据互通。

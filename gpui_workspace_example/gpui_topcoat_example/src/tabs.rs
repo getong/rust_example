@@ -2,6 +2,7 @@
 //! The router owns selection; stable page entities preserve form drafts across navigation.
 use gpui_kit::{
   component::{
+    button::Button,
     tab::{Tab, TabBar},
     *,
   },
@@ -33,6 +34,9 @@ pub(crate) struct Workspace {
   tabs: Vec<PageTab>,
   server: String,
   _router_subscription: Subscription,
+  health_status: String,
+  checking_health: bool,
+  health_task: Option<Task<()>>,
 }
 impl Workspace {
   pub(crate) fn new(server: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -65,11 +69,44 @@ impl Workspace {
         cx.notify();
       }
     });
-    Self {
+    let mut workspace = Self {
       tabs,
       server,
       _router_subscription: subscription,
+      health_status: "正在检查服务连接…".into(),
+      checking_health: false,
+      health_task: None,
+    };
+    workspace.check_health(cx);
+    workspace
+  }
+
+  fn check_health(&mut self, cx: &mut Context<Self>) {
+    #[cfg(test)]
+    if self.server.is_empty() {
+      return;
     }
+    if self.checking_health {
+      return;
+    }
+    self.checking_health = true;
+    self.health_status = "正在检查服务连接…".into();
+    let server = self.server.clone();
+    let work = gpui_topcoat_example::runtime::spawn(async move {
+      gpui_topcoat_example::axum_api::health(&server).await
+    });
+    self.health_task = Some(cx.spawn(async move |view, cx| {
+      let result = work.await;
+      let _ = view.update(cx, |view, cx| {
+        view.checking_health = false;
+        view.health_status = match result {
+          Ok(_) => "服务可连接 · 最近检查成功".into(),
+          Err(error) => format!("连接检查失败 · {error}"),
+        };
+        cx.notify();
+      });
+    }));
+    cx.notify();
   }
 }
 impl Render for Workspace {
@@ -102,7 +139,14 @@ impl Render for Workspace {
       .child(
         div()
           .p_2()
-          .child(format!("路由：{path}  ·  服务：{}", self.server)),
+          .child(format!("路由：{path}  ·  服务：{}", self.server))
+          .child(self.health_status.clone())
+          .child(
+            Button::new("check-connection")
+              .label("检查连接")
+              .disabled(self.checking_health)
+              .on_click(cx.listener(|view, _, _, cx| view.check_health(cx))),
+          ),
       )
   }
 }

@@ -2,6 +2,7 @@ mod demos;
 mod secure;
 mod studio;
 mod suggestions;
+mod web;
 
 use tokio::sync::Mutex;
 use topcoat::{
@@ -32,12 +33,17 @@ fn router() -> Router {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+  let host = std::env::var("HOST").unwrap_or("127.0.0.1".into());
+  let port = std::env::var("PORT")
+    .unwrap_or("3000".into())
+    .parse::<u16>()
+    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+  let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
   eprintln!(
-    "Topcoat × GPUI-kit: http://{}:{}",
-    std::env::var("HOST").unwrap_or("127.0.0.1".into()),
-    std::env::var("PORT").unwrap_or("3000".into())
+    "Axum × Topcoat × GPUI-kit: http://{}",
+    listener.local_addr()?
   );
-  topcoat::start(secure::wrap(router())).await
+  axum::serve(listener, web::app()).await
 }
 
 #[route(GET "/api/counter")]
@@ -175,7 +181,7 @@ mod tests {
   async fn concurrent_updates_are_not_lost() {
     let router = std::sync::Arc::new(router());
     let mut tasks = tokio::task::JoinSet::new();
-    for _ in 0 .. 32 {
+    for _ in 0..32 {
       let router = router.clone();
       tasks.spawn(async move {
         assert_eq!(

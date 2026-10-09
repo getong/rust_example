@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum = "0.8.9"
 serde = { version = "1", features = ["derive"] }
 
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
-topcoat = { version = "0.10.0", default-features = false, features = ["router", "view", "serve"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
+topcoat = { version = "0.10.0", default-features = false, features = ["router", "view", "tower"] }
 topcoat_gpui_protocol = { path = "../../gpui_workspace_example/gpui_topcoat_example/protocol" }
 zeroize = "1"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

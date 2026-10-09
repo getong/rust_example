@@ -267,7 +267,7 @@ mod tests {
   async fn full_echo_history_fits_encrypted_response() {
     let business = crate::router();
     let value = serde_json::Value::String("\\".repeat(30_000));
-    for _ in 0 .. 20 {
+    for _ in 0..20 {
       assert_eq!(post(&business, "/api/echo", &value).await.0, 200);
     }
     let router = wrap(business);

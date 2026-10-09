@@ -3,6 +3,8 @@ use topcoat_gpui_protocol::{CounterAction, DEFAULT_SERVER_URL};
 #[tokio::main]
 async fn main() -> Result<(), String> {
   let server = std::env::var("TOPCOAT_URL").unwrap_or_else(|_| DEFAULT_SERVER_URL.into());
+  gpui_topcoat_example::axum_api::health(&server).await?;
+  println!("PASS: GPUI client → Axum GET /healthz");
   let before = gpui_topcoat_example::request(&server, None).await?;
   let updated = gpui_topcoat_example::request(&server, Some(CounterAction::Increment)).await?;
   if updated.value != before.value + 1 || updated.revision != before.revision + 1 {

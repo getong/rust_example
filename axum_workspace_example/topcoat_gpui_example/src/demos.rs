@@ -259,7 +259,7 @@ mod tests {
   #[tokio::test]
   async fn echo_and_form_are_shared_validated_and_bounded() {
     let router = crate::router();
-    for n in 0 .. 25 {
+    for n in 0..25 {
       assert_eq!(
         call(
           &router,
