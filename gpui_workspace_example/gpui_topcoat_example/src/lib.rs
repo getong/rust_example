@@ -61,3 +61,15 @@ pub async fn studio_request(
     .request(api_request(STUDIO_PATH, body, false))
     .await
 }
+
+/// Read-only autocomplete over the same authenticated encrypted gateway.
+pub async fn suggest(
+  base_url: &str,
+  kind: SuggestionKind,
+  query: String,
+) -> Result<Suggestions, String> {
+  let body = serde_json::to_string(&SuggestionQuery { kind, query }).map_err(|e| e.to_string())?;
+  SecureClient::new(base_url)?
+    .request(api_request(SUGGESTIONS_PATH, Some(body), false))
+    .await
+}

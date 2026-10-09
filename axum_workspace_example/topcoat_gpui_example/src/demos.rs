@@ -31,6 +31,25 @@ pub fn register(builder: RouterBuilder) -> RouterBuilder {
     .route(todos)
     .route(echo)
     .route(profile)
+    .route(suggestions)
+}
+
+#[route(POST "/api/suggestions")]
+async fn suggestions(
+  cx: &Cx,
+  Json(input): Json<topcoat_gpui_protocol::SuggestionQuery>,
+) -> Result<Json<topcoat_gpui_protocol::Suggestions>> {
+  if input.query.chars().count() > 120 || input.query.chars().any(char::is_control) {
+    return Err(
+      bad_request("Search must be at most 120 characters without control characters").into(),
+    );
+  }
+  let store = app_context::<Demos>(cx).0.lock().await;
+  Ok(Json(crate::suggestions::search(
+    input.kind,
+    &input.query,
+    &store.snapshot,
+  )))
 }
 
 #[route(GET "/api/demos")]
@@ -126,6 +145,7 @@ fn shell<'a>(cx: &'a Cx, kind: &'static str) -> impl View + 'a {
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>"Topcoat × GPUI-kit 协作示例"</title>
           <script src="/demos.js" defer=(true)></script>
+          <style>".autocomplete{display:inline-block;position:relative;width:min(480px,100%);vertical-align:top}.autocomplete input{box-sizing:border-box;width:100%;padding:12px 14px;border:1px solid #cbd5e1;border-radius:12px;font:inherit;background:white}.autocomplete input:focus{outline:3px solid #bfdbfe;border-color:#2563eb}.autocomplete-panel{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:20;padding:6px;background:white;border:1px solid #dbe4f0;border-radius:14px;box-shadow:0 16px 40px #18203024;text-align:left}.autocomplete-panel[hidden]{display:none}.autocomplete-option{padding:10px 12px;border-radius:9px;cursor:pointer;display:flex;flex-direction:column;gap:4px}.autocomplete-option:hover,.autocomplete-option[aria-selected=true]{background:#eff6ff;color:#1d4ed8}.autocomplete-option strong{font-size:16px}.autocomplete-option small{font-size:12px;color:#64748b}.autocomplete-option mark{background:#dbeafe;color:#1d4ed8;border-radius:3px}.autocomplete-status{padding:10px 12px;font-size:12px;color:#64748b;border-top:1px solid #f1f5f9}#editor{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}"</style>
       </head>
       <body data-page=(kind) style="max-width:900px;margin:48px auto;padding:24px;font:18px system-ui;background:#f4f6fb;color:#182030">
           <h1>"Topcoat × GPUI-kit"</h1>

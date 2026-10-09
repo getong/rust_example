@@ -66,6 +66,19 @@ async fn main() -> Result<(), String> {
   .await?;
   assert!(!state.todos.iter().any(|todo| todo.id == deleted));
   let value = serde_json::json!({"source":"gpui", "message":"你好", "items":[1,true,null]});
+  let suggestions = gpui_topcoat_example::suggest(
+    &server,
+    topcoat_gpui_protocol::SuggestionKind::Todo,
+    "GPUI".into(),
+  )
+  .await?;
+  assert!(
+    suggestions
+      .items
+      .iter()
+      .any(|item| item.value == "GPUI task"
+        && item.source == topcoat_gpui_protocol::SuggestionSource::Shared)
+  );
   let state = demo_request(&server, DemoCommand::Echo(value.clone())).await?;
   assert_eq!(state.echoes[0], value);
   let state = demo_request(

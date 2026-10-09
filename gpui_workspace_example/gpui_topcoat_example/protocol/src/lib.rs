@@ -104,3 +104,34 @@ pub enum StudioCommand {
 }
 
 pub mod crypto;
+
+pub const SUGGESTIONS_PATH: &str = "/api/suggestions";
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionKind {
+  Todo,
+  Profile,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SuggestionQuery {
+  pub kind: SuggestionKind,
+  pub query: String,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionSource {
+  Shared,
+  Suggested,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Suggestion {
+  pub value: String,
+  pub detail: String,
+  pub source: SuggestionSource,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct Suggestions {
+  pub query: String,
+  pub items: Vec<Suggestion>,
+}

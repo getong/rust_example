@@ -57,3 +57,11 @@ bun run test:e2e
 ```
 
 联调/E2E 无需生成或配置密钥文件。`scripts/pq-smoke.ts` 验证 noble/WebCrypto ↔ AWS-LC 的全部业务 API、动态公钥篡改、加密业务错误、明文拒绝。E2E 验证网页发布、原生桌面同步、本地草稿保留及被篡改响应后的恢复。
+
+## 实时补全
+
+在 `/todos` 输入 `学`、`rust` 或 `kf`，在 `/profile` 输入 `张`、`zxm` 或 `Ali`，180ms 防抖后自动显示最多 6 条服务端建议。↑↓ 选择、Enter 填入、Esc/失焦关闭，鼠标点击也可填入，不会自动提交。网页突出显示匹配文字，区分常用建议和双端共享记录，提供加载、无匹配和断线提示。
+
+`POST /api/suggestions` 是加密网关内部的只读查询，接收 `{kind:"todo"|"profile",query:string}`，返回 `{query,items:[{value,detail,source:"shared"|"suggested"}]}`。查询最多 120 字，不允许控制字符。服务端结合常用词和当前共享待办/联系人，按前缀、包含、常用词拼音别名匹配排序去重。用户自建记录仅按实际文字搜索。没有输入内容写入、额外持久化或 WebSocket 连接。
+
+桌面和网页都取消过时查询，并防止迟到结果覆盖新输入。网页支持中文输入法组字和 combobox/listbox 可访问性属性。`tests/autocomplete.spec.ts` 验证中文输入、拼音、键盘/鼠标、旧响应、断线恢复及原生客户端写入后的共享建议；Rust 服务端测试验证排名去重、上限、参数校验和加密请求路径。

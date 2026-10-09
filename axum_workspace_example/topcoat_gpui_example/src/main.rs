@@ -1,6 +1,7 @@
 mod demos;
 mod secure;
 mod studio;
+mod suggestions;
 
 use tokio::sync::Mutex;
 use topcoat::{

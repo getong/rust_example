@@ -127,7 +127,12 @@ async fn exchange(cx: &Cx, Json(envelope): Json<Envelope>) -> Result<Json<Envelo
     ("GET", "/api/counter" | "/api/demos" | "/api/studio")
       | (
         "POST",
-        "/api/counter" | "/api/todos" | "/api/echo" | "/api/profile" | "/api/studio"
+        "/api/counter"
+          | "/api/todos"
+          | "/api/echo"
+          | "/api/profile"
+          | "/api/studio"
+          | "/api/suggestions"
       )
   );
   let output = if !allowed || input.form || (input.method == "GET" && !input.body.is_empty()) {
@@ -277,6 +282,60 @@ mod tests {
     let state: topcoat_gpui_protocol::DemoSnapshot = serde_json::from_str(&response.body).unwrap();
     assert_eq!(state.echoes.len(), 20);
     assert_eq!(state.echoes[19], value);
+  }
+
+  #[tokio::test]
+  async fn encrypted_suggestions_see_shared_writes_and_validate_input() {
+    let router = wrap(crate::router());
+    for (path, body, status) in [
+      (
+        "/api/todos",
+        r#"{"action":"create","title":"学会双端补全"}"#,
+        200,
+      ),
+      ("/api/suggestions", r#"{"kind":"todo","query":"学"}"#, 200),
+      ("/api/suggestions", r#"{"kind":"bad","query":"学"}"#, 400),
+      ("/api/suggestions", r#"{"kind":"todo","query":"a\nb"}"#, 400),
+    ] {
+      let (envelope, reader) = prepare(&router, path, body).await;
+      let (outer, bytes) = post(&router, crypto::EXCHANGE_PATH, &envelope).await;
+      assert_eq!(outer, 200);
+      let plain = reader
+        .open(&serde_json::from_slice(&bytes).unwrap())
+        .unwrap();
+      let reply: ApiResponse = serde_json::from_slice(&plain).unwrap();
+      assert_eq!(reply.status, status);
+      if path == "/api/suggestions" && status == 200 {
+        let result: topcoat_gpui_protocol::Suggestions = serde_json::from_str(&reply.body).unwrap();
+        assert_eq!(result.items[0].value, "学会双端补全");
+        assert_eq!(
+          result.items[0].source,
+          topcoat_gpui_protocol::SuggestionSource::Shared
+        );
+      }
+    }
+    assert_eq!(
+      post(
+        &router,
+        "/api/suggestions",
+        &serde_json::json!({"kind":"todo","query":"学"})
+      )
+      .await
+      .0,
+      403
+    );
+    let body = serde_json::json!({"kind":"todo","query":"学".repeat(121)}).to_string();
+    let (envelope, reader) = prepare(&router, "/api/suggestions", &body).await;
+    let (_, bytes) = post(&router, crypto::EXCHANGE_PATH, &envelope).await;
+    let plain = reader
+      .open(&serde_json::from_slice(&bytes).unwrap())
+      .unwrap();
+    assert_eq!(
+      serde_json::from_slice::<ApiResponse>(&plain)
+        .unwrap()
+        .status,
+      400
+    );
   }
 
   #[tokio::test]

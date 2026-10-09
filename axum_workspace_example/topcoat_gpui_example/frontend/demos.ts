@@ -1,3 +1,4 @@
+import { attachAutocomplete } from './autocomplete';
 import { api, element, errorMessage } from './api';
 import type { DemoSnapshot, JsonValue } from './types';
 const page = document.body.dataset.page;
@@ -5,6 +6,7 @@ if (page !== 'todos' && page !== 'echo' && page !== 'profile') throw new Error('
 const results = element('results', HTMLElement);
 const status = element('status', HTMLElement);
 let busy = false;
+if (page === 'todos' || page === 'profile') attachAutocomplete(element(page === 'todos' ? 'title' : 'username', HTMLInputElement), page === 'todos' ? 'todo' : 'profile');
 function render(snapshot: DemoSnapshot): void {
   results.replaceChildren();
   if (page === 'todos') {
