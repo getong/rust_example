@@ -59,7 +59,7 @@ impl Workspace {
       label: "配色实验室",
       view: cx.new(|cx| StudioPage::new(server.clone(), cx)).into(),
     });
-    use_navigate(cx)("/studio".into());
+    use_navigate(cx).push("/studio");
     let mut previous = use_location(cx).pathname.clone();
     let subscription = cx.observe_global::<RouterState>(move |_, cx| {
       let current = use_location(cx).pathname.clone();
@@ -125,7 +125,7 @@ impl Render for Workspace {
           .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label)))
           .on_click(cx.listener(|view, index: &usize, _, cx| {
             if let Some(tab) = view.tabs.get(*index) {
-              use_navigate(cx)(tab.path.into());
+              use_navigate(cx).push(tab.path);
             }
           })),
       )
