@@ -10,7 +10,7 @@ tree-sitter = ["gpui-kit/tree-sitter-languages"]
 anyhow = "1"
 async-channel = "2.5.0"
 autocorrect = "2.14.2"
-branches = { version = "0.5.1", default-features = false, features = ["std"] }
+branches = { version = "0.4", default-features = false, features = ["std"] }
 chrono = "0.4"
 csv = "1.4"
 dirs = "7.0.0"

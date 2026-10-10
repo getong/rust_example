@@ -61,7 +61,7 @@ impl TabbedPanel {
       gpui_router::init(cx);
     }
     let initial_path = tabs[0].path();
-    use_navigate(cx)(initial_path.clone());
+    use_navigate(cx).push(initial_path.clone());
     let mut previous_path = initial_path;
     let subscription = cx.observe_global::<RouterState>(move |panel, cx| {
       let pathname = &use_location(cx).pathname;
@@ -96,13 +96,13 @@ impl TabbedPanel {
     let Some(tab) = self.tabs.iter().find(|tab| tab.path().as_ref() == path) else {
       return false;
     };
-    use_navigate(cx)(tab.path());
+    use_navigate(cx).push(tab.path());
     true
   }
 
   pub(crate) fn select_tab(&self, index: usize, cx: &mut Context<Self>) {
     if let Some(tab) = self.tabs.get(index) {
-      use_navigate(cx)(tab.path());
+      use_navigate(cx).push(tab.path());
     }
   }
 
@@ -197,7 +197,7 @@ impl TabbedPanel {
     // 释放此标签的 Entity 和 Subscription；共享模型由 panel / Global 保活。
     self.tabs.remove(index);
     if self.tabs.is_empty() {
-      use_navigate(cx)("/".into());
+      use_navigate(cx).push("/");
     } else {
       self.select_tab(index.min(self.tabs.len() - 1), cx);
     }
