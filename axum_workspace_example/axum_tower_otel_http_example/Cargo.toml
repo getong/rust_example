@@ -7,9 +7,9 @@ edition = "2024"
 axum = { version = "0.8.9", features = ["http1", "tokio"] }
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["http1", "client"] }
-opentelemetry = "0.33.0"
-opentelemetry-otlp = { version = "0.33.0", features = ["grpc-tonic"] }
-opentelemetry_sdk = "0.33.0"
+opentelemetry = "0.33.1"
+opentelemetry-otlp = { version = "0.33.1", features = ["grpc-tonic"] }
+opentelemetry_sdk = "0.33.1"
 pin-project = "1.1.13"
 tokio = { version = "1.53.2", features = ["macros", "rt", "rt-multi-thread"] }
 tower = "0.5.3"

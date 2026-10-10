@@ -8,7 +8,7 @@ edition = "2024"
 axum = "0.8.9"
 axum-tracing-opentelemetry = "0.42.1"
 init-tracing-opentelemetry = { version = "0.43", features = ["otlp", "tracing_subscriber_ext"] }
-opentelemetry = { version = "0.33.0", features = ["default"] }
+opentelemetry = { version = "0.33.1", features = ["default"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.2", features = ["full"] }
 tracing = "0.1.44"
