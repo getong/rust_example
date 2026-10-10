@@ -19,7 +19,7 @@ futures = "0.3"
 gpui-form = "0.8.0"
 gpui-form-collection = "0.8.0"
 gpui-kit = "0.7.1"
-gpui-router = { version = "0.5.0", default-features = false, features = [
+gpui-router = { version = "0.6.0", default-features = false, features = [
   "gpui-pre",
 ] }
 gpui-toolkit-gpui-util = "0.1.0"
