@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cached = { version = "0.52.0", features = ["disk_store"] }
-thiserror = "1.0.61"
+cached = { version = "4.0.1", features = ["redb_store"] }
+thiserror = "2.0.21"

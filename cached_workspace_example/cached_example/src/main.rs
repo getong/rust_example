@@ -1,4 +1,4 @@
-use cached::proc_macro::io_cached;
+use cached::macros::concurrent_cached;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -12,9 +12,9 @@ enum ExampleError {
 /// unless otherwise specified with `disk_dir` or the `create` argument.
 /// A `map_error` closure must be specified to convert any
 /// disk cache errors into the same type of error returned
-/// by your function. All `io_cached` functions must return `Result`s.
-#[io_cached(
-  map_error = r##"|e| ExampleError::DiskError(format!("{:?}", e))"##,
+/// by your function. Disk-backed `concurrent_cached` functions return `Result`s.
+#[concurrent_cached(
+  map_error = |e| ExampleError::DiskError(format!("{e:?}")),
   disk = true
 )]
 fn cached_sleep_secs(secs: u64) -> Result<String, ExampleError> {

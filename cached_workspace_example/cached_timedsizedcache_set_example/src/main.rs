@@ -1,10 +1,14 @@
 use std::time::Duration;
 
-use cached::{stores::TimedSizedCache, Cached};
+use cached::{Cached, stores::LruTtlCache};
 
 fn main() {
   // Simulate a HashSet using a cache (only care about the keys, not the values)
-  let mut data_set: TimedSizedCache<String, ()> = TimedSizedCache::with_size_and_lifespan(3, 5);
+  let mut data_set: LruTtlCache<String, ()> = LruTtlCache::builder()
+    .max_size(3)
+    .ttl(Duration::from_secs(5))
+    .build()
+    .expect("valid cache configuration");
 
   // Insert values into the "HashSet"
   data_set.cache_set("a".to_string(), ());

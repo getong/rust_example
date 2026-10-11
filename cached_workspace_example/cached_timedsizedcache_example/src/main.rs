@@ -1,11 +1,15 @@
 use std::time::Duration;
 
-use cached::{stores::TimedSizedCache, Cached};
+use cached::{Cached, stores::LruTtlCache};
 
 fn main() {
-  // Create a TimedSizedCache with a size of 1000, lifespan of 5 seconds, and refresh enabled
-  let mut data_set: TimedSizedCache<String, String> =
-    TimedSizedCache::with_size_and_lifespan_and_refresh(3, 4, true);
+  // Keep up to 3 entries with a 4-second TTL, refreshed on cache hits.
+  let mut data_set: LruTtlCache<String, String> = LruTtlCache::builder()
+    .max_size(3)
+    .ttl(Duration::from_secs(4))
+    .refresh_on_hit(true)
+    .build()
+    .expect("valid cache configuration");
 
   // Add an entry to the cache
   data_set.cache_set("a".to_string(), "1".to_string());
@@ -17,7 +21,7 @@ fn main() {
   data_set.cache_set("d".to_string(), "4".to_string());
 
   // Collect keys before iterating
-  let keys: Vec<_> = data_set.key_order().cloned().collect();
+  let keys = data_set.key_order();
   println!("keys: {:?}", keys);
 
   // Print cache before sleep
@@ -29,8 +33,7 @@ fn main() {
   // Wait for the cache to expire (6 seconds)
   std::thread::sleep(Duration::new(6, 0));
 
-  // Collect keys again before iterating
-  let keys: Vec<_> = data_set.key_order().cloned().collect();
+  // Reuse the previous keys: key_order() excludes expired entries.
 
   // Print cache after sleep
   println!("After sleep:");

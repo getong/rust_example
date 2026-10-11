@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cached = "0.53.1"
+cached = "4.0.1"
