@@ -19,9 +19,7 @@ use deno_lib::standalone::virtual_fs::{
   FileSystemCaseSensitivity, OffsetWithLength, VfsEntry, VfsEntryRef, VirtualDirectory, VirtualFile,
 };
 use deno_runtime::{
-  deno_fs::{
-    FileSystem, FsDirEntry, FsFileType, FsReadDir, FsReadDirRc, OpenOptions, RealFs,
-  },
+  deno_fs::{FileSystem, FsDirEntry, FsFileType, FsReadDir, FsReadDirRc, OpenOptions, RealFs},
   deno_io,
   deno_io::fs::{File as DenoFile, FsError, FsResult, FsStat, FsStatFs},
   deno_napi::{DenoRtNativeAddonLoader, DenoRtNativeAddonLoaderRc},
@@ -1483,9 +1481,9 @@ impl FileBackedVfsMetadata {
 
   /// if `mtime` is `None`, return `0`.
   ///
-  /// if `mtime` is greater than `u64::MAX`, return `u64::MAX`.
-  fn get_mtime(&self) -> u64 {
-    self.mtime.unwrap_or(0).try_into().unwrap_or(u64::MAX)
+  /// if `mtime` is greater than `i64::MAX`, return `i64::MAX`.
+  fn get_mtime(&self) -> i64 {
+    self.mtime.unwrap_or(0).try_into().unwrap_or(i64::MAX)
   }
 }
 

@@ -1069,7 +1069,7 @@ impl JsrPackageResolver {
       .version_resolver
       .get_for_package(&req.name, &package_info);
     let resolved_version = version_resolver
-      .resolve_version(&req, std::iter::empty())
+      .resolve_version(&req, std::iter::empty(), &Default::default())
       .map_err(|err| {
         JsErrorBox::generic(format!(
           "failed to resolve jsr package version for `{}`: {err}",

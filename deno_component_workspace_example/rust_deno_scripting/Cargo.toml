@@ -5,24 +5,24 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-base64 = "0.22.1"
-deno_ast = { version = "=0.53.2", features = ["transpiling"] }
-deno_core = "0.405.0"
+base64 = "0.23.1"
+deno_ast = { version = "=0.53.3", features = ["transpiling"] }
+deno_core = "0.412.0"
 deno_error = "=0.7.1"
-deno_graph = "=0.109.0"
-deno_node = "0.190.0"
-deno_resolver = "0.83"
-deno_runtime = { version = "0.260", features = ["transpile"] }
-deno_semver = "=0.10.0"
-dirs = "6.0.0"
+deno_graph = "=0.111.0"
+deno_node = "0.197.0"
+deno_resolver = "0.90"
+deno_runtime = { version = "0.267", features = ["transpile"] }
+deno_semver = "=0.10.1"
+dirs = "7.0.0"
 flate2 = "1.1"
-node_resolver = "0.90.0"
-reqwest = { version = "0.13.4", features = ["json"] }
+node_resolver = "0.97.0"
+reqwest = { version = "0.13.5", features = ["json"] }
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
-sys_traits = { version = "0.1.28", features = ["real"] }
+sys_traits = { version = "0.1.29", features = ["real"] }
 tar = "0.4"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }

@@ -153,7 +153,8 @@ impl RootCertStoreProvider for SimpleRootCertStoreProvider {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let storage_dir = worker::get_cache_storage_dir();
+  let origin_data_folder_path = std::env::temp_dir().join("deno_lib_libmainworker_example");
+  let storage_dir = worker::get_cache_storage_dir(&origin_data_folder_path);
   println!("storage_dir: {:?}", storage_dir);
   // Create JavaScript content to execute
   let js_content = r#"
@@ -221,7 +222,7 @@ console.log("Deno version:", Deno.version);
     node_debug: None,
     node_cluster_unique_id: None,
     node_cluster_sched_policy: None,
-    origin_data_folder_path: None,
+    origin_data_folder_path: Some(origin_data_folder_path),
     seed: None,
     unsafely_ignore_certificate_errors: None,
     node_ipc_init: None,

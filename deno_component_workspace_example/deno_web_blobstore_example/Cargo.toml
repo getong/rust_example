@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_web = "0.283.0"
-tokio = { version = "1.52.3", features = ["full"] }
+deno_web = "0.290.0"
+tokio = { version = "1.53.2", features = ["full"] }
 url = "2.5.8"

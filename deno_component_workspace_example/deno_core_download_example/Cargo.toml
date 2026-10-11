@@ -8,28 +8,28 @@ name = "npm_demo"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.103"
-base64 = "0.22.1"
-dirs = "6.0.0"
-flate2 = "1.1.9"
-futures = "0.3.32"
-reqwest = { version = "0.13.4", features = [
+anyhow = "1.0.104"
+base64 = "0.23.1"
+dirs = "7.0.0"
+flate2 = "1.1.10"
+futures = "0.3.34"
+reqwest = { version = "0.13.5", features = [
   "json"
 ], default-features = false }
 semver = "1.0.28"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 sha2 = "0.11.0"
 tar = "0.4"
 tempfile = "3.27.0"
-thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["full"] }
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
 
 [dev-dependencies]
-tokio-test = "0.4.5"
+tokio-test = "0.4.6"
 
 [[example]]
 name = "download_supabase"

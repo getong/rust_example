@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-deno_graph = "=0.109.0"
-futures = "0.3.32"
+deno_graph = "=0.111.0"
+futures = "0.3.34"

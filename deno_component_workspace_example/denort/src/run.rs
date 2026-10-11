@@ -392,6 +392,7 @@ impl ModuleLoader for EmbeddedModuleLoader {
               Cow::Borrowed(&original_specifier),
               maybe_referrer.as_ref(),
               &as_deno_resolver_requested_module_type(&options.requested_module_type),
+              None,
             )
             .await
             .map_err(JsErrorBox::from_err)?;
@@ -745,6 +746,7 @@ pub async fn run(
         },
         scopes: Default::default(),
         registry_configs: Default::default(),
+        replace_registry_host: Default::default(),
         min_release_age_days: None,
         trust_policy: Default::default(),
         trust_policy_ignore_after_minutes: None,
@@ -860,7 +862,7 @@ pub async fn run(
     CjsCodeAnalyzer::new(cjs_tracker.clone(), modules.clone(), sys.clone());
   let cjs_module_export_analyzer = Arc::new(CjsModuleExportAnalyzer::new(
     cjs_esm_code_analyzer,
-    in_npm_pkg_checker,
+    in_npm_pkg_checker.clone(),
     node_resolver.clone(),
     npm_resolver.clone(),
     pkg_json_resolver.clone(),
@@ -949,6 +951,7 @@ pub async fn run(
       node_resolver: node_resolver.clone(),
       npm_module_loader: Arc::new(NpmModuleLoader::new(
         cjs_tracker.clone(),
+        in_npm_pkg_checker,
         node_code_translator,
         sys.clone(),
       )),
@@ -1096,6 +1099,7 @@ fn create_default_npmrc() -> Arc<ResolvedNpmRc> {
     },
     scopes: Default::default(),
     registry_configs: Default::default(),
+    replace_registry_host: Default::default(),
     min_release_age_days: None,
     trust_policy: Default::default(),
     trust_policy_ignore_after_minutes: None,

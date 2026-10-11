@@ -9,47 +9,43 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-async-trait = "0.1.89"
+async-trait = "0.1.92"
 bincode = "=1.3.3"
-deno_cache_dir = { version = "0.44.0", features = ["sync"] }
-deno_config = { version = "0.102.0", features = ["sync", "workspace"] }
-deno_core = "0.405.0"
+deno_cache_dir = { version = "0.51.0", features = ["sync"] }
+deno_config = { version = "0.109.0", features = ["sync", "workspace"] }
+deno_core = "0.412.0"
 deno_error = "=0.7.1"
-deno_lib = "0.70.0"
+deno_lib = "0.77.0"
 deno_media_type = { version = "=0.4.0", features = ["data_url", "decoding"] }
-deno_npm = "0.64.0"
-deno_npmrc = "0.13.0"
-deno_package_json = { version = "0.54.0", features = ["sync"] }
+deno_npm = "0.71.0"
+deno_npmrc = "0.20.0"
+deno_package_json = { version = "0.61.0", features = ["sync"] }
 deno_path_util = "=0.6.4"
-deno_resolver = { version = "0.83.0", features = ["sync"] }
-deno_runtime = "0.260.0"
-deno_semver = "=0.10.0"
-deno_snapshots = "0.67.0"
+deno_resolver = { version = "0.90.0", features = ["sync"] }
+deno_runtime = "0.267.0"
+deno_semver = "=0.10.1"
+deno_snapshots = "0.74.0"
 deno_terminal = "=0.2.3"
 import_map = { version = "0.25.0", features = ["ext"] }
 indexmap = { version = "2", features = ["serde"] }
-libsui = "0.16.0"
-log = { version = "0.4.33", features = ["serde"] }
-node_resolver = "0.90.0"
+libsui = "0.16.4"
+log = { version = "0.4.34", features = ["serde"] }
+node_resolver = "0.97.0"
 rustls = { version = "=0.23.40", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-sys_traits = { version = "0.1.28", features = ["getrandom", "filetime", "libc", "real", "strip_unc", "winapi"] }
-thiserror = "2.0.18"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sys_traits = { version = "0.1.29", features = ["getrandom", "filetime", "libc", "real", "strip_unc", "winapi"] }
+thiserror = "2.0.21"
 timezone_provider = "=0.0.14"
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.53.2", features = ["full"] }
 url = { version = "2.5", features = ["serde", "expose_internals"] }
 
 [target.'cfg(windows)'.dependencies]
-deno_subprocess_windows = "0.47.0"
+deno_subprocess_windows = "0.54.0"
 memmap2 = "0.9.11"
 
-[build-dependencies]
-deno_core = "0.405.0"
-deno_runtime = { version = "0.260.0", features = ["snapshot"] }
-
 [dev-dependencies]
-sys_traits = { version = "0.1.28", features = ["memory"] }
+sys_traits = { version = "0.1.29", features = ["memory"] }
 
 [[test]]
 name = "integration"
