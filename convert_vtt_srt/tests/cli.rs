@@ -67,10 +67,14 @@ fn recursive_conversion_preview_skip_and_overwrite() {
 
   fs::rename(&backup, &input).unwrap();
   fs::write(&output, "existing subtitle").unwrap();
-  assert!(fixture.run(&[]).status.success());
-  assert_eq!(fs::read_to_string(&output).unwrap(), "existing subtitle");
+  assert!(fixture.run(&["--dry-run"]).status.success());
   assert!(input.exists());
   assert!(!backup.exists());
+  assert!(fixture.run(&[]).status.success());
+  assert_eq!(fs::read_to_string(&output).unwrap(), "existing subtitle");
+  assert!(!input.exists());
+  assert_eq!(fs::read_to_string(&backup).unwrap(), VTT);
+  fs::rename(&backup, &input).unwrap();
   let overwritten = fixture.run(&["--overwrite"]);
   assert!(overwritten.status.success(), "{overwritten:?}");
   assert!(fs::read_to_string(&output).unwrap().contains("你好 world"));
@@ -91,8 +95,11 @@ fn failed_conversion_preserves_output_and_continues() {
     "keep me"
   );
   assert!(fixture.0.join("b.srt").exists());
-  assert!(fixture.0.join("a.vtt").exists());
-  assert!(!fixture.0.join("a.vtt.bak").exists());
+  assert!(!fixture.0.join("a.vtt").exists());
+  assert_eq!(
+    fs::read_to_string(fixture.0.join("a.vtt.bak")).unwrap(),
+    "this is not WebVTT"
+  );
   assert!(!fixture.0.join("b.vtt").exists());
   assert_eq!(
     fs::read_to_string(fixture.0.join("b.vtt.bak")).unwrap(),
@@ -131,7 +138,28 @@ fn arguments_missing_inputs_and_missing_ffmpeg() {
   assert!(fixture.run(&["-n", "--", "-episode.vtt"]).status.success());
   let result = fixture.run(&["--ffmpeg", "/nonexistent/ffmpeg"]);
   assert_eq!(result.status.code(), Some(1));
+  assert!(!fixture.0.join("-episode.vtt").exists());
+  assert_eq!(
+    fs::read_to_string(fixture.0.join("-episode.vtt.bak")).unwrap(),
+    VTT
+  );
   assert_eq!(fs::read_dir(&fixture.0).unwrap().count(), 1);
+}
+
+#[test]
+fn failed_srt_publication_still_backs_up_input() {
+  let fixture = Fixture::new();
+  fs::write(fixture.0.join("episode.vtt"), VTT).unwrap();
+  fs::create_dir(fixture.0.join("episode.srt")).unwrap();
+  let result = fixture.run(&["--overwrite"]);
+  assert_eq!(result.status.code(), Some(1), "{result:?}");
+  assert!(fixture.0.join("episode.srt").is_dir());
+  assert!(!fixture.0.join("episode.vtt").exists());
+  assert_eq!(
+    fs::read_to_string(fixture.0.join("episode.vtt.bak")).unwrap(),
+    VTT
+  );
+  assert_eq!(fs::read_dir(&fixture.0).unwrap().count(), 2);
 }
 
 #[cfg(unix)]
