@@ -11,4 +11,5 @@ members = [
   "fs_call_unrar_example",
   "find_diff",
   "grep_all_files",
+  "delete_rsync_hidden_files",
 ]
