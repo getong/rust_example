@@ -9,6 +9,6 @@ path = "src/tokio-wasi.rs"
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 anyhow = "1.0.104"
-tokio = { version = "1.53.1", features = ["full"] }
-wasmtime = "47.0.3"
-wasmtime-wasi = "47.0.3"
+tokio = { version = "1.53.2", features = ["full"] }
+wasmtime = "49.0.2"
+wasmtime-wasi = "49.0.2"

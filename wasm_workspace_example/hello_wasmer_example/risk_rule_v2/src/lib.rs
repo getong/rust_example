@@ -1,6 +1,6 @@
 /// Returns the required state schema version for this rule.
 /// Schema 2 adds explicit fast-lane hit tracking.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn required_schema() -> i32 {
   2
 }
@@ -15,7 +15,7 @@ pub extern "C" fn required_schema() -> i32 {
 /// * `0` – allow
 /// * `1` – review
 /// * `2` – allow-fast-lane (even user_id with small amount)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn decide(user_id: i64, amount: i64) -> i32 {
   if amount > 5_000 {
     1 // review

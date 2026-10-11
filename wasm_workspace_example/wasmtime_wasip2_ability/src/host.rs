@@ -9,10 +9,7 @@ use wasmtime::{
   component::{Component, Linker, ResourceTable},
 };
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView, p2::bindings::Command};
-use wasmtime_wasi_http::{
-  WasiHttpCtx,
-  p2::{WasiHttpCtxView, WasiHttpView},
-};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
 const GUEST_TARGET: &str = "wasm32-wasip2";
 const GUEST_WASM: &str = "wasmtime_wasip2_ability.wasm";

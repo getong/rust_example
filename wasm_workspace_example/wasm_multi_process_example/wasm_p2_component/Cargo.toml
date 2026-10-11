@@ -13,6 +13,6 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = { version = "0.60.0", default-features = false, features = [
+wit-bindgen = { version = "0.62.0", default-features = false, features = [
   "macros",
 ] }

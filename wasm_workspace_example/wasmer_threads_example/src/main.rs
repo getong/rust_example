@@ -30,7 +30,7 @@ fn main() -> Result<()> {
   let tokio_rt = tokio::runtime::Runtime::new()?;
   let _guard = tokio_rt.enter();
 
-  // Store::default(): 使用默认编译器后端 (cranelift)
+  // Store::default(): 使用默认编译器后端 (这里只启用了 singlepass)
   let mut store = Store::default();
   let module = Module::from_file(&store, &wasm_path)
     .map_err(anyhow::Error::from)
