@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 gpui-pre = "0.3.8"
-gpui-pre-platform = "0.3.8"
+gpui-pre-platform = { version = "0.3.8", features = ["font-kit"] }
 gpui-router = { version = "0.6.0", default-features = false, features = ["gpui-pre"] }

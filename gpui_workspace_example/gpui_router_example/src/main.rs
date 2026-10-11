@@ -1,4 +1,4 @@
-use gpui::{App, Context, Window, WindowOptions, div, prelude::*};
+use gpui::{App, Context, Window, WindowOptions, div, prelude::*, rgb, white};
 use gpui_router::prelude::*;
 
 struct HelloWorld {}
@@ -6,8 +6,19 @@ struct HelloWorld {}
 impl Render for HelloWorld {
   fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
     div()
+      .flex()
+      .flex_col()
+      .gap_2()
+      .size_full()
+      .p_2()
+      .bg(rgb(0x2e7d32))
+      .text_color(white())
+      .child(div().text_xl().child("Router Example"))
       .child(
         div()
+          .flex()
+          .gap_4()
+          .text_lg()
           .child(NavLink::new().to("/").child(div().child("Home")))
           .child(NavLink::new().to("/about").child(div().child("About")))
           .child(
@@ -59,6 +70,14 @@ fn not_match() -> impl IntoElement {
 fn main() {
   gpui_platform::application().run(|cx: &mut App| {
     init(cx);
+
+    cx.on_window_closed(|cx, _| {
+      if cx.windows().is_empty() {
+        cx.quit();
+      }
+    })
+    .detach();
+
     cx.activate(true);
     cx.open_window(WindowOptions::default(), |_, cx| {
       cx.new(|_cx| HelloWorld {})
