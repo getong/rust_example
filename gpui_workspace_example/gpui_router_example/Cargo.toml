@@ -1,0 +1,9 @@
+[package]
+name = "gpui_router_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui-pre = "0.3.8"
+gpui-pre-platform = "0.3.8"
+gpui-router = { version = "0.6.0", default-features = false, features = ["gpui-pre"] }

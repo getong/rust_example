@@ -14,6 +14,7 @@ members = [
   "gpui_fast_example",
   "gpui_topcoat_example",
   "gpui_topcoat_example/protocol",
+  "gpui_router_example",
 ]
 
 # Reduce debug unwind-table size while retaining symbols and panic unwinding.
