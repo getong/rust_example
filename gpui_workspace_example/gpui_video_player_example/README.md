@@ -6,6 +6,17 @@
 需要安装 GStreamer 及对应的视频解码插件，并让 `pkg-config` 能找到 `gstreamer-1.0`。
 
 ```sh
+brew install gstreamer
+```
+
+copy the mp4 file
+
+```sh
+git clone https://github.com/cijiugechu/gpui-video-player
+cp -rf gpui-video-player/assets .
+```
+
+```sh
 cargo run -p gpui_video_player_example
 cargo run -p gpui_video_player_example -- /absolute/path/to/video.mp4
 ```
