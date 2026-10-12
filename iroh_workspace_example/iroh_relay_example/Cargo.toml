@@ -1,0 +1,14 @@
+[package]
+name = "iroh_relay_example"
+version = "0.1.0"
+edition = "2024"
+description = "A modular local iroh relay and end-to-end QUIC echo demo"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+iroh = "1.3.0"
+iroh-relay = { version = "1.3.0", features = ["server"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
