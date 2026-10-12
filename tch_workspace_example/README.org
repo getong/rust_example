@@ -70,7 +70,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 #+BEGIN_SRC bash
 uv venv .venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 #+END_SRC
 
 验证安装：
