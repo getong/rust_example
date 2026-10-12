@@ -14,7 +14,7 @@ path = "src/main.rs"
 required-features = ["desktop"]
 
 [dependencies]
-gpui-kit = { version = "0.7.1", optional = true }
+gpui-kit = { version = "0.7.2", optional = true }
 gpui-router = { version = "0.6.0", default-features = false, features = ["gpui-pre"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["form", "json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
@@ -23,4 +23,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net",
 topcoat_gpui_protocol = { path = "protocol" }
 
 [dev-dependencies]
-gpui-kit = { version = "0.7.1", features = ["test-support"] }
+gpui-kit = { version = "0.7.2", features = ["test-support"] }
