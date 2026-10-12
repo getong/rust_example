@@ -10,7 +10,7 @@ tree-sitter = ["gpui-kit/tree-sitter-languages"]
 anyhow = "1"
 async-channel = "2.5.0"
 autocorrect = "2.14.2"
-branches = { version = "0.4", default-features = false, features = ["std"] }
+branches = { version = "0.4.6", default-features = false, features = ["std"] }
 chrono = "0.4"
 csv = "1.4"
 dirs = "7.0.0"
@@ -18,7 +18,7 @@ fake = { version = "5.1.0", features = ["dummy"] }
 futures = "0.3"
 gpui-form = "0.8.0"
 gpui-form-collection = "0.8.0"
-gpui-kit = "0.7.2"
+gpui-kit = "0.7.3"
 gpui-router = { version = "0.6.0", default-features = false, features = [
   "gpui-pre",
 ] }
@@ -26,7 +26,7 @@ gpui-toolkit-gpui-util = "0.1.0"
 itertools = "0.15.0"
 rand = "0.10"
 regex = "1"
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.8" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.9" }
 rust-i18n = "4.2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -43,7 +43,7 @@ syntect = { version = "5.3.0", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-gpui-kit = { version = "0.7.2", features = ["test-support"] }
+gpui-kit = { version = "0.7.3", features = ["test-support"] }
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]

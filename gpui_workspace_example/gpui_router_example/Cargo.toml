@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-gpui = { package = "gpui-pre", version = "0.3.8", default-features = false }
-gpui-pre-platform = { version = "0.3.8", features = ["font-kit"] }
+gpui = { package = "gpui-pre", version = "0.3.9", default-features = false }
+gpui-pre-platform = { version = "0.3.9", features = ["font-kit"] }
 gpui-router = { version = "0.6.0", default-features = false, features = ["gpui-pre"] }
