@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 autocxx = "0.30.0"
-cxx = "1.0.194"
+cxx = "1.0.205"
 
 [build-dependencies]
 autocxx-build = "0.30.0"
