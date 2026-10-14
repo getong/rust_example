@@ -1,4 +1,4 @@
-use redb::{Database, Error, TableDefinition};
+use redb::{Database, Error, ReadableDatabase, TableDefinition};
 
 const TABLE: TableDefinition<&str, u64> = TableDefinition::new("my_data");
 
