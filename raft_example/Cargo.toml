@@ -1,0 +1,10 @@
+[package]
+name = "raft_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+  raft = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = [
+  "prost-codec",
+] }
+slog = "2.7"
