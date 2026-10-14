@@ -143,7 +143,7 @@ libp2p 返回的 bool ACK 只说明收到并交给 `step()`，不是 Raft 的日
 ```toml
 raft = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = ["prost-codec"] }
 raft-proto = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = ["prost-codec"] }
-prost = "0.11"
+prost = "=0.11.9"
 ```
 
 `raft` 原本已重新导出 `eraftpb`，所以直接声明 `raft-proto` 并非必须；这里显式声明以体现

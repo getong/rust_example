@@ -7,11 +7,10 @@ edition = "2024"
 anyhow = "1"
 futures = "0.3"
 libp2p = { version = "0.57.0", default-features = false, features = ["tokio", "tcp", "dns", "noise", "yamux", "ed25519", "request-response", "cbor"] }
-# 必须匹配 raft-proto 使用的 prost 版本。
-prost = "0.11"
+prost = "=0.11.9"
 raft = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = ["prost-codec"] }
 raft-proto = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = ["prost-codec"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-slog = "2.7"
+slog = "2.8"
 tokio = { version = "1.53.3", features = ["macros", "rt", "sync", "time", "signal"] }
