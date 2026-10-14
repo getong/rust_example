@@ -1,6 +1,6 @@
 use std::{
   collections::{BTreeMap, HashMap},
-  time::Duration,
+  time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, ensure};
@@ -9,7 +9,10 @@ use libp2p::{
   identity::Keypair,
   noise,
   request_response::{self, ProtocolSupport},
-  swarm::SwarmEvent,
+  swarm::{
+    SwarmEvent,
+    dial_opts::{DialOpts, PeerCondition},
+  },
   tcp, yamux,
 };
 use prost::Message as _;
@@ -20,10 +23,27 @@ use crate::{config::NodeConfig, node::Node};
 type Behaviour = request_response::cbor::Behaviour<Vec<u8>, bool>;
 pub type Event = SwarmEvent<request_response::Event<Vec<u8>, bool>>;
 
+struct Reconnect {
+  at: Instant,
+  delay: Duration,
+  dialing: bool,
+}
+
+impl Default for Reconnect {
+  fn default() -> Self {
+    Self {
+      at: Instant::now(),
+      delay: Duration::from_millis(250),
+      dialing: false,
+    }
+  }
+}
+
 pub struct Network {
   pub swarm: Swarm<Behaviour>,
   peers: BTreeMap<u64, (PeerId, Multiaddr)>,
   pending: HashMap<request_response::OutboundRequestId, u64>,
+  reconnect: BTreeMap<u64, Reconnect>,
 }
 
 impl Network {
@@ -59,18 +79,56 @@ impl Network {
         peers.insert(peer.id, (peer.peer_id.parse()?, peer.address.parse()?));
       }
     }
+    let reconnect = peers.keys().map(|&id| (id, Reconnect::default())).collect();
     Ok(Self {
       swarm,
       peers,
       pending: HashMap::new(),
+      reconnect,
     })
+  }
+
+  // 由 Tokio tick 驱动，不依赖当前是否有 Raft 消息需要发送。
+  // 每个远端只保持一个拨号尝试；连接失败使用 250ms..5s 指数退避。
+  pub fn connect_peers(&mut self) {
+    for (&id, (peer, address)) in &self.peers {
+      let retry = self
+        .reconnect
+        .get_mut(&id)
+        .expect("configured reconnect state");
+      if self.swarm.is_connected(peer) || retry.dialing || Instant::now() < retry.at {
+        continue;
+      }
+      let options = DialOpts::peer_id(*peer)
+        // 固定地址集群不需要 TCP 打洞；避免双方复用监听端口同时拨号导致冲突。
+        .allocate_new_port()
+        .condition(PeerCondition::DisconnectedAndNotDialing)
+        .addresses(vec![address.clone()])
+        .build();
+      match self.swarm.dial(options) {
+        Ok(()) => retry.dialing = true,
+        Err(error) => {
+          retry.at = Instant::now() + retry.delay;
+          eprintln!(
+            "dial node {id} ({peer}) at {address} failed: {error:?}; retry in {:?}",
+            retry.delay
+          );
+          retry.delay = (retry.delay * 2).min(Duration::from_secs(5));
+        }
+      }
+    }
   }
 
   pub fn send(&mut self, messages: Vec<Message>, node: &mut Node) {
     for message in messages {
-      let Some((peer, address)) = self.peers.get(&message.to) else {
+      let Some((peer, _)) = self.peers.get(&message.to) else {
         continue;
       };
+      // 未连接时交给连接管理器重拨，Raft 自己重传；不为每条消息另起拨号。
+      if !self.swarm.is_connected(peer) {
+        node.raft.report_unreachable(message.to);
+        continue;
+      }
       // 有界的在途请求；慢节点不阻塞 tick 或其他节点。Raft 自己重传日志。
       if self
         .pending
@@ -82,11 +140,10 @@ impl Network {
         node.raft.report_unreachable(message.to);
         continue;
       }
-      let request = self.swarm.behaviour_mut().send_request_with_addresses(
-        peer,
-        message.encode_to_vec(),
-        vec![address.clone()],
-      );
+      let request = self
+        .swarm
+        .behaviour_mut()
+        .send_request(peer, message.encode_to_vec());
       self.pending.insert(request, message.to);
     }
   }
@@ -99,6 +156,52 @@ impl Network {
           node.raft.raft.id,
           self.swarm.local_peer_id()
         );
+      }
+      SwarmEvent::ConnectionEstablished {
+        peer_id, endpoint, ..
+      } => {
+        if let Some((&id, _)) = self.peers.iter().find(|(_, (peer, _))| *peer == peer_id) {
+          self.reconnect.insert(id, Reconnect::default());
+          eprintln!("connected to node {id} ({peer_id}): {endpoint:?}");
+        } else {
+          let _ = self.swarm.disconnect_peer_id(peer_id);
+        }
+      }
+      SwarmEvent::OutgoingConnectionError {
+        peer_id: Some(peer_id),
+        error,
+        ..
+      } => {
+        if let Some((&id, (_, address))) = self.peers.iter().find(|(_, (peer, _))| *peer == peer_id)
+        {
+          let retry = self
+            .reconnect
+            .get_mut(&id)
+            .expect("configured reconnect state");
+          retry.dialing = false;
+          // 同时拨号时可能另一条入站连接已经成功。
+          if !self.swarm.is_connected(&peer_id) {
+            retry.at = Instant::now() + retry.delay;
+            eprintln!(
+              "dial node {id} ({peer_id}) at {address} failed: {error:?}; retry in {:?}",
+              retry.delay
+            );
+            retry.delay = (retry.delay * 2).min(Duration::from_secs(5));
+            node.raft.report_unreachable(id);
+          }
+        }
+      }
+      SwarmEvent::ConnectionClosed {
+        peer_id,
+        num_established: 0,
+        cause,
+        ..
+      } => {
+        if let Some((&id, _)) = self.peers.iter().find(|(_, (peer, _))| *peer == peer_id) {
+          self.reconnect.insert(id, Reconnect::default());
+          node.raft.report_unreachable(id);
+          eprintln!("disconnected from node {id} ({peer_id}): {cause:?}; reconnecting");
+        }
       }
       SwarmEvent::ListenerError { error, .. } => return Err(error.into()),
       SwarmEvent::ListenerClosed { reason, .. } => {
@@ -143,7 +246,9 @@ impl Network {
       }) => {
         if let Some(id) = self.pending.remove(&request_id) {
           node.raft.report_unreachable(id);
-          eprintln!("delivery to node {id} failed: {error}");
+          if !matches!(error, request_response::OutboundFailure::DialFailure) {
+            eprintln!("delivery to node {id} failed: {error}");
+          } // 拨号错误由 OutgoingConnectionError 输出地址和具体原因。
         }
       }
       _ => {}

@@ -1,4 +1,9 @@
-use std::{collections::BTreeSet, fs, io::Write, path::Path};
+use std::{
+  collections::BTreeSet,
+  fs,
+  io::Write,
+  path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, ensure};
 use libp2p::{Multiaddr, PeerId, identity::Keypair};
@@ -15,6 +20,9 @@ pub struct Peer {
 pub struct NodeConfig {
   pub id: u64,
   pub listen: String,
+  // 相对路径以配置文件目录为基准；兼容旧配置。
+  #[serde(default)]
+  pub data_dir: Option<PathBuf>,
   // 仅自己的私钥；其他节点的配置中只包含此节点的公钥身份。
   pub identity: Vec<u8>,
   pub peers: Vec<Peer>,
@@ -107,6 +115,7 @@ pub fn init(directory: &Path, addresses: Vec<String>) -> Result<()> {
     let config = NodeConfig {
       id,
       listen: addresses[index].clone(),
+      data_dir: Some(PathBuf::from(format!("node{id}.rocksdb"))),
       identity: key.to_protobuf_encoding()?,
       peers: peers.clone(),
     };

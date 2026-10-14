@@ -2,5 +2,4 @@
 
 /cluster/
 
-# Binary example: keep dependency versions reproducible.
-!Cargo.lock
+*.rocksdb/

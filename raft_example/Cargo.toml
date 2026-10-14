@@ -6,11 +6,36 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 futures = "0.3"
-libp2p = { version = "0.57.0", default-features = false, features = ["tokio", "tcp", "dns", "noise", "yamux", "ed25519", "request-response", "cbor"] }
+libp2p = { version = "0.57.0", default-features = false, features = [
+  "tokio",
+  "tcp",
+  "dns",
+  "noise",
+  "yamux",
+  "ed25519",
+  "request-response",
+  "cbor",
+] }
 prost = "=0.11.9"
-raft = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = ["prost-codec"] }
-raft-proto = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = ["prost-codec"] }
+raft = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = [
+  "prost-codec",
+] }
+raft-proto = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = [
+  "prost-codec",
+] }
+rocksdb = { version = "0.25", default-features = false, features = [
+  "bindgen-runtime",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 slog = "2.8"
-tokio = { version = "1.53.3", features = ["macros", "rt", "sync", "time", "signal"] }
+tokio = { version = "1.53.3", features = [
+  "macros",
+  "rt-multi-thread",
+  "sync",
+  "time",
+  "signal",
+] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,6 +1,7 @@
 mod config;
 mod network;
 mod node;
+mod storage;
 
 use std::{
   io::{self, BufRead},
@@ -24,8 +25,8 @@ const HELP: &str = "Usage:
 
 Defaults: directory=cluster, addresses=/ip4/127.0.0.1/tcp/7001..7003
 Node commands on stdin: set <key> <value>, status, quit
-Each node is a separate process. Storage is in memory; do not restart one node
-with the same identity in a running cluster after losing its state.";
+Each node persists Raft and application state in its own RocksDB data_dir.
+Restart with the same configuration and database to recover.";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -76,8 +77,32 @@ fn commands() -> mpsc::Receiver<String> {
 
 async fn run(path: &Path) -> Result<()> {
   let (config, key) = NodeConfig::load(path)?;
-  let mut node = Node::new(config.id, config.peers.iter().map(|peer| peer.id).collect())?;
+  let data_dir = config
+    .data_dir
+    .clone()
+    .unwrap_or_else(|| format!("node{}.rocksdb", config.id).into());
+  let data_dir = if data_dir.is_absolute() {
+    data_dir
+  } else {
+    path.parent().unwrap_or(Path::new(".")).join(data_dir)
+  };
+  let membership: std::collections::BTreeMap<_, _> = config
+    .peers
+    .iter()
+    .map(|peer| (peer.id, &peer.peer_id))
+    .collect();
+  let identity = serde_json::to_string(&membership)?;
+  let mut node = Node::open(
+    config.id,
+    config.peers.iter().map(|peer| peer.id).collect(),
+    &data_dir,
+    &identity,
+  )?;
   let mut network = Network::new(&config, key)?;
+  let messages = node.ready()?; // 恢复 commit 已持久化、尚未 apply 的日志。
+  network.send(messages, &mut node);
+  node.status();
+  eprintln!("RocksDB: {}", data_dir.display());
   let mut commands = commands();
   let mut stdin_open = true;
   let mut tick = time::interval(Duration::from_millis(100));
@@ -95,7 +120,7 @@ async fn run(path: &Path) -> Result<()> {
   );
   loop {
     tokio::select! {
-        _ = tick.tick() => { node.raft.tick(); }
+        _ = tick.tick() => { network.connect_peers(); node.raft.tick(); }
         event = network.swarm.select_next_some() => { network.handle(event, &mut node)?; }
         line = commands.recv(), if stdin_open => {
             match line {

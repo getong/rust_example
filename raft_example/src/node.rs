@@ -1,10 +1,12 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 
 use anyhow::{Result, ensure};
-use raft::{Config, RawNode, StateRole, storage::MemStorage};
+use raft::{Config, RawNode, StateRole};
 use raft_proto::eraftpb::{Entry, EntryType, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+use crate::storage::RocksStorage;
 
 #[derive(Serialize, Deserialize)]
 pub struct Set {
@@ -13,15 +15,19 @@ pub struct Set {
 }
 
 pub struct Node {
-  pub raft: RawNode<MemStorage>,
+  pub raft: RawNode<RocksStorage>,
   pub values: BTreeMap<String, String>,
   pub applied: u64,
 }
 
 impl Node {
-  pub fn new(id: u64, voters: Vec<u64>) -> Result<Self> {
+  pub fn open(id: u64, voters: Vec<u64>, path: &Path, identity: &str) -> Result<Self> {
+    let storage = RocksStorage::open(path, id, voters, identity)?;
+    let applied = storage.applied()?;
+    let values = storage.values()?;
     let config = Config {
       id,
+      applied,
       election_tick: 15,
       heartbeat_tick: 3,
       check_quorum: true,
@@ -31,12 +37,11 @@ impl Node {
       max_uncommitted_size: 1024 * 1024,
       ..Default::default()
     };
-    let storage = MemStorage::new_with_conf_state((voters, vec![]));
     let logger = slog::Logger::root(slog::Discard, slog::o!());
     Ok(Self {
       raft: RawNode::new(&config, storage, &logger)?,
-      values: BTreeMap::new(),
-      applied: 0,
+      values,
+      applied,
     })
   }
 
@@ -61,23 +66,35 @@ impl Node {
   }
 
   fn apply(&mut self, entries: Vec<Entry>) -> Result<()> {
+    if entries.is_empty() {
+      return Ok(());
+    }
+    let mut updates = Vec::new();
+    let mut commands = Vec::new();
+    let mut applied = self.applied;
     for entry in entries {
+      ensure!(entry.index == applied + 1, "non-contiguous applied log");
       ensure!(
         entry.get_entry_type() == EntryType::EntryNormal,
         "dynamic membership is not supported"
       );
       if !entry.data.is_empty() {
         let command: Set = serde_json::from_slice(&entry.data)?;
-        self
-          .values
-          .insert(command.key.clone(), command.value.clone());
-        println!(
-          "{}",
-          json!({"event":"committed", "id":self.raft.raft.id,
-                    "term":entry.term, "index":entry.index, "key":command.key, "value":command.value})
-        );
+        updates.push((command.key.clone(), command.value.clone()));
+        commands.push((entry.term, entry.index, command));
       }
-      self.applied = entry.index;
+      applied = entry.index;
+    }
+    // 先原子持久化状态机和 applied index，成功后才能更新缓存/通知客户端。
+    self.raft.store().apply(applied, &updates)?;
+    self.values.extend(updates);
+    self.applied = applied;
+    for (term, index, command) in commands {
+      println!(
+        "{}",
+        json!({"event":"committed", "id":self.raft.raft.id,
+        "term":term, "index":index, "key":command.key, "value":command.value})
+      );
     }
     Ok(())
   }
@@ -92,16 +109,13 @@ impl Node {
         "snapshot restore is not supported"
       );
       messages.extend(ready.take_messages());
-      storage.wl().append(ready.entries())?;
-      if let Some(hard_state) = ready.hs() {
-        storage.wl().set_hardstate(hard_state.clone());
-      }
-      // MemStorage 在此完成保存；生产环境必须等 WAL 真正持久化完成。
+      storage.persist(ready.entries(), ready.hs())?;
+      // RocksDB WAL 同步完成后，才允许发出复制/投票响应。
       messages.extend(ready.take_persisted_messages());
       self.apply(ready.take_committed_entries())?;
       let mut light = self.raft.advance(ready);
       if let Some(commit) = light.commit_index() {
-        storage.wl().mut_hard_state().set_commit(commit);
+        storage.set_commit(commit)?;
       }
       messages.extend(light.take_messages());
       self.apply(light.take_committed_entries())?;
@@ -119,5 +133,51 @@ impl Node {
             "commit":self.raft.raft.raft_log.committed, "applied":self.applied,
             "values":self.values})
     );
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use raft_proto::eraftpb::HardState;
+
+  use super::*;
+
+  #[test]
+  fn replays_committed_but_unapplied_entries_after_reopen() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let command = serde_json::to_vec(&Set {
+      key: "key".into(),
+      value: "persisted".into(),
+    })?;
+    {
+      let store = RocksStorage::open(dir.path(), 1, vec![1], "peer")?;
+      // 模拟日志和 commit 已持久化、状态机尚未应用时进程退出。
+      store.persist(
+        &[Entry {
+          index: 1,
+          term: 1,
+          data: command,
+          ..Default::default()
+        }],
+        Some(&HardState {
+          term: 1,
+          vote: 1,
+          commit: 1,
+        }),
+      )?;
+    }
+    {
+      let mut node = Node::open(1, vec![1], dir.path(), "peer")?;
+      assert_eq!(node.applied, 0);
+      node.ready()?;
+      assert_eq!(node.values["key"], "persisted");
+      assert_eq!(node.applied, 1);
+    }
+    let mut node = Node::open(1, vec![1], dir.path(), "peer")?;
+    assert_eq!(node.applied, 1);
+    assert_eq!(node.values["key"], "persisted");
+    node.ready()?;
+    assert_eq!(node.applied, 1);
+    Ok(())
   }
 }
