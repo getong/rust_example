@@ -18,11 +18,16 @@ pub struct Node {
   pub raft: RawNode<RocksStorage>,
   pub values: BTreeMap<String, String>,
   pub applied: u64,
+  pub accept_writes: bool,
 }
 
 impl Node {
   pub fn open(id: u64, voters: Vec<u64>, path: &Path, identity: &str) -> Result<Self> {
     let storage = RocksStorage::open(path, id, voters, identity)?;
+    Self::from_storage(id, storage)
+  }
+
+  fn from_storage(id: u64, storage: RocksStorage) -> Result<Self> {
     let applied = storage.applied()?;
     let values = storage.values()?;
     let config = Config {
@@ -42,7 +47,16 @@ impl Node {
       raft: RawNode::new(&config, storage, &logger)?,
       values,
       applied,
+      accept_writes: false,
     })
+  }
+
+  // 重启前完成 Ready 持久化；只重建易失状态，保留 term/vote/log/applied。
+  pub fn restart(&mut self) -> Result<()> {
+    self.ready()?;
+    *self = Self::from_storage(self.raft.raft.id, self.raft.store().clone())?;
+    self.ready()?;
+    Ok(())
   }
 
   pub fn propose(&mut self, key: String, value: String) -> Result<()> {
@@ -50,6 +64,10 @@ impl Node {
       self.raft.raft.state == StateRole::Leader,
       "not leader; current leader ID is {}",
       self.raft.raft.leader_id
+    );
+    ensure!(
+      self.accept_writes,
+      "network has no healthy majority; writes are suspended"
     );
     ensure!(!key.is_empty(), "key cannot be empty");
     let command = serde_json::to_vec(&Set { key, value })?;
@@ -131,7 +149,7 @@ impl Node {
             "role":format!("{:?}", self.raft.raft.state),
             "leader":self.raft.raft.leader_id, "term":self.raft.raft.term,
             "commit":self.raft.raft.raft_log.committed, "applied":self.applied,
-            "values":self.values})
+            "values":self.values, "accept_writes":self.accept_writes})
     );
   }
 }

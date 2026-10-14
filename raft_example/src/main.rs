@@ -1,6 +1,7 @@
 mod config;
 mod network;
 mod node;
+mod service;
 mod storage;
 
 use std::{
@@ -17,14 +18,14 @@ use tokio::{
   time::{self, MissedTickBehavior},
 };
 
-use crate::{config::NodeConfig, network::Network, node::Node};
+use crate::{config::NodeConfig, node::Node, service::Service};
 
 const HELP: &str = "Usage:
   raft_example init [directory] [address1 address2 address3]
   raft_example node <config.json>
 
 Defaults: directory=cluster, addresses=/ip4/127.0.0.1/tcp/7001..7003
-Node commands on stdin: set <key> <value>, status, quit
+Node commands: set <key> <value>, status, network, disconnect <id>, reconnect <id>, restart, quit
 Each node persists Raft and application state in its own RocksDB data_dir.
 Restart with the same configuration and database to recover.";
 
@@ -92,16 +93,13 @@ async fn run(path: &Path) -> Result<()> {
     .map(|peer| (peer.id, &peer.peer_id))
     .collect();
   let identity = serde_json::to_string(&membership)?;
-  let mut node = Node::open(
+  let node = Node::open(
     config.id,
     config.peers.iter().map(|peer| peer.id).collect(),
     &data_dir,
     &identity,
   )?;
-  let mut network = Network::new(&config, key)?;
-  let messages = node.ready()?; // 恢复 commit 已持久化、尚未 apply 的日志。
-  network.send(messages, &mut node);
-  node.status();
+  let mut service = Service::new(node, config, key);
   eprintln!("RocksDB: {}", data_dir.display());
   let mut commands = commands();
   let mut stdin_open = true;
@@ -109,57 +107,56 @@ async fn run(path: &Path) -> Result<()> {
   tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
   let stop = tokio::signal::ctrl_c();
   tokio::pin!(stop);
-  let mut last_role = (
-    node.raft.raft.state,
-    node.raft.raft.leader_id,
-    node.raft.raft.term,
-  );
-  eprintln!(
-    "node {} started; commands: set <key> <value> | status | quit",
-    config.id
-  );
   loop {
-    tokio::select! {
-        _ = tick.tick() => { network.connect_peers(); node.raft.tick(); }
-        event = network.swarm.select_next_some() => { network.handle(event, &mut node)?; }
+    let outcome: Result<bool> = async {
+      tokio::select! {
+        _ = tick.tick() => service.tick()?,
+        event = async {
+          match &mut service.network {
+            Some(network) => network.swarm.next().await,
+            None => std::future::pending().await,
+          }
+        } => match event {
+          Some(event) => service.handle(event)?,
+          None => service.network_closed()?,
+        },
         line = commands.recv(), if stdin_open => {
-            match line {
-                Some(line) => {
-                    let line = line.trim();
-                    if line == "quit" { break; }
-                    if let Err(error) = command(line, &mut node) {
-                        println!("{}", json!({"event":"error", "id":config.id, "message":error.to_string()}));
-                    }
+          match line {
+            Some(line) => {
+              let line = line.trim();
+              if line == "quit" { return Ok(false); }
+              if line == "restart" {
+                service.restart()?;
+              } else if let Err(error) = service.command(line) {
+                if matches!(error.downcast_ref::<raft::Error>(), Some(raft::Error::Store(_))) {
+                  return Err(error);
                 }
-                None => stdin_open = false, // 后台运行时 stdin EOF 不停止节点。
+                println!("{}", json!({"event":"error", "id":service.node.raft.raft.id,
+                  "message":error.to_string()}));
+              }
             }
+            None => stdin_open = false,
+          }
         }
-        result = &mut stop => { result?; break; }
+        result = &mut stop => { result?; return Ok(false); }
+      }
+      service.flush()?;
+      Ok(true)
     }
-    let messages = node.ready()?;
-    network.send(messages, &mut node);
-    let role = (
-      node.raft.raft.state,
-      node.raft.raft.leader_id,
-      node.raft.raft.term,
-    );
-    if role != last_role {
-      node.status();
-      last_role = role;
+    .await;
+    match outcome {
+      Ok(true) => {}
+      Ok(false) => {
+        if let Err(error) = service.shutdown() {
+          service.failed(&error.to_string());
+          return Err(error);
+        }
+        return Ok(());
+      }
+      Err(error) => {
+        service.failed(&error.to_string());
+        return Err(error);
+      }
     }
   }
-  Ok(())
-}
-
-fn command(line: &str, node: &mut Node) -> Result<()> {
-  if line == "status" {
-    node.status();
-    return Ok(());
-  }
-  if let Some(rest) = line.strip_prefix("set ")
-    && let Some((key, value)) = rest.trim_start().split_once(' ')
-  {
-    return node.propose(key.to_owned(), value.to_owned());
-  }
-  bail!("expected: set <key> <value> | status | quit")
 }

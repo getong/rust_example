@@ -36,6 +36,7 @@ def main():
         events = queue.Queue()
         processes, logs, states, history = {}, {}, {}, []
         readers = {}
+        networks = {}
         paused = set()
 
         def reader(node_id, stream):
@@ -80,6 +81,8 @@ def main():
             history.append((node_id, event))
             if event["event"] == "status":
                 states[node_id] = event
+            elif event["event"] == "network_status":
+                networks[node_id] = event
 
         def wait(predicate, description, timeout=15):
             deadline = time.monotonic() + timeout
@@ -101,7 +104,7 @@ def main():
         def leader():
             active = processes.keys() - paused
             leaders = [i for i in active if states.get(i, {}).get("role") == "Leader"]
-            if len(leaders) == 1 and all(states.get(i, {}).get("leader") == leaders[0] for i in active):
+            if len(leaders) == 1 and states[leaders[0]].get("accept_writes", False) and all(states.get(i, {}).get("leader") == leaders[0] for i in active):
                 return leaders[0]
             return None
 
@@ -145,9 +148,9 @@ def main():
                     os.kill(processes[node_id].pid, signal.SIGSTOP)
                     paused.add(node_id)
             send(current, "set minority must-not-commit")
-            deadline = time.monotonic() + 4
-            while time.monotonic() < deadline:
-                collect()
+            wait(lambda: not networks.get(current, {}).get("has_majority", True)
+                 and not states[current]["accept_writes"],
+                 "monitor detects unresponsive TCP peers and suspends writes", timeout=8)
             assert not any(e["event"] == "committed" and e.get("key") == "minority" for _, e in history)
             print("PASS: one remaining process cannot commit without quorum")
             for node_id in list(paused):
@@ -156,12 +159,39 @@ def main():
             wait(lambda: leader() is not None, "cluster elects a leader after quorum is restored")
             send(leader(), "set name recovered")
             wait(lambda: replicated("recovered"), "cluster continues committing after recovery")
+            wait(lambda: all(len(networks.get(i, {}).get("peers", [])) == 2
+                 and all(peer["rtt_ms"] is not None for peer in networks[i]["peers"]) for i in processes),
+                 "monitor reports RTT and all peer connections")
+            isolated = leader()
+            for peer in processes:
+                if peer != isolated:
+                    send(isolated, f"disconnect {peer}")
+            paused.add(isolated)  # Exclude from majority view, but keep its process alive.
+            wait(lambda: states[isolated]["role"] == "Follower" and not states[isolated]["accept_writes"]
+                 and leader() is not None, "isolated leader steps down; connected majority elects a leader")
+            marker = len(history)
+            send(isolated, "set isolated must-not-commit")
+            wait(lambda: any(i == isolated and e["event"] == "error" for i, e in history[marker:]),
+                 "isolated node rejects client writes")
+            send(isolated, "restart")
+            wait(lambda: any(i == isolated and e["event"] == "lifecycle" and e["state"] == "running"
+                 and e["generation"] >= 2 for i, e in history[marker:]),
+                 "supervisor rebuilds Raft and network from RocksDB")
+            assert states[isolated]["values"]["name"] == "recovered"
+            for peer in processes:
+                if peer != isolated:
+                    send(isolated, f"reconnect {peer}")
+            paused.remove(isolated)
+            wait(lambda: leader() is not None and replicated("recovered"), "partition heals after reconnect")
+            send(leader(), "set name after-supervisor-restart")
+            wait(lambda: replicated("after-supervisor-restart"), "replication resumes after supervisor restart")
+            assert not any(e["event"] == "committed" and e.get("key") == "isolated" for _, e in history)
             # Kill every process. Recovery cannot depend on any surviving memory replica.
             for node_id in processes:
                 crash(node_id)
             for node_id in processes:
                 restart(node_id)
-            wait(lambda: replicated("recovered") and leader() is not None,
+            wait(lambda: replicated("after-supervisor-restart") and leader() is not None,
                  "all three SIGKILLed processes restore committed data from RocksDB")
             send(leader(), "set name after-full-restart")
             wait(lambda: replicated("after-full-restart"), "new writes commit after full cluster restart")

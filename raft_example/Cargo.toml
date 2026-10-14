@@ -15,6 +15,8 @@ libp2p = { version = "0.57.0", default-features = false, features = [
   "ed25519",
   "request-response",
   "cbor",
+  "ping",
+  "macros",
 ] }
 prost = "=0.11.9"
 raft = { git = "https://github.com/tikv/raft-rs", rev = "ad13f3d90780f53aea2488c6a4b76c0d334bf136", default-features = false, features = [

@@ -55,7 +55,8 @@ Leader ID（0 表示未知）；本例不自动转发客户端请求。
 但不会出现对应 `committed`；该提案在恢复多数派后仍可能提交，不能将未确认视作撤销。
 `status` 只是本地观察，不是线性一致读 API。
 
-输入 `quit` 或按 Ctrl-C 退出。stdin 关闭时节点继续运行，便于后台启动。
+输入 `quit` 或按 Ctrl-C 退出。退出前会完成 Ready 持久化并关闭网络。stdin 关闭时节点继续运行，便于后台启动。
+每秒自动输出 Raft 和网络监控 JSON；也可输入 `network` 立即查看。
 
 ## 跨机器运行
 
@@ -115,6 +116,7 @@ cargo run --locked --example in_memory
 
 ## 代码结构与处理顺序
 
+- `src/service.rs`：Raft 与网络生命周期管理、写入门控、有界异常恢复。
 - `src/main.rs`：Tokio 多线程运行时；`select!` 同时处理 libp2p Swarm 事件、
   100ms Raft tick、终端命令和 Ctrl-C。`RawNode` 只由这个事件循环持有，无需 Mutex。
   stdin 使用独立阻塞读取线程和有界通道，避免阻塞网络循环或退出流程。
@@ -226,3 +228,45 @@ prost = "=0.11.9"
 
 不要为了修复暂时的拨号失败重新生成身份或删除 RocksDB。升级网络代码后，应使用原配置和
 原数据库重启节点；已经运行的旧进程不会自动加载新编译的二进制。
+
+## 网络监控与 Raft 生命周期
+
+`network_status` 每秒输出一次，包括：`listening`、`has_majority`，以及每个远端的
+`connected`、`blocked`、`dialing`、`rtt_ms`、`last_seen_ms`、`ping_failures`、
+`last_error`、`pending`。`status.accept_writes` 仅在本机为 Leader 且网络健康检查
+显示可达多数派时为 true。健康检查是保守的写入门控，最终提交仍由 Raft 多数派确认决定。
+
+主动 Ping 每秒一次、单次超时 2 秒；独立检查最近成功 Ping 的时间，4 秒没有成功响应
+即将连接视为失效（受事件循环和磁盘延迟影响，不是硬实时保证）。这样即使 TCP 仍显示
+ESTABLISHED、对端进程已经卡住，也能检测。连接断开或健康超时时会：
+
+1. 清理该节点的在途网络请求，调用 `RawNode::report_unreachable`。
+2. 输出 `peer_down`，关闭失效连接，通过已有退避机制重连；恢复成功 Ping 后输出 `peer_up`。
+3. 可达节点不足多数派时拒绝新写入，但继续 Raft tick；`check_quorum` 让隔离 Leader 退位。
+
+网络故障不会删除 voter、修改 term/vote、清空日志，也不会手工修改 Raft 内部复制进度。
+普通断连不会重建整个 Raft；重连后由原有 Raft 实例恢复复制。
+
+监听器故障或网络事件流结束会触发 supervisor 恢复：关闭旧 Swarm，完成 Ready 持久化，
+从同一个 RocksDB 重建 RawNode（从 Follower 开始），再创建新的 Swarm。
+期间拒绝写入，输出 `lifecycle`：`recovering → starting → running`。
+恢复采用退避，连续最多 5 次；监听器稳定运行 10 秒后清零失败预算。存储错误或恢复预算
+耗尽会输出 `failed` 并以错误状态退出，不盲目重启损坏的存储。
+这是进程内组件恢复；SIGKILL 后的进程拉起仍由外部进程管理器或手动启动负责。
+
+终端管理命令：
+
+| 命令 | 行为 |
+| --- | --- |
+| `network` / `status` | 查看 Raft 和网络状态 |
+| `disconnect 3` | 本机主动隔离节点 3，同时拒绝其重新接入 |
+| `reconnect 3` | 解除隔离，允许自动重连 |
+| `restart` | 在当前进程中从 RocksDB 重建 Raft 和 Swarm |
+| `quit` | 持久化完成后关闭服务 |
+
+手动隔离策略会保留到进程内 `restart` 之后；进程完全退出后不保留。
+例如在 Leader 上断开另外两个节点，可观察写入被拒绝和 Leader 退位；重新连接后会继续选主和复制。
+既有未确认提案可能在恢复后提交，因此不能把断连或 restart 视为撤销写入。
+
+测试脚本覆盖卡住的 TCP 对端检测、主动网络分区、隔离 Leader 退位、写入拒绝、
+组件重启后数据保留及重连复制；单元测试另覆盖真实监听器关闭后的自动恢复和恢复预算上限。
