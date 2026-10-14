@@ -15,8 +15,8 @@ openraft = { version = "0.10.0-alpha.37", default-features = false, features = [
 ] }
 prost = "0.14.4"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["full"] }
+serde_json = "1.0.154"
+tokio = { version = "1.53.3", features = ["full"] }
 tonic = "0.14.6"
 tonic-prost = "0.14.6"
 tracing = "0.1.44"
