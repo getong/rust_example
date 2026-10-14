@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 qdrant-client = "1.19.0"
-serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["full"] }
+serde_json = "1.0.154"
+tokio = { version = "1.53.3", features = ["full"] }

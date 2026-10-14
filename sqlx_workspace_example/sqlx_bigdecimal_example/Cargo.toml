@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bigdecimal = "0.4.10"
+bigdecimal = "0.4.11"
 dotenv = "0.15.0"
 sqlx = { version = "0.9", features = [
   "runtime-tokio",
@@ -13,4 +13,4 @@ sqlx = { version = "0.9", features = [
   "any",
   "bigdecimal",
 ] }
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }

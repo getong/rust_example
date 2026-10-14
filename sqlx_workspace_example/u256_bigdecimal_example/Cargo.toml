@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bigdecimal = "0.4.10"
+bigdecimal = "0.4.11"
 ethers = "2.0.14"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }

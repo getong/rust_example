@@ -19,6 +19,6 @@ hyper-util = { version = "0.1.21", features = ["server", "http1", "http2", "toki
 log = "0.4.34"
 nix = { version = "0.31.3", features = ["process"] }
 serde = { version = "1.0.229", features = ["derive"] }
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
 tower = { version = "0.5.3", features = ["util"] }
 waitgroup = "0.1.2"
