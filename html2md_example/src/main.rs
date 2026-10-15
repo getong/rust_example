@@ -1,15 +1,15 @@
 use std::{collections::HashMap, str::FromStr};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::Parser;
 use colored::Colorize;
 use mime::Mime;
-use reqwest::{header, Client, Response, Url};
+use reqwest::{Client, Response, Url, header};
 use syntect::{
   easy::HighlightLines,
   highlighting::{Style, ThemeSet},
   parsing::SyntaxSet,
-  util::{as_24_bit_terminal_escaped, LinesWithEndings},
+  util::{LinesWithEndings, as_24_bit_terminal_escaped},
 };
 
 // 以下部分用于处理 CLI
@@ -39,7 +39,7 @@ enum SubCommand {
 #[derive(Parser, Debug)]
 struct Get {
   /// HTTP 请求的 URL
-  #[clap(parse(try_from_str = parse_url))]
+  #[arg(value_parser = parse_url)]
   url: String,
 }
 
@@ -50,15 +50,15 @@ struct Get {
 #[derive(Parser, Debug)]
 struct Post {
   /// HTTP 请求的 URL
-  #[clap(parse(try_from_str = parse_url))]
+  #[arg(value_parser = parse_url)]
   url: String,
   /// HTTP 请求的 body
-  #[clap(parse(try_from_str=parse_kv_pair))]
+  #[arg(value_parser = parse_kv_pair)]
   body: Vec<KvPair>,
 }
 
 /// 命令行中的 key=value 可以通过 parse_kv_pair 解析成 KvPair 结构
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct KvPair {
   k: String,
   v: String,
@@ -181,7 +181,7 @@ fn print_syntect(s: &str, ext: &str) {
   let syntax = ps.find_syntax_by_extension(ext).unwrap();
   let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
   for line in LinesWithEndings::from(s) {
-    let ranges: Vec<(Style, &str)> = h.highlight(line, &ps);
+    let ranges: Vec<(Style, &str)> = h.highlight_line(line, &ps).expect("not a element");
     let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
     print!("{}", escaped);
   }
