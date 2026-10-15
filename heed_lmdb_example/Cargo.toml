@@ -1,0 +1,7 @@
+[package]
+name = "heed_lmdb_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+heed = "0.22.1"
