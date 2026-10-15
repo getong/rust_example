@@ -71,6 +71,11 @@ pub struct KvData {
 }
 
 impl KvData {
+  /// Existing node-owned handle for internal read-only inspection services.
+  pub(crate) fn primary_db(&self) -> Arc<DB> {
+    self.primary.clone()
+  }
+
   pub fn open<P: AsRef<Path>>(primary: Arc<DB>, primary_path: P) -> anyhow::Result<Self> {
     let primary_path = primary_path.as_ref();
     let secondary_path = secondary_db_dir(primary_path);

@@ -2,6 +2,19 @@
 
 ** usage
 
+*** GPUI RocksDB 数据浏览器
+
+使用同级目录的桌面工具，通过节点 HTTP 服务查看 RocksDB 数据：
+
+#+begin_src shell
+cargo run --manifest-path ../rocksdb-viewer/Cargo.toml -- --url http://127.0.0.1:3001 --group users
+#+end_src
+
+先用更新后的代码启动节点，服务端提供 =GET /rocksdb/entries=。客户端不访问数据库文件，支持 URL/group 切换、列族切换、key 前缀过滤、分页和刷新。
+工具通过独立 Cargo 工作区隔离 GPUI 与 libp2p 的依赖约束；完整说明见 [[file:../rocksdb-viewer/README.md][RocksDB viewer]]。
+
+*** 集群操作
+
 Raft groups: `users`, `orders`, `products`, `tasks`. Default group is `users`.
 Use `group_id` in HTTP bodies, `--group` in CLI tools, or `?group=` on `/cluster`.
 

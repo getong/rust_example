@@ -6,6 +6,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use arc_swap::ArcSwap;
 
 pub mod app;
+pub mod browser_protocol;
 pub mod constants;
 pub mod error;
 pub mod graphviz;

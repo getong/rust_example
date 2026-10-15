@@ -1,0 +1,28 @@
+[package]
+name = "olpc-rocksdb-viewer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Keep GPUI's Wasm dependencies separate from libp2p-swarm's exact pins.
+[workspace]
+resolver = "2"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+gpui-kit = "=0.7.3"
+reqwest = { version = "0.13", default-features = false, features = [
+  "blocking",
+  "json",
+  "query",
+  "rustls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+debug = 0
+
+[profile.dev.package."*"]
+opt-level = 1

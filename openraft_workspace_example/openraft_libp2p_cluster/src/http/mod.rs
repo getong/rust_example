@@ -27,6 +27,7 @@ use crate::{
   tasks::api::TaskApi,
 };
 
+pub mod browser;
 pub mod cluster;
 pub mod graph;
 pub mod kv;
@@ -139,6 +140,7 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
   let app = Router::new()
     .route("/cluster", get(cluster::cluster_info))
+    .route("/rocksdb/entries", get(browser::entries))
     .route("/openraft/nodes", get(cluster::openraft_nodes))
     .route("/libp2p/nodes", get(cluster::libp2p_nodes))
     .route("/libp2p/info", get(cluster::libp2p_info))
