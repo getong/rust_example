@@ -1,0 +1,33 @@
+* queen_mq
+
+** Run the example
+
+Start the broker below, then run =cargo run=. The example prints startup and
+push results, consumes messages, and keeps waiting until you press Ctrl+C.
+SDK warnings and errors are also printed.
+
+New consumer groups default to reading only messages published after the group
+starts. Because this example pushes before consuming, it explicitly uses
+=SubscriptionMode::All= to include retained messages. This does not reset an
+existing group's cursor. Consumers sharing =fulfilment= compete for messages;
+stop other copies of this example when testing it.
+
+** pull docker image
+
+#+begin_src shell
+docker pull ghcr.io/queen-mq/queen:2.4.0-beta.1
+#+end_src
+
+** run the docker container
+
+#+begin_src shell
+docker run -d \
+  -p 6632:6632 \
+  ghcr.io/queen-mq/queen:2.4.0-beta.1
+#+end_src
+
+** run the code
+
+#+begin_src shell
+cargo run
+#+end_src
