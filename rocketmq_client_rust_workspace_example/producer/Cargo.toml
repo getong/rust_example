@@ -1,0 +1,11 @@
+[package]
+name = "producer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rocketmq-client-rust = "1.0.0"
+rocketmq-model = "1.0.0"
+rocketmq-observability = "1.0.0"
+rocketmq-runtime = "1.0.0"
+tokio = { version = "1.53.3", features = ["full"] }
