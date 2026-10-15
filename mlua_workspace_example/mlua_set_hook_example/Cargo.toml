@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-mlua = { version = "0.12.0", features = ["lua55", "vendored", "macros", "async"] }
-tokio = { version = "1.53.1", features = ["full"] }
+mlua = { version = "0.12.2", features = ["lua55", "vendored", "macros", "async"] }
+tokio = { version = "1.53.3", features = ["full"] }
