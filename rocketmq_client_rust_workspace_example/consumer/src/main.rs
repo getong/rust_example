@@ -45,7 +45,8 @@ fn env_or_default(name: &str, default: &str) -> DemoResult<String> {
   }
 }
 
-fn main() -> DemoResult<()> {
+#[tokio::main]
+async fn main() -> DemoResult<()> {
   let config = Config::from_env()?;
   let telemetry = install_global(&TelemetryBootstrapConfig::default())?;
   // 由 RuntimeOwner 管理运行时，不再额外创建 #[tokio::main] 运行时。

@@ -3,7 +3,8 @@ use rocketmq_model::common::message::message_single::Message;
 use rocketmq_observability::TelemetryRuntimeGuard;
 use rocketmq_runtime::RuntimeOwner;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let owner = RuntimeOwner::new()?;
   let telemetry = TelemetryRuntimeGuard::noop();
   let client_runtime = ClientRuntime::try_new(
