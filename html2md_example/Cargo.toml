@@ -9,7 +9,7 @@ edition = "2024"
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] } # 命令行解析
 colored = "3.1.1"
-#jsonxf = "1.1.1"
+jsonxf = "1.1.1"
 mime = "0.3.17"
 # reqwest 默认使用 openssl，有些 linux 用户如果没有安装好 openssl 会无法编译，这里我改成了使用 rustls
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] } # HTTP 客户端

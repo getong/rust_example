@@ -129,7 +129,13 @@ fn print_headers(resp: &Response) {
 fn print_body(m: Option<Mime>, body: &str) {
   match m {
     // 对于 "application/json" 我们 pretty print
-    Some(v) if v == mime::APPLICATION_JSON => print_syntect(body, "json"),
+    Some(v) if v.essence_str() == "application/json" => {
+      match jsonxf::pretty_print(body) {
+        Ok(formatted) => print_syntect(&formatted, "json"),
+        // 格式化失败时保留原始响应，避免丢失服务器返回的内容。
+        Err(_) => print_syntect(body, "json"),
+      }
+    }
     Some(v) if v == mime::TEXT_HTML || v == mime::TEXT_HTML_UTF_8 => print_syntect(body, "html"),
 
     // 其它 mime type，我们就直接输出
