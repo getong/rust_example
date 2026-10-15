@@ -14,12 +14,12 @@ clap = { version = "4", features = ["derive"] }
 gpui-kit = "=0.7.3"
 reqwest = { version = "0.13", default-features = false, features = [
   "blocking",
-  "json",
   "query",
   "rustls",
 ] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = "1" # Value representation; decoding uses sonic-rs.
+sonic-rs = "0.5.10"
 
 [profile.dev]
 debug = 0

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use crate::Row;
+use crate::{CellValue, Row};
 
 const MAX_FIELDS: usize = 128;
 const MAX_DEPTH: usize = 16;
@@ -19,6 +19,9 @@ pub struct Record {
   pub kind: String,
   pub fields: BTreeMap<String, String>,
   pub notice: Option<String>,
+  /// Prepared off the UI thread from the original value, before flattening.
+  pub detail: Option<String>,
+  pub detail_is_json: bool,
 }
 
 impl Records {
@@ -28,7 +31,7 @@ impl Records {
       .iter()
       .flat_map(|row| row.fields.keys().cloned())
       .collect();
-    // The table shows common columns first; all fields remain in row details.
+    // The table shows common columns first; details preserve the original value.
     let mut columns: Vec<_> = columns.into_iter().collect();
     columns.sort_by_key(|path| (priority(path), path.clone()));
     columns.truncate(24);
@@ -56,45 +59,51 @@ impl Record {
       kind: "文本".into(),
       fields: BTreeMap::new(),
       notice: None,
+      detail: None,
+      detail_is_json: matches!(row.value, CellValue::Json(_)),
     };
-    let text = row.value.trim();
-    if text.contains(" … [仅预览前 ") {
-      record.kind = "不完整".into();
-      record.notice = Some(format!(
-        "服务端返回的值已截断（原始 {} 字节），无法完整展开字段。",
-        row.value_bytes
-      ));
-    } else if text.starts_with("hex: ") {
-      record.kind = "二进制".into();
-      record.notice = Some(format!(
-        "二进制内容 · {} 字节，无法转换为业务字段。",
-        row.value_bytes
-      ));
-    } else {
-      match serde_json::from_str::<Value>(text) {
-        Ok(value) => {
-          record.kind = match &value {
-            Value::Object(_) => "对象",
-            Value::Array(_) => "列表",
-            Value::String(_) => "文本",
-            Value::Number(_) => "数字",
-            Value::Bool(_) => "布尔",
-            Value::Null => "空值",
-          }
-          .into();
-          let mut limited = false;
-          flatten(&value, "", 0, &mut record.fields, &mut limited);
-          if limited {
-            record.notice =
-              Some("字段过多或嵌套过深，明细仅展示前 128 个字段、最多 16 层。".into());
-          }
+    match &row.value {
+      CellValue::Truncated => {
+        record.kind = "不完整".into();
+        record.notice = Some(format!(
+          "值超过服务端展示限制（原始 {} 字节），未加载字段。",
+          row.value_bytes
+        ));
+      }
+      CellValue::Binary => {
+        record.kind = "二进制".into();
+        record.notice = Some(format!(
+          "二进制内容 · {} 字节，无法转换为业务字段。",
+          row.value_bytes
+        ));
+      }
+      CellValue::InvalidJson => {
+        record.kind = "格式异常".into();
+        record.notice = Some("内容不是完整有效的 JSON，无法展开字段。".into());
+      }
+      CellValue::Text(text) => {
+        record.detail = Some(text.clone());
+        record.fields.insert("".into(), text.clone());
+      }
+      CellValue::Json(value) => {
+        match sonic_rs::to_string_pretty(value) {
+          Ok(json) => record.detail = Some(json),
+          Err(error) => record.notice = Some(format!("JSON 格式化失败：{error}")),
         }
-        Err(_) if text.starts_with('{') || text.starts_with('[') => {
-          record.kind = "格式异常".into();
-          record.notice = Some("内容不是完整有效的 JSON，无法展开字段。".into());
+        record.kind = match value {
+          Value::Object(_) => "对象",
+          Value::Array(_) => "列表",
+          Value::String(_) => "文本",
+          Value::Number(_) => "数字",
+          Value::Bool(_) => "布尔",
+          Value::Null => "空值",
         }
-        Err(_) => {
-          record.fields.insert("".into(), row.value.clone());
+        .into();
+        let mut limited = false;
+        flatten(value, "", 0, &mut record.fields, &mut limited);
+        if limited {
+          record.notice =
+            Some("表格字段展开仅限前 128 个字段、最多 16 层；下方 JSON 保留收到的完整值。".into());
         }
       }
     }
@@ -117,7 +126,7 @@ fn flatten(
   match value {
     Value::String(text) if text.trim_start().starts_with(['{', '[']) => {
       // Some business records contain JSON encoded inside a string field.
-      if let Ok(nested) = serde_json::from_str::<Value>(text) {
+      if let Ok(nested) = sonic_rs::from_str::<Value>(text) {
         flatten(&nested, path, depth + 1, fields, limited);
       } else {
         fields.insert(path.into(), "嵌入的数据格式异常".into());
@@ -196,7 +205,9 @@ mod tests {
   fn row(value: &str) -> Row {
     Row {
       key: "user:1".into(),
-      value: value.into(),
+      value: sonic_rs::from_str(value)
+        .map(CellValue::Json)
+        .unwrap_or_else(|_| CellValue::Text(value.into())),
       key_bytes: 6,
       value_bytes: value.len(),
     }
@@ -220,13 +231,49 @@ mod tests {
 
   #[test]
   fn abnormal_values_do_not_expose_raw_data() {
-    for text in ["hex: 00ff", "{broken", "{ … [仅预览前 4096 / 5000 字节]"] {
-      let record = Record::from_row(&row(text));
+    for value in [
+      CellValue::Binary,
+      CellValue::InvalidJson,
+      CellValue::Truncated,
+    ] {
+      let mut source = row("placeholder");
+      source.value = value;
+      let record = Record::from_row(&source);
       assert!(record.fields.is_empty());
       assert!(record.notice.is_some());
+      assert!(record.detail.is_none());
     }
+    // Literal text resembling an old preview marker must remain text.
+    assert_eq!(
+      Record::from_row(&row("hex: not binary")).fields[""],
+      "hex: not binary"
+    );
     assert_eq!(Record::from_row(&row("Alice")).fields[""], "Alice");
     assert_eq!(Record::from_row(&row(r#""Alice""#)).fields[""], "Alice");
+  }
+
+  #[test]
+  fn details_preserve_original_json_instead_of_flattened_cells() {
+    let source = row(
+      r#"{"active":true,"note":null,"nested":{"name":"小王"},"payload":"{\"id\":1}","items":[1,2]}"#,
+    );
+    let record = Record::from_row(&source);
+    let json = record.detail.as_ref().unwrap();
+    assert!(record.detail_is_json);
+    assert!(json.contains('\n'));
+    let decoded: Value = sonic_rs::from_str(json).unwrap();
+    let CellValue::Json(original) = &source.value else {
+      panic!("expected JSON");
+    };
+    assert_eq!(&decoded, original);
+    assert!(decoded["payload"].is_string());
+    assert_eq!(record.fields["/active"], "是");
+    let large = Record::from_row(&row(&sonic_rs::to_string(&vec![1; 200]).unwrap()));
+    let decoded: Value = sonic_rs::from_str(large.detail.as_ref().unwrap()).unwrap();
+    assert_eq!(decoded.as_array().unwrap().len(), 200);
+    let text = Record::from_row(&row("ordinary text"));
+    assert_eq!(text.detail.as_deref(), Some("ordinary text"));
+    assert!(!text.detail_is_json);
   }
 
   #[test]
@@ -235,7 +282,7 @@ mod tests {
     assert_eq!(record.fields["/a~1b"], "1");
     assert_eq!(record.fields["/a/b"], "2");
     assert_ne!(label("/a~1b"), label("/a/b"));
-    let record = Record::from_row(&row(&serde_json::to_string(&vec![1; 200]).unwrap()));
+    let record = Record::from_row(&row(&sonic_rs::to_string(&vec![1; 200]).unwrap()));
     assert_eq!(record.fields.len(), MAX_FIELDS);
     assert!(record.notice.is_some());
   }

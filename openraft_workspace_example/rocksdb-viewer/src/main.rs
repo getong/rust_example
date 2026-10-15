@@ -1,12 +1,13 @@
 use clap::Parser;
 use gpui_kit::{
-  AppContext, Bounds, Context, Entity, InteractiveElement, IntoElement, ParentElement, Render,
-  StatefulInteractiveElement, Styled, Task, Window, WindowBounds, WindowOptions,
+  AppContext, Bounds, ClipboardItem, Context, Entity, InteractiveElement, IntoElement,
+  ParentElement, Render, StatefulInteractiveElement, Styled, Task, Window, WindowBounds,
+  WindowOptions,
   component::{ActiveTheme, Disableable, Root, Selectable, button::*, input::*},
   div, px, size,
 };
 use olpc_rocksdb_viewer::{
-  Page, Query, read_page,
+  BrowserClient, Page, Query,
   records::{Records, label},
 };
 
@@ -28,6 +29,7 @@ struct Args {
 }
 
 struct Viewer {
+  client: BrowserClient,
   url: Entity<InputState>,
   group: Entity<InputState>,
   prefix: Entity<InputState>,
@@ -42,7 +44,7 @@ struct Viewer {
 }
 
 impl Viewer {
-  fn new(args: Args, window: &mut Window, cx: &mut Context<Self>) -> Self {
+  fn new(args: Args, client: BrowserClient, window: &mut Window, cx: &mut Context<Self>) -> Self {
     let url_input = cx.new(|cx| {
       InputState::new(window, cx)
         .placeholder("节点 URL，例如 http://127.0.0.1:3001")
@@ -59,6 +61,7 @@ impl Viewer {
         .default_value(args.prefix.clone())
     });
     let mut view = Self {
+      client,
       url: url_input,
       group: group_input,
       prefix: prefix_input,
@@ -108,18 +111,21 @@ impl Viewer {
     self.loading = true;
     self.error = None;
     let work = query.clone();
-    let task = cx
-      .background_executor()
-      .spawn(async move { read_page(&work) });
+    let client = self.client.clone();
+    let task = cx.background_executor().spawn(async move {
+      let page = client.read_page(&work)?;
+      let records = Records::from_rows(&page.rows);
+      Ok::<_, anyhow::Error>((page, records))
+    });
     self.request = Some(cx.spawn(async move |view, cx| {
       let result = task.await;
       let _ = view.update(cx, |view, cx| {
         view.loading = false;
         match result {
-          Ok(page) => {
+          Ok((page, records)) => {
             query.column_family = Some(page.column_family.clone());
             view.query = query;
-            view.records = Records::from_rows(&page.rows);
+            view.records = records;
             view.selected_row = (!view.records.rows.is_empty()).then_some(0);
             view.page = Some(page);
             view.page_number = page_number;
@@ -253,36 +259,43 @@ impl Render for Viewer {
       .selected_row
       .and_then(|index| self.records.rows.get(index))
     {
-      details = details.child(div().text_sm().child(format!(
-        "字段明细 · {} · {} 个字段",
-        record.key,
-        record.fields.len()
-      )));
+      let title = if record.detail_is_json {
+        "原始 JSON"
+      } else {
+        "原始内容"
+      };
+      let mut toolbar = div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(div().text_sm().child(format!("{title} · {}", record.key)));
+      if let Some(detail) = &record.detail {
+        let copied = detail.clone();
+        toolbar = toolbar.child(Button::new("copy-record-json").label("复制内容").on_click(
+          cx.listener(move |_, _, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
+          }),
+        ));
+      }
+      details = details.child(toolbar);
       let mut fields = div()
-        .id("record-details")
+        .id(("record-json", self.selected_row.unwrap_or(0)))
         .flex_1()
         .min_h_0()
-        .overflow_y_scroll()
+        .overflow_scroll()
         .border_1()
         .border_color(border);
       if let Some(notice) = &record.notice {
         fields = fields.child(div().p_3().text_color(muted).child(notice.clone()));
       }
-      for (path, value) in &record.fields {
+      if let Some(detail) = &record.detail {
         fields = fields.child(
           div()
-            .flex()
-            .border_b_1()
-            .border_color(border)
-            .child(
-              div()
-                .w(px(280.))
-                .flex_shrink_0()
-                .p_2()
-                .text_color(muted)
-                .child(label(path)),
-            )
-            .child(div().flex_1().min_w_0().p_2().child(value.clone())),
+            .p_3()
+            .font_family("monospace")
+            .text_sm()
+            .whitespace_nowrap()
+            .child(detail.clone()),
         );
       }
       details = details.child(fields);
@@ -314,7 +327,7 @@ impl Render for Viewer {
         div()
           .text_sm()
           .text_color(theme.muted_foreground)
-          .child("每条记录一行 · 主表最多 24 个字段 · 横向滚动查看更多 · 点击记录查看更多字段明细"),
+          .child("每条记录一行 · 主表最多 24 个字段 · 横向滚动查看更多 · 点击记录查看原始 JSON"),
       )
       .child(
         div()
@@ -377,6 +390,13 @@ impl Render for Viewer {
 
 fn main() {
   let args = Args::parse();
+  let client = match BrowserClient::new() {
+    Ok(client) => client,
+    Err(error) => {
+      eprintln!("无法创建 HTTP 客户端：{error:#}");
+      std::process::exit(1);
+    }
+  };
   gpui_kit::application()
     .with_assets(gpui_kit::assets::Assets)
     .run(move |cx| {
@@ -398,7 +418,7 @@ fn main() {
       };
       if let Err(error) = cx.open_window(options, |window, cx| {
         window.set_window_title("OLPC · RocksDB");
-        let viewer = cx.new(|cx| Viewer::new(args, window, cx));
+        let viewer = cx.new(|cx| Viewer::new(args, client, window, cx));
         cx.new(|cx| Root::new(viewer, window, cx))
       }) {
         eprintln!("无法打开数据浏览器：{error:#}");

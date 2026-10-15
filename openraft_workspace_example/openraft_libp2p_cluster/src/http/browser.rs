@@ -11,7 +11,7 @@ use rocksdb::{DB, Direction, IteratorMode};
 use serde::Deserialize;
 
 use super::{AppState, Json};
-use crate::browser_protocol::{Page, Row};
+use crate::browser_protocol::{CellValue, Page, Row};
 
 const PAGE_SIZE: usize = 100;
 const PREVIEW_BYTES: usize = 4096;
@@ -119,7 +119,7 @@ pub(crate) fn read_page(
     }
     rows.push(Row {
       key: preview(&key),
-      value: preview(&value),
+      value: structured_value(&value),
       key_bytes: key.len(),
       value_bytes: value.len(),
     });
@@ -132,6 +132,27 @@ pub(crate) fn read_page(
     rows,
     next,
   })
+}
+
+fn structured_value(bytes: &[u8]) -> CellValue {
+  // Bound parsing and payload cost before allocating a JSON tree.
+  if bytes.len() > PREVIEW_BYTES {
+    return CellValue::Truncated;
+  }
+  let Ok(text) = std::str::from_utf8(bytes) else {
+    return CellValue::Binary;
+  };
+  if text
+    .chars()
+    .any(|c| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+  {
+    return CellValue::Binary;
+  }
+  match sonic_rs::from_str(text) {
+    Ok(value) => CellValue::Json(value),
+    Err(_) if text.trim_start().starts_with(['{', '[']) => CellValue::InvalidJson,
+    Err(_) => CellValue::Text(text.to_owned()),
+  }
 }
 
 fn preview(bytes: &[u8]) -> String {
@@ -168,6 +189,31 @@ fn preview(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn structured_values_preserve_types_and_bound_payloads() {
+    let value = structured_value(br#"{"id":18446744073709551615,"active":true,"note":null}"#);
+    assert!(matches!(&value, CellValue::Json(data)
+      if data["id"].as_u64() == Some(u64::MAX) && data["active"] == true && data["note"].is_null()));
+    // JSON objects are nested objects on the wire, not escaped JSON strings.
+    let wire = sonic_rs::to_string(&value).unwrap();
+    let wire: serde_json::Value = sonic_rs::from_str(&wire).unwrap();
+    assert!(wire["data"].is_object());
+    assert!(matches!(structured_value(b"null"), CellValue::Json(data) if data.is_null()));
+    assert!(matches!(
+      structured_value(b"hex: ordinary text"),
+      CellValue::Text(_)
+    ));
+    assert!(matches!(
+      structured_value(b"{broken"),
+      CellValue::InvalidJson
+    ));
+    assert!(matches!(structured_value(&[0, 255]), CellValue::Binary));
+    assert!(matches!(
+      structured_value(&vec![b'a'; PREVIEW_BYTES + 1]),
+      CellValue::Truncated
+    ));
+  }
 
   #[test]
   fn pagination_reads_primary_and_preserves_binary_cursor() -> anyhow::Result<()> {
