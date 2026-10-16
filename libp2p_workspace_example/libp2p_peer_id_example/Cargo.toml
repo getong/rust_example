@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 hex = "0.4.3"
-libp2p = { version = "0.57.0", features = [
+libp2p = { version = "0.57.1", features = [
   "full",
 ] }

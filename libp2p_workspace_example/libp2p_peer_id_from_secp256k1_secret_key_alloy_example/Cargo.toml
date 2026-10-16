@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 alloy = "2.5.0"
 hex = "0.4.3"
-libp2p = { version = "0.57.0", features = [
+libp2p = { version = "0.57.1", features = [
   "full",
 ] }
 secp256k1 = { version = "0.33.1", features = [

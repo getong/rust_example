@@ -8,10 +8,10 @@ edition = "2024"
 async-trait = "0.1.92"
 env_logger = "0.11.11"
 futures = "0.3.34"
-libp2p = { version = "0.57.0", features = [
+libp2p = { version = "0.57.1", features = [
   "full",
 ] }
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

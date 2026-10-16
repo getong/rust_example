@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 futures = "0.3.34"
-libp2p = { version = "0.57.0", features = [
+libp2p = { version = "0.57.1", features = [
   "ed25519",
   "macros",
   "request-response",
@@ -16,6 +16,6 @@ libp2p-request-response = { version = "0.30.0", features = ["cbor"] }
 libp2p-webrtc = { version = "0.10.0-alpha", features = ["tokio"] }
 rand = "0.10.3"
 serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.53.1", features = ["macros", "rt", "signal"] }
+tokio = { version = "1.53.3", features = ["macros", "rt", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

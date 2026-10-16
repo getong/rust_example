@@ -15,21 +15,21 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 axum = "0.8.9"
-libp2p = { version = "0.57.0", features = ["ed25519", "macros", "ping", "tokio"] }
+libp2p = { version = "0.57.1", features = ["ed25519", "macros", "ping", "tokio"] }
 libp2p-webrtc = { version = "0.10.0-alpha", features = ["tokio"] }
-rust-embed = { version = "8.12.0", features = [
+rust-embed = { version = "8.13.0", features = [
   "include-exclude",
   "interpolate-folder-path",
 ] }
-tokio = { version = "1.53.1", features = ["macros", "net", "rt", "signal"] }
-tokio-util = { version = "0.7.19", features = ["compat"] }
+tokio = { version = "1.53.3", features = ["macros", "net", "rt", "signal"] }
+tokio-util = { version = "0.7.20", features = ["compat"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["cors"] }
 mime_guess = "2.0.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "=0.3.85"
-libp2p = { version = "0.57.0", features = [
+libp2p = { version = "0.57.1", features = [
   "ed25519",
   "macros",
   "ping",
