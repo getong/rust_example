@@ -2,7 +2,20 @@
 name = "ratatui_example"
 version = "0.1.0"
 edition = "2024"
+default-run = "ratatui_example"
+
+[features]
+default = []
+gui = ["dep:eframe", "dep:unicode-width", "dep:wgpu"]
+
+[[bin]]
+name = "gui"
+path = "src/bin/gui.rs"
+required-features = ["gui"]
 
 [dependencies]
 crossterm = "0.29.0"
 ratatui = "0.30.2"
+eframe = { version = "0.37.0", optional = true, default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
+unicode-width = { version = "0.2", optional = true }
+wgpu = { version = "30", optional = true, default-features = false, features = ["metal", "vulkan", "dx12", "wgsl"] }

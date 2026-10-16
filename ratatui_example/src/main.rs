@@ -1,11 +1,10 @@
-mod app;
-
 use std::io;
 
 use crossterm::{
   event::{self, DisableMouseCapture, EnableMouseCapture},
   execute,
 };
+use ratatui_example::app;
 
 fn main() -> io::Result<()> {
   ratatui::run(|terminal| {
