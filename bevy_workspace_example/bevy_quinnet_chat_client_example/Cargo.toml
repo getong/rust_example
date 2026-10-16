@@ -17,8 +17,8 @@ bevy = { version = "0.20.0", default-features = false, features = [
   "bevy_text",
   "bevy_core_pipeline",
 ] }
-bevy_quinnet = { version = "0.21.0", features = ["bincode-messages"] }
+bevy_quinnet = { version = "0.22.0", features = ["bincode-messages"] }
 rand = "0.10.3"
 # bevy_quinnet = { git = "https://github.com/Henauxg/bevy_quinnet" }
 serde = { version = "1.0.229", features = ["derive"] }
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }

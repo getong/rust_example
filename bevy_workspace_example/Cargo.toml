@@ -22,12 +22,12 @@ members = [
 agones = "1.61.0"
 anyhow = "1.0"
 avian3d = { version = "0.7.0", default-features = false, features = ["3d", "f32", "parry-f32"] }
-bevior_tree = { version = "0.11.0", default-features = false }
+bevior_tree = { version = "0.12.0", default-features = false }
 bevy = { version = "0.20.0", default-features = false }
 bevy_animation_graph = "0.11"
 bevy_ecs = "0.20.0"
 bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
-bevy_replicon = { version = "0.45.0", default-features = false }
+bevy_replicon = { version = "0.45.2", default-features = false }
 kameo = { version = "0.22.2", features = ["remote"] }
 lightyear = { version = "0.30.1", default-features = false }
 prost = "0.14.4"
@@ -35,4 +35,4 @@ prost-build = "0.14.4"
 redis = { version = "1.7.1", default-features = false, features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.53.3", features = ["macros", "rt-multi-thread", "sync", "time"] }
