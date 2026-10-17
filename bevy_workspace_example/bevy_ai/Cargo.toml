@@ -4,12 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-avian3d = "0.7.0"
 bevior_tree = { version = "0.12.0", default-features = false }
 bevy = "0.20.0"
 bevy_ecs = "0.20.0"
 bevy_state = "0.20.0"
-bevy_voxel_world = "0.17.0"
-landmass = "0.9.3"
-# oxidized_navigation = "0.12.0"
-seldom_state = { git = "https://github.com/getong/seldom_state", branch = "bevy-0.19", default-features = false }
+bevy_voxel_world = { git = "https://github.com/getong/bevy_voxel_world", branch = "bevy-0.20" }
+statig = { version = "0.4.1", default-features = false, features = ["macro"] }

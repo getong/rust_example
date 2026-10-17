@@ -90,7 +90,7 @@ pub(crate) fn level_input(
   mut next_level: ResMut<NextState<GameLevel>>,
 ) {
   if let Some(level) = GameLevel::from_digit(&keyboard) {
-    NextState::set_if_neq(next_level.as_mut(), level);
+    NextState::set_if_different(next_level.as_mut(), level);
   }
 }
 

@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{picking::hover::Hovered, prelude::*, ui::Pressed, ui_widgets::Button};
 use bevy_state::prelude::{DespawnOnExit, NextState, State};
 
 use crate::{
@@ -62,6 +62,7 @@ pub(crate) fn spawn_heal_button(commands: &mut Commands) {
   commands
     .spawn((
       Button,
+      Hovered::default(),
       Node {
         position_type: PositionType::Absolute,
         top: px(14.0),
@@ -97,6 +98,7 @@ pub(crate) fn spawn_level_buttons(commands: &mut Commands) {
     commands
       .spawn((
         Button,
+        Hovered::default(),
         Node {
           position_type: PositionType::Absolute,
           top: px(56.0),
@@ -147,48 +149,43 @@ pub(crate) fn spawn_location_text(commands: &mut Commands) {
 }
 
 pub(crate) fn heal_button_interactions(
-  mut interactions: Query<
-    (&Interaction, &mut BackgroundColor),
-    (Changed<Interaction>, With<HealButton>),
-  >,
+  pressed: Query<(), (With<HealButton>, Added<Pressed>)>,
+  mut buttons: Query<(&Hovered, Has<Pressed>, &mut BackgroundColor), With<HealButton>>,
   mut players: Query<&mut RedBlueValues, With<Player>>,
 ) {
-  for (interaction, mut color) in &mut interactions {
-    match *interaction {
-      Interaction::Pressed => {
-        if let Ok(mut player_values) = players.single_mut() {
-          player_values.blue = HEAL_AMOUNT;
-        }
-        *color = BUTTON_PRESSED.into();
-      }
-      Interaction::Hovered => {
-        *color = BUTTON_HOVERED.into();
-      }
-      Interaction::None => {
-        *color = BUTTON_NORMAL.into();
-      }
+  if !pressed.is_empty() {
+    if let Ok(mut values) = players.single_mut() {
+      values.blue = HEAL_AMOUNT;
     }
+  }
+  for (hovered, pressed, mut color) in &mut buttons {
+    *color = if pressed {
+      BUTTON_PRESSED
+    } else if hovered.0 {
+      BUTTON_HOVERED
+    } else {
+      BUTTON_NORMAL
+    }
+    .into();
   }
 }
 
 pub(crate) fn level_button_interactions(
-  mut interactions: Query<(&Interaction, &LevelButton), Changed<Interaction>>,
+  buttons: Query<&LevelButton, Added<Pressed>>,
   mut next_level: ResMut<NextState<GameLevel>>,
 ) {
-  for (interaction, button) in &mut interactions {
-    if *interaction == Interaction::Pressed {
-      NextState::set_if_neq(next_level.as_mut(), button.level);
-    }
+  for button in &buttons {
+    NextState::set_if_different(next_level.as_mut(), button.level);
   }
 }
 
 pub(crate) fn update_level_button_styles(
   level: Res<State<GameLevel>>,
-  mut buttons: Query<(&LevelButton, &Interaction, &mut BackgroundColor)>,
+  mut buttons: Query<(&LevelButton, &Hovered, Has<Pressed>, &mut BackgroundColor)>,
 ) {
   let current = *level.get();
-  for (button, interaction, mut color) in &mut buttons {
-    *color = level_button_color(button.level, current, *interaction).into();
+  for (button, hovered, pressed, mut color) in &mut buttons {
+    *color = level_button_color(button.level, current, hovered.0, pressed).into();
   }
 }
 
@@ -306,14 +303,95 @@ pub(crate) fn update_hud(
   }
 }
 
-fn level_button_color(level: GameLevel, current: GameLevel, interaction: Interaction) -> Color {
+fn level_button_color(level: GameLevel, current: GameLevel, hovered: bool, pressed: bool) -> Color {
   if level == current {
     return LEVEL_BUTTON_ACTIVE;
   }
 
-  match interaction {
-    Interaction::Pressed => LEVEL_BUTTON_PRESSED,
-    Interaction::Hovered => LEVEL_BUTTON_HOVERED,
-    Interaction::None => LEVEL_BUTTON_NORMAL,
+  if pressed {
+    LEVEL_BUTTON_PRESSED
+  } else if hovered {
+    LEVEL_BUTTON_HOVERED
+  } else {
+    LEVEL_BUTTON_NORMAL
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn heal_button_heals_once_per_press_and_updates_colors_on_release() {
+    let mut app = App::new();
+    app.add_systems(Update, heal_button_interactions);
+    let player = app
+      .world_mut()
+      .spawn((Player, RedBlueValues { red: 18, blue: 0 }))
+      .id();
+    let button = app
+      .world_mut()
+      .spawn((
+        HealButton,
+        Hovered(true),
+        Pressed,
+        BackgroundColor(BUTTON_NORMAL),
+      ))
+      .id();
+    app.update();
+    assert_eq!(
+      app.world().get::<RedBlueValues>(player).unwrap().blue,
+      HEAL_AMOUNT
+    );
+    assert_eq!(
+      app.world().get::<BackgroundColor>(button).unwrap().0,
+      BUTTON_PRESSED
+    );
+    app
+      .world_mut()
+      .get_mut::<RedBlueValues>(player)
+      .unwrap()
+      .blue = 10;
+    app.update();
+    assert_eq!(app.world().get::<RedBlueValues>(player).unwrap().blue, 10);
+    app.world_mut().entity_mut(button).remove::<Pressed>();
+    app.update();
+    assert_eq!(
+      app.world().get::<BackgroundColor>(button).unwrap().0,
+      BUTTON_HOVERED
+    );
+    app
+      .world_mut()
+      .entity_mut(button)
+      .insert((Hovered(false), Pressed));
+    app.update();
+    assert_eq!(
+      app.world().get::<RedBlueValues>(player).unwrap().blue,
+      HEAL_AMOUNT
+    );
+    app.world_mut().entity_mut(button).remove::<Pressed>();
+    app.update();
+    assert_eq!(
+      app.world().get::<BackgroundColor>(button).unwrap().0,
+      BUTTON_NORMAL
+    );
+  }
+
+  #[test]
+  fn level_button_requests_selected_level_on_press() {
+    let mut app = App::new();
+    app.init_resource::<NextState<GameLevel>>();
+    app.add_systems(Update, level_button_interactions);
+    app.world_mut().spawn((
+      LevelButton {
+        level: GameLevel::Citadel,
+      },
+      Pressed,
+    ));
+    app.update();
+    assert!(matches!(
+      app.world().resource::<NextState<GameLevel>>(),
+      NextState::PendingIfDifferent(GameLevel::Citadel)
+    ));
   }
 }
