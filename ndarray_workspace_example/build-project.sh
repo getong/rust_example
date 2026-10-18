@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ ! -d ".venv" ]; then
-  ./setup-python-venv.sh
-fi
+cd "$(dirname "$0")"
+
+./setup-python-venv.sh
 
 export LIBTORCH_USE_PYTORCH=1
 TORCH_LIB=$(.venv/bin/python -c "import os, torch; print(os.path.join(os.path.dirname(torch.__file__), 'lib'))")

@@ -6,7 +6,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = { version = "^1.9", features = [ "attributes", "tokio1" ] }
+async-std = { version = "^1.13", features = [ "attributes", "tokio1" ] }
 sea-orm = {git = "https://github.com/SeaQL/sea-orm", rev = "9e77760376220338423bbaabde7125a5b61fe084", features = ["sqlx-all", "runtime-async-std-native-tls"] }
 serde_json = { version = "^1" }
 futures = { version = "^0.3" }

@@ -2,3 +2,21 @@
 
 some part code are copied from [[https://github.com/Apress/Deep-Learning-with-Rust][Deep Learning with Rust]]
 modified with AI
+
+* Build
+
+Install uv, then run from this directory:
+
+#+begin_src sh
+./setup-python-venv.sh
+cargo build
+#+end_src
+
+The setup script creates a Python 3.13 virtual environment and installs PyTorch
+2.13.0 for tch 0.26.0 from https://mirrors.aliyun.com/pypi/simple.
+Cargo uses the libtorch libraries in that environment
+directly, so activating it is not required. If an existing .venv uses another
+Python version, recreate it with Python 3.13 first.
+
+Alternatively, ./build-project.sh installs the Python dependencies and builds
+the workspace in one step.

@@ -1,2 +1,4 @@
 [env]
-LIBTORCH_USE_PYTORCH = "1"
+# Installed by setup-python-venv.sh using Python 3.13. Point directly at
+# libtorch so cargo build does not depend on the shell's Python interpreter.
+LIBTORCH = { value = ".venv/lib/python3.13/site-packages/torch", relative = true }
