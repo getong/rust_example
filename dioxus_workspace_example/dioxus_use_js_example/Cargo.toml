@@ -10,12 +10,12 @@ desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
 
 [dependencies]
-dioxus = "=0.8.0-alpha.2"
+dioxus = "=0.8.0-alpha.3"
 dioxus-use-js = "0.5.0"
 serde_json = "1.0.154"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-dioxus-desktop = "=0.8.0-alpha.2"
+dioxus-desktop = "=0.8.0-alpha.3"
 
 [build-dependencies]
 dioxus-use-js = { version = "0.5.0", features = ["build"] }
