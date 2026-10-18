@@ -6,4 +6,4 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-indexmap = "1.6.2"
+indexmap = "2.14.2"
