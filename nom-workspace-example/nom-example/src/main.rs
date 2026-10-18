@@ -1,8 +1,7 @@
 use nom::{
   bytes::complete::{tag, take_while_m_n},
   combinator::map_res,
-  sequence::tuple,
-  IResult,
+  IResult, Parser,
 };
 
 #[derive(Debug, PartialEq)]
@@ -21,12 +20,12 @@ fn is_hex_digit(c: char) -> bool {
 }
 
 fn hex_primary(input: &str) -> IResult<&str, u8> {
-  map_res(take_while_m_n(2, 2, is_hex_digit), from_hex)(input)
+  map_res(take_while_m_n(2, 2, is_hex_digit), from_hex).parse(input)
 }
 
 fn hex_color(input: &str) -> IResult<&str, Color> {
   let (input, _) = tag("#")(input)?;
-  let (input, (red, green, blue)) = tuple((hex_primary, hex_primary, hex_primary))(input)?;
+  let (input, (red, green, blue)) = (hex_primary, hex_primary, hex_primary).parse(input)?;
 
   Ok((input, Color { red, green, blue }))
 }

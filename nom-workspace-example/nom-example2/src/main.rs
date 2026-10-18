@@ -24,7 +24,7 @@ fn skip_bytes(data: &[u8]) -> nom::IResult<&[u8], &[u8]> {
 
 fn parse_data(data: &[u8]) -> nom::IResult<&[u8], Person> {
   let (data, _) = skip_bytes(data)?;
-  let (data, _) = nom::bytes::streaming::tag(&[1, 2, 1, 2, 1, 2])(data)?;
+  let (data, _) = nom::bytes::streaming::tag(&[1, 2, 1, 2, 1, 2][..])(data)?;
   let (data, age) = nom::number::streaming::be_u8(data)?;
   let (data, weight) = nom::number::streaming::be_f32(data)?;
   let (data, score_len) = nom::number::streaming::be_u32(data)?;

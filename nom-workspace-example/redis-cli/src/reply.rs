@@ -7,7 +7,7 @@ use nom::{
   combinator::map,
   multi::many_m_n,
   sequence::delimited,
-  IResult,
+  IResult, Parser,
 };
 
 #[derive(Debug)]
@@ -75,7 +75,8 @@ fn parse_single_line(i: &str) -> IResult<&str, Reply> {
     tag("+"),
     take_while(|c| c != '\r' && c != '\n'),
     tag("\r\n"),
-  )(i)?;
+  )
+  .parse(i)?;
   Ok((i, Reply::SingleLine(String::from(resp))))
 }
 
@@ -84,7 +85,8 @@ fn parse_err(i: &str) -> IResult<&str, Reply> {
     tag("-"),
     take_while1(|c| c != '\r' && c != '\n'),
     tag("\r\n"),
-  )(i)?;
+  )
+  .parse(i)?;
   Ok((i, Reply::Err(String::from(resp))))
 }
 
@@ -95,7 +97,8 @@ fn parse_int(i: &str) -> IResult<&str, Reply> {
       int.parse::<u32>().unwrap()
     }),
     tag("\r\n"),
-  )(i)?;
+  )
+  .parse(i)?;
   Ok((i, Reply::Int(int)))
 }
 
@@ -120,7 +123,8 @@ fn parse_multi_batch(i: &str) -> IResult<&str, Reply> {
     tag("*"),
     take_while1(|c: char| c.is_digit(10) || c == '-'),
     tag("\r\n"),
-  )(i)?;
+  )
+  .parse(i)?;
   if count == "-1" {
     let (i, _) = tag("\r\n")(i)?;
     Ok((i, Reply::MultiBatch(None)))
@@ -130,7 +134,8 @@ fn parse_multi_batch(i: &str) -> IResult<&str, Reply> {
       count,
       count,
       alt((parse_single_line, parse_err, parse_int, parse_batch)),
-    )(i)?;
+    )
+    .parse(i)?;
     if responses.len() != count {
       Ok((
         i,
@@ -149,5 +154,6 @@ fn parse(i: &str) -> IResult<&str, Reply> {
     parse_int,
     parse_batch,
     parse_multi_batch,
-  ))(i)
+  ))
+  .parse(i)
 }

@@ -2,16 +2,15 @@ use nom::{
   bits::{bits, bytes, streaming::take},
   combinator::rest,
   error::Error,
-  sequence::tuple,
   IResult,
 };
 
 fn parse(input: &[u8]) -> IResult<&[u8], (u8, u8, &[u8])> {
-  bits::<_, _, Error<(&[u8], usize)>, _, _>(tuple((
+  bits::<_, _, Error<(&[u8], usize)>, _, _>((
     take(4usize),
     take(8usize),
     bytes::<_, _, Error<&[u8]>, _, _>(rest),
-  )))(input)
+  ))(input)
 }
 
 fn main() {
