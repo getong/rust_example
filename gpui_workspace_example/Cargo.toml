@@ -16,6 +16,7 @@ members = [
   "gpui_topcoat_example/protocol",
   "gpui_router_example",
   "gpui_video_player_example",
+  "embed_gpui",
 ]
 
 # Reduce debug unwind-table size while retaining symbols and panic unwinding.
