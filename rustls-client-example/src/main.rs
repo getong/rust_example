@@ -4,22 +4,18 @@ use std::{
   sync::Arc,
 };
 
-extern crate rustls;
-extern crate webpki;
-extern crate webpki_roots;
-
 fn main() {
-  let mut tls = rustls::ClientConfig::new();
-  tls
-    .root_store
-    .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
-  let name =
-    webpki::DNSNameRef::try_from_ascii_str("my.domain.io").expect("Could not resolve name");
-  let mut sess = rustls::ClientSession::new(&Arc::new(tls), name);
+  let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+  let tls = rustls::ClientConfig::builder()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+  let name = rustls::pki_types::ServerName::try_from("my.domain.io").expect("Invalid server name");
+  let mut sess =
+    rustls::ClientConnection::new(Arc::new(tls), name).expect("Could not create TLS connection");
   let mut conn = TcpStream::connect("my.domain.io:8000").unwrap();
   let mut stream = rustls::Stream::new(&mut sess, &mut conn);
   stream
-    .write(concat!("GET /posts HTTP/1.1\r\n", "Connection: close\r\n", "\r\n").as_bytes())
+    .write_all(concat!("GET /posts HTTP/1.1\r\n", "Connection: close\r\n", "\r\n").as_bytes())
     .expect("Could not write request");
   let mut plaintext = Vec::new();
   stream.read_to_end(&mut plaintext).expect("Could not read");
