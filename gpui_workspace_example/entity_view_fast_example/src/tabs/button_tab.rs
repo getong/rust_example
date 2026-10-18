@@ -11,10 +11,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{
-  gpui,
-  tabs::{ChangeStorySize, section, story_toolbar},
-};
+use crate::tabs::{ChangeStorySize, section, story_toolbar};
 
 #[derive(Clone, Action, PartialEq, Eq, Deserialize)]
 #[action(namespace = button_tab, no_json)]

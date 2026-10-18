@@ -24,7 +24,7 @@ use gpui_kit::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{gpui, tabs::story_toolbar_group};
+use crate::tabs::story_toolbar_group;
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = data_table_tab, no_json)]

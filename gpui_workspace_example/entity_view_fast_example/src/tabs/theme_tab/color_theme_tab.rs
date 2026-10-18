@@ -17,7 +17,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{gpui, tabs::theme_tab::checkerboard::Checkerboard};
+use crate::tabs::theme_tab::checkerboard::Checkerboard;
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = theme_colors_tab, no_json)]

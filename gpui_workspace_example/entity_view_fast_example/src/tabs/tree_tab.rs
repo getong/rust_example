@@ -20,10 +20,7 @@ use gpui_kit::{
 };
 use rand::seq::IndexedRandom as _;
 
-use crate::{
-  gpui,
-  tabs::{ComponentPage, section},
-};
+use crate::tabs::{ComponentPage, section};
 
 actions!(story, [Rename, OpenFile, Delete]);
 

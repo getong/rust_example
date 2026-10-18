@@ -13,8 +13,6 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::gpui;
-
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = description_list_tab, no_json)]
 enum ToggleOption {

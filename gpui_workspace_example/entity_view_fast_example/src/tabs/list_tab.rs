@@ -14,7 +14,7 @@ use gpui_kit::{
   *,
 };
 
-use crate::{gpui, tabs::story_toolbar_group};
+use crate::tabs::story_toolbar_group;
 
 actions!(
   list_tab,

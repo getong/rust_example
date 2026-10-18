@@ -209,7 +209,7 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
   );
   cx.run_until_parked();
   // 绕过 TabBar，直接操作 router；页面与选中状态也必须同步。
-  cx.update(|cx| gpui_router::use_navigate(cx)("/counter/2".into()));
+  cx.update(|cx| gpui_router::use_navigate(cx).push("/counter/2"));
   cx.run_until_parked();
   panel.read_with(cx, |panel, cx| assert_eq!(panel.active_tab(cx), Some(1)));
   cx.update_window(window.into(), |_, window, cx| {

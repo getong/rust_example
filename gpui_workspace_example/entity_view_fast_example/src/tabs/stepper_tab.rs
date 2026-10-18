@@ -9,10 +9,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{
-  gpui,
-  tabs::{ChangeStorySize, section, story_toolbar},
-};
+use crate::tabs::{ChangeStorySize, section, story_toolbar};
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = stepper_tab, no_json)]

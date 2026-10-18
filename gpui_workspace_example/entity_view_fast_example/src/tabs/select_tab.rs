@@ -5,10 +5,7 @@ use gpui_kit::{
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-  gpui,
-  tabs::{ChangeStorySize, section, story_toolbar},
-};
+use crate::tabs::{ChangeStorySize, section, story_toolbar};
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = select_tab, no_json)]

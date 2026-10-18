@@ -1,9 +1,6 @@
 // Turso's nested async query/transaction futures require deeper Send evaluation.
 #![recursion_limit = "256"]
 
-// GPUI Fast macros expect this crate name; GPUI Kit re-exports the same types.
-extern crate gpui_kit as gpui;
-
 mod baidu_cache;
 mod baidu_tab;
 mod component_tab;
@@ -222,7 +219,7 @@ impl Render for CounterTab {
   }
 }
 
-gpui_fast::actions!(entity_view_fast_example, [Quit]);
+::gpui::actions!(entity_view_fast_example, [Quit]);
 
 fn main() {
   gpui_platform::application()

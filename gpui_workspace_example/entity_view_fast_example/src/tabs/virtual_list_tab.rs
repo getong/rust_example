@@ -12,7 +12,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{gpui, tabs::story_toolbar_group};
+use crate::tabs::story_toolbar_group;
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = virtual_list_tab, no_json)]

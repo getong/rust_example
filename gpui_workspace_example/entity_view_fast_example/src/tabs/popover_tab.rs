@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{gpui, tabs::section};
+use crate::tabs::section;
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = popover_tab, no_json)]

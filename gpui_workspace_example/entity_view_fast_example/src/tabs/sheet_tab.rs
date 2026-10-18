@@ -16,10 +16,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{
-  gpui,
-  tabs::{ComponentPage, TestAction, section, story_toolbar_group},
-};
+use crate::tabs::{ComponentPage, TestAction, section, story_toolbar_group};
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = sheet_tab, no_json)]

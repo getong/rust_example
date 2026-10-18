@@ -22,8 +22,6 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::gpui;
-
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = sidebar_tab, no_json)]
 pub struct SelectCompany(SharedString);

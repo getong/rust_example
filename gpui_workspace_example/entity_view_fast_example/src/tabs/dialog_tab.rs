@@ -18,10 +18,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{
-  gpui,
-  tabs::{TestAction, section, story_toolbar_group},
-};
+use crate::tabs::{TestAction, section, story_toolbar_group};
 
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = dialog_tab, no_json)]

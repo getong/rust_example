@@ -15,10 +15,7 @@ use gpui_kit::{
   *,
 };
 
-use crate::{
-  gpui,
-  tabs::{ComponentPage, section},
-};
+use crate::tabs::{ComponentPage, section};
 
 actions!(tooltip_tab, [Info]);
 

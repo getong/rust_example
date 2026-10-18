@@ -16,8 +16,6 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::gpui;
-
 #[derive(Action, Clone, PartialEq, Eq, Deserialize)]
 #[action(namespace = component_tabs, no_json)]
 pub(crate) struct ChangeStorySize(pub ComponentSize);

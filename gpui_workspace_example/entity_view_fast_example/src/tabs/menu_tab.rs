@@ -10,7 +10,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-use crate::{gpui, tabs::section};
+use crate::tabs::section;
 
 #[derive(Action, Clone, PartialEq, Deserialize)]
 #[action(namespace = menu_tab, no_json)]

@@ -13,7 +13,7 @@ use gpui_kit::{
   *,
 };
 
-use crate::{gpui, tabs::section};
+use crate::tabs::section;
 
 actions!(
   command_tab,
