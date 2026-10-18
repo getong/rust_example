@@ -6,16 +6,16 @@ edition = "2024"
 [dependencies]
 env_logger = "0.11"
 gpui-kit = { version = "0.7.3", features = ["gpui-fast"] }
-gpui_platform = { package = "gpui-fast-platform", version = "0.1.7", default-features = false, features = [
+gpui_platform = { package = "gpui-fast-platform", version = "0.1.9", default-features = false, features = [
   "font-kit",
   "wayland",
   "x11",
 ] }
 log = "0.4"
-nsh-platform-gpui = "0.1.0"
+nsh-platform-gpui = "0.1.1"
 serde_json = "1"
 
 [build-dependencies]
-nsh-bundler = "=0.1.0"
-nsh-js = "=0.1.0"
-nsh-ui-mobile = "=0.1.0"
+nsh-bundler = "=0.1.1"
+nsh-js = "=0.1.1"
+nsh-ui-mobile = "=0.1.1"

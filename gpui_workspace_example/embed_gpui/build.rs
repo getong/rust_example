@@ -12,6 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
   let bundle = nsh_bundler::bundle(&nsh_bundler::BundleOptions {
     entry: app.join("App.tsx"),
     minify: false,
+    split: false,
     ui_sets: ui_sets.clone(),
   })?;
   let bytecode = nsh_js::compile_bytecode_with(&bundle.code, false, &ui_sets)?;
