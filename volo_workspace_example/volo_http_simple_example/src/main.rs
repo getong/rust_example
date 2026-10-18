@@ -5,19 +5,27 @@ use bytes::Bytes;
 use faststr::FastStr;
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
+use volo::{context::Context, service::service_fn};
 use volo_http::{
+  Address,
   body::Body,
-  cookie,
-  extension::Extension,
-  extract::{Form, Query},
-  http::header,
-  hyper::body::Frame,
-  layer::{FilterLayer, TimeoutLayer},
-  middleware::{self, Next},
-  response::IntoResponse,
-  route::{from_handler, get, post, service_fn, MethodRouter, Router},
-  Address, BodyIncoming, ConnectionInfo, CookieJar, Json, MaybeInvalid, Method, Params, Response,
-  Server, ServerContext, StatusCode, Uri,
+  context::ServerContext,
+  http::{Method, StatusCode, Uri, header},
+  hyper::body::{Body as HttpBody, Frame},
+  request::Request,
+  response::Response,
+  server::{
+    IntoResponse, Server,
+    extract::{Form, Json, MaybeInvalid, Query},
+    layer::{FilterLayer, TimeoutLayer},
+    middleware::{self, Next},
+    param::PathParamsMap,
+    route::{Router, get, get_service, post},
+  },
+  utils::{
+    Extension,
+    cookie::{self, CookieJar},
+  },
 };
 
 async fn hello() -> &'static str {
@@ -108,14 +116,14 @@ async fn timeout_test() {
   tokio::time::sleep(Duration::from_secs(10)).await
 }
 
-async fn echo(params: Params) -> Result<FastStr, StatusCode> {
+async fn echo(params: PathParamsMap) -> Result<FastStr, StatusCode> {
   if let Some(echo) = params.get("echo") {
     return Ok(echo.to_owned());
   }
   Err(StatusCode::BAD_REQUEST)
 }
 
-async fn conn_show(conn: ConnectionInfo) -> String {
+async fn conn_show(conn: Address) -> String {
   format!("{conn:?}\n")
 }
 
@@ -146,15 +154,15 @@ async fn extension(Extension(state): Extension<Arc<State>>) -> String {
   format!("State {{ foo: {}, bar: {} }}\n", state.foo, state.bar)
 }
 
-async fn service_fn_test(
-  cx: &mut ServerContext,
-  req: BodyIncoming,
-) -> Result<Response, Infallible> {
+async fn service_fn_test(cx: &mut ServerContext, req: Request) -> Result<Response, Infallible> {
   Ok(format!("cx: {cx:?}, req: {req:?}").into_response())
 }
 
-async fn timeout_handler(uri: Uri, peer: Address) -> StatusCode {
-  tracing::info!("Timeout on `{}`, peer: {}", uri, peer);
+fn timeout_handler(cx: &ServerContext) -> StatusCode {
+  tracing::info!(
+    "Request timed out, peer: {:?}",
+    cx.rpc_info().caller().address()
+  );
   StatusCode::INTERNAL_SERVER_ERROR
 }
 
@@ -184,18 +192,16 @@ fn user_json_router() -> Router {
 fn user_form_router() -> Router {
   Router::new().route(
     "/user/login",
-    MethodRouter::builder()
-      // curl "http://localhost:8080/user/login?username=admin&password=admin"
-      // curl "http://localhost:8080/user/login?username=admin&password=password"
-      .get(from_handler(get_with_query))
+    // curl "http://localhost:8080/user/login?username=admin&password=admin"
+    // curl "http://localhost:8080/user/login?username=admin&password=password"
+    get(get_with_query)
       // curl http://localhost:8080/user/login \
       //     -X POST \
       //     -d 'username=admin&password=admin'
       // curl http://localhost:8080/user/login \
       //     -X POST \
       //     -d 'username=admin&password=password'
-      .post(from_handler(post_with_form))
-      .build(),
+      .post(post_with_form),
   )
 }
 
@@ -203,31 +209,20 @@ fn test_router() -> Router {
   Router::new()
     // curl http://127.0.0.1:8080/test/extract
     // curl http://127.0.0.1:8080/test/extract -X POST -d "114514"
-    .route(
-      "/test/extract",
-      MethodRouter::builder()
-        .get(from_handler(get_and_post))
-        .post(from_handler(get_and_post))
-        .build(),
-    )
+    .route("/test/extract", get(get_and_post).post(get_and_post))
     // curl http://127.0.0.1:8080/test/timeout
     .route(
       "/test/timeout",
       get(timeout_test).layer(TimeoutLayer::new(Duration::from_secs(1), timeout_handler)),
     )
     // curl -v http://127.0.0.1:8080/test/param/114514
-    .route("/test/param/:echo", get(echo))
+    .route("/test/param/{echo}", get(echo))
     // curl http://127.0.0.1:8080/test/conn_show
     .route("/test/conn_show", get(conn_show))
     // curl http://127.0.0.1:8080/test/extension
     .route("/test/extension", get(extension))
     // curl http://127.0.0.1:8080/test/service_fn
-    .route(
-      "/test/service_fn",
-      MethodRouter::builder()
-        .get(service_fn(service_fn_test))
-        .build(),
-    )
+    .route("/test/service_fn", get_service(service_fn(service_fn_test)))
     // curl -v http://127.0.0.1:8080/test/stream
     .route("/test/stream", get(stream_test))
     // curl -v http://127.0.0.1:8080/test/body
@@ -258,7 +253,7 @@ async fn tracing_from_fn(
   peer: Address,
   cookie_jar: CookieJar,
   cx: &mut ServerContext,
-  req: BodyIncoming,
+  req: Request,
   next: Next,
 ) -> Response {
   tracing::info!("{:?}", *cookie_jar);
@@ -296,15 +291,18 @@ async fn headers_map_response(response: Response) -> impl IntoResponse {
   )
 }
 
-fn tracer(cx: &ServerContext) {
+async fn trace_stats(cx: &mut ServerContext, req: Request, next: Next) -> Response {
+  let start = std::time::Instant::now();
+  let req_size = req.body().size_hint();
+  let resp = next.run(cx, req).await.into_response();
   tracing::info!(
-    "process start at {:?}, end at {:?}, req size: {:?}, resp size: {:?}, resp status: {:?}",
-    cx.stats.process_start_at().unwrap(),
-    cx.stats.process_end_at().unwrap(),
-    cx.common_stats.req_size().unwrap_or(0),
-    cx.common_stats.resp_size().unwrap_or(0),
-    cx.stats.status_code().unwrap(),
+    "request completed in {:?}, req size: {:?}, resp size: {:?}, resp status: {}",
+    start.elapsed(),
+    req_size,
+    resp.body().size_hint(),
+    resp.status(),
   );
+  resp
 }
 
 #[volo::main]
@@ -325,9 +323,10 @@ async fn main() {
     })))
     .layer(middleware::from_fn(tracing_from_fn))
     .layer(middleware::map_response(headers_map_response))
-    .layer(TimeoutLayer::new(Duration::from_secs(5), || async {
-      StatusCode::INTERNAL_SERVER_ERROR
-    }));
+    .layer(TimeoutLayer::new(
+      Duration::from_secs(5),
+      |_: &ServerContext| StatusCode::INTERNAL_SERVER_ERROR,
+    ));
 
   let addr: SocketAddr = "[::]:8080".parse().unwrap();
   let addr = volo::net::Address::from(addr);
@@ -335,8 +334,46 @@ async fn main() {
   println!("Listening on {addr}");
 
   Server::new(app)
-    .stat_tracer(tracer)
+    .layer(middleware::from_fn(trace_stats))
     .run(addr)
     .await
     .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+  use volo::Service;
+  use volo_http::body::BodyConversion;
+
+  use super::*;
+
+  #[tokio::test]
+  async fn migrated_routes_handle_requests() {
+    let router = test_router();
+    for (path, expected) in [
+      ("/test/param/114514", "114514"),
+      ("/test/stream", "Hello, this is a stream.\n"),
+      ("/test/body", "Hello, this is a stream.\n"),
+    ] {
+      let mut cx = ServerContext::new("127.0.0.1:12345".parse::<SocketAddr>().unwrap().into());
+      let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+      let resp = router.call(&mut cx, req).await.unwrap();
+      assert_eq!(resp.status(), StatusCode::OK);
+      assert_eq!(resp.into_body().into_string().await.unwrap(), expected);
+    }
+  }
+
+  #[tokio::test]
+  async fn migrated_service_route_and_timeout_work() {
+    let router = test_router();
+    for (path, expected) in [
+      ("/test/service_fn", StatusCode::OK),
+      ("/test/timeout", StatusCode::INTERNAL_SERVER_ERROR),
+    ] {
+      let mut cx = ServerContext::new("127.0.0.1:12345".parse::<SocketAddr>().unwrap().into());
+      let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+      let resp = router.call(&mut cx, req).await.unwrap();
+      assert_eq!(resp.status(), expected);
+    }
+  }
 }

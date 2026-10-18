@@ -7,12 +7,12 @@ edition = "2024"
 
 [dependencies]
 async-stream = "0.3.6"
-bytes = "1.8.0"
-faststr = "0.2.23"
-serde = { version = "1.0.213", features = ["derive"] }
-tokio = { version = "1.41.0", features = ["full"] }
-tokio-stream = "0.1.16"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-volo = "0.10.3"
-volo-http = { version = "0.2.14", features = ["full"] }
+bytes = "1.12.1"
+faststr = "0.2.34"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.3", features = ["full"] }
+tokio-stream = "0.1.19"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+volo = "0.12.4"
+volo-http = { version = "0.5.7", features = ["full"] }

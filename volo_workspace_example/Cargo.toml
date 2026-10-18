@@ -2,7 +2,4 @@
 
 resolver = "2"
 
-members = [
-        "volo_hotrestart_example",
-        "volo_http_simple_example",
-]
+members = ["volo_hotrestart_example", "volo_http_simple_example"]
