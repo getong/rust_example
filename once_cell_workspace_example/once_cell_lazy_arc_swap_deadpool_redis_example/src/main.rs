@@ -24,7 +24,7 @@ async fn main() {
       Ok(mut conn) => {
         let _ = cmd("SET")
           .arg(&["deadpool/test_key", "72"])
-          .query_async::<_, ()>(&mut conn)
+          .query_async::<()>(&mut conn)
           .await;
         let value: String = cmd("GET")
           .arg(&["deadpool/test_key"])

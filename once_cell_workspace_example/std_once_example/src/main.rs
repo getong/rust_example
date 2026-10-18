@@ -1,19 +1,27 @@
-use core::{mem::MaybeUninit, ptr};
-use std::sync::{mpsc, Once};
+use std::sync::{mpsc, Mutex, MutexGuard, Once};
 
-static mut CHANNEL: MaybeUninit<(mpsc::Sender<usize>, mpsc::Receiver<usize>)> =
-  MaybeUninit::uninit();
+type Channel = (mpsc::Sender<usize>, mpsc::Receiver<usize>);
+
+static CHANNEL: Mutex<Option<Channel>> = Mutex::new(None);
 static CHANNEL_INIT: Once = Once::new();
 
 #[inline]
-fn get_channel() -> &'static (mpsc::Sender<usize>, mpsc::Receiver<usize>) {
-  CHANNEL_INIT.call_once(|| unsafe {
-    ptr::write(CHANNEL.as_mut_ptr(), mpsc::channel());
+fn get_channel() -> MutexGuard<'static, Option<Channel>> {
+  CHANNEL_INIT.call_once(|| {
+    *CHANNEL.lock().unwrap() = Some(mpsc::channel());
   });
 
-  unsafe { &*CHANNEL.as_ptr() }
+  CHANNEL.lock().unwrap()
 }
 
 fn main() {
-  get_channel(); // safe because call_once will sync
+  {
+    let channel = get_channel();
+    let (sender, _) = channel.as_ref().unwrap();
+    sender.send(42).unwrap();
+  }
+
+  let channel = get_channel();
+  let (_, receiver) = channel.as_ref().unwrap();
+  assert_eq!(receiver.recv().unwrap(), 42);
 }

@@ -1,9 +1,11 @@
 use std::{cell::OnceCell, collections::HashMap};
 
-const MEM: OnceCell<HashMap<usize, usize>> = OnceCell::new();
+thread_local! {
+  static MEM: OnceCell<HashMap<usize, usize>> = const { OnceCell::new() };
+}
 
 fn factorial(i: usize) -> usize {
-  MEM.get().unwrap()[&i]
+  MEM.with(|mem| mem.get().unwrap()[&i])
 }
 
 fn main() {
@@ -14,7 +16,7 @@ fn main() {
   m.insert(3, 6);
   m.insert(4, 24);
 
-  MEM.set(m).unwrap();
+  MEM.with(|mem| mem.set(m).unwrap());
 
   println!("{}", factorial(0));
   println!("{}", factorial(1));

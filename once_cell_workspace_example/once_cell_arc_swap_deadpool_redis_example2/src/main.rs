@@ -40,7 +40,7 @@ async fn main() {
           Ok(mut conn) => {
             if let Ok(_) = cmd("SET")
               .arg(&["deadpool/test_key", "62"])
-              .query_async::<_, ()>(&mut conn)
+              .query_async::<()>(&mut conn)
               .await
             {
               // println!("set ok");
