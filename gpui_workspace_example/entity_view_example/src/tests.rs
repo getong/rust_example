@@ -209,7 +209,10 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
   );
   cx.run_until_parked();
   // 绕过 TabBar，直接操作 router；页面与选中状态也必须同步。
-  cx.update(|cx| gpui_router::use_navigate(cx)("/counter/2".into()));
+  cx.update_window(window.into(), |_, window, cx| {
+    gpui_router::use_navigate(window, cx).push("/counter/2")
+  })
+  .unwrap();
   cx.run_until_parked();
   panel.read_with(cx, |panel, cx| assert_eq!(panel.active_tab(cx), Some(1)));
   cx.update_window(window.into(), |_, window, cx| {
@@ -238,6 +241,7 @@ fn routes_drive_tabs_and_closed_paths_cannot_be_revisited(cx: &mut TestAppContex
   // 同类新增标签也有独立路径；关闭前面的标签不改变其他标签路径。
   let original = panel.read_with(cx, |panel, _| panel.tabs[1].path());
   panel.update(cx, |panel, cx| panel.add_toast_tab(cx));
+  cx.run_until_parked();
   let added = cx.update(|cx| gpui_router::use_location(cx).pathname.clone());
   assert_ne!(original, added);
   panel.update(cx, |panel, cx| assert!(panel.navigate(&original, cx)));
@@ -258,13 +262,12 @@ fn empty_panel_releases_routes_and_can_open_new_tabs(cx: &mut TestAppContext) {
     while !panel.tabs.is_empty() {
       panel.close_active_tab(cx);
     }
-    assert_eq!(gpui_router::use_location(cx).pathname, "/");
     assert_eq!(panel.active_tab(cx), None);
     for path in paths {
       assert!(!panel.navigate(&path, cx));
     }
     panel.add_tab(cx);
-    assert_eq!(gpui_router::use_location(cx).pathname, "/counter/3");
+    assert_eq!(panel.tabs[0].path(), "/counter/3");
     assert_eq!(panel.active_tab(cx), Some(0));
   });
 }

@@ -11,7 +11,7 @@ use gpui_kit::{
   prelude::FluentBuilder as _,
   *,
 };
-use gpui_router::{RouterState, Routes, use_location, use_navigate};
+use gpui_router::{RouterRegistry, Routes, use_location, use_navigate};
 
 use crate::{
   CounterTab,
@@ -29,7 +29,8 @@ use crate::{
 pub(crate) struct TabbedPanel {
   model: Entity<CounterState>,
   pub(crate) tabs: Vec<PanelTab>,
-  _router_subscription: Subscription,
+  pathname: SharedString,
+  pending_paths: Vec<SharedString>,
   next_tab: usize,
   tab_scroll: ScrollHandle,
 }
@@ -57,56 +58,55 @@ impl TabbedPanel {
       "Scrollbar",
       scrollbar,
     ));
-    if !cx.has_global::<RouterState>() {
+    if !cx.has_global::<RouterRegistry>() {
       gpui_router::init(cx);
     }
     let initial_path = tabs[0].path();
-    use_navigate(cx).push(initial_path.clone());
-    let mut previous_path = initial_path;
-    let subscription = cx.observe_global::<RouterState>(move |panel, cx| {
-      let pathname = &use_location(cx).pathname;
-      // Routes also updates match metadata during render; only navigation needs a redraw.
-      if *pathname != previous_path {
-        previous_path = pathname.clone();
-        if let Some(index) = panel.active_tab(cx) {
-          panel.tab_scroll.scroll_to_item(index);
-        }
-        cx.notify();
-      }
-    });
     Self {
       model,
       tabs,
-      _router_subscription: subscription,
+      pathname: initial_path.clone(),
+      pending_paths: vec![initial_path],
       next_tab: 3,
       tab_scroll: ScrollHandle::new(),
     }
   }
 
-  pub(crate) fn active_tab(&self, cx: &App) -> Option<usize> {
-    let pathname = use_location(cx).pathname.as_ref();
+  pub(crate) fn active_tab(&self, _cx: &App) -> Option<usize> {
+    let pathname = self.pathname.as_ref();
     self
       .tabs
       .iter()
       .position(|tab| tab.path().as_ref() == pathname)
   }
 
+  // Panels can be populated before a window exists. Apply queued navigation
+  // during render, once Routes has registered the owning window.
+  fn queue_navigation(&mut self, path: SharedString, cx: &mut Context<Self>) {
+    self.pathname = path.clone();
+    self.pending_paths.push(path);
+    if let Some(index) = self.active_tab(cx) {
+      self.tab_scroll.scroll_to_item(index);
+    }
+    cx.notify();
+  }
+
   /// Only open tabs are navigable; rejected paths leave the current page intact.
-  pub(crate) fn navigate(&self, path: &str, cx: &mut Context<Self>) -> bool {
+  pub(crate) fn navigate(&mut self, path: &str, cx: &mut Context<Self>) -> bool {
     let Some(tab) = self.tabs.iter().find(|tab| tab.path().as_ref() == path) else {
       return false;
     };
-    use_navigate(cx).push(tab.path());
+    self.queue_navigation(tab.path(), cx);
     true
   }
 
-  pub(crate) fn select_tab(&self, index: usize, cx: &mut Context<Self>) {
+  pub(crate) fn select_tab(&mut self, index: usize, cx: &mut Context<Self>) {
     if let Some(tab) = self.tabs.get(index) {
-      use_navigate(cx).push(tab.path());
+      self.queue_navigation(tab.path(), cx);
     }
   }
 
-  fn select_existing(&self, id: TabId, cx: &mut Context<Self>) -> bool {
+  fn select_existing(&mut self, id: TabId, cx: &mut Context<Self>) -> bool {
     let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
       return false;
     };
@@ -197,7 +197,7 @@ impl TabbedPanel {
     // 释放此标签的 Entity 和 Subscription；共享模型由 panel / Global 保活。
     self.tabs.remove(index);
     if self.tabs.is_empty() {
-      use_navigate(cx).push("/");
+      self.queue_navigation("/".into(), cx);
     } else {
       self.select_tab(index.min(self.tabs.len() - 1), cx);
     }
@@ -206,10 +206,19 @@ impl TabbedPanel {
 }
 
 impl Render for TabbedPanel {
-  fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    // Root renders the component plugin overlays above this panel.
-    let active_tab = self.active_tab(cx);
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    // Bind hooks to this window even when the tab list is empty.
+    let _ = RenderOnce::render(Routes::new(), window, cx);
+    for path in self.pending_paths.drain(..) {
+      use_navigate(window, cx).push(path);
+    }
     let pathname = use_location(cx).pathname.clone();
+    let changed = self.pathname != pathname;
+    self.pathname = pathname.clone();
+    let active_tab = self.active_tab(cx);
+    if changed && let Some(index) = active_tab {
+      self.tab_scroll.scroll_to_item(index);
+    }
     let routes = Routes::new().children(self.tabs.iter().map(PanelTab::route));
     v_flex()
       .relative()
@@ -336,21 +345,27 @@ mod tests {
       }
       panel.select_tab(0, cx);
     });
-    let _window = cx.open_window(size(px(760.), px(700.)), |window, cx| {
+    let window = cx.open_window(size(px(760.), px(700.)), |window, cx| {
       Root::new(panel.clone(), window, cx)
     });
     cx.run_until_parked();
     let scroll = panel.read_with(cx, |panel, _| panel.tab_scroll.clone());
     assert_eq!(scroll.offset().x, px(0.));
 
-    cx.update(|cx| use_navigate(cx)("/counter/22".into()));
+    cx.update_window(window.into(), |_, window, cx| {
+      use_navigate(window, cx).push("/counter/22")
+    })
+    .unwrap();
     cx.run_until_parked();
     panel.read_with(cx, |panel, cx| {
       assert_eq!(panel.active_tab(cx), Some(panel.tabs.len() - 1));
     });
     assert!(scroll.offset().x < px(0.));
 
-    cx.update(|cx| use_navigate(cx)("/counter/1".into()));
+    cx.update_window(window.into(), |_, window, cx| {
+      use_navigate(window, cx).push("/counter/1")
+    })
+    .unwrap();
     cx.run_until_parked();
     assert_eq!(scroll.offset().x, px(0.));
   }

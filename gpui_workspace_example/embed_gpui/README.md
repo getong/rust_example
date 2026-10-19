@@ -1,5 +1,9 @@
 # embed_gpui
 
+This example builds separately from the parent workspace because its
+`gpui-kit/gpui-fast` feature would switch the other examples away from
+`gpui-pre` through Cargo feature unification.
+
 Run from this directory:
 
 ```sh

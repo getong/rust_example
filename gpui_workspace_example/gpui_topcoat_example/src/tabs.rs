@@ -8,7 +8,7 @@ use gpui_kit::{
   },
   *,
 };
-use gpui_router::{Route, RouterState, Routes, use_location, use_navigate};
+use gpui_router::{Route, Routes, use_location, use_navigate};
 
 use crate::{
   counter::CounterView,
@@ -33,7 +33,6 @@ impl PageTab {
 pub(crate) struct Workspace {
   tabs: Vec<PageTab>,
   server: String,
-  _router_subscription: Subscription,
   health_status: String,
   checking_health: bool,
   health_task: Option<Task<()>>,
@@ -59,20 +58,12 @@ impl Workspace {
       label: "配色实验室",
       view: cx.new(|cx| StudioPage::new(server.clone(), cx)).into(),
     });
-    use_navigate(cx).push("/studio");
-    let mut previous = use_location(cx).pathname.clone();
-    let subscription = cx.observe_global::<RouterState>(move |_, cx| {
-      let current = use_location(cx).pathname.clone();
-      // Routes writes match metadata while rendering; redraw only when the path changes.
-      if current != previous {
-        previous = current;
-        cx.notify();
-      }
-    });
+    // Register this window before calling the window-scoped navigation API.
+    let _ = RenderOnce::render(Routes::new(), window, cx);
+    use_navigate(window, cx).replace("/studio");
     let mut workspace = Self {
       tabs,
       server,
-      _router_subscription: subscription,
       health_status: "正在检查服务连接…".into(),
       checking_health: false,
       health_task: None,
@@ -110,10 +101,12 @@ impl Workspace {
   }
 }
 impl Render for Workspace {
-  fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    // Bind read hooks to this window before reading the selected tab.
+    let _ = RenderOnce::render(Routes::new(), window, cx);
+    let routes = Routes::new().children(self.tabs.iter().map(PageTab::route));
     let path = use_location(cx).pathname.clone();
     let selected = self.tabs.iter().position(|tab| tab.path == path.as_ref());
-    let routes = Routes::new().children(self.tabs.iter().map(PageTab::route));
     div()
       .v_flex()
       .size_full()
@@ -123,9 +116,9 @@ impl Render for Workspace {
         TabBar::new("demo-tabs")
           .selected_index(selected.unwrap_or(0))
           .children(self.tabs.iter().map(|tab| Tab::new().label(tab.label)))
-          .on_click(cx.listener(|view, index: &usize, _, cx| {
+          .on_click(cx.listener(|view, index: &usize, window, cx| {
             if let Some(tab) = view.tabs.get(*index) {
-              use_navigate(cx).push(tab.path);
+              use_navigate(window, cx).push(tab.path);
             }
           })),
       )

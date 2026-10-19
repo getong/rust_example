@@ -2,8 +2,8 @@
 
 resolver = "3"
 
-# This application owns its gpui-fast compatibility patches.
-exclude = ["entity_view_fast_example"]
+# Keep gpui-fast feature unification out of the gpui-pre applications.
+exclude = ["entity_view_fast_example", "embed_gpui"]
 
 members = [
   "gpui-kit-example",
@@ -16,7 +16,6 @@ members = [
   "gpui_topcoat_example/protocol",
   "gpui_router_example",
   "gpui_video_player_example",
-  "embed_gpui",
 ]
 
 # Reduce debug unwind-table size while retaining symbols and panic unwinding.
