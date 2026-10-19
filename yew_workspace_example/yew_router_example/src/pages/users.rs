@@ -6,9 +6,9 @@ use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use yew::{
   html,
-  web_sys::{Request, RequestInit, RequestMode, Response},
-  Component, ComponentLink, Html, ShouldRender,
+  Component, Context, Html,
 };
+use web_sys::{Request, RequestInit, RequestMode, Response};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FetchError {
@@ -48,7 +48,7 @@ async fn fetch_users() -> Result<Vec<Value>, FetchError> {
   let gql_uri = "http://127.0.0.1:8000/graphql";
   let request = Request::new_with_str_and_init(gql_uri, &req_opts)?;
 
-  let window = yew::utils::window();
+  let window = web_sys::window().expect("window is required for fetch");
   let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
   let resp: Response = resp_value.dyn_into().unwrap();
   let resp_text = JsFuture::from(resp.text()?).await?;
@@ -65,7 +65,6 @@ async fn fetch_users() -> Result<Vec<Value>, FetchError> {
 
 pub struct Users {
   list: Vec<Value>,
-  link: ComponentLink<Self>,
 }
 
 pub enum Msg {
@@ -76,16 +75,15 @@ impl Component for Users {
   type Message = Msg;
   type Properties = ();
 
-  fn create(_props: Self::Properties, link: ComponentLink<Self>) -> Self {
+  fn create(_: &Context<Self>) -> Self {
     Self {
       list: Vec::new(),
-      link,
     }
   }
 
-  fn rendered(&mut self, first_render: bool) {
-    let link = self.link.clone();
+  fn rendered(&mut self, ctx: &Context<Self>, first_render: bool) {
     if first_render {
+      let link = ctx.link().clone();
       spawn_local(async move {
         let res = fetch_users().await;
         link.send_message(Msg::UpdateList(res.unwrap()))
@@ -93,7 +91,7 @@ impl Component for Users {
     }
   }
 
-  fn update(&mut self, msg: Self::Message) -> ShouldRender {
+  fn update(&mut self, _: &Context<Self>, msg: Self::Message) -> bool {
     match msg {
       Msg::UpdateList(res) => {
         self.list = res;
@@ -102,11 +100,7 @@ impl Component for Users {
     }
   }
 
-  fn change(&mut self, _props: Self::Properties) -> ShouldRender {
-    false
-  }
-
-  fn view(&self) -> Html {
+  fn view(&self, _: &Context<Self>) -> Html {
     let users = self.list.iter().map(|user| {
       html! {
           <div>

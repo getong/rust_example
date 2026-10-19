@@ -6,12 +6,13 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-graphql_client = "0.9.0"
-serde = { version = "1.0.126", features = ["derive"] }
-serde_json = "1.0.64"
-wasm-bindgen = "0.2.74"
-wasm-bindgen-futures = "0.4.24"
-yew = "0.18.0"
+graphql_client = "0.16.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+yew = { version = "0.23.0", features = ["csr"] }
 # yew = { git = "https://github.com/yewstack/yew", rev = "778aedafd318cd37d2f603fec22fdb76c3d9640c" }
-yew-router = "0.15.0"
+yew-router = "0.20.0"
+web-sys = { version = "0.3.106", features = ["Request", "RequestInit", "RequestMode", "Response", "Window"] }
 # yew-router = { git = "https://github.com/yewstack/yew", rev = "778aedafd318cd37d2f603fec22fdb76c3d9640c" }

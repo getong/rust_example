@@ -2,15 +2,15 @@ mod pages;
 
 use pages::{home::Home, projects::Projects, users::Users};
 use yew::prelude::*;
-use yew_router::{components::RouterAnchor, prelude::*};
+use yew_router::prelude::*;
 
-#[derive(Switch, Debug, Clone, PartialEq)]
+#[derive(Routable, Debug, Clone, PartialEq)]
 pub enum Route {
-  #[to = "/users"]
+  #[at("/users")]
   Users,
-  #[to = "/projects"]
+  #[at("/projects")]
   Projects,
-  #[to = "/"]
+  #[at("/")]
   Home,
 }
 
@@ -34,21 +34,15 @@ impl Component for App {
   type Message = ();
   type Properties = ();
 
-  fn create(_: Self::Properties, _: ComponentLink<Self>) -> Self {
+  fn create(_: &Context<Self>) -> Self {
     Self
   }
 
-  fn update(&mut self, _: Self::Message) -> ShouldRender {
+  fn update(&mut self, _: &Context<Self>, _: Self::Message) -> bool {
     false
   }
 
-  fn change(&mut self, _: Self::Properties) -> ShouldRender {
-    false
-  }
-
-  fn view(&self) -> Html {
-    type Anchor = RouterAnchor<Route>;
-
+  fn view(&self, _: &Context<Self>) -> Html {
     let home_cls = "nav";
 
     html! {
@@ -57,27 +51,29 @@ impl Component for App {
             <img src="imgs/budshome.png" />
             { "tide-async-graphql-mongodb / frontend-yew" }
         </div>
-        <div class=home_cls>
-            <Anchor route=Route::Users>
+        <BrowserRouter>
+        <div class={home_cls}>
+            <Link<Route> to={Route::Users}>
                 { "用户列表" }
-            </Anchor>
+            </Link<Route>>
             <span class="placeholder">{ " - " }</span>
-            <Anchor route=Route::Projects>
+            <Link<Route> to={Route::Projects}>
                 { "项目列表" }
-            </Anchor>
+            </Link<Route>>
             <span class="placeholder">{ " - " }</span>
-            <Anchor route=Route::Home>
+            <Link<Route> to={Route::Home}>
                 { "主页" }
-            </Anchor>
+            </Link<Route>>
         </div>
         <main>
-            <Router<Route> render=Router::render(switch) />
+            <Switch<Route> render={switch} />
         </main>
+        </BrowserRouter>
         </>
     }
   }
 }
 
 fn main() {
-  yew::start_app::<App>();
+  yew::Renderer::<App>::new().render();
 }

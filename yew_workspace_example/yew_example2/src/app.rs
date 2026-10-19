@@ -2,32 +2,26 @@ use std::rc::Rc;
 
 use image::{imageops, RgbaImage};
 use wasm_bindgen::{prelude::*, Clamped, JsCast};
-use yew::{html, services::reader::File, ChangeData, Component, ComponentLink, Html, ShouldRender};
+use yew::{html, Component, Context, Html};
 
-pub struct App {
-  link: ComponentLink<Self>,
-}
+pub struct App;
 
 pub enum Msg {
-  LoadFile(Vec<File>),
+  LoadFile(Vec<web_sys::File>),
   Shrink,
 }
 
 impl Component for App {
   type Message = Msg;
   type Properties = ();
-  fn create(_: Self::Properties, link: ComponentLink<Self>) -> Self {
-    Self { link }
+  fn create(_: &Context<Self>) -> Self {
+    Self
   }
 
-  fn change(&mut self, _props: Self::Properties) -> ShouldRender {
-    false
-  }
-
-  fn update(&mut self, msg: Self::Message) -> ShouldRender {
+  fn update(&mut self, _: &Context<Self>, msg: Self::Message) -> bool {
     match msg {
       Msg::LoadFile(files) => {
-        let file = &files[0];
+        let Some(file) = files.first() else { return false };
         let file_url = web_sys::Url::create_object_url_with_blob(&file).unwrap();
         let document = web_sys::window().unwrap().document().unwrap();
         let image = Rc::new(
@@ -107,23 +101,19 @@ impl Component for App {
     true
   }
 
-  fn view(&self) -> Html {
+  fn view(&self, ctx: &Context<Self>) -> Html {
     html! {
         <div>
-            <input type="file" name="image-upload" id="image-upload" value="" onchange=self.link.callback(move |value| {
-                let mut result = Vec::new();
-                if let ChangeData::Files(files) = value {
-                    let files = js_sys::try_iter(&files)
-                        .unwrap()
-                        .unwrap()
-                        .into_iter()
-                        .map(|v| File::from(v.unwrap()));
-                    result.extend(files);
-                }
-                Msg::LoadFile(result)
-            }) />
+            <input type="file" name="image-upload" id="image-upload" onchange={ctx.link().callback(|event: yew::Event| {
+                let files = event.target()
+                    .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+                    .and_then(|input| input.files())
+                    .map(|files| (0..files.length()).filter_map(|index| files.get(index)).collect())
+                    .unwrap_or_default();
+                Msg::LoadFile(files)
+            })} />
             <br />
-            <button id="shrink" onclick=self.link.callback(move |_| { Msg::Shrink })>{ "Shrink" }</button>
+            <button id="shrink" onclick={ctx.link().callback(|_| Msg::Shrink)}>{ "Shrink" }</button>
             <br / >
             <canvas id="preview"></canvas>
         </div>
