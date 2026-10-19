@@ -19,7 +19,7 @@ fake = { version = "5.1.0", features = ["dummy"] }
 futures = "0.3"
 gpui = { package = "gpui-pre", version = "0.3.9" }
 gpui-form = "0.8.0"
-gpui-kit = "0.7.3"
+gpui-kit = "0.8.0"
 gpui-router = { version = "0.6.0", default-features = false, features = [
   "gpui-pre",
 ] }
