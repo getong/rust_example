@@ -16,5 +16,5 @@ env_logger = "0.11"
 log = "0.4.34"
 rustls = "0.23"
 sys_traits = { version = "0.1.29", features = ["real"] }
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
 url = "2.5.8"

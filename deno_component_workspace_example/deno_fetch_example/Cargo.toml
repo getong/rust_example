@@ -14,4 +14,4 @@ deno_webidl = "0.259.0"
 reqwest = "0.13.5"
 rustls = "=0.23.40"
 sys_traits = { version = "0.1.29", features = ["real", "libc"] }
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }

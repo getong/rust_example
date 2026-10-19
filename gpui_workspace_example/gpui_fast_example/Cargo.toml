@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-gpui = { package = "gpui-fast", version = "0.1.9" }
-gpui-fast-platform = { version = "0.1.9", features = [
+gpui = { package = "gpui-fast", version = "0.1.10" }
+gpui-fast-platform = { version = "0.1.10", features = [
   "font-kit",
   "wayland",
   "x11",

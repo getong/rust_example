@@ -12,4 +12,4 @@ deno_permissions = "0.118.0"
 deno_semver = "=0.10.1"
 node_resolver = "0.97.0"
 sys_traits = { version = "0.1.29", features = ["real"] }
-tokio = { version = "1.53.2", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
