@@ -5,8 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use rig_core::{client::CompletionClient, completion::Chat, providers::deepseek};
+use rig_core::{
+  completion::{CompletionRequest, Message},
+  providers::{deepseek, openai},
+};
+use rig_reqwest::ReqwestClient;
 
 const DEFAULT_SYSTEM_PROMPT: &str =
   "You are a helpful assistant. Answer clearly, directly, and concisely.";
@@ -27,15 +30,16 @@ async fn main() -> Result<()> {
       timeout.as_secs()
     )
   })?;
-  let agent = client.agent(&model).preamble(DEFAULT_SYSTEM_PROMPT).build();
+  let chat = client.chat(&model);
 
-  run_chat(agent, &model, timeout).await
+  run_chat(chat, &model, timeout).await
 }
 
-async fn run_chat<M>(agent: rig_core::agent::Agent<M>, model: &str, timeout: Duration) -> Result<()>
-where
-  M: rig_core::completion::CompletionModel + 'static,
-{
+async fn run_chat(
+  chat: rig_core::Model<openai::wire::Chat>,
+  model: &str,
+  timeout: Duration,
+) -> Result<()> {
   let stdin = io::stdin();
   let mut stdout = io::stdout();
   let mut history = Vec::new();
@@ -76,11 +80,18 @@ where
     );
     let started_at = Instant::now();
 
-    match agent.chat(input, &mut history).await {
+    let request = CompletionRequest::new(input)
+      .preamble(DEFAULT_SYSTEM_PROMPT)
+      .messages(history.iter().cloned());
+    match chat.call(request).await {
       Ok(response) => {
         eprintln!("[debug] request completed in {:.2?}", started_at.elapsed());
-        println!("assistant> {response}");
+        println!("assistant> {}", response.text());
         println!();
+        if let Some(message) = response.message() {
+          history.push(Message::user(input));
+          history.push(message);
+        }
       }
       Err(error) => {
         eprintln!("[debug] request failed after {:.2?}", started_at.elapsed());
@@ -125,7 +136,7 @@ fn request_timeout() -> Duration {
   Duration::from_secs(secs)
 }
 
-fn build_client(timeout: Duration) -> Result<deepseek::Client> {
+fn build_client(timeout: Duration) -> Result<openai::OpenAI> {
   let api_key = env::var("DEEPSEEK_API_KEY")
     .context("DEEPSEEK_API_KEY is missing. Add it to .env in the current directory.")?;
 
@@ -135,15 +146,10 @@ fn build_client(timeout: Duration) -> Result<deepseek::Client> {
     .build()
     .context("failed to build reqwest client")?;
 
-  let mut headers = HeaderMap::new();
-  headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-  deepseek::Client::builder()
-    .api_key(api_key)
-    .http_headers(headers)
-    .http_client(http_client)
-    .build()
-    .map_err(Into::into)
+  Ok(
+    openai::OpenAIConfig::with_key(&openai::wire::DEEPSEEK, api_key)
+      .connect(ReqwestClient::from(http_client)),
+  )
 }
 
 fn print_error_chain(error: &dyn std::error::Error) {
