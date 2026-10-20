@@ -31,7 +31,7 @@ use tokio::time::{Instant, timeout};
 
 use crate::{
   GroupId, NodeId,
-  network::transport::Libp2pNetworkFactory,
+  network::{coordination::MembershipView, transport::Libp2pNetworkFactory},
   signal::ShutdownRx,
   typ::{Raft, RaftMetrics},
 };
@@ -146,17 +146,21 @@ async fn guard_tick(
   .increment(1);
 
   let metrics = raft.metrics().borrow_watched().clone();
-  if !metrics.state.is_leader() {
+  let membership_view = MembershipView::from_metrics(&metrics);
+  if !membership_view.is_local_leader() {
     // The leader controller stops this task on role change, but clear the
     // tracking anyway so a stale map never survives a re-election.
     down_since.clear();
     return Ok(());
   }
 
-  let membership = metrics.membership_config.membership();
-  let voters: BTreeSet<NodeId> = membership.voter_ids().collect();
-  let learners: Vec<NodeId> = membership.learner_ids().collect();
-  let member_ids: BTreeSet<NodeId> = membership.nodes().map(|(id, _)| id.clone()).collect();
+  let voters: BTreeSet<NodeId> = membership_view.voters().clone();
+  let member_ids = membership_view.members().clone();
+  let learners: Vec<NodeId> = metrics
+    .membership_config
+    .membership()
+    .learner_ids()
+    .collect();
   let self_id = metrics.id.clone();
 
   // Second observer: members whose last raft heartbeat/replication ack is

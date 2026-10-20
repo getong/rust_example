@@ -692,7 +692,8 @@ pub(crate) async fn fetch_group_metrics_inner(
       .await
     {
       Ok(RaftRpcResponse::GetMetrics(metrics)) => {
-        if require_leader && !metrics.state.is_leader() {
+        let view = crate::network::coordination::MembershipView::from_metrics(&metrics);
+        if require_leader && !view.is_local_leader() {
           tracing::debug!(
             group = group_id,
             node_id = %node_id,

@@ -6,6 +6,7 @@ use openraft::{BasicNode, async_runtime::WatchReceiver, log_id::RaftLogId};
 use crate::{
   NodeId,
   network::{
+    coordination::MembershipView,
     dispatcher::SwarmRequestDispatcher,
     rpc::{
       AddLearnerRequest, AddLearnerRpcResponse, JoinClusterRequest, JoinClusterResponse, RaftRpcOp,
@@ -105,8 +106,9 @@ pub async fn process_kv_request(
   }
 
   let metrics = raft.metrics().borrow_watched().clone();
-  if !metrics.state.is_leader() {
-    let Some(leader_id) = metrics.current_leader else {
+  let membership = MembershipView::from_metrics(&metrics);
+  if !membership.is_local_leader() {
+    let Some(leader_id) = membership.current_leader().cloned() else {
       return kv_error_response("no leader available");
     };
     return kv_error_response_with_leader("forward_to_leader", leader_id.to_string());
@@ -347,17 +349,11 @@ async fn handle_add_learner(raft: Raft, req: AddLearnerRequest) -> AddLearnerRpc
   let (is_leader, leader_id, leader_addr) = {
     let metrics_rx = raft.metrics();
     let metrics = metrics_rx.borrow_watched();
-    let leader_addr = metrics.current_leader.as_ref().and_then(|leader_id| {
-      metrics
-        .membership_config
-        .membership()
-        .get_node(leader_id)
-        .map(|node| node.addr.clone())
-    });
+    let view = MembershipView::from_metrics(&metrics);
     (
-      metrics.state.is_leader(),
-      metrics.current_leader.clone(),
-      leader_addr,
+      view.is_local_leader(),
+      view.current_leader().cloned(),
+      view.leader_addr().map(str::to_owned),
     )
   };
 
@@ -389,15 +385,11 @@ async fn handle_add_learner(raft: Raft, req: AddLearnerRequest) -> AddLearnerRpc
 
 async fn handle_join_cluster(raft: Raft, req: JoinClusterRequest) -> JoinClusterResponse {
   let metrics = raft.metrics().borrow_watched().clone();
-  let membership = metrics.membership_config.membership();
-  let before_voters = membership.voter_ids().collect::<BTreeSet<_>>();
-  let leader_addr = metrics
-    .current_leader
-    .as_ref()
-    .and_then(|leader_id| membership.get_node(leader_id))
-    .map(|node| node.addr.clone());
+  let view = MembershipView::from_metrics(&metrics);
+  let before_voters = view.voters().clone();
+  let leader_addr = view.leader_addr().map(str::to_owned);
 
-  if !metrics.state.is_leader() {
+  if !view.is_local_leader() {
     return JoinClusterResponse {
       ok: false,
       joined: false,
@@ -462,7 +454,7 @@ async fn handle_join_cluster(raft: Raft, req: JoinClusterRequest) -> JoinCluster
   .await
   {
     let metrics = raft.metrics().borrow_watched().clone();
-    let voter_count = metrics.membership_config.membership().voter_ids().count();
+    let voter_count = MembershipView::from_metrics(&metrics).voter_count();
     return JoinClusterResponse {
       ok: false,
       joined: false,
@@ -524,7 +516,7 @@ async fn wait_for_join_member_rpc(
   let deadline = tokio::time::Instant::now() + timeout;
   loop {
     let metrics = raft.metrics().borrow_watched().clone();
-    if !metrics.state.is_leader() {
+    if !MembershipView::from_metrics(&metrics).is_local_leader() {
       return Err("local node is no longer the leader".to_string());
     }
 

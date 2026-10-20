@@ -7,8 +7,9 @@ use anyhow::anyhow;
 use super::*;
 use crate::{
   NodeId,
-  network::rpc::{
-    JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse,
+  network::{
+    coordination::MembershipView,
+    rpc::{JoinClusterRequest, JoinClusterResponse, RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
   },
 };
 
@@ -46,8 +47,8 @@ pub(crate) async fn try_join_control_cluster(
       continue;
     };
 
-    let membership = metrics.membership_config.membership();
-    if membership.get_node(&runtime.opt.id).is_some() {
+    let membership = MembershipView::from_metrics(&metrics);
+    if membership.is_member(&runtime.opt.id) {
       // Being in the first group is not enough: joins run group by group, so
       // an interrupted attempt can leave this node in only a prefix of the
       // groups. Only report AlreadyMember when every group contains us;
@@ -66,7 +67,7 @@ pub(crate) async fn try_join_control_cluster(
         "node is in a subset of raft groups; resuming control join for the remaining groups"
       );
     } else {
-      let voter_count = membership.voter_ids().count();
+      let voter_count = membership.voter_count();
       if voter_count >= runtime.opt.max_control_nodes {
         tracing::info!(
           voters = voter_count,
@@ -77,7 +78,7 @@ pub(crate) async fn try_join_control_cluster(
       }
     }
 
-    let target_node = match metrics.current_leader.as_ref() {
+    let target_node = match membership.current_leader() {
       Some(leader_id) if leader_id != &runtime.opt.id => leader_id.clone(),
       _ => bootstrap_node.clone(),
     };
