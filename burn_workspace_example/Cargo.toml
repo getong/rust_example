@@ -7,4 +7,5 @@ members = [
   "burn_read_hf_file",
   "mai_ui_client",
   "mai_ui_unreal",
+  "qwen_image_usage",
 ]
