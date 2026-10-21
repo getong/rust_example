@@ -29,6 +29,6 @@ cargo run
 - render pipeline 执行 vertex shader 和 fragment shader，绘制 36 个立方体顶点、3 个实例。
 - command buffer 提交后由 `Queue::present` 显示到当前窗口。
 
-立体效果由三部分组成：vertex shader 根据顶点索引生成立方体六个面；深度缓冲确保前后遮挡关系正确；fragment shader 根据法线计算漫反射、镜面高光和 rim light。
+立体效果由三部分组成：vertex shader 根据顶点索引生成立方体六个面；深度缓冲确保前后遮挡关系正确；fragment shader 根据法线计算漫反射、镜面高光和 rim light。完整 shader 已拆分到 `shaders/animated_cube.wgsl`，Rust 通过 `include_str!` 在编译期加载它。
 
 因此每个窗口都不是静态空白画布，而是独立参与同一 GPU 上下文的实时渲染。按 `N` 创建多个窗口，可以观察它们同时动画和分别响应 resize。
