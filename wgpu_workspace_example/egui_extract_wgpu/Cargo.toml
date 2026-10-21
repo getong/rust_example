@@ -1,0 +1,10 @@
+[package]
+name = "egui_extract_wgpu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = { version = "1.25.2", features = ["derive"] }
+eframe = "0.37.0"
+egui = "0.37.0"
+wgpu = "30.0.1"

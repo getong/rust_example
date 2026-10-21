@@ -2,6 +2,7 @@
 
 resolver = "3"
 
-members = ["wgpu_basic"
-
+  members = [
+    "wgpu_basic",
+    "egui_extract_wgpu",
 ]
