@@ -5,5 +5,5 @@ resolver = "3"
 members = [
   "wgpu_basic",
   "egui_extract_wgpu",
-  "wgpu_circle",
+  "wgpu_circle", "winit_wgpu",
 ]

@@ -1,0 +1,9 @@
+[package]
+name = "winit_wgpu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pollster = "0.4"
+wgpu = "30.0.1"
+winit = "0.30.13"
