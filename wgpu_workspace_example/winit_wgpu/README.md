@@ -21,12 +21,14 @@ cargo run
 
 `about_to_wait` 中为所有窗口调用 `request_redraw`，`WindowEvent::RedrawRequested` 中完成实际绘制。将控制流设为 `ControlFlow::Poll` 可以让动画持续运行，而不是只在输入事件发生时刷新。
 
-窗口内容现在包含一个由 WGSL shader 生成的旋转彩色方块和三角形：
+窗口内容现在是一个由 WGSL shader 生成的 3D 场景：中心立方体周围有两个缩放后的立方体进行轨道运动，包含透视投影、深度测试、面法线、漫反射、镜面高光和边缘光：
 
 - `winit` 的 `about_to_wait` 持续请求重绘。
 - `WindowEvent::RedrawRequested` 获取当前窗口的 surface texture。
 - `wgpu::Queue::write_buffer` 更新时间和宽高比 uniform。
-- render pipeline 执行 vertex shader 和 fragment shader，绘制实际几何图形。
+- render pipeline 执行 vertex shader 和 fragment shader，绘制 36 个立方体顶点、3 个实例。
 - command buffer 提交后由 `Queue::present` 显示到当前窗口。
+
+立体效果由三部分组成：vertex shader 根据顶点索引生成立方体六个面；深度缓冲确保前后遮挡关系正确；fragment shader 根据法线计算漫反射、镜面高光和 rim light。
 
 因此每个窗口都不是静态空白画布，而是独立参与同一 GPU 上下文的实时渲染。按 `N` 创建多个窗口，可以观察它们同时动画和分别响应 resize。
