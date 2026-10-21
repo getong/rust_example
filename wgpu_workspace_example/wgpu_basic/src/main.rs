@@ -147,7 +147,9 @@ impl ApplicationHandler for App {
         .create_window(Window::default_attributes().with_title("wgpu 基础 / 高级图形 API"))
         .expect("failed to create window"),
     );
-    let state = pollster::block_on(State::new(window.clone()));
+    let state = tokio::task::block_in_place(|| {
+      tokio::runtime::Handle::current().block_on(State::new(window.clone()))
+    });
     window.request_redraw();
     self.window = Some(window);
     self.state = Some(state);
@@ -195,7 +197,8 @@ impl ApplicationHandler for App {
   }
 }
 
-fn main() -> Result<(), winit::error::EventLoopError> {
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<(), winit::error::EventLoopError> {
   let event_loop = EventLoop::new()?;
   event_loop.run_app(&mut App {
     window: None,

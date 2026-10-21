@@ -322,7 +322,10 @@ impl App {
       return;
     }
 
-    match pollster::block_on(Renderer::new(&window)) {
+    let renderer_result = tokio::task::block_in_place(|| {
+      tokio::runtime::Handle::current().block_on(Renderer::new(&window))
+    });
+    match renderer_result {
       Ok((renderer, state)) => {
         self.windows.insert(state.window.id(), state);
         self.renderer = Some(renderer);
@@ -405,7 +408,8 @@ impl ApplicationHandler for App {
   }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<(), Box<dyn Error>> {
   let event_loop = EventLoop::new()?;
   event_loop.set_control_flow(ControlFlow::Poll);
   event_loop.run_app(&mut App::new())?;
