@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 gpui = { package = "gpui-pre", version = "0.3" }
 gpui-pre-platform = { version = "0.3", features = ["font-kit"] }
-taffy = "=0.13.0"
+taffy = "0.15.0"
