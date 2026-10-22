@@ -1,9 +1,7 @@
-# GPUI Fast Example
+# Taffy + GPUI Kit
 
-参考 `/Users/gerald/test/rust/gpui-fast` 的 `hello_world` 示例初始化的桌面应用。
-本项目已属于上层 Cargo workspace，依赖从 `longbridge/gpui-fast` Git 仓库获取。
-依赖版本由上层 `Cargo.lock` 锁定；gpui-fast 要求 `cocoa 0.26.0`，
-因此初始化时已同步调整 workspace 锁文件中的版本。
+这个示例把 Taffy 的外部布局树与 `gpui-kit` 的组件系统组合起来。
+`gpui-kit` 使用 `gpui-fast` feature，因此所有 GPUI 类型、平台初始化和组件都来自同一套 GPUI Fast 后端。
 
 ## 运行
 
@@ -13,16 +11,15 @@
 cargo run -p gpui_fast_example
 ```
 
-需要支持 Rust 2024 edition 的工具链；参考仓库使用 Rust 1.98.1。
-macOS 构建需要 Xcode 及其 Metal 编译工具，首次构建需要下载并编译依赖。
+窗口包含由 Taffy 排布的侧栏、标题区和三个卡片；第一个卡片内的 GPUI Kit 按钮可以递增计数。
+调整窗口大小会按新的 viewport 重新计算 Taffy 布局。
 
-窗口包含计数器：点击 **Increment** 加一，点击 **Reset** 清零。
-关闭窗口或按 `Cmd+Q`（macOS）/ `Ctrl+Q`（其他平台）退出。
+## 实现边界
 
-## 代码入口
-
-- `Cargo.toml`：`gpui` 与 `gpui_platform` 使用同一 Git 来源。
-- `src/main.rs`：平台初始化、窗口配置、计数器视图与点击事件。
+- `Cargo.toml`：`gpui-kit` 开启 `gpui-fast`，并将外部 Taffy 锁定到 GPUI Fast 使用的 `0.14.0`。
+- `src/main.rs`：Taffy 布局树、矩形到 GPUI 元素的映射、Kit Root 和按钮交互。
+- Taffy 只计算外层节点的 `x/y/width/height`。
+- GPUI Kit 负责组件样式、文本、按钮事件和最终绘制。
 
 修改状态后调用 `cx.notify()`，让 GPUI Fast 更新保留的视图。
 可以关闭 Retained Mode 对比运行行为：
