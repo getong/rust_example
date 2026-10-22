@@ -1,0 +1,9 @@
+[package]
+name = "taffy_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = { package = "gpui-pre", version = "0.3" }
+gpui-pre-platform = "0.3.9"
+taffy = "=0.13.0"
