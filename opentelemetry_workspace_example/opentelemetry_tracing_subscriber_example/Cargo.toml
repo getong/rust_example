@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-opentelemetry = "0.32.0"
-opentelemetry-otlp = { version = "0.32.0", features = ["tokio", "metrics", "grpc-tonic"] }
-opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio", "metrics"] }
+opentelemetry = "0.33.1"
+opentelemetry-otlp = { version = "0.33.1", features = ["tokio", "metrics", "grpc-tonic"] }
+opentelemetry_sdk = { version = "0.33.1", features = ["rt-tokio", "metrics"] }
 tonic = "0.14"
 tracing = "0.1.44"
-tracing-opentelemetry = "0.33.0"
+tracing-opentelemetry = "0.34.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
