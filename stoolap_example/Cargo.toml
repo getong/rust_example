@@ -1,0 +1,7 @@
+[package]
+name = "stoolap_example"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+stoolap = "0.4.2"
