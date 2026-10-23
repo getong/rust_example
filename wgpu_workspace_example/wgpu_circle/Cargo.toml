@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 bytemuck = { version = "1.25", features = ["derive"] }
-tokio = { version = "1.54.0", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 wgpu = "30.0.1"
 winit = "0.30.13"

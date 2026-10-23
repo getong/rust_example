@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clickhouse = "0.15.0"
-tokio = { version = "1.52.3", features = ["full"] }
+clickhouse = "0.15.3"
+tokio = { version = "1.54.1", features = ["full"] }

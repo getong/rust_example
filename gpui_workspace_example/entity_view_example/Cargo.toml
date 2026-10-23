@@ -3,6 +3,8 @@ name = "entity_view_example"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+
 [features]
 tree-sitter = ["gpui-kit/tree-sitter-languages"]
 

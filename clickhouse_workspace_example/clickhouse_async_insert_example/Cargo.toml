@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clickhouse = "0.15.0"
-serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["full"] }
+clickhouse = "0.15.3"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["full"] }
 
 [dev-dependencies]
-clickhouse = { version = "0.15.0", features = ["test-util"] }
+clickhouse = { version = "0.15.3", features = ["test-util"] }

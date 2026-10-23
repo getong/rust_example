@@ -7,9 +7,10 @@ use std::{
 
 use dnn::{TextDetectionModel_EAST, TextRecognitionModel};
 use opencv::{
-  core,
   core::{CommandLineParser, Point, Point2f, Scalar, Size, Vector},
-  dnn, highgui, imgproc,
+  dnn,
+  geometry::get_perspective_transform_slice_def,
+  highgui, imgproc,
   prelude::*,
   videoio,
 };
@@ -40,11 +41,7 @@ const KEYS: &str = concat!(
 pub fn main() -> Result<()> {
   let args = env::args().collect::<Vec<_>>();
   let args = args.iter().map(|arg| arg.as_str()).collect::<Vec<_>>();
-  let mut parser = CommandLineParser::new(
-    i32::try_from(args.len()).expect("Too many arguments"),
-    &args,
-    KEYS,
-  )?;
+  let mut parser = CommandLineParser::new(&args, KEYS)?;
   parser.about(
     "Use this script to run TensorFlow implementation (https://github.com/argman/EAST) of \
     EAST: An Efficient and Accurate Scene Text Detector (https://arxiv.org/abs/1704.03155v2)",
@@ -117,7 +114,7 @@ pub fn main() -> Result<()> {
       // Text Recognition
       let rec_input = if !imread_rgb {
         let mut rec_input = Mat::default();
-        imgproc::cvt_color(&frame, &mut rec_input, imgproc::COLOR_BGR2GRAY, 0)?;
+        imgproc::cvt_color_def(&frame, &mut rec_input, imgproc::COLOR_BGR2GRAY)?;
         Some(rec_input)
       } else {
         None
@@ -182,8 +179,7 @@ fn four_points_transform(frame: &Mat, vertices: &[Point2f; 4]) -> Result<Mat> {
       (output_size.height - 1) as f32,
     ),
   ];
-  let rotation_matrix =
-    imgproc::get_perspective_transform_slice(vertices, &target_vertices, core::DECOMP_LU)?;
+  let rotation_matrix = get_perspective_transform_slice_def(*vertices, target_vertices)?;
   let mut out = Mat::default();
   imgproc::warp_perspective_def(frame, &mut out, &rotation_matrix, output_size)?;
   Ok(out)

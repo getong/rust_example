@@ -1,0 +1,3 @@
+[env]
+LIBCLANG_PATH = { value = "/opt/homebrew/opt/llvm/lib", force = true }
+PKG_CONFIG_PATH = { value = "/opt/homebrew/opt/opencv/lib/pkgconfig", force = true }
