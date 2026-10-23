@@ -5,4 +5,5 @@ edition.workspace = true
 
 [dependencies]
 tokio.workspace = true
-turso = "0.8.0-pre.11"
+turso = "0.9.0-pre.1"
+branches = "0.4"
