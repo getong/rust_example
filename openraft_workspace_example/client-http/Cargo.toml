@@ -25,5 +25,5 @@ openraft = { version = "0.10.0-alpha.37", features = [
 reqwest = { version = "0.13.5", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-tokio = { version = "1.53.3", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"

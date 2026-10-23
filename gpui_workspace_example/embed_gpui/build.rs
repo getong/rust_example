@@ -6,7 +6,8 @@ fn main() -> Result<(), Box<dyn Error>> {
   let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").ok_or("missing CARGO_MANIFEST_DIR")?)
     .join("app");
   let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("missing OUT_DIR")?).join("app");
-  let ui_sets = vec![nsh_ui_mobile::registry()];
+  let ui_sets = vec![];
+  let ui_set_descriptions = ui_sets.iter().map(Into::into).collect::<Vec<_>>();
   // Use the same bundler and bytecode compiler as `nsh build`, without
   // requiring an installed CLI or invoking Cargo recursively.
   let bundle = nsh_bundler::bundle(&nsh_bundler::BundleOptions {
@@ -15,7 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     split: false,
     ui_sets: ui_sets.clone(),
   })?;
-  let bytecode = nsh_js::compile_bytecode_with(&bundle.code, false, &ui_sets)?;
+  let bytecode = nsh_js::compile_bytecode_with(&bundle.code, false, &ui_set_descriptions)?;
   fs::create_dir_all(&out)?;
   fs::write(out.join("bundle.nshc"), bytecode)?;
   fs::write(out.join("bundle.js"), &bundle.code)?;

@@ -19,7 +19,7 @@ rand = "0.10"
 rocksdb = "0.25.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sonic-rs = "0.5.10"
-tokio = { version = "1.53", default-features = false, features = [
+tokio = { version = "1.54", default-features = false, features = [
   "macros",
   "rt-multi-thread",
   "sync",
