@@ -99,6 +99,7 @@ impl Render for VideoPlayer {
 
 fn main() -> Result<()> {
   env_logger::init();
+  configure_gstreamer_runtime();
   let source = std::env::args_os()
     .nth(1)
     .map(PathBuf::from)
@@ -154,3 +155,39 @@ fn main() -> Result<()> {
   });
   Ok(())
 }
+
+#[cfg(target_os = "macos")]
+fn configure_gstreamer_runtime() {
+  use std::ffi::OsString;
+
+  let mut library_paths = vec![
+    OsString::from("/opt/homebrew/lib"),
+    OsString::from("/opt/homebrew/opt/glib/lib"),
+    OsString::from("/opt/homebrew/opt/gettext/lib"),
+    OsString::from("/opt/homebrew/opt/gstreamer/lib"),
+  ];
+  if let Some(existing) = std::env::var_os("DYLD_LIBRARY_PATH") {
+    library_paths.push(existing);
+  }
+  let library_path = std::env::join_paths(library_paths)
+    .expect("Homebrew library paths must not contain a separator");
+
+  let mut typelib_paths = vec![OsString::from(
+    "/opt/homebrew/opt/gstreamer/lib/girepository-1.0",
+  )];
+  if let Some(existing) = std::env::var_os("GI_TYPELIB_PATH") {
+    typelib_paths.push(existing);
+  }
+  let typelib_path = std::env::join_paths(typelib_paths)
+    .expect("GStreamer typelib paths must not contain a separator");
+
+  // GStreamer launches gst-plugin-scanner as a child process. The child must
+  // receive these paths because its GI typelib loader uses dlopen by name.
+  unsafe {
+    std::env::set_var("DYLD_LIBRARY_PATH", library_path);
+    std::env::set_var("GI_TYPELIB_PATH", typelib_path);
+  }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_gstreamer_runtime() {}
