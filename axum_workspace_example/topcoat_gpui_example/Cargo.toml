@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 axum = "0.8.9"
 serde = { version = "1", features = ["derive"] }
-
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
 topcoat = { version = "0.11.0", default-features = false, features = ["router", "view", "tower"] }
