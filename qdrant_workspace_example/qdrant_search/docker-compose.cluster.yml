@@ -1,0 +1,46 @@
+name: qdrant-search-cluster
+
+x-qdrant: &qdrant
+  image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.20.0}
+  restart: unless-stopped
+  environment:
+    QDRANT__CLUSTER__ENABLED: "true"
+    QDRANT__CLUSTER__P2P__PORT: "6335"
+    QDRANT__SERVICE__GRPC_PORT: "6334"
+
+services:
+  node1:
+    <<: *qdrant
+    command: ["./qdrant", "--uri", "http://node1:6335"]
+    ports:
+      - "127.0.0.1:16333:6333"
+      - "127.0.0.1:16334:6334"
+    volumes:
+      - node1-storage:/qdrant/storage
+
+  node2:
+    <<: *qdrant
+    command: ["./qdrant", "--bootstrap", "http://node1:6335", "--uri", "http://node2:6335"]
+    depends_on:
+      - node1
+    ports:
+      - "127.0.0.1:16343:6333"
+      - "127.0.0.1:16344:6334"
+    volumes:
+      - node2-storage:/qdrant/storage
+
+  node3:
+    <<: *qdrant
+    command: ["./qdrant", "--bootstrap", "http://node1:6335", "--uri", "http://node3:6335"]
+    depends_on:
+      - node1
+    ports:
+      - "127.0.0.1:16353:6333"
+      - "127.0.0.1:16354:6334"
+    volumes:
+      - node3-storage:/qdrant/storage
+
+volumes:
+  node1-storage:
+  node2-storage:
+  node3-storage:
