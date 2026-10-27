@@ -9,7 +9,7 @@ serde = { version = "1", features = ["derive"] }
 
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
-topcoat = { version = "0.10.0", default-features = false, features = ["router", "view", "tower"] }
+topcoat = { version = "0.11.0", default-features = false, features = ["router", "view", "tower"] }
 topcoat_gpui_protocol = { path = "../../gpui_workspace_example/gpui_topcoat_example/protocol" }
 zeroize = "1"
 
