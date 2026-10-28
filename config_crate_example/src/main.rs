@@ -6,15 +6,15 @@ fn main() {
   // Option 1
   // --------
   // Gather all conf files from conf/ manually
-  let mut settings = Config::default();
-  settings
+  let settings = Config::builder()
     // File::with_name(..) is shorthand for File::from(Path::new(..))
-    .merge(File::from(Path::new("conf/sys.yml")))
+    .add_source(File::from(Path::new("conf/sys.yml")))
+    .build()
     .unwrap();
 
   // Print out our settings (as a HashMap)
   println!(
     "\n{:?} \n\n-----------",
-    settings.try_into::<HashMap<String, String>>().unwrap()
+    settings.try_deserialize::<HashMap<String, String>>().unwrap()
   );
 }
