@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-branches = { version = "0.4", default-features = false, features = ["std"] }
-burn = { version = "0.22.1", default-features = false, features = ["std", "flex", "wgpu", "fusion"] }
-burn-store = { version = "0.22.1", default-features = false, features = ["std", "safetensors"] }
+burn = { version = "0.23.0-pre.1", default-features = false, features = ["std", "flex", "wgpu", "fusion"] }
+burn-store = { version = "0.23.0-pre.1", default-features = false, features = ["std", "safetensors"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1", features = ["derive"] }
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
@@ -17,4 +16,4 @@ url = "2"
 tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-burn = { version = "0.22.1", default-features = false, features = ["metal"] }
+burn = { version = "0.23.0-pre.1", default-features = false, features = ["metal"] }
