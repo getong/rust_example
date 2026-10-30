@@ -4,7 +4,7 @@ use termion::{
   event::Key,
   input::{MouseTerminal, TermRead},
   raw::IntoRawMode,
-  screen::AlternateScreen,
+  screen::IntoAlternateScreen,
 };
 use tui::{
   backend::TermionBackend,
@@ -48,7 +48,7 @@ pub fn previous(state: &mut TableState, items: &Vec<Row>) {
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
   let stdout = io::stdout().into_raw_mode()?;
   let stdout = MouseTerminal::from(stdout);
-  let stdout = AlternateScreen::from(stdout);
+  let stdout = stdout.into_alternate_screen()?;
   let backend = TermionBackend::new(stdout);
   let mut terminal = Terminal::new(backend)?;
   let (tx, rx) = mpsc::channel();
