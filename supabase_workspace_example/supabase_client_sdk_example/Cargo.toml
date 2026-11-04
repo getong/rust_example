@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 dotenvy = "0.15.7"
-serde_json = "1.0.149"
-supabase-client-sdk = { version = "0.2.2", features = ["full"] }
-tokio = { version = "1.51.1", features = ["full"] }
+serde_json = "1.0.154"
+supabase-client-sdk = { version = "0.3.0", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
