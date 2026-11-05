@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 gpui-kit = { version = "0.9.0", features = ["gpui-fast"] }
-taffy = "0.15.1"
+taffy = "0.15"
