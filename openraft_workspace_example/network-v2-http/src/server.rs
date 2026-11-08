@@ -13,7 +13,7 @@ use hyper_util::rt::TokioIo;
 use openraft::{
   NodeInfo, RaftTypeConfig, Snapshot,
   errors::RaftError,
-  raft::{SnapshotResponse, TransferLeaderResponse},
+  raft::{AppendEntriesResponse, SnapshotResponse, TransferLeaderResponse},
   storage::RaftStateMachine,
 };
 use serde::Serialize;
@@ -97,7 +97,12 @@ where
     "/append" => {
       let req = serde_json::from_slice(&body).map_err(bad_request)?;
 
-      json_response(&raft.append_entries(req).await)
+      json_response(
+        &raft
+          .append_entries(req)
+          .await
+          .map(AppendEntriesResponse::from),
+      )
     }
     "/snapshot" => {
       let (vote, meta, data) = serde_json::from_slice(&body).map_err(bad_request)?;

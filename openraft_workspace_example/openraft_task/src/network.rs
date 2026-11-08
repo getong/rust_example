@@ -5,15 +5,13 @@ use openraft::{
   error::{NetworkError, RPCError, ReplicationClosed, StreamingError, Unreachable},
   errors::decompose::DecomposeResult,
   network::{RPCOption, v2::RaftNetworkV2},
+  raft::AppendResult,
 };
 use tokio::sync::RwLock;
 
 use crate::{
   Raft, TypeConfig,
-  typ::{
-    AppendEntriesRequest, AppendEntriesResponse, Snapshot, SnapshotResponse, Vote, VoteRequest,
-    VoteResponse,
-  },
+  typ::{AppendEntriesRequest, Snapshot, SnapshotResponse, Vote, VoteRequest, VoteResponse},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -76,7 +74,7 @@ impl RaftNetworkV2<TypeConfig> for Connection {
     &mut self,
     req: AppendEntriesRequest,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse, RPCError<TypeConfig>> {
+  ) -> Result<AppendResult<TypeConfig>, RPCError<TypeConfig>> {
     self
       .router
       .get(self.target)

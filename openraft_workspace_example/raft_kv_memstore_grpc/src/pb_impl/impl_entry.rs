@@ -12,7 +12,7 @@ impl fmt::Display for pb::Entry {
 
 impl RaftEntry for pb::Entry {
   type CommittedLeaderId = u64;
-  type Payload = EntryPayload<pb::SetRequest, u64, pb::Node>;
+  type Payload = EntryPayload<pb::SetRequest, typ::Membership>;
 
   fn new(log_id: LogIdOf<TypeConfig>, payload: Self::Payload) -> Self {
     let mut app_data = None;

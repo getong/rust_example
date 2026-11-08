@@ -4,14 +4,15 @@ use async_trait::async_trait;
 use openraft::{
   BasicNode, RaftNetworkFactory,
   network::{RPCOption, v2::RaftNetworkV2},
+  raft::AppendResult,
 };
 
 use crate::{
   ClusterError, GroupId, NodeId, TypeConfig, Unreachable,
   network::rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
   typ::{
-    AppendEntriesRequest, AppendEntriesResponse, RPCError, Snapshot, SnapshotResponse,
-    StreamingError, Vote, VoteRequest, VoteResponse,
+    AppendEntriesRequest, RPCError, Snapshot, SnapshotResponse, StreamingError, Vote, VoteRequest,
+    VoteResponse,
   },
 };
 
@@ -84,7 +85,9 @@ where
     &mut self,
     req: AppendEntriesRequest,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse, RPCError> {
+  ) -> Result<AppendResult<TypeConfig>, RPCError> {
+    let last_log_id = req.last_log_id();
+    let prev_log_id = req.prev_log_id.clone();
     // Leader-side replication latency: full RPC round-trip to one follower.
     let started = std::time::Instant::now();
     let result = self.send_op(RaftRpcOp::AppendEntries(req)).await;
@@ -95,9 +98,9 @@ where
     .record(started.elapsed().as_secs_f64());
     let response = result.map_err(RPCError::Unreachable)?;
     match response {
-      RaftRpcResponse::AppendEntries(result) => {
-        result.map_err(|err| RPCError::Unreachable(Unreachable::new(&err)))
-      }
+      RaftRpcResponse::AppendEntries(result) => result
+        .map(|response| response.into_append_result(prev_log_id, last_log_id))
+        .map_err(|err| RPCError::Unreachable(Unreachable::new(&err))),
       other => Err(RPCError::Unreachable(Unreachable::new(
         &ClusterError::bridge(format!("unexpected response: {other:?}")),
       ))),

@@ -21,7 +21,7 @@ pub async fn append(
   req: Json<AppendEntriesRequest>,
 ) -> impl IntoResponse {
   let res = app.raft.append_entries(req.0).await;
-  Json(res)
+  Json(res.map(AppendEntriesResponse::from))
 }
 
 pub async fn snapshot(

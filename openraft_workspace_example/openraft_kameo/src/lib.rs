@@ -26,8 +26,8 @@ use openraft::{
   async_runtime::WatchReceiver,
   errors::{ClientWriteError, ForwardToLeader, RaftError},
   raft::{
-    AppendEntriesRequest, SnapshotResponse, TransferLeaderRequest, TransferLeaderResponse,
-    VoteRequest,
+    AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, TransferLeaderRequest,
+    TransferLeaderResponse, VoteRequest,
   },
   storage::{EntryResponder, RaftStateMachine},
 };
@@ -506,7 +506,7 @@ async fn append(
   req: Json<AppendEntriesRequest<TypeConfig>>,
 ) -> impl IntoResponse {
   let res = app.raft.append_entries(req.0).await;
-  Json(res)
+  Json(res.map(AppendEntriesResponse::from))
 }
 
 async fn snapshot_rpc(

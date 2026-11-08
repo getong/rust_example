@@ -2,8 +2,14 @@ use openraft::raft::StreamAppendError;
 
 use crate::{
   pb,
-  typ::{AppendEntriesResponse, StreamAppendResult},
+  typ::{AppendEntriesResponse, AppendResult, StreamAppendResult},
 };
+
+impl From<AppendResult> for pb::AppendEntriesResponse {
+  fn from(result: AppendResult) -> Self {
+    result.map_err(StreamAppendError::from).into()
+  }
+}
 
 impl From<pb::AppendEntriesResponse> for AppendEntriesResponse {
   fn from(r: pb::AppendEntriesResponse) -> Self {

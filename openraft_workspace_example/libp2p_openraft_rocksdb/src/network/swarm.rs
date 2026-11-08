@@ -30,7 +30,7 @@ use crate::{
   },
   signal::ShutdownRx,
   store::{KvData, ensure_linearizable_read},
-  typ::{Raft, Snapshot},
+  typ::{AppendEntriesResponse, Raft, Snapshot},
 };
 
 pub const GOSSIP_TOPIC: &str = "openraft/cluster/1";
@@ -1036,7 +1036,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcRequest) -> RaftRpcRespo
   match request {
     RaftRpcRequest::AppendEntries(req) => {
       let res = raft.append_entries(req).await;
-      RaftRpcResponse::AppendEntries(res)
+      RaftRpcResponse::AppendEntries(res.map(AppendEntriesResponse::from))
     }
     RaftRpcRequest::Vote(req) => {
       let res = raft.vote(req).await;

@@ -15,7 +15,7 @@ use crate::{
   },
   rocksstore_crud::{RocksRequest, TypeConfig},
   store::{KvData, ensure_linearizable_read},
-  typ::{Raft, Snapshot},
+  typ::{AppendEntriesResponse, Raft, Snapshot},
   types_kv::Request as KvWriteRequest,
 };
 
@@ -219,7 +219,7 @@ async fn handle_inbound_rpc(raft: Raft, request: RaftRpcOp) -> RaftRpcResponse {
   match request {
     RaftRpcOp::AppendEntries(req) => {
       let res = raft.append_entries(req).await;
-      RaftRpcResponse::AppendEntries(res)
+      RaftRpcResponse::AppendEntries(res.map(AppendEntriesResponse::from))
     }
     RaftRpcOp::Vote(req) => {
       let res = raft.vote(req).await;

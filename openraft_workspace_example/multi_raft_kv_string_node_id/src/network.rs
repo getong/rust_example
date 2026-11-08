@@ -6,8 +6,8 @@ use openraft::{
   error::{RPCError, ReplicationClosed, StreamingError},
   network::{Backoff, RPCOption, RaftNetworkFactory},
   raft::{
-    AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, TransferLeaderRequest,
-    TransferLeaderResponse, VoteRequest, VoteResponse,
+    AppendEntriesRequest, AppendEntriesResponse, AppendResult, SnapshotResponse,
+    TransferLeaderRequest, TransferLeaderResponse, VoteRequest, VoteResponse,
   },
 };
 use openraft_multi::{GroupNetworkAdapter, GroupNetworkFactory, GroupRouter};
@@ -23,11 +23,14 @@ impl GroupRouter<TypeConfig, GroupId> for Router {
     group_id: GroupId,
     rpc: AppendEntriesRequest<TypeConfig>,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse<TypeConfig>, RPCError<TypeConfig>> {
-    self
+  ) -> Result<AppendResult<TypeConfig>, RPCError<TypeConfig>> {
+    let last_log_id = rpc.last_log_id();
+    let prev_log_id = rpc.prev_log_id.clone();
+    let response: AppendEntriesResponse<TypeConfig> = self
       .send(target, &group_id, "/raft/append", rpc)
       .await
-      .map_err(RPCError::Unreachable)
+      .map_err(RPCError::Unreachable)?;
+    Ok(response.into_append_result(prev_log_id, last_log_id))
   }
 
   async fn vote(

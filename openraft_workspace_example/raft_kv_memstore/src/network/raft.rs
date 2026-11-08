@@ -4,7 +4,10 @@ use axum::{Json, extract::State, response::IntoResponse};
 use openraft::{
   Snapshot,
   errors::RaftError,
-  raft::{AppendEntriesRequest, TransferLeaderRequest, TransferLeaderResponse, VoteRequest},
+  raft::{
+    AppendEntriesRequest, AppendEntriesResponse, TransferLeaderRequest, TransferLeaderResponse,
+    VoteRequest,
+  },
 };
 
 use crate::{
@@ -28,7 +31,7 @@ pub async fn append(
   req: Json<AppendEntriesRequest<TypeConfig>>,
 ) -> impl IntoResponse {
   let res = app.raft.append_entries(req.0).await;
-  Json(res)
+  Json(res.map(AppendEntriesResponse::from))
 }
 
 pub async fn snapshot(

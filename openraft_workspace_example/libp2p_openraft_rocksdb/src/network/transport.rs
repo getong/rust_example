@@ -5,17 +5,18 @@ use libp2p::{Multiaddr, PeerId, multiaddr::Protocol};
 use openraft::{
   BasicNode, RaftNetworkFactory,
   network::{RPCOption, v2::RaftNetworkV2},
+  raft::AppendResult,
 };
 
 use crate::{
-  NodeId, Unreachable,
+  NodeId, TypeConfig, Unreachable,
   network::{
     rpc::{RaftRpcRequest, RaftRpcResponse},
     swarm::{Libp2pClient, NetErr},
   },
   typ::{
-    AppendEntriesRequest, AppendEntriesResponse, RPCError, Snapshot, SnapshotResponse,
-    StreamingError, Vote, VoteRequest, VoteResponse,
+    AppendEntriesRequest, RPCError, Snapshot, SnapshotResponse, StreamingError, Vote, VoteRequest,
+    VoteResponse,
   },
 };
 
@@ -136,7 +137,9 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
     &mut self,
     req: AppendEntriesRequest,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse, RPCError> {
+  ) -> Result<AppendResult<TypeConfig>, RPCError> {
+    let last_log_id = req.last_log_id();
+    let prev_log_id = req.prev_log_id.clone();
     let peer = self.factory.peer_for(self.target.clone()).await?;
     let resp = self
       .factory
@@ -145,9 +148,9 @@ impl RaftNetworkV2<openraft_rocksstore_crud::TypeConfig> for Libp2pConnection {
       .await?;
 
     match resp {
-      RaftRpcResponse::AppendEntries(r) => {
-        r.map_err(|e| RPCError::Unreachable(Unreachable::new(&e)))
-      }
+      RaftRpcResponse::AppendEntries(r) => r
+        .map(|response| response.into_append_result(prev_log_id, last_log_id))
+        .map_err(|e| RPCError::Unreachable(Unreachable::new(&e))),
       other => Err(RPCError::Unreachable(Unreachable::new(&NetErr(format!(
         "unexpected response: {other:?}"
       ))))),

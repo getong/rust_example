@@ -4,14 +4,15 @@ use async_trait::async_trait;
 use openraft::{
   BasicNode, RaftNetworkFactory,
   network::{RPCOption, v2::RaftNetworkV2},
+  raft::AppendResult,
 };
 
 use crate::{
   GroupId, NodeId, TypeConfig, Unreachable,
   network::rpc::{RaftRpcOp, RaftRpcRequest, RaftRpcResponse},
   typ::{
-    AppendEntriesRequest, AppendEntriesResponse, RPCError, Snapshot, SnapshotResponse,
-    StreamingError, Vote, VoteRequest, VoteResponse,
+    AppendEntriesRequest, RPCError, Snapshot, SnapshotResponse, StreamingError, Vote, VoteRequest,
+    VoteResponse,
   },
 };
 
@@ -92,15 +93,17 @@ impl RaftNetworkV2<TypeConfig> for P2PRaftNetworkWrapper {
     &mut self,
     req: AppendEntriesRequest,
     _option: RPCOption,
-  ) -> Result<AppendEntriesResponse, RPCError> {
+  ) -> Result<AppendResult<TypeConfig>, RPCError> {
+    let last_log_id = req.last_log_id();
+    let prev_log_id = req.prev_log_id.clone();
     let response = self
       .send_op(RaftRpcOp::AppendEntries(req))
       .await
       .map_err(RPCError::Unreachable)?;
     match response {
-      RaftRpcResponse::AppendEntries(result) => {
-        result.map_err(|err| RPCError::Unreachable(Unreachable::new(&err)))
-      }
+      RaftRpcResponse::AppendEntries(result) => result
+        .map(|response| response.into_append_result(prev_log_id, last_log_id))
+        .map_err(|err| RPCError::Unreachable(Unreachable::new(&err))),
       other => Err(RPCError::Unreachable(Unreachable::new(&BridgeErr::new(
         format!("unexpected response: {other:?}"),
       )))),

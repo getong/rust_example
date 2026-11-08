@@ -5,8 +5,8 @@ use openraft::{
   errors::{NetworkError, RPCError, RaftError, ReplicationClosed, StreamingError, Unreachable},
   network::{RPCOption, RaftNetworkFactory, v2::RaftNetworkV2},
   raft::{
-    AppendEntriesRequest, AppendEntriesResponse, SnapshotResponse, TransferLeaderRequest,
-    TransferLeaderResponse, VoteRequest, VoteResponse,
+    AppendEntriesRequest, AppendEntriesResponse, AppendResult, SnapshotResponse,
+    TransferLeaderRequest, TransferLeaderResponse, VoteRequest, VoteResponse,
   },
   type_config::alias::{SnapshotOf, VoteOf},
 };
@@ -101,8 +101,11 @@ where
     &mut self,
     req: AppendEntriesRequest<C>,
     option: RPCOption,
-  ) -> Result<AppendEntriesResponse<C>, RPCError<C>> {
-    self.request("append", req, &option).await
+  ) -> Result<AppendResult<C>, RPCError<C>> {
+    let last_log_id = req.last_log_id();
+    let prev_log_id = req.prev_log_id.clone();
+    let response: AppendEntriesResponse<C> = self.request("append", req, &option).await?;
+    Ok(response.into_append_result(prev_log_id, last_log_id))
   }
 
   async fn full_snapshot(
