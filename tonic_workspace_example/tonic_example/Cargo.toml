@@ -16,9 +16,9 @@ path = "src/client.rs"
 
 [dependencies]
 prost = "0.14.4"
-tokio = { version = "1.53.3", features = ["full"] }
-tonic = "0.14.6"
-tonic-prost = "0.14.6"
+tokio = { version = "1.54.1", features = ["full"] }
+tonic = "0.14.9"
+tonic-prost = "0.14.9"
 
 [build-dependencies]
-tonic-prost-build = "0.14.6"
+tonic-prost-build = "0.14.9"
