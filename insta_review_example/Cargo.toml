@@ -6,4 +6,4 @@ edition = "2024"
 [dependencies]
 
 [dev-dependencies]
-insta = { version = "1.21.1", features = ["redactions", "yaml", "json"] }
+insta = { version = "1.49.0", features = ["redactions", "yaml", "json"] }
