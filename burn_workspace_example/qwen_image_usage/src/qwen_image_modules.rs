@@ -454,6 +454,7 @@ fn qwen_attention(
     value,
     attention_mask.map(|m| m.bool_not()), // true = masked out
     None,
+    None,
     AttentionModuleOptions::default(),
   ); // (B, H, S, D)
   return out.swap_dims(1, 2); // (B, S, H, D)

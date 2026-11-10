@@ -443,7 +443,7 @@ impl QwenImageAttentionBlock {
     // as flash attention doesn't run here, it's just a single attention head.
     let mut attn_options = AttentionModuleOptions::default();
     attn_options.scale = Some(1.0 / (c as f64).sqrt());
-    let x = attention(q, k, v, None, None, attn_options);
+    let x = attention(q, k, v, None, None, None, attn_options);
     let x = x.squeeze_dim::<3>(1); // (B * T, H * W, C)
     let x = x.permute([0, 2, 1]); // (B * T, C, H * W)
     let x = x.reshape([b * t, c, h, w]); // (B * T, C, H, W)

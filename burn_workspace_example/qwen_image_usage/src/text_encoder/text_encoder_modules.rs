@@ -196,6 +196,7 @@ impl Qwen3VLTextAttention {
       value,
       attention_mask,
       None,
+      None,
       AttentionModuleOptions::default(),
     );
     let out = out.swap_dims(1, 2); // (B, seq_len, num_heads, head_dim)
