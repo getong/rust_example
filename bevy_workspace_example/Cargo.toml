@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.dependencies]
-agones = "1.61.0"
+agones = "1.62.0"
 anyhow = "1.0"
 avian3d = { version = "0.8.0", default-features = false, features = ["3d", "parry-f32"] }
 bevior_tree = { version = "0.12.0", default-features = false }
@@ -30,8 +30,8 @@ bevy_hanabi = { version = "0.20", default-features = false, features = ["3d"] }
 bevy_replicon = { version = "0.45.5", default-features = false }
 kameo = { version = "0.22.2", features = ["remote"] }
 lightyear = { version = "0.31.0", default-features = false }
-prost = "0.14.4"
-prost-build = "0.14.4"
+prost = "0.14.5"
+prost-build = "0.14.5"
 redis = { version = "1.8.1", default-features = false, features = ["tokio-comp", "connection-manager"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
