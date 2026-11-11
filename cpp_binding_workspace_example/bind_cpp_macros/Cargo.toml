@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cpp = "0.5.11"
+cpp = "0.5.12"
 
 [build-dependencies]
-cpp_build = "0.5.11"
+cpp_build = "0.5.12"
