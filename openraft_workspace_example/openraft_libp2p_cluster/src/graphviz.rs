@@ -200,7 +200,7 @@ pub fn cluster_graph_dot(snapshot: &ClusterGraphSnapshot) -> String {
     let color = group_color(group_index);
     let membership = metrics.membership_config.membership();
     let voters = membership.voter_ids().collect::<BTreeSet<_>>();
-    let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+    let learners = membership.non_write_voter_ids().collect::<BTreeSet<_>>();
 
     if let Some(leader) = metrics.current_leader.as_ref() {
       for voter in &voters {
@@ -306,7 +306,7 @@ fn group_roles(
     for node_id in membership.voter_ids() {
       roles.insert(node_id, "follower".to_string());
     }
-    for node_id in membership.learner_ids() {
+    for node_id in membership.non_write_voter_ids() {
       roles.insert(node_id, "learner".to_string());
     }
     if let Some(leader_id) = metrics.current_leader.as_ref() {

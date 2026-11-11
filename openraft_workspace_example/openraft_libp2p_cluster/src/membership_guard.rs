@@ -159,7 +159,7 @@ async fn guard_tick(
   let learners: Vec<NodeId> = metrics
     .membership_config
     .membership()
-    .learner_ids()
+    .non_write_voter_ids()
     .collect();
   let self_id = metrics.id.clone();
 

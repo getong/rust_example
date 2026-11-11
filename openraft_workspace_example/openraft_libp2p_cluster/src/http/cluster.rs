@@ -211,7 +211,7 @@ async fn openraft_group_nodes(
   let metrics = group.raft.metrics().borrow_watched().clone();
   let membership = metrics.membership_config.membership();
   let voters = membership.voter_ids().collect::<BTreeSet<_>>();
-  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+  let learners = membership.non_write_voter_ids().collect::<BTreeSet<_>>();
   let mut nodes = Vec::new();
 
   for (node_id, node) in membership.nodes() {
@@ -512,7 +512,7 @@ fn openraft_roles_by_node(
   for node_id in membership.voter_ids() {
     roles.insert(node_id, "voter".to_string());
   }
-  for node_id in membership.learner_ids() {
+  for node_id in membership.non_write_voter_ids() {
     roles.insert(node_id, "learner".to_string());
   }
   if let Some(leader_id) = metrics.current_leader {

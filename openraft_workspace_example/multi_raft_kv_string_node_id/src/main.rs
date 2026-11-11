@@ -226,10 +226,10 @@ async fn initialize_single_node_groups(
 async fn add_learners(
   leader_rafts: &[typ::Raft],
   group_ids: &[GroupId],
-  learner_ids: &[NodeId],
+  non_write_voter_ids: &[NodeId],
 ) -> Result<(), String> {
   for (group_id, raft) in group_ids.iter().zip(leader_rafts) {
-    for learner_id in learner_ids {
+    for learner_id in non_write_voter_ids {
       raft
         .add_learner(
           learner_id.clone(),

@@ -711,7 +711,7 @@ async fn reconcile_openraft_group(
 
   let membership = metrics.membership_config.membership();
   let voters = membership.voter_ids().collect::<BTreeSet<_>>();
-  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+  let learners = membership.non_write_voter_ids().collect::<BTreeSet<_>>();
 
   if remove_offline_openraft_member_if_expired(group_id, group, &metrics, network, offline_since)
     .await?
@@ -728,7 +728,7 @@ async fn reconcile_openraft_group(
   let learners_after = metrics
     .membership_config
     .membership()
-    .learner_ids()
+    .non_write_voter_ids()
     .collect::<BTreeSet<_>>();
 
   // Only pay the cost of counting active voters when there are learners that
@@ -755,7 +755,7 @@ async fn remove_offline_openraft_member_if_expired(
 ) -> anyhow::Result<bool> {
   let membership = metrics.membership_config.membership();
   let voters = membership.voter_ids().collect::<BTreeSet<_>>();
-  let learners = membership.learner_ids().collect::<BTreeSet<_>>();
+  let learners = membership.non_write_voter_ids().collect::<BTreeSet<_>>();
   let member_ids = membership
     .nodes()
     .map(|(id, _)| id.clone())
@@ -911,7 +911,7 @@ async fn promote_caught_up_learner_if_needed(
   active_voters: usize,
 ) -> anyhow::Result<()> {
   let membership = metrics.membership_config.membership();
-  let learners = membership.learner_ids().collect::<Vec<_>>();
+  let learners = membership.non_write_voter_ids().collect::<Vec<_>>();
 
   // Collect caught-up learners and pick a random one.
   let caught_up: Vec<_> = learners
