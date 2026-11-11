@@ -1,0 +1,11 @@
+[package]
+name = "unreal_session_demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }

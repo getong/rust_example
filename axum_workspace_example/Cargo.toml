@@ -72,6 +72,7 @@ members = [
   "signed_cookie_sessions",
   "topcoat_example",
   "topcoat_gpui_example",
+  "unreal_session_demo",
 ]
 
 exclude = [

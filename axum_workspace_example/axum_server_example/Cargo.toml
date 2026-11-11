@@ -6,5 +6,5 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
-axum-server = { version = "0.8.0", features = ["rustls", "arc-swap", "tls-rustls", "tokio-rustls"] }
+axum-server = { version = "0.9.2", features = ["rustls", "arc-swap", "tls-rustls", "tokio-rustls"] }
 tokio = { version = "1.54.1", features = ["full"] }

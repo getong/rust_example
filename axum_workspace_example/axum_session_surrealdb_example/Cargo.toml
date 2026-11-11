@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 async-trait = "0.1.92"
 axum = "0.8.9"
-axum_session = "0.22.0"
+axum_session = "0.22.1"
 axum_session_surreal = "0.10"
-surrealdb = { version = "3.3", features = ["kv-mem"] }
+surrealdb = { version = "4.0", features = ["kv-mem"] }
 tokio = { version = "1.54.1", features = ["full"] }
