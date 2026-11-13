@@ -1,206 +1,146 @@
 use std::{
-  fs::File,
-  io::{BufReader, Seek},
+  io::Read,
   path::Path,
+  process::{Child, Command, Stdio},
   sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
     mpsc::{self, Receiver, Sender},
   },
+  thread,
   time::Duration,
 };
 
 use anyhow::{Context, Result, bail, ensure};
-use mp4::{Mp4Reader, TrackType};
 use rodio::{ChannelCount, DeviceSinkBuilder, MixerDeviceSink, Player, SampleRate, Source};
-use symphonia::core::{
-  codecs::audio::{AudioDecoder, AudioDecoderOptions},
-  errors::{Error, SeekErrorKind},
-  formats::{
-    FormatOptions, FormatReader, SeekMode, SeekTo, TrackType as SymphoniaTrackType, probe::Hint,
-  },
-  io::MediaSourceStream,
-  meta::MetadataOptions,
-  units::Time,
-};
 
-pub struct AudioSource {
-  format: Box<dyn FormatReader>,
-  decoder: Box<dyn AudioDecoder>,
-  track_id: u32,
+pub fn tempo_filter(speed: f32) -> String {
+  if speed > 2.0 {
+    format!("atempo=2,atempo={}", speed / 2.0)
+  } else {
+    format!("atempo={speed}")
+  }
+}
+
+struct AudioSource {
+  child: Child,
+  buffers: Receiver<Result<Vec<f32>>>,
   buffer: Vec<f32>,
   next_sample: usize,
-  channels: ChannelCount,
-  sample_rate: SampleRate,
-  duration: Option<Duration>,
   finished: bool,
-  errors: Option<Sender<String>>,
+  errors: Sender<String>,
 }
 
 impl AudioSource {
-  pub fn open(path: &Path) -> Result<Option<Self>> {
-    let file = File::open(path).context("Failed to open the audio source")?;
-    let size = file
-      .metadata()
-      .context("Failed to read audio file metadata")?
-      .len();
-    let mut reader = BufReader::new(file);
-    let has_audio = {
-      let mp4 =
-        Mp4Reader::read_header(&mut reader, size).context("Failed to inspect MP4 audio tracks")?;
-      mp4.tracks().values().any(|track| {
-        track
-          .track_type()
-          .is_ok_and(|kind| kind == TrackType::Audio)
-      })
-    };
-    if !has_audio {
-      return Ok(None);
-    }
-    let mut file = reader.into_inner();
-    file.rewind().context("Failed to rewind the audio source")?;
-    let mut hint = Hint::new();
-    hint.with_extension("mp4");
-    let format = symphonia::default::get_probe()
-      .probe(
-        &hint,
-        MediaSourceStream::new(Box::new(file), Default::default()),
-        FormatOptions::default(),
-        MetadataOptions::default(),
-      )
-      .context("Failed to read MP4 audio")?;
-    let track = format
-      .default_track(SymphoniaTrackType::Audio)
-      .context("The MP4 contains no supported audio track")?;
-    let parameters = track
-      .codec_params
-      .as_ref()
-      .and_then(|parameters| parameters.audio())
-      .context("The selected track has no audio codec parameters")?;
-    let track_id = track.id;
-    let duration = track
-      .time_base
-      .zip(track.duration)
-      .and_then(|(base, duration)| base.calc_duration(duration))
-      .and_then(|time| Duration::try_from_secs_f64(time.as_secs_f64()).ok());
-    let decoder = symphonia::default::get_codecs()
-      .make_audio_decoder(parameters, &AudioDecoderOptions::default())
-      .context("Failed to decode MP4 audio; supported codecs are AAC, ALAC and MP3")?;
+  fn open(
+    path: &Path,
+    track: u32,
+    position: Duration,
+    speed: f32,
+    errors: Sender<String>,
+  ) -> Result<Self> {
+    let mut child = Command::new("ffmpeg")
+      .args(["-nostdin", "-v", "error", "-ss"])
+      .arg(format!("{:.9}", position.as_secs_f64()))
+      .arg("-i")
+      .arg(path)
+      .args([
+        "-map",
+        &format!("0:{track}"),
+        "-vn",
+        "-sn",
+        "-dn",
+        "-af",
+        &tempo_filter(speed),
+        "-ac",
+        "2",
+        "-ar",
+        "48000",
+        "-f",
+        "f32le",
+        "pipe:1",
+      ])
+      .stdin(Stdio::null())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::piped())
+      .spawn()
+      .context("could not start FFmpeg audio decoding")?;
+    let mut stdout = child.stdout.take().context("missing audio pipe")?;
+    let mut stderr = child.stderr.take().context("missing audio diagnostics")?;
+    let error_sender = errors.clone();
+    thread::spawn(move || {
+      let mut bytes = Vec::new();
+      let _ = stderr.by_ref().take(16384).read_to_end(&mut bytes);
+      if !bytes.is_empty() {
+        let _ = error_sender.send(String::from_utf8_lossy(&bytes).into_owned());
+      }
+    });
+    let (sender, buffers) = mpsc::sync_channel(8);
+    thread::spawn(move || {
+      loop {
+        let mut bytes = vec![0; 8192];
+        let mut filled = 0;
+        while filled < bytes.len() {
+          match stdout.read(&mut bytes[filled ..]) {
+            Ok(0) => break,
+            Ok(count) => filled += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+              let _ = sender.send(Err(error).context("could not read audio samples"));
+              return;
+            }
+          }
+        }
+        if filled == 0 {
+          break;
+        }
+        bytes.truncate(filled);
+        if !filled.is_multiple_of(8) {
+          let _ = sender.send(Err(anyhow::anyhow!("incomplete audio frame")));
+          break;
+        }
+        let samples = bytes
+          .as_chunks::<4>()
+          .0
+          .iter()
+          .map(|bytes| f32::from_le_bytes(*bytes))
+          .collect();
+        if sender.send(Ok(samples)).is_err() {
+          break;
+        }
+      }
+    });
     let mut source = Self {
-      format,
-      decoder,
-      track_id,
+      child,
+      buffers,
       buffer: Vec::new(),
       next_sample: 0,
-      channels: ChannelCount::MIN,
-      sample_rate: SampleRate::MIN,
-      duration,
       finished: false,
-      errors: None,
+      errors,
     };
-    ensure!(
-      source.refill()?,
-      "The MP4 audio track contains no decodable samples"
-    );
-    Ok(Some(source))
-  }
-
-  pub fn seek(&mut self, position: Duration) -> Result<()> {
-    if self.duration.is_some_and(|duration| position >= duration) {
-      self.buffer.clear();
-      self.next_sample = 0;
-      self.finished = true;
-      return Ok(());
-    }
-    let time_base = self
-      .format
-      .tracks()
-      .iter()
-      .find(|track| track.id == self.track_id)
-      .and_then(|track| track.time_base)
-      .context("Missing audio time base")?;
-    let time =
-      Time::try_from_secs_f64(position.as_secs_f64()).context("Invalid audio seek time")?;
-    let seeked = match self.format.seek(
-      SeekMode::Accurate,
-      SeekTo::Time {
-        time,
-        track_id: Some(self.track_id),
-      },
-    ) {
-      Ok(seeked) => seeked,
-      Err(Error::SeekError(SeekErrorKind::OutOfRange)) => {
-        self.buffer.clear();
-        self.next_sample = 0;
-        self.finished = true;
-        return Ok(());
-      }
-      Err(error) => return Err(error).context("Failed to seek the audio track"),
-    };
-    self.decoder.reset();
-    self.buffer.clear();
-    self.next_sample = 0;
-    self.finished = false;
-    let skip_duration = seeked
-      .required_ts
-      .duration_from(seeked.actual_ts)
-      .and_then(|duration| time_base.calc_duration(duration))
-      .context("Invalid audio seek timestamps")?;
-    let skip_frames =
-      (skip_duration.as_secs_f64() * f64::from(self.sample_rate.get())).round() as usize;
-    let mut remaining = skip_frames
-      .checked_mul(usize::from(self.channels.get()))
-      .context("Audio seek offset is too large")?;
-    loop {
-      if !self.refill()? {
-        self.finished = true;
-        return Ok(());
-      }
-      self.next_sample = remaining.min(self.buffer.len());
-      remaining -= self.next_sample;
-      if self.next_sample < self.buffer.len() {
-        return Ok(());
-      }
-    }
+    ensure!(source.refill()?, "audio decoder produced no samples");
+    Ok(source)
   }
 
   fn refill(&mut self) -> Result<bool> {
-    loop {
-      let packet = match self.format.next_packet() {
-        Ok(Some(packet)) => packet,
-        Ok(None) => return Ok(false),
-        Err(error) => return Err(error).context("Failed to read an MP4 audio packet"),
-      };
-      if packet.track_id != self.track_id {
-        continue;
+    match self.buffers.recv_timeout(Duration::from_secs(5)) {
+      Ok(buffer) => {
+        self.buffer = buffer?;
+        self.next_sample = 0;
+        Ok(!self.buffer.is_empty())
       }
-      let decoded = match self.decoder.decode(&packet) {
-        Ok(decoded) => decoded,
-        Err(Error::DecodeError(_)) => continue,
-        Err(error) => return Err(error).context("Failed to decode an MP4 audio packet"),
-      };
-      let channels = ChannelCount::new(u16::try_from(decoded.spec().channels().count())?)
-        .context("Invalid audio channel count")?;
-      let sample_rate =
-        SampleRate::new(decoded.spec().rate()).context("Invalid audio sample rate")?;
-      ensure!(
-        self.buffer.is_empty() || (channels == self.channels && sample_rate == self.sample_rate),
-        "Audio format changed during playback"
-      );
-      self.channels = channels;
-      self.sample_rate = sample_rate;
-      decoded.copy_to_vec_interleaved(&mut self.buffer);
-      self.next_sample = 0;
-      if !self.buffer.is_empty() {
-        return Ok(true);
+      Err(mpsc::RecvTimeoutError::Disconnected) => {
+        let status = self.child.wait()?;
+        ensure!(status.success(), "FFmpeg audio decoder failed: {status}");
+        Ok(false)
       }
+      Err(error) => Err(error).context("audio decoding timed out"),
     }
   }
 }
 
 impl Iterator for AudioSource {
   type Item = f32;
-
   fn next(&mut self) -> Option<f32> {
     if self.finished {
       return None;
@@ -210,10 +150,8 @@ impl Iterator for AudioSource {
         Ok(true) => {}
         result => {
           self.finished = true;
-          if let Err(error) = result
-            && let Some(errors) = &self.errors
-          {
-            let _ = errors.send(format!("{error:#}"));
+          if let Err(error) = result {
+            let _ = self.errors.send(format!("{error:#}"));
           }
           return None;
         }
@@ -229,17 +167,21 @@ impl Source for AudioSource {
   fn current_span_len(&self) -> Option<usize> {
     Some(if self.finished { 0 } else { self.buffer.len() })
   }
-
   fn channels(&self) -> ChannelCount {
-    self.channels
+    ChannelCount::new(2).unwrap_or(ChannelCount::MIN)
   }
-
   fn sample_rate(&self) -> SampleRate {
-    self.sample_rate
+    SampleRate::new(48000).unwrap_or(SampleRate::MIN)
   }
-
   fn total_duration(&self) -> Option<Duration> {
-    self.duration
+    None
+  }
+}
+
+impl Drop for AudioSource {
+  fn drop(&mut self) {
+    let _ = self.child.kill();
+    let _ = self.child.wait();
   }
 }
 
@@ -248,44 +190,53 @@ pub struct AudioPlayback {
   errors: Receiver<String>,
   media_position_micros: Arc<AtomicU64>,
   position_offset: Duration,
-  _output: MixerDeviceSink,
+  paused: bool,
+  output: MixerDeviceSink,
 }
 
 impl AudioPlayback {
-  pub fn new(path: &Path) -> Result<Option<Self>> {
-    let Some(source) = AudioSource::open(path)? else {
-      return Ok(None);
-    };
-    let mut output = DeviceSinkBuilder::open_default_sink()
-      .context("Failed to open the default audio output device")?;
+  pub fn new(path: &Path, track: u32, position: Duration, speed: f32) -> Result<Self> {
+    let mut output = DeviceSinkBuilder::open_default_sink().context("audio output unavailable")?;
     output.log_on_drop(false);
     let player = Player::connect_new(output.mixer());
     player.pause();
-    let (errors, media_position_micros) = Self::append_source(&player, source);
-    Ok(Some(Self {
+    let (errors, media_position_micros) =
+      Self::append_source(&player, path, track, position, speed)?;
+    Ok(Self {
       player,
       errors,
       media_position_micros,
-      position_offset: Duration::ZERO,
-      _output: output,
-    }))
+      position_offset: position,
+      paused: true,
+      output,
+    })
   }
 
-  fn append_source(player: &Player, mut source: AudioSource) -> (Receiver<String>, Arc<AtomicU64>) {
+  fn append_source(
+    player: &Player,
+    path: &Path,
+    track: u32,
+    offset: Duration,
+    speed: f32,
+  ) -> Result<(Receiver<String>, Arc<AtomicU64>)> {
     let (sender, errors) = mpsc::channel();
-    source.errors = Some(sender);
+    let source = AudioSource::open(path, track, offset, speed, sender)?;
     let media_position_micros = Arc::new(AtomicU64::new(0));
     let position = Arc::clone(&media_position_micros);
     player.append(source.track_position().periodic_access(
       Duration::from_millis(5),
       move |source| {
-        position.store(source.get_pos().as_micros() as u64, Ordering::Relaxed);
+        position.store(
+          source.get_pos().mul_f64(f64::from(speed)).as_micros() as u64,
+          Ordering::Relaxed,
+        );
       },
     ));
-    (errors, media_position_micros)
+    Ok((errors, media_position_micros))
   }
 
-  pub fn set_paused(&self, paused: bool) {
+  pub fn set_paused(&mut self, paused: bool) {
+    self.paused = paused;
     if paused {
       self.player.pause();
     } else {
@@ -293,43 +244,32 @@ impl AudioPlayback {
     }
   }
 
-  pub fn seek(&mut self, path: &Path, position: Duration) -> Result<()> {
-    let mut source = AudioSource::open(path)?.context("The media no longer contains audio")?;
-    source.seek(position)?;
-    let player = Player::connect_new(self._output.mixer());
+  pub fn seek(&mut self, path: &Path, track: u32, position: Duration, speed: f32) -> Result<()> {
+    let player = Player::connect_new(self.output.mixer());
     player.pause();
     player.set_volume(self.player.volume());
-    player.set_speed(self.player.speed());
-    let (errors, media_position_micros) = Self::append_source(&player, source);
+    let (errors, media_position_micros) =
+      Self::append_source(&player, path, track, position, speed)?;
     self.player = player;
     self.errors = errors;
     self.media_position_micros = media_position_micros;
     self.position_offset = position;
+    self.set_paused(self.paused);
     Ok(())
   }
 
   pub fn set_volume(&self, volume: f32) {
     self.player.set_volume(volume.clamp(0.0, 1.0));
   }
-
-  pub fn set_speed(&self, speed: f32) {
-    self.player.set_speed(speed);
-  }
-
   pub fn position(&self) -> Option<Duration> {
-    if self.player.empty() {
-      None
-    } else {
-      Some(
-        self.position_offset
-          + Duration::from_micros(self.media_position_micros.load(Ordering::Relaxed)),
-      )
-    }
+    (!self.player.empty()).then(|| {
+      self.position_offset
+        + Duration::from_micros(self.media_position_micros.load(Ordering::Relaxed))
+    })
   }
-
   pub fn check_error(&self) -> Result<()> {
     if let Ok(error) = self.errors.try_recv() {
-      bail!("Audio playback failed: {error}");
+      bail!("audio playback failed: {error}");
     }
     Ok(())
   }

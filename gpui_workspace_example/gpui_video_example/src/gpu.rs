@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use gpu_video::{VideoAdapterExt, parameters::VideoDeviceDescriptor};
 
+#[derive(Clone)]
 pub struct GpuContext {
   pub device: wgpu::Device,
   pub queue: wgpu::Queue,

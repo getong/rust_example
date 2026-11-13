@@ -7,11 +7,12 @@ edition = "2024"
 anyhow = "1.0"
 gpu-video = { version = "0.5.0", features = ["wgpu"] }
 gpui-kit = "0.9.1"
-image = { version = "0.25", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png"] }
 mp4 = "0.14.0"
 rfd = "0.18.0"
 rodio = { version = "0.23.0", default-features = false, features = ["playback"] }
-symphonia = { version = "0.6.1", default-features = false, features = ["isomp4", "aac", "alac", "mp3"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 tokio = { version = "1.54.1", features = ["full"] }
 tracing-subscriber = "0.3.23"
 wgpu = "30"

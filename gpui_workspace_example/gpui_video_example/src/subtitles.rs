@@ -32,6 +32,10 @@ impl SubtitleTrack {
     let bytes = fs::read(path)
       .with_context(|| format!("could not read subtitles from {}", path.display()))?;
     let source = decode_text(&bytes)?;
+    Self::from_srt(path, &source)
+  }
+
+  pub fn from_srt(path: &Path, source: &str) -> Result<Self> {
     let source = source
       .trim_start_matches('\u{feff}')
       .replace("\r\n", "\n")
@@ -77,19 +81,39 @@ impl SubtitleTrack {
       .parent()
       .filter(|parent| !parent.as_os_str().is_empty())
       .unwrap_or_else(|| Path::new("."));
+    let mut candidates = Vec::new();
     for entry in fs::read_dir(directory)? {
       let path = entry?.path();
-      if path.file_stem() == video.file_stem()
+      let matches = path.file_stem() == video.file_stem()
+        || video
+          .file_stem()
+          .and_then(|stem| stem.to_str())
+          .zip(path.file_stem().and_then(|stem| stem.to_str()))
+          .is_some_and(|(video, subtitle)| subtitle.starts_with(&format!("{video}.")));
+      if matches
         && path
           .extension()
           .and_then(|extension| extension.to_str())
           .is_some_and(|extension| extension.eq_ignore_ascii_case("srt"))
         && path.is_file()
       {
-        return Self::load(&path).map(Some);
+        candidates.push(path);
       }
     }
-    Ok(None)
+    candidates.sort_by_key(|path| {
+      let name = path.to_string_lossy().to_lowercase();
+      (
+        if name.contains(".zh") {
+          0
+        } else if name.contains(".en") {
+          1
+        } else {
+          2
+        },
+        name,
+      )
+    });
+    candidates.first().map(|path| Self::load(path)).transpose()
   }
 
   pub fn path(&self) -> &Path {

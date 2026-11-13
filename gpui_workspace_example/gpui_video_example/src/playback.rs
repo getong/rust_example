@@ -5,7 +5,7 @@ use std::{
   time::Duration,
 };
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use gpu_video::{
   EncodedInputChunk, OutputFrame, VideoDeviceExt, VideoTexture, WgpuTexturesDecoderH264,
   parameters::{DecoderParameters, InputBytestreamFormatH264},
@@ -15,15 +15,24 @@ use crate::{
   audio::AudioPlayback,
   demuxer::Mp4Demuxer,
   gpu::GpuContext,
+  media::MediaInfo,
   software::{SoftwareFrame, SoftwarePlayback},
 };
 
-pub const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4"];
-pub const PLAYBACK_SPEEDS: &[f32] = &[1.0, 1.25, 1.5, 2.0, 3.0];
+pub const PLAYBACK_SPEEDS: &[f32] = &[0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
 
 pub enum Frame {
   Gpu(OutputFrame<VideoTexture>),
   Software(SoftwareFrame),
+}
+
+impl Frame {
+  pub fn pts(&self) -> Duration {
+    match self {
+      Self::Gpu(frame) => Duration::from_micros(frame.metadata.pts.unwrap_or(0)),
+      Self::Software(frame) => frame.pts,
+    }
+  }
 }
 
 enum Backend {
@@ -36,6 +45,11 @@ pub struct Playback {
   audio: Option<AudioPlayback>,
   path: PathBuf,
   speed: f32,
+  paused: bool,
+  volume: f32,
+  pub info: MediaInfo,
+  pub selected_audio: Option<u32>,
+  warnings: Vec<String>,
   pub duration: Duration,
   pub frame_number: u64,
   pub time: Duration,
@@ -43,67 +57,75 @@ pub struct Playback {
 
 impl Playback {
   pub fn new(gpu: Option<&GpuContext>, path: &Path) -> Result<Self> {
-    ensure!(
-      path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-          SUPPORTED_VIDEO_EXTENSIONS
-            .iter()
-            .any(|supported| extension.eq_ignore_ascii_case(supported))
-        }),
-      "Unsupported media file: only MP4 videos (.mp4) are supported"
-    );
-    let (backend, duration) = Self::open_backend(gpu, path, Duration::ZERO)?;
-    Ok(Self {
+    let info = MediaInfo::probe(path)?;
+    let backend = Self::open_backend(gpu, path, Duration::ZERO, &info)?;
+    let selected_audio = info.audio_tracks.first().map(|track| track.index);
+    let mut playback = Self {
       backend,
-      audio: AudioPlayback::new(path)?,
+      audio: None,
       path: path.to_path_buf(),
       speed: 1.0,
-      duration,
+      paused: true,
+      volume: 1.0,
+      duration: info.duration,
+      info,
+      selected_audio,
+      warnings: Vec::new(),
       frame_number: 0,
       time: Duration::ZERO,
-    })
+    };
+    playback.select_audio(selected_audio);
+    Ok(playback)
   }
 
   fn open_backend(
     gpu: Option<&GpuContext>,
     path: &Path,
     position: Duration,
-  ) -> Result<(Backend, Duration)> {
-    let (demuxer, duration) = Mp4Demuxer::open_video(path)?;
-    let backend = match (gpu, demuxer) {
-      (Some(gpu), Some(demuxer)) => match GpuPlayback::new(&gpu.device, &gpu.queue, demuxer) {
-        Ok(mut playback) => {
-          playback.demuxer.seek(position)?;
-          playback.seek_target = Some(position);
-          Backend::Gpu(Box::new(playback))
-        }
-        Err(error) => {
-          eprintln!("Hardware decoding unavailable, using FFmpeg: {error:#}");
-          Backend::Software(SoftwarePlayback::new(path, position, duration)?)
-        }
-      },
-      _ => Backend::Software(SoftwarePlayback::new(path, position, duration)?),
-    };
-    Ok((backend, duration))
+    info: &MediaInfo,
+  ) -> Result<Backend> {
+    if info.hardware_compatible
+      && let Some(gpu) = gpu
+    {
+      let hardware = (|| -> Result<GpuPlayback> {
+        let (demuxer, _) = Mp4Demuxer::open_video(path)?;
+        let mut playback = GpuPlayback::new(
+          &gpu.device,
+          &gpu.queue,
+          demuxer.context("not an H.264 MP4")?,
+        )?;
+        playback.demuxer.seek(position)?;
+        playback.seek_target = Some(position);
+        Ok(playback)
+      })();
+      match hardware {
+        Ok(playback) => return Ok(Backend::Gpu(Box::new(playback))),
+        Err(error) => eprintln!("Using FFmpeg video decoding: {error:#}"),
+      }
+    }
+    Ok(Backend::Software(SoftwarePlayback::new(
+      path, position, info,
+    )?))
   }
 
   pub fn seek(&mut self, gpu: Option<&GpuContext>, position: Duration) -> Result<()> {
     let position = position.min(self.duration);
-    let (backend, _) = Self::open_backend(gpu, &self.path, position)?;
-    if let Some(audio) = &mut self.audio {
-      audio.seek(&self.path, position)?;
-    }
+    let backend = Self::open_backend(gpu, &self.path, position, &self.info)?;
     self.backend = backend;
     self.time = position;
     self.frame_number = 0;
+    self.rebuild_audio();
     Ok(())
   }
 
   pub fn next_frame(&mut self, elapsed: Duration) -> Result<Option<Frame>> {
-    if let Some(audio) = &self.audio {
-      audio.check_error()?;
+    if let Some(audio) = &self.audio
+      && let Err(error) = audio.check_error()
+    {
+      self
+        .warnings
+        .push(format!("Audio disabled; continuing video: {error:#}"));
+      self.audio = None;
     }
     let time = self
       .audio
@@ -117,10 +139,7 @@ impl Playback {
     self.time = self.time.max(time).min(self.duration);
     let mut latest = None;
     for _ in 0 .. 8 {
-      let frame = match &mut self.backend {
-        Backend::Gpu(playback) => playback.next_frame(self.time)?.map(Frame::Gpu),
-        Backend::Software(playback) => playback.next_frame(self.time)?.map(Frame::Software),
-      };
+      let frame = self.decode_frame(self.time)?;
       let Some(frame) = frame else {
         break;
       };
@@ -130,26 +149,104 @@ impl Playback {
     Ok(latest)
   }
 
-  pub fn set_paused(&self, paused: bool) {
-    if let Some(audio) = &self.audio {
+  pub fn set_paused(&mut self, paused: bool) {
+    self.paused = paused;
+    if let Some(audio) = &mut self.audio {
       audio.set_paused(paused);
     }
   }
 
-  pub fn set_volume(&self, volume: f32) {
+  pub fn set_volume(&mut self, volume: f32) {
+    self.volume = volume;
     if let Some(audio) = &self.audio {
       audio.set_volume(volume);
     }
   }
 
   pub fn set_speed(&mut self, speed: f32) {
-    if !PLAYBACK_SPEEDS.contains(&speed) {
+    if !PLAYBACK_SPEEDS.contains(&speed) || self.speed == speed {
       return;
     }
     self.speed = speed;
-    if let Some(audio) = &self.audio {
-      audio.set_speed(speed);
+    self.rebuild_audio();
+  }
+
+  fn decode_frame(&mut self, time: Duration) -> Result<Option<Frame>> {
+    match &mut self.backend {
+      Backend::Gpu(playback) => match playback.next_frame(time) {
+        Ok(frame) => Ok(frame.map(Frame::Gpu)),
+        Err(error) => {
+          self.warnings.push(format!(
+            "Hardware decoding failed; switched to FFmpeg: {error:#}"
+          ));
+          self.backend =
+            Backend::Software(SoftwarePlayback::new(&self.path, self.time, &self.info)?);
+          Ok(None)
+        }
+      },
+      Backend::Software(playback) => playback
+        .next_frame(time)
+        .map(|frame| frame.map(Frame::Software)),
     }
+  }
+
+  pub fn preview_frame(&mut self) -> Result<Option<Frame>> {
+    let frame = self.decode_frame(Duration::MAX)?;
+    if let Some(frame) = &frame {
+      self.time = self.time.max(frame.pts()).min(self.duration);
+      self.frame_number += 1;
+    }
+    Ok(frame)
+  }
+
+  pub fn force_software(&mut self) -> Result<()> {
+    self.backend = Backend::Software(SoftwarePlayback::new(&self.path, self.time, &self.info)?);
+    self
+      .warnings
+      .push("GPU presentation failed; using FFmpeg".into());
+    Ok(())
+  }
+
+  pub fn select_audio(&mut self, track: Option<u32>) {
+    self.selected_audio = track.filter(|index| {
+      self
+        .info
+        .audio_tracks
+        .iter()
+        .any(|track| track.index == *index)
+    });
+    self.audio = None;
+    if let Some(track) = self.selected_audio {
+      match AudioPlayback::new(&self.path, track, self.time, self.speed) {
+        Ok(mut audio) => {
+          audio.set_volume(self.volume);
+          audio.set_paused(self.paused);
+          self.audio = Some(audio);
+        }
+        Err(error) => self
+          .warnings
+          .push(format!("Audio unavailable; continuing silently: {error:#}")),
+      }
+    }
+  }
+
+  fn rebuild_audio(&mut self) {
+    if self.time >= self.duration {
+      self.audio = None;
+      return;
+    }
+    if let (Some(audio), Some(track)) = (&mut self.audio, self.selected_audio)
+      && let Err(error) = audio.seek(&self.path, track, self.time, self.speed)
+    {
+      self
+        .warnings
+        .push(format!("Audio disabled; continuing video: {error:#}"));
+      self.audio = None;
+    }
+  }
+
+  pub fn take_warnings(&mut self) -> Vec<String> {
+    std::mem::take(&mut self.warnings)
   }
 
   pub fn has_audio(&self) -> bool {

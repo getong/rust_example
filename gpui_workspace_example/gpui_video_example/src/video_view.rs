@@ -8,7 +8,7 @@ use gpu_video::{
 use gpui_kit::{IntoElement, ObjectFit, RenderImage, Window, div, img, prelude::*};
 use image::{Frame as ImageFrame, RgbaImage};
 
-use crate::{gpu::GpuContext, playback::Frame};
+use crate::{gpu::GpuContext, media::MediaInfo, playback::Frame};
 
 struct OutputTexture {
   texture: wgpu::Texture,
@@ -23,9 +23,31 @@ pub struct VideoView {
   texture: Option<OutputTexture>,
   pending: Option<mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>,
   image: Option<Arc<RenderImage>>,
+  color: Option<(ColorSpace, ColorRange)>,
 }
 
 impl VideoView {
+  pub fn configure(&mut self, info: &MediaInfo) {
+    self.color = Some((
+      match info.color_space.as_str() {
+        "smpte170m" => ColorSpace::BT601Ntsc,
+        "bt470bg" => ColorSpace::BT601Pal,
+        _ if info.height < 720 && info.color_space == "unknown" => ColorSpace::BT601Ntsc,
+        _ => ColorSpace::BT709,
+      },
+      if info.full_range {
+        ColorRange::Full
+      } else {
+        ColorRange::Limited
+      },
+    ));
+    self.converter = None;
+  }
+
+  pub fn snapshot(&self) -> Option<Arc<RenderImage>> {
+    self.image.clone()
+  }
+
   fn output_texture(&mut self, device: &wgpu::Device, size: wgpu::Extent3d) {
     if self
       .texture
@@ -70,7 +92,9 @@ impl VideoView {
   ) -> Result<()> {
     match frame {
       Frame::Gpu(frame) => self.update_gpu(gpu.context("Missing video GPU device")?, &frame),
-      Frame::Software(frame) => self.present(frame.width, frame.height, frame.pixels, window),
+      Frame::Software(frame) => {
+        self.present(frame.width, frame.height, frame.pixels, false, window)
+      }
     }
   }
 
@@ -84,8 +108,8 @@ impl VideoView {
         WgpuNv12ToRgbaConverter::new(
           &gpu.device,
           WgpuConverterParameters {
-            color_space: ColorSpace::BT709,
-            color_range: ColorRange::Limited,
+            color_space: self.color.map_or(ColorSpace::BT709, |color| color.0),
+            color_range: self.color.map_or(ColorRange::Limited, |color| color.1),
           },
         )
         .context("Failed to create the video color converter")?,
@@ -165,7 +189,7 @@ impl VideoView {
     }
     drop(mapped);
     output.readback.unmap();
-    self.present(width, height, pixels, window)
+    self.present(width, height, pixels, true, window)
   }
 
   fn present(
@@ -173,10 +197,13 @@ impl VideoView {
     width: u32,
     height: u32,
     mut pixels: Vec<u8>,
+    rgba: bool,
     window: &mut Window,
   ) -> Result<()> {
-    for pixel in pixels.as_chunks_mut::<4>().0 {
-      pixel.swap(0, 2);
+    if rgba {
+      for pixel in pixels.as_chunks_mut::<4>().0 {
+        pixel.swap(0, 2);
+      }
     }
     let buffer = RgbaImage::from_raw(width, height, pixels).context("Invalid video frame size")?;
     let image = Arc::new(RenderImage::new(vec![ImageFrame::new(buffer)]));
@@ -222,7 +249,7 @@ impl VideoView {
         element.child(img(image).size_full().object_fit(ObjectFit::Contain))
       })
       .when(self.image.is_none(), |element| {
-        element.child("Open an MP4 video to begin")
+        element.child("Open a video or drop media files here")
       })
   }
 }
