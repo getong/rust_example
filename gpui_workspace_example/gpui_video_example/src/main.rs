@@ -11,6 +11,7 @@ use gpui_kit::{
   *,
 };
 use playback::{Playback, SUPPORTED_VIDEO_EXTENSIONS};
+use subtitles::{SUPPORTED_SUBTITLE_EXTENSIONS, SubtitleTrack};
 use video_view::VideoView;
 
 mod audio;
@@ -18,7 +19,13 @@ mod demuxer;
 mod gpu;
 mod playback;
 mod software;
+mod subtitles;
 mod video_view;
+
+enum OpenFileKind {
+  Video,
+  Subtitles,
+}
 
 struct VideoPlayer {
   gpu: Option<GpuContext>,
@@ -32,6 +39,8 @@ struct VideoPlayer {
   scrub_target: Option<Duration>,
   preview_pending: bool,
   playback: Option<Playback>,
+  subtitle_track: Option<SubtitleTrack>,
+  subtitles_enabled: bool,
   last_tick: Instant,
   error: Option<String>,
   _volume_subscription: Subscription,
@@ -96,6 +105,8 @@ impl VideoPlayer {
       scrub_target: None,
       preview_pending: false,
       playback: None,
+      subtitle_track: None,
+      subtitles_enabled: true,
       last_tick: Instant::now(),
       error: None,
       _volume_subscription: subscription,
@@ -107,7 +118,7 @@ impl VideoPlayer {
     player
   }
 
-  fn open_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+  fn open_file(&mut self, kind: OpenFileKind, window: &mut Window, cx: &mut Context<Self>) {
     if self.choosing_file {
       return;
     }
@@ -115,10 +126,18 @@ impl VideoPlayer {
     if let Some(playback) = &self.playback {
       playback.set_paused(true);
     }
+    let (title, filter, extensions) = match kind {
+      OpenFileKind::Video => ("Open an MP4 video", "MP4 video", SUPPORTED_VIDEO_EXTENSIONS),
+      OpenFileKind::Subtitles => (
+        "Open SRT subtitles",
+        "SubRip subtitles",
+        SUPPORTED_SUBTITLE_EXTENSIONS,
+      ),
+    };
     let selected_file = rfd::AsyncFileDialog::new()
       .set_parent(window)
-      .set_title("Open an MP4 video")
-      .add_filter("MP4 video", SUPPORTED_VIDEO_EXTENSIONS)
+      .set_title(title)
+      .add_filter(filter, extensions)
       .set_can_create_directories(false)
       .pick_file();
     cx.spawn_in(window, async move |this, cx| {
@@ -126,7 +145,10 @@ impl VideoPlayer {
       let _ = this.update_in(cx, |this, window, cx| {
         this.choosing_file = false;
         if let Some(file) = picked {
-          this.open_path(file.path(), window);
+          match kind {
+            OpenFileKind::Video => this.open_path(file.path(), window),
+            OpenFileKind::Subtitles => this.load_subtitles(file.path()),
+          }
         }
         if let Some(playback) = &this.playback {
           playback.set_paused(this.paused || this.preview_pending);
@@ -155,6 +177,16 @@ impl VideoPlayer {
           .clear(window)
           .err()
           .map(|error| format!("{error:#}"));
+        self.subtitle_track = None;
+        self.subtitles_enabled = true;
+        match SubtitleTrack::for_video(path) {
+          Ok(track) => self.subtitle_track = track,
+          Err(error) => {
+            self.error = Some(format!(
+              "Could not load matching SRT subtitles\n\n{error:#}"
+            ))
+          }
+        }
         window.set_window_title(&format!("GPUI Video Player — {}", path.display()));
       }
       Err(error) => {
@@ -165,6 +197,22 @@ impl VideoPlayer {
       }
     }
     self.last_tick = Instant::now();
+  }
+
+  fn load_subtitles(&mut self, path: &Path) {
+    match SubtitleTrack::load(path) {
+      Ok(track) => {
+        self.subtitle_track = Some(track);
+        self.subtitles_enabled = true;
+        self.error = None;
+      }
+      Err(error) => {
+        self.error = Some(format!(
+          "Could not open subtitles {}\n\n{error:#}",
+          path.display()
+        ));
+      }
+    }
   }
 
   fn advance_playback(&mut self, window: &mut Window) -> Result<()> {
@@ -289,7 +337,31 @@ impl VideoPlayer {
           .primary()
           .label("Open MP4")
           .disabled(self.choosing_file || self.scrub_target.is_some())
-          .on_click(cx.listener(|this, _, window, cx| this.open_file(window, cx))),
+          .on_click(
+            cx.listener(|this, _, window, cx| this.open_file(OpenFileKind::Video, window, cx)),
+          ),
+      )
+      .child(
+        Button::new("open-subtitles")
+          .label("Open SRT")
+          .tooltip(self.subtitle_track.as_ref().map_or_else(
+            || "Open an external .srt subtitle file".to_owned(),
+            |track| track.path().display().to_string(),
+          ))
+          .disabled(self.playback.is_none() || self.choosing_file || self.scrub_target.is_some())
+          .on_click(
+            cx.listener(|this, _, window, cx| this.open_file(OpenFileKind::Subtitles, window, cx)),
+          ),
+      )
+      .child(
+        Checkbox::new("subtitles")
+          .label("Subtitles")
+          .checked(self.subtitles_enabled && self.subtitle_track.is_some())
+          .disabled(self.subtitle_track.is_none())
+          .on_change(cx.listener(|this, checked: &bool, _, cx| {
+            this.subtitles_enabled = *checked;
+            cx.notify();
+          })),
       )
       .child(
         Button::new("play-pause")
@@ -359,6 +431,16 @@ impl Render for VideoPlayer {
     {
       window.request_animation_frame();
     }
+    let subtitle_text = if self.subtitles_enabled && self.video_view.size().is_some() {
+      self.playback.as_ref().and_then(|playback| {
+        self
+          .subtitle_track
+          .as_ref()
+          .and_then(|track| track.text_at(playback.time))
+      })
+    } else {
+      None
+    };
     div()
       .size_full()
       .flex()
@@ -367,10 +449,36 @@ impl Render for VideoPlayer {
       .text_color(rgb(0xe6e8ef))
       .child(
         div()
+          .relative()
           .flex_1()
           .min_h_0()
           .overflow_hidden()
-          .child(self.video_view.element()),
+          .child(self.video_view.element())
+          .when_some(subtitle_text, |element, text| {
+            element.child(
+              div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(24.0))
+                .flex()
+                .justify_center()
+                .child(
+                  div()
+                    .max_w(relative(0.9))
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(rgba(0x000000bb))
+                    .text_color(rgb(0xffffff))
+                    .text_size(px(22.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_center()
+                    .whitespace_normal()
+                    .child(text),
+                ),
+            )
+          }),
       )
       .when_some(self.error.clone(), |element, message| {
         element.child(
