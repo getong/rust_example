@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>{title}</title>
+<style>
+body {{ margin: 24px; font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; }}
+main {{ max-width: 900px; margin: auto; }}
+.screenshot {{ position: relative; width: min(100%, {width}px); }}
+img {{ display: block; width: 100%; height: auto; }}
+.marker {{ position: absolute; left: {left}%; top: {top}%; transform: translate(-50%, -50%); width: 28px; height: 28px; border: 3px solid red; border-radius: 50%; box-shadow: 0 0 0 2px white; }}
+pre {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
+</style>
+</head>
+<body><main>
+<h1>{title}</h1>
+<p>归一化坐标 [{x}, {y}] · 像素 ({px}, {py}) · 截图 {width} × {height}</p>
+<p>{elapsed}</p>
+<div class="screenshot"><img src="{data_url}" width="{width}" height="{height}" alt="待定位的截图"><span class="marker" role="img" aria-label="预测目标中心"></span></div>
+<h2>模型输出</h2><pre>{content}</pre>
+</main></body></html>
