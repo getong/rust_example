@@ -9,6 +9,7 @@ use gpu_video::{VideoAdapterExt, parameters::VideoDeviceDescriptor};
 use playback::Playback;
 use video_view::VideoView;
 
+mod audio;
 mod demuxer;
 mod playback;
 mod software;
@@ -18,6 +19,8 @@ struct App {
   render_state: egui_wgpu::RenderState,
   video_view: VideoView,
   paused: bool,
+  volume: f32,
+  muted: bool,
   playback: Option<Playback>,
   last_tick: Instant,
   error: Option<String>,
@@ -31,6 +34,8 @@ impl App {
       video_view: VideoView::new(&render_state.device),
       render_state,
       paused: false,
+      volume: 1.0,
+      muted: false,
       playback: None,
       last_tick: Instant::now(),
       error: None,
@@ -42,25 +47,38 @@ impl App {
   }
 
   fn open_file(&mut self) {
+    if let Some(playback) = &self.playback {
+      playback.set_paused(true);
+    }
     let picked = rfd::FileDialog::new()
       .add_filter("MP4", &["mp4"])
       .pick_file();
-    let Some(path) = picked else {
-      return;
-    };
-
-    self.open_path(&path);
+    if let Some(path) = picked {
+      self.open_path(&path);
+    } else if let Some(playback) = &self.playback {
+      playback.set_paused(self.paused);
+    }
+    self.last_tick = Instant::now();
   }
 
   fn open_path(&mut self, path: &Path) {
+    if let Some(playback) = &self.playback {
+      playback.set_paused(true);
+    }
     let state = &self.render_state;
     match Playback::new(&state.device, &state.queue, path) {
       Ok(playback) => {
+        playback.set_volume(if self.muted { 0.0 } else { self.volume });
+        playback.set_paused(self.paused);
         self.playback = Some(playback);
         self.last_tick = Instant::now();
         self.error = None;
       }
       Err(error) => {
+        if let Some(playback) = &self.playback {
+          playback.set_paused(self.paused);
+        }
+        self.last_tick = Instant::now();
         self.error = Some(format!("Could not open {}\n\n{error:#}", path.display()));
       }
     }
@@ -103,7 +121,28 @@ impl App {
               let label = if self.paused { "Play" } else { "Pause" };
               if ui.button(label).clicked() {
                 self.paused = !self.paused;
+                if let Some(playback) = &self.playback {
+                  playback.set_paused(self.paused);
+                }
+                self.last_tick = Instant::now();
               }
+
+              let has_audio = self.playback.as_ref().is_some_and(Playback::has_audio);
+              ui.add_enabled_ui(has_audio, |ui| {
+                let mute_changed = ui.checkbox(&mut self.muted, "Mute").changed();
+                let volume_changed = ui
+                  .add(
+                    egui::Slider::new(&mut self.volume, 0.0 ..= 1.0)
+                      .text("Volume")
+                      .custom_formatter(|volume, _| format!("{:.0}%", volume * 100.0)),
+                  )
+                  .changed();
+                if (mute_changed || volume_changed)
+                  && let Some(playback) = &self.playback
+                {
+                  playback.set_volume(if self.muted { 0.0 } else { self.volume });
+                }
+              });
 
               if let Some(playback) = &self.playback
                 && let Some(size) = self.video_view.size()

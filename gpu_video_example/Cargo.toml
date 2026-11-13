@@ -10,5 +10,7 @@ egui-wgpu = "0.37.0"
 gpu-video = { version = "0.5.0", features = ["wgpu"] }
 mp4 = "0.14.0"
 rfd = "0.18.0"
+rodio = { version = "0.23.0", default-features = false, features = ["playback"] }
+symphonia = { version = "0.5.5", default-features = false, features = ["isomp4", "aac", "alac", "mp3"] }
 tokio = { version = "1.54.1", features = ["full"] }
 tracing-subscriber = "0.3.23"

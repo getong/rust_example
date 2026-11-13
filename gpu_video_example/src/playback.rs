@@ -8,6 +8,7 @@ use gpu_video::{
 };
 
 use crate::{
+  audio::AudioPlayback,
   demuxer::Mp4Demuxer,
   software::{SoftwareFrame, SoftwarePlayback},
 };
@@ -24,6 +25,7 @@ enum Backend {
 
 pub struct Playback {
   backend: Backend,
+  audio: Option<AudioPlayback>,
   pub frame_number: u64,
   pub time: Duration,
 }
@@ -36,21 +38,51 @@ impl Playback {
     };
     Ok(Self {
       backend,
+      audio: AudioPlayback::new(path)?,
       frame_number: 0,
       time: Duration::ZERO,
     })
   }
 
   pub fn next_frame(&mut self, elapsed: Duration) -> Result<Option<Frame>> {
-    self.time += elapsed;
-    let frame = match &mut self.backend {
-      Backend::Gpu(playback) => playback.next_frame(self.time)?.map(Frame::Gpu),
-      Backend::Software(playback) => playback.next_frame(self.time)?.map(Frame::Software),
-    };
-    if frame.is_some() {
-      self.frame_number += 1;
+    if let Some(audio) = &self.audio {
+      audio.check_error()?;
     }
-    Ok(frame)
+    let time = self
+      .audio
+      .as_ref()
+      .and_then(AudioPlayback::position)
+      .unwrap_or(self.time + elapsed);
+    self.time = self.time.max(time);
+    let mut latest = None;
+    for _ in 0 .. 8 {
+      let frame = match &mut self.backend {
+        Backend::Gpu(playback) => playback.next_frame(self.time)?.map(Frame::Gpu),
+        Backend::Software(playback) => playback.next_frame(self.time)?.map(Frame::Software),
+      };
+      let Some(frame) = frame else {
+        break;
+      };
+      self.frame_number += 1;
+      latest = Some(frame);
+    }
+    Ok(latest)
+  }
+
+  pub fn set_paused(&self, paused: bool) {
+    if let Some(audio) = &self.audio {
+      audio.set_paused(paused);
+    }
+  }
+
+  pub fn set_volume(&self, volume: f32) {
+    if let Some(audio) = &self.audio {
+      audio.set_volume(volume);
+    }
+  }
+
+  pub fn has_audio(&self) -> bool {
+    self.audio.is_some()
   }
 }
 
