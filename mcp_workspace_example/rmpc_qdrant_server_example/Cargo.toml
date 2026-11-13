@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-qdrant-client = "1.19"
+qdrant-client = "1.20"
 reqwest = { version = "0.13", features = ["json"] }
-rmcp = { version = "3.4.0", features = ["server", "client", "transport-io"] }
+rmcp = { version = "3.10.0", features = ["server", "client", "transport-io"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "io-util", "time"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "io-util", "time"] }
