@@ -1,4 +1,9 @@
-use std::{collections::VecDeque, path::Path, sync::mpsc::Receiver, time::Duration};
+use std::{
+  collections::VecDeque,
+  path::{Path, PathBuf},
+  sync::mpsc::Receiver,
+  time::Duration,
+};
 
 use anyhow::{Context, Result};
 use gpu_video::{
@@ -26,28 +31,58 @@ enum Backend {
 pub struct Playback {
   backend: Backend,
   audio: Option<AudioPlayback>,
+  path: PathBuf,
+  pub duration: Duration,
   pub frame_number: u64,
   pub time: Duration,
 }
 
 impl Playback {
   pub fn new(gpu: Option<&GpuContext>, path: &Path) -> Result<Self> {
-    let backend = match (gpu, Mp4Demuxer::open_h264(path)?) {
-      (Some(gpu), Some(demuxer)) => match GpuPlayback::new(&gpu.device, &gpu.queue, demuxer) {
-        Ok(playback) => Backend::Gpu(Box::new(playback)),
-        Err(error) => {
-          eprintln!("Hardware decoding unavailable, using FFmpeg: {error:#}");
-          Backend::Software(SoftwarePlayback::new(path)?)
-        }
-      },
-      _ => Backend::Software(SoftwarePlayback::new(path)?),
-    };
+    let (backend, duration) = Self::open_backend(gpu, path, Duration::ZERO)?;
     Ok(Self {
       backend,
       audio: AudioPlayback::new(path)?,
+      path: path.to_path_buf(),
+      duration,
       frame_number: 0,
       time: Duration::ZERO,
     })
+  }
+
+  fn open_backend(
+    gpu: Option<&GpuContext>,
+    path: &Path,
+    position: Duration,
+  ) -> Result<(Backend, Duration)> {
+    let (demuxer, duration) = Mp4Demuxer::open_video(path)?;
+    let backend = match (gpu, demuxer) {
+      (Some(gpu), Some(demuxer)) => match GpuPlayback::new(&gpu.device, &gpu.queue, demuxer) {
+        Ok(mut playback) => {
+          playback.demuxer.seek(position)?;
+          playback.seek_target = Some(position);
+          Backend::Gpu(Box::new(playback))
+        }
+        Err(error) => {
+          eprintln!("Hardware decoding unavailable, using FFmpeg: {error:#}");
+          Backend::Software(SoftwarePlayback::new(path, position, duration)?)
+        }
+      },
+      _ => Backend::Software(SoftwarePlayback::new(path, position, duration)?),
+    };
+    Ok((backend, duration))
+  }
+
+  pub fn seek(&mut self, gpu: Option<&GpuContext>, position: Duration) -> Result<()> {
+    let position = position.min(self.duration);
+    let (backend, _) = Self::open_backend(gpu, &self.path, position)?;
+    if let Some(audio) = &mut self.audio {
+      audio.seek(&self.path, position)?;
+    }
+    self.backend = backend;
+    self.time = position;
+    self.frame_number = 0;
+    Ok(())
   }
 
   pub fn next_frame(&mut self, elapsed: Duration) -> Result<Option<Frame>> {
@@ -59,7 +94,7 @@ impl Playback {
       .as_ref()
       .and_then(AudioPlayback::position)
       .unwrap_or(self.time + elapsed);
-    self.time = self.time.max(time);
+    self.time = self.time.max(time).min(self.duration);
     let mut latest = None;
     for _ in 0 .. 8 {
       let frame = match &mut self.backend {
@@ -105,6 +140,8 @@ struct GpuPlayback {
   frame_receiver: Receiver<OutputFrame<VideoTexture>>,
   eof: bool,
   decoded_frames: VecDeque<OutputFrame<VideoTexture>>,
+  seek_target: Option<Duration>,
+  seek_frame: Option<OutputFrame<VideoTexture>>,
 }
 
 impl GpuPlayback {
@@ -132,10 +169,36 @@ impl GpuPlayback {
       frame_receiver,
       eof: false,
       decoded_frames: VecDeque::new(),
+      seek_target: None,
+      seek_frame: None,
     })
   }
 
   fn next_frame(&mut self, time: Duration) -> Result<Option<OutputFrame<VideoTexture>>> {
+    if let Some(target) = self.seek_target {
+      for _ in 0 .. 64 {
+        let Some(frame) = self.decode_next()? else {
+          if self.eof {
+            self.seek_target = None;
+            return Ok(self.seek_frame.take());
+          }
+          return Ok(None);
+        };
+        if Duration::from_micros(
+          frame
+            .metadata
+            .pts
+            .context("Missing decoded frame timestamp")?,
+        ) >= target
+        {
+          self.seek_target = None;
+          self.seek_frame = None;
+          return Ok(Some(frame));
+        }
+        self.seek_frame = Some(frame);
+      }
+      return Ok(None);
+    }
     while self.decoded_frames.len() < Self::MAX_DECODED_FRAMES {
       let Some(frame) = self.decode_next()? else {
         break;

@@ -11,10 +11,13 @@ use mp4::{Mp4Reader, TrackType};
 use rodio::{ChannelCount, DeviceSinkBuilder, MixerDeviceSink, Player, SampleRate, Source};
 use symphonia::core::{
   codecs::audio::{AudioDecoder, AudioDecoderOptions},
-  errors::Error,
-  formats::{FormatOptions, FormatReader, TrackType as SymphoniaTrackType, probe::Hint},
+  errors::{Error, SeekErrorKind},
+  formats::{
+    FormatOptions, FormatReader, SeekMode, SeekTo, TrackType as SymphoniaTrackType, probe::Hint,
+  },
   io::MediaSourceStream,
   meta::MetadataOptions,
+  units::Time,
 };
 
 pub struct AudioSource {
@@ -96,6 +99,65 @@ impl AudioSource {
       "The MP4 audio track contains no decodable samples"
     );
     Ok(Some(source))
+  }
+
+  pub fn seek(&mut self, position: Duration) -> Result<()> {
+    if self.duration.is_some_and(|duration| position >= duration) {
+      self.buffer.clear();
+      self.next_sample = 0;
+      self.finished = true;
+      return Ok(());
+    }
+    let time_base = self
+      .format
+      .tracks()
+      .iter()
+      .find(|track| track.id == self.track_id)
+      .and_then(|track| track.time_base)
+      .context("Missing audio time base")?;
+    let time =
+      Time::try_from_secs_f64(position.as_secs_f64()).context("Invalid audio seek time")?;
+    let seeked = match self.format.seek(
+      SeekMode::Accurate,
+      SeekTo::Time {
+        time,
+        track_id: Some(self.track_id),
+      },
+    ) {
+      Ok(seeked) => seeked,
+      Err(Error::SeekError(SeekErrorKind::OutOfRange)) => {
+        self.buffer.clear();
+        self.next_sample = 0;
+        self.finished = true;
+        return Ok(());
+      }
+      Err(error) => return Err(error).context("Failed to seek the audio track"),
+    };
+    self.decoder.reset();
+    self.buffer.clear();
+    self.next_sample = 0;
+    self.finished = false;
+    let skip_duration = seeked
+      .required_ts
+      .duration_from(seeked.actual_ts)
+      .and_then(|duration| time_base.calc_duration(duration))
+      .context("Invalid audio seek timestamps")?;
+    let skip_frames =
+      (skip_duration.as_secs_f64() * f64::from(self.sample_rate.get())).round() as usize;
+    let mut remaining = skip_frames
+      .checked_mul(usize::from(self.channels.get()))
+      .context("Audio seek offset is too large")?;
+    loop {
+      if !self.refill()? {
+        self.finished = true;
+        return Ok(());
+      }
+      self.next_sample = remaining.min(self.buffer.len());
+      remaining -= self.next_sample;
+      if self.next_sample < self.buffer.len() {
+        return Ok(());
+      }
+    }
   }
 
   fn refill(&mut self) -> Result<bool> {
@@ -180,6 +242,7 @@ impl Source for AudioSource {
 pub struct AudioPlayback {
   player: Player,
   errors: Receiver<String>,
+  position_offset: Duration,
   _output: MixerDeviceSink,
 }
 
@@ -199,6 +262,7 @@ impl AudioPlayback {
     Ok(Some(Self {
       player,
       errors,
+      position_offset: Duration::ZERO,
       _output: output,
     }))
   }
@@ -211,6 +275,21 @@ impl AudioPlayback {
     }
   }
 
+  pub fn seek(&mut self, path: &Path, position: Duration) -> Result<()> {
+    let mut source = AudioSource::open(path)?.context("The media no longer contains audio")?;
+    source.seek(position)?;
+    let (sender, errors) = mpsc::channel();
+    source.errors = Some(sender);
+    let player = Player::connect_new(self._output.mixer());
+    player.pause();
+    player.set_volume(self.player.volume());
+    player.append(source);
+    self.player = player;
+    self.errors = errors;
+    self.position_offset = position;
+    Ok(())
+  }
+
   pub fn set_volume(&self, volume: f32) {
     self.player.set_volume(volume.clamp(0.0, 1.0));
   }
@@ -219,7 +298,7 @@ impl AudioPlayback {
     if self.player.empty() {
       None
     } else {
-      Some(self.player.get_pos())
+      Some(self.position_offset + self.player.get_pos())
     }
   }
 

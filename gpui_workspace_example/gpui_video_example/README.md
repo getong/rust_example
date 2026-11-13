@@ -8,6 +8,7 @@ cargo run -p gpui_video_example -- /path/to/video.mp4
 ```
 
 - 点击 **Open MP4** 选择文件；支持播放/暂停、静音、音量调节和播放状态显示。
+- 底部横向进度条显示当前时间和视频总时长；点击或拖动后松开即可跳转。拖动期间暂时停止播放，跳转后恢复原来的播放/暂停状态；暂停时也会更新目标位置的画面，音频同步定位。
 - H.264 优先使用 `gpu-video` 硬件解码；没有可用设备、解码器初始化失败或其他视频编码时，使用 FFmpeg 软件解码。
 - 软件解码需要 `ffmpeg` 和 `ffprobe` 位于 `PATH` 中，例如 macOS 上执行 `brew install ffmpeg`。
 - 音频继续使用 Symphonia 和 Rodio，支持 AAC、ALAC、MP3。

@@ -20,12 +20,13 @@ pub struct SoftwarePlayback {
   frames: Receiver<Result<SoftwareFrame>>,
   stderr: Option<JoinHandle<String>>,
   frame_rate: f64,
+  start: Duration,
   next_frame: u64,
   finished: bool,
 }
 
 impl SoftwarePlayback {
-  pub fn new(path: &Path) -> Result<Self> {
+  pub fn new(path: &Path, position: Duration, duration: Duration) -> Result<Self> {
     let probe = Command::new("ffprobe")
       .args([
         "-v",
@@ -70,8 +71,11 @@ impl SoftwarePlayback {
       .filter(|size| *size > 0 && *size <= 256 * 1024 * 1024)
       .context("Invalid or excessively large video dimensions")?;
 
+    let start = position.min(duration.saturating_sub(Duration::from_secs_f64(1.0 / frame_rate)));
     let mut child = Command::new("ffmpeg")
-      .args(["-nostdin", "-v", "error", "-noautorotate", "-i"])
+      .args(["-nostdin", "-v", "error", "-noautorotate", "-ss"])
+      .arg(format!("{:.9}", start.as_secs_f64()))
+      .arg("-i")
       .arg(path)
       .args([
         "-map",
@@ -142,13 +146,16 @@ impl SoftwarePlayback {
       frames,
       stderr: Some(stderr),
       frame_rate,
+      start,
       next_frame: 0,
       finished: false,
     })
   }
 
   pub fn next_frame(&mut self, time: Duration) -> Result<Option<SoftwareFrame>> {
-    if self.finished || self.next_frame as f64 / self.frame_rate > time.as_secs_f64() {
+    if self.finished
+      || self.start.as_secs_f64() + self.next_frame as f64 / self.frame_rate > time.as_secs_f64()
+    {
       return Ok(None);
     }
     match self.frames.try_recv() {
