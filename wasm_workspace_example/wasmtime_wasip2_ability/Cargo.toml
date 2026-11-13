@@ -13,6 +13,6 @@ wstd = { version = "0.6.8", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
-wasmtime = { version = "50.0.0", features = ["component-model", "async"] }
-wasmtime-wasi = "50.0.0"
-wasmtime-wasi-http = "50.0.0"
+wasmtime = { version = "50.0.1", features = ["component-model", "async"] }
+wasmtime-wasi = "50.0.1"
+wasmtime-wasi-http = "50.0.1"

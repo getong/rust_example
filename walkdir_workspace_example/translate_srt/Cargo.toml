@@ -11,11 +11,11 @@ vulkan = ["llama-cpp-2/vulkan"]
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
-encoding_rs = "0.8.42"
+encoding_rs = "0.8.44"
 futures-util = "0.3"
-llama-cpp-2 = { version = "0.1.157" }
-many_cpus = "2.4.22"
-scraper = "0.27"
+llama-cpp-2 = { version = "0.1.161" }
+many_cpus = "2.4.26"
+scraper = "0.29"
 thiserror = "2.0"
-tokio = { version = "1.53", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.54", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
 walkdir = "2.5"

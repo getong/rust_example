@@ -7,5 +7,5 @@ default-run = "wasm_multi_process_example"
 
 [dependencies]
 anyhow = "1.0.104"
-wasmtime = { version = "50.0.0", features = ["component-model"] }
-wasmtime-wasi = "50.0.0"
+wasmtime = { version = "50.0.1", features = ["component-model"] }
+wasmtime-wasi = "50.0.1"
