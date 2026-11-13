@@ -5,7 +5,7 @@ use std::{
   time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use gpu_video::{
   EncodedInputChunk, OutputFrame, VideoDeviceExt, VideoTexture, WgpuTexturesDecoderH264,
   parameters::{DecoderParameters, InputBytestreamFormatH264},
@@ -17,6 +17,8 @@ use crate::{
   gpu::GpuContext,
   software::{SoftwareFrame, SoftwarePlayback},
 };
+
+pub const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4"];
 
 pub enum Frame {
   Gpu(OutputFrame<VideoTexture>),
@@ -39,6 +41,17 @@ pub struct Playback {
 
 impl Playback {
   pub fn new(gpu: Option<&GpuContext>, path: &Path) -> Result<Self> {
+    ensure!(
+      path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+          SUPPORTED_VIDEO_EXTENSIONS
+            .iter()
+            .any(|supported| extension.eq_ignore_ascii_case(supported))
+        }),
+      "Unsupported media file: only MP4 videos (.mp4) are supported"
+    );
     let (backend, duration) = Self::open_backend(gpu, path, Duration::ZERO)?;
     Ok(Self {
       backend,

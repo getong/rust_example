@@ -10,7 +10,7 @@ use gpui_kit::{
   prelude::FluentBuilder as _,
   *,
 };
-use playback::Playback;
+use playback::{Playback, SUPPORTED_VIDEO_EXTENSIONS};
 use video_view::VideoView;
 
 mod audio;
@@ -115,25 +115,18 @@ impl VideoPlayer {
     if let Some(playback) = &self.playback {
       playback.set_paused(true);
     }
-    let paths = cx.prompt_for_paths(PathPromptOptions {
-      files: true,
-      directories: false,
-      multiple: false,
-      prompt: Some("Open an MP4 video".into()),
-    });
+    let selected_file = rfd::AsyncFileDialog::new()
+      .set_parent(window)
+      .set_title("Open an MP4 video")
+      .add_filter("MP4 video", SUPPORTED_VIDEO_EXTENSIONS)
+      .set_can_create_directories(false)
+      .pick_file();
     cx.spawn_in(window, async move |this, cx| {
-      let picked = paths.await;
+      let picked = selected_file.await;
       let _ = this.update_in(cx, |this, window, cx| {
         this.choosing_file = false;
-        match picked {
-          Ok(Ok(Some(paths))) => {
-            if let Some(path) = paths.first() {
-              this.open_path(path, window);
-            }
-          }
-          Ok(Ok(None)) => {}
-          Ok(Err(error)) => this.error = Some(format!("Could not open file dialog\n\n{error:#}")),
-          Err(error) => this.error = Some(format!("File dialog was closed\n\n{error}")),
+        if let Some(file) = picked {
+          this.open_path(file.path(), window);
         }
         if let Some(playback) = &this.playback {
           playback.set_paused(this.paused || this.preview_pending);
