@@ -2,7 +2,11 @@ use std::{
   fs::File,
   io::{BufReader, Seek},
   path::Path,
-  sync::mpsc::{self, Receiver, Sender},
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+    mpsc::{self, Receiver, Sender},
+  },
   time::Duration,
 };
 
@@ -223,7 +227,7 @@ impl Iterator for AudioSource {
 
 impl Source for AudioSource {
   fn current_span_len(&self) -> Option<usize> {
-    if self.finished { Some(0) } else { None }
+    Some(if self.finished { 0 } else { self.buffer.len() })
   }
 
   fn channels(&self) -> ChannelCount {
@@ -242,29 +246,43 @@ impl Source for AudioSource {
 pub struct AudioPlayback {
   player: Player,
   errors: Receiver<String>,
+  media_position_micros: Arc<AtomicU64>,
   position_offset: Duration,
   _output: MixerDeviceSink,
 }
 
 impl AudioPlayback {
   pub fn new(path: &Path) -> Result<Option<Self>> {
-    let Some(mut source) = AudioSource::open(path)? else {
+    let Some(source) = AudioSource::open(path)? else {
       return Ok(None);
     };
-    let (sender, errors) = mpsc::channel();
-    source.errors = Some(sender);
     let mut output = DeviceSinkBuilder::open_default_sink()
       .context("Failed to open the default audio output device")?;
     output.log_on_drop(false);
     let player = Player::connect_new(output.mixer());
     player.pause();
-    player.append(source);
+    let (errors, media_position_micros) = Self::append_source(&player, source);
     Ok(Some(Self {
       player,
       errors,
+      media_position_micros,
       position_offset: Duration::ZERO,
       _output: output,
     }))
+  }
+
+  fn append_source(player: &Player, mut source: AudioSource) -> (Receiver<String>, Arc<AtomicU64>) {
+    let (sender, errors) = mpsc::channel();
+    source.errors = Some(sender);
+    let media_position_micros = Arc::new(AtomicU64::new(0));
+    let position = Arc::clone(&media_position_micros);
+    player.append(source.track_position().periodic_access(
+      Duration::from_millis(5),
+      move |source| {
+        position.store(source.get_pos().as_micros() as u64, Ordering::Relaxed);
+      },
+    ));
+    (errors, media_position_micros)
   }
 
   pub fn set_paused(&self, paused: bool) {
@@ -278,14 +296,14 @@ impl AudioPlayback {
   pub fn seek(&mut self, path: &Path, position: Duration) -> Result<()> {
     let mut source = AudioSource::open(path)?.context("The media no longer contains audio")?;
     source.seek(position)?;
-    let (sender, errors) = mpsc::channel();
-    source.errors = Some(sender);
     let player = Player::connect_new(self._output.mixer());
     player.pause();
     player.set_volume(self.player.volume());
-    player.append(source);
+    player.set_speed(self.player.speed());
+    let (errors, media_position_micros) = Self::append_source(&player, source);
     self.player = player;
     self.errors = errors;
+    self.media_position_micros = media_position_micros;
     self.position_offset = position;
     Ok(())
   }
@@ -294,11 +312,18 @@ impl AudioPlayback {
     self.player.set_volume(volume.clamp(0.0, 1.0));
   }
 
+  pub fn set_speed(&self, speed: f32) {
+    self.player.set_speed(speed);
+  }
+
   pub fn position(&self) -> Option<Duration> {
     if self.player.empty() {
       None
     } else {
-      Some(self.position_offset + self.player.get_pos())
+      Some(
+        self.position_offset
+          + Duration::from_micros(self.media_position_micros.load(Ordering::Relaxed)),
+      )
     }
   }
 

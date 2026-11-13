@@ -19,6 +19,7 @@ use crate::{
 };
 
 pub const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4"];
+pub const PLAYBACK_SPEEDS: &[f32] = &[1.0, 1.25, 1.5, 2.0, 3.0];
 
 pub enum Frame {
   Gpu(OutputFrame<VideoTexture>),
@@ -34,6 +35,7 @@ pub struct Playback {
   backend: Backend,
   audio: Option<AudioPlayback>,
   path: PathBuf,
+  speed: f32,
   pub duration: Duration,
   pub frame_number: u64,
   pub time: Duration,
@@ -57,6 +59,7 @@ impl Playback {
       backend,
       audio: AudioPlayback::new(path)?,
       path: path.to_path_buf(),
+      speed: 1.0,
       duration,
       frame_number: 0,
       time: Duration::ZERO,
@@ -106,7 +109,11 @@ impl Playback {
       .audio
       .as_ref()
       .and_then(AudioPlayback::position)
-      .unwrap_or(self.time + elapsed);
+      .unwrap_or_else(|| {
+        self
+          .time
+          .saturating_add(elapsed.mul_f64(f64::from(self.speed)))
+      });
     self.time = self.time.max(time).min(self.duration);
     let mut latest = None;
     for _ in 0 .. 8 {
@@ -132,6 +139,16 @@ impl Playback {
   pub fn set_volume(&self, volume: f32) {
     if let Some(audio) = &self.audio {
       audio.set_volume(volume);
+    }
+  }
+
+  pub fn set_speed(&mut self, speed: f32) {
+    if !PLAYBACK_SPEEDS.contains(&speed) {
+      return;
+    }
+    self.speed = speed;
+    if let Some(audio) = &self.audio {
+      audio.set_speed(speed);
     }
   }
 

@@ -6,11 +6,17 @@ use std::{
 use anyhow::{Context as _, Result};
 use gpu::GpuContext;
 use gpui_kit::{
-  component::{button::*, checkbox::Checkbox, slider::*, *},
+  component::{
+    button::*,
+    checkbox::Checkbox,
+    menu::{DropdownMenu, PopupMenuItem},
+    slider::*,
+    *,
+  },
   prelude::FluentBuilder as _,
   *,
 };
-use playback::{Playback, SUPPORTED_VIDEO_EXTENSIONS};
+use playback::{PLAYBACK_SPEEDS, Playback, SUPPORTED_VIDEO_EXTENSIONS};
 use subtitles::{SUPPORTED_SUBTITLE_EXTENSIONS, SubtitleTrack};
 use video_view::VideoView;
 
@@ -31,6 +37,7 @@ struct VideoPlayer {
   gpu: Option<GpuContext>,
   video_view: VideoView,
   paused: bool,
+  playback_speed: f32,
   volume: f32,
   muted: bool,
   choosing_file: bool,
@@ -97,6 +104,7 @@ impl VideoPlayer {
       gpu,
       video_view: VideoView::default(),
       paused: false,
+      playback_speed: 1.0,
       volume: 1.0,
       muted: false,
       choosing_file: false,
@@ -166,8 +174,9 @@ impl VideoPlayer {
       playback.set_paused(true);
     }
     match Playback::new(self.gpu.as_ref(), path) {
-      Ok(playback) => {
+      Ok(mut playback) => {
         playback.set_volume(if self.muted { 0.0 } else { self.volume });
+        playback.set_speed(self.playback_speed);
         playback.set_paused(true);
         self.playback = Some(playback);
         self.scrub_target = None;
@@ -309,7 +318,21 @@ impl VideoPlayer {
     cx.notify();
   }
 
+  fn set_playback_speed(&mut self, speed: f32, cx: &mut Context<Self>) {
+    if !PLAYBACK_SPEEDS.contains(&speed) || self.playback_speed == speed {
+      return;
+    }
+    self.playback_speed = speed;
+    if let Some(playback) = &mut self.playback {
+      playback.set_speed(speed);
+    }
+    self.last_tick = Instant::now();
+    cx.notify();
+  }
+
   fn controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    let player = cx.weak_entity();
+    let playback_speed = self.playback_speed;
     let has_audio = self.playback.as_ref().is_some_and(Playback::has_audio);
     let status = self.playback.as_ref().map(|playback| {
       let resolution = self
@@ -368,6 +391,25 @@ impl VideoPlayer {
           .label(if self.paused { "Play" } else { "Pause" })
           .disabled(self.playback.is_none() || self.choosing_file || self.scrub_target.is_some())
           .on_click(cx.listener(|this, _, _, cx| this.toggle_paused(cx))),
+      )
+      .child(
+        Button::new("playback-speed")
+          .label(format!("Speed {playback_speed}×"))
+          .tooltip("Playback speed")
+          .disabled(self.choosing_file || self.scrub_target.is_some())
+          .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
+            for &speed in PLAYBACK_SPEEDS {
+              let player = player.clone();
+              menu = menu.item(
+                PopupMenuItem::new(format!("{speed}×"))
+                  .checked(speed == playback_speed)
+                  .on_click(move |_, _, cx| {
+                    let _ = player.update(cx, |this, cx| this.set_playback_speed(speed, cx));
+                  }),
+              );
+            }
+            menu
+          }),
       )
       .child(
         Checkbox::new("mute")
