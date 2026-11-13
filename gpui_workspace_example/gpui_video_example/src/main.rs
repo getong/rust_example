@@ -37,6 +37,7 @@ mod process;
 mod settings;
 mod software;
 mod subtitles;
+mod ui;
 mod video_view;
 
 #[derive(Clone, Copy)]
@@ -58,7 +59,7 @@ struct VideoPlayer {
   last_save: Instant,
   loading: bool,
   choosing_file: bool,
-  settings_open: bool,
+  page: ui::Page,
   focus: FocusHandle,
   volume_slider: Entity<SliderState>,
   seek_slider: Entity<SliderState>,
@@ -89,6 +90,7 @@ impl VideoPlayer {
       Ok(settings) => (settings, Some(config_path), None),
       Err(error) => (Settings::default(), None, Some(format!("{error:#}"))),
     };
+    ui::apply_theme(settings.light_theme, Some(window), cx);
     let volume_slider = cx.new(|_| {
       SliderState::new()
         .min(0.0)
@@ -151,7 +153,7 @@ impl VideoPlayer {
       last_save: Instant::now(),
       loading: false,
       choosing_file: false,
-      settings_open: false,
+      page: ui::Page::Playing,
       focus,
       volume_slider,
       seek_slider,
@@ -216,6 +218,7 @@ impl VideoPlayer {
         } else {
           state.time.as_secs_f64()
         },
+        state.duration.as_secs_f64(),
         subtitle,
       );
     }
@@ -239,6 +242,7 @@ impl VideoPlayer {
 
   fn open_path(&mut self, path: &Path, subtitle: Option<PathBuf>, window: &mut Window) {
     self.save();
+    self.page = ui::Page::Playing;
     let path = if path.is_absolute() {
       path.to_path_buf()
     } else {
@@ -285,7 +289,7 @@ impl VideoPlayer {
     {
       self.engine.send(Operation::Subtitle(path));
     } else {
-      self.notice = Some("Drop supported videos or an SRT subtitle file".into());
+      self.notice = Some("请拖入支持的视频文件或 SRT 字幕".into());
     }
   }
 
@@ -297,10 +301,10 @@ impl VideoPlayer {
     let was_paused = self.state.as_ref().is_none_or(|state| state.paused);
     self.engine.send(Operation::Pause(true));
     let (title, filter, extensions) = match kind {
-      OpenFileKind::Video => ("Open videos", "Video files", SUPPORTED_VIDEO_EXTENSIONS),
+      OpenFileKind::Video => ("打开视频", "视频文件", SUPPORTED_VIDEO_EXTENSIONS),
       OpenFileKind::Subtitles => (
-        "Open SRT subtitles",
-        "SubRip subtitles",
+        "打开 SRT 字幕",
+        "SubRip 字幕",
         SUPPORTED_SUBTITLE_EXTENSIONS,
       ),
     };
@@ -361,7 +365,7 @@ impl VideoPlayer {
           self.path = Some(path);
           self.state = None;
           window.set_window_title(&format!(
-            "GPUI Video Player — {}",
+            "映刻 · FRAME — {}",
             self
               .path
               .as_ref()
@@ -385,7 +389,7 @@ impl VideoPlayer {
           if activate && self.subtitle_track.is_some() {
             self.settings.subtitles.enabled = true;
           }
-          self.notice = Some("Subtitle selection updated".into());
+          self.notice = Some("字幕已更新".into());
         }
         Event::Warning {
           generation,
@@ -587,9 +591,9 @@ impl VideoPlayer {
     self.engine.send(Operation::Pause(true));
     let selected = rfd::AsyncFileDialog::new()
       .set_parent(window)
-      .set_title("Save current frame")
+      .set_title("保存当前画面")
       .set_file_name("video-frame.png")
-      .add_filter("PNG image", &["png"])
+      .add_filter("PNG 图片", &["png"])
       .save_file();
     cx.spawn_in(window, async move |this, cx| {
       let picked = selected.await;
@@ -622,9 +626,7 @@ impl VideoPlayer {
         this.choosing_file = false;
         if let Some(result) = result {
           match result {
-            Ok(Ok(())) => {
-              this.notice = Some("Screenshot saved (video frame without subtitle overlay)".into())
-            }
+            Ok(Ok(())) => this.notice = Some("截图已保存（仅视频画面，不包含字幕叠层）".into()),
             other => this.error = Some(format!("Screenshot failed: {other:?}")),
           }
         }
@@ -648,7 +650,7 @@ impl VideoPlayer {
       .gap_3()
       .px_3()
       .py_2()
-      .bg(rgb(0x1b1e26))
+      .bg(self.palette().panel)
       .child(div().text_sm().child(format_time(position)))
       .child(
         div()
@@ -690,7 +692,7 @@ impl VideoPlayer {
           .child(
             Slider::new(&self.seek_slider)
               .horizontal()
-              .accessibility_label("Playback position")
+              .accessibility_label("播放进度")
               .disabled(self.state.is_none() || self.loading || self.choosing_file),
           )
           .child(
@@ -719,14 +721,14 @@ impl VideoPlayer {
                       .child(format_time(sampled)),
                   )
                 })
-                .child(format!("Jump to {}", format_time(time))),
+                .child(format!("跳转至 {}", format_time(time))),
             )
           }),
       )
       .child(div().text_sm().child(format_time(duration)))
   }
 
-  fn controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+  fn advanced_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let player = cx.weak_entity();
     let speed = self.settings.speed;
     let recent = self.settings.recent.clone();
@@ -748,11 +750,11 @@ impl VideoPlayer {
     let subtitle_player = cx.weak_entity();
     let busy = self.loading || self.choosing_file;
     let playing_label = if self.state.as_ref().is_some_and(|state| state.ended) {
-      "Replay"
+      "重播"
     } else if self.state.as_ref().is_none_or(|state| state.paused) {
-      "Play"
+      "播放"
     } else {
-      "Pause"
+      "暂停"
     };
     div()
       .flex()
@@ -760,11 +762,11 @@ impl VideoPlayer {
       .items_center()
       .gap_2()
       .p_3()
-      .bg(rgb(0x1b1e26))
+      .bg(self.palette().panel)
       .child(
         Button::new("open")
           .primary()
-          .label("Open videos")
+          .label("打开视频")
           .disabled(self.choosing_file)
           .on_click(
             cx.listener(|this, _, window, cx| this.open_file(OpenFileKind::Video, window, cx)),
@@ -772,7 +774,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("recent")
-          .label("Recent")
+          .label("最近观看")
           .disabled(recent.is_empty() || busy)
           .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             for entry in &recent {
@@ -804,7 +806,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("previous")
-          .label("Previous")
+          .label("上一个")
           .disabled(self.playlist.len() < 2 || busy)
           .on_click(cx.listener(|this, _, window, cx| {
             this.navigate(-1, window);
@@ -813,7 +815,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("next")
-          .label("Next")
+          .label("下一个")
           .disabled(self.playlist.len() < 2 || busy)
           .on_click(cx.listener(|this, _, window, cx| {
             this.navigate(1, window);
@@ -822,7 +824,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("playlist")
-          .label(format!("Playlist ({})", playlist.len()))
+          .label(format!("播放列表 ({})", playlist.len()))
           .disabled(playlist.is_empty() || busy)
           .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             for path in &playlist {
@@ -849,7 +851,7 @@ impl VideoPlayer {
       )
       .child(
         Checkbox::new("repeat")
-          .label("Loop")
+          .label("循环")
           .checked(self.settings.repeat)
           .on_change(cx.listener(|this, value: &bool, _, cx| {
             this.settings.repeat = *value;
@@ -860,7 +862,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("speed")
-          .label(format!("Speed {speed}×"))
+          .label(format!("倍速 {speed}×"))
           .disabled(busy)
           .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             for &value in PLAYBACK_SPEEDS {
@@ -881,12 +883,12 @@ impl VideoPlayer {
       )
       .child(
         Button::new("fullscreen")
-          .label("Fullscreen")
+          .label("全屏")
           .on_click(cx.listener(|_, _, window, _| window.toggle_fullscreen())),
       )
       .child(
         Button::new("step")
-          .label("Frame +")
+          .label("前进一帧")
           .disabled(self.state.is_none() || busy)
           .on_click(cx.listener(|this, _, window, cx| {
             this.issue(Operation::Step(true), window);
@@ -895,18 +897,18 @@ impl VideoPlayer {
       )
       .child(
         Button::new("screenshot")
-          .label("Screenshot")
+          .label("截图")
           .disabled(self.video_view.size().is_none() || busy)
           .on_click(cx.listener(|this, _, window, cx| this.screenshot(window, cx))),
       )
       .child(
         Button::new("audio-track")
-          .label("Audio track")
+          .label("音轨")
           .disabled(audio_tracks.is_empty() || busy)
           .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             let player = audio_player.clone();
             menu = menu.item(
-              PopupMenuItem::new("No audio")
+              PopupMenuItem::new("关闭音频")
                 .checked(audio.is_none())
                 .on_click(move |_, _, cx| {
                   let _ = player.update(cx, |this, cx| {
@@ -936,7 +938,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("open-subtitles")
-          .label("Open SRT")
+          .label("加载 SRT")
           .disabled(self.state.is_none() || busy)
           .on_click(
             cx.listener(|this, _, window, cx| this.open_file(OpenFileKind::Subtitles, window, cx)),
@@ -944,7 +946,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("embedded-subtitles")
-          .label("Embedded subtitles")
+          .label("内嵌字幕")
           .disabled(subtitle_tracks.is_empty() || busy)
           .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, _| {
             for track in &subtitle_tracks {
@@ -956,7 +958,7 @@ impl VideoPlayer {
                   .on_click(move |_, _, cx| {
                     let _ = player.update(cx, |this, cx| {
                       this.engine.send(Operation::Embedded(index));
-                      this.notice = Some("Extracting subtitles…".into());
+                      this.notice = Some("正在提取字幕…".into());
                       cx.notify();
                     });
                   }),
@@ -967,7 +969,7 @@ impl VideoPlayer {
       )
       .child(
         Checkbox::new("subtitles")
-          .label("Subtitles")
+          .label("显示字幕")
           .checked(self.settings.subtitles.enabled)
           .on_change(cx.listener(|this, value: &bool, _, cx| {
             this.settings.subtitles.enabled = *value;
@@ -976,16 +978,8 @@ impl VideoPlayer {
           })),
       )
       .child(
-        Button::new("settings")
-          .label("Subtitle settings")
-          .on_click(cx.listener(|this, _, _, cx| {
-            this.settings_open = !this.settings_open;
-            cx.notify();
-          })),
-      )
-      .child(
         Checkbox::new("mute")
-          .label("Mute")
+          .label("静音")
           .checked(self.settings.muted)
           .on_change(cx.listener(|this, value: &bool, _, cx| {
             this.settings.muted = *value;
@@ -994,25 +988,19 @@ impl VideoPlayer {
             cx.notify();
           })),
       )
-      .child(
-        div()
-          .w(px(120.0))
-          .child(Slider::new(&self.volume_slider).accessibility_label("Volume")),
-      )
-      .child(format!("{:.0}%", self.settings.volume * 100.0))
       .when_some(self.state.as_ref(), |element, state| {
         element.child(div().text_sm().child(format!(
-          "{} | frame {} | {}{}",
+          "{} | 第 {} 帧 | {}{}",
           if state.ended {
-            "Ended"
+            "已结束"
           } else if state.paused {
-            "Paused"
+            "已暂停"
           } else {
-            "Playing"
+            "播放中"
           },
           state.frame_number,
           state.backend,
-          if state.audible { "" } else { " | silent" }
+          if state.audible { "" } else { " | 无声" }
         )))
       })
   }
@@ -1025,11 +1013,11 @@ impl VideoPlayer {
       .items_center()
       .gap_2()
       .p_2()
-      .bg(rgb(0x252a34))
-      .child(format!("Subtitle delay {:+.1}s", settings.delay))
+      .bg(self.palette().panel)
+      .child(format!("字幕延迟 {:+.1} 秒", settings.delay))
       .child(
         Button::new("subtitle-earlier")
-          .label("Earlier −0.1s")
+          .label("提前 0.1 秒")
           .on_click(cx.listener(|this, _, _, cx| {
             this.settings.subtitles.delay = (this.settings.subtitles.delay - 0.1).max(-60.0);
             this.save();
@@ -1038,7 +1026,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("subtitle-later")
-          .label("Later +0.1s")
+          .label("延后 0.1 秒")
           .on_click(cx.listener(|this, _, _, cx| {
             this.settings.subtitles.delay = (this.settings.subtitles.delay + 0.1).min(60.0);
             this.save();
@@ -1066,7 +1054,7 @@ impl VideoPlayer {
       )
       .child(
         Checkbox::new("subtitle-outline")
-          .label("Outline")
+          .label("描边")
           .checked(settings.outline)
           .on_change(cx.listener(|this, value: &bool, _, cx| {
             this.settings.subtitles.outline = *value;
@@ -1076,7 +1064,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("subtitle-opacity")
-          .label(format!("Background {:.0}%", settings.opacity * 100.0))
+          .label(format!("背景 {:.0}%", settings.opacity * 100.0))
           .on_click(cx.listener(|this, _, _, cx| {
             this.settings.subtitles.opacity = if this.settings.subtitles.opacity >= 0.95 {
               0.0
@@ -1089,7 +1077,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("subtitle-position")
-          .label(["Top", "Center", "Bottom"][settings.position as usize])
+          .label(["顶部", "居中", "底部"][settings.position as usize])
           .on_click(cx.listener(|this, _, _, cx| {
             this.settings.subtitles.position = (this.settings.subtitles.position + 1) % 3;
             this.save();
@@ -1098,7 +1086,7 @@ impl VideoPlayer {
       )
       .child(
         Button::new("subtitle-reset")
-          .label("Reset")
+          .label("重置")
           .on_click(cx.listener(|this, _, _, cx| {
             this.settings.subtitles = settings::SubtitleSettings::default();
             this.save();
@@ -1163,7 +1151,7 @@ impl VideoPlayer {
 }
 
 impl Render for VideoPlayer {
-  fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
     let subtitle = if self.settings.subtitles.enabled && self.video_view.size().is_some() {
       self.state.as_ref().and_then(|state| {
         let seconds = state.time.as_secs_f64() - self.settings.subtitles.delay;
@@ -1177,83 +1165,7 @@ impl Render for VideoPlayer {
     } else {
       None
     };
-    div()
-      .id("video-player")
-      .size_full()
-      .flex()
-      .flex_col()
-      .bg(rgb(0x000000))
-      .text_color(rgb(0xe6e8ef))
-      .track_focus(&self.focus)
-      .on_key_down(cx.listener(Self::key_down))
-      .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
-        this.open_files(paths.paths().to_vec(), window);
-        cx.notify();
-      }))
-      .child(
-        div()
-          .id("video-surface")
-          .relative()
-          .flex_1()
-          .min_h_0()
-          .overflow_hidden()
-          .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, event: &MouseDownEvent, window, cx| {
-              window.focus(&this.focus, cx);
-              if event.click_count == 2 {
-                window.toggle_fullscreen();
-              }
-            }),
-          )
-          .child(self.video_view.element())
-          .when_some(subtitle, |element, text| {
-            element.child(self.subtitle_overlay(text))
-          })
-          .when(self.loading, |element| {
-            element.child(
-              div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .p_3()
-                .bg(rgba(0x000000bb))
-                .child("Loading / seeking…"),
-            )
-          }),
-      )
-      .when_some(
-        self.error.clone().or_else(|| self.notice.clone()),
-        |element, message| {
-          element.child(
-            div()
-              .flex()
-              .items_center()
-              .gap_3()
-              .p_2()
-              .bg(rgb(if self.error.is_some() {
-                0x48242b
-              } else {
-                0x263344
-              }))
-              .child(div().flex_1().text_sm().child(message))
-              .child(
-                Button::new("dismiss")
-                  .label("Dismiss")
-                  .on_click(cx.listener(|this, _, _, cx| {
-                    this.error = None;
-                    this.notice = None;
-                    cx.notify();
-                  })),
-              ),
-          )
-        },
-      )
-      .child(self.timeline(cx))
-      .when(self.settings_open, |element| {
-        element.child(self.subtitle_settings(cx))
-      })
-      .child(self.controls(cx))
+    self.render_shell(subtitle, window, cx)
   }
 }
 
@@ -1296,35 +1208,37 @@ async fn main() -> Result<()> {
       None
     }
   };
-  gpui_kit::application().run(move |cx| {
-    gpui_kit::init(cx);
-    Theme::change(ThemeMode::Dark, None, cx);
-    cx.on_window_closed(|cx, _| {
-      if cx.windows().is_empty() {
+  gpui_kit::application()
+    .with_assets(gpui_kit::assets::AllAssets)
+    .run(move |cx| {
+      gpui_kit::init(cx);
+      Theme::change(ThemeMode::Dark, None, cx);
+      cx.on_window_closed(|cx, _| {
+        if cx.windows().is_empty() {
+          cx.quit();
+        }
+      })
+      .detach();
+      let options = WindowOptions {
+        titlebar: Some(TitlebarOptions {
+          title: Some("映刻 · FRAME".into()),
+          ..Default::default()
+        }),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+          None,
+          size(px(1440.0), px(900.0)),
+          cx,
+        ))),
+        window_min_size: Some(size(px(760.0), px(560.0))),
+        ..Default::default()
+      };
+      if let Err(error) = gpui_kit::open_window(options, cx, |window, cx| {
+        cx.new(|cx| VideoPlayer::new(gpu, paths, window, cx))
+      }) {
+        eprintln!("Could not open player: {error:#}");
         cx.quit();
       }
-    })
-    .detach();
-    let options = WindowOptions {
-      titlebar: Some(TitlebarOptions {
-        title: Some("GPUI Video Player".into()),
-        ..Default::default()
-      }),
-      window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-        None,
-        size(px(1200.0), px(800.0)),
-        cx,
-      ))),
-      window_min_size: Some(size(px(640.0), px(480.0))),
-      ..Default::default()
-    };
-    if let Err(error) = gpui_kit::open_window(options, cx, |window, cx| {
-      cx.new(|cx| VideoPlayer::new(gpu, paths, window, cx))
-    }) {
-      eprintln!("Could not open player: {error:#}");
-      cx.quit();
-    }
-    cx.activate(true);
-  });
+      cx.activate(true);
+    });
   Ok(())
 }

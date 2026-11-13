@@ -15,6 +15,12 @@ pub struct Track {
 }
 
 #[derive(Clone, Debug)]
+pub struct Chapter {
+  pub title: String,
+  pub start: Duration,
+}
+
+#[derive(Clone, Debug)]
 pub struct MediaInfo {
   pub duration: Duration,
   pub width: u32,
@@ -27,6 +33,7 @@ pub struct MediaInfo {
   pub hardware_compatible: bool,
   pub audio_tracks: Vec<Track>,
   pub subtitle_tracks: Vec<Track>,
+  pub chapters: Vec<Chapter>,
 }
 
 pub fn supported(path: &Path) -> bool {
@@ -55,6 +62,7 @@ impl MediaInfo {
           "error",
           "-show_streams",
           "-show_format",
+          "-show_chapters",
           "-of",
           "json",
         ])
@@ -167,6 +175,23 @@ impl MediaInfo {
       hardware_compatible,
       audio_tracks: tracks("audio"),
       subtitle_tracks: tracks("subtitle"),
+      chapters: document["chapters"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, chapter)| {
+          let seconds = chapter["start_time"].as_str()?.parse().ok()?;
+          let start = Duration::try_from_secs_f64(seconds).ok()?;
+          (start < duration).then(|| Chapter {
+            title: chapter["tags"]["title"]
+              .as_str()
+              .map(str::to_owned)
+              .unwrap_or_else(|| format!("第 {} 章", index + 1)),
+            start,
+          })
+        })
+        .collect(),
     })
   }
 

@@ -35,6 +35,8 @@ pub struct RecentFile {
   pub path: PathBuf,
   pub position: f64,
   #[serde(default)]
+  pub duration: f64,
+  #[serde(default)]
   pub subtitle: Option<PathBuf>,
 }
 
@@ -47,6 +49,8 @@ pub struct Settings {
   pub repeat: bool,
   pub subtitles: SubtitleSettings,
   pub recent: Vec<RecentFile>,
+  pub favorites: Vec<PathBuf>,
+  pub light_theme: bool,
 }
 
 impl Default for Settings {
@@ -58,6 +62,8 @@ impl Default for Settings {
       repeat: false,
       subtitles: SubtitleSettings::default(),
       recent: Vec::new(),
+      favorites: Vec::new(),
+      light_theme: false,
     }
   }
 }
@@ -103,16 +109,22 @@ impl Settings {
       .recent
       .retain(|entry| entry.position.is_finite() && entry.position >= 0.0);
     settings.recent.truncate(20);
+    for entry in &mut settings.recent {
+      if !entry.duration.is_finite() || entry.duration < 0.0 {
+        entry.duration = 0.0;
+      }
+    }
     Ok(settings)
   }
 
-  pub fn remember(&mut self, path: &Path, position: f64, subtitle: Option<PathBuf>) {
+  pub fn remember(&mut self, path: &Path, position: f64, duration: f64, subtitle: Option<PathBuf>) {
     self.recent.retain(|entry| entry.path != path);
     self.recent.insert(
       0,
       RecentFile {
         path: path.to_path_buf(),
         position,
+        duration,
         subtitle,
       },
     );
