@@ -3,7 +3,7 @@
 resolver = "3"
 
 # Keep gpui-fast feature unification out of the gpui-pre applications.
-exclude = ["entity_view_fast_example", "embed_gpui"]
+exclude = ["entity_view_fast_example", "embed_gpui", "gpui_fast_example"]
 
 members = [
   "gpui-kit-example",
@@ -11,7 +11,6 @@ members = [
   # "entity_view_example",
   "gpui_kit_design_pattern",
   "mai_ui_demo",
-  "gpui_fast_example",
   "gpui_topcoat_example",
   "gpui_topcoat_example/protocol",
   # "gpui_router_example",

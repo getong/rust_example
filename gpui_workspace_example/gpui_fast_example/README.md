@@ -3,6 +3,8 @@
 这个示例把 Taffy 的外部布局树与 `gpui-kit` 的组件系统组合起来。
 `gpui-kit` 使用 `gpui-fast` feature，因此所有 GPUI 类型、平台初始化和组件都来自同一套 GPUI Fast 后端。
 
+本示例独立于父工作区构建，避免 Cargo 合并 `gpui-kit/gpui-fast` 特性后，导致父工作区中使用 `gpui-pre` 的 `gpui-router` 与组件类型不兼容。在父工作区目录可执行 `cargo run --manifest-path gpui_fast_example/Cargo.toml`。
+
 ## 运行
 
 在当前目录执行：
