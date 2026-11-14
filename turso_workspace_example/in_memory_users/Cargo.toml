@@ -6,4 +6,3 @@ edition.workspace = true
 [dependencies]
 tokio.workspace = true
 turso.workspace = true
-branches = "0.4"
