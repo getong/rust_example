@@ -254,6 +254,13 @@ pub struct GroundingSession {
 }
 
 impl GroundingSession {
+  pub fn new(settings: Settings) -> Self {
+    Self {
+      settings,
+      ..Self::default()
+    }
+  }
+
   pub fn load(path: &Path, settings: &Settings) -> Result<Self> {
     let bytes = match fs::read(path) {
       Ok(bytes) => bytes,

@@ -131,6 +131,14 @@ impl GroundingPanel {
     self.preview.borrow_mut().hide();
   }
 
+  pub fn session(&self) -> &GroundingSession {
+    &self.session
+  }
+
+  pub fn return_input_focus(&self) -> anyhow::Result<()> {
+    self.preview.borrow().focus_editor()
+  }
+
   fn focus_editor(&mut self, cx: &mut Context<Self>) {
     if let Err(error) = self.preview.borrow().focus_editor() {
       self.error = Some(format!("恢复输入焦点失败: {error:#}"));

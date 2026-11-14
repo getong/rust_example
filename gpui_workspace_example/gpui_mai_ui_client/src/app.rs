@@ -18,7 +18,8 @@ use gpui_mai_ui_client::{
   document,
   generation::{self, Event, Job},
   grounding::GroundingSession,
-  session::Session,
+  projects,
+  session::{Session, Settings},
 };
 
 use crate::{
@@ -112,29 +113,6 @@ impl Studio {
       error: None,
       _focus_subscriptions: focus_subscriptions,
     };
-    let weak = cx.weak_entity();
-    window.on_window_should_close(cx, move |_, cx| {
-      weak
-        .update(cx, |this, cx| {
-          if let Err(error) = this.grounding.update(cx, |panel, cx| panel.save(cx)) {
-            this.grounding.update(cx, |panel, _| panel.hide());
-            this.grounding_mode = false;
-            this.error = Some(format!("保存定位会话失败: {error:#}；请修复后再关闭"));
-            cx.notify();
-            return false;
-          }
-          this.capture_draft(cx);
-          if let Err(error) = this.session.save(&this.path) {
-            eprintln!("保存会话失败: {error:#}");
-            this.error = Some(format!("保存会话失败: {error:#}；请先修复路径或权限再关闭"));
-            cx.notify();
-            return false;
-          }
-          this.running = None;
-          true
-        })
-        .unwrap_or(true)
-    });
     cx.spawn_in(window, async move |this, cx| {
       loop {
         cx.background_executor()
@@ -150,6 +128,40 @@ impl Studio {
     })
     .detach();
     studio
+  }
+
+  pub fn is_busy(&self, cx: &App) -> bool {
+    self.running.is_some() || self.choosing_file || self.grounding.read(cx).is_busy()
+  }
+
+  pub fn save(&mut self, cx: &mut Context<Self>) -> anyhow::Result<()> {
+    self.capture_draft(cx);
+    self.session.save(&self.path)?;
+    self.grounding.update(cx, |panel, cx| panel.save(cx))
+  }
+
+  pub fn settings(&self, cx: &App) -> (Settings, Settings) {
+    (
+      self.session.settings.clone(),
+      self.grounding.read(cx).session().settings.clone(),
+    )
+  }
+
+  pub fn prompt_report(&self, cx: &App) -> String {
+    projects::prompt_report(&self.session, self.grounding.read(cx).session())
+  }
+
+  pub fn hide_previews(&mut self, cx: &mut Context<Self>) {
+    self.preview.borrow_mut().hide();
+    self.grounding.update(cx, |panel, _| panel.hide());
+  }
+
+  pub fn return_input_focus(&self, cx: &App) -> anyhow::Result<()> {
+    if self.grounding_mode {
+      self.grounding.read(cx).return_input_focus()
+    } else {
+      self.preview.borrow().focus_editor()
+    }
   }
 
   fn focus_editor(&mut self, cx: &mut Context<Self>) {
@@ -687,7 +699,7 @@ impl Studio {
 
 impl Render for Studio {
   fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    let busy = self.running.is_some() || self.choosing_file || self.grounding.read(cx).is_busy();
+    let busy = self.is_busy(cx);
     let content = if self.grounding_mode {
       self.grounding.clone().into_any_element()
     } else {

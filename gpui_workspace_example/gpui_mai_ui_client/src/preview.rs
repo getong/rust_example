@@ -30,7 +30,7 @@ impl Preview {
       view: None,
       #[cfg(any(target_os = "macos", target_os = "windows"))]
       loaded: None,
-      attempted: false,
+      attempted: cfg!(all(test, feature = "ui-tests")),
     }))
   }
 
