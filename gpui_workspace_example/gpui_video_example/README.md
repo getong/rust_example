@@ -24,6 +24,10 @@ cargo run -p gpui_video_example
 cargo run -p gpui_video_example -- /path/to/movie.mp4 /path/to/next.mkv
 ```
 
+### ARM64 / nightly 编译兼容
+
+当前 `pathfinder_simd 0.5.6` 的 ARM SIMD 实现使用旧的 LLVM intrinsic ABI，在 Rust 1.102.0-nightly（2026-11-13）上会触发 `llvm.* function must use extern "llvm-intrinsic"` 编译器内部错误。项目在 ARM64 上启用该依赖的 `pf-no-simd` 特性，通过 Cargo 特性合并让 GPUI 的 Pathfinder 几何运算使用标量后端，避免该不兼容路径；无需修改 Cargo 缓存或切换全局工具链。此设置不禁用视频硬件解码或 wgpu GPU 渲染，也不影响其他架构的 SIMD 后端，但可能降低 ARM64 上部分几何运算的性能。
+
 ## 播放与操作
 
 - **Open videos** 支持一次选择多个文件形成播放列表；**Playlist / Previous / Next** 切换视频，播放结束自动播放列表中的下一项。也可将视频或 SRT 文件拖入窗口。
