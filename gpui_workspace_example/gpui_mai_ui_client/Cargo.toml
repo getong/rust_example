@@ -1,0 +1,30 @@
+[package]
+name = "gpui_mai_ui_client"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "gpui_mai_ui_client"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[features]
+default = ["desktop"]
+desktop = ["dep:gpui-kit", "dep:rfd", "dep:wry"]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }
+gpui-kit = { version = "0.9.1", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rfd = { version = "0.18", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1.54.1", features = ["rt", "net", "time", "sync", "macros"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+wry = { version = "0.57.1", default-features = false, features = ["os-webview"], optional = true }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+pathfinder_simd = { version = "0.5.6", features = ["pf-no-simd"] }

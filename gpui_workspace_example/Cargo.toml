@@ -16,6 +16,7 @@ members = [
   # "gpui_router_example",
   # "gpui_video_player_example",
   "gpui_video_example",
+  "gpui_mai_ui_client",
 ]
 
 # Reduce debug unwind-table size while retaining symbols and panic unwinding.
