@@ -30,6 +30,7 @@ mod audio;
 mod demuxer;
 mod engine;
 mod gpu;
+mod launcher;
 mod media;
 mod playback;
 mod preview;
@@ -1193,8 +1194,15 @@ fn absolute_path(path: PathBuf) -> PathBuf {
   }
 }
 
+fn main() -> Result<()> {
+  if launcher::detach_from_terminal()? {
+    return Ok(());
+  }
+  run()
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn run() -> Result<()> {
   tracing_subscriber::fmt().init();
   let paths = std::env::args_os()
     .skip(1)

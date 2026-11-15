@@ -19,3 +19,6 @@ wgpu = "30"
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 pathfinder_simd = { version = "0.5.6", features = ["pf-no-simd"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

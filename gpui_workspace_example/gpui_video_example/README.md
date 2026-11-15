@@ -24,6 +24,10 @@ cargo run -p gpui_video_example
 cargo run -p gpui_video_example -- /path/to/movie.mp4 /path/to/next.mkv
 ```
 
+macOS / Linux 下从交互式终端启动时，播放器会像 obelus 一样重新启动到独立会话，立即归还 shell；之后在原终端按 `Ctrl+C` 或关闭终端不会关闭播放器。视频参数、工作目录和环境变量会保留，日志追加写入配置文件同路径的 `.log` 文件（默认 `settings.log`）。后台进程的启动和播放错误请查看该日志。
+
+需要前台调试、查看实时日志时使用 `GPUI_VIDEO_FOREGROUND=1 cargo run -p gpui_video_example`。标准输入不是终端时（例如重定向为 `/dev/null`），也会保持前台运行，与 obelus 的行为一致。
+
 ### ARM64 / nightly 编译兼容
 
 当前 `pathfinder_simd 0.5.6` 的 ARM SIMD 实现使用旧的 LLVM intrinsic ABI，在 Rust 1.102.0-nightly（2026-11-13）上会触发 `llvm.* function must use extern "llvm-intrinsic"` 编译器内部错误。项目在 ARM64 上启用该依赖的 `pf-no-simd` 特性，通过 Cargo 特性合并让 GPUI 的 Pathfinder 几何运算使用标量后端，避免该不兼容路径；无需修改 Cargo 缓存或切换全局工具链。此设置不禁用视频硬件解码或 wgpu GPU 渲染，也不影响其他架构的 SIMD 后端，但可能降低 ARM64 上部分几何运算的性能。
