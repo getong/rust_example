@@ -1134,10 +1134,7 @@ impl VideoPlayer {
         .tooltip("继续播放")
         .disabled(!available || self.choosing_file)
         .on_click(cx.listener(move |this, _, window, cx| {
-          if !this.playlist.contains(&path) {
-            this.playlist.push(path.clone());
-          }
-          this.open_path(&path, None, window);
+          this.open_files(vec![path.clone()], window);
           cx.notify();
         })),
       )

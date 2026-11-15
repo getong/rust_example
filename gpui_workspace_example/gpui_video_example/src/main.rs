@@ -33,6 +33,7 @@ mod gpu;
 mod launcher;
 mod media;
 mod playback;
+mod playlist;
 mod preview;
 mod process;
 mod settings;
@@ -161,7 +162,7 @@ impl VideoPlayer {
       scrub_target: None,
       scrub_was_paused: true,
       subtitle_track: None,
-      playlist: initial_paths.clone(),
+      playlist: Vec::new(),
       error,
       notice: None,
       previewer: Previewer::new(),
@@ -195,8 +196,8 @@ impl VideoPlayer {
       }
     })
     .detach();
-    if let Some(path) = initial_paths.first() {
-      player.open_path(path, None, window);
+    if !initial_paths.is_empty() {
+      player.open_files(initial_paths, window);
     }
     player
   }
@@ -283,7 +284,7 @@ impl VideoPlayer {
       .map(absolute_path)
       .collect::<Vec<_>>();
     if let Some(path) = videos.first().cloned() {
-      self.playlist = videos;
+      self.playlist = playlist::from_paths(videos);
       self.open_path(&path, subtitle, window);
     } else if let Some(path) = subtitle
       && self.path.is_some()
@@ -375,7 +376,7 @@ impl VideoPlayer {
           ));
         }
         Event::State { generation, state } if generation == self.generation => {
-          play_next = state.ended
+          play_next |= state.ended
             && !self.settings.repeat
             && self.state.as_ref().is_none_or(|old| !old.ended);
           self.loading = state.loading;
@@ -789,8 +790,7 @@ impl VideoPlayer {
                 ))
                 .on_click(move |_, window, cx| {
                   let _ = player.update(cx, |this, cx| {
-                    this.playlist = vec![path.clone()];
-                    this.open_path(&path, None, window);
+                    this.open_files(vec![path.clone()], window);
                     cx.notify();
                   });
                 }),
