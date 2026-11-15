@@ -524,7 +524,7 @@ impl VideoPlayer {
   fn stage(
     &self,
     subtitle: Option<String>,
-    fullscreen: bool,
+    expanded: bool,
     height: f32,
     cx: &mut Context<Self>,
   ) -> impl IntoElement {
@@ -534,8 +534,8 @@ impl VideoPlayer {
       .w_full()
       .overflow_hidden()
       .bg(rgb(0x000000))
-      .when(fullscreen, |element| element.flex_1().min_h_0())
-      .when(!fullscreen, |element| element.h(px(height)).rounded_lg())
+      .when(expanded, |element| element.flex_1().min_h_0())
+      .when(!expanded, |element| element.h(px(height)).rounded_lg())
       .on_mouse_down(
         MouseButton::Left,
         cx.listener(|this, event: &MouseDownEvent, window, cx| {
@@ -1371,6 +1371,8 @@ impl VideoPlayer {
     let viewport = window.viewport_size();
     let compact = viewport.width < px(1050.0);
     let fullscreen = window.is_fullscreen();
+    let controls_hidden = self.controls.hidden();
+    let video_only = fullscreen || controls_hidden;
     let title = match self.page {
       Page::Playing => "正在播放",
       Page::Library => "媒体库",
@@ -1384,12 +1386,25 @@ impl VideoPlayer {
       .text_color(palette.text)
       .text_size(px(14.0))
       .track_focus(&self.focus)
+      .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+        this.controls_mouse_down = true;
+        this.show_controls(cx);
+      }))
+      .capture_any_mouse_up(cx.listener(|this, _, _, cx| {
+        this.controls_mouse_down = false;
+        this.show_controls(cx);
+      }))
+      .on_mouse_exit(cx.listener(|this, _, _, _| {
+        this.controls_mouse_down = false;
+      }))
+      .on_scroll(cx.listener(|this, _, _, cx| this.show_controls(cx)))
+      .capture_key_down(cx.listener(|this, _, _, cx| this.show_controls(cx)))
       .on_key_down(cx.listener(Self::key_down))
       .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
         this.open_files(paths.paths().to_vec(), window);
         cx.notify();
       }))
-      .when(fullscreen, |element| {
+      .when(video_only, |element| {
         element.child(
           div()
             .size_full()
@@ -1398,7 +1413,11 @@ impl VideoPlayer {
             .bg(rgb(0x000000))
             .child(self.stage(subtitle.clone(), true, 0.0, cx))
             .when_some(
-              self.error.clone().or_else(|| self.notice.clone()),
+              self
+                .error
+                .clone()
+                .or_else(|| self.notice.clone())
+                .filter(|_| !controls_hidden),
               |element, message| {
                 element.child(
                   div()
@@ -1422,10 +1441,12 @@ impl VideoPlayer {
                 )
               },
             )
-            .child(self.transport(cx)),
+            .when(!controls_hidden, |element| {
+              element.child(self.transport(cx))
+            }),
         )
       })
-      .when(!fullscreen, |element| {
+      .when(!video_only, |element| {
         element.child(self.sidebar(compact, cx)).child(
           div()
             .flex_1()

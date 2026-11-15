@@ -27,6 +27,7 @@ use subtitles::{SUPPORTED_SUBTITLE_EXTENSIONS, SubtitleTrack};
 use video_view::VideoView;
 
 mod audio;
+mod controls;
 mod demuxer;
 mod engine;
 mod gpu;
@@ -61,6 +62,9 @@ struct VideoPlayer {
   last_save: Instant,
   loading: bool,
   choosing_file: bool,
+  controls: controls::AutoHide,
+  controls_mouse_down: bool,
+  last_mouse_position: Point<Pixels>,
   page: ui::Page,
   focus: FocusHandle,
   volume_slider: Entity<SliderState>,
@@ -155,6 +159,9 @@ impl VideoPlayer {
       last_save: Instant::now(),
       loading: false,
       choosing_file: false,
+      controls: controls::AutoHide::new(Instant::now()),
+      controls_mouse_down: false,
+      last_mouse_position: window.mouse_position(),
       page: ui::Page::Playing,
       focus,
       volume_slider,
@@ -242,6 +249,7 @@ impl VideoPlayer {
 
   fn open_path(&mut self, path: &Path, subtitle: Option<PathBuf>, window: &mut Window) {
     self.save();
+    self.controls.show(Instant::now());
     self.page = ui::Page::Playing;
     let path = if path.is_absolute() {
       path.to_path_buf()
@@ -458,7 +466,37 @@ impl VideoPlayer {
     if self.path.is_some() && self.last_save.elapsed() >= Duration::from_secs(10) {
       self.save();
     }
+    let now = Instant::now();
+    let mouse_position = window.mouse_position();
+    if mouse_position != self.last_mouse_position {
+      self.last_mouse_position = mouse_position;
+      changed |= self.controls.show(now);
+    }
+    let can_hide = self.page == ui::Page::Playing
+      && self
+        .state
+        .as_ref()
+        .is_some_and(|state| !state.paused && !state.ended)
+      && self.video_view.size().is_some()
+      && !self.loading
+      && !self.choosing_file
+      && !self.controls_mouse_down
+      && self.scrub_target.is_none()
+      && self.error.is_none();
+    if self.controls.update(now, can_hide) {
+      if self.controls.hidden() {
+        self.hover_time = None;
+        window.focus(&self.focus, cx);
+      }
+      changed = true;
+    }
     changed
+  }
+
+  fn show_controls(&mut self, cx: &mut Context<Self>) {
+    if self.controls.show(Instant::now()) {
+      cx.notify();
+    }
   }
 
   fn seek_to(&mut self, position: Duration, window: &mut Window) {
