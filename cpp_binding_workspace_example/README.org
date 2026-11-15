@@ -1,3 +1,21 @@
 copy from https://github.com/PacktPublishing/Rust-for-CPP-Developers
 
 and modified source code by claude
+
+* Build
+
+The SDL examples build SDL 3.4.12 from source with CMake. Before the first
+build, download and extract the sources for all three crates from the
+workspace root:
+
+#+begin_src sh
+./bind_c_manual/down.sh
+./bind_c_bindgen/down.sh
+./sdl_safe_wrapper/down.sh
+cargo build
+#+end_src
+
+The download scripts require curl and tar, work from any directory, and skip
+sources that are already present. Compilation also requires CMake and a C/C++
+compiler. The other examples require their respective pkg-config/vcpkg
+dependencies to be installed.
