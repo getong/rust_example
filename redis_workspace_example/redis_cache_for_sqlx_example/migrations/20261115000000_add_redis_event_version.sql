@@ -1,0 +1,3 @@
+ALTER TABLE users
+    ADD COLUMN redis_event_ms BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN redis_event_seq BIGINT NOT NULL DEFAULT 0;
