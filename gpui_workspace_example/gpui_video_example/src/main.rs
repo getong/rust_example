@@ -183,16 +183,14 @@ impl VideoPlayer {
         cx.background_executor()
           .timer(Duration::from_millis(16))
           .await;
-        if this
-          .update_in(cx, |this, window, cx| {
-            if this.poll(window, cx) {
-              cx.notify();
-            }
-          })
-          .is_err()
-        {
+        if this.upgrade().is_none() {
           break;
         }
+        let _ = this.update_in(cx, |this, window, cx| {
+          if this.poll(window, cx) {
+            cx.notify();
+          }
+        });
       }
     })
     .detach();
