@@ -12,6 +12,6 @@ fi
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply --dry-run=server -n "$NAMESPACE" -f "$PROJECT_ROOT/k8s/cloudnative-pg.yaml"
 kubectl apply -n "$NAMESPACE" -f "$PROJECT_ROOT/k8s/cloudnative-pg.yaml"
-kubectl wait -n "$NAMESPACE" --for=condition=Ready cluster/app-db --timeout=600s
+kubectl wait -n "$NAMESPACE" --for=condition=Ready clusters.postgresql.cnpg.io/app-db --timeout=600s
 printf 'Write endpoint: app-db-rw.%s.svc.cluster.local:5432\n' "$NAMESPACE"
 printf 'Application credentials: Secret app-db-app in namespace %s\n' "$NAMESPACE"

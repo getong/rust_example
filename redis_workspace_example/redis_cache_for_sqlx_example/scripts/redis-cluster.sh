@@ -119,7 +119,7 @@ for ((attempt = 0; attempt < 60; attempt++)); do
     fi
     replication="$(redis-cli -h 127.0.0.1 -p "$port" INFO replication | tr -d '\r')"
     if grep -Fxq 'role:master' <<< "$replication" &&
-       ! grep -Eq '^slave[0-9]+:.*state=online,.*lag=[0-9]$' <<< "$replication"; then
+       ! grep -Eq '^min_slaves_good_slaves:[1-9][0-9]*$' <<< "$replication"; then
       ready=false
     fi
   done
