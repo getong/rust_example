@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 gpu-video = { version = "0.5.0", features = ["wgpu"] }
-gpui-kit = "0.9.1"
+gpui-kit = "0.10.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
 mp4 = "0.14.0"
 rfd = "0.18.0"
