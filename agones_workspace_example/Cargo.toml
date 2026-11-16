@@ -3,5 +3,6 @@
 resolver = "3"
 
 members = [
+  "agones_sdk_example",
   "agones_tonic_client",
 ]
