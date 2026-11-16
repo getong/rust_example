@@ -1,0 +1,14 @@
+agones:
+  allocator:
+    install: true
+    replicas: 3
+    disableTLS: false
+    disableMTLS: false
+    service:
+      serviceType: LoadBalancer
+      http:
+        enabled: false
+      grpc:
+        enabled: true
+        port: 443
+        targetPort: 8443

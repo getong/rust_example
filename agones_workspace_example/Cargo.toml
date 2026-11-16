@@ -1,0 +1,7 @@
+[workspace]
+
+resolver = "3"
+
+members = [
+  "agones_tonic_client",
+]

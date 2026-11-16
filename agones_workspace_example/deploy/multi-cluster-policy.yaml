@@ -1,0 +1,30 @@
+apiVersion: multicluster.agones.dev/v1
+kind: GameServerAllocationPolicy
+metadata:
+  name: local-cluster
+  namespace: default
+  labels:
+    allocation-pool: production
+spec:
+  priority: 1
+  weight: 100
+  connectionInfo:
+    clusterName: local
+    namespace: default
+---
+apiVersion: multicluster.agones.dev/v1
+kind: GameServerAllocationPolicy
+metadata:
+  name: remote-cluster
+  namespace: default
+  labels:
+    allocation-pool: production
+spec:
+  priority: 2
+  weight: 100
+  connectionInfo:
+    clusterName: remote
+    namespace: default
+    allocationEndpoints:
+      - 203.0.113.20
+    secretName: allocator-client-to-remote
