@@ -1,7 +1,7 @@
-use jiff::{Timestamp, ToSpan, Unit, Zoned};
+use jiff::{Timestamp, ToSpan, Unit, ZonedDateTime};
 
 fn main() -> Result<(), jiff::Error> {
-  let now = Zoned::now().round(Unit::Second)?;
+  let now = ZonedDateTime::now().round(Unit::Second)?;
   println!("{now}");
 
   let time: Timestamp = "2024-07-11T01:14:00Z".parse()?;
