@@ -1,0 +1,9 @@
+/output-*.png
+*.artifacts/
+/.venv/
+/.model-cache/
+/.cache/
+/target/
+/.tools/
+/.ollama/
+__pycache__/

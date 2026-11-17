@@ -9,4 +9,5 @@ members = [
   "mai_ui_unreal",
   "qwen_image_usage",
   "mai_ui_video_player",
+  "ollama_qwen_image",
 ]
