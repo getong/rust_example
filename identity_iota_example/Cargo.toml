@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.94"
-identity_iota = { version = "1.4.0", features = ["memstore"] }
+anyhow = "1.0.104"
+identity_iota = { version = "1.5.1", features = ["memstore"] }
 iota-sdk = { version = "1.1.5", features = ["tls", "client", "stronghold"] }
-rand = "0.8.5"
-tokio = { version = "1.42.0", features = ["full"] }
+rand = "0.10.4"
+tokio = { version = "1.54.1", features = ["full"] }
