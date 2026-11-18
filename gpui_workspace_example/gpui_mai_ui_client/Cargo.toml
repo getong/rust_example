@@ -25,7 +25,7 @@ serde_json = "1"
 tokio = { version = "1.54.1", features = ["rt", "net", "time", "sync", "macros"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-wry = { version = "0.57.2", default-features = false, features = ["os-webview"], optional = true }
+wry = { version = "0.57.3", default-features = false, features = ["os-webview"], optional = true }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 pathfinder_simd = { version = "0.5.6", features = ["pf-no-simd"] }
