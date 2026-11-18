@@ -11,7 +11,7 @@ axum_session = "0.23.1"
 axum_session_auth = "0.23.0"
 axum_session_sqlx = { version = "0.13.0", features = ["sqlite"] }
 serde = "1.0.229"
-sqlx = { version = "0.9.0", features = [
+sqlx = { version = "0.9.1", features = [
     "macros",
     "migrate",
     "postgres",
