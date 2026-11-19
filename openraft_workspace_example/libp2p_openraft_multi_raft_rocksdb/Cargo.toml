@@ -27,10 +27,10 @@ axum = { version = "0.8.9", default-features = false, features = [
   "tokio",
 ] }
 byteorder = "1.5.0"
-clap = { version = "4.6.7", features = ["derive"] }
+clap = { version = "4.6.8", features = ["derive"] }
 console-subscriber = "0.5.0"
 futures = "0.3.34"
-graphviz-rust = "0.9.9"
+graphviz-rust = "0.9.10"
 libp2p = { version = "0.57.1", features = [
   "dns",
   "ed25519",
@@ -50,17 +50,17 @@ libp2p = { version = "0.57.1", features = [
   "yamux",
 ] }
 once_cell = "1.21.4"
-openraft = { version = "0.10.0", features = [
+openraft = { version = "0.10.1", features = [
   "serde",
   "type-alias",
 ] }
 petgraph = "0.8.3"
-prost = "0.14.4"
+prost = "0.14.6"
 rand = "0.10"
-redis = { version = "1.7.1", features = ["aio", "tokio-comp", "connection-manager"] }
+redis = { version = "1.8.2", features = ["aio", "tokio-comp", "connection-manager"] }
 rocksdb = "0.25.0"
 serde = { version = "1.0.229", features = ["derive"] }
-sonic-rs = "0.5.10"
+sonic-rs = "0.5.12"
 sqlx = { version = "0.9", default-features = false, features = [
     "chrono",
     "json",
@@ -87,7 +87,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [build-dependencies]
-prost-build = "0.14.4"
+prost-build = "0.14.6"
 
 [dev-dependencies]
 tempfile = "3.27.0"
