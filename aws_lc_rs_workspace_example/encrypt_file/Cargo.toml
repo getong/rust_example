@@ -19,9 +19,9 @@ harness = false
 
 [dependencies]
 argon2 = { version = "0.6", features = ["zeroize", "parallel"] }
-aws-lc-rs = "1.18.2"
-inquire = "0.9.4"
-zeroize = "1.9.1"
+aws-lc-rs = "1.19.0"
+inquire = "0.9.5"
+zeroize = "1.9.2"
 thiserror = "2.0.21"
 rayon = "1.12.0"
 

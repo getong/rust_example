@@ -8,7 +8,7 @@ default-run = "serve_pem"
 argon2 = "0.6"
 aws-lc-rs = { version = "1", features = ["alloc"] }
 axum = { version = "0.8", features = ["ws"] }
-axum-server = { version = "0.8", features = ["tls-rustls"] }
+axum-server = { version = "0.9", features = ["tls-rustls"] }
 base64 = "0.23"
 dotenvy = "0.15"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
