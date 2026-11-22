@@ -1,14 +1,11 @@
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use secp256k1::{PublicKey, SecretKey, rand};
 
 fn main() {
-  // Create a Secp256k1 context object
-  let secp = Secp256k1::new();
-
   // Generate a new random secret key
-  let secret_key = SecretKey::new(&mut rand::thread_rng());
+  let secret_key = SecretKey::new(&mut rand::rng());
 
   // Derive the public key from the secret key
-  let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+  let public_key = PublicKey::from_secret_key(&secret_key);
 
   // Serialize the public key in uncompressed format (65 bytes, with 0x04 prefix)
   let serialized_uncompressed = public_key.serialize_uncompressed();

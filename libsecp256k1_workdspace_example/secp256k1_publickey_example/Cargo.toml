@@ -5,5 +5,4 @@ edition = "2024"
 
 [dependencies]
 hex = "0.4.3"
-secp256k1 = { version = "0.29.0", features = ["alloc", "std", "hashes", "hashes-std", "rand", "rand-std", "serde"] }
-rand = "0.8.5"
+secp256k1 = { version = "0.33.1", features = ["alloc", "std", "rand", "serde"] }

@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 hex = "0.4.3"
-libsecp256k1 = "0.7.1"
-rand = "0.8.5"
+libsecp256k1 = "0.7.2"
+rand = "0.8"

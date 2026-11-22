@@ -1,14 +1,13 @@
 use std::{fs::File, io::Write};
 
-use rand::thread_rng;
-use secp256k1::SecretKey;
+use secp256k1::{SecretKey, rand::rng};
 
 fn main() {
   // Generate a new secp256k1 secret key
-  let secret_key = SecretKey::new(&mut thread_rng());
+  let secret_key = SecretKey::new(&mut rng());
 
   // Convert the secret key to a 32-byte array
-  let secret_key_bytes = secret_key.secret_bytes();
+  let secret_key_bytes = secret_key.to_secret_bytes();
 
   // Encode the byte array to a hex string
   let hex_key = hex::encode(secret_key_bytes);
