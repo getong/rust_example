@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 anyhow = "1.0.104"
 futures = "0.3.34"
-rand = "0.10.3"
+rand = "0.10.4"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
@@ -17,11 +17,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 axum = "0.8.9"
 libp2p = { version = "0.57.1", features = ["ed25519", "macros", "ping", "tokio"] }
 libp2p-webrtc = { version = "0.10.0-alpha", features = ["tokio"] }
-rust-embed = { version = "8.13.0", features = [
+rust-embed = { version = "8.14.0", features = [
   "include-exclude",
   "interpolate-folder-path",
 ] }
-tokio = { version = "1.53.3", features = ["macros", "net", "rt", "signal"] }
+tokio = { version = "1.54.1", features = ["macros", "net", "rt", "signal"] }
 tokio-util = { version = "0.7.20", features = ["compat"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["cors"] }

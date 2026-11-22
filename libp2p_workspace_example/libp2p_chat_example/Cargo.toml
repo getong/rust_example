@@ -6,13 +6,13 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-bytes = "1.12.1"
+bytes = "1.12.2"
 futures = "0.3.34"
 libp2p = { version = "0.57.1", features = [
   "full",
 ] }
-rocket = { version = "0.5.1", features = ["json"] }
+rocket = { version = "0.5.4", features = ["json"] }
 # cookie 0.18.1 (via rocket) does not compile with time 0.3.52's Parsable API.
 time = "=0.3.51"
-tokio = { version = "1.53.3", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["codec"] }

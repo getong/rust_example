@@ -8,5 +8,5 @@ bs58 = "0.5.1"
 libp2p = { version = "0.57.1", features = [
   "full",
 ] }
-tokio = { version = "1.53.3", features = ["full"] }
+tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"

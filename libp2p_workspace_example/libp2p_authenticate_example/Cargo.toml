@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 either = "1.19.0"
-env_logger = "0.11.11"
+env_logger = "0.11.12"
 libp2p = { version = "0.57.1", features = [
   "full",
 ] }
-log = "0.4.34"
+log = "0.4.35"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
