@@ -7,5 +7,5 @@ edition = "2024"
 
 [dependencies]
 tracing = "0.1.44"
-tracing-bunyan-formatter = "0.3.10"
+tracing-bunyan-formatter = "0.3.12"
 tracing-subscriber = "0.3.23"

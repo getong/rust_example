@@ -9,9 +9,9 @@ edition = "2024"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-attributes = "0.1.31"
-tracing-opentelemetry = "0.33.0"
+tracing-opentelemetry = "0.34.0"
 
-tokio = { version = "1.53.1", features = ["full"] }
-opentelemetry = { version = "0.32.0", features = []}
-opentelemetry-otlp = { version = "0.32.0", features = ["grpc-tonic"] }
-opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"] }
+tokio = { version = "1.54.1", features = ["full"] }
+opentelemetry = { version = "0.33.1", features = []}
+opentelemetry-otlp = { version = "0.33.1", features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.33.1", features = ["rt-tokio"] }
