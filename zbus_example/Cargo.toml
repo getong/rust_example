@@ -6,5 +6,5 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.29.1", features = ["full"] }
-zbus = "3.14.1"
+tokio = { version = "1.54.1", features = ["full"] }
+zbus = "6.5.0"
