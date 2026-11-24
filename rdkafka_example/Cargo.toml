@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-chrono = "0.4.44"
-clap = "4.6.1"
-env_logger = "0.11.10"
-futures = "0.3.32"
-log = "0.4.29"
-rand = "0.10.1"
-rdkafka = "0.39.0"
-tokio = { version = "1.52.3", features = ["full"] }
+chrono = "0.4.45"
+clap = "4.6.9"
+env_logger = "0.11.12"
+futures = "0.3.34"
+log = "0.4.35"
+rand = "0.10.4"
+rdkafka = "0.40.0"
+tokio = { version = "1.54.1", features = ["full"] }
