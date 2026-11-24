@@ -16,7 +16,7 @@ ui-tests = ["desktop", "gpui-kit/test-support"]
 [dependencies]
 anyhow = "1"
 base64 = "0.23"
-gpui-kit = { version = "0.10.0", optional = true }
+gpui-kit = { version = "0.11.0", optional = true }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 rfd = { version = "0.18", optional = true }
@@ -28,4 +28,4 @@ tokio = { version = "1.54.1", features = ["rt", "net", "time", "sync", "macros"]
 wry = { version = "0.57.3", default-features = false, features = ["os-webview"], optional = true }
 
 [target.'cfg(target_arch = "aarch64")'.dependencies]
-pathfinder_simd = { version = "0.5.6", features = ["pf-no-simd"] }
+pathfinder_simd = { version = "0.5.7", features = ["pf-no-simd"] }
