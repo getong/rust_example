@@ -7,9 +7,18 @@
 :CUSTOM_ID: build-commands
 :END:
 #+begin_src shell
-cargo build
+cargo build --locked
 ## or release
-cargo build --release
+cargo build --release --locked
+#+end_src
+
+Keep =Cargo.lock=: Quilkin 0.10 uses =k8s-openapi 0.26.0= with the
+=v1_33= feature. The broad dependency in =kube-leader-election 0.42.0=
+can otherwise resolve to an incompatible second version of =k8s-openapi=.
+If the lock file is regenerated, unify the versions before building:
+
+#+begin_src shell
+cargo update -p k8s-openapi@0.29.0 --precise 0.26.0
 #+end_src
 
 ** run commands:

@@ -6,10 +6,9 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "4.5.4"
-quilkin = "0.8.0"
-quilkin-macros = "0.8.0"
-slog = "2.7.0"
+clap = "4.6.9"
+quilkin = "0.10"
+quilkin-macros = "0.10"
 stable-eyre = "0.2.2"
-tokio = { version = "1.37.0", features = ["full"] }
-tracing = "0.1.40"
+tokio = { version = "1.54.1", features = ["full"] }
+tracing = "0.1.44"
