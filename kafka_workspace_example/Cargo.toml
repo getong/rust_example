@@ -3,5 +3,7 @@
 resolver = "3"
 
 members = [
+  "kafka_example",
+  "rdkafka_example",
   "confluent_kafka_example",
 ]
