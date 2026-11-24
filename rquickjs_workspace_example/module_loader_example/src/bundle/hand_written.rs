@@ -1,4 +1,4 @@
-use rquickjs::{module::ModuleDef, Ctx, Function, Result};
+use rquickjs::{Ctx, Function, Result, module::ModuleDef};
 
 pub struct NativeModule;
 
