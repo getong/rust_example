@@ -9,4 +9,4 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-emacs = "0.18.0"
+emacs = "0.23.0"
