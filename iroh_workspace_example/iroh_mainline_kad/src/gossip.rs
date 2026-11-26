@@ -3,10 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use iroh::{
   EndpointAddr, EndpointId, TransportAddr, address_lookup::memory::MemoryLookup, protocol::Router,
 };
-use iroh_gossip::{
-  Gossip,
-  api::{Event, GossipSender},
-};
+use iroh_gossip::{Event, Gossip, GossipSender};
 use n0_error::{Result, StdResultExt};
 use n0_future::StreamExt;
 use tokio::time::{sleep, timeout};
@@ -146,6 +143,7 @@ pub async fn run_gossip(options: GossipOptions) -> Result<()> {
           Some(Ok(Event::Lagged)) => {
             warn!("gossip receiver lagged and missed messages");
           }
+          Some(Ok(_)) => {}
           Some(Err(err)) => {
             discover_task.abort();
             republish_task.abort();
