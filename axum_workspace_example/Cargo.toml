@@ -37,6 +37,7 @@ members = [
   "axum_session_surrealdb_example",
   "axum_tower_http_servedir_example",
   "axum_vs_nginx_example",
+  "axum_vs_topcoat_example",
   "axum_bcrypt_auth_example",
   "axum_extra_javascript_example",
   "axum_form_request_example",
@@ -78,6 +79,3 @@ members = [
 exclude = [
   "axum_serve_wasm_example/wasm-project",
 ]
-
-[patch.crates-io]
-axum_session = { git = "https://github.com/AscendingCreations/AxumSession", rev = "dcc89b8b2a07d6570ea398b91e580d380307648a" }

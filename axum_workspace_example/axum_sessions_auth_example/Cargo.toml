@@ -5,7 +5,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 async-trait = "0.1.92"
 axum = "0.8.9"
 axum-macros = "0.5.1"
