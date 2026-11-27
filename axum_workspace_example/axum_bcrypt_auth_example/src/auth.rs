@@ -54,23 +54,20 @@ pub fn encode_jwt(email: String) -> Result<String, StatusCode> {
   let claim = Cliams { iat, exp, email };
   let secret = jwt_token.clone();
 
-  encode(
-    &Header::default(),
-    &claim,
-    &EncodingKey::from_secret(secret.as_ref()),
-  )
-  .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+  let key =
+    EncodingKey::from_secret(secret.as_ref()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+  encode(&Header::default(), &claim, &key).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub fn decode_jwt(jwt: String) -> Result<TokenData<Cliams>, StatusCode> {
   let secret = "randomstring".to_string();
 
-  let result: Result<TokenData<Cliams>, StatusCode> = decode(
-    &jwt,
-    &DecodingKey::from_secret(secret.as_ref()),
-    &Validation::default(),
-  )
-  .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+  let key =
+    DecodingKey::from_secret(secret.as_ref()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+  let result: Result<TokenData<Cliams>, StatusCode> =
+    decode(&jwt, &key, &Validation::default()).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
   result
 }
 

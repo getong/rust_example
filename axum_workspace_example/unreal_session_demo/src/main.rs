@@ -31,8 +31,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
   }
   let state = AppState {
     sessions: Arc::default(),
-    encoding_key: EncodingKey::from_secret(secret.as_bytes()),
-    decoding_key: DecodingKey::from_secret(secret.as_bytes()),
+    encoding_key: EncodingKey::from_secret(secret.as_bytes())
+      .map_err(|e| format!("invalid JWT secret for encoding: {e}"))?,
+    decoding_key: DecodingKey::from_secret(secret.as_bytes())
+      .map_err(|e| format!("invalid JWT secret for decoding: {e}"))?,
     game_server_addr: env::var("GAME_SERVER_ADDR")
       .unwrap_or_else(|_| "127.0.0.1:7777".to_owned())
       .into(),

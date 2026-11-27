@@ -1,7 +1,7 @@
 use tokio::sync::Mutex;
 use topcoat::{
   Result,
-  context::{Cx, app_context},
+  context::{Cx, context},
   router::{
     RouterBuilder,
     content::{Js, Json},
@@ -16,7 +16,7 @@ use topcoat_gpui_protocol::{StudioCommand, StudioSnapshot};
 struct Studio(Mutex<StudioSnapshot>);
 pub fn register(builder: RouterBuilder) -> RouterBuilder {
   builder
-    .app_context(Studio::default())
+    .with(Studio::default())
     .page(studio_page)
     .route(read_studio)
     .route(apply_studio)
@@ -24,7 +24,7 @@ pub fn register(builder: RouterBuilder) -> RouterBuilder {
 }
 #[route(GET "/api/studio")]
 async fn read_studio(cx: &Cx) -> Result<Json<StudioSnapshot>> {
-  Ok(Json(app_context::<Studio>(cx).0.lock().await.clone()))
+  Ok(Json(context::<Studio>(cx).0.lock().await.clone()))
 }
 #[route(POST "/api/studio")]
 async fn apply_studio(cx: &Cx, Json(command): Json<StudioCommand>) -> Result<Json<StudioSnapshot>> {
@@ -32,7 +32,7 @@ async fn apply_studio(cx: &Cx, Json(command): Json<StudioCommand>) -> Result<Jso
   if intensity > 100 {
     return Err(bad_request("Intensity must be 0–100").into());
   }
-  let mut state = app_context::<Studio>(cx).0.lock().await;
+  let mut state = context::<Studio>(cx).0.lock().await;
   let revision = state
     .revision
     .checked_add(1)
@@ -45,11 +45,11 @@ async fn apply_studio(cx: &Cx, Json(command): Json<StudioCommand>) -> Result<Jso
   Ok(Json(state.clone()))
 }
 #[route(GET "/assets/studio")]
-async fn studio_script() -> Result<Js<&'static str>> {
+async fn studio_script(cx: &Cx) -> Result<Js<&'static str>> {
   Ok(Js(include_str!(concat!(env!("OUT_DIR"), "/studio.js"))))
 }
 #[page("/studio")]
-async fn studio_page() -> Result<impl View> {
+async fn studio_page(cx: &Cx) -> Result<impl View> {
   Ok(view! {
     <!DOCTYPE html>
     <html lang="zh-CN"><head>

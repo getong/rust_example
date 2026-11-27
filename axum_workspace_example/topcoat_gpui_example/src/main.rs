@@ -7,7 +7,7 @@ mod web;
 use tokio::sync::Mutex;
 use topcoat::{
   Result,
-  context::{Cx, app_context},
+  context::{Cx, context},
   router::{
     Router,
     content::{Js, Json},
@@ -22,7 +22,7 @@ struct Counter(Mutex<CounterSnapshot>);
 
 fn router() -> Router {
   studio::register(demos::register(Router::builder()))
-    .app_context(Counter::default())
+    .with(Counter::default())
     .page(home)
     .route(script)
     .route(demos_script)
@@ -48,7 +48,7 @@ async fn main() -> std::io::Result<()> {
 
 #[route(GET "/api/counter")]
 async fn read_counter(cx: &Cx) -> Result<Json<CounterSnapshot>> {
-  Ok(Json(app_context::<Counter>(cx).0.lock().await.clone()))
+  Ok(Json(context::<Counter>(cx).0.lock().await.clone()))
 }
 
 #[route(POST "/api/counter")]
@@ -56,7 +56,7 @@ async fn update_counter(
   cx: &Cx,
   Json(input): Json<UpdateCounter>,
 ) -> Result<Json<CounterSnapshot>> {
-  let mut snapshot = app_context::<Counter>(cx).0.lock().await;
+  let mut snapshot = context::<Counter>(cx).0.lock().await;
   let value = match input.action {
     CounterAction::Increment => snapshot.value.checked_add(1),
     CounterAction::Reset => Some(0),
@@ -99,7 +99,7 @@ async fn home(cx: &Cx) -> Result<impl View> {
 }
 
 #[route(GET "/app.js")]
-async fn script() -> Result<Js<&'static str>> {
+async fn script(cx: &Cx) -> Result<Js<&'static str>> {
   Ok(Js(include_str!(concat!(env!("OUT_DIR"), "/app.js"))))
 }
 
@@ -205,6 +205,6 @@ mod tests {
 }
 
 #[route(GET "/demos.js")]
-async fn demos_script() -> Result<Js<&'static str>> {
+async fn demos_script(cx: &Cx) -> Result<Js<&'static str>> {
   Ok(Js(include_str!(concat!(env!("OUT_DIR"), "/demos.js"))))
 }

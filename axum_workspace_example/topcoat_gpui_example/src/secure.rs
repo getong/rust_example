@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::Mutex;
 use topcoat::{
   Result,
-  context::{Cx, app_context},
+  context::{Cx, context},
   router::{
     self, Body, Layer, LayerFuture, Next, Router,
     content::Json,
@@ -31,7 +31,7 @@ fn reject() -> topcoat::Error {
 
 pub fn wrap(business: Router) -> Router {
   Router::builder()
-    .app_context(Gateway {
+    .with(Gateway {
       sessions: Mutex::new(HashMap::new()),
       business,
     })
@@ -69,7 +69,7 @@ impl Layer for PublicBoundary {
             | "/assets/studio"
         )
       {
-        app_context::<Gateway>(cx)
+        context::<Gateway>(cx)
           .business
           .handle(Request::from_parts(
             request::parts(cx).clone(),
@@ -94,7 +94,7 @@ impl Layer for PublicBoundary {
 }
 #[route(POST "/pq/handshake")]
 async fn handshake(cx: &Cx, Json(hello): Json<ClientHello>) -> Result<Json<ServerHello>> {
-  let gateway = app_context::<Gateway>(cx);
+  let gateway = context::<Gateway>(cx);
   let mut sessions = gateway.sessions.lock().await;
   sessions.retain(|_, (created, _)| created.elapsed() < TTL);
   if sessions.len() >= CAPACITY {
@@ -109,7 +109,7 @@ async fn handshake(cx: &Cx, Json(hello): Json<ClientHello>) -> Result<Json<Serve
 }
 #[route(POST "/pq/exchange")]
 async fn exchange(cx: &Cx, Json(envelope): Json<Envelope>) -> Result<Json<Envelope>> {
-  let gateway = app_context::<Gateway>(cx);
+  let gateway = context::<Gateway>(cx);
   // Atomically remove before dispatch. Replays and concurrent duplicates cannot mutate state twice.
   let (created, channel) = gateway
     .sessions
@@ -366,7 +366,7 @@ mod tests {
     let mut sessions = HashMap::new();
     sessions.insert(reply.session, (Instant::now() - TTL, channel));
     let router = Router::builder()
-      .app_context(Gateway {
+      .with(Gateway {
         sessions: Mutex::new(sessions),
         business: crate::router(),
       })

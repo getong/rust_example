@@ -2,7 +2,7 @@
 use tokio::sync::Mutex;
 use topcoat::{
   Result,
-  context::{Cx, app_context},
+  context::{Cx, context},
   router::{
     RouterBuilder,
     content::Json,
@@ -23,7 +23,7 @@ struct Demos(Mutex<Store>);
 
 pub fn register(builder: RouterBuilder) -> RouterBuilder {
   builder
-    .app_context(Demos::default())
+    .with(Demos::default())
     .page(todos_page)
     .page(echo_page)
     .page(profile_page)
@@ -44,7 +44,7 @@ async fn suggestions(
       bad_request("Search must be at most 120 characters without control characters").into(),
     );
   }
-  let store = app_context::<Demos>(cx).0.lock().await;
+  let store = context::<Demos>(cx).0.lock().await;
   Ok(Json(crate::suggestions::search(
     input.kind,
     &input.query,
@@ -55,13 +55,13 @@ async fn suggestions(
 #[route(GET "/api/demos")]
 async fn read(cx: &Cx) -> Result<Json<DemoSnapshot>> {
   Ok(Json(
-    app_context::<Demos>(cx).0.lock().await.snapshot.clone(),
+    context::<Demos>(cx).0.lock().await.snapshot.clone(),
   ))
 }
 
 #[route(POST "/api/todos")]
 async fn todos(cx: &Cx, Json(command): Json<TodoCommand>) -> Result<Json<DemoSnapshot>> {
-  let mut store = app_context::<Demos>(cx).0.lock().await;
+  let mut store = context::<Demos>(cx).0.lock().await;
   match command {
     TodoCommand::Create { title } => {
       let title = title.trim();
@@ -106,7 +106,7 @@ async fn echo(cx: &Cx, Json(value): Json<serde_json::Value>) -> Result<Json<Demo
   if value.to_string().len() > 65536 {
     return Err(bad_request("JSON must be at most 64 KiB").into());
   }
-  let mut store = app_context::<Demos>(cx).0.lock().await;
+  let mut store = context::<Demos>(cx).0.lock().await;
   store.snapshot.echoes.insert(0, value);
   store.snapshot.echoes.truncate(20);
   Ok(Json(store.snapshot.clone()))
@@ -118,7 +118,7 @@ async fn profile(cx: &Cx, Json(mut input): Json<Profile>) -> Result<Json<DemoSna
   if input.username.is_empty() || input.username.chars().count() > 80 || input.age > 150 {
     return Err(bad_request("Username must contain 1–80 characters; age must be 0–150").into());
   }
-  let mut store = app_context::<Demos>(cx).0.lock().await;
+  let mut store = context::<Demos>(cx).0.lock().await;
   store.snapshot.profiles.insert(0, input);
   store.snapshot.profiles.truncate(20);
   Ok(Json(store.snapshot.clone()))
@@ -138,7 +138,7 @@ async fn profile_page(cx: &Cx) -> Result<impl View> {
 }
 
 fn shell<'a>(cx: &'a Cx, kind: &'static str) -> impl View + 'a {
-  view! { cx =>
+  view! {
       <!DOCTYPE html>
       <html lang="zh-CN"><head>
           <meta charset="utf-8">
