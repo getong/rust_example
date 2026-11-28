@@ -1,0 +1,37 @@
+[package]
+name = "gpui-kit-chart-demo"
+version = "0.1.0"
+edition = "2024"
+description = "Modular gpui-kit chart demos: Line / Bar / Area / Pie / Radar / Candlestick / Sankey"
+license = "MIT"
+
+[dependencies]
+gpui-kit = "0.11.0"
+
+# 分功能（feature）开关：每种图表一个 feature，可单独编译某一类演示。
+# Per-chart Cargo features; build with `--no-default-features --features line` etc.
+[features]
+default = ["line", "bar", "area", "pie", "radar", "candlestick", "sankey"]
+line = []
+bar = []
+area = []
+pie = []
+radar = []
+candlestick = []
+sankey = []
+
+# 无头 UI 测试 / headless rendering tests
+[dev-dependencies]
+gpui-kit = { version = "0.11.0", features = ["test-support"] }
+image = "0.25"
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+pathfinder_simd = { version = "0.5.7", features = ["pf-no-simd"] }
+
+# 真实离屏像素渲染测试（macOS Metal / Linux WGPU）；需 GPU，手动运行：
+# `cargo test -p gpui-kit-chart-demo --test pixels`
+[[test]]
+name = "pixels"
+path = "tests/pixels.rs"
+harness = false
+test = false
